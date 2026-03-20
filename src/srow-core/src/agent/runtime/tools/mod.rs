@@ -1,4 +1,5 @@
 pub mod ask_human;
+pub mod browser;
 pub mod create_file;
 pub mod execute_shell;
 pub mod file_edit;
@@ -15,4 +16,36 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Box::new(grep_search::GrepSearchTool));
     registry.register(Box::new(list_files::ListFilesTool));
     registry.register(Box::new(ask_human::AskHumanTool));
+}
+
+/// Register all built-in tools including browser tools into a ToolRegistry.
+///
+/// Browser tools share a `BrowserManager` instance for coordinating Chrome lifecycle.
+pub fn register_all_tools(registry: &mut ToolRegistry) {
+    // Standard tools
+    register_builtin_tools(registry);
+
+    // Browser tools — all share the same BrowserManager
+    let manager = browser::browser_manager::shared_browser_manager();
+    registry.register(Box::new(browser::BrowserStartTool {
+        manager: manager.clone(),
+    }));
+    registry.register(Box::new(browser::BrowserStopTool {
+        manager: manager.clone(),
+    }));
+    registry.register(Box::new(browser::BrowserNavigateTool {
+        manager: manager.clone(),
+    }));
+    registry.register(Box::new(browser::BrowserActionTool {
+        manager: manager.clone(),
+    }));
+    registry.register(Box::new(browser::BrowserSnapshotTool {
+        manager: manager.clone(),
+    }));
+    registry.register(Box::new(browser::BrowserScreenshotTool {
+        manager: manager.clone(),
+    }));
+    registry.register(Box::new(browser::BrowserStatusTool {
+        manager: manager.clone(),
+    }));
 }

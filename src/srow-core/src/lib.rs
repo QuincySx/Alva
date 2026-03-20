@@ -52,6 +52,11 @@ pub use skills::skill_ports::skill_repository::{SkillInstallSource, SkillReposit
 pub use skills::skill_ports::mcp_transport::McpTransport;
 pub use skills::agent_template_service::{AgentTemplateService, AgentTemplateInstance};
 
+// Convenience re-exports — browser automation
+pub use agent::runtime::tools::browser::BrowserManager;
+pub use agent::runtime::tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
+pub use agent::runtime::tools::register_all_tools;
+
 // Convenience re-exports — orchestrator
 pub use agent::orchestrator::orchestrator::{Orchestrator, OrchestratorHandle};
 pub use agent::orchestrator::instance::{AgentInstance, AgentInstanceStatus};
