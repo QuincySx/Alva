@@ -20,7 +20,7 @@ impl SidebarTree {
 
 impl Render for SidebarTree {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+        let theme = Theme::for_appearance(window, cx);
         let model = self.workspace_model.read(cx);
         let selected_id = model.selected_session_id.clone();
         let items = model.sidebar_items.clone();

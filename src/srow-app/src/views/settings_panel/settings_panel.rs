@@ -138,7 +138,7 @@ impl Focusable for SettingsPanel {
 
 impl Render for SettingsPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+        let theme = Theme::for_appearance(window, cx);
         let text_color = theme.text;
         let text_muted = theme.text_muted;
         let accent = theme.accent;

@@ -102,7 +102,7 @@ impl Focusable for InputBox {
 
 impl Render for InputBox {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+        let theme = Theme::for_appearance(window, cx);
         let draft_display = self.draft.clone();
         let has_text = !self.draft.trim().is_empty();
         let has_session = self.workspace_model.read(cx).selected_session_id.is_some();

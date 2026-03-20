@@ -1,6 +1,14 @@
 //! Application theme — maps semantic colors to GPUI primitives.
 
-use gpui::{Rgba, Window, WindowAppearance, rgb};
+use gpui::{Global, Rgba, Window, WindowAppearance, rgb};
+
+use crate::models::ThemeMode;
+
+/// GPUI Global that stores the user-chosen ThemeMode.
+/// All views read this to decide light/dark without needing SettingsModel.
+pub struct ActiveThemeMode(pub ThemeMode);
+
+impl Global for ActiveThemeMode {}
 
 #[derive(Clone, Debug)]
 pub struct Theme {
@@ -19,10 +27,25 @@ pub struct Theme {
 }
 
 impl Theme {
-    pub fn for_appearance(window: &Window) -> Self {
-        match window.appearance() {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Self::light(),
-            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::dark(),
+    /// Resolve the theme using the user-chosen ThemeMode (read from GPUI global)
+    /// and the system window appearance as fallback when mode == System.
+    pub fn for_appearance(window: &Window, cx: &impl std::ops::Deref<Target = gpui::App>) -> Self {
+        let mode = cx
+            .try_global::<ActiveThemeMode>()
+            .map(|g| g.0)
+            .unwrap_or(ThemeMode::System);
+        Self::for_mode(mode, window)
+    }
+
+    /// Resolve the theme for a specific ThemeMode.
+    pub fn for_mode(mode: ThemeMode, window: &Window) -> Self {
+        match mode {
+            ThemeMode::Light => Self::light(),
+            ThemeMode::Dark => Self::dark(),
+            ThemeMode::System => match window.appearance() {
+                WindowAppearance::Light | WindowAppearance::VibrantLight => Self::light(),
+                WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::dark(),
+            },
         }
     }
 

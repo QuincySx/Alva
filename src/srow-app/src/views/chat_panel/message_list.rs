@@ -34,7 +34,7 @@ impl MessageList {
 
 impl Render for MessageList {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+        let theme = Theme::for_appearance(window, cx);
         let ws_model = self.workspace_model.read(cx);
         let current_session_id = ws_model.selected_session_id.clone();
 
@@ -260,7 +260,13 @@ impl Render for MessageList {
                                             .overflow_hidden()
                                             .text_color(text_muted)
                                             .child(if output_text.len() > 300 {
-                                                format!("{}...", &output_text[..300])
+                                                let end = output_text
+                                                    .char_indices()
+                                                    .map(|(i, _)| i)
+                                                    .take_while(|&i| i <= 300)
+                                                    .last()
+                                                    .unwrap_or(0);
+                                                format!("{}...", &output_text[..end])
                                             } else {
                                                 output_text
                                             }),
@@ -302,7 +308,12 @@ impl Render for MessageList {
                                         .max_h(px(80.))
                                         .overflow_hidden()
                                         .child(if thinking.len() > 200 {
-                                            format!("{}...", &thinking[thinking.len().saturating_sub(200)..])
+                                            let start = thinking
+                                                .char_indices()
+                                                .map(|(i, _)| i)
+                                                .find(|&i| i >= thinking.len().saturating_sub(200))
+                                                .unwrap_or(0);
+                                            format!("...{}", &thinking[start..])
                                         } else {
                                             thinking
                                         }),

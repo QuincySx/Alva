@@ -1,9 +1,10 @@
 use gpui::{
-    actions, App, Application, Bounds, KeyBinding, Menu, MenuItem, WindowBounds,
+    actions, App, Application, Bounds, Entity, KeyBinding, Menu, MenuItem, WindowBounds,
     WindowOptions, prelude::*, px, size,
 };
 
-use srow_app::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
+use srow_app::models::{AgentModel, ChatModel, SettingsModel, SettingsModelEvent, WorkspaceModel};
+use srow_app::theme::ActiveThemeMode;
 use srow_app::views::RootView;
 
 actions!(srow, [Quit]);
@@ -22,6 +23,21 @@ fn main() {
         let chat_model = cx.new(|_| ChatModel::default());
         let agent_model = cx.new(|_| AgentModel::default());
         let settings_model = cx.new(|_| SettingsModel::load());
+
+        // Initialize the global ThemeMode from persisted settings
+        let initial_theme = settings_model.read(cx).settings.theme;
+        cx.set_global(ActiveThemeMode(initial_theme));
+
+        // Keep the global in sync whenever settings change
+        cx.subscribe(&settings_model, |model: Entity<SettingsModel>, event: &SettingsModelEvent, cx: &mut App| {
+            match event {
+                SettingsModelEvent::SettingsChanged => {
+                    let mode = model.read(cx).settings.theme;
+                    cx.set_global(ActiveThemeMode(mode));
+                }
+            }
+        })
+        .detach();
 
         // Open main window
         let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);

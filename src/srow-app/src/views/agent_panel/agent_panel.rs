@@ -62,7 +62,7 @@ impl AgentPanel {
 
 impl Render for AgentPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+        let theme = Theme::for_appearance(window, cx);
         let active_tab = self.active_tab;
         let text_color = theme.text;
         let text_muted = theme.text_muted;
@@ -167,7 +167,7 @@ impl Render for AgentPanel {
                         .into_any_element()
                 }
                 AgentPanelTab::Preview => {
-                    self.render_preview(window).into_any_element()
+                    self.render_preview(window, cx).into_any_element()
                 }
             })
     }
@@ -179,7 +179,7 @@ impl AgentPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+        let theme = Theme::for_appearance(window, cx);
         let model = self.agent_model.read(cx);
 
         // Show the status for the currently selected session prominently
@@ -350,8 +350,8 @@ impl AgentPanel {
         container
     }
 
-    fn render_preview(&self, window: &mut Window) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+    fn render_preview(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = Theme::for_appearance(window, cx);
 
         div()
             .flex()

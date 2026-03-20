@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use futures::StreamExt;
 use gpui::{AppContext, Context, Entity};
 use srow_core::{
     AgentConfig, AgentEngine, EngineEvent, LLMConfig, LLMProviderKind, LLMMessage,
@@ -48,6 +49,15 @@ impl EngineBridge {
             return;
         }
 
+        // Set proxy environment variables if configured so that reqwest picks them up
+        if settings.proxy.enabled && !settings.proxy.url.is_empty() {
+            // TODO: Passing proxy to OpenAICompatProvider directly requires changes to
+            // rig-core's HTTP client. For now, set environment variables that reqwest
+            // reads automatically.
+            std::env::set_var("HTTPS_PROXY", &settings.proxy.url);
+            std::env::set_var("ALL_PROXY", &settings.proxy.url);
+        }
+
         // Mark agent as running
         agent_model.update(cx, |model, cx| {
             model.set_status(&session_id, AgentStatusKind::Running, cx);
@@ -55,43 +65,55 @@ impl EngineBridge {
 
         let sid = session_id.clone();
 
+        // Create a futures channel to bridge background engine -> GPUI main thread
+        let (mut tx, mut rx) = futures::channel::mpsc::channel::<EngineEvent>(256);
+
+        let engine_sid = sid.clone();
+        let engine_prompt = prompt.clone();
+        let api_key = settings.llm.api_key.clone();
+        let base_url = settings.llm.base_url.clone();
+        let model_name = settings.llm.model.clone();
+
+        // Spawn the engine on a background thread; it sends events through `tx`
+        cx.background_spawn(async move {
+            // Create a dedicated tokio runtime for the engine
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create tokio runtime");
+
+            rt.block_on(async move {
+                run_engine(
+                    &engine_sid,
+                    &engine_prompt,
+                    &api_key,
+                    &base_url,
+                    &model_name,
+                    &mut tx,
+                )
+                .await
+            })
+        })
+        .detach();
+
+        // Spawn an async task on the GPUI foreground to consume events one-by-one
         cx.spawn(async move |_this, cx| {
-            let engine_sid = sid.clone();
-            let engine_prompt = prompt.clone();
-            let api_key = settings.llm.api_key.clone();
-            let base_url = settings.llm.base_url.clone();
-            let model_name = settings.llm.model.clone();
-
-            // Run engine in a background thread with its own tokio runtime
-            let events: Vec<EngineEvent> = cx
-                .background_spawn(async move {
-                    // Create a dedicated tokio runtime for the engine
-                    let rt = tokio::runtime::Builder::new_multi_thread()
-                        .enable_all()
-                        .build()
-                        .expect("Failed to create tokio runtime");
-
-                    rt.block_on(async move {
-                        run_engine(
-                            &engine_sid,
-                            &engine_prompt,
-                            &api_key,
-                            &base_url,
-                            &model_name,
-                        )
-                        .await
-                    })
-                })
-                .await;
-
-            // Apply all events to models on the main thread
             let chat = chat_model.clone();
             let agent = agent_model.clone();
             let sid2 = sid.clone();
 
-            cx.update(|cx| {
-                for event in &events {
-                    match event {
+            while let Some(event) = rx.next().await {
+                let is_terminal = matches!(
+                    &event,
+                    EngineEvent::Completed { .. } | EngineEvent::Error { .. }
+                );
+
+                let chat = chat.clone();
+                let agent = agent.clone();
+                let sid2 = sid2.clone();
+
+                cx.update(|cx| {
+                    match &event {
                         EngineEvent::TextDelta { text, .. } => {
                             chat.update(cx, |model, cx| {
                                 model.append_text_delta(&sid2, text, cx);
@@ -160,22 +182,29 @@ impl EngineBridge {
                             });
                         }
                     }
+                })
+                .ok();
+
+                if is_terminal {
+                    break;
                 }
-            })
-            .ok();
+            }
         })
         .detach();
     }
 }
 
-/// Run a real AgentEngine session, collecting all events into a Vec.
+/// Run a real AgentEngine session, sending each event through the channel as it arrives.
 async fn run_engine(
     session_id: &str,
     prompt: &str,
     api_key: &str,
     base_url: &str,
     model_name: &str,
-) -> Vec<EngineEvent> {
+    event_sink: &mut futures::channel::mpsc::Sender<EngineEvent>,
+) {
+    use futures::SinkExt;
+
     // Build LLM provider
     let llm: Arc<dyn srow_core::LLMProvider> = if base_url == "https://api.openai.com/v1"
         || base_url.is_empty()
@@ -206,10 +235,13 @@ async fn run_engine(
     };
     if let Err(e) = storage.create_session(&core_session).await {
         tracing::error!("Failed to create core session: {}", e);
-        return vec![EngineEvent::Error {
-            session_id: session_id.to_string(),
-            error: format!("Failed to create session: {}", e),
-        }];
+        let _ = event_sink
+            .send(EngineEvent::Error {
+                session_id: session_id.to_string(),
+                error: format!("Failed to create session: {}", e),
+            })
+            .await;
+        return;
     }
 
     // Build agent config
@@ -231,17 +263,17 @@ async fn run_engine(
         compaction_threshold: 0,
     };
 
-    // Create channel for engine events
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<EngineEvent>(256);
+    // Create internal tokio channel for the engine
+    let (engine_tx, mut engine_rx) = tokio::sync::mpsc::channel::<EngineEvent>(256);
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
     // Create engine
-    let mut engine = AgentEngine::new(config, llm, tools, storage, event_tx, cancel_rx);
+    let mut engine = AgentEngine::new(config, llm, tools, storage, engine_tx, cancel_rx);
 
     // Build user message
     let user_msg = LLMMessage::user(prompt);
 
-    // Spawn the engine run in a task and collect events
+    // Spawn the engine run in a task
     let sid = session_id.to_string();
     let engine_handle = tokio::spawn(async move {
         if let Err(e) = engine.run(&sid, user_msg).await {
@@ -249,14 +281,16 @@ async fn run_engine(
         }
     });
 
-    // Collect all events
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
+    // Forward events from the tokio channel to the futures channel one by one
+    while let Some(event) = engine_rx.recv().await {
         let is_terminal = matches!(
             &event,
             EngineEvent::Completed { .. } | EngineEvent::Error { .. }
         );
-        events.push(event);
+        if event_sink.send(event).await.is_err() {
+            tracing::warn!("GPUI receiver dropped, stopping engine event forwarding");
+            break;
+        }
         if is_terminal {
             break;
         }
@@ -265,6 +299,4 @@ async fn run_engine(
     // Ensure engine task completes
     let _ = engine_handle.await;
     drop(cancel_tx);
-
-    events
 }

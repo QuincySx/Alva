@@ -25,8 +25,8 @@ impl SidePanel {
 }
 
 impl Render for SidePanel {
-    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::for_appearance(window);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = Theme::for_appearance(window, cx);
         let workspace_model = self.workspace_model.clone();
 
         div()
