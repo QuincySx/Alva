@@ -1,0 +1,348 @@
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+
+use crate::ports::tool::ToolContext;
+
+use super::authorized_roots::AuthorizedRoots;
+use super::permission::PermissionManager;
+use super::sandbox::{SandboxConfig, SandboxMode};
+use super::sensitive_paths::SensitivePathFilter;
+
+/// The outcome of a security check before tool execution.
+#[derive(Debug, Clone)]
+pub enum SecurityDecision {
+    /// Tool call is allowed to proceed.
+    Allow,
+    /// Tool call is blocked. `reason` explains why.
+    Deny { reason: String },
+    /// Tool call needs human approval. `request_id` is used to track the
+    /// pending decision via `PermissionManager::resolve()`.
+    NeedHumanApproval { request_id: String },
+}
+
+/// Tools that are considered dangerous and always require HITL review
+/// (unless the user has opted into "always allow" for them).
+const DANGEROUS_TOOLS: &[&str] = &[
+    "shell",
+    "bash",
+    "execute_command",
+    "write_file",
+    "delete_file",
+    "move_file",
+];
+
+/// Well-known JSON keys that contain file paths in tool arguments.
+const PATH_KEYS: &[&str] = &[
+    "path",
+    "file_path",
+    "filepath",
+    "directory",
+    "dir",
+    "target",
+    "destination",
+    "source",
+    "src",
+    "dest",
+    "filename",
+    "file",
+    "folder",
+    "working_directory",
+    "cwd",
+];
+
+/// Unified security gate — the single entry point checked before every tool
+/// execution.
+///
+/// Composes all security subsystems:
+///   1. Sensitive path filtering
+///   2. Authorized root checking
+///   3. HITL permission management
+///   4. Sandbox configuration (for command wrapping)
+pub struct SecurityGuard {
+    sensitive_paths: SensitivePathFilter,
+    permission_manager: PermissionManager,
+    authorized_roots: AuthorizedRoots,
+    sandbox_config: SandboxConfig,
+}
+
+impl SecurityGuard {
+    pub fn new(workspace: PathBuf, sandbox_mode: SandboxMode) -> Self {
+        Self {
+            sensitive_paths: SensitivePathFilter::default_rules(),
+            permission_manager: PermissionManager::new(),
+            authorized_roots: AuthorizedRoots::new(workspace.clone()),
+            sandbox_config: SandboxConfig::for_workspace(&workspace, sandbox_mode),
+        }
+    }
+
+    /// Main security check — called before every tool execution.
+    ///
+    /// Checks in order:
+    ///   1. Extract paths from tool args and check against sensitive path filter
+    ///   2. Check extracted paths against authorized roots
+    ///   3. Check HITL permission cache for dangerous tools
+    ///   4. Return Allow / Deny / NeedHumanApproval
+    pub fn check_tool_call(
+        &mut self,
+        tool_name: &str,
+        args: &Value,
+        _ctx: &ToolContext,
+    ) -> SecurityDecision {
+        // 1. Extract all paths from tool arguments
+        let paths = Self::extract_paths(args);
+
+        // 2. Check sensitive paths
+        for path in &paths {
+            if let Some(reason) = self.sensitive_paths.check(path) {
+                return SecurityDecision::Deny {
+                    reason: format!(
+                        "tool '{}' blocked: {}",
+                        tool_name, reason
+                    ),
+                };
+            }
+        }
+
+        // 3. Check authorized roots
+        for path in &paths {
+            if let Err(reason) = self.authorized_roots.check(path) {
+                return SecurityDecision::Deny {
+                    reason: format!(
+                        "tool '{}' blocked: {}",
+                        tool_name, reason
+                    ),
+                };
+            }
+        }
+
+        // 4. HITL check for dangerous tools
+        if Self::is_dangerous(tool_name) {
+            match self.permission_manager.check(tool_name) {
+                Some(true) => return SecurityDecision::Allow,
+                Some(false) => {
+                    return SecurityDecision::Deny {
+                        reason: format!(
+                            "tool '{}' is permanently denied for this session",
+                            tool_name
+                        ),
+                    }
+                }
+                None => {
+                    let request_id = uuid::Uuid::new_v4().to_string();
+                    // Register pending approval — caller must await the receiver
+                    let _rx = self
+                        .permission_manager
+                        .request_approval(request_id.clone());
+                    return SecurityDecision::NeedHumanApproval { request_id };
+                }
+            }
+        }
+
+        SecurityDecision::Allow
+    }
+
+    /// Resolve a pending HITL approval.
+    pub fn resolve_permission(
+        &mut self,
+        request_id: &str,
+        tool_name: &str,
+        decision: super::permission::PermissionDecision,
+    ) -> bool {
+        self.permission_manager
+            .resolve(request_id, tool_name, decision)
+    }
+
+    /// Cancel a pending approval (e.g., on timeout).
+    pub fn cancel_permission(&mut self, request_id: &str) {
+        self.permission_manager.cancel(request_id);
+    }
+
+    /// Add an extra authorized root directory.
+    pub fn add_authorized_root(&mut self, root: PathBuf) {
+        self.authorized_roots.add_root(root);
+    }
+
+    /// Get the sandbox config (for wrapping shell commands).
+    pub fn sandbox_config(&self) -> &SandboxConfig {
+        &self.sandbox_config
+    }
+
+    /// Reset session-level permission caches.
+    pub fn reset_permissions(&mut self) {
+        self.permission_manager.reset();
+    }
+
+    // ---- internal helpers ----
+
+    /// Check if a tool is considered dangerous.
+    fn is_dangerous(tool_name: &str) -> bool {
+        DANGEROUS_TOOLS.contains(&tool_name)
+    }
+
+    /// Extract file paths from JSON tool arguments by looking at well-known
+    /// keys. Also handles the `command` key for shell tools (extracts paths
+    /// from command strings).
+    fn extract_paths(args: &Value) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+
+        if let Value::Object(map) = args {
+            for (key, value) in map {
+                let key_lower = key.to_lowercase();
+
+                // Direct path keys
+                if PATH_KEYS.contains(&key_lower.as_str()) {
+                    if let Value::String(s) = value {
+                        let p = Path::new(s);
+                        if p.is_absolute() || s.starts_with("~/") || s.starts_with("./") || s.starts_with("../") {
+                            let expanded = if let Some(rest) = s.strip_prefix("~/") {
+                                dirs::home_dir()
+                                    .unwrap_or_default()
+                                    .join(rest)
+                            } else {
+                                PathBuf::from(s)
+                            };
+                            paths.push(expanded);
+                        }
+                    }
+                }
+
+                // Shell command — try to extract paths from the command string
+                if key_lower == "command" {
+                    if let Value::String(cmd) = value {
+                        paths.extend(Self::extract_paths_from_command(cmd));
+                    }
+                }
+            }
+        }
+
+        paths
+    }
+
+    /// Best-effort extraction of file paths from a shell command string.
+    fn extract_paths_from_command(command: &str) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        for token in command.split_whitespace() {
+            // Remove common shell quoting
+            let cleaned = token.trim_matches(|c| c == '\'' || c == '"');
+            if cleaned.starts_with('/')
+                || cleaned.starts_with("~/")
+                || cleaned.starts_with("./")
+                || cleaned.starts_with("../")
+            {
+                let expanded = if let Some(rest) = cleaned.strip_prefix("~/") {
+                    dirs::home_dir().unwrap_or_default().join(rest)
+                } else {
+                    PathBuf::from(cleaned)
+                };
+                paths.push(expanded);
+            }
+        }
+        paths
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn test_ctx() -> ToolContext {
+        ToolContext {
+            session_id: "test-session".to_string(),
+            workspace: PathBuf::from("/projects/myapp"),
+            allow_dangerous: false,
+        }
+    }
+
+    #[test]
+    fn allows_safe_tool_in_workspace() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "path": "/projects/myapp/src/main.rs" });
+        let decision = guard.check_tool_call("read_file", &args, &test_ctx());
+        assert!(matches!(decision, SecurityDecision::Allow));
+    }
+
+    #[test]
+    fn denies_sensitive_path() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "path": "/projects/myapp/.env" });
+        let decision = guard.check_tool_call("read_file", &args, &test_ctx());
+        assert!(matches!(decision, SecurityDecision::Deny { .. }));
+    }
+
+    #[test]
+    fn denies_outside_workspace() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "path": "/etc/passwd" });
+        let decision = guard.check_tool_call("read_file", &args, &test_ctx());
+        assert!(matches!(decision, SecurityDecision::Deny { .. }));
+    }
+
+    #[test]
+    fn dangerous_tool_needs_approval() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "command": "ls /projects/myapp" });
+        let decision = guard.check_tool_call("shell", &args, &test_ctx());
+        assert!(matches!(decision, SecurityDecision::NeedHumanApproval { .. }));
+    }
+
+    #[test]
+    fn dangerous_tool_after_always_allow() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        // First call — needs approval
+        let args = json!({ "command": "ls /projects/myapp" });
+        let decision = guard.check_tool_call("shell", &args, &test_ctx());
+        if let SecurityDecision::NeedHumanApproval { request_id } = decision {
+            guard.resolve_permission(
+                &request_id,
+                "shell",
+                super::super::permission::PermissionDecision::AllowAlways,
+            );
+        }
+        // Second call — should be auto-allowed
+        let decision2 = guard.check_tool_call("shell", &args, &test_ctx());
+        assert!(matches!(decision2, SecurityDecision::Allow));
+    }
+
+    #[test]
+    fn extracts_paths_from_args() {
+        let args = json!({
+            "path": "/projects/myapp/file.txt",
+            "destination": "~/Documents/output.txt"
+        });
+        let paths = SecurityGuard::extract_paths(&args);
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn extracts_paths_from_command() {
+        let paths = SecurityGuard::extract_paths_from_command("cat /etc/passwd ~/.bashrc");
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn non_dangerous_tool_auto_allowed() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "path": "/projects/myapp/src/lib.rs" });
+        let decision = guard.check_tool_call("read_file", &args, &test_ctx());
+        assert!(matches!(decision, SecurityDecision::Allow));
+    }
+}

@@ -57,6 +57,13 @@ pub use agent::runtime::tools::browser::BrowserManager;
 pub use agent::runtime::tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
 pub use agent::runtime::tools::register_all_tools;
 
+// Convenience re-exports — security
+pub use agent::runtime::security::guard::{SecurityGuard, SecurityDecision};
+pub use agent::runtime::security::permission::{PermissionManager, PermissionDecision};
+pub use agent::runtime::security::sensitive_paths::SensitivePathFilter;
+pub use agent::runtime::security::authorized_roots::AuthorizedRoots;
+pub use agent::runtime::security::sandbox::{SandboxConfig, SandboxMode};
+
 // Convenience re-exports — orchestrator
 pub use agent::orchestrator::orchestrator::{Orchestrator, OrchestratorHandle};
 pub use agent::orchestrator::instance::{AgentInstance, AgentInstanceStatus};
