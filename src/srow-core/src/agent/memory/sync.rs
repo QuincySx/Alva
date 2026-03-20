@@ -1,0 +1,228 @@
+//! Workspace file synchronization — scan MEMORY.md files, chunk, embed, store.
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::Path;
+
+use crate::error::EngineError;
+
+use super::embedding::EmbeddingProvider;
+use super::sqlite::MemorySqlite;
+use super::types::{MemoryFile, SyncReport};
+
+/// Default chunk size in lines.
+const CHUNK_SIZE: usize = 50;
+
+/// Synchronize a workspace directory into the memory store.
+///
+/// Scans for `MEMORY.md` files, compares hashes, and re-indexes changed files.
+pub async fn sync_workspace(
+    workspace: &Path,
+    store: &MemorySqlite,
+    embedder: &dyn EmbeddingProvider,
+) -> Result<SyncReport, EngineError> {
+    let mut report = SyncReport::default();
+
+    // Walk the workspace looking for MEMORY.md files.
+    let walker = walkdir::WalkDir::new(workspace)
+        .follow_links(true)
+        .max_depth(10)
+        .into_iter()
+        .filter_entry(|e| {
+            // Skip hidden directories and node_modules (but always allow the root).
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.') && name != "node_modules" && name != "target"
+        });
+
+    for entry in walker.flatten() {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy();
+        if file_name != "MEMORY.md" {
+            continue;
+        }
+
+        report.files_scanned += 1;
+        let path_str = entry.path().to_string_lossy().to_string();
+
+        // Read file content
+        let content = match tokio::fs::read_to_string(entry.path()).await {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let metadata = tokio::fs::metadata(entry.path()).await.ok();
+        let size = metadata.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+        let mtime = metadata
+            .and_then(|m| m.modified().ok())
+            .map(|t| {
+                let dt: chrono::DateTime<chrono::Utc> = t.into();
+                dt.to_rfc3339()
+            })
+            .unwrap_or_default();
+
+        let hash = compute_hash(&content);
+
+        // Check if file has changed
+        if let Some(existing) = store.get_file(&path_str).await? {
+            if existing.hash == hash {
+                report.files_unchanged += 1;
+                continue;
+            }
+            // File changed — re-index
+            store.delete_chunks_for_path(&path_str).await?;
+            report.files_updated += 1;
+        } else {
+            report.files_added += 1;
+        }
+
+        // Upsert file record
+        let mem_file = MemoryFile {
+            path: path_str.clone(),
+            source: "workspace".into(),
+            hash: hash.clone(),
+            mtime,
+            size,
+        };
+        store.upsert_file(&mem_file).await?;
+
+        // Chunk the content
+        let chunks = chunk_text(&content, CHUNK_SIZE);
+
+        // Compute embeddings in batch
+        let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
+        let embeddings = embedder.embed(&texts).await.unwrap_or_else(|_| {
+            texts.iter().map(|_| Vec::new()).collect()
+        });
+
+        for (chunk, embedding) in chunks.iter().zip(embeddings.iter()) {
+            let chunk_hash = compute_hash(&chunk.text);
+            store
+                .insert_chunk(
+                    &path_str,
+                    "workspace",
+                    chunk.start_line as i64,
+                    chunk.end_line as i64,
+                    &chunk_hash,
+                    &chunk.text,
+                    embedding,
+                )
+                .await?;
+            report.chunks_created += 1;
+        }
+    }
+
+    Ok(report)
+}
+
+// ---------------------------------------------------------------------------
+// Chunking
+// ---------------------------------------------------------------------------
+
+struct TextChunk {
+    text: String,
+    start_line: usize,
+    end_line: usize,
+}
+
+fn chunk_text(content: &str, chunk_size: usize) -> Vec<TextChunk> {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return Vec::new();
+    }
+
+    let mut chunks = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let end = (i + chunk_size).min(lines.len());
+        let text = lines[i..end].join("\n");
+        chunks.push(TextChunk {
+            text,
+            start_line: i + 1, // 1-based
+            end_line: end,
+        });
+        i = end;
+    }
+    chunks
+}
+
+fn compute_hash(content: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_text() {
+        let content = (1..=120)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let chunks = chunk_text(&content, 50);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].start_line, 1);
+        assert_eq!(chunks[0].end_line, 50);
+        assert_eq!(chunks[1].start_line, 51);
+        assert_eq!(chunks[1].end_line, 100);
+        assert_eq!(chunks[2].start_line, 101);
+        assert_eq!(chunks[2].end_line, 120);
+    }
+
+    #[test]
+    fn test_chunk_text_empty() {
+        let chunks = chunk_text("", 50);
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn test_compute_hash() {
+        let h1 = compute_hash("hello");
+        let h2 = compute_hash("hello");
+        let h3 = compute_hash("world");
+        assert_eq!(h1, h2);
+        assert_ne!(h1, h3);
+    }
+
+    #[tokio::test]
+    async fn test_sync_workspace() {
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let memory_md = tmp.path().join("MEMORY.md");
+        tokio::fs::write(&memory_md, "# Test Memory\n\nSome content here.")
+            .await
+            .unwrap();
+
+        let store = MemorySqlite::open_in_memory().await.unwrap();
+        let embedder = crate::agent::memory::embedding::NoopEmbeddingProvider::new();
+
+        let report = sync_workspace(tmp.path(), &store, &embedder)
+            .await
+            .unwrap();
+
+        assert_eq!(report.files_scanned, 1);
+        assert_eq!(report.files_added, 1);
+        assert_eq!(report.chunks_created, 1);
+
+        // Second sync — should be unchanged
+        let report2 = sync_workspace(tmp.path(), &store, &embedder)
+            .await
+            .unwrap();
+        assert_eq!(report2.files_unchanged, 1);
+        assert_eq!(report2.files_added, 0);
+        assert_eq!(report2.chunks_created, 0);
+    }
+}
