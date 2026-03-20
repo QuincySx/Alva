@@ -10,6 +10,7 @@
 //!   types/        — Shared type definitions
 //!   domain/       — Domain models (DDD)
 //!   ports/        — Port/interface definitions (DDD)
+//!   environment/  — Embedded runtime management (Bun, Node, Python, Chromium, etc.)
 //!   adapters/     — Adapter implementations (DDD)
 
 pub mod agent;
@@ -18,6 +19,7 @@ pub mod skills;
 pub mod gateway;
 pub mod base;
 pub mod system;
+pub mod environment;
 pub mod types;
 pub mod domain;
 pub mod ports;
@@ -63,6 +65,13 @@ pub use agent::runtime::security::permission::{PermissionManager, PermissionDeci
 pub use agent::runtime::security::sensitive_paths::SensitivePathFilter;
 pub use agent::runtime::security::authorized_roots::AuthorizedRoots;
 pub use agent::runtime::security::sandbox::{SandboxConfig, SandboxMode};
+
+// Convenience re-exports — environment runtime management
+pub use environment::EnvironmentManager;
+pub use environment::config::EnvironmentConfig;
+pub use environment::manifest::{ResourceManifest, ComponentVersion, ArtifactConfig, ArchiveFormat};
+pub use environment::versions::{InstalledVersions, VersionStatus};
+pub use environment::resolver::RuntimeResolver;
 
 // Convenience re-exports — orchestrator
 pub use agent::orchestrator::orchestrator::{Orchestrator, OrchestratorHandle};
