@@ -51,3 +51,10 @@ pub use error::SkillError;
 pub use skills::skill_ports::skill_repository::{SkillInstallSource, SkillRepository};
 pub use skills::skill_ports::mcp_transport::McpTransport;
 pub use skills::agent_template_service::{AgentTemplateService, AgentTemplateInstance};
+
+// Convenience re-exports — orchestrator
+pub use agent::orchestrator::orchestrator::{Orchestrator, OrchestratorHandle};
+pub use agent::orchestrator::instance::{AgentInstance, AgentInstanceStatus};
+pub use agent::orchestrator::template::OrchestratorAgentTemplate;
+pub use agent::orchestrator::communication::{AgentMessage, MessageBus};
+pub use agent::orchestrator::tools::register_orchestration_tools;
