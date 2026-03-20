@@ -16,6 +16,7 @@ pub struct AcpMessageStorage {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields used for future SQLite migration in Sub-6
 struct StoredMessage {
     id: String,
     conversation_id: String,

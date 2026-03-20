@@ -72,6 +72,7 @@ async fn test_acp_echo_agent_full_lifecycle() {
     // Collect messages until task_complete
     let mut received_task_start = false;
     let mut received_session_update = false;
+    #[allow(unused_assignments)]
     let mut received_task_complete = false;
     let mut echo_text = String::new();
 
