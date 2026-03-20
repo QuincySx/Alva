@@ -48,11 +48,14 @@ pub use skills::loader::SkillLoader;
 pub use skills::injector::SkillInjector;
 pub use mcp::runtime::McpManager;
 pub use mcp::tool_adapter::build_mcp_tools;
+pub use mcp::config::{McpConfig, McpServerEntry, McpTransportEntry};
+pub use mcp::tools::McpRuntimeTool;
 pub use skills::skill_fs::FsSkillRepository;
 pub use error::SkillError;
 pub use skills::skill_ports::skill_repository::{SkillInstallSource, SkillRepository};
 pub use skills::skill_ports::mcp_transport::McpTransport;
 pub use skills::agent_template_service::{AgentTemplateService, AgentTemplateInstance};
+pub use skills::tools::{SearchSkillsTool, UseSkillTool};
 
 // Convenience re-exports — browser automation
 pub use agent::runtime::tools::browser::BrowserManager;

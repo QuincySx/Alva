@@ -25,6 +25,11 @@ pub enum EngineEvent {
         session_id: String,
         text: String,
     },
+    /// Thinking / reasoning content from models that support extended thinking (e.g. DeepSeek R1)
+    ThinkingDelta {
+        session_id: String,
+        text: String,
+    },
     ToolCallStarted {
         session_id: String,
         tool_name: String,
@@ -196,6 +201,15 @@ impl AgentEngine {
                             })
                             .await;
                     }
+                    StreamChunk::ThinkingDelta(text) => {
+                        let _ = self
+                            .event_tx
+                            .send(EngineEvent::ThinkingDelta {
+                                session_id: session_id.to_string(),
+                                text,
+                            })
+                            .await;
+                    }
                     StreamChunk::ToolCallDelta { .. } => {
                         // Accumulated in Done; delta events ignored for now
                     }
@@ -289,15 +303,14 @@ impl AgentEngine {
         }
     }
 
-    /// Execute all tool calls (sequentially for now; parallel in future with join_all)
+    /// Execute all tool calls in parallel using `futures::future::join_all`.
     async fn execute_tools(
         &self,
         calls: &[ToolCall],
         ctx: &ToolContext,
         session_id: &str,
     ) -> Result<Vec<crate::domain::tool::ToolResult>, EngineError> {
-        let mut results = Vec::new();
-
+        // Emit ToolCallStarted events for all calls first
         for call in calls {
             let _ = self
                 .event_tx
@@ -307,25 +320,41 @@ impl AgentEngine {
                     tool_call_id: call.id.clone(),
                 })
                 .await;
+        }
 
-            let start = std::time::Instant::now();
-            let result = match self.tools.get(&call.name) {
-                Some(tool) => tool.execute(call.input.clone(), ctx).await,
-                None => Err(EngineError::ToolNotFound(call.name.clone())),
-            };
-            let duration_ms = start.elapsed().as_millis() as u64;
+        // Execute all tool calls in parallel
+        let futures: Vec<_> = calls
+            .iter()
+            .map(|call| {
+                let tools = self.tools.clone();
+                let ctx = ctx.clone();
+                let call = call.clone();
+                async move {
+                    let start = std::time::Instant::now();
+                    let result = match tools.get(&call.name) {
+                        Some(tool) => tool.execute(call.input.clone(), &ctx).await,
+                        None => Err(EngineError::ToolNotFound(call.name.clone())),
+                    };
+                    let duration_ms = start.elapsed().as_millis() as u64;
 
-            let tool_result = match result {
-                Ok(r) => r,
-                Err(e) => crate::domain::tool::ToolResult {
-                    tool_call_id: call.id.clone(),
-                    tool_name: call.name.clone(),
-                    output: format!("Error: {e}"),
-                    is_error: true,
-                    duration_ms,
-                },
-            };
+                    match result {
+                        Ok(r) => r,
+                        Err(e) => crate::domain::tool::ToolResult {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            output: format!("Error: {e}"),
+                            is_error: true,
+                            duration_ms,
+                        },
+                    }
+                }
+            })
+            .collect();
 
+        let results = futures::future::join_all(futures).await;
+
+        // Emit ToolCallCompleted events for all results
+        for tool_result in &results {
             let _ = self
                 .event_tx
                 .send(EngineEvent::ToolCallCompleted {
@@ -335,8 +364,6 @@ impl AgentEngine {
                     is_error: tool_result.is_error,
                 })
                 .await;
-
-            results.push(tool_result);
         }
 
         Ok(results)

@@ -125,6 +125,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } => {
                     eprintln!("[tokens] in={} out={} total={}", input, output, total);
                 }
+                EngineEvent::ThinkingDelta { text, .. } => {
+                    eprint!("\x1b[2m{}\x1b[0m", text); // dim style for thinking
+                    use std::io::Write;
+                    std::io::stderr().flush().ok();
+                }
                 EngineEvent::WaitingForHuman { .. } => {}
             }
         }

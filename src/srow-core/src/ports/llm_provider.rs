@@ -37,6 +37,8 @@ pub struct TokenUsage {
 pub enum StreamChunk {
     /// Incremental text from the model
     TextDelta(String),
+    /// Incremental thinking / reasoning text (from models like DeepSeek R1)
+    ThinkingDelta(String),
     /// Incremental tool call data
     ToolCallDelta {
         id: String,

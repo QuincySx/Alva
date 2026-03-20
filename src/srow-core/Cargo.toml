@@ -39,9 +39,16 @@ walkdir = "2"
 regex = "1"
 glob = "0.3"
 
+# HTTP client (for internet_search, read_url tools)
+reqwest = { version = "0.12", features = ["json"] }
+
 # Browser automation (Chrome CDP)
 chromiumoxide = { version = "0.9", default-features = false }
 base64 = "0.22"
+
+# SQLite persistence
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokio-rusqlite = "0.5"
 
 # Logging
 tracing = "0.1"

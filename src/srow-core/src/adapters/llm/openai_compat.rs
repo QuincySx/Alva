@@ -429,11 +429,30 @@ impl LLMProvider for OpenAICompatProvider {
                                     .await;
                             }
                         }
+                        StreamedAssistantContent::Reasoning(reasoning) => {
+                            // Extract text from Reasoning content blocks
+                            use rig::completion::message::ReasoningContent;
+                            let text: String = reasoning
+                                .content
+                                .iter()
+                                .filter_map(|c| match c {
+                                    ReasoningContent::Text { text, .. } => Some(text.as_str()),
+                                    ReasoningContent::Summary(s) => Some(s.as_str()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("");
+                            if !text.is_empty() {
+                                let _ = tx.send(StreamChunk::ThinkingDelta(text)).await;
+                            }
+                        }
+                        StreamedAssistantContent::ReasoningDelta { id: _, reasoning } => {
+                            if !reasoning.is_empty() {
+                                let _ = tx.send(StreamChunk::ThinkingDelta(reasoning)).await;
+                            }
+                        }
                         StreamedAssistantContent::Final(_) => {
                             // Final raw response, we already accumulated content
-                        }
-                        _ => {
-                            // Reasoning deltas etc - skip
                         }
                     }
                 }

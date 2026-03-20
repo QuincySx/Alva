@@ -4,7 +4,10 @@ pub mod create_file;
 pub mod execute_shell;
 pub mod file_edit;
 pub mod grep_search;
+pub mod internet_search;
 pub mod list_files;
+pub mod read_url;
+pub mod view_image;
 
 use crate::ports::tool::ToolRegistry;
 
@@ -16,6 +19,9 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Box::new(grep_search::GrepSearchTool));
     registry.register(Box::new(list_files::ListFilesTool));
     registry.register(Box::new(ask_human::AskHumanTool));
+    registry.register(Box::new(internet_search::InternetSearchTool));
+    registry.register(Box::new(read_url::ReadUrlTool));
+    registry.register(Box::new(view_image::ViewImageTool));
 }
 
 /// Register all built-in tools including browser tools into a ToolRegistry.
