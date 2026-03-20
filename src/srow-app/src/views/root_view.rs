@@ -1,6 +1,6 @@
 use gpui::{prelude::*, Context, Entity, Render, Window, div, px};
 
-use crate::models::{AgentModel, ChatModel, WorkspaceModel};
+use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 use super::side_panel::SidePanel;
 use super::chat_panel::ChatPanel;
@@ -17,17 +17,21 @@ impl RootView {
         workspace_model: Entity<WorkspaceModel>,
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
+        settings_model: Entity<SettingsModel>,
         cx: &mut Context<Self>,
     ) -> Self {
         let wm1 = workspace_model.clone();
-        let wm2 = workspace_model;
+        let wm2 = workspace_model.clone();
+        let wm3 = workspace_model;
         let cm1 = chat_model.clone();
         let am1 = agent_model.clone();
         let am2 = agent_model;
+        let sm1 = settings_model.clone();
+        let sm2 = settings_model;
 
         let side_panel = cx.new(|cx| SidePanel::new(wm1, cx));
-        let chat_panel = cx.new(|cx| ChatPanel::new(wm2, cm1, am1, cx));
-        let agent_panel = cx.new(|cx| AgentPanel::new(am2, cx));
+        let chat_panel = cx.new(|cx| ChatPanel::new(wm2, cm1, am1, sm1, cx));
+        let agent_panel = cx.new(|cx| AgentPanel::new(am2, wm3, sm2, cx));
 
         Self {
             side_panel,

@@ -1,30 +1,53 @@
-//! EngineBridge — adapter between UI layer and engine layer.
+//! EngineBridge — adapter between GPUI UI layer and srow_core::AgentEngine.
 //!
-//! In Sub-1 this uses a simple mock to simulate streaming replies.
-//! In Sub-2, replace the mock call with `AgentEngine::run()`.
+//! Creates a real AgentEngine with OpenAI-compatible LLM provider, in-memory storage,
+//! and built-in tools.  Engine events are streamed back to GPUI models on the main thread.
+
+use std::sync::Arc;
 
 use gpui::{AppContext, Context, Entity};
-use srow_core::EngineEvent;
+use srow_core::{
+    AgentConfig, AgentEngine, EngineEvent, LLMConfig, LLMProviderKind, LLMMessage,
+    SessionStorage,
+};
+use srow_core::adapters::llm::openai_compat::OpenAICompatProvider;
+use srow_core::adapters::storage::memory::MemoryStorage;
+use srow_core::ports::tool::ToolRegistry;
+use srow_core::agent::runtime::tools::register_all_tools;
+use srow_core::domain::session::{Session as CoreSession, SessionStatus};
 
-use crate::models::{AgentModel, ChatModel};
+use crate::models::{AgentModel, ChatModel, SettingsModel};
 use crate::types::AgentStatusKind;
 
 /// Bridges engine events into GPUI Model updates.
-///
-/// # Replace point for Sub-2
-/// Swap the mock implementation inside `send_message` for real `AgentEngine::run`.
 pub struct EngineBridge;
 
 impl EngineBridge {
-    /// Send a user message and start the mock engine loop.
-    /// Engine events are collected in a background thread, then applied to models.
+    /// Send a user message and run the real AgentEngine loop.
+    /// Streams EngineEvents back to ChatModel / AgentModel on the main thread.
     pub fn send_message<V: 'static>(
         session_id: String,
         prompt: String,
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
+        settings_model: Entity<SettingsModel>,
         cx: &mut Context<V>,
     ) {
+        // Read settings snapshot
+        let settings = settings_model.read(cx).settings.clone();
+
+        if !settings.has_api_key() {
+            tracing::warn!("No API key configured, cannot send message");
+            chat_model.update(cx, |model, cx| {
+                model.push_error_message(
+                    &session_id,
+                    "No API key configured. Please go to Settings to configure your LLM API key.".to_string(),
+                    cx,
+                );
+            });
+            return;
+        }
+
         // Mark agent as running
         agent_model.update(cx, |model, cx| {
             model.set_status(&session_id, AgentStatusKind::Running, cx);
@@ -33,34 +56,31 @@ impl EngineBridge {
         let sid = session_id.clone();
 
         cx.spawn(async move |_this, cx| {
-            // Run mock engine entirely in background, collecting all events
             let engine_sid = sid.clone();
             let engine_prompt = prompt.clone();
+            let api_key = settings.llm.api_key.clone();
+            let base_url = settings.llm.base_url.clone();
+            let model_name = settings.llm.model.clone();
 
+            // Run engine in a background thread with its own tokio runtime
             let events: Vec<EngineEvent> = cx
                 .background_spawn(async move {
-                    let (event_tx, event_rx) = std::sync::mpsc::channel::<EngineEvent>();
+                    // Create a dedicated tokio runtime for the engine
+                    let rt = tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to create tokio runtime");
 
-                    // Run mock engine (blocking, in this background thread)
-                    let handle = std::thread::spawn(move || {
-                        run_mock_engine(&engine_sid, &engine_prompt, event_tx);
-                    });
-
-                    // Collect all events
-                    let mut events = Vec::new();
-                    while let Ok(event) = event_rx.recv() {
-                        let is_terminal = matches!(
-                            &event,
-                            EngineEvent::Completed { .. } | EngineEvent::Error { .. }
-                        );
-                        events.push(event);
-                        if is_terminal {
-                            break;
-                        }
-                    }
-
-                    let _ = handle.join();
-                    events
+                    rt.block_on(async move {
+                        run_engine(
+                            &engine_sid,
+                            &engine_prompt,
+                            &api_key,
+                            &base_url,
+                            &model_name,
+                        )
+                        .await
+                    })
                 })
                 .await;
 
@@ -70,42 +90,76 @@ impl EngineBridge {
             let sid2 = sid.clone();
 
             cx.update(|cx| {
-                // Build the full reply text from TextDelta events
-                let mut reply_text = String::new();
-                let mut completed = false;
-                let mut errored = false;
-
                 for event in &events {
                     match event {
                         EngineEvent::TextDelta { text, .. } => {
-                            reply_text.push_str(text);
+                            chat.update(cx, |model, cx| {
+                                model.append_text_delta(&sid2, text, cx);
+                            });
+                        }
+                        EngineEvent::ThinkingDelta { text, .. } => {
+                            chat.update(cx, |model, cx| {
+                                model.append_thinking_delta(&sid2, text, cx);
+                            });
+                        }
+                        EngineEvent::ToolCallStarted {
+                            tool_name,
+                            tool_call_id,
+                            ..
+                        } => {
+                            // Finalize any in-progress stream before tool call
+                            chat.update(cx, |model, cx| {
+                                model.finalize_stream(&sid2, cx);
+                                model.push_tool_call_start(
+                                    &sid2,
+                                    tool_name.clone(),
+                                    tool_call_id.clone(),
+                                    cx,
+                                );
+                            });
+                        }
+                        EngineEvent::ToolCallCompleted {
+                            tool_call_id,
+                            output,
+                            is_error,
+                            ..
+                        } => {
+                            chat.update(cx, |model, cx| {
+                                model.push_tool_call_end(
+                                    &sid2,
+                                    tool_call_id.clone(),
+                                    output.clone(),
+                                    *is_error,
+                                    cx,
+                                );
+                            });
                         }
                         EngineEvent::Completed { .. } => {
-                            completed = true;
+                            chat.update(cx, |model, cx| {
+                                model.finalize_stream(&sid2, cx);
+                            });
+                            agent.update(cx, |model, cx| {
+                                model.set_status(&sid2, AgentStatusKind::Idle, cx);
+                            });
                         }
-                        EngineEvent::Error { .. } => {
-                            errored = true;
+                        EngineEvent::Error { error, .. } => {
+                            chat.update(cx, |model, cx| {
+                                model.finalize_stream(&sid2, cx);
+                                model.push_error_message(&sid2, error.clone(), cx);
+                            });
+                            agent.update(cx, |model, cx| {
+                                model.set_status(&sid2, AgentStatusKind::Error, cx);
+                            });
                         }
-                        _ => {}
+                        EngineEvent::TokenUsage { .. } => {
+                            // Could track token usage in a model; skip for now
+                        }
+                        EngineEvent::WaitingForHuman { .. } => {
+                            agent.update(cx, |model, cx| {
+                                model.set_status(&sid2, AgentStatusKind::WaitingHitl, cx);
+                            });
+                        }
                     }
-                }
-
-                // Append the full streaming buffer and immediately finalize
-                if !reply_text.is_empty() {
-                    chat.update(cx, |model, cx| {
-                        model.append_text_delta(&sid2, &reply_text, cx);
-                        model.finalize_stream(&sid2, cx);
-                    });
-                }
-
-                if completed {
-                    agent.update(cx, |model, cx| {
-                        model.set_status(&sid2, AgentStatusKind::Idle, cx);
-                    });
-                } else if errored {
-                    agent.update(cx, |model, cx| {
-                        model.set_status(&sid2, AgentStatusKind::Error, cx);
-                    });
                 }
             })
             .ok();
@@ -114,27 +168,103 @@ impl EngineBridge {
     }
 }
 
-/// Mock engine: simulates streaming reply character by character.
-/// This runs in a standard thread (uses blocking sleep).
-///
-/// # Replace point for Sub-2
-/// Replace with `AgentEngine::run()` call.
-fn run_mock_engine(
+/// Run a real AgentEngine session, collecting all events into a Vec.
+async fn run_engine(
     session_id: &str,
     prompt: &str,
-    event_tx: std::sync::mpsc::Sender<EngineEvent>,
-) {
-    let reply = format!("Mock reply: I received your message -- \"{}\"", prompt);
-    let sid = session_id.to_string();
+    api_key: &str,
+    base_url: &str,
+    model_name: &str,
+) -> Vec<EngineEvent> {
+    // Build LLM provider
+    let llm: Arc<dyn srow_core::LLMProvider> = if base_url == "https://api.openai.com/v1"
+        || base_url.is_empty()
+    {
+        Arc::new(OpenAICompatProvider::new(api_key, model_name))
+    } else {
+        Arc::new(OpenAICompatProvider::with_base_url(
+            api_key, base_url, model_name,
+        ))
+    };
 
-    for ch in reply.chars() {
-        std::thread::sleep(std::time::Duration::from_millis(25));
-        let _ = event_tx.send(EngineEvent::TextDelta {
-            session_id: sid.clone(),
-            text: ch.to_string(),
-        });
+    // Build tool registry with all built-in tools
+    let mut registry = ToolRegistry::new();
+    register_all_tools(&mut registry);
+    let tools = Arc::new(registry);
+
+    // Build in-memory storage
+    let storage = Arc::new(MemoryStorage::new());
+
+    // Create a core session in storage
+    let core_session = CoreSession {
+        id: session_id.to_string(),
+        workspace: ".".to_string(),
+        agent_config_snapshot: serde_json::Value::Null,
+        status: SessionStatus::Idle,
+        total_tokens: 0,
+        iteration_count: 0,
+    };
+    if let Err(e) = storage.create_session(&core_session).await {
+        tracing::error!("Failed to create core session: {}", e);
+        return vec![EngineEvent::Error {
+            session_id: session_id.to_string(),
+            error: format!("Failed to create session: {}", e),
+        }];
     }
-    let _ = event_tx.send(EngineEvent::Completed {
-        session_id: sid,
+
+    // Build agent config
+    let config = AgentConfig {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: "Srow Agent".to_string(),
+        system_prompt: "You are Srow Agent, a helpful AI assistant. Answer questions clearly and concisely.".to_string(),
+        llm: LLMConfig {
+            provider: LLMProviderKind::OpenAI,
+            model: model_name.to_string(),
+            api_key: api_key.to_string(),
+            base_url: Some(base_url.to_string()),
+            max_tokens: 8192,
+            temperature: None,
+        },
+        workspace: std::path::PathBuf::from("."),
+        allowed_tools: None,
+        max_iterations: 20,
+        compaction_threshold: 0,
+    };
+
+    // Create channel for engine events
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<EngineEvent>(256);
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+    // Create engine
+    let mut engine = AgentEngine::new(config, llm, tools, storage, event_tx, cancel_rx);
+
+    // Build user message
+    let user_msg = LLMMessage::user(prompt);
+
+    // Spawn the engine run in a task and collect events
+    let sid = session_id.to_string();
+    let engine_handle = tokio::spawn(async move {
+        if let Err(e) = engine.run(&sid, user_msg).await {
+            tracing::error!("Engine run error: {}", e);
+        }
     });
+
+    // Collect all events
+    let mut events = Vec::new();
+    while let Some(event) = event_rx.recv().await {
+        let is_terminal = matches!(
+            &event,
+            EngineEvent::Completed { .. } | EngineEvent::Error { .. }
+        );
+        events.push(event);
+        if is_terminal {
+            break;
+        }
+    }
+
+    // Ensure engine task completes
+    let _ = engine_handle.await;
+    drop(cancel_tx);
+
+    events
 }

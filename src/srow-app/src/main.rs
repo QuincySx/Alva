@@ -3,7 +3,7 @@ use gpui::{
     WindowOptions, prelude::*, px, size,
 };
 
-use srow_app::models::{AgentModel, ChatModel, WorkspaceModel};
+use srow_app::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use srow_app::views::RootView;
 
 actions!(srow, [Quit]);
@@ -21,6 +21,7 @@ fn main() {
         let workspace_model = cx.new(|_| WorkspaceModel::default());
         let chat_model = cx.new(|_| ChatModel::default());
         let agent_model = cx.new(|_| AgentModel::default());
+        let settings_model = cx.new(|_| SettingsModel::load());
 
         // Open main window
         let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
@@ -30,7 +31,15 @@ fn main() {
                 ..Default::default()
             },
             |_, cx| {
-                cx.new(|cx| RootView::new(workspace_model, chat_model, agent_model, cx))
+                cx.new(|cx| {
+                    RootView::new(
+                        workspace_model,
+                        chat_model,
+                        agent_model,
+                        settings_model,
+                        cx,
+                    )
+                })
             },
         )
         .expect("Failed to open main window");

@@ -17,6 +17,7 @@ pub enum MessageRole {
 #[derive(Debug, Clone)]
 pub enum MessageContent {
     Text { text: String },
+    Thinking { text: String },
     ToolCallStart { tool_name: String, call_id: String },
     ToolCallEnd { call_id: String, output: String, is_error: bool },
 }

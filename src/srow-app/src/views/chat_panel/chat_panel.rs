@@ -1,6 +1,6 @@
 use gpui::{prelude::*, Context, Entity, FontWeight, Render, Window, div};
 
-use crate::models::{AgentModel, ChatModel, WorkspaceModel};
+use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 use super::message_list::MessageList;
 use super::input_box::InputBox;
@@ -15,6 +15,7 @@ impl ChatPanel {
         workspace_model: Entity<WorkspaceModel>,
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
+        settings_model: Entity<SettingsModel>,
         cx: &mut Context<Self>,
     ) -> Self {
         let wm1 = workspace_model.clone();
@@ -23,7 +24,7 @@ impl ChatPanel {
         let cm2 = chat_model;
 
         let message_list = cx.new(|cx| MessageList::new(wm1, cm1, cx));
-        let input_box = cx.new(|cx| InputBox::new(wm2, cm2, agent_model, cx));
+        let input_box = cx.new(|cx| InputBox::new(wm2, cm2, agent_model, settings_model, cx));
 
         Self {
             message_list,
