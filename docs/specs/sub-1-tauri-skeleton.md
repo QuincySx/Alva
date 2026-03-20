@@ -607,14 +607,14 @@ impl AgentModel {
 ┌─────────────────────────────────────────────────────────┐
 │  SidePanel (220px)  │  ChatPanel (flex:1)  │  AgentPanel (280px) │
 │                     │                      │                     │
-│  WorkspaceList      │  MessageList         │  AgentStatusList    │
-│  ├─ 项目 A          │  ├─ UserMessage      │  ├─ 🟢 决策 Agent   │
-│  ├─ 项目 B          │  ├─ AssistantMessage │  ├─ 🟢 浏览器       │
-│  └─ 项目 C          │  ├─ ToolCallMessage  │  └─ ⚫ 编码         │
+│  Workspace A path A │  MessageList         │  AgentStatusList    │
+│  ├─ Session A          │  ├─ UserMessage      │  ├─ 🟢 决策 Agent   │
+│  ├─ Session B          │  ├─ AssistantMessage │  ├─ 🟢 浏览器       │
+│  └─ Session C          │  ├─ ToolCallMessage  │  └─ ⚫ 编码         │
 │                     │  └─ ...              │                     │
-│  SessionList        │                      │                     │
-│  ├─ 会话 1          │  InputBox (底部)      │                     │
-│  └─ 会话 2          │                      │                     │
+│  Workspace B path B │                      │                     │
+│  ├─ Session 1          │  InputBox (底部)      │                     │
+│  └─ Session 2          │                      │                     │
 └─────────────────────────────────────────────────────────┘
 ```
 
