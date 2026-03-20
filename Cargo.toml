@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/srow-app",
+    "crates/srow-engine",
+]
+resolver = "2"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+strip = true
