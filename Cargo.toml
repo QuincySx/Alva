@@ -1,8 +1,7 @@
 [workspace]
 members = [
     "src/srow-app",
-    "src/srow-engine",
-    "src/srow-skills",
+    "src/srow-core",
 ]
 resolver = "2"
 

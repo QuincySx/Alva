@@ -4,7 +4,7 @@
 //! In Sub-2, replace the mock call with `AgentEngine::run()`.
 
 use gpui::{AppContext, Context, Entity};
-use srow_engine::EngineEvent;
+use srow_core::EngineEvent;
 
 use crate::models::{AgentModel, ChatModel};
 use crate::types::AgentStatusKind;

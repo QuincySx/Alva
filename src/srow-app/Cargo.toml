@@ -15,8 +15,8 @@ path = "src/lib.rs"
 # UI framework (community edition — self-contained, includes platform backends)
 gpui = { package = "gpui-ce", version = "0.3" }
 
-# Engine crate (same workspace, Sub-1 placeholder)
-srow-engine = { path = "../srow-engine" }
+# Core crate (unified engine + skills + MCP)
+srow-core = { path = "../srow-core" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
