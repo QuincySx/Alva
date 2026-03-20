@@ -1,20 +1,16 @@
 [package]
-name = "srow-engine"
+name = "srow-skills"
 version = "0.1.0"
 edition = "2021"
-description = "Srow Agent core engine — LLM loop, tools, session management"
+description = "Srow Agent skill system and MCP integration"
 
 [lib]
-name = "srow_engine"
+name = "srow_skills"
 path = "src/lib.rs"
 
-[[bin]]
-name = "srow-cli"
-path = "src/bin/cli.rs"
-
 [dependencies]
-# LLM framework
-rig-core = { version = "0.33", features = ["all"] }
+# Internal dependency
+srow-engine = { path = "../srow-engine" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -24,6 +20,11 @@ futures = "0.3"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# File system
+walkdir = "2"
 
 # ID / time
 uuid = { version = "1", features = ["v4"] }
@@ -32,14 +33,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # Error handling
 thiserror = "2"
 
-# Tool implementation helpers
-walkdir = "2"
-regex = "1"
-glob = "0.3"
-
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# ACP (Sub-3): cross-platform app data directory
-dirs = "5"
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
