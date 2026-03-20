@@ -88,27 +88,27 @@ impl ChatModel {
 impl Default for ChatModel {
     fn default() -> Self {
         let mut messages = HashMap::new();
-        // Pre-populate first session with some mock messages
+        // Pre-populate first global session with some mock messages
         messages.insert(
-            "sess-1a".to_string(),
+            "sess-g1".to_string(),
             vec![
                 Message {
                     id: "msg-1".into(),
-                    session_id: "sess-1a".into(),
+                    session_id: "sess-g1".into(),
                     role: MessageRole::User,
                     content: MessageContent::Text {
-                        text: "Help me implement a three-column layout with GPUI".into(),
+                        text: "What is the weather like today?".into(),
                     },
-                    created_at: 1710900000000,
+                    created_at: 1710950000000,
                 },
                 Message {
                     id: "msg-2".into(),
-                    session_id: "sess-1a".into(),
+                    session_id: "sess-g1".into(),
                     role: MessageRole::Assistant,
                     content: MessageContent::Text {
-                        text: "Sure! GPUI uses flexbox-style layout. You can use `h_flex()` for horizontal layout and set fixed widths on side panels with `w(px(220.))`, while the center panel uses `flex_1()` to fill remaining space.".into(),
+                        text: "It looks like it will be sunny with a high of 22C today. Perfect weather for a walk!".into(),
                     },
-                    created_at: 1710900010000,
+                    created_at: 1710950010000,
                 },
             ],
         );

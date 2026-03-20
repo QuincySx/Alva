@@ -1,5 +1,4 @@
 pub mod side_panel;
-pub mod workspace_list;
-pub mod session_list;
+pub mod sidebar_tree;
 
 pub use side_panel::*;

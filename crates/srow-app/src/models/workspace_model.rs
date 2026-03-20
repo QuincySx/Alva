@@ -2,31 +2,34 @@ use gpui::{Context, EventEmitter};
 
 use crate::types::{Session, Workspace};
 
+/// A sidebar item is either a global session (no workspace) or a workspace node.
+#[derive(Debug, Clone)]
+pub enum SidebarItem {
+    GlobalSession(Session),
+    Workspace(Workspace),
+}
+
+impl SidebarItem {
+    pub fn updated_at(&self) -> i64 {
+        match self {
+            SidebarItem::GlobalSession(s) => s.updated_at,
+            SidebarItem::Workspace(w) => w.updated_at,
+        }
+    }
+}
+
 pub struct WorkspaceModel {
-    pub workspaces: Vec<Workspace>,
-    pub selected_workspace_id: Option<String>,
-    pub sessions: Vec<Session>,
+    pub sidebar_items: Vec<SidebarItem>,
     pub selected_session_id: Option<String>,
 }
 
 pub enum WorkspaceModelEvent {
-    WorkspaceSelected { workspace_id: String },
     SessionSelected { session_id: String },
 }
 
 impl EventEmitter<WorkspaceModelEvent> for WorkspaceModel {}
 
 impl WorkspaceModel {
-    pub fn select_workspace(&mut self, id: String, cx: &mut Context<Self>) {
-        self.selected_workspace_id = Some(id.clone());
-        self.sessions = mock_sessions_for(&id);
-        self.selected_session_id = self.sessions.first().map(|s| s.id.clone());
-        cx.emit(WorkspaceModelEvent::WorkspaceSelected {
-            workspace_id: id,
-        });
-        cx.notify();
-    }
-
     pub fn select_session(&mut self, id: String, cx: &mut Context<Self>) {
         self.selected_session_id = Some(id.clone());
         cx.emit(WorkspaceModelEvent::SessionSelected {
@@ -34,87 +37,115 @@ impl WorkspaceModel {
         });
         cx.notify();
     }
+
+    pub fn toggle_workspace(&mut self, workspace_id: String, cx: &mut Context<Self>) {
+        for item in &mut self.sidebar_items {
+            if let SidebarItem::Workspace(ws) = item {
+                if ws.id == workspace_id {
+                    ws.expanded = !ws.expanded;
+                    break;
+                }
+            }
+        }
+        cx.notify();
+    }
 }
 
 impl Default for WorkspaceModel {
     fn default() -> Self {
-        let workspaces = mock_workspaces();
-        let first_ws_id = workspaces.first().map(|w| w.id.clone());
-        let sessions = first_ws_id
-            .as_ref()
-            .map(|id| mock_sessions_for(id))
-            .unwrap_or_default();
-        let first_session_id = sessions.first().map(|s| s.id.clone());
+        let mut items = mock_sidebar_items();
+        // Sort by updated_at descending (most recent first)
+        items.sort_by(|a, b| b.updated_at().cmp(&a.updated_at()));
+
+        // Default select first global session
+        let first_session_id = items.iter().find_map(|item| {
+            if let SidebarItem::GlobalSession(s) = item {
+                Some(s.id.clone())
+            } else {
+                None
+            }
+        });
 
         Self {
-            workspaces,
-            selected_workspace_id: first_ws_id,
-            sessions,
+            sidebar_items: items,
             selected_session_id: first_session_id,
         }
     }
 }
 
-fn mock_workspaces() -> Vec<Workspace> {
+fn mock_sidebar_items() -> Vec<SidebarItem> {
     vec![
-        Workspace {
+        // Global sessions
+        SidebarItem::GlobalSession(Session {
+            id: "sess-g1".into(),
+            workspace_id: None,
+            name: "查天气".into(),
+            created_at: 1710950000000,
+            updated_at: 1710950000000,
+        }),
+        SidebarItem::GlobalSession(Session {
+            id: "sess-g2".into(),
+            workspace_id: None,
+            name: "邮件助手".into(),
+            created_at: 1710940000000,
+            updated_at: 1710940000000,
+        }),
+        // Workspace: srow-agent
+        SidebarItem::Workspace(Workspace {
             id: "ws-1".into(),
-            name: "Srow Agent".into(),
+            name: "srow-agent".into(),
             path: "/Users/dev/srow-agent".into(),
+            expanded: true,
+            sessions: vec![
+                Session {
+                    id: "sess-1a".into(),
+                    workspace_id: Some("ws-1".into()),
+                    name: "重构引擎".into(),
+                    created_at: 1710900000000,
+                    updated_at: 1710900000000,
+                },
+                Session {
+                    id: "sess-1b".into(),
+                    workspace_id: Some("ws-1".into()),
+                    name: "修复 bug".into(),
+                    created_at: 1710890000000,
+                    updated_at: 1710890000000,
+                },
+                Session {
+                    id: "sess-1c".into(),
+                    workspace_id: Some("ws-1".into()),
+                    name: "写测试".into(),
+                    created_at: 1710880000000,
+                    updated_at: 1710880000000,
+                },
+            ],
             created_at: 1710900000000,
-            updated_at: 1710900000000,
-        },
-        Workspace {
+            updated_at: 1710920000000,
+        }),
+        // Workspace: web-app
+        SidebarItem::Workspace(Workspace {
             id: "ws-2".into(),
-            name: "Web Scraper".into(),
-            path: "/Users/dev/web-scraper".into(),
+            name: "web-app".into(),
+            path: "/Users/dev/web-app".into(),
+            expanded: false,
+            sessions: vec![
+                Session {
+                    id: "sess-2a".into(),
+                    workspace_id: Some("ws-2".into()),
+                    name: "首页设计".into(),
+                    created_at: 1710800000000,
+                    updated_at: 1710800000000,
+                },
+                Session {
+                    id: "sess-2b".into(),
+                    workspace_id: Some("ws-2".into()),
+                    name: "API 对接".into(),
+                    created_at: 1710790000000,
+                    updated_at: 1710790000000,
+                },
+            ],
             created_at: 1710800000000,
-            updated_at: 1710800000000,
-        },
+            updated_at: 1710810000000,
+        }),
     ]
-}
-
-fn mock_sessions_for(workspace_id: &str) -> Vec<Session> {
-    match workspace_id {
-        "ws-1" => vec![
-            Session {
-                id: "sess-1a".into(),
-                workspace_id: "ws-1".into(),
-                name: "Implement UI layout".into(),
-                created_at: 1710900000000,
-                updated_at: 1710900000000,
-            },
-            Session {
-                id: "sess-1b".into(),
-                workspace_id: "ws-1".into(),
-                name: "Fix build errors".into(),
-                created_at: 1710890000000,
-                updated_at: 1710890000000,
-            },
-            Session {
-                id: "sess-1c".into(),
-                workspace_id: "ws-1".into(),
-                name: "Code review".into(),
-                created_at: 1710880000000,
-                updated_at: 1710880000000,
-            },
-        ],
-        "ws-2" => vec![
-            Session {
-                id: "sess-2a".into(),
-                workspace_id: "ws-2".into(),
-                name: "Scrape product data".into(),
-                created_at: 1710800000000,
-                updated_at: 1710800000000,
-            },
-            Session {
-                id: "sess-2b".into(),
-                workspace_id: "ws-2".into(),
-                name: "Parse HTML tables".into(),
-                created_at: 1710790000000,
-                updated_at: 1710790000000,
-            },
-        ],
-        _ => vec![],
-    }
 }
