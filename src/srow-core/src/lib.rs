@@ -1,3 +1,6 @@
+// INPUT:  agent, mcp, skills, gateway, base, system, environment, types, domain, ports, adapters, error
+// OUTPUT: AgentEngine, EngineEvent, SessionService, AgentConfig, LLMConfig, LLMMessage, Session, ToolCall, ToolDefinition, ToolResult, EngineError, SkillError, LLMProvider, Tool, ToolRegistry, SessionStorage, Skill, SkillStore, SkillLoader, SkillInjector, McpManager, McpConfig, BrowserManager, SecurityGuard, EnvironmentManager, Orchestrator, and many more re-exports
+// POS:    Crate root — declares all top-level modules and provides the unified public API via convenience re-exports.
 //! Srow Core — unified agent engine, skill system, and MCP integration
 //!
 //! Module layout aligned with Wukong:
@@ -25,6 +28,7 @@ pub mod domain;
 pub mod ports;
 pub mod adapters;
 pub mod error;
+pub mod ui_message;
 
 // Convenience re-exports — engine
 pub use agent::runtime::engine::engine::{AgentEngine, EngineEvent};
@@ -75,6 +79,9 @@ pub use environment::config::EnvironmentConfig;
 pub use environment::manifest::{ResourceManifest, ComponentVersion, ArtifactConfig, ArchiveFormat};
 pub use environment::versions::{InstalledVersions, VersionStatus};
 pub use environment::resolver::RuntimeResolver;
+
+// Convenience re-exports — UI message model
+pub use ui_message::{UIMessage, UIMessagePart, UIMessageRole, TextPartState, ToolState};
 
 // Convenience re-exports — orchestrator
 pub use agent::orchestrator::orchestrator::{Orchestrator, OrchestratorHandle};
