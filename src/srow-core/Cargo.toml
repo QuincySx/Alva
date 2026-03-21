@@ -20,6 +20,7 @@ rig-core = { version = "0.33", features = ["all"] }
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
 futures = "0.3"
+bytes = "1"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

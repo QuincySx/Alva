@@ -1,8 +1,14 @@
 use srow_core::ui_message_stream::{UIMessageChunk, FinishReason, ChatStatus, TokenUsage};
 use srow_core::ui_message_stream::processor::{process_ui_message_stream, UIMessageStreamUpdate};
+use srow_core::ui_message_stream::sse::{parse_sse_stream, chunk_to_sse, sse_done};
+use srow_core::ui_message::convert::llm_stream_to_ui_chunks;
 use srow_core::ui_message::{UIMessage, UIMessagePart, UIMessageRole, TextPartState, ToolState};
+use srow_core::ports::llm_provider::{StreamChunk, LLMResponse, StopReason, TokenUsage as LLMTokenUsage};
+use srow_core::domain::message::LLMContent;
 use srow_core::error::StreamError;
+use bytes::Bytes;
 use futures::stream;
+use futures::StreamExt;
 use tokio::sync::mpsc;
 
 #[test]
@@ -769,4 +775,243 @@ async fn processor_stream_transport_error() {
     let result = process_ui_message_stream(s, make_initial_message(), tx).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), StreamError::Interrupted));
+}
+
+// ---------------------------------------------------------------------------
+// SSE parser tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_parse_sse_basic() {
+    let raw = "data: {\"type\":\"text-delta\",\"id\":\"t1\",\"delta\":\"hi\"}\n\ndata: [DONE]\n\n";
+    let byte_stream = stream::once(async move { Ok(Bytes::from(raw)) });
+
+    let chunks: Vec<Result<UIMessageChunk, StreamError>> =
+        parse_sse_stream(byte_stream).collect().await;
+
+    assert_eq!(chunks.len(), 1);
+    let chunk = chunks[0].as_ref().unwrap();
+    match chunk {
+        UIMessageChunk::TextDelta { id, delta } => {
+            assert_eq!(id, "t1");
+            assert_eq!(delta, "hi");
+        }
+        other => panic!("expected TextDelta, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_parse_sse_multiple_events() {
+    let raw = concat!(
+        "data: {\"type\":\"text-start\",\"id\":\"t1\"}\n\n",
+        "data: {\"type\":\"text-delta\",\"id\":\"t1\",\"delta\":\"hello\"}\n\n",
+        "data: {\"type\":\"text-end\",\"id\":\"t1\"}\n\n",
+        "data: [DONE]\n\n",
+    );
+    let byte_stream = stream::once(async move { Ok(Bytes::from(raw)) });
+
+    let chunks: Vec<Result<UIMessageChunk, StreamError>> =
+        parse_sse_stream(byte_stream).collect().await;
+
+    assert_eq!(chunks.len(), 3);
+    assert!(matches!(chunks[0].as_ref().unwrap(), UIMessageChunk::TextStart { id } if id == "t1"));
+    assert!(matches!(chunks[1].as_ref().unwrap(), UIMessageChunk::TextDelta { id, delta } if id == "t1" && delta == "hello"));
+    assert!(matches!(chunks[2].as_ref().unwrap(), UIMessageChunk::TextEnd { id } if id == "t1"));
+}
+
+#[tokio::test]
+async fn test_chunk_to_sse_round_trip() {
+    let original = UIMessageChunk::TextDelta {
+        id: "t1".into(),
+        delta: "round trip".into(),
+    };
+
+    let sse_text = chunk_to_sse(&original);
+
+    // Parse it back through SSE parser
+    let full_sse = format!("{}{}", sse_text, sse_done());
+    let byte_stream = stream::once(async move { Ok(Bytes::from(full_sse)) });
+
+    let chunks: Vec<Result<UIMessageChunk, StreamError>> =
+        parse_sse_stream(byte_stream).collect().await;
+
+    assert_eq!(chunks.len(), 1);
+    let chunk = chunks[0].as_ref().unwrap();
+    match chunk {
+        UIMessageChunk::TextDelta { id, delta } => {
+            assert_eq!(id, "t1");
+            assert_eq!(delta, "round trip");
+        }
+        other => panic!("expected TextDelta, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_parse_sse_split_across_boundaries() {
+    // Simulate data arriving in two separate byte chunks, splitting an event in the middle
+    let part1 = "data: {\"type\":\"text-del";
+    let part2 = "ta\",\"id\":\"t1\",\"delta\":\"split\"}\n\ndata: [DONE]\n\n";
+
+    let byte_stream = stream::iter(vec![
+        Ok(Bytes::from(part1)),
+        Ok(Bytes::from(part2)),
+    ]);
+
+    let chunks: Vec<Result<UIMessageChunk, StreamError>> =
+        parse_sse_stream(byte_stream).collect().await;
+
+    assert_eq!(chunks.len(), 1);
+    match chunks[0].as_ref().unwrap() {
+        UIMessageChunk::TextDelta { id, delta } => {
+            assert_eq!(id, "t1");
+            assert_eq!(delta, "split");
+        }
+        other => panic!("expected TextDelta, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_parse_sse_ignores_comments() {
+    let raw = ": this is a comment\n\ndata: {\"type\":\"text-delta\",\"id\":\"t1\",\"delta\":\"ok\"}\n\ndata: [DONE]\n\n";
+    let byte_stream = stream::once(async move { Ok(Bytes::from(raw)) });
+
+    let chunks: Vec<Result<UIMessageChunk, StreamError>> =
+        parse_sse_stream(byte_stream).collect().await;
+
+    assert_eq!(chunks.len(), 1);
+    match chunks[0].as_ref().unwrap() {
+        UIMessageChunk::TextDelta { id, delta } => {
+            assert_eq!(id, "t1");
+            assert_eq!(delta, "ok");
+        }
+        other => panic!("expected TextDelta, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_sse_done_format() {
+    assert_eq!(sse_done(), "data: [DONE]\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// LLM stream -> UI chunks conversion tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_llm_text_stream_to_ui_chunks() {
+    let llm_stream = stream::iter(vec![
+        StreamChunk::TextDelta("Hello".into()),
+        StreamChunk::TextDelta(" world".into()),
+        StreamChunk::Done(LLMResponse {
+            content: vec![LLMContent::Text { text: "Hello world".into() }],
+            stop_reason: StopReason::EndTurn,
+            usage: LLMTokenUsage {
+                input_tokens: 10,
+                output_tokens: 5,
+            },
+        }),
+    ]);
+
+    let chunks: Vec<UIMessageChunk> = llm_stream_to_ui_chunks(llm_stream).collect().await;
+
+    // Should produce: Start, TextStart, TextDelta("Hello"), TextDelta(" world"), TextEnd, Finish
+    assert!(chunks.len() >= 5, "expected at least 5 chunks, got {}: {:?}", chunks.len(), chunks);
+
+    assert!(matches!(&chunks[0], UIMessageChunk::Start { .. }));
+    assert!(matches!(&chunks[1], UIMessageChunk::TextStart { .. }));
+    assert!(matches!(&chunks[2], UIMessageChunk::TextDelta { delta, .. } if delta == "Hello"));
+    assert!(matches!(&chunks[3], UIMessageChunk::TextDelta { delta, .. } if delta == " world"));
+    assert!(matches!(&chunks[4], UIMessageChunk::TextEnd { .. }));
+    assert!(matches!(&chunks[chunks.len() - 1], UIMessageChunk::Finish { finish_reason: FinishReason::Stop, .. }));
+}
+
+#[tokio::test]
+async fn test_llm_thinking_stream_to_ui_chunks() {
+    let llm_stream = stream::iter(vec![
+        StreamChunk::ThinkingDelta("hmm...".into()),
+        StreamChunk::TextDelta("The answer is 42.".into()),
+        StreamChunk::Done(LLMResponse {
+            content: vec![LLMContent::Text { text: "The answer is 42.".into() }],
+            stop_reason: StopReason::EndTurn,
+            usage: LLMTokenUsage {
+                input_tokens: 20,
+                output_tokens: 10,
+            },
+        }),
+    ]);
+
+    let chunks: Vec<UIMessageChunk> = llm_stream_to_ui_chunks(llm_stream).collect().await;
+
+    // Should have: Start, ReasoningStart, ReasoningDelta, TextStart, TextDelta, ReasoningEnd, TextEnd, Finish
+    assert!(matches!(&chunks[0], UIMessageChunk::Start { .. }));
+    assert!(matches!(&chunks[1], UIMessageChunk::ReasoningStart { .. }));
+    assert!(matches!(&chunks[2], UIMessageChunk::ReasoningDelta { delta, .. } if delta == "hmm..."));
+    assert!(matches!(&chunks[3], UIMessageChunk::TextStart { .. }));
+    assert!(matches!(&chunks[4], UIMessageChunk::TextDelta { delta, .. } if delta == "The answer is 42."));
+
+    // On Done: text and reasoning should be closed
+    let has_reasoning_end = chunks.iter().any(|c| matches!(c, UIMessageChunk::ReasoningEnd { .. }));
+    let has_text_end = chunks.iter().any(|c| matches!(c, UIMessageChunk::TextEnd { .. }));
+    assert!(has_reasoning_end, "expected ReasoningEnd chunk");
+    assert!(has_text_end, "expected TextEnd chunk");
+
+    assert!(matches!(&chunks[chunks.len() - 1], UIMessageChunk::Finish { finish_reason: FinishReason::Stop, .. }));
+}
+
+#[tokio::test]
+async fn test_llm_tool_call_stream_to_ui_chunks() {
+    let llm_stream = stream::iter(vec![
+        StreamChunk::TextDelta("Let me check.".into()),
+        StreamChunk::ToolCallDelta {
+            id: "tc1".into(),
+            name: "read_file".into(),
+            input_delta: r#"{"path":"/tmp"}"#.into(),
+        },
+        StreamChunk::Done(LLMResponse {
+            content: vec![
+                LLMContent::Text { text: "Let me check.".into() },
+                LLMContent::ToolUse {
+                    id: "tc1".into(),
+                    name: "read_file".into(),
+                    input: serde_json::json!({"path": "/tmp"}),
+                },
+            ],
+            stop_reason: StopReason::ToolUse,
+            usage: LLMTokenUsage {
+                input_tokens: 30,
+                output_tokens: 15,
+            },
+        }),
+    ]);
+
+    let chunks: Vec<UIMessageChunk> = llm_stream_to_ui_chunks(llm_stream).collect().await;
+
+    // Should have Start, TextStart, TextDelta, TextEnd, ToolInputStart, ToolInputAvailable, Finish
+    assert!(matches!(&chunks[0], UIMessageChunk::Start { .. }));
+
+    let has_tool_input_start = chunks.iter().any(|c| matches!(c, UIMessageChunk::ToolInputStart { tool_name, .. } if tool_name == "read_file"));
+    let has_tool_input_available = chunks.iter().any(|c| matches!(c, UIMessageChunk::ToolInputAvailable { input, .. } if input["path"] == "/tmp"));
+    assert!(has_tool_input_start, "expected ToolInputStart");
+    assert!(has_tool_input_available, "expected ToolInputAvailable");
+
+    assert!(matches!(&chunks[chunks.len() - 1], UIMessageChunk::Finish { finish_reason: FinishReason::ToolCalls, .. }));
+}
+
+#[tokio::test]
+async fn test_llm_max_tokens_finish_reason() {
+    let llm_stream = stream::iter(vec![
+        StreamChunk::TextDelta("cut off".into()),
+        StreamChunk::Done(LLMResponse {
+            content: vec![LLMContent::Text { text: "cut off".into() }],
+            stop_reason: StopReason::MaxTokens,
+            usage: LLMTokenUsage {
+                input_tokens: 100,
+                output_tokens: 4096,
+            },
+        }),
+    ]);
+
+    let chunks: Vec<UIMessageChunk> = llm_stream_to_ui_chunks(llm_stream).collect().await;
+
+    assert!(matches!(&chunks[chunks.len() - 1], UIMessageChunk::Finish { finish_reason: FinishReason::MaxTokens, .. }));
 }
