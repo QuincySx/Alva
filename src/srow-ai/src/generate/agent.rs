@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use srow_core::error::ChatError;
-use srow_core::ports::llm_provider::LLMProvider;
+use srow_core::ports::provider::language_model::LanguageModel;
 use srow_core::ports::tool::ToolRegistry;
 
 use super::generate_text::generate_text;
@@ -27,7 +27,7 @@ use super::types::*;
 pub struct Agent {
     pub id: Option<String>,
     pub instructions: Option<String>,
-    pub model: Arc<dyn LLMProvider>,
+    pub model: Arc<dyn LanguageModel>,
     pub tools: Option<Arc<ToolRegistry>>,
     pub stop_when: Option<Arc<dyn StopCondition>>,
     pub max_output_tokens: Option<u32>,
@@ -36,7 +36,7 @@ pub struct Agent {
 }
 
 impl Agent {
-    pub fn new(model: Arc<dyn LLMProvider>) -> Self {
+    pub fn new(model: Arc<dyn LanguageModel>) -> Self {
         Self {
             id: None,
             instructions: None,

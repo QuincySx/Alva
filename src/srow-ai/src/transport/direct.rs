@@ -8,7 +8,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use srow_core::domain::agent::AgentConfig;
 use srow_core::error::StreamError;
-use srow_core::ports::llm_provider::LLMProvider;
+use srow_core::ports::provider::language_model::LanguageModel;
 use srow_core::ports::storage::SessionStorage;
 use srow_core::ports::tool::ToolRegistry;
 use srow_core::ui_message_stream::{FinishReason, UIMessageChunk};
@@ -24,7 +24,7 @@ pub struct ApprovalResponse {
 
 pub struct DirectChatTransport {
     #[allow(dead_code)]
-    llm: Arc<dyn LLMProvider>,
+    llm: Arc<dyn LanguageModel>,
     #[allow(dead_code)]
     tools: Arc<ToolRegistry>,
     #[allow(dead_code)]
@@ -35,7 +35,7 @@ pub struct DirectChatTransport {
 
 impl DirectChatTransport {
     pub fn new(
-        llm: Arc<dyn LLMProvider>,
+        llm: Arc<dyn LanguageModel>,
         tools: Arc<ToolRegistry>,
         storage: Arc<dyn SessionStorage>,
         config: Arc<AgentConfig>,

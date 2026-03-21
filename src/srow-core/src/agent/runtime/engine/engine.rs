@@ -3,18 +3,22 @@
 // POS:    Core agentic loop: prompt -> LLM stream -> tool execution (parallel) -> loop, with UIMessageChunk emission and cancellation support.
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
+use futures::StreamExt;
 
 use crate::{
     agent::runtime::engine::context_manager::ContextManager,
     domain::{
         agent::AgentConfig,
-        message::{LLMContent, LLMMessage},
+        message::{LLMContent, LLMMessage, llm_messages_to_provider_prompt},
         session::SessionStatus,
         tool::ToolCall,
     },
     error::EngineError,
     ports::{
-        llm_provider::{LLMProvider, LLMRequest, StopReason, StreamChunk},
+        provider::{
+            LanguageModel, LanguageModelCallOptions, LanguageModelStreamPart,
+            LanguageModelTool, FunctionTool, UnifiedFinishReason,
+        },
         storage::SessionStorage,
         tool::{ToolContext, ToolRegistry},
     },
@@ -26,7 +30,7 @@ use crate::{
 /// Emits `UIMessageChunk` events for UI consumption.
 pub struct AgentEngine {
     config: AgentConfig,
-    llm: Arc<dyn LLMProvider>,
+    llm: Arc<dyn LanguageModel>,
     tools: Arc<ToolRegistry>,
     storage: Arc<dyn SessionStorage>,
     context_manager: ContextManager,
@@ -37,7 +41,7 @@ pub struct AgentEngine {
 impl AgentEngine {
     pub fn new(
         config: AgentConfig,
-        llm: Arc<dyn LLMProvider>,
+        llm: Arc<dyn LanguageModel>,
         tools: Arc<ToolRegistry>,
         storage: Arc<dyn SessionStorage>,
         chunk_tx: mpsc::Sender<UIMessageChunk>,
@@ -132,129 +136,246 @@ impl AgentEngine {
             {
                 history = self
                     .context_manager
-                    .compact(history, &self.config.system_prompt, self.llm.as_ref())
+                    .compact(history, &self.config.system_prompt)
                     .await?;
             }
 
-            // 4. Get filtered tool definitions
+            // 4. Get filtered tool definitions and convert to V4 LanguageModelTool
             let tool_defs = self.filtered_tool_definitions();
+            let v4_tools: Vec<LanguageModelTool> = tool_defs
+                .iter()
+                .map(|td| {
+                    LanguageModelTool::Function(FunctionTool {
+                        name: td.name.clone(),
+                        description: Some(td.description.clone()),
+                        input_schema: td.parameters.clone(),
+                        strict: None,
+                        provider_options: None,
+                    })
+                })
+                .collect();
 
-            // 5. Build LLM request
-            let request = LLMRequest {
-                messages: history.clone(),
-                tools: tool_defs,
-                system: Some(self.config.system_prompt.clone()),
-                max_tokens: self.config.llm.max_tokens,
+            // 5. Convert LLMMessage history -> LanguageModelMessage prompt
+            let prompt = llm_messages_to_provider_prompt(
+                &Some(self.config.system_prompt.clone()),
+                &history,
+            );
+
+            // 6. Build LanguageModelCallOptions
+            let options = LanguageModelCallOptions {
+                prompt,
+                max_output_tokens: Some(self.config.llm.max_tokens),
                 temperature: self.config.llm.temperature,
-                tool_choice: None,
-                response_format: None,
+                stop_sequences: None,
                 top_p: None,
                 top_k: None,
                 presence_penalty: None,
                 frequency_penalty: None,
-                stop_sequences: None,
+                response_format: None,
                 seed: None,
+                tools: if v4_tools.is_empty() { None } else { Some(v4_tools) },
+                tool_choice: None,
+                reasoning: None,
                 provider_options: None,
+                headers: None,
             };
 
-            // 6. Stream LLM response
-            let (stream_tx, mut stream_rx) = mpsc::channel(256);
-            let llm = self.llm.clone();
-            let req = request;
-            tokio::spawn(async move {
-                if let Err(e) = llm.complete_stream(req, stream_tx).await {
-                    tracing::error!("LLM stream error: {}", e);
-                }
-            });
+            // 7. Stream LLM response via Provider V4
+            let stream_result = self
+                .llm
+                .do_stream(options)
+                .await
+                .map_err(|e| EngineError::LLMProvider(e.to_string()))?;
+
+            let mut stream = stream_result.stream;
 
             // Track text/reasoning streaming state
             let mut text_part_id: Option<String> = None;
             let mut reasoning_part_id: Option<String> = None;
 
-            let mut llm_response = None;
-            while let Some(chunk) = stream_rx.recv().await {
-                match chunk {
-                    StreamChunk::TextDelta(text) => {
-                        // If text_part_id is None, generate one and emit TextStart first
-                        if text_part_id.is_none() {
-                            let id = uuid::Uuid::new_v4().to_string();
-                            let _ = self
-                                .chunk_tx
-                                .send(UIMessageChunk::TextStart { id: id.clone() })
-                                .await;
-                            text_part_id = Some(id);
-                        }
-                        let _ = self
-                            .chunk_tx
-                            .send(UIMessageChunk::TextDelta {
-                                id: text_part_id.as_ref().unwrap().clone(),
-                                delta: text,
-                            })
-                            .await;
-                    }
-                    StreamChunk::ThinkingDelta(text) => {
-                        // If reasoning_part_id is None, generate one and emit ReasoningStart first
-                        if reasoning_part_id.is_none() {
-                            let id = uuid::Uuid::new_v4().to_string();
-                            let _ = self
-                                .chunk_tx
-                                .send(UIMessageChunk::ReasoningStart { id: id.clone() })
-                                .await;
-                            reasoning_part_id = Some(id);
-                        }
-                        let _ = self
-                            .chunk_tx
-                            .send(UIMessageChunk::ReasoningDelta {
-                                id: reasoning_part_id.as_ref().unwrap().clone(),
-                                delta: text,
-                            })
-                            .await;
-                    }
-                    StreamChunk::ToolCallDelta { .. } => {
-                        // Accumulated in Done; delta events ignored for now
-                    }
-                    StreamChunk::Done(resp) => {
-                        // Close any open text/reasoning parts
-                        if let Some(id) = text_part_id.take() {
-                            let _ = self
-                                .chunk_tx
-                                .send(UIMessageChunk::TextEnd { id })
-                                .await;
-                        }
-                        if let Some(id) = reasoning_part_id.take() {
-                            let _ = self
-                                .chunk_tx
-                                .send(UIMessageChunk::ReasoningEnd { id })
-                                .await;
-                        }
+            // Accumulate content from the stream
+            let mut accumulated_text = String::new();
+            let mut accumulated_reasoning = String::new();
+            let mut accumulated_tool_calls: Vec<(String, String, String)> = Vec::new(); // (id, name, input_json)
+            let mut tool_input_buffers: std::collections::HashMap<String, (String, String)> =
+                std::collections::HashMap::new(); // id -> (name, accumulated_input)
 
-                        // Emit token usage
+            let mut finish_reason = UnifiedFinishReason::Stop;
+            let mut usage_input: u32 = 0;
+            let mut usage_output: u32 = 0;
+            let mut got_finish = false;
+
+            while let Some(part) = stream.next().await {
+                match part {
+                    LanguageModelStreamPart::TextStart { id } => {
+                        text_part_id = Some(id.clone());
                         let _ = self
                             .chunk_tx
-                            .send(UIMessageChunk::TokenUsage {
-                                usage: TokenUsage {
-                                    input_tokens: resp.usage.input_tokens,
-                                    output_tokens: resp.usage.output_tokens,
-                                },
-                            })
+                            .send(UIMessageChunk::TextStart { id })
                             .await;
-                        llm_response = Some(resp);
+                    }
+                    LanguageModelStreamPart::TextDelta { id, delta } => {
+                        if text_part_id.is_none() {
+                            // Auto-emit TextStart if not yet started
+                            let new_id = id.clone();
+                            let _ = self
+                                .chunk_tx
+                                .send(UIMessageChunk::TextStart { id: new_id.clone() })
+                                .await;
+                            text_part_id = Some(new_id);
+                        }
+                        accumulated_text.push_str(&delta);
+                        let _ = self
+                            .chunk_tx
+                            .send(UIMessageChunk::TextDelta { id, delta })
+                            .await;
+                    }
+                    LanguageModelStreamPart::TextEnd { id } => {
+                        text_part_id = None;
+                        let _ = self
+                            .chunk_tx
+                            .send(UIMessageChunk::TextEnd { id })
+                            .await;
+                    }
+                    LanguageModelStreamPart::ReasoningStart { id } => {
+                        reasoning_part_id = Some(id.clone());
+                        let _ = self
+                            .chunk_tx
+                            .send(UIMessageChunk::ReasoningStart { id })
+                            .await;
+                    }
+                    LanguageModelStreamPart::ReasoningDelta { id, delta } => {
+                        if reasoning_part_id.is_none() {
+                            let new_id = id.clone();
+                            let _ = self
+                                .chunk_tx
+                                .send(UIMessageChunk::ReasoningStart { id: new_id.clone() })
+                                .await;
+                            reasoning_part_id = Some(new_id);
+                        }
+                        accumulated_reasoning.push_str(&delta);
+                        let _ = self
+                            .chunk_tx
+                            .send(UIMessageChunk::ReasoningDelta { id, delta })
+                            .await;
+                    }
+                    LanguageModelStreamPart::ReasoningEnd { id } => {
+                        reasoning_part_id = None;
+                        let _ = self
+                            .chunk_tx
+                            .send(UIMessageChunk::ReasoningEnd { id })
+                            .await;
+                    }
+                    LanguageModelStreamPart::ToolInputStart { id, tool_name, title } => {
+                        tool_input_buffers.insert(id.clone(), (tool_name, String::new()));
+                        // Don't emit UIMessageChunk::ToolInputStart yet —
+                        // we emit them during execute_tools below
+                        let _ = id;
+                        let _ = title;
+                    }
+                    LanguageModelStreamPart::ToolInputDelta { id, delta } => {
+                        if let Some(entry) = tool_input_buffers.get_mut(&id) {
+                            entry.1.push_str(&delta);
+                        }
+                    }
+                    LanguageModelStreamPart::ToolInputEnd { id } => {
+                        if let Some((name, input_json)) = tool_input_buffers.remove(&id) {
+                            accumulated_tool_calls.push((id, name, input_json));
+                        }
+                    }
+                    LanguageModelStreamPart::ToolCall { content } => {
+                        if let crate::ports::provider::content::LanguageModelContent::ToolCall {
+                            tool_call_id,
+                            tool_name,
+                            input,
+                            ..
+                        } = content
+                        {
+                            accumulated_tool_calls.push((tool_call_id, tool_name, input));
+                        }
+                    }
+                    LanguageModelStreamPart::Finish {
+                        usage,
+                        finish_reason: fr,
+                        ..
+                    } => {
+                        finish_reason = fr.unified;
+                        usage_input = usage.input_tokens.total.unwrap_or(0);
+                        usage_output = usage.output_tokens.total.unwrap_or(0);
+                        got_finish = true;
+                    }
+                    LanguageModelStreamPart::Error { error } => {
+                        tracing::error!("LLM stream error: {}", error);
+                    }
+                    _ => {
+                        // Other stream parts (StreamStart, Metadata, Source, etc.) — ignored
                     }
                 }
             }
 
-            let response = llm_response.ok_or(EngineError::LLMStreamInterrupted)?;
+            // Close any still-open text/reasoning parts
+            if let Some(id) = text_part_id.take() {
+                let _ = self
+                    .chunk_tx
+                    .send(UIMessageChunk::TextEnd { id })
+                    .await;
+            }
+            if let Some(id) = reasoning_part_id.take() {
+                let _ = self
+                    .chunk_tx
+                    .send(UIMessageChunk::ReasoningEnd { id })
+                    .await;
+            }
 
-            // 7. Persist assistant message
-            let assistant_msg = LLMMessage::assistant(response.content.clone());
+            if !got_finish {
+                return Err(EngineError::LLMStreamInterrupted);
+            }
+
+            // Emit token usage
+            let _ = self
+                .chunk_tx
+                .send(UIMessageChunk::TokenUsage {
+                    usage: TokenUsage {
+                        input_tokens: usage_input,
+                        output_tokens: usage_output,
+                    },
+                })
+                .await;
+
+            // 8. Build LLMContent from accumulated data
+            let mut response_content: Vec<LLMContent> = Vec::new();
+            if !accumulated_reasoning.is_empty() {
+                response_content.push(LLMContent::Reasoning {
+                    text: accumulated_reasoning,
+                });
+            }
+            if !accumulated_text.is_empty() {
+                response_content.push(LLMContent::Text {
+                    text: accumulated_text,
+                });
+            }
+            for (tc_id, tc_name, tc_input) in &accumulated_tool_calls {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(tc_input).unwrap_or(serde_json::Value::Object(
+                        serde_json::Map::new(),
+                    ));
+                response_content.push(LLMContent::ToolUse {
+                    id: tc_id.clone(),
+                    name: tc_name.clone(),
+                    input: parsed,
+                });
+            }
+
+            // 9. Persist assistant message
+            let assistant_msg = LLMMessage::assistant(response_content.clone());
             self.storage
                 .append_message(session_id, &assistant_msg)
                 .await?;
             history.push(assistant_msg);
 
-            // 8. Check stop reason
-            match response.stop_reason {
-                StopReason::EndTurn | StopReason::StopSequence => {
+            // 10. Check stop reason
+            match finish_reason {
+                UnifiedFinishReason::Stop | UnifiedFinishReason::ContentFilter | UnifiedFinishReason::Other => {
                     self.storage
                         .update_session_status(session_id, SessionStatus::Completed)
                         .await?;
@@ -267,7 +388,7 @@ impl AgentEngine {
                         .await;
                     return Ok(());
                 }
-                StopReason::MaxTokens => {
+                UnifiedFinishReason::Length => {
                     self.storage
                         .update_session_status(session_id, SessionStatus::Error)
                         .await?;
@@ -280,10 +401,9 @@ impl AgentEngine {
                         .await;
                     return Err(EngineError::MaxTokensReached);
                 }
-                StopReason::ToolUse => {
-                    // 9. Extract all tool calls and execute in parallel
-                    let tool_calls: Vec<ToolCall> = response
-                        .content
+                UnifiedFinishReason::ToolCalls => {
+                    // 11. Extract all tool calls and execute in parallel
+                    let tool_calls: Vec<ToolCall> = response_content
                         .iter()
                         .filter_map(|c| {
                             if let LLMContent::ToolUse { id, name, input } = c {
@@ -301,7 +421,7 @@ impl AgentEngine {
                     let tool_results =
                         self.execute_tools(&tool_calls, &tool_ctx, session_id).await?;
 
-                    // 10. Append tool result messages to history
+                    // 12. Append tool result messages to history
                     for result in &tool_results {
                         let msg = LLMMessage::tool_result(
                             &result.tool_call_id,
@@ -314,6 +434,19 @@ impl AgentEngine {
 
                     iteration += 1;
                     // Continue loop
+                }
+                UnifiedFinishReason::Error => {
+                    self.storage
+                        .update_session_status(session_id, SessionStatus::Error)
+                        .await?;
+                    let _ = self
+                        .chunk_tx
+                        .send(UIMessageChunk::Finish {
+                            finish_reason: FinishReason::Error,
+                            usage: None,
+                        })
+                        .await;
+                    return Err(EngineError::LLMProvider("Model returned error finish reason".to_string()));
                 }
             }
         }

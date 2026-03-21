@@ -39,9 +39,23 @@ pub use domain::message::{LLMContent, LLMMessage, Role};
 pub use domain::session::{Session, SessionStatus};
 pub use domain::tool::{ToolCall, ToolDefinition, ToolResult};
 pub use error::EngineError;
-pub use ports::llm_provider::LLMProvider;
 pub use ports::tool::{Tool, ToolContext, ToolRegistry};
 pub use ports::storage::SessionStorage;
+
+// Convenience re-exports — Provider V4 types
+pub use ports::provider::{
+    LanguageModel, LanguageModelCallOptions, LanguageModelGenerateResult,
+    LanguageModelStreamResult, LanguageModelStreamPart, LanguageModelContent,
+    LanguageModelUsage, UnifiedFinishReason,
+    LanguageModelMessage, UserContentPart, AssistantContentPart, ToolContentPart,
+    LanguageModelTool, FunctionTool, ToolChoice, ResponseFormat,
+    ProviderError, ProviderWarning, ProviderMetadata, ProviderOptions,
+    ResponseMetadata,
+    EmbeddingModel, ImageModel, SpeechModel, TranscriptionModel, VideoModel, RerankingModel,
+    Provider,
+};
+pub use adapters::llm::openai::OpenAILanguageModel;
+pub use adapters::llm::anthropic::AnthropicLanguageModel;
 
 // Convenience re-exports — skills
 pub use skills::skill_domain::skill::{Skill, SkillBody, SkillKind, SkillMeta};

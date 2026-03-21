@@ -13,9 +13,6 @@ name = "srow-cli"
 path = "src/bin/cli.rs"
 
 [dependencies]
-# LLM framework
-rig-core = { version = "0.33", features = ["all"] }
-
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
@@ -41,7 +38,7 @@ regex = "1"
 glob = "0.3"
 
 # HTTP client (for internet_search, read_url tools)
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 
 # Browser automation (Chrome CDP)
 chromiumoxide = { version = "0.9", default-features = false }

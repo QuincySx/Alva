@@ -1,4 +1,4 @@
-// INPUT:  crate::domain::message, crate::ui_message, crate::ports::llm_provider, crate::ui_message_stream, futures, uuid
+// INPUT:  crate::domain::message, crate::ui_message, crate::ports::provider, crate::ui_message_stream, futures, uuid
 // OUTPUT: ui_messages_to_llm_messages, llm_stream_to_ui_chunks
 // POS:    Bidirectional conversion between UI-layer message types and LLM-layer message types.
 
@@ -9,9 +9,11 @@ use futures::{Stream, StreamExt};
 use uuid::Uuid;
 
 use crate::domain::message::{LLMContent, LLMMessage, Role};
-use crate::ports::llm_provider::{StopReason, StreamChunk};
+use crate::ports::provider::language_model::{
+    LanguageModelStreamPart, UnifiedFinishReason,
+};
 use crate::ui_message::{UIMessage, UIMessagePart, UIMessageRole, ToolState};
-use crate::ui_message_stream::{FinishReason, UIMessageChunk};
+use crate::ui_message_stream::{FinishReason, TokenUsage, UIMessageChunk};
 
 /// Convert UI messages to LLM messages for API calls.
 ///
@@ -180,31 +182,33 @@ pub fn ui_messages_to_llm_messages(messages: &[UIMessage]) -> Vec<LLMMessage> {
     result
 }
 
-/// Tracking state for the LLM-to-UI stream converter.
-struct LlmToUiState {
+/// Tracking state for the Provider V4 stream-to-UI converter.
+struct V4ToUiState {
     started: bool,
     text_id: Option<String>,
     reasoning_id: Option<String>,
     /// tool_call_id -> (name, accumulated_input_json)
     tool_calls: HashMap<String, (String, String)>,
-    stream: std::pin::Pin<Box<dyn Stream<Item = StreamChunk> + Send>>,
-    /// Buffered chunks to emit (when a single StreamChunk produces multiple UIMessageChunks)
+    stream: std::pin::Pin<Box<dyn Stream<Item = LanguageModelStreamPart> + Send>>,
+    /// Buffered chunks to emit (when a single stream part produces multiple UIMessageChunks)
     pending: std::collections::VecDeque<UIMessageChunk>,
     done: bool,
 }
 
-/// Convert LLM streaming chunks to UI message chunks.
+/// Convert Provider V4 LanguageModelStreamPart stream to UIMessageChunk stream.
 ///
-/// Used by DirectChatTransport to bridge the engine output to the UI protocol.
+/// Used by DirectChatTransport to bridge the provider output to the UI protocol.
 ///
 /// State tracking:
-/// - Auto-emits `Start` on the first chunk
-/// - Emits `TextStart`/`ReasoningStart` on the first delta of each kind
-/// - Emits `TextEnd`/`ReasoningEnd` + `ToolInputStart`/`ToolInputAvailable` on `Done`
+/// - Auto-emits `Start` on the first part
+/// - Forwards `TextStart`/`TextEnd`/`TextDelta` directly
+/// - Forwards `ReasoningStart`/`ReasoningEnd`/`ReasoningDelta` directly
+/// - Accumulates tool call input from `ToolInputStart`/`ToolInputDelta`/`ToolInputEnd`
+/// - On `Finish`, emits accumulated tool calls as `ToolInputStart`/`ToolInputAvailable` + `Finish`
 pub fn llm_stream_to_ui_chunks(
-    stream: impl Stream<Item = StreamChunk> + Send + Unpin + 'static,
+    stream: impl Stream<Item = LanguageModelStreamPart> + Send + Unpin + 'static,
 ) -> impl Stream<Item = UIMessageChunk> + Send {
-    let state = LlmToUiState {
+    let state = V4ToUiState {
         started: false,
         text_id: None,
         reasoning_id: None,
@@ -225,11 +229,11 @@ pub fn llm_stream_to_ui_chunks(
                 return None;
             }
 
-            // Read next chunk from the LLM stream
-            let llm_chunk = match state.stream.next().await {
-                Some(chunk) => chunk,
+            // Read next part from the provider stream
+            let part = match state.stream.next().await {
+                Some(part) => part,
                 None => {
-                    // Stream ended without Done — emit cleanup
+                    // Stream ended without Finish — emit cleanup
                     if let Some(id) = state.text_id.take() {
                         state.pending.push_back(UIMessageChunk::TextEnd { id });
                     }
@@ -244,8 +248,19 @@ pub fn llm_stream_to_ui_chunks(
                 }
             };
 
-            match llm_chunk {
-                StreamChunk::TextDelta(text) => {
+            match part {
+                LanguageModelStreamPart::TextStart { id } => {
+                    if !state.started {
+                        state.started = true;
+                        state.pending.push_back(UIMessageChunk::Start {
+                            message_id: None,
+                            message_metadata: None,
+                        });
+                    }
+                    state.text_id = Some(id.clone());
+                    state.pending.push_back(UIMessageChunk::TextStart { id });
+                }
+                LanguageModelStreamPart::TextDelta { id, delta } => {
                     if !state.started {
                         state.started = true;
                         state.pending.push_back(UIMessageChunk::Start {
@@ -254,19 +269,29 @@ pub fn llm_stream_to_ui_chunks(
                         });
                     }
                     if state.text_id.is_none() {
-                        let id = Uuid::new_v4().to_string();
+                        state.text_id = Some(id.clone());
                         state.pending.push_back(UIMessageChunk::TextStart {
                             id: id.clone(),
                         });
-                        state.text_id = Some(id);
                     }
-                    let id = state.text_id.clone().unwrap();
-                    state.pending.push_back(UIMessageChunk::TextDelta {
-                        id,
-                        delta: text,
-                    });
+                    state.pending.push_back(UIMessageChunk::TextDelta { id, delta });
                 }
-                StreamChunk::ThinkingDelta(text) => {
+                LanguageModelStreamPart::TextEnd { id } => {
+                    state.text_id = None;
+                    state.pending.push_back(UIMessageChunk::TextEnd { id });
+                }
+                LanguageModelStreamPart::ReasoningStart { id } => {
+                    if !state.started {
+                        state.started = true;
+                        state.pending.push_back(UIMessageChunk::Start {
+                            message_id: None,
+                            message_metadata: None,
+                        });
+                    }
+                    state.reasoning_id = Some(id.clone());
+                    state.pending.push_back(UIMessageChunk::ReasoningStart { id });
+                }
+                LanguageModelStreamPart::ReasoningDelta { id, delta } => {
                     if !state.started {
                         state.started = true;
                         state.pending.push_back(UIMessageChunk::Start {
@@ -275,23 +300,18 @@ pub fn llm_stream_to_ui_chunks(
                         });
                     }
                     if state.reasoning_id.is_none() {
-                        let id = Uuid::new_v4().to_string();
+                        state.reasoning_id = Some(id.clone());
                         state.pending.push_back(UIMessageChunk::ReasoningStart {
                             id: id.clone(),
                         });
-                        state.reasoning_id = Some(id);
                     }
-                    let id = state.reasoning_id.clone().unwrap();
-                    state.pending.push_back(UIMessageChunk::ReasoningDelta {
-                        id,
-                        delta: text,
-                    });
+                    state.pending.push_back(UIMessageChunk::ReasoningDelta { id, delta });
                 }
-                StreamChunk::ToolCallDelta {
-                    id,
-                    name,
-                    input_delta,
-                } => {
+                LanguageModelStreamPart::ReasoningEnd { id } => {
+                    state.reasoning_id = None;
+                    state.pending.push_back(UIMessageChunk::ReasoningEnd { id });
+                }
+                LanguageModelStreamPart::ToolInputStart { id, tool_name, .. } => {
                     if !state.started {
                         state.started = true;
                         state.pending.push_back(UIMessageChunk::Start {
@@ -299,13 +319,33 @@ pub fn llm_stream_to_ui_chunks(
                             message_metadata: None,
                         });
                     }
-                    let entry = state
-                        .tool_calls
-                        .entry(id.clone())
-                        .or_insert_with(|| (name.clone(), String::new()));
-                    entry.1.push_str(&input_delta);
+                    state.tool_calls.entry(id).or_insert_with(|| (tool_name, String::new()));
                 }
-                StreamChunk::Done(response) => {
+                LanguageModelStreamPart::ToolInputDelta { id, delta } => {
+                    if let Some(entry) = state.tool_calls.get_mut(&id) {
+                        entry.1.push_str(&delta);
+                    }
+                }
+                LanguageModelStreamPart::ToolInputEnd { id } => {
+                    // Tool input is complete — it will be emitted at Finish
+                    let _ = id;
+                }
+                LanguageModelStreamPart::ToolCall { content } => {
+                    if let crate::ports::provider::content::LanguageModelContent::ToolCall {
+                        tool_call_id,
+                        tool_name,
+                        input,
+                        ..
+                    } = content
+                    {
+                        state.tool_calls.insert(tool_call_id, (tool_name, input));
+                    }
+                }
+                LanguageModelStreamPart::Finish {
+                    usage,
+                    finish_reason,
+                    ..
+                } => {
                     if !state.started {
                         state.started = true;
                         state.pending.push_back(UIMessageChunk::Start {
@@ -338,25 +378,33 @@ pub fn llm_stream_to_ui_chunks(
                         });
                     }
 
-                    // Convert stop reason to finish reason
-                    let finish_reason = match response.stop_reason {
-                        StopReason::EndTurn => FinishReason::Stop,
-                        StopReason::ToolUse => FinishReason::ToolCalls,
-                        StopReason::MaxTokens => FinishReason::MaxTokens,
-                        StopReason::StopSequence => FinishReason::Stop,
+                    // Convert finish reason
+                    let ui_finish_reason = match finish_reason.unified {
+                        UnifiedFinishReason::Stop => FinishReason::Stop,
+                        UnifiedFinishReason::ToolCalls => FinishReason::ToolCalls,
+                        UnifiedFinishReason::Length => FinishReason::MaxTokens,
+                        UnifiedFinishReason::Error => FinishReason::Error,
+                        _ => FinishReason::Stop,
                     };
 
-                    let usage = Some(crate::ui_message_stream::TokenUsage {
-                        input_tokens: response.usage.input_tokens,
-                        output_tokens: response.usage.output_tokens,
+                    let ui_usage = Some(TokenUsage {
+                        input_tokens: usage.input_tokens.total.unwrap_or(0),
+                        output_tokens: usage.output_tokens.total.unwrap_or(0),
                     });
 
                     state.pending.push_back(UIMessageChunk::Finish {
-                        finish_reason,
-                        usage,
+                        finish_reason: ui_finish_reason,
+                        usage: ui_usage,
                     });
 
                     state.done = true;
+                }
+                LanguageModelStreamPart::Error { error } => {
+                    state.pending.push_back(UIMessageChunk::Error { error });
+                    state.done = true;
+                }
+                _ => {
+                    // Other stream parts (StreamStart, Metadata, Source, etc.) — ignored
                 }
             }
 

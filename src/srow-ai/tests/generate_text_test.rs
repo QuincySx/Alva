@@ -1,29 +1,31 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::pin::Pin;
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use futures::Stream;
 
 use srow_core::domain::message::*;
 use srow_core::domain::tool::*;
-use srow_core::error::EngineError;
-use srow_core::ports::llm_provider::*;
+use srow_core::ports::provider::language_model::*;
+use srow_core::ports::provider::content::LanguageModelContent;
+use srow_core::ports::provider::errors::ProviderError;
 use srow_core::ports::tool::ToolRegistry;
 use srow_core::ui_message_stream::FinishReason;
 
 use srow_ai::generate::*;
 
 // ---------------------------------------------------------------------------
-// Mock LLM Provider
+// Mock Language Model
 // ---------------------------------------------------------------------------
 
-struct MockLLMProvider {
-    responses: Vec<LLMResponse>,
+struct MockLanguageModel {
+    responses: Vec<LanguageModelGenerateResult>,
     call_count: AtomicUsize,
 }
 
-impl MockLLMProvider {
-    fn new(responses: Vec<LLMResponse>) -> Self {
+impl MockLanguageModel {
+    fn new(responses: Vec<LanguageModelGenerateResult>) -> Self {
         Self {
             responses,
             call_count: AtomicUsize::new(0),
@@ -32,43 +34,62 @@ impl MockLLMProvider {
 }
 
 #[async_trait]
-impl LLMProvider for MockLLMProvider {
+impl LanguageModel for MockLanguageModel {
+    fn provider(&self) -> &str {
+        "mock"
+    }
+
     fn model_id(&self) -> &str {
         "mock"
     }
 
-    async fn complete(&self, _request: LLMRequest) -> Result<LLMResponse, EngineError> {
+    async fn do_generate(
+        &self,
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelGenerateResult, ProviderError> {
         let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
         if idx < self.responses.len() {
-            Ok(self.responses[idx].clone())
+            // Clone the response manually since LanguageModelGenerateResult doesn't derive Clone
+            let resp = &self.responses[idx];
+            Ok(LanguageModelGenerateResult {
+                content: resp.content.clone(),
+                finish_reason: resp.finish_reason.clone(),
+                usage: resp.usage.clone(),
+                provider_metadata: None,
+                warnings: Vec::new(),
+                response: None,
+            })
         } else {
-            Err(EngineError::LLMProvider(
-                "No more mock responses".to_string(),
-            ))
+            Err(ProviderError::ApiCall {
+                message: "No more mock responses".to_string(),
+                url: String::new(),
+                status_code: None,
+                response_body: None,
+                is_retryable: false,
+            })
         }
     }
 
-    async fn complete_stream(
+    async fn do_stream(
         &self,
-        _request: LLMRequest,
-        _tx: mpsc::Sender<StreamChunk>,
-    ) -> Result<(), EngineError> {
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelStreamResult, ProviderError> {
         unimplemented!("Not needed for generate_text tests")
     }
 }
 
 // ---------------------------------------------------------------------------
-// Failing Mock LLM Provider (for retry test)
+// Failing Mock (for retry test)
 // ---------------------------------------------------------------------------
 
-struct FailThenSucceedProvider {
+struct FailThenSucceedModel {
     fail_count: AtomicUsize,
     failures_before_success: usize,
-    success_response: LLMResponse,
+    success_response: LanguageModelGenerateResult,
 }
 
-impl FailThenSucceedProvider {
-    fn new(failures_before_success: usize, success_response: LLMResponse) -> Self {
+impl FailThenSucceedModel {
+    fn new(failures_before_success: usize, success_response: LanguageModelGenerateResult) -> Self {
         Self {
             fail_count: AtomicUsize::new(0),
             failures_before_success,
@@ -78,25 +99,45 @@ impl FailThenSucceedProvider {
 }
 
 #[async_trait]
-impl LLMProvider for FailThenSucceedProvider {
+impl LanguageModel for FailThenSucceedModel {
+    fn provider(&self) -> &str {
+        "mock-fail"
+    }
+
     fn model_id(&self) -> &str {
         "mock-fail-then-succeed"
     }
 
-    async fn complete(&self, _request: LLMRequest) -> Result<LLMResponse, EngineError> {
+    async fn do_generate(
+        &self,
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelGenerateResult, ProviderError> {
         let count = self.fail_count.fetch_add(1, Ordering::SeqCst);
         if count < self.failures_before_success {
-            Err(EngineError::LLMProvider("Transient error".to_string()))
+            Err(ProviderError::ApiCall {
+                message: "Transient error".to_string(),
+                url: String::new(),
+                status_code: None,
+                response_body: None,
+                is_retryable: true,
+            })
         } else {
-            Ok(self.success_response.clone())
+            let resp = &self.success_response;
+            Ok(LanguageModelGenerateResult {
+                content: resp.content.clone(),
+                finish_reason: resp.finish_reason.clone(),
+                usage: resp.usage.clone(),
+                provider_metadata: None,
+                warnings: Vec::new(),
+                response: None,
+            })
         }
     }
 
-    async fn complete_stream(
+    async fn do_stream(
         &self,
-        _request: LLMRequest,
-        _tx: mpsc::Sender<StreamChunk>,
-    ) -> Result<(), EngineError> {
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelStreamResult, ProviderError> {
         unimplemented!("Not needed for generate_text tests")
     }
 }
@@ -105,7 +146,7 @@ impl LLMProvider for FailThenSucceedProvider {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn make_settings(model: Arc<dyn LLMProvider>) -> CallSettings {
+fn make_settings(model: Arc<dyn LanguageModel>) -> CallSettings {
     CallSettings {
         model,
         system: None,
@@ -118,17 +159,30 @@ fn make_settings(model: Arc<dyn LLMProvider>) -> CallSettings {
     }
 }
 
-fn text_response(text: &str, input_tokens: u32, output_tokens: u32) -> LLMResponse {
-    LLMResponse {
-        content: vec![LLMContent::Text {
+fn text_response(text: &str, input_tokens: u32, output_tokens: u32) -> LanguageModelGenerateResult {
+    LanguageModelGenerateResult {
+        content: vec![LanguageModelContent::Text {
             text: text.to_string(),
+            provider_metadata: None,
         }],
-        stop_reason: StopReason::EndTurn,
-        usage: TokenUsage {
-            input_tokens,
-            output_tokens,
-            ..Default::default()
+        finish_reason: FinishReasonV4 {
+            unified: UnifiedFinishReason::Stop,
+            raw: None,
         },
+        usage: LanguageModelUsage {
+            input_tokens: UsageInputTokens {
+                total: Some(input_tokens),
+                ..Default::default()
+            },
+            output_tokens: UsageOutputTokens {
+                total: Some(output_tokens),
+                ..Default::default()
+            },
+            raw: None,
+        },
+        provider_metadata: None,
+        warnings: Vec::new(),
+        response: None,
     }
 }
 
@@ -138,21 +192,37 @@ fn tool_use_response(
     input: serde_json::Value,
     input_tokens: u32,
     output_tokens: u32,
-) -> LLMResponse {
-    LLMResponse {
-        content: vec![LLMContent::ToolUse {
-            id: tool_id.to_string(),
-            name: tool_name.to_string(),
-            input,
+) -> LanguageModelGenerateResult {
+    LanguageModelGenerateResult {
+        content: vec![LanguageModelContent::ToolCall {
+            tool_call_id: tool_id.to_string(),
+            tool_name: tool_name.to_string(),
+            input: serde_json::to_string(&input).unwrap_or_default(),
+            provider_metadata: None,
         }],
-        stop_reason: StopReason::ToolUse,
-        usage: TokenUsage {
-            input_tokens,
-            output_tokens,
-            ..Default::default()
+        finish_reason: FinishReasonV4 {
+            unified: UnifiedFinishReason::ToolCalls,
+            raw: None,
         },
+        usage: LanguageModelUsage {
+            input_tokens: UsageInputTokens {
+                total: Some(input_tokens),
+                ..Default::default()
+            },
+            output_tokens: UsageOutputTokens {
+                total: Some(output_tokens),
+                ..Default::default()
+            },
+            raw: None,
+        },
+        provider_metadata: None,
+        warnings: Vec::new(),
+        response: None,
     }
 }
+
+// Use a type alias to avoid confusion with ui_message_stream::FinishReason
+use srow_core::ports::provider::language_model::FinishReason as FinishReasonV4;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -160,8 +230,8 @@ fn tool_use_response(
 
 #[tokio::test]
 async fn test_generate_text_simple() {
-    let provider = Arc::new(MockLLMProvider::new(vec![text_response("Hello", 10, 5)]));
-    let settings = make_settings(provider);
+    let model = Arc::new(MockLanguageModel::new(vec![text_response("Hello", 10, 5)]));
+    let settings = make_settings(model);
 
     let result = generate_text(settings, Prompt::Text("Hi".to_string()))
         .await
@@ -176,9 +246,7 @@ async fn test_generate_text_simple() {
 
 #[tokio::test]
 async fn test_generate_text_with_tool_call() {
-    // Step 1: model returns tool use
-    // Step 2: model returns text "Done"
-    let provider = Arc::new(MockLLMProvider::new(vec![
+    let model = Arc::new(MockLanguageModel::new(vec![
         tool_use_response(
             "tc_1",
             "search",
@@ -189,22 +257,19 @@ async fn test_generate_text_with_tool_call() {
         text_response("Done", 30, 15),
     ]));
 
-    // Register an empty tool registry (no tools registered, so execution returns error)
     let tools = Arc::new(ToolRegistry::new());
 
-    let mut settings = make_settings(provider);
+    let mut settings = make_settings(model);
     settings.tools = Some(tools);
 
     let result = generate_text(settings, Prompt::Text("Do something".to_string()))
         .await
         .unwrap();
 
-    // Should have 2 steps: tool call step + final text step
     assert_eq!(result.steps.len(), 2);
     assert_eq!(result.text, "Done");
     assert_eq!(result.finish_reason, FinishReason::Stop);
 
-    // First step should have a tool call and an error tool result (tool not found)
     let step1 = &result.steps[0];
     assert_eq!(step1.tool_calls.len(), 1);
     assert_eq!(step1.tool_calls[0].name, "search");
@@ -212,15 +277,13 @@ async fn test_generate_text_with_tool_call() {
     assert!(step1.tool_results[0].is_error);
     assert!(step1.tool_results[0].output.contains("not found"));
 
-    // Second step should have text
     let step2 = &result.steps[1];
     assert_eq!(step2.text, "Done");
 }
 
 #[tokio::test]
 async fn test_generate_text_stop_condition() {
-    // Model wants to call tools, but stop_when limits to 1 step
-    let provider = Arc::new(MockLLMProvider::new(vec![
+    let model = Arc::new(MockLanguageModel::new(vec![
         tool_use_response(
             "tc_1",
             "search",
@@ -228,13 +291,12 @@ async fn test_generate_text_stop_condition() {
             20,
             10,
         ),
-        // This response should never be reached
         text_response("Should not reach", 30, 15),
     ]));
 
     let tools = Arc::new(ToolRegistry::new());
 
-    let mut settings = make_settings(provider);
+    let mut settings = make_settings(model);
     settings.tools = Some(tools);
     settings.stop_when = Some(step_count_is(1));
 
@@ -242,15 +304,13 @@ async fn test_generate_text_stop_condition() {
         .await
         .unwrap();
 
-    // Should have only 1 step because stop_when kicked in
     assert_eq!(result.steps.len(), 1);
     assert_eq!(result.finish_reason, FinishReason::ToolCalls);
 }
 
 #[tokio::test]
 async fn test_generate_text_total_usage() {
-    // Two steps with different usage
-    let provider = Arc::new(MockLLMProvider::new(vec![
+    let model = Arc::new(MockLanguageModel::new(vec![
         tool_use_response(
             "tc_1",
             "read_file",
@@ -263,7 +323,7 @@ async fn test_generate_text_total_usage() {
 
     let tools = Arc::new(ToolRegistry::new());
 
-    let mut settings = make_settings(provider);
+    let mut settings = make_settings(model);
     settings.tools = Some(tools);
 
     let result = generate_text(settings, Prompt::Text("Read file".to_string()))
@@ -271,25 +331,20 @@ async fn test_generate_text_total_usage() {
         .unwrap();
 
     assert_eq!(result.steps.len(), 2);
-
-    // total_usage should be sum of all steps
-    assert_eq!(result.total_usage.input_tokens, 300); // 100 + 200
-    assert_eq!(result.total_usage.output_tokens, 125); // 50 + 75
-
-    // usage (last step) should be that step's usage
+    assert_eq!(result.total_usage.input_tokens, 300);
+    assert_eq!(result.total_usage.output_tokens, 125);
     assert_eq!(result.usage.input_tokens, 200);
     assert_eq!(result.usage.output_tokens, 75);
 }
 
 #[tokio::test]
 async fn test_generate_text_retry() {
-    // Provider fails once then succeeds. With max_retries=1, it should work.
-    let provider = Arc::new(FailThenSucceedProvider::new(
-        1, // fail once
+    let model = Arc::new(FailThenSucceedModel::new(
+        1,
         text_response("Recovered", 10, 5),
     ));
 
-    let mut settings = make_settings(provider);
+    let mut settings = make_settings(model);
     settings.max_retries = 1;
 
     let result = generate_text(settings, Prompt::Text("Test retry".to_string()))

@@ -1,7 +1,10 @@
-use srow_core::domain::message::{LLMContent, LLMMessage};
+use srow_core::domain::message::{LLMContent, LLMMessage, llm_messages_to_provider_prompt, provider_content_to_llm_content};
 use srow_core::domain::tool::{ToolCall, ToolResult};
-use srow_core::error::{ChatError, EngineError};
-use srow_core::ports::llm_provider::{LLMRequest, StopReason};
+use srow_core::error::ChatError;
+use srow_core::ports::provider::language_model::{
+    LanguageModelCallOptions, UnifiedFinishReason,
+};
+use srow_core::ports::provider::tool_types::{LanguageModelTool, FunctionTool};
 use srow_core::ports::tool::ToolContext;
 use srow_core::ui_message::convert::ui_messages_to_llm_messages;
 use srow_core::ui_message_stream::{FinishReason, TokenUsage};
@@ -29,51 +32,61 @@ pub async fn generate_text(
 
     // 2. Agent loop
     loop {
-        // a. Build LLM request
-        let tool_defs = settings
-            .tools
-            .as_ref()
-            .map(|t| t.definitions())
-            .unwrap_or_default();
-
-        let request = LLMRequest {
-            messages: history.clone(),
-            tools: tool_defs,
-            system: settings.system.clone(),
-            max_tokens: settings.max_output_tokens.unwrap_or(8192),
-            temperature: settings.temperature,
-            tool_choice: None,
-            response_format: None,
-            top_p: None,
-            top_k: None,
-            presence_penalty: None,
-            frequency_penalty: None,
-            stop_sequences: None,
-            seed: None,
-            provider_options: None,
-        };
-
-        // b. Call model with retry
+        // a. Call model with retry
         let response = with_retry(settings.max_retries, || {
-            settings.model.complete(request.clone())
+            let opts = LanguageModelCallOptions {
+                prompt: llm_messages_to_provider_prompt(&settings.system, &history),
+                max_output_tokens: settings.max_output_tokens,
+                temperature: settings.temperature,
+                stop_sequences: None,
+                top_p: None,
+                top_k: None,
+                presence_penalty: None,
+                frequency_penalty: None,
+                response_format: None,
+                seed: None,
+                tools: if settings.tools.is_some() {
+                    let defs = settings.tools.as_ref().unwrap().definitions();
+                    let tools: Vec<LanguageModelTool> = defs.iter().map(|td| {
+                        LanguageModelTool::Function(FunctionTool {
+                            name: td.name.clone(),
+                            description: Some(td.description.clone()),
+                            input_schema: td.parameters.clone(),
+                            strict: None,
+                            provider_options: None,
+                        })
+                    }).collect();
+                    if tools.is_empty() { None } else { Some(tools) }
+                } else { None },
+                tool_choice: None,
+                reasoning: None,
+                provider_options: None,
+                headers: None,
+            };
+            settings.model.do_generate(opts)
         })
         .await
         .map_err(|e| ChatError::Engine(e.to_string()))?;
 
-        // c. Extract text, reasoning, tool calls from response content
-        let text = extract_text(&response.content);
-        let reasoning = extract_reasoning(&response.content);
-        let tool_calls = extract_tool_calls(&response.content);
+        // d. Convert response content to LLMContent for storage
+        let llm_content = provider_content_to_llm_content(&response.content);
 
-        // d. Build step usage (convert from llm_provider::TokenUsage to ui_message_stream::TokenUsage)
+        // e. Extract text, reasoning, tool calls from converted content
+        let text = extract_text(&llm_content);
+        let reasoning = extract_reasoning(&llm_content);
+        let tool_calls = extract_tool_calls(&llm_content);
+
+        // f. Build step usage
         let step_usage = TokenUsage {
-            input_tokens: response.usage.input_tokens,
-            output_tokens: response.usage.output_tokens,
+            input_tokens: response.usage.input_tokens.total.unwrap_or(0),
+            output_tokens: response.usage.output_tokens.total.unwrap_or(0),
         };
 
-        // e. If ToolUse stop reason and we have tools, execute them
+        let unified_reason = response.finish_reason.unified.clone();
+
+        // g. If ToolCalls stop reason and we have tools, execute them
         let tool_results =
-            if response.stop_reason == StopReason::ToolUse && settings.tools.is_some() {
+            if unified_reason == UnifiedFinishReason::ToolCalls && settings.tools.is_some() {
                 let results = execute_tools(
                     settings.tools.as_ref().unwrap(),
                     &tool_calls,
@@ -82,7 +95,7 @@ pub async fn generate_text(
                 .await;
 
                 // Append assistant message + tool results to history
-                let assistant_msg = LLMMessage::assistant(response.content.clone());
+                let assistant_msg = LLMMessage::assistant(llm_content.clone());
                 history.push(assistant_msg);
                 for result in &results {
                     history.push(LLMMessage::tool_result(
@@ -95,7 +108,7 @@ pub async fn generate_text(
                 results
             } else {
                 // Append final assistant message
-                let assistant_msg = LLMMessage::assistant(response.content.clone());
+                let assistant_msg = LLMMessage::assistant(llm_content.clone());
                 history.push(assistant_msg);
                 vec![]
             };
@@ -105,17 +118,17 @@ pub async fn generate_text(
             reasoning: reasoning.clone(),
             tool_calls: tool_calls.clone(),
             tool_results: tool_results.clone(),
-            finish_reason: convert_stop_reason(&response.stop_reason),
+            finish_reason: convert_unified_reason(&unified_reason),
             usage: step_usage,
         };
         steps.push(step);
 
-        // f. Check stop condition
-        if response.stop_reason != StopReason::ToolUse {
+        // h. Check stop condition
+        if unified_reason != UnifiedFinishReason::ToolCalls {
             break; // Natural stop
         }
         if tool_calls.is_empty() {
-            break; // No tool calls despite ToolUse reason
+            break; // No tool calls despite ToolCalls reason
         }
         if let Some(ref stop_when) = settings.stop_when {
             if stop_when.should_stop(&steps) {
@@ -145,7 +158,7 @@ pub async fn generate_text(
     })
 }
 
-/// Extract all text content blocks from an LLM response, joined together.
+/// Extract all text content blocks from LLM content, joined together.
 pub(crate) fn extract_text(content: &[LLMContent]) -> String {
     content
         .iter()
@@ -158,9 +171,6 @@ pub(crate) fn extract_text(content: &[LLMContent]) -> String {
 }
 
 /// Extract reasoning text from content blocks.
-///
-/// Extracts reasoning/thinking blocks from the response content.
-/// These are produced by models with extended thinking capabilities.
 fn extract_reasoning(content: &[LLMContent]) -> Option<String> {
     let reasoning: String = content
         .iter()
@@ -177,7 +187,7 @@ fn extract_reasoning(content: &[LLMContent]) -> Option<String> {
     }
 }
 
-/// Extract tool calls from LLM response content blocks.
+/// Extract tool calls from LLM content blocks.
 pub(crate) fn extract_tool_calls(content: &[LLMContent]) -> Vec<ToolCall> {
     content
         .iter()
@@ -192,23 +202,22 @@ pub(crate) fn extract_tool_calls(content: &[LLMContent]) -> Vec<ToolCall> {
         .collect()
 }
 
-/// Convert LLM StopReason to UI FinishReason.
-pub(crate) fn convert_stop_reason(reason: &StopReason) -> FinishReason {
+/// Convert Provider V4 UnifiedFinishReason to UI FinishReason.
+pub(crate) fn convert_unified_reason(reason: &UnifiedFinishReason) -> FinishReason {
     match reason {
-        StopReason::EndTurn => FinishReason::Stop,
-        StopReason::ToolUse => FinishReason::ToolCalls,
-        StopReason::MaxTokens => FinishReason::MaxTokens,
-        StopReason::StopSequence => FinishReason::Stop,
+        UnifiedFinishReason::Stop => FinishReason::Stop,
+        UnifiedFinishReason::ToolCalls => FinishReason::ToolCalls,
+        UnifiedFinishReason::Length => FinishReason::MaxTokens,
+        UnifiedFinishReason::Error => FinishReason::Error,
+        _ => FinishReason::Stop,
     }
 }
 
 /// Retry an async operation up to `max_retries` times.
-///
-/// Attempts the operation once, then retries up to `max_retries` additional times on failure.
-async fn with_retry<F, Fut, T>(max_retries: u32, f: F) -> Result<T, EngineError>
+async fn with_retry<F, Fut, T, E>(max_retries: u32, f: F) -> Result<T, E>
 where
     F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<T, EngineError>>,
+    Fut: std::future::Future<Output = Result<T, E>>,
 {
     let mut last_err = None;
     for _ in 0..=max_retries {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use srow_core::domain::tool::{ToolCall, ToolResult};
-use srow_core::ports::llm_provider::LLMProvider;
+use srow_core::ports::provider::language_model::LanguageModel;
 use srow_core::ports::tool::ToolRegistry;
 use srow_core::ui_message::UIMessage;
 use srow_core::ui_message_stream::{FinishReason, TokenUsage, UIMessageChunk};
@@ -9,7 +9,7 @@ use srow_core::ui_message_stream::{FinishReason, TokenUsage, UIMessageChunk};
 use super::stop_condition::StopCondition;
 
 pub struct CallSettings {
-    pub model: Arc<dyn LLMProvider>,
+    pub model: Arc<dyn LanguageModel>,
     pub system: Option<String>,
     pub tools: Option<Arc<ToolRegistry>>,
     pub max_output_tokens: Option<u32>,

@@ -118,3 +118,186 @@ impl LLMMessage {
             .join("")
     }
 }
+
+// ---------------------------------------------------------------------------
+// Conversion: LLMMessage <-> LanguageModelMessage (Provider V4)
+// ---------------------------------------------------------------------------
+
+use crate::ports::provider::prompt::{
+    AssistantContentPart, LanguageModelMessage, ToolContentPart, UserContentPart,
+};
+use crate::ports::provider::content::LanguageModelContent;
+use crate::ports::provider::tool_types::ToolResultOutput;
+
+/// Convert internal LLMMessage history + optional system prompt into
+/// Provider V4 `LanguageModelMessage` prompt for provider calls.
+pub fn llm_messages_to_provider_prompt(
+    system: &Option<String>,
+    messages: &[LLMMessage],
+) -> Vec<LanguageModelMessage> {
+    let mut prompt: Vec<LanguageModelMessage> = Vec::new();
+
+    // System message
+    if let Some(sys) = system {
+        if !sys.is_empty() {
+            prompt.push(LanguageModelMessage::System {
+                content: sys.clone(),
+                provider_options: None,
+            });
+        }
+    }
+
+    for msg in messages {
+        match msg.role {
+            Role::System => {
+                // Already handled above; skip duplicates unless there are
+                // system messages stored inline in the history.
+            }
+            Role::User => {
+                let parts: Vec<UserContentPart> = msg
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        LLMContent::Text { text } => Some(UserContentPart::Text {
+                            text: text.clone(),
+                            provider_options: None,
+                        }),
+                        LLMContent::Image { source, media_type, data } => {
+                            let mime = media_type.as_deref().unwrap_or("image/png").to_string();
+                            match source {
+                                ImageSource::Url => Some(UserContentPart::File {
+                                    data: crate::ports::provider::prompt::DataContent::Url {
+                                        url: data.clone(),
+                                    },
+                                    media_type: mime,
+                                    filename: None,
+                                    provider_options: None,
+                                }),
+                                ImageSource::Base64 => Some(UserContentPart::File {
+                                    data: crate::ports::provider::prompt::DataContent::Base64 {
+                                        data: data.clone(),
+                                    },
+                                    media_type: mime,
+                                    filename: None,
+                                    provider_options: None,
+                                }),
+                            }
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                if !parts.is_empty() {
+                    prompt.push(LanguageModelMessage::User {
+                        content: parts,
+                        provider_options: None,
+                    });
+                }
+            }
+            Role::Assistant => {
+                let parts: Vec<AssistantContentPart> = msg
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        LLMContent::Text { text } => Some(AssistantContentPart::Text {
+                            text: text.clone(),
+                            provider_options: None,
+                        }),
+                        LLMContent::ToolUse { id, name, input } => {
+                            Some(AssistantContentPart::ToolCall {
+                                tool_call_id: id.clone(),
+                                tool_name: name.clone(),
+                                input: input.clone(),
+                                provider_options: None,
+                            })
+                        }
+                        LLMContent::Reasoning { text } => Some(AssistantContentPart::Reasoning {
+                            text: text.clone(),
+                            provider_options: None,
+                        }),
+                        _ => None,
+                    })
+                    .collect();
+                if !parts.is_empty() {
+                    prompt.push(LanguageModelMessage::Assistant {
+                        content: parts,
+                        provider_options: None,
+                    });
+                }
+            }
+            Role::Tool => {
+                let parts: Vec<ToolContentPart> = msg
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        LLMContent::ToolResult {
+                            tool_use_id,
+                            content,
+                            is_error,
+                        } => {
+                            let output = if *is_error {
+                                ToolResultOutput::ErrorText {
+                                    value: content.clone(),
+                                }
+                            } else {
+                                ToolResultOutput::Text {
+                                    value: content.clone(),
+                                }
+                            };
+                            Some(ToolContentPart::ToolResult {
+                                tool_call_id: tool_use_id.clone(),
+                                tool_name: String::new(),
+                                output,
+                                provider_options: None,
+                            })
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                if !parts.is_empty() {
+                    prompt.push(LanguageModelMessage::Tool {
+                        content: parts,
+                        provider_options: None,
+                    });
+                }
+            }
+        }
+    }
+
+    prompt
+}
+
+/// Convert Provider V4 `LanguageModelContent` from a generate result into
+/// internal `LLMContent` blocks for storage.
+pub fn provider_content_to_llm_content(
+    content: &[LanguageModelContent],
+) -> Vec<LLMContent> {
+    content
+        .iter()
+        .filter_map(|c| match c {
+            LanguageModelContent::Text { text, .. } => Some(LLMContent::Text {
+                text: text.clone(),
+            }),
+            LanguageModelContent::ToolCall {
+                tool_call_id,
+                tool_name,
+                input,
+                ..
+            } => {
+                // input is a JSON string in the V4 model — parse to Value
+                let parsed: serde_json::Value =
+                    serde_json::from_str(input).unwrap_or(serde_json::Value::Object(
+                        serde_json::Map::new(),
+                    ));
+                Some(LLMContent::ToolUse {
+                    id: tool_call_id.clone(),
+                    name: tool_name.clone(),
+                    input: parsed,
+                })
+            }
+            LanguageModelContent::Reasoning { text, .. } => Some(LLMContent::Reasoning {
+                text: text.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}

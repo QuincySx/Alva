@@ -1,6 +1,3 @@
-// INPUT:  srow_core (AgentEngine, UIMessageChunk, SessionService, AgentConfig, LLMMessage, ToolRegistry, OpenAICompatProvider, MemoryStorage), std::sync, tokio::sync
-// OUTPUT: (binary entry point, no library exports)
-// POS:    CLI REPL for testing the Agent engine — reads user input, runs agentic loop, prints streaming output.
 //! srow-cli -- Simple CLI to test the Agent engine
 //!
 //! Usage:
@@ -11,7 +8,7 @@
 
 use srow_core::{
     adapters::{
-        llm::openai_compat::OpenAICompatProvider,
+        llm::openai::OpenAILanguageModel,
         storage::memory::MemoryStorage,
     },
     agent::runtime::tools,
@@ -19,6 +16,7 @@ use srow_core::{
     agent::runtime::engine::session_service::SessionService,
     domain::agent::{AgentConfig, LLMConfig, LLMProviderKind},
     domain::message::LLMMessage,
+    ports::provider::language_model::LanguageModel,
     ports::tool::ToolRegistry,
     ui_message_stream::UIMessageChunk,
 };
@@ -54,11 +52,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Workspace: {}", workspace.display());
     println!("Type 'exit' or 'quit' to stop.\n");
 
-    // Create LLM provider
-    let llm: Arc<dyn srow_core::LLMProvider> = if let Some(ref url) = base_url {
-        Arc::new(OpenAICompatProvider::with_base_url(&api_key, url, &model))
+    // Create LLM provider (Provider V4)
+    let llm: Arc<dyn LanguageModel> = if let Some(ref url) = base_url {
+        Arc::new(OpenAILanguageModel::with_base_url(&api_key, url, &model))
     } else {
-        Arc::new(OpenAICompatProvider::new(&api_key, &model))
+        Arc::new(OpenAILanguageModel::new(&api_key, &model))
     };
 
     // Create tool registry with builtin tools

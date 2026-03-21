@@ -1,6 +1,8 @@
+// INPUT:  crate::domain::message, crate::error
+// OUTPUT: ContextManager
+// POS:    Manages context window size by triggering message history truncation when token threshold is exceeded.
 use crate::domain::message::{LLMMessage, Role};
 use crate::error::EngineError;
-use crate::ports::llm_provider::LLMProvider;
 
 /// Manages context window size, triggering compaction when token count exceeds threshold.
 pub struct ContextManager {
@@ -37,7 +39,6 @@ impl ContextManager {
         &self,
         history: Vec<LLMMessage>,
         _system: &str,
-        _llm: &dyn LLMProvider,
     ) -> Result<Vec<LLMMessage>, EngineError> {
         if history.len() <= self.keep_recent {
             return Ok(history);

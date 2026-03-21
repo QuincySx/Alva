@@ -11,9 +11,10 @@ use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 use crate::types::AgentStatusKind;
 
-use srow_core::adapters::llm::openai_compat::OpenAICompatProvider;
+use srow_core::adapters::llm::openai::OpenAILanguageModel;
 use srow_core::adapters::storage::memory::MemoryStorage;
 use srow_core::domain::agent::AgentConfig;
+use srow_core::ports::provider::language_model::LanguageModel;
 use srow_core::ports::tool::ToolRegistry;
 use srow_core::agent::runtime::tools::register_all_tools;
 use srow_ai::transport::DirectChatTransport;
@@ -147,12 +148,12 @@ impl InputBox {
         let base_url = settings.llm.base_url.clone();
         let model_name = settings.llm.model.clone();
 
-        // Build LLM provider
-        let llm: Arc<dyn srow_core::ports::llm_provider::LLMProvider> =
+        // Build LLM provider (Provider V4)
+        let llm: Arc<dyn LanguageModel> =
             if base_url == "https://api.openai.com/v1" || base_url.is_empty() {
-                Arc::new(OpenAICompatProvider::new(&api_key, &model_name))
+                Arc::new(OpenAILanguageModel::new(&api_key, &model_name))
             } else {
-                Arc::new(OpenAICompatProvider::with_base_url(
+                Arc::new(OpenAILanguageModel::with_base_url(
                     &api_key, &base_url, &model_name,
                 ))
             };

@@ -1,27 +1,38 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::pin::Pin;
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use futures::{Stream, stream};
 
 use srow_core::domain::message::*;
-use srow_core::error::EngineError;
-use srow_core::ports::llm_provider::*;
+use srow_core::ports::provider::language_model::*;
+use srow_core::ports::provider::content::LanguageModelContent;
+use srow_core::ports::provider::errors::ProviderError;
 use srow_core::ui_message_stream::FinishReason;
 
 use srow_ai::generate::*;
 
+// Use a type alias to avoid confusion with ui_message_stream::FinishReason
+use srow_core::ports::provider::language_model::FinishReason as FinishReasonV4;
+
 // ---------------------------------------------------------------------------
-// Mock LLM Provider with streaming support
+// Mock Language Model with streaming support
 // ---------------------------------------------------------------------------
 
-struct MockStreamingProvider {
-    responses: Vec<LLMResponse>,
+struct MockStreamingModel {
+    responses: Vec<MockStreamResponse>,
     call_count: AtomicUsize,
 }
 
-impl MockStreamingProvider {
-    fn new(responses: Vec<LLMResponse>) -> Self {
+struct MockStreamResponse {
+    text: String,
+    input_tokens: u32,
+    output_tokens: u32,
+}
+
+impl MockStreamingModel {
+    fn new(responses: Vec<MockStreamResponse>) -> Self {
         Self {
             responses,
             call_count: AtomicUsize::new(0),
@@ -30,45 +41,77 @@ impl MockStreamingProvider {
 }
 
 #[async_trait]
-impl LLMProvider for MockStreamingProvider {
+impl LanguageModel for MockStreamingModel {
+    fn provider(&self) -> &str {
+        "mock"
+    }
+
     fn model_id(&self) -> &str {
         "mock-streaming"
     }
 
-    async fn complete(&self, _request: LLMRequest) -> Result<LLMResponse, EngineError> {
-        let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
-        if idx < self.responses.len() {
-            Ok(self.responses[idx].clone())
-        } else {
-            Err(EngineError::LLMProvider(
-                "No more mock responses".to_string(),
-            ))
-        }
+    async fn do_generate(
+        &self,
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelGenerateResult, ProviderError> {
+        unimplemented!("Not needed for stream tests — use do_stream")
     }
 
-    async fn complete_stream(
+    async fn do_stream(
         &self,
-        _request: LLMRequest,
-        tx: mpsc::Sender<StreamChunk>,
-    ) -> Result<(), EngineError> {
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelStreamResult, ProviderError> {
         let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
         if idx >= self.responses.len() {
-            return Err(EngineError::LLMProvider(
-                "No more mock responses".to_string(),
-            ));
+            return Err(ProviderError::ApiCall {
+                message: "No more mock responses".to_string(),
+                url: String::new(),
+                status_code: None,
+                response_body: None,
+                is_retryable: false,
+            });
         }
-        let response = &self.responses[idx];
+        let resp = &self.responses[idx];
 
-        // Send text content as TextDelta chunks
-        for content in &response.content {
-            if let LLMContent::Text { text } = content {
-                let _ = tx.send(StreamChunk::TextDelta(text.clone())).await;
-            }
-        }
+        let text = resp.text.clone();
+        let input_tokens = resp.input_tokens;
+        let output_tokens = resp.output_tokens;
 
-        // Send Done with the full response
-        let _ = tx.send(StreamChunk::Done(response.clone())).await;
-        Ok(())
+        let parts = vec![
+            LanguageModelStreamPart::TextStart {
+                id: "t0".to_string(),
+            },
+            LanguageModelStreamPart::TextDelta {
+                id: "t0".to_string(),
+                delta: text,
+            },
+            LanguageModelStreamPart::TextEnd {
+                id: "t0".to_string(),
+            },
+            LanguageModelStreamPart::Finish {
+                usage: LanguageModelUsage {
+                    input_tokens: UsageInputTokens {
+                        total: Some(input_tokens),
+                        ..Default::default()
+                    },
+                    output_tokens: UsageOutputTokens {
+                        total: Some(output_tokens),
+                        ..Default::default()
+                    },
+                    raw: None,
+                },
+                finish_reason: FinishReasonV4 {
+                    unified: UnifiedFinishReason::Stop,
+                    raw: None,
+                },
+                provider_metadata: None,
+            },
+        ];
+
+        Ok(LanguageModelStreamResult {
+            stream: Box::pin(stream::iter(parts)),
+            response: None,
+        })
     }
 }
 
@@ -76,21 +119,7 @@ impl LLMProvider for MockStreamingProvider {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn text_response(text: &str, input_tokens: u32, output_tokens: u32) -> LLMResponse {
-    LLMResponse {
-        content: vec![LLMContent::Text {
-            text: text.to_string(),
-        }],
-        stop_reason: StopReason::EndTurn,
-        usage: TokenUsage {
-            input_tokens,
-            output_tokens,
-            ..Default::default()
-        },
-    }
-}
-
-fn make_settings(model: Arc<dyn LLMProvider>) -> CallSettings {
+fn make_settings(model: Arc<dyn LanguageModel>) -> CallSettings {
     CallSettings {
         model,
         system: None,
@@ -109,22 +138,20 @@ fn make_settings(model: Arc<dyn LLMProvider>) -> CallSettings {
 
 #[tokio::test]
 async fn test_stream_text_emits_chunks() {
-    let provider = Arc::new(MockStreamingProvider::new(vec![text_response(
-        "Hello world",
-        10,
-        5,
-    )]));
-    let settings = make_settings(provider);
+    let model = Arc::new(MockStreamingModel::new(vec![MockStreamResponse {
+        text: "Hello world".to_string(),
+        input_tokens: 10,
+        output_tokens: 5,
+    }]));
+    let settings = make_settings(model);
 
     let mut result = stream_text(settings, Prompt::Text("Hi".to_string()));
 
-    // Collect all chunks from the channel
     let mut chunks = Vec::new();
     while let Some(chunk) = result.chunk_rx.recv().await {
         chunks.push(chunk);
     }
 
-    // Verify we have Start, TextDelta, TokenUsage, and Finish chunks
     assert!(
         chunks.iter().any(|c| matches!(c, srow_core::ui_message_stream::UIMessageChunk::Start { .. })),
         "Should contain a Start chunk"
@@ -141,16 +168,15 @@ async fn test_stream_text_emits_chunks() {
 
 #[tokio::test]
 async fn test_stream_text_final_values() {
-    let provider = Arc::new(MockStreamingProvider::new(vec![text_response(
-        "Final answer",
-        20,
-        10,
-    )]));
-    let settings = make_settings(provider);
+    let model = Arc::new(MockStreamingModel::new(vec![MockStreamResponse {
+        text: "Final answer".to_string(),
+        input_tokens: 20,
+        output_tokens: 10,
+    }]));
+    let settings = make_settings(model);
 
     let result = stream_text(settings, Prompt::Text("Question".to_string()));
 
-    // Await the oneshot receivers for final values
     let text = result.text.await.unwrap();
     let steps = result.steps.await.unwrap();
     let total_usage = result.total_usage.await.unwrap();

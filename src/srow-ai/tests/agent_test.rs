@@ -1,27 +1,38 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::pin::Pin;
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use futures::{Stream, stream};
 
 use srow_core::domain::message::*;
-use srow_core::error::EngineError;
-use srow_core::ports::llm_provider::*;
+use srow_core::ports::provider::language_model::*;
+use srow_core::ports::provider::content::LanguageModelContent;
+use srow_core::ports::provider::errors::ProviderError;
 use srow_core::ui_message_stream::FinishReason;
 
 use srow_ai::generate::{Agent, Prompt};
 
+// Use a type alias to avoid confusion with ui_message_stream::FinishReason
+use srow_core::ports::provider::language_model::FinishReason as FinishReasonV4;
+
 // ---------------------------------------------------------------------------
-// Mock LLM Provider (supports both complete and complete_stream)
+// Mock Language Model (supports both do_generate and do_stream)
 // ---------------------------------------------------------------------------
 
-struct MockAgentProvider {
-    responses: Vec<LLMResponse>,
+struct MockAgentModel {
+    responses: Vec<MockResponse>,
     call_count: AtomicUsize,
 }
 
-impl MockAgentProvider {
-    fn new(responses: Vec<LLMResponse>) -> Self {
+struct MockResponse {
+    text: String,
+    input_tokens: u32,
+    output_tokens: u32,
+}
+
+impl MockAgentModel {
+    fn new(responses: Vec<MockResponse>) -> Self {
         Self {
             responses,
             call_count: AtomicUsize::new(0),
@@ -30,63 +41,107 @@ impl MockAgentProvider {
 }
 
 #[async_trait]
-impl LLMProvider for MockAgentProvider {
+impl LanguageModel for MockAgentModel {
+    fn provider(&self) -> &str {
+        "mock"
+    }
+
     fn model_id(&self) -> &str {
         "mock-agent"
     }
 
-    async fn complete(&self, _request: LLMRequest) -> Result<LLMResponse, EngineError> {
-        let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
-        if idx < self.responses.len() {
-            Ok(self.responses[idx].clone())
-        } else {
-            Err(EngineError::LLMProvider(
-                "No more mock responses".to_string(),
-            ))
-        }
-    }
-
-    async fn complete_stream(
+    async fn do_generate(
         &self,
-        _request: LLMRequest,
-        tx: mpsc::Sender<StreamChunk>,
-    ) -> Result<(), EngineError> {
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelGenerateResult, ProviderError> {
         let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
         if idx >= self.responses.len() {
-            return Err(EngineError::LLMProvider(
-                "No more mock responses".to_string(),
-            ));
+            return Err(ProviderError::ApiCall {
+                message: "No more mock responses".to_string(),
+                url: String::new(),
+                status_code: None,
+                response_body: None,
+                is_retryable: false,
+            });
         }
-        let response = &self.responses[idx];
-
-        // Send text content as TextDelta chunks
-        for content in &response.content {
-            if let LLMContent::Text { text } = content {
-                let _ = tx.send(StreamChunk::TextDelta(text.clone())).await;
-            }
-        }
-
-        // Send Done with the full response
-        let _ = tx.send(StreamChunk::Done(response.clone())).await;
-        Ok(())
+        let resp = &self.responses[idx];
+        Ok(LanguageModelGenerateResult {
+            content: vec![LanguageModelContent::Text {
+                text: resp.text.clone(),
+                provider_metadata: None,
+            }],
+            finish_reason: FinishReasonV4 {
+                unified: UnifiedFinishReason::Stop,
+                raw: None,
+            },
+            usage: LanguageModelUsage {
+                input_tokens: UsageInputTokens {
+                    total: Some(resp.input_tokens),
+                    ..Default::default()
+                },
+                output_tokens: UsageOutputTokens {
+                    total: Some(resp.output_tokens),
+                    ..Default::default()
+                },
+                raw: None,
+            },
+            provider_metadata: None,
+            warnings: Vec::new(),
+            response: None,
+        })
     }
-}
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+    async fn do_stream(
+        &self,
+        _options: LanguageModelCallOptions,
+    ) -> Result<LanguageModelStreamResult, ProviderError> {
+        let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
+        if idx >= self.responses.len() {
+            return Err(ProviderError::ApiCall {
+                message: "No more mock responses".to_string(),
+                url: String::new(),
+                status_code: None,
+                response_body: None,
+                is_retryable: false,
+            });
+        }
+        let resp = &self.responses[idx];
 
-fn text_response(text: &str, input_tokens: u32, output_tokens: u32) -> LLMResponse {
-    LLMResponse {
-        content: vec![LLMContent::Text {
-            text: text.to_string(),
-        }],
-        stop_reason: StopReason::EndTurn,
-        usage: TokenUsage {
-            input_tokens,
-            output_tokens,
-            ..Default::default()
-        },
+        let parts = vec![
+            LanguageModelStreamPart::TextStart {
+                id: "t0".to_string(),
+            },
+            LanguageModelStreamPart::TextDelta {
+                id: "t0".to_string(),
+                delta: resp.text.clone(),
+            },
+            LanguageModelStreamPart::TextEnd {
+                id: "t0".to_string(),
+            },
+            LanguageModelStreamPart::Finish {
+                usage: LanguageModelUsage {
+                    input_tokens: UsageInputTokens {
+                        total: Some(resp.input_tokens),
+                        ..Default::default()
+                    },
+                    output_tokens: UsageOutputTokens {
+                        total: Some(resp.output_tokens),
+                        ..Default::default()
+                    },
+                    raw: None,
+                },
+                finish_reason: FinishReasonV4 {
+                    unified: UnifiedFinishReason::Stop,
+                    raw: None,
+                },
+                provider_metadata: None,
+            },
+        ];
+
+        Ok(LanguageModelStreamResult {
+            stream: Box::pin(stream::iter(parts)),
+            response: None,
+        })
     }
 }
 
@@ -96,13 +151,13 @@ fn text_response(text: &str, input_tokens: u32, output_tokens: u32) -> LLMRespon
 
 #[tokio::test]
 async fn test_agent_generate_simple() {
-    let provider = Arc::new(MockAgentProvider::new(vec![text_response(
-        "Hello from agent",
-        15,
-        8,
-    )]));
+    let model = Arc::new(MockAgentModel::new(vec![MockResponse {
+        text: "Hello from agent".to_string(),
+        input_tokens: 15,
+        output_tokens: 8,
+    }]));
 
-    let agent = Agent::new(provider)
+    let agent = Agent::new(model)
         .with_instructions("You are a helpful assistant.")
         .with_workspace(std::path::PathBuf::from("/tmp"));
 
@@ -120,25 +175,23 @@ async fn test_agent_generate_simple() {
 
 #[tokio::test]
 async fn test_agent_stream_simple() {
-    let provider = Arc::new(MockAgentProvider::new(vec![text_response(
-        "Streaming from agent",
-        25,
-        12,
-    )]));
+    let model = Arc::new(MockAgentModel::new(vec![MockResponse {
+        text: "Streaming from agent".to_string(),
+        input_tokens: 25,
+        output_tokens: 12,
+    }]));
 
-    let agent = Agent::new(provider)
+    let agent = Agent::new(model)
         .with_instructions("You are a helpful assistant.")
         .with_workspace(std::path::PathBuf::from("/tmp"));
 
     let mut result = agent.stream(Prompt::Text("hi".to_string()));
 
-    // Collect all chunks
     let mut chunks = Vec::new();
     while let Some(chunk) = result.chunk_rx.recv().await {
         chunks.push(chunk);
     }
 
-    // Verify key chunks are present
     assert!(
         chunks.iter().any(|c| matches!(
             c,
@@ -161,7 +214,6 @@ async fn test_agent_stream_simple() {
         "Should contain a Finish chunk"
     );
 
-    // Verify the TextDelta contains the expected text
     let text_deltas: Vec<String> = chunks
         .iter()
         .filter_map(|c| match c {

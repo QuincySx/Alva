@@ -1,10 +1,14 @@
-use srow_core::domain::message::LLMMessage;
+use futures::StreamExt;
+use srow_core::domain::message::{LLMContent, LLMMessage, llm_messages_to_provider_prompt};
 use srow_core::error::ChatError;
-use srow_core::ports::llm_provider::{LLMRequest, StopReason, StreamChunk};
+use srow_core::ports::provider::language_model::{
+    LanguageModelCallOptions, LanguageModelStreamPart, UnifiedFinishReason,
+};
+use srow_core::ports::provider::tool_types::{LanguageModelTool, FunctionTool};
 use srow_core::ui_message_stream::{FinishReason, TokenUsage, UIMessageChunk};
 use tokio::sync::{mpsc, oneshot};
 
-use super::generate_text::{convert_stop_reason, execute_tools, extract_text, extract_tool_calls};
+use super::generate_text::{convert_unified_reason, execute_tools, extract_text, extract_tool_calls};
 use super::types::*;
 
 /// Streaming text generation with an agentic tool-use loop.
@@ -59,18 +63,12 @@ pub fn stream_text(settings: CallSettings, prompt: Prompt) -> StreamTextResult {
 }
 
 /// Internal streaming loop that drives the LLM and emits UI chunks.
-///
-/// Works the same as the generate_text loop but streams chunks in real time:
-/// 1. Emits `Start` at the beginning
-/// 2. For each LLM call, forwards `TextDelta` / `ReasoningDelta` chunks as they arrive
-/// 3. On tool use, emits tool input/output chunks and loops back
-/// 4. Emits `Finish` when done
 async fn run_stream_loop(
     settings: CallSettings,
     prompt: Prompt,
     chunk_tx: mpsc::UnboundedSender<UIMessageChunk>,
 ) -> Result<(String, Vec<StepResult>, TokenUsage, FinishReason), ChatError> {
-    // 1. Convert prompt to LLM messages (same as generate_text)
+    // 1. Convert prompt to LLM messages
     let mut history: Vec<LLMMessage> = match prompt {
         Prompt::Text(s) => vec![LLMMessage::user(s)],
         Prompt::Messages(msgs) => {
@@ -96,80 +94,141 @@ async fn run_stream_loop(
             .as_ref()
             .map(|t| t.definitions())
             .unwrap_or_default();
-        let request = LLMRequest {
-            messages: history.clone(),
-            tools: tool_defs,
-            system: settings.system.clone(),
-            max_tokens: settings.max_output_tokens.unwrap_or(8192),
+
+        let v4_tools: Vec<LanguageModelTool> = tool_defs
+            .iter()
+            .map(|td| {
+                LanguageModelTool::Function(FunctionTool {
+                    name: td.name.clone(),
+                    description: Some(td.description.clone()),
+                    input_schema: td.parameters.clone(),
+                    strict: None,
+                    provider_options: None,
+                })
+            })
+            .collect();
+
+        let prompt_messages = llm_messages_to_provider_prompt(&settings.system, &history);
+
+        let options = LanguageModelCallOptions {
+            prompt: prompt_messages,
+            max_output_tokens: settings.max_output_tokens,
             temperature: settings.temperature,
-            tool_choice: None,
-            response_format: None,
+            stop_sequences: None,
             top_p: None,
             top_k: None,
             presence_penalty: None,
             frequency_penalty: None,
-            stop_sequences: None,
+            response_format: None,
             seed: None,
+            tools: if v4_tools.is_empty() { None } else { Some(v4_tools) },
+            tool_choice: None,
+            reasoning: None,
             provider_options: None,
+            headers: None,
         };
 
         // Stream from LLM
-        let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<StreamChunk>(256);
-        let model = settings.model.clone();
+        let stream_result = settings
+            .model
+            .do_stream(options)
+            .await
+            .map_err(|e| ChatError::Engine(e.to_string()))?;
 
-        let stream_handle = tokio::spawn(async move {
-            model.complete_stream(request, stream_tx).await
-        });
+        let mut stream = stream_result.stream;
 
-        // Forward StreamChunks as UIMessageChunks and accumulate response
-        let mut response_content = Vec::new();
+        // Accumulate response
+        let mut accumulated_text = String::new();
+        let mut accumulated_tool_calls: Vec<(String, String, String)> = Vec::new();
+        let mut tool_input_buffers: std::collections::HashMap<String, (String, String)> =
+            std::collections::HashMap::new();
         let mut step_usage = TokenUsage {
             input_tokens: 0,
             output_tokens: 0,
         };
-        let mut stop_reason = StopReason::EndTurn;
+        let mut unified_reason = UnifiedFinishReason::Stop;
 
-        while let Some(chunk) = stream_rx.recv().await {
-            match &chunk {
-                StreamChunk::TextDelta(text) => {
+        while let Some(part) = stream.next().await {
+            match &part {
+                LanguageModelStreamPart::TextDelta { delta, .. } => {
                     let _ = chunk_tx.send(UIMessageChunk::TextDelta {
                         id: "stream".to_string(),
-                        delta: text.clone(),
+                        delta: delta.clone(),
                     });
+                    accumulated_text.push_str(delta);
                 }
-                StreamChunk::ThinkingDelta(text) => {
+                LanguageModelStreamPart::ReasoningDelta { delta, .. } => {
                     let _ = chunk_tx.send(UIMessageChunk::ReasoningDelta {
                         id: "reasoning".to_string(),
-                        delta: text.clone(),
+                        delta: delta.clone(),
                     });
                 }
-                StreamChunk::ToolCallDelta { .. } => {
-                    // Tool call deltas are accumulated in the Done response
+                LanguageModelStreamPart::ToolInputStart { id, tool_name, .. } => {
+                    tool_input_buffers.insert(id.clone(), (tool_name.clone(), String::new()));
                 }
-                StreamChunk::Done(response) => {
-                    response_content = response.content.clone();
+                LanguageModelStreamPart::ToolInputDelta { id, delta } => {
+                    if let Some(entry) = tool_input_buffers.get_mut(id) {
+                        entry.1.push_str(delta);
+                    }
+                }
+                LanguageModelStreamPart::ToolInputEnd { id } => {
+                    if let Some((name, input_json)) = tool_input_buffers.remove(id) {
+                        accumulated_tool_calls.push((id.clone(), name, input_json));
+                    }
+                }
+                LanguageModelStreamPart::ToolCall { content } => {
+                    if let srow_core::ports::provider::content::LanguageModelContent::ToolCall {
+                        tool_call_id,
+                        tool_name,
+                        input,
+                        ..
+                    } = content
+                    {
+                        accumulated_tool_calls.push((tool_call_id.clone(), tool_name.clone(), input.clone()));
+                    }
+                }
+                LanguageModelStreamPart::Finish { usage, finish_reason, .. } => {
                     step_usage = TokenUsage {
-                        input_tokens: response.usage.input_tokens,
-                        output_tokens: response.usage.output_tokens,
+                        input_tokens: usage.input_tokens.total.unwrap_or(0),
+                        output_tokens: usage.output_tokens.total.unwrap_or(0),
                     };
-                    stop_reason = response.stop_reason.clone();
+                    unified_reason = finish_reason.unified.clone();
 
                     let _ = chunk_tx.send(UIMessageChunk::TokenUsage {
                         usage: step_usage.clone(),
                     });
                 }
+                _ => {
+                    // Other stream parts — ignored
+                }
             }
         }
 
-        // Wait for the stream producer to finish
-        let _ = stream_handle.await;
+        // Build LLMContent from accumulated data
+        let mut response_content: Vec<LLMContent> = Vec::new();
+        if !accumulated_text.is_empty() {
+            response_content.push(LLMContent::Text {
+                text: accumulated_text.clone(),
+            });
+        }
+        for (tc_id, tc_name, tc_input) in &accumulated_tool_calls {
+            let parsed: serde_json::Value =
+                serde_json::from_str(tc_input).unwrap_or(serde_json::Value::Object(
+                    serde_json::Map::new(),
+                ));
+            response_content.push(LLMContent::ToolUse {
+                id: tc_id.clone(),
+                name: tc_name.clone(),
+                input: parsed,
+            });
+        }
 
         let text = extract_text(&response_content);
         let tool_calls = extract_tool_calls(&response_content);
-        let finish_reason = convert_stop_reason(&stop_reason);
+        let finish_reason = convert_unified_reason(&unified_reason);
 
         // Execute tools if needed
-        let tool_results = if stop_reason == StopReason::ToolUse
+        let tool_results = if unified_reason == UnifiedFinishReason::ToolCalls
             && settings.tools.is_some()
             && !tool_calls.is_empty()
         {
@@ -245,7 +304,7 @@ async fn run_stream_loop(
         steps.push(step);
 
         // Check stop conditions
-        if stop_reason != StopReason::ToolUse {
+        if unified_reason != UnifiedFinishReason::ToolCalls {
             break;
         }
         if let Some(ref stop_when) = settings.stop_when {
