@@ -1,4 +1,7 @@
 pub mod state;
+pub mod processor;
+
+pub use processor::{process_ui_message_stream, UIMessageStreamUpdate};
 
 use serde::{Deserialize, Serialize};
 

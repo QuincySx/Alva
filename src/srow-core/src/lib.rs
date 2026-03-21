@@ -86,6 +86,7 @@ pub use ui_message::{UIMessage, UIMessagePart, UIMessageRole, TextPartState, Too
 
 // Convenience re-exports — UI message stream protocol
 pub use ui_message_stream::{UIMessageChunk, FinishReason, ChatStatus, TokenUsage};
+pub use ui_message_stream::{process_ui_message_stream, UIMessageStreamUpdate};
 pub use error::{ChatError, StreamError};
 
 // Convenience re-exports — orchestrator
