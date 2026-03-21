@@ -1,7 +1,8 @@
+// INPUT:  (re-exports submodules: workspace, agent)
+// OUTPUT: pub use workspace::*, pub use agent::*
+// POS:    Barrel module that re-exports domain data types (Workspace, Session, AgentStatus).
 pub mod workspace;
-pub mod message;
 pub mod agent;
 
 pub use workspace::*;
-pub use message::*;
 pub use agent::*;

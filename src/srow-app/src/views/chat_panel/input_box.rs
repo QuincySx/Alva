@@ -1,9 +1,22 @@
+// INPUT:  gpui, crate::models (AgentModel, ChatModel, SettingsModel, WorkspaceModel), crate::chat (GpuiChat, GpuiChatConfig),
+//         crate::theme, crate::types::AgentStatusKind, srow_core, srow_ai
+// OUTPUT: pub struct InputBox
+// POS:    Focusable chat input widget handling keyboard input, draft text, send-on-enter, and agent-busy guard.
+use std::sync::Arc;
+
 use gpui::{prelude::*, Context, Entity, FocusHandle, Focusable, FontWeight, Modifiers, Render, Window, div, px};
 
-use crate::engine_bridge::EngineBridge;
+use crate::chat::{GpuiChatConfig};
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 use crate::types::AgentStatusKind;
+
+use srow_core::adapters::llm::openai_compat::OpenAICompatProvider;
+use srow_core::adapters::storage::memory::MemoryStorage;
+use srow_core::domain::agent::AgentConfig;
+use srow_core::ports::tool::ToolRegistry;
+use srow_core::agent::runtime::tools::register_all_tools;
+use srow_ai::transport::DirectChatTransport;
 
 pub struct InputBox {
     focus_handle: FocusHandle,
@@ -62,24 +75,100 @@ impl InputBox {
             }
         }
 
-        // Push user message into chat model
-        self.chat_model.update(cx, |model, cx| {
-            model.push_user_message(&session_id, text.clone(), cx);
+        // Read settings
+        let settings = self.settings_model.read(cx).settings.clone();
+
+        // Ensure the GpuiChat exists for this session
+        let chat_entity = {
+            let needs_create = {
+                let cm = self.chat_model.read(cx);
+                cm.get_chat(&session_id).is_none()
+            };
+
+            if needs_create {
+                // Build transport from settings
+                let transport = self.build_transport(&settings);
+                let config = GpuiChatConfig {
+                    session_id: session_id.clone(),
+                    transport,
+                };
+                self.chat_model.update(cx, |model, cx| {
+                    model.get_or_create_chat(&session_id, config, cx)
+                })
+            } else {
+                self.chat_model
+                    .read(cx)
+                    .get_chat(&session_id)
+                    .unwrap()
+                    .clone()
+            }
+        };
+
+        // Mark agent as running
+        self.agent_model.update(cx, |model, cx| {
+            model.set_status(&session_id, AgentStatusKind::Running, cx);
         });
 
-        // Start real engine
-        EngineBridge::send_message(
-            session_id,
-            text,
-            self.chat_model.clone(),
-            self.agent_model.clone(),
-            self.settings_model.clone(),
-            cx,
-        );
+        // Send via GpuiChat
+        chat_entity.read(cx).send_message(&text);
+
+        // Subscribe to chat events to update agent status
+        let agent_model = self.agent_model.clone();
+        let sid = session_id.clone();
+        cx.subscribe(&chat_entity, move |_this, chat, _event, cx| {
+            let chat = chat.read(cx);
+            let status = chat.status();
+            match status {
+                srow_core::ui_message_stream::ChatStatus::Ready => {
+                    agent_model.update(cx, |model, cx| {
+                        model.set_status(&sid, AgentStatusKind::Idle, cx);
+                    });
+                }
+                srow_core::ui_message_stream::ChatStatus::Error => {
+                    agent_model.update(cx, |model, cx| {
+                        model.set_status(&sid, AgentStatusKind::Error, cx);
+                    });
+                }
+                _ => {}
+            }
+        })
+        .detach();
 
         // Clear draft
         self.draft.clear();
         cx.notify();
+    }
+
+    fn build_transport(
+        &self,
+        settings: &crate::models::AppSettings,
+    ) -> Box<dyn srow_ai::transport::ChatTransport> {
+        let api_key = settings.llm.api_key.clone();
+        let base_url = settings.llm.base_url.clone();
+        let model_name = settings.llm.model.clone();
+
+        // Build LLM provider
+        let llm: Arc<dyn srow_core::ports::llm_provider::LLMProvider> =
+            if base_url == "https://api.openai.com/v1" || base_url.is_empty() {
+                Arc::new(OpenAICompatProvider::new(&api_key, &model_name))
+            } else {
+                Arc::new(OpenAICompatProvider::with_base_url(
+                    &api_key, &base_url, &model_name,
+                ))
+            };
+
+        // Build tool registry with all built-in tools
+        let mut registry = ToolRegistry::new();
+        register_all_tools(&mut registry);
+        let tools = Arc::new(registry);
+
+        // Build in-memory storage
+        let storage = Arc::new(MemoryStorage::new());
+
+        // Build agent config
+        let config = Arc::new(AgentConfig::default());
+
+        Box::new(DirectChatTransport::new(llm, tools, storage, config))
     }
 
     fn is_agent_running(&self, cx: &Context<Self>) -> bool {
