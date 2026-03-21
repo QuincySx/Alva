@@ -908,6 +908,7 @@ async fn test_llm_text_stream_to_ui_chunks() {
             usage: LLMTokenUsage {
                 input_tokens: 10,
                 output_tokens: 5,
+                ..Default::default()
             },
         }),
     ]);
@@ -936,6 +937,7 @@ async fn test_llm_thinking_stream_to_ui_chunks() {
             usage: LLMTokenUsage {
                 input_tokens: 20,
                 output_tokens: 10,
+                ..Default::default()
             },
         }),
     ]);
@@ -980,6 +982,7 @@ async fn test_llm_tool_call_stream_to_ui_chunks() {
             usage: LLMTokenUsage {
                 input_tokens: 30,
                 output_tokens: 15,
+                ..Default::default()
             },
         }),
     ]);
@@ -1007,6 +1010,7 @@ async fn test_llm_max_tokens_finish_reason() {
             usage: LLMTokenUsage {
                 input_tokens: 100,
                 output_tokens: 4096,
+                ..Default::default()
             },
         }),
     ]);

@@ -85,6 +85,7 @@ fn text_response(text: &str, input_tokens: u32, output_tokens: u32) -> LLMRespon
         usage: TokenUsage {
             input_tokens,
             output_tokens,
+            ..Default::default()
         },
     }
 }

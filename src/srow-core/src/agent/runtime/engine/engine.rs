@@ -146,6 +146,15 @@ impl AgentEngine {
                 system: Some(self.config.system_prompt.clone()),
                 max_tokens: self.config.llm.max_tokens,
                 temperature: self.config.llm.temperature,
+                tool_choice: None,
+                response_format: None,
+                top_p: None,
+                top_k: None,
+                presence_penalty: None,
+                frequency_penalty: None,
+                stop_sequences: None,
+                seed: None,
+                provider_options: None,
             };
 
             // 6. Stream LLM response

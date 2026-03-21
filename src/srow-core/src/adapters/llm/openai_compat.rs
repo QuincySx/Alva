@@ -1,3 +1,6 @@
+// INPUT:  crate::domain, crate::error, crate::ports::llm_provider, async_trait, futures, rig (openai, completion), tokio::sync::mpsc
+// OUTPUT: OpenAICompatProvider
+// POS:    OpenAI-compatible LLM adapter using rig-core, supporting sync and streaming completions for OpenAI/DeepSeek/Qwen APIs.
 //! OpenAI-compatible LLM adapter using rig-core.
 //!
 //! Supports: OpenAI, DeepSeek, Qwen, and any OpenAI API-compatible provider.
@@ -7,7 +10,8 @@ use crate::domain::message::{LLMContent, LLMMessage, Role};
 use crate::domain::tool::ToolDefinition;
 use crate::error::EngineError;
 use crate::ports::llm_provider::{
-    LLMProvider, LLMRequest, LLMResponse, StopReason, StreamChunk, TokenUsage,
+    LLMProvider, LLMRequest, LLMResponse, ResponseFormat, StopReason, StreamChunk, ToolChoice,
+    TokenUsage,
 };
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -181,9 +185,31 @@ impl OpenAICompatProvider {
                     // Already handled above; skip duplicates
                 }
                 Role::User => {
-                    let text = msg.text();
-                    if !text.is_empty() {
-                        rig_messages.push(Message::user(text));
+                    for content in &msg.content {
+                        match content {
+                            LLMContent::Text { text } => {
+                                if !text.is_empty() {
+                                    rig_messages.push(Message::user(text));
+                                }
+                            }
+                            LLMContent::Image { source, media_type, data } => {
+                                // TODO: Convert to rig's UserContent::Image when image support
+                                // is fully plumbed. For now, send image URL/data as text placeholder.
+                                let desc = match source {
+                                    crate::domain::message::ImageSource::Url => {
+                                        format!("[Image: {}]", data)
+                                    }
+                                    crate::domain::message::ImageSource::Base64 => {
+                                        format!(
+                                            "[Image: base64, type={}]",
+                                            media_type.as_deref().unwrap_or("unknown")
+                                        )
+                                    }
+                                };
+                                rig_messages.push(Message::user(desc));
+                            }
+                            _ => {}
+                        }
                     }
                 }
                 Role::Assistant => {
@@ -265,7 +291,39 @@ impl OpenAICompatProvider {
                 name: tc.function.name.clone(),
                 input: tc.function.arguments.clone(),
             }),
+            AssistantContent::Reasoning(reasoning) => {
+                use rig::completion::message::ReasoningContent;
+                let text: String = reasoning
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        ReasoningContent::Text { text, .. } => Some(text.as_str()),
+                        ReasoningContent::Summary(s) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(LLMContent::Reasoning { text })
+                }
+            }
             _ => None,
+        }
+    }
+
+    /// Convert our ToolChoice to rig's ToolChoice
+    fn convert_tool_choice(
+        tc: &ToolChoice,
+    ) -> rig::completion::message::ToolChoice {
+        match tc {
+            ToolChoice::Auto => rig::completion::message::ToolChoice::Auto,
+            ToolChoice::None => rig::completion::message::ToolChoice::None,
+            ToolChoice::Required => rig::completion::message::ToolChoice::Required,
+            ToolChoice::Tool(name) => rig::completion::message::ToolChoice::Specific {
+                function_names: vec![name.clone()],
+            },
         }
     }
 }
@@ -290,9 +348,17 @@ impl LLMProvider for OpenAICompatProvider {
             tools: tool_defs,
             temperature: request.temperature.map(|t| t as f64),
             max_tokens: Some(request.max_tokens as u64),
-            tool_choice: None,
-            additional_params: None,
-            output_schema: None,
+            tool_choice: request
+                .tool_choice
+                .as_ref()
+                .map(Self::convert_tool_choice),
+            additional_params: request.provider_options.clone(),
+            output_schema: request.response_format.as_ref().and_then(|rf| match rf {
+                ResponseFormat::Json { schema, .. } => schema.clone().map(|s| {
+                    serde_json::from_value(s).unwrap_or_default()
+                }),
+                _ => None,
+            }),
         };
 
         let resp = self.model.complete_dyn(rig_request).await?;
@@ -321,6 +387,12 @@ impl LLMProvider for OpenAICompatProvider {
             usage: TokenUsage {
                 input_tokens: resp.usage.input_tokens as u32,
                 output_tokens: resp.usage.output_tokens as u32,
+                total_tokens: Some(resp.usage.total_tokens as u32),
+                cached_input_tokens: if resp.usage.cached_input_tokens > 0 {
+                    Some(resp.usage.cached_input_tokens as u32)
+                } else {
+                    None
+                },
             },
         })
     }
@@ -342,9 +414,17 @@ impl LLMProvider for OpenAICompatProvider {
             tools: tool_defs,
             temperature: request.temperature.map(|t| t as f64),
             max_tokens: Some(request.max_tokens as u64),
-            tool_choice: None,
-            additional_params: None,
-            output_schema: None,
+            tool_choice: request
+                .tool_choice
+                .as_ref()
+                .map(Self::convert_tool_choice),
+            additional_params: request.provider_options.clone(),
+            output_schema: request.response_format.as_ref().and_then(|rf| match rf {
+                ResponseFormat::Json { schema, .. } => schema.clone().map(|s| {
+                    serde_json::from_value(s).unwrap_or_default()
+                }),
+                _ => None,
+            }),
         };
 
         let mut stream_resp = self.model.stream_dyn(rig_request).await?;
@@ -497,6 +577,9 @@ impl LLMProvider for OpenAICompatProvider {
             StopReason::EndTurn
         };
 
+        // TODO: Extract usage from rig's Final stream event when available.
+        // Currently rig's streaming API does not surface token usage in the stream;
+        // usage will be zero here. The non-streaming `complete()` path returns accurate usage.
         let _ = tx
             .send(StreamChunk::Done(LLMResponse {
                 content: all_content,

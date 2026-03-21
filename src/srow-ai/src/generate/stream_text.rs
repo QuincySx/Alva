@@ -102,6 +102,15 @@ async fn run_stream_loop(
             system: settings.system.clone(),
             max_tokens: settings.max_output_tokens.unwrap_or(8192),
             temperature: settings.temperature,
+            tool_choice: None,
+            response_format: None,
+            top_p: None,
+            top_k: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            stop_sequences: None,
+            seed: None,
+            provider_options: None,
         };
 
         // Stream from LLM

@@ -1,3 +1,6 @@
+// INPUT:  serde, uuid
+// OUTPUT: Role, LLMContent, LLMMessage
+// POS:    Defines conversation message types including role, content blocks (text/tool_use/tool_result), and factory methods.
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -28,6 +31,27 @@ pub enum LLMContent {
         content: String,
         is_error: bool,
     },
+    /// Image content (user sends image or assistant generates image)
+    Image {
+        /// How the image data is encoded
+        source: ImageSource,
+        /// MIME type (e.g. "image/png", "image/jpeg")
+        media_type: Option<String>,
+        /// Base64 data (when source=Base64) or URL string (when source=Url)
+        data: String,
+    },
+    /// Reasoning/thinking content from extended thinking models
+    Reasoning {
+        text: String,
+    },
+}
+
+/// Image source type
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageSource {
+    Base64,
+    Url,
 }
 
 /// A single message in the conversation history

@@ -42,6 +42,15 @@ pub async fn generate_text(
             system: settings.system.clone(),
             max_tokens: settings.max_output_tokens.unwrap_or(8192),
             temperature: settings.temperature,
+            tool_choice: None,
+            response_format: None,
+            top_p: None,
+            top_k: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            stop_sequences: None,
+            seed: None,
+            provider_options: None,
         };
 
         // b. Call model with retry
@@ -150,12 +159,22 @@ pub(crate) fn extract_text(content: &[LLMContent]) -> String {
 
 /// Extract reasoning text from content blocks.
 ///
-/// In non-streaming mode, reasoning may not be present as a separate content type.
-/// This is a placeholder that returns None; streaming will handle ThinkingDelta.
-fn extract_reasoning(_content: &[LLMContent]) -> Option<String> {
-    // Non-streaming responses don't typically include reasoning as a separate block.
-    // When reasoning models are supported, this would extract thinking blocks.
-    None
+/// Extracts reasoning/thinking blocks from the response content.
+/// These are produced by models with extended thinking capabilities.
+fn extract_reasoning(content: &[LLMContent]) -> Option<String> {
+    let reasoning: String = content
+        .iter()
+        .filter_map(|c| match c {
+            LLMContent::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    if reasoning.is_empty() {
+        None
+    } else {
+        Some(reasoning)
+    }
 }
 
 /// Extract tool calls from LLM response content blocks.
