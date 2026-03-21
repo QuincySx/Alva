@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "src/srow-app",
-    "src/srow-core",
-    "src/srow-ai",
+    "crates/srow-app",
+    "crates/srow-core",
+    "crates/srow-ai",
 ]
 resolver = "2"
 
