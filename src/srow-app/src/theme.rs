@@ -1,3 +1,6 @@
+// INPUT:  gpui (Global, Rgba, Window, WindowAppearance, rgb), crate::models::ThemeMode
+// OUTPUT: pub struct ActiveThemeMode, pub struct Theme
+// POS:    Provides light/dark/system theme resolution and semantic color tokens for the entire UI.
 //! Application theme — maps semantic colors to GPUI primitives.
 
 use gpui::{Global, Rgba, Window, WindowAppearance, rgb};
@@ -24,6 +27,12 @@ pub struct Theme {
     pub accent: Rgba,
     pub accent_hover: Rgba,
     pub selected_text: Rgba,
+
+    // Semantic
+    pub error: Rgba,
+    pub success: Rgba,
+    pub warning: Rgba,
+    pub info: Rgba,
 }
 
 impl Theme {
@@ -60,6 +69,10 @@ impl Theme {
             accent: rgb(0x3B82F6),
             accent_hover: rgb(0x2563EB),
             selected_text: rgb(0xFFFFFF),
+            error: rgb(0xF87171),
+            success: rgb(0x4ADE80),
+            warning: rgb(0xFBBF24),
+            info: rgb(0x60A5FA),
         }
     }
 
@@ -74,6 +87,10 @@ impl Theme {
             accent: rgb(0x3B82F6),
             accent_hover: rgb(0x2563EB),
             selected_text: rgb(0xFFFFFF),
+            error: rgb(0xEF4444),
+            success: rgb(0x22C55E),
+            warning: rgb(0xF59E0B),
+            info: rgb(0x3B82F6),
         }
     }
 }

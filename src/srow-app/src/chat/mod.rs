@@ -4,4 +4,4 @@
 pub mod gpui_chat_state;
 pub mod gpui_chat;
 
-pub use gpui_chat::{GpuiChat, GpuiChatConfig, GpuiChatEvent};
+pub use gpui_chat::{GpuiChat, GpuiChatConfig, GpuiChatEvent, SharedRuntime};

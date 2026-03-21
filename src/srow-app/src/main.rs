@@ -1,11 +1,14 @@
 // INPUT:  gpui, gpui_component, srow_app (models, theme, views), tracing_subscriber
 // OUTPUT: (binary entry point -- no public exports)
 // POS:    Application entry point; initializes GPUI, gpui-component, shared models, theme, and opens the main window.
+use std::sync::Arc;
+
 use gpui::{
     actions, App, Application, Bounds, Entity, KeyBinding, Menu, MenuItem, WindowBounds,
     WindowOptions, prelude::*, px, size,
 };
 
+use srow_app::chat::SharedRuntime;
 use srow_app::models::{AgentModel, ChatModel, SettingsModel, SettingsModelEvent, WorkspaceModel};
 use srow_app::theme::ActiveThemeMode;
 use srow_app::views::RootView;
@@ -23,6 +26,13 @@ fn main() {
     Application::new().run(|cx: &mut App| {
         // Initialize gpui-component (theme, global state, input keybindings, etc.)
         gpui_component::init(cx);
+        gpui_component::set_locale("en");
+
+        // Create shared tokio runtime (used by all GpuiChat instances)
+        let runtime = Arc::new(
+            tokio::runtime::Runtime::new().expect("Failed to create tokio runtime"),
+        );
+        cx.set_global(SharedRuntime(runtime));
 
         // Create shared models
         let workspace_model = cx.new(|_| WorkspaceModel::default());

@@ -10,8 +10,6 @@ use crate::chat::{GpuiChat, GpuiChatConfig};
 pub struct ChatModel {
     /// session_id -> GpuiChat entity
     pub chats: HashMap<String, Entity<GpuiChat>>,
-    /// session_id -> draft input text
-    pub drafts: HashMap<String, String>,
 }
 
 pub enum ChatModelEvent {
@@ -51,7 +49,6 @@ impl Default for ChatModel {
     fn default() -> Self {
         Self {
             chats: HashMap::new(),
-            drafts: HashMap::new(),
         }
     }
 }

@@ -17,6 +17,11 @@ use srow_ai::chat::ChatState;
 
 use super::gpui_chat_state::GpuiChatState;
 
+/// GPUI Global holding a shared tokio runtime for all GpuiChat instances.
+pub struct SharedRuntime(pub Arc<tokio::runtime::Runtime>);
+
+impl gpui::Global for SharedRuntime {}
+
 /// Events emitted by GpuiChat to any GPUI subscriber.
 pub enum GpuiChatEvent {
     /// The chat state was updated (messages, status, or error changed).
@@ -43,12 +48,7 @@ pub struct GpuiChat {
 
 impl GpuiChat {
     pub fn new(config: GpuiChatConfig, cx: &mut Context<Self>) -> Self {
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create tokio runtime"),
-        );
+        let runtime = cx.global::<SharedRuntime>().0.clone();
 
         let (notify_tx, mut notify_rx) = futures::channel::mpsc::unbounded();
 

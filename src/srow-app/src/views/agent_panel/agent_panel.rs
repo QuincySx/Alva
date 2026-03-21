@@ -279,7 +279,7 @@ impl AgentPanel {
                                     div()
                                         .size(px(10.))
                                         .rounded_full()
-                                        .bg(gpui::rgba(0x6B7280FF)),
+                                        .bg(theme.text_muted),
                                 )
                                 .child(
                                     div()

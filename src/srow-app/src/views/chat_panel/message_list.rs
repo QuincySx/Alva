@@ -2,7 +2,7 @@
 //         srow_core (UIMessage, UIMessagePart, UIMessageRole, TextPartState, ToolState, ChatStatus)
 // OUTPUT: pub struct MessageList
 // POS:    Scrollable GPUI view rendering UIMessage parts: text, reasoning, tool calls, and streaming status.
-use gpui::{prelude::*, Context, Entity, FontWeight, Render, Window, div, px};
+use gpui::{prelude::*, Context, Entity, FontWeight, Hsla, Render, Window, div, px};
 
 use crate::chat::GpuiChatEvent;
 use crate::models::{ChatModel, WorkspaceModel};
@@ -13,6 +13,8 @@ use srow_core::ui_message_stream::ChatStatus;
 pub struct MessageList {
     pub workspace_model: Entity<WorkspaceModel>,
     pub chat_model: Entity<ChatModel>,
+    scroll_handle: gpui::ScrollHandle,
+    _chat_subscription: Option<gpui::Subscription>,
 }
 
 impl MessageList {
@@ -35,28 +37,38 @@ impl MessageList {
         })
         .detach();
 
-        Self {
+        let mut this = Self {
             workspace_model,
             chat_model,
-        }
+            scroll_handle: gpui::ScrollHandle::new(),
+            _chat_subscription: None,
+        };
+        this.subscribe_current_chat(cx);
+        this
     }
 
-    fn subscribe_current_chat(&self, cx: &mut Context<Self>) {
+    fn subscribe_current_chat(&mut self, cx: &mut Context<Self>) {
         let chat_entity = {
             let ws = self.workspace_model.read(cx);
             let sid = match ws.selected_session_id.as_ref() {
                 Some(s) => s.clone(),
-                None => return,
+                None => {
+                    self._chat_subscription = None;
+                    return;
+                }
             };
             let chat_model = self.chat_model.read(cx);
             chat_model.get_chat(&sid).cloned()
         };
 
         if let Some(entity) = chat_entity {
-            cx.subscribe(&entity, |_this, _chat, _event: &GpuiChatEvent, cx| {
-                cx.notify();
-            })
-            .detach();
+            self._chat_subscription =
+                Some(cx.subscribe(&entity, |this, _chat, _event: &GpuiChatEvent, cx| {
+                    this.scroll_handle.scroll_to_bottom();
+                    cx.notify();
+                }));
+        } else {
+            self._chat_subscription = None;
         }
     }
 }
@@ -86,12 +98,17 @@ impl Render for MessageList {
         let border = theme.border;
         let background = theme.background;
 
+        let error_color = Hsla::from(theme.error);
+        let success_color = Hsla::from(theme.success);
+        let warning_color = Hsla::from(theme.warning);
+
         let mut container = div()
             .id("message-list")
             .flex()
             .flex_col()
             .flex_1()
             .overflow_scroll()
+            .track_scroll(&self.scroll_handle)
             .p_4()
             .gap_3();
 
@@ -122,10 +139,10 @@ impl Render for MessageList {
                                             el.bg(accent).text_color(gpui::white())
                                         })
                                         .when(is_system, |el| {
-                                            el.bg(gpui::rgba(0xEF444420))
-                                                .text_color(gpui::rgba(0xEF4444FF))
+                                            el.bg(error_color.opacity(0.125))
+                                                .text_color(error_color)
                                                 .border_1()
-                                                .border_color(gpui::rgba(0xEF444440))
+                                                .border_color(error_color.opacity(0.25))
                                         })
                                         .when(!is_user && !is_system, |el| {
                                             el.bg(surface).text_color(text_color)
@@ -139,7 +156,7 @@ impl Render for MessageList {
                                                     el.text_color(gpui::white().opacity(0.8))
                                                 })
                                                 .when(is_system, |el| {
-                                                    el.text_color(gpui::rgba(0xEF4444FF))
+                                                    el.text_color(error_color)
                                                 })
                                                 .when(!is_user && !is_system, |el| {
                                                     el.text_color(text_muted)
@@ -260,7 +277,7 @@ impl Render for MessageList {
                                                 div()
                                                     .size(px(8.))
                                                     .rounded_full()
-                                                    .bg(gpui::rgba(0xF59E0BFF)),
+                                                    .bg(warning_color),
                                             )
                                             .child(format!("Calling tool: {}", tool_display)),
                                     ),
@@ -299,16 +316,16 @@ impl Render for MessageList {
                                             .rounded_lg()
                                             .text_xs()
                                             .when(is_error, |el| {
-                                                el.bg(gpui::rgba(0xEF444410))
+                                                el.bg(error_color.opacity(0.0625))
                                                     .border_1()
-                                                    .border_color(gpui::rgba(0xEF444430))
-                                                    .text_color(gpui::rgba(0xEF4444FF))
+                                                    .border_color(error_color.opacity(0.1875))
+                                                    .text_color(error_color)
                                             })
                                             .when(!is_error, |el| {
-                                                el.bg(gpui::rgba(0x10B98110))
+                                                el.bg(success_color.opacity(0.0625))
                                                     .border_1()
-                                                    .border_color(gpui::rgba(0x10B98130))
-                                                    .text_color(gpui::rgba(0x10B981FF))
+                                                    .border_color(success_color.opacity(0.1875))
+                                                    .text_color(success_color)
                                             })
                                             .child(
                                                 div()
@@ -321,10 +338,10 @@ impl Render for MessageList {
                                                             .size(px(8.))
                                                             .rounded_full()
                                                             .when(is_error, |el| {
-                                                                el.bg(gpui::rgba(0xEF4444FF))
+                                                                el.bg(error_color)
                                                             })
                                                             .when(!is_error, |el| {
-                                                                el.bg(gpui::rgba(0x10B981FF))
+                                                                el.bg(success_color)
                                                             }),
                                                     )
                                                     .child(format!(
