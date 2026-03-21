@@ -24,3 +24,4 @@ tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+async-stream = "0.3"
