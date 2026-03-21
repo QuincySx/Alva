@@ -1,3 +1,6 @@
+// INPUT:  std::sync, tokio::sync, crate::agent::runtime::engine::context_manager, crate::domain, crate::error, crate::ports, crate::ui_message_stream, serde, futures, uuid
+// OUTPUT: AgentEngine
+// POS:    Core agentic loop: prompt -> LLM stream -> tool execution (parallel) -> loop, with UIMessageChunk emission and cancellation support.
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
@@ -15,62 +18,19 @@ use crate::{
         storage::SessionStorage,
         tool::{ToolContext, ToolRegistry},
     },
+    ui_message_stream::{FinishReason, TokenUsage, UIMessageChunk},
 };
-use serde::{Deserialize, Serialize};
-
-/// Events emitted by the engine during agent execution (UI layer subscribes to these)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EngineEvent {
-    TextDelta {
-        session_id: String,
-        text: String,
-    },
-    /// Thinking / reasoning content from models that support extended thinking (e.g. DeepSeek R1)
-    ThinkingDelta {
-        session_id: String,
-        text: String,
-    },
-    ToolCallStarted {
-        session_id: String,
-        tool_name: String,
-        tool_call_id: String,
-    },
-    ToolCallCompleted {
-        session_id: String,
-        tool_call_id: String,
-        output: String,
-        is_error: bool,
-    },
-    WaitingForHuman {
-        session_id: String,
-        question: String,
-        ask_id: String,
-    },
-    Completed {
-        session_id: String,
-    },
-    Error {
-        session_id: String,
-        error: String,
-    },
-    TokenUsage {
-        session_id: String,
-        input: u32,
-        output: u32,
-        total: u32,
-    },
-}
 
 /// Core agent engine: drives the prompt -> LLM -> tool_call -> execute -> loop cycle
 ///
-/// For Sub-1 backward compatibility, `AgentEngine::run_mock()` is also available.
+/// Emits `UIMessageChunk` events for UI consumption.
 pub struct AgentEngine {
     config: AgentConfig,
     llm: Arc<dyn LLMProvider>,
     tools: Arc<ToolRegistry>,
     storage: Arc<dyn SessionStorage>,
     context_manager: ContextManager,
-    event_tx: mpsc::Sender<EngineEvent>,
+    chunk_tx: mpsc::Sender<UIMessageChunk>,
     cancel_rx: watch::Receiver<bool>,
 }
 
@@ -80,7 +40,7 @@ impl AgentEngine {
         llm: Arc<dyn LLMProvider>,
         tools: Arc<ToolRegistry>,
         storage: Arc<dyn SessionStorage>,
-        event_tx: mpsc::Sender<EngineEvent>,
+        chunk_tx: mpsc::Sender<UIMessageChunk>,
         cancel_rx: watch::Receiver<bool>,
     ) -> Self {
         let context_manager = ContextManager::new(config.compaction_threshold);
@@ -90,7 +50,7 @@ impl AgentEngine {
             tools,
             storage,
             context_manager,
-            event_tx,
+            chunk_tx,
             cancel_rx,
         }
     }
@@ -120,6 +80,15 @@ impl AgentEngine {
 
         let mut iteration = 0u32;
 
+        // Emit Start at the beginning of the agent loop
+        let _ = self
+            .chunk_tx
+            .send(UIMessageChunk::Start {
+                message_id: Some(session_id.to_string()),
+                message_metadata: None,
+            })
+            .await;
+
         loop {
             // Cancel check
             if *self.cancel_rx.borrow() {
@@ -127,9 +96,10 @@ impl AgentEngine {
                     .update_session_status(session_id, SessionStatus::Cancelled)
                     .await?;
                 let _ = self
-                    .event_tx
-                    .send(EngineEvent::Completed {
-                        session_id: session_id.to_string(),
+                    .chunk_tx
+                    .send(UIMessageChunk::Finish {
+                        finish_reason: FinishReason::Stop,
+                        usage: None,
                     })
                     .await;
                 return Ok(());
@@ -142,9 +112,8 @@ impl AgentEngine {
                     .update_session_status(session_id, SessionStatus::Error)
                     .await;
                 let _ = self
-                    .event_tx
-                    .send(EngineEvent::Error {
-                        session_id: session_id.to_string(),
+                    .chunk_tx
+                    .send(UIMessageChunk::Error {
                         error: format!(
                             "max iterations ({}) reached",
                             self.config.max_iterations
@@ -180,33 +149,55 @@ impl AgentEngine {
             };
 
             // 6. Stream LLM response
-            let (chunk_tx, mut chunk_rx) = mpsc::channel(256);
+            let (stream_tx, mut stream_rx) = mpsc::channel(256);
             let llm = self.llm.clone();
             let req = request;
             tokio::spawn(async move {
-                if let Err(e) = llm.complete_stream(req, chunk_tx).await {
+                if let Err(e) = llm.complete_stream(req, stream_tx).await {
                     tracing::error!("LLM stream error: {}", e);
                 }
             });
 
+            // Track text/reasoning streaming state
+            let mut text_part_id: Option<String> = None;
+            let mut reasoning_part_id: Option<String> = None;
+
             let mut llm_response = None;
-            while let Some(chunk) = chunk_rx.recv().await {
+            while let Some(chunk) = stream_rx.recv().await {
                 match chunk {
                     StreamChunk::TextDelta(text) => {
+                        // If text_part_id is None, generate one and emit TextStart first
+                        if text_part_id.is_none() {
+                            let id = uuid::Uuid::new_v4().to_string();
+                            let _ = self
+                                .chunk_tx
+                                .send(UIMessageChunk::TextStart { id: id.clone() })
+                                .await;
+                            text_part_id = Some(id);
+                        }
                         let _ = self
-                            .event_tx
-                            .send(EngineEvent::TextDelta {
-                                session_id: session_id.to_string(),
-                                text,
+                            .chunk_tx
+                            .send(UIMessageChunk::TextDelta {
+                                id: text_part_id.as_ref().unwrap().clone(),
+                                delta: text,
                             })
                             .await;
                     }
                     StreamChunk::ThinkingDelta(text) => {
+                        // If reasoning_part_id is None, generate one and emit ReasoningStart first
+                        if reasoning_part_id.is_none() {
+                            let id = uuid::Uuid::new_v4().to_string();
+                            let _ = self
+                                .chunk_tx
+                                .send(UIMessageChunk::ReasoningStart { id: id.clone() })
+                                .await;
+                            reasoning_part_id = Some(id);
+                        }
                         let _ = self
-                            .event_tx
-                            .send(EngineEvent::ThinkingDelta {
-                                session_id: session_id.to_string(),
-                                text,
+                            .chunk_tx
+                            .send(UIMessageChunk::ReasoningDelta {
+                                id: reasoning_part_id.as_ref().unwrap().clone(),
+                                delta: text,
                             })
                             .await;
                     }
@@ -214,13 +205,28 @@ impl AgentEngine {
                         // Accumulated in Done; delta events ignored for now
                     }
                     StreamChunk::Done(resp) => {
+                        // Close any open text/reasoning parts
+                        if let Some(id) = text_part_id.take() {
+                            let _ = self
+                                .chunk_tx
+                                .send(UIMessageChunk::TextEnd { id })
+                                .await;
+                        }
+                        if let Some(id) = reasoning_part_id.take() {
+                            let _ = self
+                                .chunk_tx
+                                .send(UIMessageChunk::ReasoningEnd { id })
+                                .await;
+                        }
+
+                        // Emit token usage
                         let _ = self
-                            .event_tx
-                            .send(EngineEvent::TokenUsage {
-                                session_id: session_id.to_string(),
-                                input: resp.usage.input_tokens,
-                                output: resp.usage.output_tokens,
-                                total: resp.usage.input_tokens + resp.usage.output_tokens,
+                            .chunk_tx
+                            .send(UIMessageChunk::TokenUsage {
+                                usage: TokenUsage {
+                                    input_tokens: resp.usage.input_tokens,
+                                    output_tokens: resp.usage.output_tokens,
+                                },
                             })
                             .await;
                         llm_response = Some(resp);
@@ -244,9 +250,10 @@ impl AgentEngine {
                         .update_session_status(session_id, SessionStatus::Completed)
                         .await?;
                     let _ = self
-                        .event_tx
-                        .send(EngineEvent::Completed {
-                            session_id: session_id.to_string(),
+                        .chunk_tx
+                        .send(UIMessageChunk::Finish {
+                            finish_reason: FinishReason::Stop,
+                            usage: None,
                         })
                         .await;
                     return Ok(());
@@ -256,10 +263,10 @@ impl AgentEngine {
                         .update_session_status(session_id, SessionStatus::Error)
                         .await?;
                     let _ = self
-                        .event_tx
-                        .send(EngineEvent::Error {
-                            session_id: session_id.to_string(),
-                            error: "max_tokens reached".to_string(),
+                        .chunk_tx
+                        .send(UIMessageChunk::Finish {
+                            finish_reason: FinishReason::MaxTokens,
+                            usage: None,
                         })
                         .await;
                     return Err(EngineError::MaxTokensReached);
@@ -308,16 +315,23 @@ impl AgentEngine {
         &self,
         calls: &[ToolCall],
         ctx: &ToolContext,
-        session_id: &str,
+        _session_id: &str,
     ) -> Result<Vec<crate::domain::tool::ToolResult>, EngineError> {
-        // Emit ToolCallStarted events for all calls first
+        // Emit ToolInputStart + ToolInputAvailable events for all calls first
         for call in calls {
             let _ = self
-                .event_tx
-                .send(EngineEvent::ToolCallStarted {
-                    session_id: session_id.to_string(),
+                .chunk_tx
+                .send(UIMessageChunk::ToolInputStart {
+                    id: call.id.clone(),
                     tool_name: call.name.clone(),
-                    tool_call_id: call.id.clone(),
+                    title: None,
+                })
+                .await;
+            let _ = self
+                .chunk_tx
+                .send(UIMessageChunk::ToolInputAvailable {
+                    id: call.id.clone(),
+                    input: call.input.clone(),
                 })
                 .await;
         }
@@ -353,17 +367,28 @@ impl AgentEngine {
 
         let results = futures::future::join_all(futures).await;
 
-        // Emit ToolCallCompleted events for all results
+        // Emit ToolOutput events for all results
         for tool_result in &results {
-            let _ = self
-                .event_tx
-                .send(EngineEvent::ToolCallCompleted {
-                    session_id: session_id.to_string(),
-                    tool_call_id: tool_result.tool_call_id.clone(),
-                    output: tool_result.output.clone(),
-                    is_error: tool_result.is_error,
-                })
-                .await;
+            if tool_result.is_error {
+                let _ = self
+                    .chunk_tx
+                    .send(UIMessageChunk::ToolOutputError {
+                        id: tool_result.tool_call_id.clone(),
+                        error: tool_result.output.clone(),
+                    })
+                    .await;
+            } else {
+                // Try to parse output as JSON, fallback to string value
+                let output = serde_json::from_str(&tool_result.output)
+                    .unwrap_or(serde_json::Value::String(tool_result.output.clone()));
+                let _ = self
+                    .chunk_tx
+                    .send(UIMessageChunk::ToolOutputAvailable {
+                        id: tool_result.tool_call_id.clone(),
+                        output,
+                    })
+                    .await;
+            }
         }
 
         Ok(results)
@@ -383,25 +408,37 @@ impl AgentEngine {
 
     /// Sub-1 backward compatibility: mock execution that simulates a streaming reply.
     ///
-    /// Sends TextDelta events character by character, then a Completed event.
+    /// Sends UIMessageChunk events character by character, then a Finish event.
     /// Replace calls to this with `AgentEngine::run()` when ready.
     pub fn run_mock(
         session_id: &str,
         prompt: &str,
-        event_tx: std::sync::mpsc::Sender<EngineEvent>,
+        event_tx: std::sync::mpsc::Sender<UIMessageChunk>,
     ) {
         let reply = format!("Mock reply: I received your message -- \"{}\"", prompt);
-        let sid = session_id.to_string();
+
+        let _ = event_tx.send(UIMessageChunk::Start {
+            message_id: Some(session_id.to_string()),
+            message_metadata: None,
+        });
+
+        let text_id = uuid::Uuid::new_v4().to_string();
+        let _ = event_tx.send(UIMessageChunk::TextStart {
+            id: text_id.clone(),
+        });
 
         for ch in reply.chars() {
             std::thread::sleep(std::time::Duration::from_millis(25));
-            let _ = event_tx.send(EngineEvent::TextDelta {
-                session_id: sid.clone(),
-                text: ch.to_string(),
+            let _ = event_tx.send(UIMessageChunk::TextDelta {
+                id: text_id.clone(),
+                delta: ch.to_string(),
             });
         }
-        let _ = event_tx.send(EngineEvent::Completed {
-            session_id: sid,
+
+        let _ = event_tx.send(UIMessageChunk::TextEnd { id: text_id });
+        let _ = event_tx.send(UIMessageChunk::Finish {
+            finish_reason: FinishReason::Stop,
+            usage: None,
         });
     }
 }

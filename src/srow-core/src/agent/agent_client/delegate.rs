@@ -1,10 +1,13 @@
+// INPUT:  std::sync, async_trait, tokio::sync, crate::ui_message_stream, crate::domain::tool, crate::error, crate::ports::tool, uuid
+// OUTPUT: DelegateResult, DelegateFinishReason, AgentDelegate (trait), AcpAgentDelegate, AcpDelegateTool
+// POS:    Wraps ACP external Agent invocation as both a trait (AgentDelegate) and a Tool implementation (AcpDelegateTool).
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::{
-    agent::runtime::engine::engine::EngineEvent,
+    ui_message_stream::UIMessageChunk,
     domain::tool::{ToolDefinition, ToolResult},
     error::EngineError,
     ports::tool::{Tool, ToolContext},
@@ -48,12 +51,12 @@ pub trait AgentDelegate: Send + Sync {
     ///   - Wait for TaskComplete
     ///   - Return aggregated result
     ///
-    /// `event_tx` forwards EngineEvents generated during execution to UI layer
+    /// `chunk_tx` forwards UIMessageChunk events generated during execution to UI layer
     async fn delegate(
         &self,
         prompt: String,
         workspace: std::path::PathBuf,
-        event_tx: mpsc::Sender<EngineEvent>,
+        chunk_tx: mpsc::Sender<UIMessageChunk>,
     ) -> Result<DelegateResult, EngineError>;
 
     /// Cancel an in-progress delegation
@@ -104,7 +107,7 @@ impl AgentDelegate for AcpAgentDelegate {
         &self,
         prompt: String,
         workspace: std::path::PathBuf,
-        event_tx: mpsc::Sender<EngineEvent>,
+        chunk_tx: mpsc::Sender<UIMessageChunk>,
     ) -> Result<DelegateResult, EngineError> {
         use super::protocol::{
             bootstrap::BootstrapPayload, content::ContentBlock, message::AcpInboundMessage,
@@ -137,7 +140,7 @@ impl AgentDelegate for AcpAgentDelegate {
             process_id.clone(),
             self.permission_manager.clone(),
             self.process_manager.clone(),
-            event_tx.clone(),
+            chunk_tx.clone(),
         );
 
         // 4. Subscribe to process messages
@@ -252,7 +255,7 @@ pub struct AcpDelegateTool {
     /// Tool description (shown to decision Agent's LLM)
     description: String,
     /// Event forwarding sender (injected from ToolContext or externally)
-    event_tx: mpsc::Sender<EngineEvent>,
+    chunk_tx: mpsc::Sender<UIMessageChunk>,
 }
 
 impl AcpDelegateTool {
@@ -260,13 +263,13 @@ impl AcpDelegateTool {
         delegate: Arc<dyn AgentDelegate>,
         tool_name: impl Into<String>,
         description: impl Into<String>,
-        event_tx: mpsc::Sender<EngineEvent>,
+        chunk_tx: mpsc::Sender<UIMessageChunk>,
     ) -> Self {
         Self {
             delegate,
             tool_name: tool_name.into(),
             description: description.into(),
-            event_tx,
+            chunk_tx,
         }
     }
 }
@@ -307,7 +310,7 @@ impl Tool for AcpDelegateTool {
         let start = std::time::Instant::now();
         let result = self
             .delegate
-            .delegate(task, ctx.workspace.clone(), self.event_tx.clone())
+            .delegate(task, ctx.workspace.clone(), self.chunk_tx.clone())
             .await?;
         let duration_ms = start.elapsed().as_millis() as u64;
 

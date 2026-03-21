@@ -32,7 +32,7 @@ pub mod ui_message;
 pub mod ui_message_stream;
 
 // Convenience re-exports — engine
-pub use agent::runtime::engine::engine::{AgentEngine, EngineEvent};
+pub use agent::runtime::engine::engine::AgentEngine;
 pub use agent::runtime::engine::session_service::SessionService;
 pub use domain::agent::{AgentConfig, LLMConfig, LLMProviderKind};
 pub use domain::message::{LLMContent, LLMMessage, Role};

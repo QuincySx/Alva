@@ -1,3 +1,6 @@
+// INPUT:  std::sync, tokio::sync, crate::agent::agent_client::{protocol, connection, session::permission_manager, AcpError}, crate::ui_message_stream, uuid
+// OUTPUT: AcpSessionState, AcpSession
+// POS:    ACP session state machine — drives inbound message handling, content forwarding, and HITL permission flow.
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
@@ -12,7 +15,7 @@ use crate::agent::agent_client::{
     session::permission_manager::PermissionManager,
     AcpError,
 };
-use crate::agent::runtime::engine::engine::EngineEvent;
+use crate::ui_message_stream::{FinishReason, UIMessageChunk};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AcpSessionState {
@@ -36,8 +39,8 @@ pub struct AcpSession {
         Arc<Mutex<std::collections::HashMap<String, oneshot::Sender<PermissionData>>>>,
     permission_manager: Arc<PermissionManager>,
     process_manager: Arc<AcpProcessManager>,
-    /// Sender to forward events to Sub-2 engine event bus
-    engine_event_tx: mpsc::Sender<EngineEvent>,
+    /// Sender to forward UIMessageChunk events to the UI layer
+    chunk_tx: mpsc::Sender<UIMessageChunk>,
 }
 
 impl AcpSession {
@@ -46,7 +49,7 @@ impl AcpSession {
         process_id: String,
         permission_manager: Arc<PermissionManager>,
         process_manager: Arc<AcpProcessManager>,
-        engine_event_tx: mpsc::Sender<EngineEvent>,
+        chunk_tx: mpsc::Sender<UIMessageChunk>,
     ) -> Self {
         Self {
             session_id,
@@ -55,7 +58,7 @@ impl AcpSession {
             pending_permissions: Arc::new(Mutex::new(Default::default())),
             permission_manager,
             process_manager,
-            engine_event_tx,
+            chunk_tx,
         }
     }
 
@@ -104,9 +107,10 @@ impl AcpSession {
                 };
                 *self.state.lock().await = new_state;
                 let _ = self
-                    .engine_event_tx
-                    .send(EngineEvent::Completed {
-                        session_id: self.session_id.clone(),
+                    .chunk_tx
+                    .send(UIMessageChunk::Finish {
+                        finish_reason: FinishReason::Stop,
+                        usage: None,
                     })
                     .await;
             }
@@ -124,25 +128,35 @@ impl AcpSession {
 
             AcpInboundMessage::PreToolUse { data } => {
                 let _ = self
-                    .engine_event_tx
-                    .send(EngineEvent::ToolCallStarted {
-                        session_id: self.session_id.clone(),
+                    .chunk_tx
+                    .send(UIMessageChunk::ToolInputStart {
+                        id: data.tool_call_id,
                         tool_name: data.tool_name,
-                        tool_call_id: data.tool_call_id,
+                        title: None,
                     })
                     .await;
             }
 
             AcpInboundMessage::PostToolUse { data } => {
-                let _ = self
-                    .engine_event_tx
-                    .send(EngineEvent::ToolCallCompleted {
-                        session_id: self.session_id.clone(),
-                        tool_call_id: data.tool_call_id,
-                        output: data.output,
-                        is_error: data.is_error,
-                    })
-                    .await;
+                if data.is_error {
+                    let _ = self
+                        .chunk_tx
+                        .send(UIMessageChunk::ToolOutputError {
+                            id: data.tool_call_id,
+                            error: data.output,
+                        })
+                        .await;
+                } else {
+                    let output = serde_json::from_str(&data.output)
+                        .unwrap_or(serde_json::Value::String(data.output));
+                    let _ = self
+                        .chunk_tx
+                        .send(UIMessageChunk::ToolOutputAvailable {
+                            id: data.tool_call_id,
+                            output,
+                        })
+                        .await;
+                }
             }
 
             AcpInboundMessage::ErrorData { data } => {
@@ -150,9 +164,8 @@ impl AcpSession {
                     message: data.message.clone(),
                 };
                 let _ = self
-                    .engine_event_tx
-                    .send(EngineEvent::Error {
-                        session_id: self.session_id.clone(),
+                    .chunk_tx
+                    .send(UIMessageChunk::Error {
                         error: data.message,
                     })
                     .await;
@@ -182,25 +195,35 @@ impl AcpSession {
         }
     }
 
-    /// Content block -> EngineEvent forwarding
+    /// Content block -> UIMessageChunk forwarding
     async fn forward_content_block(&self, block: ContentBlock) {
         match block {
             ContentBlock::Text { text, .. } => {
+                // Generate a part id for the text chunk
+                let id = uuid::Uuid::new_v4().to_string();
                 let _ = self
-                    .engine_event_tx
-                    .send(EngineEvent::TextDelta {
-                        session_id: self.session_id.clone(),
-                        text,
+                    .chunk_tx
+                    .send(UIMessageChunk::TextStart { id: id.clone() })
+                    .await;
+                let _ = self
+                    .chunk_tx
+                    .send(UIMessageChunk::TextDelta {
+                        id: id.clone(),
+                        delta: text,
                     })
+                    .await;
+                let _ = self
+                    .chunk_tx
+                    .send(UIMessageChunk::TextEnd { id })
                     .await;
             }
             ContentBlock::ToolUse { id, name, .. } => {
                 let _ = self
-                    .engine_event_tx
-                    .send(EngineEvent::ToolCallStarted {
-                        session_id: self.session_id.clone(),
+                    .chunk_tx
+                    .send(UIMessageChunk::ToolInputStart {
+                        id,
                         tool_name: name,
-                        tool_call_id: id,
+                        title: None,
                     })
                     .await;
             }
@@ -209,15 +232,25 @@ impl AcpSession {
                 content,
                 is_error,
             } => {
-                let _ = self
-                    .engine_event_tx
-                    .send(EngineEvent::ToolCallCompleted {
-                        session_id: self.session_id.clone(),
-                        tool_call_id: tool_use_id,
-                        output: content,
-                        is_error,
-                    })
-                    .await;
+                if is_error {
+                    let _ = self
+                        .chunk_tx
+                        .send(UIMessageChunk::ToolOutputError {
+                            id: tool_use_id,
+                            error: content,
+                        })
+                        .await;
+                } else {
+                    let output = serde_json::from_str(&content)
+                        .unwrap_or(serde_json::Value::String(content));
+                    let _ = self
+                        .chunk_tx
+                        .send(UIMessageChunk::ToolOutputAvailable {
+                            id: tool_use_id,
+                            output,
+                        })
+                        .await;
+                }
             }
         }
     }
@@ -252,17 +285,11 @@ impl AcpSession {
             .await
             .insert(request_id.clone(), tx);
 
-        // 4. Notify UI layer (via EngineEvent::WaitingForHuman)
-        // Sub-7 will pop a HITL permission dialog here
+        // 4. Notify UI layer (via ToolApprovalRequest)
         let _ = self
-            .engine_event_tx
-            .send(EngineEvent::WaitingForHuman {
-                session_id: self.session_id.clone(),
-                question: format!(
-                    "[Permission Request] {}\nTool: {} | Risk: {:?}",
-                    req.description, req.tool_name, req.risk_level
-                ),
-                ask_id: request_id.clone(),
+            .chunk_tx
+            .send(UIMessageChunk::ToolApprovalRequest {
+                id: request_id.clone(),
             })
             .await;
 

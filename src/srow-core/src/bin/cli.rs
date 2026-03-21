@@ -1,3 +1,6 @@
+// INPUT:  srow_core (AgentEngine, UIMessageChunk, SessionService, AgentConfig, LLMMessage, ToolRegistry, OpenAICompatProvider, MemoryStorage), std::sync, tokio::sync
+// OUTPUT: (binary entry point, no library exports)
+// POS:    CLI REPL for testing the Agent engine — reads user input, runs agentic loop, prints streaming output.
 //! srow-cli -- Simple CLI to test the Agent engine
 //!
 //! Usage:
@@ -12,11 +15,12 @@ use srow_core::{
         storage::memory::MemoryStorage,
     },
     agent::runtime::tools,
-    agent::runtime::engine::engine::{AgentEngine, EngineEvent},
+    agent::runtime::engine::engine::AgentEngine,
     agent::runtime::engine::session_service::SessionService,
     domain::agent::{AgentConfig, LLMConfig, LLMProviderKind},
     domain::message::LLMMessage,
     ports::tool::ToolRegistry,
+    ui_message_stream::UIMessageChunk,
 };
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -88,49 +92,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Session: {}\n", session.id);
 
     // Event channel
-    let (event_tx, mut event_rx) = mpsc::channel::<EngineEvent>(256);
+    let (event_tx, mut event_rx) = mpsc::channel::<UIMessageChunk>(256);
     let (_cancel_tx, cancel_rx) = watch::channel(false);
 
     // Spawn event printer
     tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
             match event {
-                EngineEvent::TextDelta { text, .. } => {
-                    print!("{}", text);
+                UIMessageChunk::TextDelta { delta, .. } => {
+                    print!("{}", delta);
                     use std::io::Write;
                     std::io::stdout().flush().ok();
                 }
-                EngineEvent::ToolCallStarted { tool_name, .. } => {
-                    eprintln!("\n[tool] calling: {}", tool_name);
-                }
-                EngineEvent::ToolCallCompleted {
-                    output,
-                    is_error,
-                    ..
-                } => {
-                    if is_error {
-                        eprintln!("[tool] error: {}", truncate(&output, 200));
-                    } else {
-                        eprintln!("[tool] done ({})", truncate(&output, 100));
-                    }
-                }
-                EngineEvent::Completed { .. } => {
-                    println!("\n");
-                }
-                EngineEvent::Error { error, .. } => {
-                    eprintln!("\n[error] {}", error);
-                }
-                EngineEvent::TokenUsage {
-                    input, output, total, ..
-                } => {
-                    eprintln!("[tokens] in={} out={} total={}", input, output, total);
-                }
-                EngineEvent::ThinkingDelta { text, .. } => {
-                    eprint!("\x1b[2m{}\x1b[0m", text); // dim style for thinking
+                UIMessageChunk::ReasoningDelta { delta, .. } => {
+                    eprint!("\x1b[2m{}\x1b[0m", delta);
                     use std::io::Write;
                     std::io::stderr().flush().ok();
                 }
-                EngineEvent::WaitingForHuman { .. } => {}
+                UIMessageChunk::ToolInputStart { tool_name, .. } => {
+                    eprintln!("\n[tool] calling: {}", tool_name);
+                }
+                UIMessageChunk::ToolOutputAvailable { output, .. } => {
+                    eprintln!("[tool] done ({})", truncate(&output.to_string(), 100));
+                }
+                UIMessageChunk::ToolOutputError { error, .. } => {
+                    eprintln!("[tool] error: {}", truncate(&error, 200));
+                }
+                UIMessageChunk::Finish { .. } => {
+                    println!("\n");
+                }
+                UIMessageChunk::Error { error, .. } => {
+                    eprintln!("\n[error] {}", error);
+                }
+                UIMessageChunk::TokenUsage { usage, .. } => {
+                    eprintln!("[tokens] in={} out={}", usage.input_tokens, usage.output_tokens);
+                }
+                _ => {} // Ignore other chunks
             }
         }
     });
