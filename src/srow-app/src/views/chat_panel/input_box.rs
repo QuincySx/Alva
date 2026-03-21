@@ -1,12 +1,17 @@
-// INPUT:  gpui, crate::models (AgentModel, ChatModel, SettingsModel, WorkspaceModel), crate::chat (GpuiChat, GpuiChatConfig),
+// INPUT:  gpui, gpui_component (Input, InputState, InputEvent, Button, ButtonVariants, Disableable),
+//         crate::models (AgentModel, ChatModel, SettingsModel, WorkspaceModel), crate::chat (GpuiChat, GpuiChatConfig),
 //         crate::theme, crate::types::AgentStatusKind, srow_core, srow_ai
 // OUTPUT: pub struct InputBox
-// POS:    Focusable chat input widget handling keyboard input, draft text, send-on-enter, and agent-busy guard.
+// POS:    Chat input widget using gpui-component Input/Button, Enter-to-send via InputEvent subscription.
 use std::sync::Arc;
 
-use gpui::{prelude::*, Context, Entity, FocusHandle, Focusable, FontWeight, Modifiers, Render, Window, div, px};
+use gpui::{prelude::*, Context, Entity, Render, Subscription, Window, div};
 
-use crate::chat::{GpuiChatConfig};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::input::{InputEvent, InputState, Input};
+use gpui_component::Disableable;
+
+use crate::chat::GpuiChatConfig;
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 use crate::types::AgentStatusKind;
@@ -20,12 +25,12 @@ use srow_core::agent::runtime::tools::register_all_tools;
 use srow_ai::transport::DirectChatTransport;
 
 pub struct InputBox {
-    focus_handle: FocusHandle,
-    draft: String,
+    input_state: Entity<InputState>,
     workspace_model: Entity<WorkspaceModel>,
     chat_model: Entity<ChatModel>,
     agent_model: Entity<AgentModel>,
     settings_model: Entity<SettingsModel>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl InputBox {
@@ -34,26 +39,50 @@ impl InputBox {
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
         settings_model: Entity<SettingsModel>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let input_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Type a message... (Enter to send)")
+        });
+
+        let mut subscriptions = Vec::new();
+
+        // Subscribe to InputEvent from the input state
+        subscriptions.push(cx.subscribe_in(
+            &input_state,
+            window,
+            |this, _state, event: &InputEvent, window, cx| {
+                match event {
+                    InputEvent::PressEnter { secondary } => {
+                        if !secondary {
+                            this.send_message(window, cx);
+                        }
+                    }
+                    _ => {}
+                }
+            },
+        ));
+
         // Subscribe to agent model to update send button state
-        cx.subscribe(&agent_model, |_this, _model, _event, cx| {
+        subscriptions.push(cx.subscribe(&agent_model, |_this, _model, _event, cx| {
             cx.notify();
-        })
-        .detach();
+        }));
 
         Self {
-            focus_handle: cx.focus_handle(),
-            draft: String::new(),
+            input_state,
             workspace_model,
             chat_model,
             agent_model,
             settings_model,
+            _subscriptions: subscriptions,
         }
     }
 
-    fn send_message(&mut self, cx: &mut Context<Self>) {
-        let text = self.draft.trim().to_string();
+    fn send_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.input_state.read(cx).value().to_string();
+        let text = text.trim().to_string();
         if text.is_empty() {
             return;
         }
@@ -135,8 +164,10 @@ impl InputBox {
         })
         .detach();
 
-        // Clear draft
-        self.draft.clear();
+        // Clear input
+        self.input_state.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+        });
         cx.notify();
     }
 
@@ -184,25 +215,14 @@ impl InputBox {
     }
 }
 
-impl Focusable for InputBox {
-    fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
-
 impl Render for InputBox {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::for_appearance(window, cx);
-        let draft_display = self.draft.clone();
-        let has_text = !self.draft.trim().is_empty();
+        let has_text = !self.input_state.read(cx).value().trim().is_empty();
         let has_session = self.workspace_model.read(cx).selected_session_id.is_some();
         let is_running = self.is_agent_running(cx);
 
         let can_send = has_text && has_session && !is_running;
-
-        let accent = theme.accent;
-        let accent_hover = theme.accent_hover;
-        let text_muted = theme.text_muted;
 
         div()
             .flex()
@@ -214,93 +234,21 @@ impl Render for InputBox {
             .border_color(theme.border)
             .bg(theme.background)
             .child(
-                // Input area with real keyboard input
                 div()
-                    .id("input-area")
-                    .track_focus(&self.focus_handle)
                     .flex_1()
-                    .px_3()
-                    .py_2()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.surface)
-                    .text_sm()
-                    .text_color(theme.text)
-                    .min_h(px(36.))
-                    .cursor_text()
-                    .when(draft_display.is_empty(), |el| {
-                        el.child(
-                            div()
-                                .text_color(text_muted)
-                                .child(if is_running {
-                                    "Agent is running..."
-                                } else {
-                                    "Type a message... (Enter to send)"
-                                }),
-                        )
-                    })
-                    .when(!draft_display.is_empty(), |el| {
-                        // Show text with cursor indicator
-                        el.child(format!("{}|", draft_display))
-                    })
-                    .on_click(cx.listener(|this, _, window, _cx| {
-                        this.focus_handle.focus(window);
-                    }))
-                    .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
-                        let key = &event.keystroke.key;
-                        if key == "backspace" {
-                            this.draft.pop();
-                            cx.notify();
-                        } else if key == "enter" {
-                            if event.keystroke.modifiers.shift {
-                                // Shift+Enter = newline
-                                this.draft.push('\n');
-                                cx.notify();
-                            } else {
-                                // Enter = send
-                                this.send_message(cx);
-                            }
-                        } else if key == "space" && event.keystroke.modifiers == Modifiers::none() {
-                            this.draft.push(' ');
-                            cx.notify();
-                        } else {
-                            // Handle regular text input
-                            if let Some(ref key_char) = event.keystroke.key_char {
-                                this.draft.push_str(key_char);
-                                cx.notify();
-                            } else if key.len() == 1 && event.keystroke.modifiers == Modifiers::none() {
-                                this.draft.push_str(key);
-                                cx.notify();
-                            }
-                        }
-                    })),
+                    .child(
+                        Input::new(&self.input_state)
+                            .disabled(is_running)
+                    )
             )
             .child(
-                // Send button
-                div()
-                    .id("send-btn")
-                    .px_4()
-                    .py_2()
-                    .rounded_lg()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .cursor_pointer()
-                    .when(can_send, |el| {
-                        el.bg(accent)
-                            .text_color(gpui::white())
-                            .hover(move |style| style.bg(accent_hover))
-                    })
-                    .when(!can_send, |el| {
-                        el.bg(theme.surface_hover)
-                            .text_color(text_muted)
-                            .cursor_not_allowed()
-                            .opacity(0.6)
-                    })
-                    .child(if is_running { "..." } else { "Send" })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.send_message(cx);
-                    })),
+                Button::new("send-btn")
+                    .label(if is_running { "..." } else { "Send" })
+                    .primary()
+                    .disabled(!can_send)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.send_message(window, cx);
+                    }))
             )
     }
 }

@@ -1,3 +1,6 @@
+// INPUT:  gpui, gpui_component, srow_app (models, theme, views), tracing_subscriber
+// OUTPUT: (binary entry point -- no public exports)
+// POS:    Application entry point; initializes GPUI, gpui-component, shared models, theme, and opens the main window.
 use gpui::{
     actions, App, Application, Bounds, Entity, KeyBinding, Menu, MenuItem, WindowBounds,
     WindowOptions, prelude::*, px, size,
@@ -18,6 +21,9 @@ fn main() {
         .init();
 
     Application::new().run(|cx: &mut App| {
+        // Initialize gpui-component (theme, global state, input keybindings, etc.)
+        gpui_component::init(cx);
+
         // Create shared models
         let workspace_model = cx.new(|_| WorkspaceModel::default());
         let chat_model = cx.new(|_| ChatModel::default());
@@ -46,13 +52,14 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_, cx| {
+            |window, cx| {
                 cx.new(|cx| {
                     RootView::new(
                         workspace_model,
                         chat_model,
                         agent_model,
                         settings_model,
+                        window,
                         cx,
                     )
                 })

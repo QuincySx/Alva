@@ -1,4 +1,9 @@
-use gpui::{prelude::*, Context, Entity, FontWeight, Render, Window, div};
+// INPUT:  gpui, gpui_component (Button, ButtonVariants), crate::models::WorkspaceModel, crate::theme, sidebar_tree::SidebarTree
+// OUTPUT: pub struct SidePanel
+// POS:    Left sidebar view containing a "New Session" button (gpui-component) and the SidebarTree workspace/session list.
+use gpui::{prelude::*, Context, Entity, Render, Window, div};
+
+use gpui_component::button::Button;
 
 use crate::models::WorkspaceModel;
 use crate::theme::Theme;
@@ -37,43 +42,32 @@ impl Render for SidePanel {
             .child(
                 // "+ New" button at top
                 div()
-                    .id("new-session-btn")
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .px_3()
-                    .py_2()
                     .mx_2()
                     .mt_2()
                     .mb_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.accent)
-                    .border_1()
-                    .border_color(theme.accent)
-                    .hover(move |style| style.bg(theme.surface_hover))
-                    .child("+ New")
-                    .on_click(move |_, _, cx| {
-                        // Placeholder: create a new global session
-                        let new_id = format!("sess-{}", chrono::Utc::now().timestamp_millis());
-                        workspace_model.update(cx, |model, cx| {
-                            model.sidebar_items.insert(
-                                0,
-                                crate::models::SidebarItem::GlobalSession(
-                                    crate::types::Session {
-                                        id: new_id.clone(),
-                                        workspace_id: None,
-                                        name: "New Session".into(),
-                                        created_at: chrono::Utc::now().timestamp_millis(),
-                                        updated_at: chrono::Utc::now().timestamp_millis(),
-                                    },
-                                ),
-                            );
-                            model.select_session(new_id, cx);
-                        });
-                    }),
+                    .child(
+                        Button::new("new-session-btn")
+                            .label("+ New")
+                            .outline()
+                            .on_click(move |_, _, cx| {
+                                let new_id = format!("sess-{}", chrono::Utc::now().timestamp_millis());
+                                workspace_model.update(cx, |model, cx| {
+                                    model.sidebar_items.insert(
+                                        0,
+                                        crate::models::SidebarItem::GlobalSession(
+                                            crate::types::Session {
+                                                id: new_id.clone(),
+                                                workspace_id: None,
+                                                name: "New Session".into(),
+                                                created_at: chrono::Utc::now().timestamp_millis(),
+                                                updated_at: chrono::Utc::now().timestamp_millis(),
+                                            },
+                                        ),
+                                    );
+                                    model.select_session(new_id, cx);
+                                });
+                            })
+                    )
             )
             .child(
                 // Tree list

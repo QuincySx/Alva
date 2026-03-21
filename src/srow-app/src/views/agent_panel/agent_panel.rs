@@ -1,3 +1,6 @@
+// INPUT:  gpui, crate::models (AgentModel, SettingsModel, WorkspaceModel), crate::theme, crate::views::settings_panel::SettingsPanel
+// OUTPUT: pub struct AgentPanel
+// POS:    Right-side panel with tab bar (Status/Settings/Preview); shows agent status, embeds SettingsPanel, and a preview placeholder.
 use gpui::{prelude::*, Context, Entity, FontWeight, Render, Window, div, px};
 
 use crate::models::{AgentModel, SettingsModel, WorkspaceModel};
@@ -23,6 +26,7 @@ impl AgentPanel {
         agent_model: Entity<AgentModel>,
         workspace_model: Entity<WorkspaceModel>,
         settings_model: Entity<SettingsModel>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.subscribe(&agent_model, |_this, _model, _event, cx| {
@@ -44,7 +48,7 @@ impl AgentPanel {
         };
 
         let sm = settings_model.clone();
-        let settings_panel = cx.new(|cx| SettingsPanel::new(sm, cx));
+        let settings_panel = cx.new(|cx| SettingsPanel::new(sm, window, cx));
 
         Self {
             agent_model,

@@ -1,3 +1,6 @@
+// INPUT:  gpui, crate::models (AgentModel, ChatModel, SettingsModel, WorkspaceModel), crate::theme, message_list, input_box
+// OUTPUT: pub struct ChatPanel
+// POS:    Composite GPUI view combining a header, MessageList, and InputBox into the central chat column.
 use gpui::{prelude::*, Context, Entity, FontWeight, Render, Window, div};
 
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
@@ -16,6 +19,7 @@ impl ChatPanel {
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
         settings_model: Entity<SettingsModel>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let wm1 = workspace_model.clone();
@@ -24,7 +28,7 @@ impl ChatPanel {
         let cm2 = chat_model;
 
         let message_list = cx.new(|cx| MessageList::new(wm1, cm1, cx));
-        let input_box = cx.new(|cx| InputBox::new(wm2, cm2, agent_model, settings_model, cx));
+        let input_box = cx.new(|cx| InputBox::new(wm2, cm2, agent_model, settings_model, window, cx));
 
         Self {
             message_list,

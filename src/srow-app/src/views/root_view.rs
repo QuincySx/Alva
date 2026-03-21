@@ -1,3 +1,6 @@
+// INPUT:  gpui, crate::models (AgentModel, ChatModel, SettingsModel, WorkspaceModel), crate::theme, views::side_panel, views::chat_panel, views::agent_panel
+// OUTPUT: pub struct RootView
+// POS:    Top-level GPUI view composing SidePanel, ChatPanel, and AgentPanel in a three-column layout.
 use gpui::{prelude::*, Context, Entity, Render, Window, div, px};
 
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
@@ -18,6 +21,7 @@ impl RootView {
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
         settings_model: Entity<SettingsModel>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let wm1 = workspace_model.clone();
@@ -30,8 +34,8 @@ impl RootView {
         let sm2 = settings_model;
 
         let side_panel = cx.new(|cx| SidePanel::new(wm1, cx));
-        let chat_panel = cx.new(|cx| ChatPanel::new(wm2, cm1, am1, sm1, cx));
-        let agent_panel = cx.new(|cx| AgentPanel::new(am2, wm3, sm2, cx));
+        let chat_panel = cx.new(|cx| ChatPanel::new(wm2, cm1, am1, sm1, window, cx));
+        let agent_panel = cx.new(|cx| AgentPanel::new(am2, wm3, sm2, window, cx));
 
         Self {
             side_panel,
