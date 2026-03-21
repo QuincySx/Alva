@@ -63,7 +63,7 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| {
-                cx.new(|cx| {
+                let app_view = cx.new(|cx| {
                     RootView::new(
                         workspace_model,
                         chat_model,
@@ -72,7 +72,9 @@ fn main() {
                         window,
                         cx,
                     )
-                })
+                });
+                // Wrap in gpui_component::Root so components (Input, Button, Dialog etc.) work
+                cx.new(|cx| gpui_component::Root::new(app_view, window, cx))
             },
         )
         .expect("Failed to open main window");
