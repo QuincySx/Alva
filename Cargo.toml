@@ -2,6 +2,7 @@
 members = [
     "src/srow-app",
     "src/srow-core",
+    "src/srow-ai",
 ]
 resolver = "2"
 
