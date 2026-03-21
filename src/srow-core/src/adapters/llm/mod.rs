@@ -3,4 +3,5 @@
 // POS:    Module declaration for LLM adapter implementations.
 pub mod anthropic;
 pub mod http;
+pub mod openai;
 pub mod openai_compat;
