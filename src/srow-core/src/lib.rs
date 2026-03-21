@@ -29,6 +29,7 @@ pub mod ports;
 pub mod adapters;
 pub mod error;
 pub mod ui_message;
+pub mod ui_message_stream;
 
 // Convenience re-exports — engine
 pub use agent::runtime::engine::engine::{AgentEngine, EngineEvent};
@@ -82,6 +83,10 @@ pub use environment::resolver::RuntimeResolver;
 
 // Convenience re-exports — UI message model
 pub use ui_message::{UIMessage, UIMessagePart, UIMessageRole, TextPartState, ToolState};
+
+// Convenience re-exports — UI message stream protocol
+pub use ui_message_stream::{UIMessageChunk, FinishReason, ChatStatus, TokenUsage};
+pub use error::{ChatError, StreamError};
 
 // Convenience re-exports — orchestrator
 pub use agent::orchestrator::orchestrator::{Orchestrator, OrchestratorHandle};

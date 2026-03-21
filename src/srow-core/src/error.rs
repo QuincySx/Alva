@@ -1,3 +1,6 @@
+// INPUT:  thiserror, std::io
+// OUTPUT: EngineError, SkillError
+// POS:    Defines the two root error enums for the engine subsystem and skill subsystem.
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -82,4 +85,28 @@ pub enum SkillError {
 
     #[error("IO error: {0}")]
     Io(String),
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum ChatError {
+    #[error("Transport error: {0}")]
+    Transport(String),
+    #[error("Stream error: {0}")]
+    Stream(String),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    #[error("Engine error: {0}")]
+    Engine(String),
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum StreamError {
+    #[error("Invalid SSE: {0}")]
+    InvalidSse(String),
+    #[error("Invalid chunk JSON: {0}")]
+    InvalidChunk(String),
+    #[error("Stream interrupted")]
+    Interrupted,
+    #[error("Aborted")]
+    Aborted,
 }
