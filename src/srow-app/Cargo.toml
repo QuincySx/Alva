@@ -12,8 +12,11 @@ name = "srow_app"
 path = "src/lib.rs"
 
 [dependencies]
-# UI framework (community edition — self-contained, includes platform backends)
-gpui = { package = "gpui-ce", version = "0.3" }
+# UI framework (official Zed GPUI)
+gpui = "0.2"
+
+# UI component library (shadcn/ui style components for GPUI)
+gpui-component = "0.5"
 
 # Core crate (unified engine + skills + MCP)
 srow-core = { path = "../srow-core" }
