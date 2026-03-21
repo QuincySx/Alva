@@ -137,7 +137,7 @@ pub async fn generate_text(
 }
 
 /// Extract all text content blocks from an LLM response, joined together.
-fn extract_text(content: &[LLMContent]) -> String {
+pub(crate) fn extract_text(content: &[LLMContent]) -> String {
     content
         .iter()
         .filter_map(|c| match c {
@@ -159,7 +159,7 @@ fn extract_reasoning(_content: &[LLMContent]) -> Option<String> {
 }
 
 /// Extract tool calls from LLM response content blocks.
-fn extract_tool_calls(content: &[LLMContent]) -> Vec<ToolCall> {
+pub(crate) fn extract_tool_calls(content: &[LLMContent]) -> Vec<ToolCall> {
     content
         .iter()
         .filter_map(|c| match c {
@@ -174,7 +174,7 @@ fn extract_tool_calls(content: &[LLMContent]) -> Vec<ToolCall> {
 }
 
 /// Convert LLM StopReason to UI FinishReason.
-fn convert_stop_reason(reason: &StopReason) -> FinishReason {
+pub(crate) fn convert_stop_reason(reason: &StopReason) -> FinishReason {
     match reason {
         StopReason::EndTurn => FinishReason::Stop,
         StopReason::ToolUse => FinishReason::ToolCalls,
@@ -202,7 +202,7 @@ where
 }
 
 /// Execute tool calls in parallel and collect results.
-async fn execute_tools(
+pub(crate) async fn execute_tools(
     tools: &srow_core::ports::tool::ToolRegistry,
     calls: &[ToolCall],
     workspace: &std::path::Path,
