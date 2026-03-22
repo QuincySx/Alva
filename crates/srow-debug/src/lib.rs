@@ -5,6 +5,8 @@ mod log_store;
 mod router;
 mod server;
 
+pub mod gpui;
+
 pub use builder::{DebugServer, DebugServerBuilder, DebugServerHandle};
 pub use inspect::{Bounds, InspectNode, Inspectable};
 #[cfg(debug_assertions)]
