@@ -5,6 +5,7 @@ members = [
     "crates/srow-ai",
     "crates/srow-debug",
     "crates/agent-base",
+    "crates/agent-core",
 ]
 resolver = "2"
 
