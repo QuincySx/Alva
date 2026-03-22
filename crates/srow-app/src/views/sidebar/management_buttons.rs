@@ -40,8 +40,9 @@ pub fn render_management_buttons(theme: &Theme) -> impl IntoElement {
             Button::new("skills-btn")
                 .label("Skills")
                 .outline()
-                .on_click(srow_debug::traced!("sidebar:skills_btn", move |_, _, _| {
+                .on_click(srow_debug::traced!("sidebar:skills_btn", move |_, window, cx| {
                     tracing::info!("open skills dialog");
+                    dialogs::open_skills_dialog(window, cx);
                 })),
         )
 }
