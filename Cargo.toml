@@ -8,6 +8,7 @@ members = [
     "crates/agent-graph",
     "crates/protocol-context-skill",
     "crates/protocol-model-context",
+    "crates/protocol-agent-client",
 ]
 resolver = "2"
 
