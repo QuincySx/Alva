@@ -1,4 +1,4 @@
-use agent_base::{
+use agent_types::{
     CancellationToken, ContentBlock, LanguageModel, Message, MessageRole, ToolCall,
 };
 use tokio::sync::mpsc;
@@ -24,7 +24,7 @@ pub(crate) async fn run_agent_loop(
     config: &AgentConfig,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
-) -> Result<(), agent_base::AgentError> {
+) -> Result<(), agent_types::AgentError> {
     let _ = event_tx.send(AgentEvent::AgentStart);
 
     let result = run_agent_loop_inner(state, model, config, cancel, event_tx).await;
@@ -49,26 +49,26 @@ async fn run_agent_loop_inner(
     config: &AgentConfig,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
-) -> Result<(), agent_base::AgentError> {
+) -> Result<(), agent_types::AgentError> {
     let mut iteration: u32 = 0;
 
     // ===== OUTER LOOP (follow-up) ==========================================
     'outer: loop {
         if cancel.is_cancelled() {
-            return Err(agent_base::AgentError::Cancelled);
+            return Err(agent_types::AgentError::Cancelled);
         }
 
         // ===== INNER LOOP (tool calls + steering) ==========================
         'inner: loop {
             iteration += 1;
             if iteration > config.max_iterations {
-                return Err(agent_base::AgentError::MaxIterations(
+                return Err(agent_types::AgentError::MaxIterations(
                     config.max_iterations,
                 ));
             }
 
             if cancel.is_cancelled() {
-                return Err(agent_base::AgentError::Cancelled);
+                return Err(agent_types::AgentError::Cancelled);
             }
 
             let _ = event_tx.send(AgentEvent::TurnStart);
@@ -83,7 +83,7 @@ async fn run_agent_loop_inner(
                 (config.convert_to_llm)(&context_messages, &state.system_prompt);
 
             // 2. Collect tool references for the model ----------------------
-            let tool_refs: Vec<&dyn agent_base::Tool> =
+            let tool_refs: Vec<&dyn agent_types::Tool> =
                 state.tools.iter().map(|t| t.as_ref()).collect();
 
             // 3. Call the model ---------------------------------------------
@@ -146,17 +146,17 @@ async fn run_agent_loop_inner(
             .await;
 
             // 8. Push tool results as messages into state -------------------
-            for result in &results {
+            for (tc, result) in tool_calls.iter().zip(results.iter()) {
                 let tool_msg = Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     role: MessageRole::Tool,
                     content: vec![ContentBlock::ToolResult {
-                        id: result.tool_call_id.clone(),
+                        id: tc.id.clone(),
                         content: result.content.clone(),
                         is_error: result.is_error,
                     }],
                     tool_calls: vec![],
-                    tool_call_id: Some(result.tool_call_id.clone()),
+                    tool_call_id: Some(tc.id.clone()),
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
@@ -217,7 +217,7 @@ async fn run_agent_loop_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_base::*;
+    use agent_types::*;
     use async_trait::async_trait;
     use std::pin::Pin;
     use std::sync::Arc;

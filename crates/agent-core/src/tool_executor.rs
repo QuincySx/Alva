@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use agent_base::{CancellationToken, Tool, ToolCall, ToolResult};
+use agent_types::{CancellationToken, Tool, ToolCall, ToolResult};
 use tokio::sync::mpsc;
 use tracing::{error, warn};
 
@@ -52,7 +52,6 @@ async fn execute_parallel(
                 ToolCallDecision::Allow => {}
                 ToolCallDecision::Block { reason } => {
                     let blocked_result = ToolResult {
-                        tool_call_id: tc.id.clone(),
                         content: format!("Tool call blocked: {reason}"),
                         is_error: true,
                         details: None,
@@ -95,7 +94,6 @@ async fn execute_parallel(
                     Err(e) => {
                         error!(tool = %tc_clone.name, error = %e, "tool execution failed");
                         ToolResult {
-                            tool_call_id: tc_clone.id.clone(),
                             content: format!("Tool execution error: {e}"),
                             is_error: true,
                             details: None,
@@ -105,7 +103,6 @@ async fn execute_parallel(
                 None => {
                     warn!(tool = %tc_clone.name, "tool not found");
                     ToolResult {
-                        tool_call_id: tc_clone.id.clone(),
                         content: format!("Tool '{}' not found", tc_clone.name),
                         is_error: true,
                         details: None,
@@ -156,7 +153,6 @@ async fn execute_sequential(
     for tc in tool_calls {
         if cancel.is_cancelled() {
             results.push(ToolResult {
-                tool_call_id: tc.id.clone(),
                 content: "Cancelled".to_string(),
                 is_error: true,
                 details: None,
@@ -170,7 +166,6 @@ async fn execute_sequential(
                 ToolCallDecision::Allow => {}
                 ToolCallDecision::Block { reason } => {
                     let blocked = ToolResult {
-                        tool_call_id: tc.id.clone(),
                         content: format!("Tool call blocked: {reason}"),
                         is_error: true,
                         details: None,
@@ -204,7 +199,6 @@ async fn execute_sequential(
                 Err(e) => {
                     error!(tool = %tc.name, error = %e, "tool execution failed");
                     ToolResult {
-                        tool_call_id: tc.id.clone(),
                         content: format!("Tool execution error: {e}"),
                         is_error: true,
                         details: None,
@@ -214,7 +208,6 @@ async fn execute_sequential(
             None => {
                 warn!(tool = %tc.name, "tool not found");
                 ToolResult {
-                    tool_call_id: tc.id.clone(),
                     content: format!("Tool '{}' not found", tc.name),
                     is_error: true,
                     details: None,

@@ -1,19 +1,19 @@
-// INPUT:  std::sync, async_trait, serde_json, agent_base, crate::client, crate::types
+// INPUT:  std::sync, async_trait, serde_json, agent_types, crate::client, crate::types
 // OUTPUT: McpToolAdapter, build_mcp_tools
-// POS:    Wraps individual MCP tools as agent-base Tool trait implementations with namespaced names (mcp:server:tool).
+// POS:    Wraps individual MCP tools as agent-types Tool trait implementations with namespaced names (mcp:server:tool).
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 
-use agent_base::cancel::CancellationToken;
-use agent_base::error::AgentError;
-use agent_base::tool::{Tool, ToolResult};
+use agent_types::cancel::CancellationToken;
+use agent_types::error::AgentError;
+use agent_types::tool::{Tool, ToolResult};
 
 use crate::client::McpClient;
 use crate::types::McpToolInfo;
 
-/// Wraps a single MCP Tool as an agent-base Tool trait implementation.
+/// Wraps a single MCP Tool as an agent-types Tool trait implementation.
 ///
 /// Tool name format: `mcp:<server_id>:<tool_name>`
 /// This way MCP tools coexist with built-in tools in a ToolRegistry,
@@ -77,7 +77,6 @@ impl Tool for McpToolAdapter {
             serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         Ok(ToolResult {
-            tool_call_id: String::new(), // Filled by engine layer
             content: output,
             is_error: false,
             details: None,
