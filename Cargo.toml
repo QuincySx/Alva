@@ -6,6 +6,7 @@ members = [
     "crates/agent-base",
     "crates/agent-core",
     "crates/agent-graph",
+    "crates/protocol-context-skill",
 ]
 resolver = "2"
 
