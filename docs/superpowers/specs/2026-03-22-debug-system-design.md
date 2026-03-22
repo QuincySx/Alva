@@ -479,11 +479,65 @@ let _debug_handle = {
 }
 ```
 
+## Tracing Instrumentation Strategy
+
+The debug server is only as useful as the tracing data flowing through it. V1 must include baseline instrumentation at key boundaries so AI can trace an operation end-to-end and pinpoint where it breaks.
+
+### Required Spans (key boundaries)
+
+Each span wraps a logical unit of work. When something fails, the `span_stack` in log records reveals exactly which stage broke.
+
+**Agent engine loop** (`srow-core::agent::runtime::engine`):
+- `agent_turn` span per iteration — covers prompt → LLM call → tool execution → result
+- `llm_request` span — LLM API call with model name, token counts
+- `tool_execution` span — tool name, input summary, success/failure
+
+**Chat message flow** (`srow-ai::chat`):
+- `chat_send` span — user message submission
+- `chat_stream` span — streaming response, with chunk count on completion
+- `chat_error` event — any error during the flow
+
+**MCP/ACP protocol** (`srow-core::mcp`, `srow-core::agent::agent_client`):
+- `mcp_request` span — server name, method, success/failure
+- `acp_message` span — message type, direction (send/receive)
+
+**GPUI event handling** (`srow-app`):
+- `action_dispatch` span on key user actions (send message, switch session, etc.)
+
+### Instrumentation guidelines
+
+- Use `#[tracing::instrument]` for functions at these boundaries — minimal code change
+- Include only the fields AI needs to correlate events (IDs, names, status), not raw payloads
+- Error events (`tracing::error!`) must include the error type and message at minimum
+- Do NOT instrument hot loops or per-frame rendering — only logical operations
+
+### DebugInspect: Expose Diagnostic State, Not Just Counts
+
+`DebugInspect::debug_properties()` implementations should expose state that helps diagnose issues, not just structural metadata:
+
+```rust
+// ❌ Too shallow — tells you nothing useful
+fn debug_properties(&self) -> HashMap<String, Value> {
+    json!({"message_count": 12}).as_object().unwrap().clone().into_iter().collect()
+}
+
+// ✅ Diagnostic — AI can see what's actually happening
+fn debug_properties(&self) -> HashMap<String, Value> {
+    json!({
+        "message_count": 12,
+        "status": "streaming",
+        "last_error": null,
+        "pending_tool_calls": ["bash", "read_file"],
+        "current_model": "claude-sonnet-4-6"
+    }).as_object().unwrap().clone().into_iter().collect()
+}
+```
+
+The guideline: include state that answers "what is this component doing right now and is anything wrong?"
+
 ## Out of Scope (V1)
 
-- Model/Entity state dump (future: state inspection endpoints)
-- Agent engine state inspection
-- MCP connection status
-- Performance metrics
+- Model/Entity state dump as dedicated endpoints (covered partially by DebugInspect properties)
+- Performance metrics / profiling
 - Runtime action triggers (force reconnect, reset state)
 - Remote access / authentication
