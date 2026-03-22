@@ -60,6 +60,7 @@ impl AgentEngine {
     }
 
     /// Run the agent loop for a session with an initial user message.
+    #[tracing::instrument(name = "agent_turn", skip(self, initial_message), fields(session_id = %session_id))]
     pub async fn run(
         &mut self,
         session_id: &str,
@@ -181,6 +182,9 @@ impl AgentEngine {
             };
 
             // 7. Stream LLM response via Provider V4
+            let llm_span = tracing::info_span!("llm_request");
+            let _llm_guard = llm_span.enter();
+
             let stream_result = self
                 .llm
                 .do_stream(options)
@@ -305,7 +309,7 @@ impl AgentEngine {
                         got_finish = true;
                     }
                     LanguageModelStreamPart::Error { error } => {
-                        tracing::error!("LLM stream error: {}", error);
+                        tracing::error!(error_type = "llm_stream", error = %error, "LLM stream error");
                     }
                     _ => {
                         // Other stream parts (StreamStart, Metadata, Source, etc.) — ignored
@@ -453,6 +457,7 @@ impl AgentEngine {
     }
 
     /// Execute all tool calls in parallel using `futures::future::join_all`.
+    #[tracing::instrument(name = "tool_execution", skip(self, calls, ctx), fields(tool_count = calls.len()))]
     async fn execute_tools(
         &self,
         calls: &[ToolCall],
@@ -482,6 +487,7 @@ impl AgentEngine {
         let futures: Vec<_> = calls
             .iter()
             .map(|call| {
+                tracing::info!(tool_name = %call.name, "executing tool");
                 let tools = self.tools.clone();
                 let ctx = ctx.clone();
                 let call = call.clone();
