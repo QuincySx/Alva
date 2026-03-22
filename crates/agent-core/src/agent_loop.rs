@@ -113,12 +113,15 @@ async fn run_agent_loop_inner(
 
             // 6. Check for tool calls ---------------------------------------
             let tool_calls: Vec<ToolCall> = assistant_message
-                .tool_calls
+                .content
                 .iter()
-                .map(|tc| ToolCall {
-                    id: tc.id.clone(),
-                    name: tc.name.clone(),
-                    arguments: tc.arguments.clone(),
+                .filter_map(|b| match b {
+                    ContentBlock::ToolUse { id, name, input } => Some(ToolCall {
+                        id: id.clone(),
+                        name: name.clone(),
+                        arguments: input.clone(),
+                    }),
+                    _ => None,
                 })
                 .collect();
 
@@ -155,7 +158,6 @@ async fn run_agent_loop_inner(
                         content: result.content.clone(),
                         is_error: result.is_error,
                     }],
-                    tool_calls: vec![],
                     tool_call_id: Some(tc.id.clone()),
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
@@ -241,7 +243,6 @@ mod tests {
                 content: vec![ContentBlock::Text {
                     text: "Hello from mock model!".to_string(),
                 }],
-                tool_calls: vec![],
                 tool_call_id: None,
                 usage: Some(UsageMetadata {
                     input_tokens: 10,

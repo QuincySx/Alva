@@ -1,5 +1,5 @@
 // INPUT:  gpui (Context, EventEmitter), agent_core (Agent, AgentConfig, AgentMessage, AgentEvent),
-//         agent_base (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
+//         agent_types (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
 //         tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
 // POS:    GPUI Entity wrapping agent-core's Agent. Bridges async agent events to GPUI's sync UI thread.
@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use gpui::{Context, EventEmitter};
 use tokio::sync::mpsc;
 
-use agent_base::{
+use agent_types::{
     AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
 use agent_core::{AgentConfig, AgentEvent, AgentMessage};
@@ -59,7 +59,6 @@ impl LanguageModel for PlaceholderModel {
             content: vec![ContentBlock::Text {
                 text: format!("Echo: {}", last_user),
             }],
-            tool_calls: vec![],
             tool_call_id: None,
             usage: None,
             timestamp: chrono::Utc::now().timestamp_millis(),
