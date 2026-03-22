@@ -2,15 +2,14 @@
 //         crate::models, crate::chat, crate::theme, crate::types::AgentStatusKind
 // OUTPUT: pub struct InputBox
 // POS:    Chat input widget using gpui-component Input/Button, Enter-to-send via InputEvent subscription.
-//         Transport/LLM creation commented out — depends on deleted srow-ai and Provider V4 types.
-//         TODO: Rebuild transport on agent-core.
+//         Sends messages through GpuiChat (agent-core) and subscribes to GpuiChatEvent for status updates.
 use gpui::{prelude::*, Context, Entity, Render, Subscription, Window, div};
 
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState, Input};
 use gpui_component::{Disableable, Sizable};
 
-use crate::chat::GpuiChatConfig;
+use crate::chat::{GpuiChatConfig, GpuiChatEvent};
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 use crate::types::AgentStatusKind;
@@ -125,9 +124,31 @@ impl InputBox {
             model.set_status(&session_id, AgentStatusKind::Running, cx);
         });
 
-        // Send via GpuiChat
-        // TODO: This is a no-op stub until agent-core chat transport is rebuilt
-        chat_entity.read(cx).send_message(&text);
+        // Subscribe to GpuiChatEvent so we know when the agent finishes.
+        {
+            let agent_model = self.agent_model.clone();
+            let sid = session_id.clone();
+            let sub = cx.subscribe(&chat_entity, move |_this, _chat, event: &GpuiChatEvent, cx| {
+                match event {
+                    GpuiChatEvent::Updated => {
+                        // Check if the agent is still running; if not, mark idle.
+                        let chat = _chat.read(cx);
+                        if !chat.is_running() {
+                            agent_model.update(cx, |model, cx| {
+                                model.set_status(&sid, AgentStatusKind::Idle, cx);
+                            });
+                        }
+                        cx.notify();
+                    }
+                }
+            });
+            self._subscriptions.push(sub);
+        }
+
+        // Send via GpuiChat (needs mutable access + cx for async bridging)
+        chat_entity.update(cx, |chat, cx| {
+            chat.send_message(&text, cx);
+        });
 
         // Clear input
         self.input_state.update(cx, |state, cx| {
