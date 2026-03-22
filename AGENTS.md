@@ -15,8 +15,14 @@
 | 核心引擎 | `crates/srow-core/` | Agent 引擎核心库：Provider V4、运行时、工具、MCP、技能系统、安全、持久化 |
 | 工作区配置 | `Cargo.toml` | Rust workspace 配置，管理三个 crate 成员 |
 
+## GPUI
+Use when building GPUI components, custom elements, managing state/entities, working with contexts, handling events/subscriptions, async tasks, global state, actions/keybindings, focus management, layout/styling, code style conventions, or writing GPUI tests.
+`docs/gpui/index.md`
 
-## Test
-### GUI Test
-Writing tests for GPUI applications. Use when testing components, async operations, or UI behavior.
-`docs/GPUI_TEST.md`
+## Compact Instructions 如何保留关键信息
+保留优先级：
+1. 架构决策，不得摘要
+2. 已修改文件和关键变更
+3. 验证状态，pass/fail
+4. 未解决的 TODO 和回滚笔记
+5. 工具输出，可删，只保留 pass/fail 结论
