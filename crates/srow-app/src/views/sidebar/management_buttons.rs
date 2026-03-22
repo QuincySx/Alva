@@ -1,14 +1,15 @@
-// INPUT:  gpui, gpui_component (Button), crate::theme::Theme
+// INPUT:  gpui, gpui_component (Button), crate::theme::Theme, crate::views::dialogs
 // OUTPUT: pub fn render_management_buttons()
-// POS:    Renders Agents and Skills management buttons for the sidebar.
+// POS:    Renders Agents and Skills management buttons for the sidebar, wired to open dialogs.
 use gpui::*;
 
 use gpui_component::button::Button;
 
 use crate::theme::Theme;
+use crate::views::dialogs;
 
 /// Renders the Agents and Skills management buttons.
-/// These will open dialogs in Tasks 9 and 10; for now they log on click.
+/// Clicking opens the corresponding dialog via gpui-component's Dialog API.
 pub fn render_management_buttons(theme: &Theme) -> impl IntoElement {
     let text_muted = theme.text_muted;
 
@@ -30,8 +31,9 @@ pub fn render_management_buttons(theme: &Theme) -> impl IntoElement {
             Button::new("agents-btn")
                 .label("Agents")
                 .outline()
-                .on_click(srow_debug::traced!("sidebar:agents_btn", move |_, _, _| {
+                .on_click(srow_debug::traced!("sidebar:agents_btn", move |_, window, cx| {
                     tracing::info!("open agents dialog");
+                    dialogs::open_agents_dialog(window, cx);
                 })),
         )
         .child(
