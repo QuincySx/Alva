@@ -196,9 +196,17 @@ impl Render for Sidebar {
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Settings"),
                             )
-                            .on_click(srow_debug::traced!("sidebar:settings", move |_, _, _| {
-                                tracing::info!("open settings dialog");
-                            })),
+                            .on_click({
+                                let settings_model = self.settings_model.clone();
+                                srow_debug::traced!("sidebar:settings", move |_, window, cx| {
+                                    tracing::info!("open settings dialog");
+                                    crate::views::dialogs::open_settings_dialog(
+                                        settings_model.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                })
+                            }),
                     ),
             )
     }
