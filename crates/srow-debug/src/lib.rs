@@ -4,6 +4,7 @@ mod log_layer;
 mod log_store;
 mod router;
 mod server;
+mod traced;
 
 pub mod gpui;
 
