@@ -20,15 +20,13 @@ use crate::protocol::{
 /// Supported external Agent types
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExternalAgentKind {
-    /// Claude Code (claude-code-acp)
-    ClaudeCode,
-    /// Qwen Code
-    QwenCode,
-    /// Codex CLI (Zed Industries)
-    CodexCli,
-    /// Gemini CLI
-    GeminiCli,
-    /// Generic ACP (any CLI implementing the protocol, user-defined command)
+    /// Well-known agent with discovery hints
+    Named {
+        id: String,
+        executables: Vec<String>,
+        fallback_npx: Option<String>,
+    },
+    /// User-specified arbitrary command
     Generic { command: String },
 }
 
@@ -42,99 +40,83 @@ pub struct AgentCliCommand {
     pub args: Vec<String>,
 }
 
-pub struct AgentDiscovery;
+pub struct AgentDiscovery {
+    packages_dir: PathBuf,
+}
 
 impl AgentDiscovery {
+    pub fn new(app_name: &str) -> Self {
+        Self {
+            packages_dir: builtin_packages_dir(app_name),
+        }
+    }
+
+    pub fn with_packages_dir(packages_dir: PathBuf) -> Self {
+        Self { packages_dir }
+    }
+
     /// Discover the CLI command for the specified Agent
-    pub fn discover(kind: &ExternalAgentKind) -> Result<AgentCliCommand, AcpError> {
+    pub fn discover(&self, kind: &ExternalAgentKind) -> Result<AgentCliCommand, AcpError> {
         match kind {
-            ExternalAgentKind::ClaudeCode => Self::discover_claude_code(),
-            ExternalAgentKind::QwenCode => Self::discover_qwen_code(),
-            ExternalAgentKind::CodexCli => Self::discover_codex_cli(),
-            ExternalAgentKind::GeminiCli => Self::discover_gemini_cli(),
             ExternalAgentKind::Generic { command } => Self::discover_generic(command),
+            ExternalAgentKind::Named { .. } => self.discover_named(kind),
         }
     }
 
-    /// Claude Code: PATH lookup for `claude-code-acp`
-    fn discover_claude_code() -> Result<AgentCliCommand, AcpError> {
-        let exe = which("claude-code-acp").ok_or_else(|| AcpError::AgentNotFound {
-            kind: "claude-code-acp".to_string(),
-            hint: "Install Claude Code and ensure `claude-code-acp` is in $PATH".to_string(),
-        })?;
-        Ok(AgentCliCommand {
-            kind: ExternalAgentKind::ClaudeCode,
-            executable: exe,
-            args: vec![],
-        })
-    }
+    /// Discover a well-known named agent by trying executables in PATH,
+    /// then the built-in packages directory, then an npx fallback.
+    fn discover_named(&self, kind: &ExternalAgentKind) -> Result<AgentCliCommand, AcpError> {
+        let ExternalAgentKind::Named {
+            id,
+            executables,
+            fallback_npx,
+        } = kind
+        else {
+            unreachable!()
+        };
 
-    /// Qwen Code:
-    ///   1. PATH lookup for `qwen`
-    ///   2. Built-in path $APP_DATA/packages/qwen/node_modules/.bin/qwen
-    fn discover_qwen_code() -> Result<AgentCliCommand, AcpError> {
-        if let Some(exe) = which("qwen") {
-            return Ok(AgentCliCommand {
-                kind: ExternalAgentKind::QwenCode,
-                executable: exe,
-                args: vec![],
-            });
-        }
-        let builtin = builtin_packages_dir()
-            .join("qwen")
-            .join("node_modules")
-            .join(".bin")
-            .join("qwen");
-        if builtin.exists() {
-            return Ok(AgentCliCommand {
-                kind: ExternalAgentKind::QwenCode,
-                executable: builtin,
-                args: vec![],
-            });
-        }
-        Err(AcpError::AgentNotFound {
-            kind: "qwen".to_string(),
-            hint: "Install Qwen Code CLI or place the package in the built-in packages directory"
-                .to_string(),
-        })
-    }
-
-    /// Codex CLI:
-    ///   1. PATH lookup for `codex-acp`
-    ///   2. `npx @zed-industries/codex-acp` fallback
-    fn discover_codex_cli() -> Result<AgentCliCommand, AcpError> {
-        if let Some(exe) = which("codex-acp") {
-            return Ok(AgentCliCommand {
-                kind: ExternalAgentKind::CodexCli,
-                executable: exe,
-                args: vec![],
-            });
-        }
-        let npx = which("npx").ok_or_else(|| AcpError::AgentNotFound {
-            kind: "codex-acp".to_string(),
-            hint: "Install Node.js/npx or `codex-acp` binary in $PATH".to_string(),
-        })?;
-        Ok(AgentCliCommand {
-            kind: ExternalAgentKind::CodexCli,
-            executable: npx,
-            args: vec!["@zed-industries/codex-acp".to_string()],
-        })
-    }
-
-    /// Gemini CLI: PATH lookup for `gemini` or `gemini-cli`
-    fn discover_gemini_cli() -> Result<AgentCliCommand, AcpError> {
-        for name in &["gemini", "gemini-cli"] {
-            if let Some(exe) = which(name) {
+        // 1. Try each executable in PATH
+        for exe_name in executables {
+            if let Some(exe) = which(exe_name) {
                 return Ok(AgentCliCommand {
-                    kind: ExternalAgentKind::GeminiCli,
+                    kind: kind.clone(),
                     executable: exe,
                     args: vec![],
                 });
             }
         }
+
+        // 2. Try builtin packages dir
+        for exe_name in executables {
+            let builtin = self
+                .packages_dir
+                .join(id)
+                .join("node_modules")
+                .join(".bin")
+                .join(exe_name);
+            if builtin.exists() {
+                return Ok(AgentCliCommand {
+                    kind: kind.clone(),
+                    executable: builtin,
+                    args: vec![],
+                });
+            }
+        }
+
+        // 3. Try npx fallback
+        if let Some(npx_pkg) = fallback_npx {
+            if let Some(npx) = which("npx") {
+                return Ok(AgentCliCommand {
+                    kind: kind.clone(),
+                    executable: npx,
+                    args: vec![npx_pkg.clone()],
+                });
+            }
+        }
+
         Err(AcpError::AgentNotFound {
-            kind: "gemini-cli".to_string(),
-            hint: "Install Gemini CLI and ensure it is in $PATH".to_string(),
+            kind: id.clone(),
+            hint: format!("Ensure one of {:?} is in $PATH", executables),
         })
     }
 
@@ -174,28 +156,20 @@ fn which(name: &str) -> Option<PathBuf> {
 }
 
 /// Built-in packages directory (platform-specific)
-fn builtin_packages_dir() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("srow-agent")
-            .join("packages")
-    }
-    #[cfg(target_os = "windows")]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("C:\\Temp"))
-            .join("srow-agent")
-            .join("packages")
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("srow-agent")
-            .join("packages")
-    }
+fn builtin_packages_dir(app_name: &str) -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| {
+            #[cfg(target_os = "windows")]
+            {
+                PathBuf::from("C:\\Temp")
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                PathBuf::from("/tmp")
+            }
+        })
+        .join(app_name)
+        .join("packages")
 }
 
 // ---------------------------------------------------------------------------
@@ -457,10 +431,11 @@ impl AcpProcessManager {
     /// Returns process_id (UUID), usable for subsequent send / shutdown.
     pub async fn spawn(
         &self,
+        discovery: &AgentDiscovery,
         kind: ExternalAgentKind,
         bootstrap: BootstrapPayload,
     ) -> Result<String, AcpError> {
-        let cmd = AgentDiscovery::discover(&kind)?;
+        let cmd = discovery.discover(&kind)?;
         let process_id = uuid::Uuid::new_v4().to_string();
 
         // Create message routing channel (process -> broadcast)

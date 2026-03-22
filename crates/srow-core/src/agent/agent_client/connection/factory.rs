@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 use crate::agent::agent_client::{
     protocol::{bootstrap::BootstrapPayload, message::AcpInboundMessage},
     connection::{
-        discovery::ExternalAgentKind,
+        discovery::{AgentDiscovery, ExternalAgentKind},
         processes::{AcpProcessHandle, ProcessState},
     },
     AcpError,
@@ -39,6 +39,8 @@ impl Default for ProcessManagerConfig {
 pub struct AcpProcessManager {
     #[allow(dead_code)]
     config: ProcessManagerConfig,
+    /// Agent discovery instance
+    discovery: AgentDiscovery,
     /// process_id -> handle
     processes: Arc<Mutex<HashMap<String, AcpProcessHandle>>>,
     /// Broadcast channel: all process messages unified broadcast
@@ -47,13 +49,14 @@ pub struct AcpProcessManager {
 }
 
 impl AcpProcessManager {
-    pub async fn new(config: ProcessManagerConfig) -> Self {
+    pub async fn new(config: ProcessManagerConfig, app_name: &str) -> Self {
         // Clean up orphan processes on startup
         super::orphan::cleanup_orphan_processes().await;
 
         let (event_tx, _) = broadcast::channel(1024);
         Self {
             config,
+            discovery: AgentDiscovery::new(app_name),
             processes: Arc::new(Mutex::new(HashMap::new())),
             event_tx,
         }
@@ -66,7 +69,7 @@ impl AcpProcessManager {
         kind: ExternalAgentKind,
         bootstrap: BootstrapPayload,
     ) -> Result<String, AcpError> {
-        let cmd = super::discovery::AgentDiscovery::discover(&kind)?;
+        let cmd = self.discovery.discover(&kind)?;
         let process_id = uuid::Uuid::new_v4().to_string();
 
         // Create message routing channel (process -> broadcast)

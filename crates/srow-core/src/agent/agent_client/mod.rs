@@ -46,6 +46,30 @@ pub enum AcpError {
     Protocol(String),
 }
 
+// Allow protocol_agent_client::AcpError -> AcpError conversion
+impl From<protocol_agent_client::AcpError> for AcpError {
+    fn from(e: protocol_agent_client::AcpError) -> Self {
+        match e {
+            protocol_agent_client::AcpError::AgentNotFound { kind, hint } => {
+                AcpError::AgentNotFound { kind, hint }
+            }
+            protocol_agent_client::AcpError::SpawnFailed { agent, reason } => {
+                AcpError::SpawnFailed { agent, reason }
+            }
+            protocol_agent_client::AcpError::ProcessDead { pid } => AcpError::ProcessDead { pid },
+            protocol_agent_client::AcpError::ProcessNotFound(s) => AcpError::ProcessNotFound(s),
+            protocol_agent_client::AcpError::PermissionRequestNotFound(s) => {
+                AcpError::PermissionRequestNotFound(s)
+            }
+            protocol_agent_client::AcpError::InvalidConfig(s) => AcpError::InvalidConfig(s),
+            protocol_agent_client::AcpError::Serialization(s) => AcpError::Serialization(s),
+            protocol_agent_client::AcpError::Io(s) => AcpError::Io(s),
+            protocol_agent_client::AcpError::Storage(s) => AcpError::Storage(s),
+            protocol_agent_client::AcpError::Protocol(s) => AcpError::Protocol(s),
+        }
+    }
+}
+
 // Allow AcpError -> EngineError conversion
 impl From<AcpError> for crate::error::EngineError {
     fn from(e: AcpError) -> Self {

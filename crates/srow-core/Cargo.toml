@@ -14,7 +14,8 @@ path = "src/bin/cli.rs"
 
 [dependencies]
 # New agent crates (gradual migration)
-agent-base = { path = "../agent-base" }
+agent-types = { path = "../agent-types" }
+protocol-agent-client = { path = "../protocol-agent-client" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

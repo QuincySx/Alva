@@ -69,10 +69,7 @@ impl AcpAgentDelegate {
 impl AgentDelegate for AcpAgentDelegate {
     fn agent_kind(&self) -> &str {
         match &self.kind {
-            super::connection::discovery::ExternalAgentKind::ClaudeCode => "claude-code",
-            super::connection::discovery::ExternalAgentKind::QwenCode => "qwen-code",
-            super::connection::discovery::ExternalAgentKind::CodexCli => "codex-cli",
-            super::connection::discovery::ExternalAgentKind::GeminiCli => "gemini-cli",
+            super::connection::discovery::ExternalAgentKind::Named { id, .. } => id.as_str(),
             super::connection::discovery::ExternalAgentKind::Generic { command } => command.as_str(),
         }
     }
