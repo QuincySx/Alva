@@ -1,15 +1,15 @@
-// INPUT:  crate::types, crate::error, serde, std::collections, std::path, dirs, tokio::fs
+// INPUT:  crate::types, crate::error, serde, std::collections, std::path, tokio::fs
 // OUTPUT: McpConfigFile, McpServerEntry, McpTransportEntry
 // POS:    Manages mcpServerConfig.json — the user-facing MCP Server configuration file.
 //! mcpServerConfig.json reader/writer
 //!
-//! Manages the MCP server configuration file at `~/.srow/mcpServerConfig.json`.
+//! Reads and writes MCP server configuration files. Callers supply the path.
 
 use crate::error::McpError;
 use crate::types::{McpServerConfig, McpTransportConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Top-level structure of mcpServerConfig.json.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -57,17 +57,6 @@ pub enum McpTransportEntry {
 }
 
 impl McpConfigFile {
-    /// Default config file path: `~/.srow/mcpServerConfig.json`
-    pub fn default_path() -> PathBuf {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        home.join(".srow").join("mcpServerConfig.json")
-    }
-
-    /// Load config from the default path. Returns empty config if file doesn't exist.
-    pub async fn load_default() -> Result<Self, McpError> {
-        Self::load(&Self::default_path()).await
-    }
-
     /// Load config from a specific path. Returns empty config if file doesn't exist.
     pub async fn load(path: &Path) -> Result<Self, McpError> {
         if !path.exists() {
@@ -82,11 +71,6 @@ impl McpConfigFile {
             .map_err(|e| McpError::Serialization(format!("Invalid mcpServerConfig.json: {}", e)))?;
 
         Ok(config)
-    }
-
-    /// Save config to the default path.
-    pub async fn save_default(&self) -> Result<(), McpError> {
-        self.save(&Self::default_path()).await
     }
 
     /// Save config to a specific path (creates parent directories if needed).
