@@ -13,6 +13,9 @@ name = "srow-cli"
 path = "src/bin/cli.rs"
 
 [dependencies]
+# New agent crates (gradual migration)
+agent-base = { path = "../agent-base" }
+
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"

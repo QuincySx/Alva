@@ -16,6 +16,9 @@
 //!   environment/  — Embedded runtime management (Bun, Node, Python, Chromium, etc.)
 //!   adapters/     — Adapter implementations (DDD)
 
+// Re-export agent-base types for gradual migration
+pub use agent_base;
+
 pub mod agent;
 pub mod mcp;
 pub mod skills;

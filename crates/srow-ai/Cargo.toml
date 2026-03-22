@@ -9,6 +9,9 @@ name = "srow_ai"
 path = "src/lib.rs"
 
 [dependencies]
+# New agent crates (gradual migration)
+agent-base = { path = "../agent-base" }
+
 srow-core = { path = "../srow-core" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
