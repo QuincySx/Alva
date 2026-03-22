@@ -32,6 +32,7 @@ impl ChatModel {
 
         let chat = cx.new(|cx| GpuiChat::new(config, cx));
         self.chats.insert(session_id.to_string(), chat.clone());
+        tracing::info!(session_id = %session_id, "model_event: chat_created");
         cx.emit(ChatModelEvent::ChatCreated {
             session_id: session_id.to_string(),
         });

@@ -34,6 +34,7 @@ impl EventEmitter<WorkspaceModelEvent> for WorkspaceModel {}
 
 impl WorkspaceModel {
     pub fn select_session(&mut self, id: String, cx: &mut Context<Self>) {
+        tracing::info!(session_id = %id, "model_event: session_selected");
         self.selected_session_id = Some(id.clone());
         cx.emit(WorkspaceModelEvent::SessionSelected {
             session_id: id,

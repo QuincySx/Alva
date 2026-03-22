@@ -86,6 +86,7 @@ impl GpuiChat {
 
     /// Send a user text message. Spawns the request on the tokio runtime.
     pub fn send_message(&self, text: &str) {
+        tracing::info!("gpui_chat: send_message");
         let inner = self.inner.clone();
         let text = text.to_string();
         self.runtime.spawn(async move {

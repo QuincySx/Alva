@@ -62,6 +62,7 @@ impl Render for SidebarTree {
                             })
                             .child(session.name.clone())
                             .on_click(move |_, _, cx| {
+                                tracing::info!(session_id = %session_id, "action_dispatch: select_session");
                                 workspace_model.update(cx, |model, cx| {
                                     model.select_session(session_id.clone(), cx);
                                 });

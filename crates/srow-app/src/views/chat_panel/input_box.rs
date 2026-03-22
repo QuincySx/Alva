@@ -81,6 +81,7 @@ impl InputBox {
     }
 
     fn send_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        tracing::info!("action_dispatch: send_message");
         let text = self.input_state.read(cx).value().to_string();
         let text = text.trim().to_string();
         if text.is_empty() {

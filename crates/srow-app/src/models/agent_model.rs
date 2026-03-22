@@ -24,6 +24,7 @@ impl AgentModel {
         kind: AgentStatusKind,
         cx: &mut Context<Self>,
     ) {
+        tracing::info!(session_id = %session_id, status = ?kind, "model_event: agent_status_changed");
         let status = AgentStatus {
             session_id: session_id.to_string(),
             kind,
@@ -44,6 +45,7 @@ impl AgentModel {
         detail: String,
         cx: &mut Context<Self>,
     ) {
+        tracing::info!(session_id = %session_id, status = ?kind, "model_event: agent_status_changed");
         let status = AgentStatus {
             session_id: session_id.to_string(),
             kind,

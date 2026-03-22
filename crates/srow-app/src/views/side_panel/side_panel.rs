@@ -50,6 +50,7 @@ impl Render for SidePanel {
                             .label("+ New")
                             .outline()
                             .on_click(move |_, _, cx| {
+                                tracing::info!("action_dispatch: new_session");
                                 let new_id = format!("sess-{}", chrono::Utc::now().timestamp_millis());
                                 workspace_model.update(cx, |model, cx| {
                                     model.sidebar_items.insert(
