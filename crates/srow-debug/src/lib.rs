@@ -1,9 +1,11 @@
+mod builder;
 mod inspect;
 mod log_layer;
 mod log_store;
 mod router;
 mod server;
 
+pub use builder::{DebugServer, DebugServerBuilder, DebugServerHandle};
 pub use inspect::{Bounds, InspectNode, Inspectable};
 #[cfg(debug_assertions)]
 pub use inspect::DebugInspect;
