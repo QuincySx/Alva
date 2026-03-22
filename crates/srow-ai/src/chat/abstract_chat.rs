@@ -81,6 +81,7 @@ impl<S: ChatState + Send + 'static> AbstractChat<S> {
     // -----------------------------------------------------------------------
 
     /// Send a user message and begin a request to the AI.
+    #[tracing::instrument(name = "chat_send", skip(self, parts, options))]
     pub async fn send_message(&self, parts: Vec<UIMessagePart>, options: SendOptions) {
         let msg = UIMessage {
             id: (self.generate_id)(),
@@ -367,6 +368,7 @@ impl<S: ChatState + Send + 'static> AbstractChat<S> {
     ///
     /// The `abort_handle` is checked during update consumption. When aborted, the
     /// stream processor task is cancelled and state is set back to Ready.
+    #[tracing::instrument(name = "chat_stream", skip(inner, stream, abort_handle, generate_id, on_finish, on_error))]
     async fn consume_stream(
         inner: Arc<Mutex<ChatInner<S>>>,
         stream: std::pin::Pin<
@@ -471,6 +473,7 @@ impl<S: ChatState + Send + 'static> AbstractChat<S> {
 
         // Handle processor error.
         if let Ok(Err(e)) = result {
+            tracing::error!(error_type = "chat", error = %e, "chat stream processor error");
             let mut inner = inner.lock().unwrap();
             let err = ChatError::Stream(e.to_string());
             inner.state.set_error(Some(err.clone()));

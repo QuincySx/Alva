@@ -57,6 +57,7 @@ impl McpManager {
     }
 
     /// Connect to specified Server (establish transport, handshake, enumerate tools)
+    #[tracing::instrument(name = "mcp_connect", skip(self), fields(server_id = %server_id))]
     pub async fn connect(&self, server_id: &str) -> Result<(), SkillError> {
         let mut servers = self.servers.write().await;
         let instance = servers
@@ -121,6 +122,7 @@ impl McpManager {
     }
 
     /// Call MCP tool
+    #[tracing::instrument(name = "mcp_call_tool", skip(self, arguments), fields(server_id = %server_id, tool_name = %tool_name))]
     pub async fn call_tool(
         &self,
         server_id: &str,

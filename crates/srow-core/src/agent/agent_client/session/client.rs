@@ -63,6 +63,7 @@ impl AcpSession {
     }
 
     /// Send prompt to external Agent, start execution loop
+    #[tracing::instrument(name = "acp_send_prompt", skip(self, prompt), fields(session_id = %self.session_id, resume = resume))]
     pub async fn send_prompt(&self, prompt: String, resume: bool) -> Result<(), AcpError> {
         *self.state.lock().await = AcpSessionState::Running;
         self.process_manager
@@ -85,6 +86,7 @@ impl AcpSession {
 
     /// Handle inbound message from external Agent.
     /// Driven by AcpProcessManager's subscribe (runs in independent task).
+    #[tracing::instrument(name = "acp_inbound", skip(self, msg), fields(session_id = %self.session_id))]
     pub async fn handle_inbound(&self, msg: AcpInboundMessage) {
         match msg {
             AcpInboundMessage::TaskStart { data } => {
