@@ -33,24 +33,61 @@ impl<S: Send + 'static> CompiledGraph<S> {
     /// `input` is the initial state value; each node receives the current state
     /// and returns the (possibly modified) state. The final state is returned
     /// when execution reaches `END`.
-    pub async fn invoke(&self, input: S) -> Result<S, AgentError> {
+    ///
+    /// When multiple edges leave a single source node, the corresponding target
+    /// nodes are executed concurrently as a BSP-style "superstep". The `Clone`
+    /// bound is required so each parallel node can receive its own copy of the
+    /// state.
+    pub async fn invoke(&self, input: S) -> Result<S, AgentError>
+    where
+        S: Clone,
+    {
         let mut state = input;
-        let mut current_node = self.entry_point.clone();
+        let mut current_nodes = vec![self.entry_point.clone()];
 
         loop {
-            if current_node == END {
+            // Filter out END
+            current_nodes.retain(|n| n != END);
+            if current_nodes.is_empty() {
                 return Ok(state);
             }
 
-            // Execute current node
-            let node_fn = self.nodes.get(&current_node).ok_or_else(|| {
-                AgentError::ConfigError(format!("Node not found: {}", current_node))
-            })?;
+            if current_nodes.len() == 1 {
+                // Single node — execute directly (backward-compatible fast path)
+                let node_name = &current_nodes[0];
+                let node_fn = self.nodes.get(node_name).ok_or_else(|| {
+                    AgentError::ConfigError(format!("Node not found: {}", node_name))
+                })?;
+                state = node_fn(state).await;
+                current_nodes = self.resolve_next_nodes(&current_nodes[0], &state)?;
+            } else {
+                // Parallel superstep — execute all nodes concurrently
+                let mut join_set = tokio::task::JoinSet::new();
+                for node_name in &current_nodes {
+                    let node_fn = self.nodes.get(node_name).ok_or_else(|| {
+                        AgentError::ConfigError(format!("Node not found: {}", node_name))
+                    })?;
+                    let s = state.clone();
+                    let fut = node_fn(s);
+                    let name = node_name.clone();
+                    join_set.spawn(async move { (name, fut.await) });
+                }
 
-            state = node_fn(state).await;
+                // Collect results — last result wins for now (simple merge)
+                // TODO: integrate Channel system for proper state merging
+                while let Some(Ok((_name, result))) = join_set.join_next().await {
+                    state = result;
+                }
 
-            // Resolve next node
-            current_node = self.resolve_next(&current_node, &state)?;
+                // Collect next nodes from all executed nodes
+                let mut next = Vec::new();
+                for node in &current_nodes {
+                    next.extend(self.resolve_next_nodes(node, &state)?);
+                }
+                next.sort();
+                next.dedup();
+                current_nodes = next;
+            }
         }
     }
 
@@ -74,6 +111,30 @@ impl<S: Send + 'static> CompiledGraph<S> {
         }
         // No edge found — default to END
         Ok(END.to_string())
+    }
+
+    /// Collect ALL next nodes from edges matching `current`.
+    ///
+    /// Unlike [`resolve_next()`](Self::resolve_next) which short-circuits on
+    /// the first matching edge, this method gathers every target — enabling
+    /// fan-out to multiple parallel nodes in a single superstep.
+    fn resolve_next_nodes(&self, current: &str, state: &S) -> Result<Vec<String>, AgentError> {
+        let mut targets = Vec::new();
+        for edge in &self.edges {
+            match edge {
+                Edge::Direct { from, to } if from == current => {
+                    targets.push(to.clone());
+                }
+                Edge::Conditional { from, router } if from == current => {
+                    targets.push(router(state));
+                }
+                _ => continue,
+            }
+        }
+        if targets.is_empty() {
+            targets.push(END.to_string());
+        }
+        Ok(targets)
     }
 }
 
@@ -212,6 +273,62 @@ mod tests {
         graph.add_edge("nonexistent", "a");
         let err = graph.compile().unwrap_err();
         assert!(err.to_string().contains("Edge source"));
+    }
+
+    #[tokio::test]
+    async fn parallel_fan_out_execution() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let mut graph = StateGraph::<serde_json::Value>::new();
+
+        // Entry node (fan-out point)
+        graph.add_node("entry", |s| Box::pin(async { s }));
+
+        // Two parallel nodes
+        let c1 = counter.clone();
+        graph.add_node("parallel_a", move |s: serde_json::Value| {
+            let c = c1.clone();
+            Box::pin(async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                let mut s = s;
+                s["a"] = serde_json::json!(true);
+                s
+            })
+        });
+
+        let c2 = counter.clone();
+        graph.add_node("parallel_b", move |s: serde_json::Value| {
+            let c = c2.clone();
+            Box::pin(async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                let mut s = s;
+                s["b"] = serde_json::json!(true);
+                s
+            })
+        });
+
+        // Fan-in node
+        graph.add_node("merge", |s| Box::pin(async { s }));
+
+        graph.set_entry_point("entry");
+        // Two edges from entry = fan-out
+        graph.add_edge("entry", "parallel_a");
+        graph.add_edge("entry", "parallel_b");
+        graph.add_edge("parallel_a", "merge");
+        graph.add_edge("parallel_b", "merge");
+        graph.add_edge("merge", END);
+
+        let compiled = graph.compile().unwrap();
+        let result = compiled.invoke(serde_json::json!({})).await.unwrap();
+
+        // Both nodes executed
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "both parallel nodes should execute"
+        );
     }
 
     #[tokio::test]
