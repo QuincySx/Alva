@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use agent_base::{CancellationToken, LanguageModel, ModelConfig, Tool};
+use agent_types::{CancellationToken, LanguageModel, ModelConfig, Tool};
 use tokio::sync::{mpsc, Mutex};
 use tracing::error;
 
@@ -87,7 +87,7 @@ impl Agent {
 
                 // Steering hook — drain any messages from the channel.
                 let steering_rx_clone = steering_rx.clone();
-                cfg.get_steering_messages = Some(Arc::new(move |_ctx| {
+                cfg.get_steering_messages.push(Arc::new(move |_ctx| {
                     // We need to try_lock since we are inside a sync closure.
                     // If the lock is contended (shouldn't happen in practice),
                     // we simply return no messages.
@@ -105,7 +105,7 @@ impl Agent {
 
                 // Follow-up hook — same pattern.
                 let follow_up_rx_clone = follow_up_rx.clone();
-                cfg.get_follow_up_messages = Some(Arc::new(move |_ctx| {
+                cfg.get_follow_up_messages.push(Arc::new(move |_ctx| {
                     match follow_up_rx_clone.try_lock() {
                         Ok(mut rx) => {
                             let mut msgs = Vec::new();
@@ -181,5 +181,15 @@ impl Agent {
     pub async fn set_model_config(&self, model_config: ModelConfig) {
         let mut st = self.state.lock().await;
         st.model_config = model_config;
+    }
+
+    /// Enable or disable streaming mode.
+    ///
+    /// When streaming is enabled, the agent loop uses `model.stream()` instead
+    /// of `model.complete()` and emits `AgentEvent::MessageUpdate` events with
+    /// `StreamEvent` deltas.
+    pub async fn set_streaming(&self, streaming: bool) {
+        let mut st = self.state.lock().await;
+        st.is_streaming = streaming;
     }
 }

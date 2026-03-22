@@ -1,7 +1,8 @@
 use agent_types::{
-    CancellationToken, ContentBlock, LanguageModel, Message, MessageRole, ToolCall,
+    CancellationToken, ContentBlock, LanguageModel, Message, MessageRole, StreamEvent, ToolCall,
 };
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 use tracing::{debug, info};
 
 use crate::event::AgentEvent;
@@ -79,8 +80,12 @@ async fn run_agent_loop_inner(
                 None => state.messages.clone(),
             };
 
-            let llm_messages =
-                (config.convert_to_llm)(&context_messages, &state.system_prompt);
+            let convert_ctx = AgentContext {
+                system_prompt: &state.system_prompt,
+                messages: &context_messages,
+                tools: &state.tools,
+            };
+            let llm_messages = (config.convert_to_llm)(&convert_ctx);
 
             // 2. Collect tool references for the model ----------------------
             let tool_refs: Vec<&dyn agent_types::Tool> =
@@ -94,9 +99,11 @@ async fn run_agent_loop_inner(
                 "calling LLM"
             );
 
-            let assistant_message = model
-                .complete(&llm_messages, &tool_refs, &state.model_config)
-                .await?;
+            let assistant_message = if state.is_streaming {
+                stream_llm_response(model, &llm_messages, &tool_refs, &state.model_config, event_tx).await?
+            } else {
+                model.complete(&llm_messages, &tool_refs, &state.model_config).await?
+            };
 
             let agent_msg = AgentMessage::Standard(assistant_message.clone());
 
@@ -170,18 +177,19 @@ async fn run_agent_loop_inner(
             let _ = event_tx.send(AgentEvent::TurnEnd);
 
             // 9. Steering messages ------------------------------------------
-            if let Some(ref get_steering) = config.get_steering_messages {
+            let mut steering = Vec::new();
+            for hook in &config.get_steering_messages {
                 let ctx = AgentContext {
                     system_prompt: &state.system_prompt,
                     messages: &state.messages,
                     tools: &state.tools,
                 };
-                let steering = get_steering(&ctx);
-                if !steering.is_empty() {
-                    info!(count = steering.len(), "injecting steering messages");
-                    state.messages.extend(steering);
-                    continue 'inner;
-                }
+                steering.extend(hook(&ctx));
+            }
+            if !steering.is_empty() {
+                info!(count = steering.len(), "injecting steering messages");
+                state.messages.extend(steering);
+                continue 'inner;
             }
 
             // Tool results exist — we need another LLM call, so continue.
@@ -190,18 +198,19 @@ async fn run_agent_loop_inner(
         // ===== END INNER LOOP ==============================================
 
         // 10. Follow-up messages --------------------------------------------
-        if let Some(ref get_follow_up) = config.get_follow_up_messages {
+        let mut follow_ups = Vec::new();
+        for hook in &config.get_follow_up_messages {
             let ctx = AgentContext {
                 system_prompt: &state.system_prompt,
                 messages: &state.messages,
                 tools: &state.tools,
             };
-            let follow_ups = get_follow_up(&ctx);
-            if !follow_ups.is_empty() {
-                info!(count = follow_ups.len(), "injecting follow-up messages");
-                state.messages.extend(follow_ups);
-                continue 'outer;
-            }
+            follow_ups.extend(hook(&ctx));
+        }
+        if !follow_ups.is_empty() {
+            info!(count = follow_ups.len(), "injecting follow-up messages");
+            state.messages.extend(follow_ups);
+            continue 'outer;
         }
 
         // Nothing more to do.
@@ -210,6 +219,105 @@ async fn run_agent_loop_inner(
     // ===== END OUTER LOOP ==================================================
 
     Ok(())
+}
+
+// ===========================================================================
+// Streaming helper
+// ===========================================================================
+
+/// Consumes the model's stream, emitting MessageUpdate events and accumulating
+/// the final Message from deltas.
+async fn stream_llm_response(
+    model: &dyn LanguageModel,
+    messages: &[Message],
+    tools: &[&dyn agent_types::Tool],
+    config: &agent_types::ModelConfig,
+    event_tx: &mpsc::UnboundedSender<AgentEvent>,
+) -> Result<Message, agent_types::AgentError> {
+    let mut stream = model.stream(messages, tools, config);
+
+    let mut text = String::new();
+    let mut reasoning = String::new();
+    let mut tool_call_accumulators: Vec<ToolCallAccumulator> = Vec::new();
+    let mut usage = None;
+
+    while let Some(event) = stream.next().await {
+        match &event {
+            StreamEvent::TextDelta { text: delta } => {
+                text.push_str(delta);
+            }
+            StreamEvent::ReasoningDelta { text: delta } => {
+                reasoning.push_str(delta);
+            }
+            StreamEvent::ToolCallDelta {
+                id,
+                name,
+                arguments_delta,
+            } => {
+                if let Some(acc) = tool_call_accumulators.iter_mut().find(|a| a.id == *id) {
+                    acc.arguments_json.push_str(arguments_delta);
+                    if let Some(n) = name {
+                        acc.name = n.clone();
+                    }
+                } else {
+                    tool_call_accumulators.push(ToolCallAccumulator {
+                        id: id.clone(),
+                        name: name.clone().unwrap_or_default(),
+                        arguments_json: arguments_delta.clone(),
+                    });
+                }
+            }
+            StreamEvent::Usage(u) => {
+                usage = Some(u.clone());
+            }
+            StreamEvent::Error(e) => {
+                return Err(agent_types::AgentError::LlmError(e.clone()));
+            }
+            _ => {} // Start, Done
+        }
+
+        // Emit delta event
+        let _ = event_tx.send(AgentEvent::MessageUpdate {
+            message: AgentMessage::Custom {
+                type_name: "stream_placeholder".into(),
+                data: serde_json::Value::Null,
+            },
+            delta: event,
+        });
+    }
+
+    // Build final message from accumulated deltas
+    let mut content = Vec::new();
+    if !text.is_empty() {
+        content.push(ContentBlock::Text { text });
+    }
+    if !reasoning.is_empty() {
+        content.push(ContentBlock::Reasoning { text: reasoning });
+    }
+    for acc in &tool_call_accumulators {
+        let input: serde_json::Value = serde_json::from_str(&acc.arguments_json)
+            .unwrap_or(serde_json::Value::String(acc.arguments_json.clone()));
+        content.push(ContentBlock::ToolUse {
+            id: acc.id.clone(),
+            name: acc.name.clone(),
+            input,
+        });
+    }
+
+    Ok(Message {
+        id: uuid::Uuid::new_v4().to_string(),
+        role: MessageRole::Assistant,
+        content,
+        tool_call_id: None,
+        usage,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+    })
+}
+
+struct ToolCallAccumulator {
+    id: String,
+    name: String,
+    arguments_json: String,
 }
 
 // ===========================================================================
@@ -283,12 +391,9 @@ mod tests {
     // -----------------------------------------------------------------------
     // Helper: default convert_to_llm — just extract Standard messages
     // -----------------------------------------------------------------------
-    fn default_convert_to_llm(
-        messages: &[AgentMessage],
-        system_prompt: &str,
-    ) -> Vec<Message> {
-        let mut result = vec![Message::system(system_prompt)];
-        for m in messages {
+    fn default_convert_to_llm(ctx: &AgentContext<'_>) -> Vec<Message> {
+        let mut result = vec![Message::system(ctx.system_prompt)];
+        for m in ctx.messages {
             if let AgentMessage::Standard(msg) = m {
                 result.push(msg.clone());
             }
@@ -376,5 +481,93 @@ mod tests {
             matches!(result, Err(AgentError::Cancelled)),
             "should return Cancelled"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: streaming text response
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_streaming_text_response() {
+        // Create a model that implements stream() returning TextDelta events
+        struct StreamingMockModel;
+
+        #[async_trait]
+        impl LanguageModel for StreamingMockModel {
+            async fn complete(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Result<Message, AgentError> {
+                panic!("should use stream path, not complete")
+            }
+
+            fn stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+                Box::pin(tokio_stream::iter(vec![
+                    StreamEvent::Start,
+                    StreamEvent::TextDelta {
+                        text: "Hello ".into(),
+                    },
+                    StreamEvent::TextDelta {
+                        text: "world!".into(),
+                    },
+                    StreamEvent::Done,
+                ]))
+            }
+
+            fn model_id(&self) -> &str {
+                "streaming-mock"
+            }
+        }
+
+        let config = AgentConfig::new(Arc::new(default_convert_to_llm));
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        state.is_streaming = true;
+        state
+            .messages
+            .push(AgentMessage::Standard(Message::user("Hi")));
+
+        let result = run_agent_loop(
+            &mut state,
+            &StreamingMockModel,
+            &config,
+            &cancel,
+            &event_tx,
+        )
+        .await;
+        assert!(result.is_ok(), "agent loop should succeed");
+
+        drop(event_tx);
+        let mut got_update = false;
+        let mut got_message_end = false;
+        while let Some(ev) = event_rx.recv().await {
+            if matches!(ev, AgentEvent::MessageUpdate { .. }) {
+                got_update = true;
+            }
+            if let AgentEvent::MessageEnd {
+                message: AgentMessage::Standard(m),
+            } = &ev
+            {
+                if m.text_content() == "Hello world!" {
+                    got_message_end = true;
+                }
+            }
+        }
+        assert!(got_update, "should have received MessageUpdate events");
+        assert!(
+            got_message_end,
+            "should have MessageEnd with accumulated text"
+        );
+
+        // State should have the accumulated message
+        assert_eq!(state.messages.len(), 2); // user + assistant
     }
 }
