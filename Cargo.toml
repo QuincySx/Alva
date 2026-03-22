@@ -3,6 +3,7 @@ members = [
     "crates/srow-app",
     "crates/srow-core",
     "crates/srow-ai",
+    "crates/srow-debug",
 ]
 resolver = "2"
 
