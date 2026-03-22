@@ -3,12 +3,13 @@
 // POS:    Composite GPUI view combining a header, MessageList, and InputBox into the central chat column.
 use gpui::{prelude::*, Context, Entity, FontWeight, Render, Window, div};
 
-use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
+use crate::models::{AgentModel, ChatModel, SettingsModel, SidebarItem, WorkspaceModel};
 use crate::theme::Theme;
 use super::message_list::MessageList;
 use super::input_box::InputBox;
 
 pub struct ChatPanel {
+    workspace_model: Entity<WorkspaceModel>,
     message_list: Entity<MessageList>,
     input_box: Entity<InputBox>,
 }
@@ -22,6 +23,7 @@ impl ChatPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let wm0 = workspace_model.clone();
         let wm1 = workspace_model.clone();
         let cm1 = chat_model.clone();
         let wm2 = workspace_model;
@@ -31,6 +33,7 @@ impl ChatPanel {
         let input_box = cx.new(|cx| InputBox::new(wm2, cm2, agent_model, settings_model, window, cx));
 
         let view = Self {
+            workspace_model: wm0,
             message_list,
             input_box,
         };
@@ -57,9 +60,35 @@ impl ChatPanel {
     }
 }
 
+impl ChatPanel {
+    /// Look up the session name for the currently selected session.
+    fn session_title(&self, cx: &Context<Self>) -> String {
+        let ws = self.workspace_model.read(cx);
+        let sid = match ws.selected_session_id.as_ref() {
+            Some(s) => s,
+            None => return "Chat".to_string(),
+        };
+        for item in &ws.sidebar_items {
+            match item {
+                SidebarItem::GlobalSession(s) if s.id == *sid => return s.name.clone(),
+                SidebarItem::Workspace(w) => {
+                    for s in &w.sessions {
+                        if s.id == *sid {
+                            return s.name.clone();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        "Chat".to_string()
+    }
+}
+
 impl Render for ChatPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::for_appearance(window, cx);
+        let title = self.session_title(cx);
 
         div()
             .flex()
@@ -80,7 +109,7 @@ impl Render for ChatPanel {
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.text)
-                            .child("Chat"),
+                            .child(title),
                     ),
             )
             .child(self.message_list.clone())
