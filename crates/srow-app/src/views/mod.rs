@@ -6,6 +6,7 @@ pub mod sidebar;
 pub mod side_panel;
 pub mod chat_panel;
 pub mod agent_panel;
+pub mod agent_detail_panel;
 pub mod settings_panel;
 
 pub use root_view::*;
