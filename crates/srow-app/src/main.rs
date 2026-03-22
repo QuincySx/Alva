@@ -25,7 +25,7 @@ fn main() {
         );
 
     #[cfg(debug_assertions)]
-    let _debug_handle = {
+    let (_debug_handle, _view_registry) = {
         let (log_layer, log_handle) = srow_debug::LogCaptureLayer::new(10_000);
 
         tracing_subscriber::registry()
@@ -48,7 +48,7 @@ fn main() {
             .build()
             .expect("debug server failed to start");
 
-        server.start()
+        (server.start(), view_registry)
     };
 
     #[cfg(not(debug_assertions))]
@@ -68,6 +68,10 @@ fn main() {
             tokio::runtime::Runtime::new().expect("Failed to create tokio runtime"),
         );
         cx.set_global(SharedRuntime(runtime));
+
+        // Store debug ViewRegistry as a GPUI global so views can register themselves
+        #[cfg(debug_assertions)]
+        cx.set_global(srow_app::DebugViewRegistry(_view_registry));
 
         // Create shared models
         let workspace_model = cx.new(|_| WorkspaceModel::default());

@@ -30,10 +30,30 @@ impl ChatPanel {
         let message_list = cx.new(|cx| MessageList::new(wm1, cm1, cx));
         let input_box = cx.new(|cx| InputBox::new(wm2, cm2, agent_model, settings_model, window, cx));
 
-        Self {
+        let view = Self {
             message_list,
             input_box,
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            if let Some(registry) = cx.try_global::<crate::DebugViewRegistry>() {
+                registry.0.register(srow_debug::gpui::ViewEntry {
+                    id: "chat_panel".to_string(),
+                    type_name: "ChatPanel".to_string(),
+                    parent_id: Some("root_view".to_string()),
+                    snapshot_fn: Box::new(|| srow_debug::InspectNode {
+                        id: "chat_panel".to_string(),
+                        type_name: "ChatPanel".to_string(),
+                        bounds: None,
+                        properties: std::collections::HashMap::new(),
+                        children: vec![],
+                    }),
+                });
+            }
         }
+
+        view
     }
 }
 

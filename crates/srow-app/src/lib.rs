@@ -7,3 +7,11 @@ pub mod views;
 pub mod chat;
 pub mod error;
 pub mod theme;
+
+/// GPUI Global wrapping the debug ViewRegistry so views can register themselves
+/// for runtime inspection via the debug server.
+#[cfg(debug_assertions)]
+pub struct DebugViewRegistry(pub std::sync::Arc<srow_debug::gpui::ViewRegistry>);
+
+#[cfg(debug_assertions)]
+impl gpui::Global for DebugViewRegistry {}

@@ -37,11 +37,31 @@ impl RootView {
         let chat_panel = cx.new(|cx| ChatPanel::new(wm2, cm1, am1, sm1, window, cx));
         let agent_panel = cx.new(|cx| AgentPanel::new(am2, wm3, sm2, window, cx));
 
-        Self {
+        let view = Self {
             side_panel,
             chat_panel,
             agent_panel,
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            if let Some(registry) = cx.try_global::<crate::DebugViewRegistry>() {
+                registry.0.register(srow_debug::gpui::ViewEntry {
+                    id: "root_view".to_string(),
+                    type_name: "RootView".to_string(),
+                    parent_id: None,
+                    snapshot_fn: Box::new(|| srow_debug::InspectNode {
+                        id: "root_view".to_string(),
+                        type_name: "RootView".to_string(),
+                        bounds: None,
+                        properties: std::collections::HashMap::new(),
+                        children: vec![],
+                    }),
+                });
+            }
         }
+
+        view
     }
 }
 

@@ -50,12 +50,32 @@ impl AgentPanel {
         let sm = settings_model.clone();
         let settings_panel = cx.new(|cx| SettingsPanel::new(sm, window, cx));
 
-        Self {
+        let view = Self {
             agent_model,
             workspace_model,
             settings_panel,
             active_tab,
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            if let Some(registry) = cx.try_global::<crate::DebugViewRegistry>() {
+                registry.0.register(srow_debug::gpui::ViewEntry {
+                    id: "agent_panel".to_string(),
+                    type_name: "AgentPanel".to_string(),
+                    parent_id: Some("root_view".to_string()),
+                    snapshot_fn: Box::new(|| srow_debug::InspectNode {
+                        id: "agent_panel".to_string(),
+                        type_name: "AgentPanel".to_string(),
+                        bounds: None,
+                        properties: std::collections::HashMap::new(),
+                        children: vec![],
+                    }),
+                });
+            }
         }
+
+        view
     }
 
     pub fn switch_to_settings(&mut self, cx: &mut Context<Self>) {
