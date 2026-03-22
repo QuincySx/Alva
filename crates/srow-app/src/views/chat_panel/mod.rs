@@ -10,5 +10,6 @@ pub mod message_bubble;
 pub mod tool_call_block;
 pub mod thinking_block;
 pub mod agent_block;
+pub mod running_agents_zone;
 
 pub use chat_panel::*;
