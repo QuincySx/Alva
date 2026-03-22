@@ -61,12 +61,12 @@ impl Render for SidebarTree {
                                     .hover(move |style| style.bg(surface_hover))
                             })
                             .child(session.name.clone())
-                            .on_click(move |_, _, cx| {
+                            .on_click(srow_debug::traced!("sidebar:select_session", move |_, _, cx| {
                                 tracing::info!(session_id = %session_id, "action_dispatch: select_session");
                                 workspace_model.update(cx, |model, cx| {
                                     model.select_session(session_id.clone(), cx);
                                 });
-                            }),
+                            })),
                     );
                 }
                 SidebarItem::Workspace(ws) => {
@@ -100,11 +100,11 @@ impl Render for SidebarTree {
                                     .child(arrow),
                             )
                             .child(format!("\u{1F4C1} {}", ws.name))
-                            .on_click(move |_, _, cx| {
+                            .on_click(srow_debug::traced!("sidebar:toggle_workspace", move |_, _, cx| {
                                 workspace_model_toggle.update(cx, |model, cx| {
                                     model.toggle_workspace(ws_id.clone(), cx);
                                 });
-                            }),
+                            })),
                     );
 
                     // Child sessions (only if expanded)
@@ -140,7 +140,7 @@ impl Render for SidebarTree {
                                         )
                                     })
                                     .child(format!("  {}", session.name))
-                                    .on_click(move |_, _, cx| {
+                                    .on_click(srow_debug::traced!("sidebar:select_child_session", move |_, _, cx| {
                                         workspace_model_select.update(
                                             cx,
                                             |model, cx| {
@@ -150,7 +150,7 @@ impl Render for SidebarTree {
                                                 );
                                             },
                                         );
-                                    }),
+                                    })),
                             );
                         }
                     }

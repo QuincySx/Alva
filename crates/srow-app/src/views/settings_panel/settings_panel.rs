@@ -210,10 +210,10 @@ impl Render for SettingsPanel {
                                 ButtonVariant::Secondary
                             })
                             .small()
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(srow_debug::traced_listener!("settings:proxy_toggle", |this, _, _, cx| {
                                 this.draft_proxy_enabled = !this.draft_proxy_enabled;
                                 this.mark_dirty(cx);
-                            }))
+                            })))
                     )
                     .child(
                         div()
@@ -253,11 +253,11 @@ impl Render for SettingsPanel {
                             .label(if dirty { "Save Settings" } else { "Settings Saved" })
                             .primary()
                             .disabled(!dirty)
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(srow_debug::traced_listener!("settings:save", |this, _, _, cx| {
                                 if this.dirty {
                                     this.save(cx);
                                 }
-                            }))
+                            })))
                     ),
             )
     }
@@ -320,9 +320,9 @@ impl SettingsPanel {
                     .text_color(text_color)
             })
             .child(label_str)
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .on_click(cx.listener(srow_debug::traced_listener!("settings:theme_mode", move |this, _, _, cx| {
                 this.draft_theme = mode;
                 this.mark_dirty(cx);
-            }))
+            })))
     }
 }

@@ -92,18 +92,18 @@ impl Render for AgentPanel {
         let text_muted = theme.text_muted;
         let accent = theme.accent;
 
-        let on_click_status = cx.listener(|this, _: &gpui::ClickEvent, _, cx| {
+        let on_click_status = cx.listener(srow_debug::traced_listener!("agent_panel:tab_status", |this, _: &gpui::ClickEvent, _, cx| {
             this.active_tab = AgentPanelTab::AgentStatus;
             cx.notify();
-        });
-        let on_click_settings = cx.listener(|this, _: &gpui::ClickEvent, _, cx| {
+        }));
+        let on_click_settings = cx.listener(srow_debug::traced_listener!("agent_panel:tab_settings", |this, _: &gpui::ClickEvent, _, cx| {
             this.active_tab = AgentPanelTab::Settings;
             cx.notify();
-        });
-        let on_click_preview = cx.listener(|this, _: &gpui::ClickEvent, _, cx| {
+        }));
+        let on_click_preview = cx.listener(srow_debug::traced_listener!("agent_panel:tab_preview", |this, _: &gpui::ClickEvent, _, cx| {
             this.active_tab = AgentPanelTab::Preview;
             cx.notify();
-        });
+        }));
 
         let is_status_active = active_tab == AgentPanelTab::AgentStatus;
         let is_settings_active = active_tab == AgentPanelTab::Settings;

@@ -49,7 +49,7 @@ impl Render for SidePanel {
                         Button::new("new-session-btn")
                             .label("+ New")
                             .outline()
-                            .on_click(move |_, _, cx| {
+                            .on_click(srow_debug::traced!("side_panel:new_session", move |_, _, cx| {
                                 tracing::info!("action_dispatch: new_session");
                                 let new_id = format!("sess-{}", chrono::Utc::now().timestamp_millis());
                                 workspace_model.update(cx, |model, cx| {
@@ -67,7 +67,7 @@ impl Render for SidePanel {
                                     );
                                     model.select_session(new_id, cx);
                                 });
-                            })
+                            }))
                     )
             )
             .child(

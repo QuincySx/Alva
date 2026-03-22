@@ -247,9 +247,9 @@ impl Render for InputBox {
                     .label(if is_running { "..." } else { "Send" })
                     .primary()
                     .disabled(!can_send)
-                    .on_click(cx.listener(|this, _, window, cx| {
+                    .on_click(cx.listener(srow_debug::traced_listener!("input:send_message", |this, _, window, cx| {
                         this.send_message(window, cx);
-                    }))
+                    })))
             )
     }
 }
