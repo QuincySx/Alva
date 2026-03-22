@@ -21,6 +21,9 @@ gpui-component = "0.5"
 # Core crate (unified engine + skills + MCP)
 srow-core = { path = "../srow-core" }
 
+# Debug server (tracing capture, GPUI inspector)
+srow-debug = { path = "../srow-debug" }
+
 # AI interaction layer (chat, transport, completion)
 srow-ai = { path = "../srow-ai" }
 

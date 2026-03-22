@@ -31,11 +31,16 @@ Be concise and direct in your responses."#;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    use tracing_subscriber::prelude::*;
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
+        );
+
+    tracing_subscriber::registry()
+        .with(fmt_layer)
         .init();
 
     // Read configuration from environment

@@ -16,12 +16,47 @@ use srow_app::views::RootView;
 actions!(srow, [Quit]);
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    use tracing_subscriber::prelude::*;
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+        );
+
+    #[cfg(debug_assertions)]
+    let _debug_handle = {
+        let (log_layer, log_handle) = srow_debug::LogCaptureLayer::new(10_000);
+
+        tracing_subscriber::registry()
+            .with(log_layer)
+            .with(fmt_layer)
+            .init();
+
+        let port: u16 = std::env::var("SROW_DEBUG_PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(9229);
+
+        let view_registry = srow_debug::gpui::ViewRegistry::new();
+        let inspector = srow_debug::gpui::GpuiInspector::new(view_registry.clone());
+
+        let server = srow_debug::DebugServer::builder()
+            .port(port)
+            .with_log_handle(log_handle)
+            .with_inspector(inspector)
+            .build()
+            .expect("debug server failed to start");
+
+        server.start()
+    };
+
+    #[cfg(not(debug_assertions))]
+    {
+        tracing_subscriber::registry()
+            .with(fmt_layer)
+            .init();
+    }
 
     Application::new().run(|cx: &mut App| {
         // Initialize gpui-component (theme, global state, input keybindings, etc.)
