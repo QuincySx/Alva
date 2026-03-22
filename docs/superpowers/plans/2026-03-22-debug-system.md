@@ -91,10 +91,8 @@ pub use log_store::{LogRecord, LogQuery, LogQueryResponse};
 In `crates/srow-debug/src/log_store.rs`:
 
 ```rust
-use parking_lot::RwLock;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LogRecord {
@@ -1034,6 +1032,7 @@ pub struct DebugServerBuilder {
 
 pub struct DebugServerHandle {
     shutdown_tx: Option<mpsc::Sender<()>>,
+    server: Option<Arc<tiny_http::Server>>,
     join_handle: Option<thread::JoinHandle<()>>,
 }
 
@@ -1102,15 +1101,9 @@ impl DebugServer {
 }
 ```
 
-Update `DebugServerHandle` to use `Server::unblock()` for graceful shutdown (tiny_http supports this):
+`DebugServerHandle` shutdown uses `Server::unblock()` to cleanly break the for-loop:
 
 ```rust
-pub struct DebugServerHandle {
-    shutdown_tx: Option<mpsc::Sender<()>>,
-    server: Option<Arc<tiny_http::Server>>,
-    join_handle: Option<thread::JoinHandle<()>>,
-}
-
 impl DebugServerHandle {
     pub fn shutdown(&mut self) {
         // Unblock the server's blocking accept loop
@@ -1785,12 +1778,22 @@ git commit -m "feat(srow-core): add tracing spans to agent engine loop"
 - Modify: `crates/srow-core/src/mcp/runtime.rs`
 - Modify: `crates/srow-core/src/agent/agent_client/session/client.rs`
 
-- [ ] **Step 1: Add spans to AbstractChat::send_message()**
+- [ ] **Step 1: Add spans to AbstractChat methods**
 
 In `abstract_chat.rs`, at `send_message()` (line 84):
 ```rust
 #[tracing::instrument(name = "chat_send", skip(self, parts, options))]
 pub async fn send_message(&self, parts: Vec<UIMessagePart>, options: SendOptions) {
+```
+
+If there is a `consume_stream()` or equivalent method that handles the streaming response, add:
+```rust
+#[tracing::instrument(name = "chat_stream", skip(self))]
+```
+
+Add error events at any error handling points in the chat flow:
+```rust
+tracing::error!(error_type = "chat", error = %e, "chat error");
 ```
 
 - [ ] **Step 2: Add spans to McpManager methods**
@@ -1934,7 +1937,19 @@ In `chat_panel.rs`, register with diagnostic state. The `snapshot_fn` closure sh
 
 Same pattern for `agent_panel.rs` with `parent_id: Some("root_view".to_string())`.
 
-- [ ] **Step 5: Verify compilation and test inspect endpoint**
+- [ ] **Step 5: Add action_dispatch spans to key user actions**
+
+In the views that handle user actions (e.g., send message button handler, session switch), add spans:
+
+```rust
+tracing::info_span!("action_dispatch", action = "send_message").in_scope(|| {
+    // ... existing action handler code
+});
+```
+
+This is required by the spec's "GPUI event handling" instrumentation section. Add to at least: send message action and session switch action.
+
+- [ ] **Step 6: Verify compilation and test inspect endpoint**
 
 Run: `cargo check -p srow-app`
 
@@ -1944,11 +1959,11 @@ Then: `curl http://127.0.0.1:9229/api/inspect/tree | python3 -m json.tool`
 
 Expected: JSON tree with root_view, chat_panel, agent_panel as children.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add crates/srow-app/src/main.rs crates/srow-app/src/views/
-git commit -m "feat(srow-app): register views with debug ViewRegistry for inspection"
+git commit -m "feat(srow-app): register views with debug ViewRegistry and add action spans"
 ```
 
 ---
