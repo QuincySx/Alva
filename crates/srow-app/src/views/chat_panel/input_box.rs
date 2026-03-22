@@ -9,7 +9,7 @@ use gpui::{prelude::*, Context, Entity, Render, Subscription, Window, div};
 
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState, Input};
-use gpui_component::Disableable;
+use gpui_component::{Disableable, Sizable};
 
 use crate::chat::GpuiChatConfig;
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
@@ -44,7 +44,7 @@ impl InputBox {
     ) -> Self {
         let input_state = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Type a message... (Enter to send)")
+                .placeholder("Type a message...")
         });
 
         let mut subscriptions = Vec::new();
@@ -204,6 +204,30 @@ impl InputBox {
         Box::new(DirectChatTransport::new(llm, tools, storage, config))
     }
 
+    fn stop_agent(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        tracing::info!("action_dispatch: stop_agent");
+        let session_id = {
+            let ws = self.workspace_model.read(cx);
+            match ws.selected_session_id.clone() {
+                Some(id) => id,
+                None => return,
+            }
+        };
+
+        // Stop the chat if it exists
+        {
+            let cm = self.chat_model.read(cx);
+            if let Some(chat) = cm.get_chat(&session_id) {
+                chat.read(cx).stop();
+            }
+        }
+
+        // Mark agent as idle
+        self.agent_model.update(cx, |model, cx| {
+            model.set_status(&session_id, AgentStatusKind::Idle, cx);
+        });
+    }
+
     fn is_agent_running(&self, cx: &Context<Self>) -> bool {
         let ws = self.workspace_model.read(cx);
         if let Some(ref sid) = ws.selected_session_id {
@@ -225,31 +249,86 @@ impl Render for InputBox {
 
         let can_send = has_text && has_session && !is_running;
 
+        // Attach button — disabled placeholder
+        let attach_button = Button::new("attach-btn")
+            .label("Attach")
+            .outline()
+            .small()
+            .disabled(true);
+
+        // Agent selector — simple label for now
+        let agent_label = div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .text_xs()
+            .text_color(theme.text_muted)
+            .child("Main Agent");
+
+        // Send / Stop button
+        let action_button = if is_running {
+            Button::new("stop-btn")
+                .label("Stop")
+                .outline()
+                .small()
+                .on_click(cx.listener(srow_debug::traced_listener!("input:stop_agent", |this, _, window, cx| {
+                    this.stop_agent(window, cx);
+                })))
+        } else {
+            Button::new("send-btn")
+                .label("Send")
+                .primary()
+                .small()
+                .disabled(!can_send)
+                .on_click(cx.listener(srow_debug::traced_listener!("input:send_message", |this, _, window, cx| {
+                    this.send_message(window, cx);
+                })))
+        };
+
         div()
             .flex()
-            .flex_row()
+            .flex_col()
             .w_full()
-            .p_3()
-            .gap_2()
             .border_t_1()
             .border_color(theme.border)
             .bg(theme.background)
+            // Multi-line input area
             .child(
                 div()
                     .flex_1()
+                    .p_3()
                     .child(
                         Input::new(&self.input_state)
                             .disabled(is_running)
                     )
             )
+            // Toolbar
             .child(
-                Button::new("send-btn")
-                    .label(if is_running { "..." } else { "Send" })
-                    .primary()
-                    .disabled(!can_send)
-                    .on_click(cx.listener(srow_debug::traced_listener!("input:send_message", |this, _, window, cx| {
-                        this.send_message(window, cx);
-                    })))
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .px_3()
+                    .py_2()
+                    .gap_2()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .child(attach_button)
+                    .child(div().flex_1()) // spacer
+                    .child(agent_label)
+                    .child(action_button)
+            )
+            // Hint text
+            .child(
+                div()
+                    .px_3()
+                    .pb_1()
+                    .text_xs()
+                    .text_color(theme.text_muted)
+                    .child("Enter send \u{00B7} Shift+Enter newline")
             )
     }
 }
