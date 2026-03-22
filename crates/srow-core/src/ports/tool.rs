@@ -1,6 +1,8 @@
 // INPUT:  crate::domain::tool, crate::error, async_trait, serde_json, std::collections
 // OUTPUT: ToolContext, Tool (trait), ToolRegistry
 // POS:    Defines the abstract tool interface, execution context, and name-based registry.
+//         Kept during migration because runtime/tools/ depends on these.
+//         TODO: Migrate to agent-base equivalents when tool implementations are ported.
 use crate::domain::tool::{ToolDefinition, ToolResult};
 use crate::error::EngineError;
 use async_trait::async_trait;

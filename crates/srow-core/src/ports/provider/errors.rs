@@ -1,8 +1,8 @@
 // INPUT:  thiserror
 // OUTPUT: ProviderError
-// POS:    Comprehensive error enum for all provider operations, aligned with AI SDK error types.
+// POS:    Comprehensive error enum for all provider operations.
+//         Kept during migration because all model traits depend on ProviderError.
 
-/// Errors that can occur during provider operations.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ProviderError {
     #[error("API call error: {message}")]

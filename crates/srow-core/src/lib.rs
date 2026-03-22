@@ -1,10 +1,10 @@
 // INPUT:  agent, mcp, skills, gateway, base, system, environment, types, domain, ports, adapters, error
-// OUTPUT: AgentEngine, EngineEvent, SessionService, AgentConfig, LLMConfig, LLMMessage, Session, ToolCall, ToolDefinition, ToolResult, EngineError, SkillError, LLMProvider, Tool, ToolRegistry, SessionStorage, Skill, SkillStore, SkillLoader, SkillInjector, McpManager, McpConfig, BrowserManager, SecurityGuard, EnvironmentManager, Orchestrator, and many more re-exports
+// OUTPUT: Re-exports of kept modules (security, tools, session, memory, persistence, mcp, skills, environment, etc.)
 // POS:    Crate root — declares all top-level modules and provides the unified public API via convenience re-exports.
 //! Srow Core — unified agent engine, skill system, and MCP integration
 //!
-//! Module layout aligned with Wukong:
-//!   agent/        — Agent core (engine, ACP client, session, memory, persistence)
+//! Module layout:
+//!   agent/        — Agent core (ACP client, session, memory, persistence, runtime security & tools)
 //!   mcp/          — MCP protocol layer
 //!   skills/       — Skill system (loader, store, injector)
 //!   gateway/      — API gateway (placeholder)
@@ -31,34 +31,14 @@ pub mod domain;
 pub mod ports;
 pub mod adapters;
 pub mod error;
-pub mod ui_message;
-pub mod ui_message_stream;
 
-// Convenience re-exports — engine
-pub use agent::runtime::engine::engine::AgentEngine;
-pub use agent::runtime::engine::session_service::SessionService;
+// Convenience re-exports — domain (kept)
 pub use domain::agent::{AgentConfig, LLMConfig, LLMProviderKind};
-pub use domain::message::{LLMContent, LLMMessage, Role};
 pub use domain::session::{Session, SessionStatus};
 pub use domain::tool::{ToolCall, ToolDefinition, ToolResult};
 pub use error::EngineError;
 pub use ports::tool::{Tool, ToolContext, ToolRegistry};
 pub use ports::storage::SessionStorage;
-
-// Convenience re-exports — Provider V4 types
-pub use ports::provider::{
-    LanguageModel, LanguageModelCallOptions, LanguageModelGenerateResult,
-    LanguageModelStreamResult, LanguageModelStreamPart, LanguageModelContent,
-    LanguageModelUsage, UnifiedFinishReason,
-    LanguageModelMessage, UserContentPart, AssistantContentPart, ToolContentPart,
-    LanguageModelTool, FunctionTool, ToolChoice, ResponseFormat,
-    ProviderError, ProviderWarning, ProviderMetadata, ProviderOptions,
-    ResponseMetadata,
-    EmbeddingModel, ImageModel, SpeechModel, TranscriptionModel, VideoModel, RerankingModel,
-    Provider,
-};
-pub use adapters::llm::openai::OpenAILanguageModel;
-pub use adapters::llm::anthropic::AnthropicLanguageModel;
 
 // Convenience re-exports — skills
 pub use skills::skill_domain::skill::{Skill, SkillBody, SkillKind, SkillMeta};
@@ -97,18 +77,3 @@ pub use environment::config::EnvironmentConfig;
 pub use environment::manifest::{ResourceManifest, ComponentVersion, ArtifactConfig, ArchiveFormat};
 pub use environment::versions::{InstalledVersions, VersionStatus};
 pub use environment::resolver::RuntimeResolver;
-
-// Convenience re-exports — UI message model
-pub use ui_message::{UIMessage, UIMessagePart, UIMessageRole, TextPartState, ToolState};
-
-// Convenience re-exports — UI message stream protocol
-pub use ui_message_stream::{UIMessageChunk, FinishReason, ChatStatus, TokenUsage};
-pub use ui_message_stream::{process_ui_message_stream, UIMessageStreamUpdate};
-pub use error::{ChatError, StreamError};
-
-// Convenience re-exports — orchestrator
-pub use agent::orchestrator::orchestrator::{Orchestrator, OrchestratorHandle};
-pub use agent::orchestrator::instance::{AgentInstance, AgentInstanceStatus};
-pub use agent::orchestrator::template::OrchestratorAgentTemplate;
-pub use agent::orchestrator::communication::{AgentMessage, MessageBus};
-pub use agent::orchestrator::tools::register_orchestration_tools;

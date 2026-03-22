@@ -1,5 +1,4 @@
 // INPUT:  (none)
-// OUTPUT: pub mod llm, storage
-// POS:    Module declaration for the adapter implementation layer.
-pub mod llm;
+// OUTPUT: pub mod storage
+// POS:    Module declaration for the adapter implementation layer. llm/ deleted (will be rebuilt on agent-base).
 pub mod storage;

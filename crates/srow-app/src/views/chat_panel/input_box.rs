@@ -1,10 +1,9 @@
 // INPUT:  gpui, gpui_component (Input, InputState, InputEvent, Button, ButtonVariants, Disableable),
-//         crate::models (AgentModel, ChatModel, SettingsModel, WorkspaceModel), crate::chat (GpuiChat, GpuiChatConfig),
-//         crate::theme, crate::types::AgentStatusKind, srow_core, srow_ai
+//         crate::models, crate::chat, crate::theme, crate::types::AgentStatusKind
 // OUTPUT: pub struct InputBox
 // POS:    Chat input widget using gpui-component Input/Button, Enter-to-send via InputEvent subscription.
-use std::sync::Arc;
-
+//         Transport/LLM creation commented out — depends on deleted srow-ai and Provider V4 types.
+//         TODO: Rebuild transport on agent-core.
 use gpui::{prelude::*, Context, Entity, Render, Subscription, Window, div};
 
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -15,14 +14,6 @@ use crate::chat::GpuiChatConfig;
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 use crate::types::AgentStatusKind;
-
-use srow_core::adapters::llm::openai::OpenAILanguageModel;
-use srow_core::adapters::storage::memory::MemoryStorage;
-use srow_core::domain::agent::AgentConfig;
-use srow_core::ports::provider::language_model::LanguageModel;
-use srow_core::ports::tool::ToolRegistry;
-use srow_core::agent::runtime::tools::register_all_tools;
-use srow_ai::transport::DirectChatTransport;
 
 pub struct InputBox {
     input_state: Entity<InputState>,
@@ -106,9 +97,6 @@ impl InputBox {
             }
         }
 
-        // Read settings
-        let settings = self.settings_model.read(cx).settings.clone();
-
         // Ensure the GpuiChat exists for this session
         let chat_entity = {
             let needs_create = {
@@ -117,11 +105,8 @@ impl InputBox {
             };
 
             if needs_create {
-                // Build transport from settings
-                let transport = self.build_transport(&settings);
                 let config = GpuiChatConfig {
                     session_id: session_id.clone(),
-                    transport,
                 };
                 self.chat_model.update(cx, |model, cx| {
                     model.get_or_create_chat(&session_id, config, cx)
@@ -141,67 +126,14 @@ impl InputBox {
         });
 
         // Send via GpuiChat
+        // TODO: This is a no-op stub until agent-core chat transport is rebuilt
         chat_entity.read(cx).send_message(&text);
-
-        // Subscribe to chat events to update agent status
-        let agent_model = self.agent_model.clone();
-        let sid = session_id.clone();
-        cx.subscribe(&chat_entity, move |_this, chat, _event, cx| {
-            let chat = chat.read(cx);
-            let status = chat.status();
-            match status {
-                srow_core::ui_message_stream::ChatStatus::Ready => {
-                    agent_model.update(cx, |model, cx| {
-                        model.set_status(&sid, AgentStatusKind::Idle, cx);
-                    });
-                }
-                srow_core::ui_message_stream::ChatStatus::Error => {
-                    agent_model.update(cx, |model, cx| {
-                        model.set_status(&sid, AgentStatusKind::Error, cx);
-                    });
-                }
-                _ => {}
-            }
-        })
-        .detach();
 
         // Clear input
         self.input_state.update(cx, |state, cx| {
             state.set_value("", window, cx);
         });
         cx.notify();
-    }
-
-    fn build_transport(
-        &self,
-        settings: &crate::models::AppSettings,
-    ) -> Box<dyn srow_ai::transport::ChatTransport> {
-        let api_key = settings.llm.api_key.clone();
-        let base_url = settings.llm.base_url.clone();
-        let model_name = settings.llm.model.clone();
-
-        // Build LLM provider (Provider V4)
-        let llm: Arc<dyn LanguageModel> =
-            if base_url == "https://api.openai.com/v1" || base_url.is_empty() {
-                Arc::new(OpenAILanguageModel::new(&api_key, &model_name))
-            } else {
-                Arc::new(OpenAILanguageModel::with_base_url(
-                    &api_key, &base_url, &model_name,
-                ))
-            };
-
-        // Build tool registry with all built-in tools
-        let mut registry = ToolRegistry::new();
-        register_all_tools(&mut registry);
-        let tools = Arc::new(registry);
-
-        // Build in-memory storage
-        let storage = Arc::new(MemoryStorage::new());
-
-        // Build agent config
-        let config = Arc::new(AgentConfig::default());
-
-        Box::new(DirectChatTransport::new(llm, tools, storage, config))
     }
 
     fn stop_agent(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -249,14 +181,14 @@ impl Render for InputBox {
 
         let can_send = has_text && has_session && !is_running;
 
-        // Attach button — disabled placeholder
+        // Attach button -- disabled placeholder
         let attach_button = Button::new("attach-btn")
             .label("Attach")
             .outline()
             .small()
             .disabled(true);
 
-        // Agent selector — simple label for now
+        // Agent selector -- simple label for now
         let agent_label = div()
             .flex()
             .items_center()

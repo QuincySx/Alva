@@ -1,13 +1,13 @@
-// INPUT:  std::sync, async_trait, tokio::sync, crate::ui_message_stream, crate::domain::tool, crate::error, crate::ports::tool, uuid
+// INPUT:  std::sync, async_trait, tokio::sync, crate::domain::tool, crate::error, crate::ports::tool
 // OUTPUT: DelegateResult, DelegateFinishReason, AgentDelegate (trait), AcpAgentDelegate, AcpDelegateTool
 // POS:    Wraps ACP external Agent invocation as both a trait (AgentDelegate) and a Tool implementation (AcpDelegateTool).
+//         Bodies commented out during migration — depends on deleted UIMessageChunk.
+//         TODO: Rebuild using agent-core event types.
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 
 use crate::{
-    ui_message_stream::UIMessageChunk,
     domain::tool::{ToolDefinition, ToolResult},
     error::EngineError,
     ports::tool::{Tool, ToolContext},
@@ -16,11 +16,8 @@ use crate::{
 /// Delegate execution result
 #[derive(Debug, Clone)]
 pub struct DelegateResult {
-    /// External Agent's final text output (concatenated from all TextBlocks)
     pub output: String,
-    /// Finish reason
     pub finish_reason: DelegateFinishReason,
-    /// Tool call summaries from the external Agent's execution (optional)
     pub tool_calls_summary: Vec<DelegateToolCallSummary>,
 }
 
@@ -39,55 +36,32 @@ pub struct DelegateToolCallSummary {
 }
 
 /// AgentDelegate -- Sub-5 orchestration layer drives external Agent via this trait.
-/// Implementors manage ACP process lifecycle.
 #[async_trait]
 pub trait AgentDelegate: Send + Sync {
-    /// Delegate agent identifier ("claude-code" / "qwen-code" etc.)
     fn agent_kind(&self) -> &str;
 
-    /// Execute task:
-    ///   - Start (or reuse existing) ACP child process
-    ///   - Send prompt
-    ///   - Wait for TaskComplete
-    ///   - Return aggregated result
-    ///
-    /// `chunk_tx` forwards UIMessageChunk events generated during execution to UI layer
     async fn delegate(
         &self,
         prompt: String,
         workspace: std::path::PathBuf,
-        chunk_tx: mpsc::Sender<UIMessageChunk>,
     ) -> Result<DelegateResult, EngineError>;
 
-    /// Cancel an in-progress delegation
     async fn cancel(&self) -> Result<(), EngineError>;
 }
 
-/// ACP protocol concrete implementation of AgentDelegate
+/// ACP protocol concrete implementation of AgentDelegate.
+/// Body commented out — depends on deleted UIMessageChunk.
 pub struct AcpAgentDelegate {
     kind: super::connection::discovery::ExternalAgentKind,
-    model_config: super::protocol::bootstrap::ModelConfig,
-    process_manager: Arc<super::connection::factory::AcpProcessManager>,
-    permission_manager: Arc<super::session::permission_manager::PermissionManager>,
-    /// Current active process (only one at a time)
-    current_process_id: tokio::sync::Mutex<Option<String>>,
 }
 
 impl AcpAgentDelegate {
     pub fn new(
         kind: super::connection::discovery::ExternalAgentKind,
-        model_config: super::protocol::bootstrap::ModelConfig,
-        process_manager: Arc<super::connection::factory::AcpProcessManager>,
+        _model_config: super::protocol::bootstrap::ModelConfig,
+        _process_manager: Arc<super::connection::factory::AcpProcessManager>,
     ) -> Self {
-        Self {
-            kind,
-            model_config,
-            process_manager,
-            permission_manager: Arc::new(
-                super::session::permission_manager::PermissionManager::new(),
-            ),
-            current_process_id: tokio::sync::Mutex::new(None),
-        }
+        Self { kind }
     }
 }
 
@@ -105,157 +79,23 @@ impl AgentDelegate for AcpAgentDelegate {
 
     async fn delegate(
         &self,
-        prompt: String,
-        workspace: std::path::PathBuf,
-        chunk_tx: mpsc::Sender<UIMessageChunk>,
+        _prompt: String,
+        _workspace: std::path::PathBuf,
     ) -> Result<DelegateResult, EngineError> {
-        use super::protocol::{
-            bootstrap::BootstrapPayload, content::ContentBlock, message::AcpInboundMessage,
-        };
-        use super::session::client::{AcpSession, AcpSessionState};
-
-        // 1. Build Bootstrap payload
-        let bootstrap = BootstrapPayload {
-            workspace: workspace.to_string_lossy().to_string(),
-            authorized_roots: vec![workspace.to_string_lossy().to_string()],
-            sandbox_level: Default::default(),
-            model_config: self.model_config.clone(),
-            attachment_paths: vec![],
-            srow_version: env!("CARGO_PKG_VERSION").to_string(),
-        };
-
-        // 2. Spawn child process
-        let process_id = self
-            .process_manager
-            .spawn(self.kind.clone(), bootstrap)
-            .await
-            .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
-
-        *self.current_process_id.lock().await = Some(process_id.clone());
-
-        // 3. Create session
-        let session_id = uuid::Uuid::new_v4().to_string();
-        let session = AcpSession::new(
-            session_id.clone(),
-            process_id.clone(),
-            self.permission_manager.clone(),
-            self.process_manager.clone(),
-            chunk_tx.clone(),
-        );
-
-        // 4. Subscribe to process messages
-        let mut rx = self.process_manager.subscribe();
-
-        // 5. Send prompt
-        session
-            .send_prompt(prompt, false)
-            .await
-            .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
-
-        // 6. Drive message loop until TaskComplete / Error / Crash
-        let mut output_buffer = String::new();
-        let mut tool_calls_summary = vec![];
-
-        loop {
-            match tokio::time::timeout(std::time::Duration::from_secs(300), rx.recv()).await {
-                Ok(Ok((pid, msg))) if pid == process_id => {
-                    // Collect output
-                    if let AcpInboundMessage::SessionUpdate { ref content, .. }
-                    | AcpInboundMessage::MessageUpdate { ref content, .. } = msg
-                    {
-                        for block in content {
-                            if let ContentBlock::Text { ref text, .. } = block {
-                                output_buffer.push_str(text);
-                            }
-                        }
-                    }
-                    if let AcpInboundMessage::PostToolUse { ref data } = msg {
-                        tool_calls_summary.push(DelegateToolCallSummary {
-                            tool_name: data.tool_name.clone(),
-                            is_error: data.is_error,
-                        });
-                    }
-
-                    // Process session state changes
-                    session.handle_inbound(msg.clone()).await;
-
-                    // Check termination conditions
-                    match session.state.lock().await.clone() {
-                        AcpSessionState::Completed => {
-                            self.process_manager.shutdown(&process_id).await;
-                            return Ok(DelegateResult {
-                                output: output_buffer,
-                                finish_reason: DelegateFinishReason::Complete,
-                                tool_calls_summary,
-                            });
-                        }
-                        AcpSessionState::Cancelled => {
-                            self.process_manager.shutdown(&process_id).await;
-                            return Ok(DelegateResult {
-                                output: output_buffer,
-                                finish_reason: DelegateFinishReason::Cancelled,
-                                tool_calls_summary,
-                            });
-                        }
-                        AcpSessionState::Error { message } => {
-                            self.process_manager.shutdown(&process_id).await;
-                            return Ok(DelegateResult {
-                                output: output_buffer,
-                                finish_reason: DelegateFinishReason::Error { message },
-                                tool_calls_summary,
-                            });
-                        }
-                        AcpSessionState::Crashed => {
-                            return Ok(DelegateResult {
-                                output: output_buffer,
-                                finish_reason: DelegateFinishReason::ProcessCrashed,
-                                tool_calls_summary,
-                            });
-                        }
-                        _ => {} // Continue waiting
-                    }
-                }
-                Ok(Ok(_)) => continue, // Other process's message, ignore
-                Ok(Err(_)) => {
-                    // Broadcast channel lagged -- skip
-                    continue;
-                }
-                Err(_) => {
-                    // Timeout
-                    self.process_manager.shutdown(&process_id).await;
-                    return Err(EngineError::ToolExecution(
-                        "ACP delegate timeout (300s)".to_string(),
-                    ));
-                }
-            }
-        }
+        todo!("Rebuild AcpAgentDelegate on agent-core event types")
     }
 
     async fn cancel(&self) -> Result<(), EngineError> {
-        if let Some(pid) = self.current_process_id.lock().await.as_deref() {
-            self.process_manager
-                .send(
-                    pid,
-                    super::protocol::message::AcpOutboundMessage::Cancel,
-                )
-                .await
-                .map_err(|e| EngineError::ToolExecution(e.to_string()))
-        } else {
-            Ok(())
-        }
+        todo!("Rebuild AcpAgentDelegate on agent-core event types")
     }
 }
 
-/// Wraps AcpAgentDelegate as Tool trait,
-/// letting Sub-2's AgentEngine invoke external Agent via tool_call mechanism.
+/// Wraps AgentDelegate as Tool trait.
+/// Body commented out — depends on deleted UIMessageChunk.
 pub struct AcpDelegateTool {
     delegate: Arc<dyn AgentDelegate>,
-    /// Tool name (e.g. "delegate_to_claude_code")
     tool_name: String,
-    /// Tool description (shown to decision Agent's LLM)
     description: String,
-    /// Event forwarding sender (injected from ToolContext or externally)
-    chunk_tx: mpsc::Sender<UIMessageChunk>,
 }
 
 impl AcpDelegateTool {
@@ -263,13 +103,11 @@ impl AcpDelegateTool {
         delegate: Arc<dyn AgentDelegate>,
         tool_name: impl Into<String>,
         description: impl Into<String>,
-        chunk_tx: mpsc::Sender<UIMessageChunk>,
     ) -> Self {
         Self {
             delegate,
             tool_name: tool_name.into(),
             description: description.into(),
-            chunk_tx,
         }
     }
 }
@@ -310,7 +148,7 @@ impl Tool for AcpDelegateTool {
         let start = std::time::Instant::now();
         let result = self
             .delegate
-            .delegate(task, ctx.workspace.clone(), self.chunk_tx.clone())
+            .delegate(task, ctx.workspace.clone())
             .await?;
         let duration_ms = start.elapsed().as_millis() as u64;
 

@@ -29,9 +29,6 @@ srow-core = { path = "../srow-core" }
 # Debug server (tracing capture, GPUI inspector)
 srow-debug = { path = "../srow-debug" }
 
-# AI interaction layer (chat, transport, completion)
-srow-ai = { path = "../srow-ai" }
-
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

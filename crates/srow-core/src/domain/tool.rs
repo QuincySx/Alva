@@ -1,6 +1,8 @@
 // INPUT:  serde
 // OUTPUT: ToolCall, ToolResult, ToolDefinition
-// POS:    Defines tool call/result/definition types used across the LLM function-calling pipeline.
+// POS:    Defines tool call/result/definition types used across the tool pipeline.
+//         Kept during migration because runtime/tools/ depends on these.
+//         TODO: Migrate to agent-base equivalents when tool implementations are ported.
 use serde::{Deserialize, Serialize};
 
 /// A tool call parsed from an LLM response
