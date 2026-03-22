@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use agent_base::AgentError;
+use agent_types::AgentError;
 
 use crate::pregel::CompiledGraph;
 
@@ -12,13 +12,12 @@ pub const START: &str = "__start__";
 pub const END: &str = "__end__";
 
 pub(crate) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
-pub(crate) type NodeFn =
-    Box<dyn Fn(serde_json::Value) -> BoxFuture<serde_json::Value> + Send + Sync>;
-pub(crate) type RouterFn = Box<dyn Fn(&serde_json::Value) -> String + Send + Sync>;
+pub(crate) type NodeFn<S> = Box<dyn Fn(S) -> BoxFuture<S> + Send + Sync>;
+pub(crate) type RouterFn<S> = Box<dyn Fn(&S) -> String + Send + Sync>;
 
-pub(crate) enum Edge {
+pub(crate) enum Edge<S> {
     Direct { from: String, to: String },
-    Conditional { from: String, router: RouterFn },
+    Conditional { from: String, router: RouterFn<S> },
 }
 
 /// Builder for constructing a state graph.
@@ -26,13 +25,13 @@ pub(crate) enum Edge {
 /// Add nodes (async functions that transform state) and edges (transitions
 /// between nodes), then call `compile()` to produce an executable
 /// `CompiledGraph`.
-pub struct StateGraph {
-    nodes: HashMap<String, NodeFn>,
-    edges: Vec<Edge>,
+pub struct StateGraph<S> {
+    nodes: HashMap<String, NodeFn<S>>,
+    edges: Vec<Edge<S>>,
     entry_point: Option<String>,
 }
 
-impl StateGraph {
+impl<S: Send + 'static> StateGraph<S> {
     /// Create a new, empty graph.
     pub fn new() -> Self {
         Self {
@@ -49,7 +48,7 @@ impl StateGraph {
     pub fn add_node(
         &mut self,
         name: &str,
-        node: impl Fn(serde_json::Value) -> BoxFuture<serde_json::Value> + Send + Sync + 'static,
+        node: impl Fn(S) -> BoxFuture<S> + Send + Sync + 'static,
     ) {
         self.nodes.insert(name.to_string(), Box::new(node));
     }
@@ -69,7 +68,7 @@ impl StateGraph {
     pub fn add_conditional_edge(
         &mut self,
         from: &str,
-        router: impl Fn(&serde_json::Value) -> String + Send + Sync + 'static,
+        router: impl Fn(&S) -> String + Send + Sync + 'static,
     ) {
         self.edges.push(Edge::Conditional {
             from: from.to_string(),
@@ -89,7 +88,7 @@ impl StateGraph {
     /// - All direct-edge targets must be existing nodes or `END`.
     /// - All direct-edge sources must be existing nodes or `START`.
     /// - Every registered node must be reachable (no orphans).
-    pub fn compile(self) -> Result<CompiledGraph, AgentError> {
+    pub fn compile(self) -> Result<CompiledGraph<S>, AgentError> {
         // 1. Entry point must be set
         let entry_point = self.entry_point.ok_or_else(|| {
             AgentError::ConfigError("Entry point not set".to_string())
@@ -171,7 +170,7 @@ impl StateGraph {
     }
 }
 
-impl Default for StateGraph {
+impl<S: Send + 'static> Default for StateGraph<S> {
     fn default() -> Self {
         Self::new()
     }

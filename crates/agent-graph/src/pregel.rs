@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use agent_base::AgentError;
+use agent_types::AgentError;
 
 use crate::graph::{Edge, NodeFn, END};
 
@@ -11,13 +11,13 @@ use crate::graph::{Edge, NodeFn, END};
 /// State flows through nodes sequentially; edges (direct or conditional)
 /// determine the next node after each step. Execution terminates when the
 /// current node resolves to `END` or when no outgoing edge is found.
-pub struct CompiledGraph {
-    pub(crate) nodes: HashMap<String, NodeFn>,
-    pub(crate) edges: Vec<Edge>,
+pub struct CompiledGraph<S> {
+    pub(crate) nodes: HashMap<String, NodeFn<S>>,
+    pub(crate) edges: Vec<Edge<S>>,
     pub(crate) entry_point: String,
 }
 
-impl std::fmt::Debug for CompiledGraph {
+impl<S> std::fmt::Debug for CompiledGraph<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompiledGraph")
             .field("entry_point", &self.entry_point)
@@ -27,16 +27,13 @@ impl std::fmt::Debug for CompiledGraph {
     }
 }
 
-impl CompiledGraph {
+impl<S: Send + 'static> CompiledGraph<S> {
     /// Execute the graph starting from the entry point.
     ///
     /// `input` is the initial state value; each node receives the current state
     /// and returns the (possibly modified) state. The final state is returned
     /// when execution reaches `END`.
-    pub async fn invoke(
-        &self,
-        input: serde_json::Value,
-    ) -> Result<serde_json::Value, AgentError> {
+    pub async fn invoke(&self, input: S) -> Result<S, AgentError> {
         let mut state = input;
         let mut current_node = self.entry_point.clone();
 
@@ -63,11 +60,7 @@ impl CompiledGraph {
     /// 1. Direct edges matching `current` (first match wins)
     /// 2. Conditional edges matching `current` (first match wins)
     /// 3. If no edge found, default to `END`
-    fn resolve_next(
-        &self,
-        current: &str,
-        state: &serde_json::Value,
-    ) -> Result<String, AgentError> {
+    fn resolve_next(&self, current: &str, state: &S) -> Result<String, AgentError> {
         for edge in &self.edges {
             match edge {
                 Edge::Direct { from, to } if from == current => {
@@ -188,14 +181,14 @@ mod tests {
 
     #[test]
     fn compile_fails_without_entry_point() {
-        let graph = StateGraph::new();
+        let graph = StateGraph::<serde_json::Value>::new();
         let err = graph.compile().unwrap_err();
         assert!(err.to_string().contains("Entry point not set"));
     }
 
     #[test]
     fn compile_fails_with_invalid_entry_point() {
-        let mut graph = StateGraph::new();
+        let mut graph = StateGraph::<serde_json::Value>::new();
         graph.set_entry_point("nonexistent");
         let err = graph.compile().unwrap_err();
         assert!(err.to_string().contains("does not exist"));
@@ -204,7 +197,7 @@ mod tests {
     #[test]
     fn compile_fails_with_invalid_edge_target() {
         let mut graph = StateGraph::new();
-        graph.add_node("a", |s| Box::pin(async { s }));
+        graph.add_node("a", |s: serde_json::Value| Box::pin(async { s }));
         graph.set_entry_point("a");
         graph.add_edge("a", "nonexistent");
         let err = graph.compile().unwrap_err();
@@ -214,7 +207,7 @@ mod tests {
     #[test]
     fn compile_fails_with_invalid_edge_source() {
         let mut graph = StateGraph::new();
-        graph.add_node("a", |s| Box::pin(async { s }));
+        graph.add_node("a", |s: serde_json::Value| Box::pin(async { s }));
         graph.set_entry_point("a");
         graph.add_edge("nonexistent", "a");
         let err = graph.compile().unwrap_err();

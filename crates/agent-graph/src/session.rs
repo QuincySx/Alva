@@ -10,7 +10,7 @@ enum SessionKind {
     /// A single-agent linear loop.
     Linear(Agent),
     /// A multi-node graph execution.
-    Graph(CompiledGraph),
+    Graph(CompiledGraph<serde_json::Value>),
 }
 
 /// High-level session wrapper that bundles an execution backend (linear
@@ -43,7 +43,7 @@ impl AgentSession {
     }
 
     /// Create a session backed by a compiled graph.
-    pub fn from_graph(graph: CompiledGraph) -> Self {
+    pub fn from_graph(graph: CompiledGraph<serde_json::Value>) -> Self {
         Self {
             kind: SessionKind::Graph(graph),
             retry_config: None,
