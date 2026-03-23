@@ -47,33 +47,36 @@ async fn execute_parallel(
 
     for tc in tool_calls {
         // Pre-flight check ---------------------------------------------------
-        if let Some(ref hook) = config.before_tool_call {
-            match hook(tc, context) {
-                ToolCallDecision::Allow => {}
-                ToolCallDecision::Block { reason } => {
-                    let blocked_result = ToolResult {
-                        content: format!("Tool call blocked: {reason}"),
-                        is_error: true,
-                        details: None,
-                    };
-                    let tc_clone = tc.clone();
-                    let event_tx = event_tx.clone();
-                    let after_hook = config.after_tool_call.clone();
-                    let blocked_result = match after_hook {
-                        Some(h) => h(&tc_clone, blocked_result, context),
-                        None => blocked_result,
-                    };
-                    let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-                        tool_call: tc_clone.clone(),
-                    });
-                    let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-                        tool_call: tc_clone.clone(),
-                        result: blocked_result.clone(),
-                    });
-                    // We still need to push the result — spawn a trivial task.
-                    join_set.spawn(async move { (tc_clone, blocked_result) });
-                    continue;
+        let mut decision = ToolCallDecision::Allow;
+        for hook in &config.before_tool_call {
+            decision = hook(tc, context);
+            if matches!(decision, ToolCallDecision::Block { .. }) {
+                break;
+            }
+        }
+        match decision {
+            ToolCallDecision::Allow => {}
+            ToolCallDecision::Block { reason } => {
+                let mut blocked_result = ToolResult {
+                    content: format!("Tool call blocked: {reason}"),
+                    is_error: true,
+                    details: None,
+                };
+                let tc_clone = tc.clone();
+                let event_tx = event_tx.clone();
+                for hook in &config.after_tool_call {
+                    blocked_result = hook(&tc_clone, blocked_result, context);
                 }
+                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
+                    tool_call: tc_clone.clone(),
+                });
+                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
+                    tool_call: tc_clone.clone(),
+                    result: blocked_result.clone(),
+                });
+                // We still need to push the result — spawn a trivial task.
+                join_set.spawn(async move { (tc_clone, blocked_result) });
+                continue;
             }
         }
 
@@ -110,12 +113,11 @@ async fn execute_parallel(
                 }
             };
 
-            // Note: after_tool_call hook cannot access AgentContext in the
-            // spawned task (not Send). We apply it here with a captured clone
-            // if the closure is Send+Sync (which it is by our type alias).
-            // However, the context reference cannot be sent across tasks, so
-            // we skip the after_hook in the spawned task and apply it after
-            // the join below. For now, we return a pair.
+            // Design note: after_tool_call hooks run on the main task after
+            // all parallel tools complete (see loop below). This is intentional —
+            // hooks process individual tool results and don't need to see
+            // results from sibling tools. AgentContext stays on the main task
+            // to avoid Send requirements on borrowed references.
             let _ = event_tx_clone.send(AgentEvent::ToolExecutionEnd {
                 tool_call: tc_clone.clone(),
                 result: result.clone(),
@@ -127,8 +129,8 @@ async fn execute_parallel(
 
     let mut results = Vec::with_capacity(tool_calls.len());
     while let Some(Ok((tc, mut result))) = join_set.join_next().await {
-        // Apply after_tool_call hook (on the main task where context lives).
-        if let Some(ref hook) = config.after_tool_call {
+        // Apply after_tool_call hooks (on the main task where context lives).
+        for hook in &config.after_tool_call {
             result = hook(&tc, result, context);
         }
         results.push(result);
@@ -161,29 +163,33 @@ async fn execute_sequential(
         }
 
         // Pre-flight check ---------------------------------------------------
-        if let Some(ref hook) = config.before_tool_call {
-            match hook(tc, context) {
-                ToolCallDecision::Allow => {}
-                ToolCallDecision::Block { reason } => {
-                    let blocked = ToolResult {
-                        content: format!("Tool call blocked: {reason}"),
-                        is_error: true,
-                        details: None,
-                    };
-                    let blocked = match &config.after_tool_call {
-                        Some(h) => h(tc, blocked, context),
-                        None => blocked,
-                    };
-                    let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-                        tool_call: tc.clone(),
-                    });
-                    let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-                        tool_call: tc.clone(),
-                        result: blocked.clone(),
-                    });
-                    results.push(blocked);
-                    continue;
+        let mut decision = ToolCallDecision::Allow;
+        for hook in &config.before_tool_call {
+            decision = hook(tc, context);
+            if matches!(decision, ToolCallDecision::Block { .. }) {
+                break;
+            }
+        }
+        match decision {
+            ToolCallDecision::Allow => {}
+            ToolCallDecision::Block { reason } => {
+                let mut blocked = ToolResult {
+                    content: format!("Tool call blocked: {reason}"),
+                    is_error: true,
+                    details: None,
+                };
+                for hook in &config.after_tool_call {
+                    blocked = hook(tc, blocked, context);
                 }
+                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
+                    tool_call: tc.clone(),
+                });
+                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
+                    tool_call: tc.clone(),
+                    result: blocked.clone(),
+                });
+                results.push(blocked);
+                continue;
             }
         }
 
@@ -216,7 +222,7 @@ async fn execute_sequential(
         };
 
         // Post-processing ----------------------------------------------------
-        if let Some(ref hook) = config.after_tool_call {
+        for hook in &config.after_tool_call {
             result = hook(tc, result, context);
         }
 
