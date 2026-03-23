@@ -78,6 +78,10 @@ pub use agent_security::{
     SandboxConfig, SandboxMode,
 };
 
+// Convenience re-exports — memory (now in agent-memory crate)
+pub use agent_memory::{MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, MemoryError};
+pub use agent_memory::{EmbeddingProvider, NoopEmbeddingProvider, MemorySqlite};
+
 // Convenience re-exports — environment runtime management
 pub use environment::EnvironmentManager;
 pub use environment::config::EnvironmentConfig;

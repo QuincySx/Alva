@@ -1,4 +1,4 @@
-// INPUT:  std::collections, std::hash, std::path, crate::error, super::{embedding, sqlite, types}, walkdir, chrono, tokio::fs
+// INPUT:  std::collections, std::hash, std::path, crate::error, crate::{embedding, sqlite, types}, walkdir, chrono, tokio::fs
 // OUTPUT: sync_workspace
 // POS:    Scans workspace for MEMORY.md files, chunks content, computes embeddings, and indexes into MemorySqlite.
 //! Workspace file synchronization — scan MEMORY.md files, chunk, embed, store.
@@ -7,11 +7,11 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-use crate::error::EngineError;
+use crate::error::MemoryError;
 
-use super::embedding::EmbeddingProvider;
-use super::sqlite::MemorySqlite;
-use super::types::{MemoryFile, SyncReport};
+use crate::embedding::EmbeddingProvider;
+use crate::sqlite::MemorySqlite;
+use crate::types::{MemoryFile, SyncReport};
 
 /// Default chunk size in lines.
 const CHUNK_SIZE: usize = 50;
@@ -23,7 +23,7 @@ pub async fn sync_workspace(
     workspace: &Path,
     store: &MemorySqlite,
     embedder: &dyn EmbeddingProvider,
-) -> Result<SyncReport, EngineError> {
+) -> Result<SyncReport, MemoryError> {
     let mut report = SyncReport::default();
 
     // Walk the workspace looking for MEMORY.md files.
@@ -210,7 +210,7 @@ mod tests {
             .unwrap();
 
         let store = MemorySqlite::open_in_memory().await.unwrap();
-        let embedder = crate::agent::memory::embedding::NoopEmbeddingProvider::new();
+        let embedder = crate::embedding::NoopEmbeddingProvider::new();
 
         let report = sync_workspace(tmp.path(), &store, &embedder)
             .await

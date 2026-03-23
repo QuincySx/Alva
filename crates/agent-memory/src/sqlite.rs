@@ -1,4 +1,4 @@
-// INPUT:  tokio_rusqlite, crate::error, super::types, rusqlite
+// INPUT:  tokio_rusqlite, crate::error, crate::types, rusqlite
 // OUTPUT: MemorySqlite
 // POS:    SQLite storage backend for memory: FTS5 full-text search, brute-force vector search, embedding cache, and file/chunk CRUD.
 //! SQLite storage backend for the memory subsystem.
@@ -7,9 +7,9 @@
 
 use tokio_rusqlite::Connection;
 
-use crate::error::EngineError;
+use crate::error::MemoryError;
 
-use super::types::{MemoryEntry, MemoryFile};
+use crate::types::{MemoryEntry, MemoryFile};
 
 // ---------------------------------------------------------------------------
 // DDL
@@ -73,23 +73,23 @@ pub struct MemorySqlite {
 
 impl MemorySqlite {
     /// Open or create the memory database at `path`.
-    pub async fn open(path: impl AsRef<std::path::Path>) -> Result<Self, EngineError> {
+    pub async fn open(path: impl AsRef<std::path::Path>) -> Result<Self, MemoryError> {
         let path = path.as_ref().to_path_buf();
         let conn = Connection::open(&path)
             .await
-            .map_err(|e| EngineError::Storage(format!("memory sqlite open: {e}")))?;
+            .map_err(|e| MemoryError::Storage(format!("memory sqlite open: {e}")))?;
         Self::init(conn).await
     }
 
     /// Open an in-memory database for testing.
-    pub async fn open_in_memory() -> Result<Self, EngineError> {
+    pub async fn open_in_memory() -> Result<Self, MemoryError> {
         let conn = Connection::open_in_memory()
             .await
-            .map_err(|e| EngineError::Storage(format!("memory sqlite open memory: {e}")))?;
+            .map_err(|e| MemoryError::Storage(format!("memory sqlite open memory: {e}")))?;
         Self::init(conn).await
     }
 
-    async fn init(conn: Connection) -> Result<Self, EngineError> {
+    async fn init(conn: Connection) -> Result<Self, MemoryError> {
         conn.call(|conn| {
             conn.pragma_update(None, "journal_mode", "wal")?;
             conn.pragma_update(None, "foreign_keys", "on")?;
@@ -97,7 +97,7 @@ impl MemorySqlite {
             Ok(())
         })
         .await
-        .map_err(|e| EngineError::Storage(format!("memory sqlite init: {e}")))?;
+        .map_err(|e| MemoryError::Storage(format!("memory sqlite init: {e}")))?;
         Ok(Self { conn })
     }
 
@@ -106,7 +106,7 @@ impl MemorySqlite {
     // -----------------------------------------------------------------------
 
     /// Upsert a tracked file record.
-    pub async fn upsert_file(&self, file: &MemoryFile) -> Result<(), EngineError> {
+    pub async fn upsert_file(&self, file: &MemoryFile) -> Result<(), MemoryError> {
         let f = file.clone();
         self.conn
             .call(move |conn| {
@@ -123,11 +123,11 @@ impl MemorySqlite {
                 Ok(())
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("upsert_file: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("upsert_file: {e}")))
     }
 
     /// Get a tracked file by path.
-    pub async fn get_file(&self, path: &str) -> Result<Option<MemoryFile>, EngineError> {
+    pub async fn get_file(&self, path: &str) -> Result<Option<MemoryFile>, MemoryError> {
         let path = path.to_string();
         self.conn
             .call(move |conn| {
@@ -147,7 +147,7 @@ impl MemorySqlite {
                 }
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("get_file: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("get_file: {e}")))
     }
 
     // -----------------------------------------------------------------------
@@ -164,7 +164,7 @@ impl MemorySqlite {
         hash: &str,
         text: &str,
         embedding: &[f32],
-    ) -> Result<i64, EngineError> {
+    ) -> Result<i64, MemoryError> {
         let path = path.to_string();
         let source = source.to_string();
         let hash = hash.to_string();
@@ -181,11 +181,11 @@ impl MemorySqlite {
                 Ok(conn.last_insert_rowid())
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("insert_chunk: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("insert_chunk: {e}")))
     }
 
     /// Delete all chunks for a given file path.
-    pub async fn delete_chunks_for_path(&self, path: &str) -> Result<(), EngineError> {
+    pub async fn delete_chunks_for_path(&self, path: &str) -> Result<(), MemoryError> {
         let path = path.to_string();
         self.conn
             .call(move |conn| {
@@ -196,7 +196,7 @@ impl MemorySqlite {
                 Ok(())
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("delete_chunks_for_path: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("delete_chunks_for_path: {e}")))
     }
 
     // -----------------------------------------------------------------------
@@ -208,7 +208,7 @@ impl MemorySqlite {
         &self,
         query: &str,
         max_results: usize,
-    ) -> Result<Vec<MemoryEntry>, EngineError> {
+    ) -> Result<Vec<MemoryEntry>, MemoryError> {
         let query = query.to_string();
         self.conn
             .call(move |conn| {
@@ -236,7 +236,7 @@ impl MemorySqlite {
                 Ok(results)
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("fts_search: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("fts_search: {e}")))
     }
 
     // -----------------------------------------------------------------------
@@ -249,7 +249,7 @@ impl MemorySqlite {
         &self,
         query_embedding: &[f32],
         max_results: usize,
-    ) -> Result<Vec<MemoryEntry>, EngineError> {
+    ) -> Result<Vec<MemoryEntry>, MemoryError> {
         if query_embedding.is_empty() {
             return Ok(Vec::new());
         }
@@ -284,7 +284,7 @@ impl MemorySqlite {
                 Ok(scored)
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("vector_search: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("vector_search: {e}")))
     }
 
     // -----------------------------------------------------------------------
@@ -297,7 +297,7 @@ impl MemorySqlite {
         model: &str,
         hash: &str,
         embedding: &[f32],
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), MemoryError> {
         let model = model.to_string();
         let hash = hash.to_string();
         let emb_bytes = embedding_to_bytes(embedding);
@@ -313,7 +313,7 @@ impl MemorySqlite {
                 Ok(())
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("cache_embedding: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("cache_embedding: {e}")))
     }
 
     /// Look up a cached embedding.
@@ -321,7 +321,7 @@ impl MemorySqlite {
         &self,
         model: &str,
         hash: &str,
-    ) -> Result<Option<Vec<f32>>, EngineError> {
+    ) -> Result<Option<Vec<f32>>, MemoryError> {
         let model = model.to_string();
         let hash = hash.to_string();
         self.conn
@@ -338,7 +338,7 @@ impl MemorySqlite {
                 }
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("get_cached_embedding: {e}")))
+            .map_err(|e| MemoryError::Storage(format!("get_cached_embedding: {e}")))
     }
 }
 

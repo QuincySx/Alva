@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 
-use crate::error::EngineError;
+use crate::error::MemoryError;
 
 /// Trait for embedding providers (OpenAI-compatible API).
 #[async_trait]
@@ -16,7 +16,7 @@ pub trait EmbeddingProvider: Send + Sync {
     fn model(&self) -> &str;
 
     /// Compute embeddings for a batch of texts.
-    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, EngineError>;
+    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, MemoryError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ impl EmbeddingProvider for NoopEmbeddingProvider {
         "noop"
     }
 
-    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, EngineError> {
+    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, MemoryError> {
         // Return an empty vector for each input text.
         Ok(texts.iter().map(|_| Vec::new()).collect())
     }

@@ -46,6 +46,12 @@ pub enum EngineError {
     Cancelled,
 }
 
+impl From<agent_memory::MemoryError> for EngineError {
+    fn from(e: agent_memory::MemoryError) -> Self {
+        EngineError::Storage(e.to_string())
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SkillError {
     #[error("Skill '{0}' not found")]

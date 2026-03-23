@@ -18,6 +18,7 @@ agent-types = { path = "../agent-types" }
 agent-core = { path = "../agent-core" }
 agent-tools = { path = "../agent-tools" }
 agent-security = { path = "../agent-security" }
+agent-memory = { path = "../agent-memory" }
 protocol-agent-client = { path = "../protocol-agent-client" }
 
 # Async runtime

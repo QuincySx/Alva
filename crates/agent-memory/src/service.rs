@@ -1,16 +1,16 @@
-// INPUT:  std::path, crate::error, super::{embedding, sqlite, sync, types}
+// INPUT:  std::path, crate::error, crate::{embedding, sqlite, sync, types}
 // OUTPUT: MemoryService
 // POS:    Unified memory service combining FTS + vector hybrid search with weighted score fusion.
 //! MemoryService — unified entry point for memory CRUD + hybrid search.
 
 use std::path::Path;
 
-use crate::error::EngineError;
+use crate::error::MemoryError;
 
-use super::embedding::EmbeddingProvider;
-use super::sqlite::MemorySqlite;
-use super::sync;
-use super::types::{MemoryEntry, SyncReport};
+use crate::embedding::EmbeddingProvider;
+use crate::sqlite::MemorySqlite;
+use crate::sync;
+use crate::types::{MemoryEntry, SyncReport};
 
 /// Weights for hybrid search scoring.
 const FTS_WEIGHT: f64 = 0.4;
@@ -37,7 +37,7 @@ impl MemoryService {
         key: &str,
         content: &str,
         category: &str,
-    ) -> Result<(), EngineError> {
+    ) -> Result<(), MemoryError> {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -45,7 +45,7 @@ impl MemoryService {
         content.hash(&mut hasher);
         let hash = format!("{:016x}", hasher.finish());
 
-        let file = super::types::MemoryFile {
+        let file = crate::types::MemoryFile {
             path: key.to_string(),
             source: category.to_string(),
             hash: hash.clone(),
@@ -86,7 +86,7 @@ impl MemoryService {
         &self,
         query: &str,
         max_results: usize,
-    ) -> Result<Vec<MemoryEntry>, EngineError> {
+    ) -> Result<Vec<MemoryEntry>, MemoryError> {
         // Step 1: FTS search
         let fts_results = self.store.fts_search(query, max_results * 2).await?;
 
@@ -109,7 +109,7 @@ impl MemoryService {
     }
 
     /// Synchronize workspace MEMORY.md files into the store.
-    pub async fn sync_workspace(&self, workspace_path: &Path) -> Result<SyncReport, EngineError> {
+    pub async fn sync_workspace(&self, workspace_path: &Path) -> Result<SyncReport, MemoryError> {
         sync::sync_workspace(workspace_path, &self.store, self.embedder.as_ref()).await
     }
 
@@ -217,7 +217,7 @@ fn normalize_scores_inverted(entries: &[MemoryEntry]) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::memory::embedding::NoopEmbeddingProvider;
+    use crate::embedding::NoopEmbeddingProvider;
 
     async fn make_service() -> MemoryService {
         let store = MemorySqlite::open_in_memory().await.unwrap();
