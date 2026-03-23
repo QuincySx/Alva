@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use agent_types::AgentError;
 
-use crate::graph::{Edge, NodeFn, END};
+use crate::graph::{Edge, MergeFn, NodeFn, END};
 
 /// A compiled, executable graph produced by [`StateGraph::compile`](crate::StateGraph::compile).
 ///
@@ -15,6 +15,7 @@ pub struct CompiledGraph<S> {
     pub(crate) nodes: HashMap<String, NodeFn<S>>,
     pub(crate) edges: Vec<Edge<S>>,
     pub(crate) entry_point: String,
+    pub(crate) merge_fn: Option<MergeFn<S>>,
 }
 
 impl<S> std::fmt::Debug for CompiledGraph<S> {
@@ -23,6 +24,7 @@ impl<S> std::fmt::Debug for CompiledGraph<S> {
             .field("entry_point", &self.entry_point)
             .field("node_count", &self.nodes.len())
             .field("edge_count", &self.edges.len())
+            .field("has_merge_fn", &self.merge_fn.is_some())
             .finish()
     }
 }
@@ -62,6 +64,7 @@ impl<S: Send + 'static> CompiledGraph<S> {
                 current_nodes = self.resolve_next_nodes(&current_nodes[0], &state)?;
             } else {
                 // Parallel superstep — execute all nodes concurrently
+                let base_state = state.clone();
                 let mut join_set = tokio::task::JoinSet::new();
                 for node_name in &current_nodes {
                     let node_fn = self.nodes.get(node_name).ok_or_else(|| {
@@ -73,11 +76,23 @@ impl<S: Send + 'static> CompiledGraph<S> {
                     join_set.spawn(async move { (name, fut.await) });
                 }
 
-                // Collect results — last result wins for now (simple merge)
-                // TODO: integrate Channel system for proper state merging
-                while let Some(Ok((_name, result))) = join_set.join_next().await {
-                    state = result;
+                // Collect all results
+                let mut outputs = Vec::with_capacity(current_nodes.len());
+                while let Some(join_result) = join_set.join_next().await {
+                    let (_name, result) = join_result.map_err(|e| {
+                        AgentError::Other(format!("Parallel node task failed: {e}"))
+                    })?;
+                    outputs.push(result);
                 }
+
+                // Merge results
+                state = match &self.merge_fn {
+                    Some(merge) => merge(base_state, outputs),
+                    None => {
+                        // Fallback: last result wins (backward compatible)
+                        outputs.into_iter().last().unwrap_or(base_state)
+                    }
+                };
 
                 // Collect next nodes from all executed nodes
                 let mut next = Vec::new();
@@ -91,33 +106,10 @@ impl<S: Send + 'static> CompiledGraph<S> {
         }
     }
 
-    /// Determine the next node to execute given the current node and state.
-    ///
-    /// Resolution order:
-    /// 1. Direct edges matching `current` (first match wins)
-    /// 2. Conditional edges matching `current` (first match wins)
-    /// 3. If no edge found, default to `END`
-    fn resolve_next(&self, current: &str, state: &S) -> Result<String, AgentError> {
-        for edge in &self.edges {
-            match edge {
-                Edge::Direct { from, to } if from == current => {
-                    return Ok(to.clone());
-                }
-                Edge::Conditional { from, router } if from == current => {
-                    return Ok(router(state));
-                }
-                _ => continue,
-            }
-        }
-        // No edge found — default to END
-        Ok(END.to_string())
-    }
-
     /// Collect ALL next nodes from edges matching `current`.
     ///
-    /// Unlike [`resolve_next()`](Self::resolve_next) which short-circuits on
-    /// the first matching edge, this method gathers every target — enabling
-    /// fan-out to multiple parallel nodes in a single superstep.
+    /// Gathers every target — enabling fan-out to multiple parallel nodes
+    /// in a single superstep.
     fn resolve_next_nodes(&self, current: &str, state: &S) -> Result<Vec<String>, AgentError> {
         let mut targets = Vec::new();
         for edge in &self.edges {
@@ -329,6 +321,58 @@ mod tests {
             2,
             "both parallel nodes should execute"
         );
+    }
+
+    #[tokio::test]
+    async fn parallel_fan_out_with_merge() {
+        let mut graph = StateGraph::<serde_json::Value>::new();
+
+        graph.add_node("entry", |s| Box::pin(async { s }));
+
+        graph.add_node("add_a", |s: serde_json::Value| {
+            Box::pin(async move {
+                let mut s = s;
+                s["a"] = serde_json::json!(true);
+                s
+            })
+        });
+
+        graph.add_node("add_b", |s: serde_json::Value| {
+            Box::pin(async move {
+                let mut s = s;
+                s["b"] = serde_json::json!(true);
+                s
+            })
+        });
+
+        graph.add_node("final", |s| Box::pin(async { s }));
+
+        graph.set_entry_point("entry");
+        graph.add_edge("entry", "add_a");
+        graph.add_edge("entry", "add_b");
+        graph.add_edge("add_a", "final");
+        graph.add_edge("add_b", "final");
+        graph.add_edge("final", END);
+
+        // Merge function: deep-merge JSON objects
+        graph.set_merge(|base, outputs| {
+            let mut merged = base;
+            for output in outputs {
+                if let (Some(m), Some(o)) = (merged.as_object_mut(), output.as_object()) {
+                    for (k, v) in o {
+                        m.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            merged
+        });
+
+        let compiled = graph.compile().unwrap();
+        let result = compiled.invoke(serde_json::json!({})).await.unwrap();
+
+        // Both keys must be present — merge combines all node outputs
+        assert_eq!(result["a"], true, "key 'a' from parallel node must survive merge");
+        assert_eq!(result["b"], true, "key 'b' from parallel node must survive merge");
     }
 
     #[tokio::test]

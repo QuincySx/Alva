@@ -14,6 +14,7 @@ pub const END: &str = "__end__";
 pub(crate) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(crate) type NodeFn<S> = Box<dyn Fn(S) -> BoxFuture<S> + Send + Sync>;
 pub(crate) type RouterFn<S> = Box<dyn Fn(&S) -> String + Send + Sync>;
+pub(crate) type MergeFn<S> = Box<dyn Fn(S, Vec<S>) -> S + Send + Sync>;
 
 pub(crate) enum Edge<S> {
     Direct { from: String, to: String },
@@ -29,6 +30,7 @@ pub struct StateGraph<S> {
     nodes: HashMap<String, NodeFn<S>>,
     edges: Vec<Edge<S>>,
     entry_point: Option<String>,
+    merge_fn: Option<MergeFn<S>>,
 }
 
 impl<S: Send + 'static> StateGraph<S> {
@@ -38,6 +40,7 @@ impl<S: Send + 'static> StateGraph<S> {
             nodes: HashMap::new(),
             edges: Vec::new(),
             entry_point: None,
+            merge_fn: None,
         }
     }
 
@@ -79,6 +82,24 @@ impl<S: Send + 'static> StateGraph<S> {
     /// Set the node that execution begins at.
     pub fn set_entry_point(&mut self, name: &str) {
         self.entry_point = Some(name.to_string());
+    }
+
+    /// Set a merge function for combining parallel node outputs.
+    ///
+    /// When multiple nodes execute in a parallel superstep, each receives a
+    /// clone of the current state. The merge function receives the original
+    /// base state and a `Vec` of all node outputs, and must return a single
+    /// combined state.
+    ///
+    /// If no merge function is set, "last result wins" (nondeterministic).
+    ///
+    /// Note: the ordering of elements in the `Vec` is determined by task
+    /// completion order and is NOT guaranteed to match the edge definition order.
+    pub fn set_merge(
+        &mut self,
+        merge: impl Fn(S, Vec<S>) -> S + Send + Sync + 'static,
+    ) {
+        self.merge_fn = Some(Box::new(merge));
     }
 
     /// Validate the graph and produce a `CompiledGraph` ready for execution.
@@ -166,6 +187,7 @@ impl<S: Send + 'static> StateGraph<S> {
             nodes: self.nodes,
             edges: self.edges,
             entry_point,
+            merge_fn: self.merge_fn,
         })
     }
 }
