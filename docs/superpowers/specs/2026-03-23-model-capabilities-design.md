@@ -2,7 +2,7 @@
 
 ## Goal
 
-将 AI 模型能力（Embedding、Transcription、Speech、Image、Video、Reranking）提升为框架级 trait，放在 `agent-types` 中与 `LanguageModel` 同级。Provider 作为能力工厂声明自己支持哪些能力，adapter 消化厂商差异。同时清理旧 V4 重类型（`ProviderOptions`、`ProviderMetadata`、`ProviderWarning`、`ProviderHeaders`）。
+将 AI 模型能力（Embedding、Transcription、Speech、Image（含 edit）、Video、Reranking、Moderation）提升为框架级 trait，放在 `agent-types` 中与 `LanguageModel` 同级。Provider 作为能力工厂声明自己支持哪些能力，adapter 消化厂商差异。同时清理旧 V4 重类型（`ProviderOptions`、`ProviderMetadata`、`ProviderWarning`、`ProviderHeaders`）。
 
 ## 设计原则
 
@@ -24,10 +24,11 @@ agent-types/                    ← Tier 1: trait 定义（能力语义）
   ImageModel                    ← 新增
   VideoModel                    ← 新增
   RerankingModel                ← 新增
+  ModerationModel               ← 新增
 
 srow-core/ports/provider/       ← Tier 4: Provider 工厂
-  Provider trait                ← 扩展：6 个可选能力方法
-  ProviderRegistry              ← 已有，加 6 个 shorthand 方法
+  Provider trait                ← 扩展：7 个可选能力方法
+  ProviderRegistry              ← 已有，加 7 个 shorthand 方法
 
 srow-core/adapters/             ← Tier 4: 具体实现
   (后续实现 OpenAI-compat 等 adapter)
@@ -157,6 +158,16 @@ pub trait ImageModel: Send + Sync {
         prompt: &str,
         config: &ImageConfig,
     ) -> Result<ImageResult, AgentError>;
+
+    /// Edit an existing image. Default: unsupported.
+    async fn edit(
+        &self,
+        _image: &[u8],
+        _prompt: &str,
+        _config: &ImageEditConfig,
+    ) -> Result<ImageResult, AgentError> {
+        Err(AgentError::Other("image editing not supported".into()))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +175,12 @@ pub struct ImageConfig {
     pub n: Option<u32>,
     pub size: Option<String>,
     pub aspect_ratio: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageEditConfig {
+    pub mask: Option<Vec<u8>>,
+    pub size: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,6 +268,40 @@ pub struct RankEntry {
 }
 ```
 
+### ModerationModel
+
+```rust
+// agent-types/src/moderation.rs
+
+#[async_trait]
+pub trait ModerationModel: Send + Sync {
+    fn model_id(&self) -> &str;
+
+    async fn classify(
+        &self,
+        inputs: &[&str],
+    ) -> Result<ModerationResult, AgentError>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModerationResult {
+    pub results: Vec<ModerationEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModerationEntry {
+    pub flagged: bool,
+    pub categories: Vec<ModerationCategory>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModerationCategory {
+    pub name: String,
+    pub flagged: bool,
+    pub score: f64,
+}
+```
+
 ### agent-types/src/lib.rs 更新
 
 ```rust
@@ -260,13 +311,15 @@ pub mod speech;
 pub mod image;
 pub mod video;
 pub mod reranking;
+pub mod moderation;
 
 pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
 pub use transcription::{TranscriptionModel, TranscriptionConfig, TranscriptionResult, TranscriptionSegment};
 pub use speech::{SpeechModel, SpeechConfig, SpeechResult};
-pub use image::{ImageModel, ImageConfig, ImageResult, ImageData};
+pub use image::{ImageModel, ImageConfig, ImageEditConfig, ImageResult, ImageData};
 pub use video::{VideoModel, VideoConfig, VideoResult, VideoData};
 pub use reranking::{RerankingModel, RerankConfig, RerankResult, RankEntry};
+pub use moderation::{ModerationModel, ModerationResult, ModerationEntry, ModerationCategory};
 ```
 
 ## Provider trait 扩展
@@ -277,7 +330,7 @@ pub use reranking::{RerankingModel, RerankConfig, RerankResult, RankEntry};
 use std::sync::Arc;
 use agent_types::{
     LanguageModel, EmbeddingModel, TranscriptionModel,
-    SpeechModel, ImageModel, VideoModel, RerankingModel,
+    SpeechModel, ImageModel, VideoModel, RerankingModel, ModerationModel,
 };
 
 pub trait Provider: Send + Sync {
@@ -315,10 +368,15 @@ pub trait Provider: Send + Sync {
         -> Result<Arc<dyn RerankingModel>, ProviderError> {
         Err(ProviderError::UnsupportedFunctionality("reranking".into()))
     }
+
+    fn moderation_model(&self, _model_id: &str)
+        -> Result<Arc<dyn ModerationModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality("moderation".into()))
+    }
 }
 ```
 
-ProviderRegistry 同步扩展 6 个 shorthand 方法（`embedding_model(provider_id, model_id)` 等），模式与现有 `language_model()` 完全一致。
+ProviderRegistry 同步扩展 7 个 shorthand 方法（`embedding_model(provider_id, model_id)` 等），模式与现有 `language_model()` 完全一致。
 
 ## 旧 V4 清理
 
