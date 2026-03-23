@@ -12,6 +12,7 @@ pub mod image;
 pub mod video;
 pub mod reranking;
 pub mod moderation;
+pub mod provider;
 
 pub use cancel::CancellationToken;
 pub use content::ContentBlock;
@@ -29,3 +30,4 @@ pub use image::{ImageConfig, ImageData, ImageEditConfig, ImageModel, ImageResult
 pub use video::{VideoConfig, VideoData, VideoModel, VideoResult};
 pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
+pub use provider::{Provider, ProviderError, ProviderRegistry};
