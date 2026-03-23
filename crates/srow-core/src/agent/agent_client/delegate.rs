@@ -141,7 +141,7 @@ impl Tool for AcpDelegateTool {
 
         let result = self
             .delegate
-            .delegate(task, ctx.workspace().to_path_buf())
+            .delegate(task, ctx.local().map(|l| l.workspace().to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from(".")))
             .await
             .map_err(|e| AgentError::ToolError { tool_name: self.tool_name.clone(), message: e.to_string() })?;
 

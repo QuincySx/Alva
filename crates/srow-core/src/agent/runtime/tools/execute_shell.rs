@@ -51,10 +51,14 @@ impl Tool for ExecuteShellTool {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "execute_shell".into(), message: e.to_string() })?;
 
+        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+            tool_name: "execute_shell".into(),
+            message: "local filesystem context required".into(),
+        })?;
         let cwd = params
             .cwd
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| ctx.workspace().to_path_buf());
+            .unwrap_or_else(|| local.workspace().to_path_buf());
 
         let timeout = std::time::Duration::from_secs(params.timeout_secs.unwrap_or(30));
 

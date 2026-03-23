@@ -4,7 +4,7 @@
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-use crate::ports::tool::ToolContext;
+use agent_types::ToolContext;
 #[cfg(test)]
 use crate::ports::tool::SrowToolContext;
 

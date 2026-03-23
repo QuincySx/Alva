@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::collections::HashMap;
-use std::path::Path;
 
 use crate::cancel::CancellationToken;
 use crate::error::AgentError;
@@ -38,20 +38,38 @@ pub struct ToolResult {
 }
 
 // ---------------------------------------------------------------------------
-// ToolContext — runtime context injected into tool execution
+// ToolContext — base runtime context for tools (generic, no filesystem assumptions)
 // ---------------------------------------------------------------------------
 
-/// Runtime context available to tools during execution.
+/// Base runtime context for tools — generic, no filesystem assumptions.
 ///
 /// This is a trait (not a concrete struct) so that agent-types stays generic.
 /// Each application layer provides its own implementation.
 /// Tools that don't need context can ignore the parameter.
 pub trait ToolContext: Send + Sync {
-    /// Current workspace / project root path.
-    fn workspace(&self) -> &Path;
-
     /// Current session identifier.
     fn session_id(&self) -> &str;
+
+    /// Read a configuration value by key.
+    fn get_config(&self, key: &str) -> Option<String>;
+
+    /// Downcast support.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Try to get local filesystem context. Returns None for remote contexts.
+    fn local(&self) -> Option<&dyn LocalToolContext> {
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LocalToolContext — extension for tools that operate on a local filesystem
+// ---------------------------------------------------------------------------
+
+/// Extension trait for tools that operate on a local filesystem.
+pub trait LocalToolContext: ToolContext {
+    /// Current workspace / project root path.
+    fn workspace(&self) -> &std::path::Path;
 
     /// Whether the tool is allowed to perform dangerous operations.
     fn allow_dangerous(&self) -> bool;
@@ -61,11 +79,23 @@ pub trait ToolContext: Send + Sync {
 pub struct EmptyToolContext;
 
 impl ToolContext for EmptyToolContext {
-    fn workspace(&self) -> &Path {
-        Path::new(".")
-    }
     fn session_id(&self) -> &str {
         ""
+    }
+    fn get_config(&self, _key: &str) -> Option<String> {
+        None
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn local(&self) -> Option<&dyn LocalToolContext> {
+        Some(self)
+    }
+}
+
+impl LocalToolContext for EmptyToolContext {
+    fn workspace(&self) -> &std::path::Path {
+        std::path::Path::new(".")
     }
     fn allow_dangerous(&self) -> bool {
         false

@@ -57,10 +57,14 @@ impl Tool for ListFilesTool {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "list_files".into(), message: e.to_string() })?;
 
+        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+            tool_name: "list_files".into(),
+            message: "local filesystem context required".into(),
+        })?;
         let target = params
             .path
-            .map(|p| ctx.workspace().join(p))
-            .unwrap_or_else(|| ctx.workspace().to_path_buf());
+            .map(|p| local.workspace().join(p))
+            .unwrap_or_else(|| local.workspace().to_path_buf());
 
         let recursive = params.recursive.unwrap_or(false);
         let max_depth = if recursive {

@@ -87,10 +87,14 @@ impl Tool for BrowserScreenshotTool {
             .clone()
             .unwrap_or_else(|| format!("screenshot.{}", format_str));
 
+        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+            tool_name: "browser_screenshot".into(),
+            message: "local filesystem context required".into(),
+        })?;
         let full_path = if std::path::Path::new(&output_path).is_absolute() {
             std::path::PathBuf::from(&output_path)
         } else {
-            ctx.workspace().join(&output_path)
+            local.workspace().join(&output_path)
         };
 
         let manager = self.manager.lock().await;

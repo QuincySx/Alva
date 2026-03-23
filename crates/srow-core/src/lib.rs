@@ -42,7 +42,7 @@ pub use domain::agent::{AgentConfig, LLMConfig, LLMProviderKind};
 pub use domain::session::{Session, SessionStatus};
 pub use domain::tool::{ToolCall, ToolDefinition, ToolResult};
 pub use error::EngineError;
-pub use ports::tool::{SrowToolContext, Tool, ToolContext, ToolRegistry};
+pub use ports::tool::{LocalToolContext, SrowToolContext, Tool, ToolContext, ToolRegistry};
 pub use ports::storage::SessionStorage;
 pub use ports::provider::provider_registry::{Provider, ProviderRegistry};
 

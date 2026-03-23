@@ -43,11 +43,16 @@ impl Tool for ViewImageTool {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "view_image".into(), message: e.to_string() })?;
 
+        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+            tool_name: "view_image".into(),
+            message: "local filesystem context required".into(),
+        })?;
+
         // Resolve path: if absolute use directly, otherwise relative to workspace
         let file_path = if Path::new(&params.path).is_absolute() {
             std::path::PathBuf::from(&params.path)
         } else {
-            ctx.workspace().join(&params.path)
+            local.workspace().join(&params.path)
         };
 
         // Verify file exists

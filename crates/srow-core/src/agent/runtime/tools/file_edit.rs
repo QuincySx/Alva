@@ -52,7 +52,11 @@ impl Tool for FileEditTool {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: e.to_string() })?;
 
-        let file_path = ctx.workspace().join(&params.path);
+        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+            tool_name: "file_edit".into(),
+            message: "local filesystem context required".into(),
+        })?;
+        let file_path = local.workspace().join(&params.path);
 
         let content = tokio::fs::read_to_string(&file_path)
             .await

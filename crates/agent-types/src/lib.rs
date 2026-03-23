@@ -20,7 +20,7 @@ pub use error::AgentError;
 pub use message::{Message, MessageRole, UsageMetadata};
 pub use model::{LanguageModel, ModelConfig};
 pub use stream::StreamEvent;
-pub use tool::{EmptyToolContext, Tool, ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
+pub use tool::{EmptyToolContext, LocalToolContext, Tool, ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
 pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
 pub use transcription::{
     TranscriptionConfig, TranscriptionModel, TranscriptionResult, TranscriptionSegment,
