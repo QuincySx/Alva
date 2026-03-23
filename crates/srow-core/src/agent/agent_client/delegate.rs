@@ -1,8 +1,7 @@
 // INPUT:  std::sync, async_trait, tokio::sync, agent_types, crate::error
 // OUTPUT: DelegateResult, DelegateFinishReason, AgentDelegate (trait), AcpAgentDelegate, AcpDelegateTool
 // POS:    Wraps ACP external Agent invocation as both a trait (AgentDelegate) and a Tool implementation (AcpDelegateTool).
-//         Bodies commented out during migration — depends on deleted UIMessageChunk.
-//         TODO: Rebuild using agent-core event types.
+//         AcpAgentDelegate bodies stubbed with todo!() — awaiting full ACP delegate rebuild on agent-core event types.
 use std::sync::Arc;
 
 use async_trait::async_trait;

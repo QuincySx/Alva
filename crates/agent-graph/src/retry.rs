@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use agent_base::AgentError;
+use agent_types::AgentError;
 
 /// Configuration for retry behaviour with exponential backoff.
 ///

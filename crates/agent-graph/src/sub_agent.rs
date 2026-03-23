@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use agent_base::{LanguageModel, Tool};
+use agent_types::{LanguageModel, Tool};
 
 /// Configuration for a sub-agent that can be spawned as a child task.
 ///

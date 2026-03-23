@@ -3,7 +3,7 @@ members = [
     "crates/srow-app",
     "crates/srow-core",
     "crates/srow-debug",
-    "crates/agent-base",
+    "crates/agent-types",
     "crates/agent-core",
     "crates/agent-graph",
     "crates/protocol-context-skill",

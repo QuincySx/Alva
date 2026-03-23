@@ -6,7 +6,7 @@ mod tool_executor;
 
 pub use types::{
     AgentMessage, AgentConfig, AgentState, AgentContext, ToolCallDecision,
-    ToolExecutionMode,
+    ToolExecutionMode, HookFuture,
 };
 pub use event::AgentEvent;
 pub use agent::Agent;

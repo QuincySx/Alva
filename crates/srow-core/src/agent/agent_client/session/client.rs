@@ -1,8 +1,7 @@
 // INPUT:  std::sync, tokio::sync, crate::agent::agent_client::{protocol, connection, session::permission_manager, AcpError}
 // OUTPUT: AcpSessionState, AcpSession
 // POS:    ACP session state machine — drives inbound message handling, content forwarding, and HITL permission flow.
-//         COMMENTED OUT during migration: depends on deleted UIMessageChunk/FinishReason.
-//         TODO: Rebuild using agent-core event types.
+//         Bodies stubbed with todo!() — awaiting full ACP session rebuild on agent-core event types.
 
 use std::sync::Arc;
 use tokio::sync::Mutex;

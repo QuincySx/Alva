@@ -2,7 +2,7 @@
 > Agent 执行引擎，实现双层循环（inner loop + outer loop）驱动 LLM 与工具交互
 
 ## 地位
-agent 体系的运行时引擎。接收 agent-base 定义的抽象类型，通过 AgentConfig 的 6 个 hook 函数实现可定制的 agent 执行流程。被 agent-graph 编排层调用，也可独立使用。
+agent 体系的运行时引擎。接收 agent-types 定义的抽象类型，通过 AgentConfig 的 6 个 hook 函数实现可定制的 agent 执行流程。被 agent-graph 编排层调用，也可独立使用。
 
 ## 逻辑
 ```
@@ -16,12 +16,13 @@ Agent::run(user_message)
         └─→ get_follow_up_messages hook → 注入后续消息 → 决定是否继续 outer loop
 ```
 - `AgentConfig` 定义 6 个 hook：convert_to_llm（必选）、transform_context、before/after_tool_call、get_steering/follow_up_messages
+- `AgentConfig.tool_context` 持有 `Arc<dyn ToolContext>`，在工具执行时传递给每个 `Tool::execute()` 调用
 - `ToolExecutionMode` 支持 Parallel 和 Sequential 两种工具执行模式
 - `AgentEvent` 提供事件流供外部观察执行过程
 - `max_iterations` 防护无限循环
 
 ## 约束
-- 不直接依赖具体 LLM 或 Tool 实现，仅依赖 agent-base trait
+- 不直接依赖具体 LLM 或 Tool 实现，仅依赖 agent-types trait
 - `convert_to_llm` 是唯一必选 hook，其余均可选
 - 所有 hook 函数签名为 `Arc<dyn Fn(...) + Send + Sync>`
 

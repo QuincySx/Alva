@@ -9,16 +9,16 @@ use tokio::sync::Mutex;
 #[async_trait]
 pub trait CheckpointSaver: Send + Sync {
     /// Save checkpoint data under the given id, overwriting any previous value.
-    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), agent_base::AgentError>;
+    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), agent_types::AgentError>;
 
     /// Load checkpoint data by id. Returns `None` if no checkpoint exists.
-    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, agent_base::AgentError>;
+    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, agent_types::AgentError>;
 
     /// List all checkpoint ids.
-    async fn list(&self) -> Result<Vec<String>, agent_base::AgentError>;
+    async fn list(&self) -> Result<Vec<String>, agent_types::AgentError>;
 
     /// Delete a checkpoint by id. No-op if it does not exist.
-    async fn delete(&self, id: &str) -> Result<(), agent_base::AgentError>;
+    async fn delete(&self, id: &str) -> Result<(), agent_types::AgentError>;
 }
 
 /// A simple in-memory checkpoint saver backed by a `HashMap`.
@@ -45,20 +45,20 @@ impl Default for InMemoryCheckpointSaver {
 
 #[async_trait]
 impl CheckpointSaver for InMemoryCheckpointSaver {
-    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), agent_base::AgentError> {
+    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), agent_types::AgentError> {
         self.store.lock().await.insert(id.to_string(), data);
         Ok(())
     }
 
-    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, agent_base::AgentError> {
+    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, agent_types::AgentError> {
         Ok(self.store.lock().await.get(id).cloned())
     }
 
-    async fn list(&self) -> Result<Vec<String>, agent_base::AgentError> {
+    async fn list(&self) -> Result<Vec<String>, agent_types::AgentError> {
         Ok(self.store.lock().await.keys().cloned().collect())
     }
 
-    async fn delete(&self, id: &str) -> Result<(), agent_base::AgentError> {
+    async fn delete(&self, id: &str) -> Result<(), agent_types::AgentError> {
         self.store.lock().await.remove(id);
         Ok(())
     }

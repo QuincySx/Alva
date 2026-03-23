@@ -54,7 +54,7 @@ impl Default for TransformPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_base::Message;
+    use agent_types::Message;
 
     /// Test transform that appends a marker message.
     struct AppendMarker {

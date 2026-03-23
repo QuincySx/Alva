@@ -8,8 +8,8 @@
 `register_builtin_tools` 注册 9 个基础工具，`register_all_tools` 额外注册 7 个浏览器工具。所有工具实现 `Tool` trait，通过 `ToolRegistry` 按名查找。
 
 ## 约束
-- 所有工具必须实现 `Tool` trait
-- tool_call_id 由 engine 层填充，工具返回时留空
+- 所有工具必须实现 `agent_types::Tool` trait（签名：`execute(input, cancel, ctx: &dyn ToolContext)`）
+- `ToolResult` 仅包含 `content`、`is_error`、`details`；`tool_call_id` 不在 ToolResult 上（它在 Message 层）
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

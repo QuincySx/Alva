@@ -10,7 +10,7 @@
 //! - **transport**: Abstract transport trait (stdio, SSE)
 //! - **client**: Multi-server lifecycle manager (connect, disconnect, list/call tools)
 //! - **config**: JSON config file reader/writer for `mcpServerConfig.json`
-//! - **tool_adapter**: Adapts MCP tools to `agent_base::Tool` trait
+//! - **tool_adapter**: Adapts MCP tools to `agent_types::Tool` trait
 //! - **error**: MCP-specific error types
 
 pub mod client;

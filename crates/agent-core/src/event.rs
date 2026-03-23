@@ -1,4 +1,4 @@
-use agent_base::{StreamEvent, ToolCall, ToolResult};
+use agent_types::{StreamEvent, ToolCall, ToolResult};
 
 use crate::types::AgentMessage;
 

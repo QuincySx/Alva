@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use agent_base::{AgentError, LanguageModel};
+use agent_types::{AgentError, LanguageModel};
 use agent_core::AgentMessage;
 
 /// Configuration for context-window compaction.
@@ -58,7 +58,7 @@ pub async fn compact_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_base::Message;
+    use agent_types::Message;
 
     fn make_message(text: &str) -> AgentMessage {
         AgentMessage::Standard(Message::user(text))
@@ -90,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn compact_truncates_to_keep_recent() {
-        use agent_base::*;
+        use agent_types::*;
         use async_trait::async_trait;
         use futures_core::Stream;
         use std::pin::Pin;

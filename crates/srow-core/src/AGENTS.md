@@ -2,7 +2,7 @@
 > 应用核心引擎，整合运行时工具、安全体系、持久化、MCP/Skill 集成和环境管理
 
 ## 地位
-系统的业务核心层。将 agent-base / agent-core / protocol-* 等底层 crate 与具体业务需求结合，提供完整的 Agent 运行时（含 16 种内置工具）、多层安全防护、SQLite 持久化、MCP 工具桥接、技能系统集成和嵌入式运行时环境管理。采用 DDD 分层架构（domain / ports / adapters）。
+系统的业务核心层。将 agent-types / agent-core / protocol-* 等底层 crate 与具体业务需求结合，提供完整的 Agent 运行时（含 16 种内置工具）、多层安全防护、SQLite 持久化、MCP 工具桥接、技能系统集成和嵌入式运行时环境管理。采用 DDD 分层架构（domain / ports / adapters）。
 
 ## 逻辑
 ```
@@ -26,11 +26,14 @@
 ```
 
 ## 约束
-- 所有工具必须实现 `ports::tool::Tool` trait
+- 所有工具必须实现 `agent_types::Tool` trait（通过 `ports::tool` 重导出）
+- `SrowToolContext`（在 `ports::tool`）实现 `agent_types::ToolContext`，提供 workspace/session_id/allow_dangerous
+- `Provider` trait 及相关模型能力 trait 由 agent-types 定义，`ports::tool` 重导出
 - SecurityGuard 是安全决策入口，必须在工具执行前调用
 - SQLite 使用 migrations 模块管理 schema 演进
 - 环境管理器（EnvironmentManager）负责嵌入式运行时的安装和版本解析
 - DDD 层级：domain（纯实体）→ ports（trait 接口）→ adapters（具体实现）
+- srow-app 仅依赖 srow-core（通过 Facade 模式），不直接依赖 agent-types/agent-core/agent-graph
 
 ## 业务域清单
 | 名称 | 子目录 | 职责 |
