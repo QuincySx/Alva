@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use agent_types::cancel::CancellationToken;
 use agent_types::error::AgentError;
-use agent_types::tool::{Tool, ToolResult};
+use agent_types::tool::{Tool, ToolContext, ToolResult};
 
 use crate::client::McpClient;
 use crate::types::McpToolInfo;
@@ -63,6 +63,7 @@ impl Tool for McpToolAdapter {
         &self,
         input: Value,
         _cancel: &CancellationToken,
+        _ctx: &dyn ToolContext,
     ) -> Result<ToolResult, AgentError> {
         let result = self
             .client
