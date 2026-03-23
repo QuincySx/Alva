@@ -97,7 +97,7 @@ impl AgentState {
 }
 
 // ---------------------------------------------------------------------------
-// AgentConfig — the hook collection
+// AgentHooks — the hook collection
 // ---------------------------------------------------------------------------
 
 /// Type aliases for the hook function signatures to keep things readable.
@@ -122,7 +122,7 @@ pub type GetSteeringMessagesFn =
 pub type GetFollowUpMessagesFn =
     Arc<dyn Fn(&AgentContext<'_>) -> Vec<AgentMessage> + Send + Sync>;
 
-pub struct AgentConfig {
+pub struct AgentHooks {
     /// Required — turns agent messages into LLM messages.
     pub convert_to_llm: ConvertToLlmFn,
 
@@ -155,7 +155,7 @@ pub struct AgentConfig {
     pub middleware: MiddlewareStack,
 }
 
-impl AgentConfig {
+impl AgentHooks {
     /// Create a config with only the required `convert_to_llm` hook.
     /// All optional hooks default to `None`, tool execution defaults to
     /// `Parallel`, and max iterations defaults to 100.

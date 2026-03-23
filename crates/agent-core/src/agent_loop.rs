@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 use crate::event::AgentEvent;
 use crate::middleware::{Extensions, MiddlewareContext};
 use crate::tool_executor::execute_tools;
-use crate::types::{AgentConfig, AgentContext, AgentMessage, AgentState};
+use crate::types::{AgentHooks, AgentContext, AgentMessage, AgentState};
 
 /// Run the double-loop agent execution algorithm.
 ///
@@ -33,7 +33,7 @@ fn build_mw_ctx(state: &AgentState) -> MiddlewareContext {
 pub(crate) async fn run_agent_loop(
     state: &mut AgentState,
     model: &dyn LanguageModel,
-    config: &AgentConfig,
+    config: &AgentHooks,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), agent_types::AgentError> {
@@ -82,7 +82,7 @@ pub(crate) async fn run_agent_loop(
 async fn run_agent_loop_inner(
     state: &mut AgentState,
     model: &dyn LanguageModel,
-    config: &AgentConfig,
+    config: &AgentHooks,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), agent_types::AgentError> {
@@ -490,7 +490,7 @@ mod tests {
     #[tokio::test]
     async fn test_simple_text_response() {
         let model = MockModel;
-        let config = AgentConfig::new(Arc::new(default_convert_to_llm));
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
@@ -543,7 +543,7 @@ mod tests {
     #[tokio::test]
     async fn test_cancellation() {
         let model = MockModel;
-        let config = AgentConfig::new(Arc::new(default_convert_to_llm));
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
         let cancel = CancellationToken::new();
         cancel.cancel(); // pre-cancel
 
@@ -608,7 +608,7 @@ mod tests {
             }
         }
 
-        let config = AgentConfig::new(Arc::new(default_convert_to_llm));
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
@@ -691,7 +691,7 @@ mod tests {
             }
         }
 
-        let config = AgentConfig::new(Arc::new(default_convert_to_llm));
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 

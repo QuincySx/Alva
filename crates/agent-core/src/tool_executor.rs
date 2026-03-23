@@ -7,7 +7,7 @@ use tracing::{error, warn};
 use crate::event::AgentEvent;
 use crate::middleware::{Extensions, MiddlewareContext};
 use crate::types::{
-    AgentConfig, AgentContext, ToolCallDecision, ToolExecutionMode,
+    AgentHooks, AgentContext, ToolCallDecision, ToolExecutionMode,
 };
 
 /// Build a [`MiddlewareContext`] from the sync `AgentContext` reference.
@@ -25,7 +25,7 @@ fn build_mw_ctx_from_context(context: &AgentContext<'_>, tool_context: &dyn Tool
 pub(crate) async fn execute_tools(
     tool_calls: &[ToolCall],
     tools: &[Arc<dyn Tool>],
-    config: &AgentConfig,
+    config: &AgentHooks,
     context: &AgentContext<'_>,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
@@ -48,7 +48,7 @@ pub(crate) async fn execute_tools(
 async fn execute_parallel(
     tool_calls: &[ToolCall],
     tools: &[Arc<dyn Tool>],
-    config: &AgentConfig,
+    config: &AgentHooks,
     context: &AgentContext<'_>,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
@@ -198,7 +198,7 @@ async fn execute_parallel(
 async fn execute_sequential(
     tool_calls: &[ToolCall],
     tools: &[Arc<dyn Tool>],
-    config: &AgentConfig,
+    config: &AgentHooks,
     context: &AgentContext<'_>,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,

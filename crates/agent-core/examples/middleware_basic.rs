@@ -4,12 +4,12 @@
 //! - LoggingMiddleware  — logs before/after tool calls
 //! - SecurityMiddleware — blocks specific tools
 //! - TokenCountingMiddleware — uses Extensions for cross-middleware state
-//! - Composing them into a MiddlewareStack and attaching to AgentConfig
+//! - Composing them into a MiddlewareStack and attaching to AgentHooks
 
 use std::sync::Arc;
 
 use agent_core::{
-    AgentConfig, AgentMessage, Extensions, Middleware, MiddlewareContext, MiddlewareError,
+    AgentHooks, AgentMessage, Extensions, Middleware, MiddlewareContext, MiddlewareError,
     MiddlewareStack,
 };
 use agent_types::{Message, ToolCall, ToolContext, ToolResult};
@@ -181,7 +181,7 @@ fn main() {
         stack.len()
     );
 
-    // 2. Attach to AgentConfig.
+    // 2. Attach to AgentHooks.
     let convert_to_llm = Arc::new(|ctx: &agent_core::AgentContext<'_>| -> Vec<Message> {
         let mut result = vec![Message::system(ctx.system_prompt)];
         for m in ctx.messages {
@@ -192,14 +192,14 @@ fn main() {
         result
     });
 
-    let mut config = AgentConfig::new(convert_to_llm);
+    let mut config = AgentHooks::new(convert_to_llm);
     config.middleware = stack;
 
     println!(
-        "AgentConfig.middleware has {} layer(s)",
+        "AgentHooks.middleware has {} layer(s)",
         config.middleware.len()
     );
-    println!("AgentConfig.middleware.is_empty() = {}", config.middleware.is_empty());
+    println!("AgentHooks.middleware.is_empty() = {}", config.middleware.is_empty());
 
     // 3. Demonstrate a quick round-trip through the stack.
     let rt = tokio::runtime::Builder::new_current_thread()

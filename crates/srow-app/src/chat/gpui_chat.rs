@@ -1,4 +1,4 @@
-// INPUT:  gpui (Context, EventEmitter), srow_core (Agent, AgentHookConfig, AgentMessage, AgentEvent, AgentContext),
+// INPUT:  gpui (Context, EventEmitter), srow_core (Agent, AgentHooks, AgentMessage, AgentEvent, AgentContext),
 //         srow_core::agent_types (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
 //         tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use srow_core::agent_types::{
     AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
-use srow_core::{AgentHookConfig, AgentContext, AgentEvent, AgentMessage};
+use srow_core::{AgentHooks, AgentContext, AgentEvent, AgentMessage};
 
 /// GPUI Global holding a shared tokio runtime for all GpuiChat instances.
 pub struct SharedRuntime(pub Arc<tokio::runtime::Runtime>);
@@ -115,7 +115,7 @@ impl GpuiChat {
             });
 
         // Build the agent-core config with a minimal convert_to_llm hook.
-        let agent_config = AgentHookConfig::new(Arc::new(|ctx: &AgentContext<'_>| {
+        let agent_config = AgentHooks::new(Arc::new(|ctx: &AgentContext<'_>| {
             // Prepend the system prompt as a System message, then pass through Standard messages.
             let mut result = vec![Message::system(ctx.system_prompt)];
             for m in ctx.messages {

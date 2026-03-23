@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent_core::middleware::MiddlewareStack;
-use agent_core::{Agent, AgentConfig, AgentMessage};
+use agent_core::{Agent, AgentHooks, AgentMessage};
 use agent_core::types::AgentContext;
 use agent_types::{LanguageModel, Message, ModelConfig, Tool, ToolRegistry};
 
@@ -118,7 +118,7 @@ impl AgentRuntimeBuilder {
             })
         });
 
-        let mut config = AgentConfig::new(convert_fn);
+        let mut config = AgentHooks::new(convert_fn);
         config.middleware = self.middleware;
 
         let agent = Agent::new(model, self.system_prompt, config);

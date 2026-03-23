@@ -20,9 +20,8 @@
 pub use agent_types;
 
 // Re-export agent-core types for UI layer consumption.
-// Note: agent-core's AgentConfig is renamed to avoid collision with domain::agent::AgentConfig.
 pub use agent_core::{Agent, AgentEvent, AgentMessage};
-pub use agent_core::types::{AgentConfig as AgentHookConfig, AgentContext};
+pub use agent_core::{AgentHooks, AgentContext};
 
 pub mod agent;
 pub mod mcp;

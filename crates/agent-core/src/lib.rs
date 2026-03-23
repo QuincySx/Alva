@@ -6,7 +6,7 @@ mod agent_loop;
 mod tool_executor;
 
 pub use types::{
-    AgentMessage, AgentConfig, AgentState, AgentContext, ToolCallDecision,
+    AgentMessage, AgentHooks, AgentState, AgentContext, ToolCallDecision,
     ToolExecutionMode, HookFuture, ConvertToLlmFn,
 };
 pub use event::AgentEvent;

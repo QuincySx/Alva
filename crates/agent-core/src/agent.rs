@@ -6,7 +6,7 @@ use tracing::error;
 
 use crate::agent_loop::run_agent_loop;
 use crate::event::AgentEvent;
-use crate::types::{AgentConfig, AgentMessage, AgentState};
+use crate::types::{AgentHooks, AgentMessage, AgentState};
 
 /// The public agent handle.
 ///
@@ -15,7 +15,7 @@ use crate::types::{AgentConfig, AgentMessage, AgentState};
 /// channel returned from [`Agent::prompt`].
 pub struct Agent {
     model: Arc<dyn LanguageModel>,
-    config: Arc<Mutex<AgentConfig>>,
+    config: Arc<Mutex<AgentHooks>>,
     state: Arc<Mutex<AgentState>>,
     cancel: CancellationToken,
 
@@ -37,7 +37,7 @@ impl Agent {
     pub fn new(
         model: Arc<dyn LanguageModel>,
         system_prompt: impl Into<String>,
-        config: AgentConfig,
+        config: AgentHooks,
     ) -> Self {
         let (steering_tx, steering_rx) = mpsc::unbounded_channel();
         let (follow_up_tx, follow_up_rx) = mpsc::unbounded_channel();
