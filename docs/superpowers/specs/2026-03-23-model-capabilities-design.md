@@ -33,6 +33,14 @@ srow-core/adapters/             ← Tier 4: 具体实现
   (后续实现 OpenAI-compat 等 adapter)
 ```
 
+## 约定
+
+- 所有 data struct 加 `#[derive(Debug, Clone, Serialize, Deserialize)]`
+- 数量相关字段统一用 `usize`（Rust 惯例）
+- `media_type` / `output_format` 等字符串字段应为 IANA 标准 MIME 类型，校验由 adapter 负责
+- `Vec<u8>` 二进制字段（audio/video）默认 serde 序列化为整数数组；如需 base64 序列化可在 adapter 层用 `serde_bytes` 处理，不在 trait 层强制
+- `RankEntry` 不包含 `document` 文本（同 LangChain `BaseCrossEncoder`），调用者需保留原始 `documents` 切片按 `index` 取值
+
 ## agent-types 新增 trait
 
 ### EmbeddingModel
@@ -49,11 +57,13 @@ pub trait EmbeddingModel: Send + Sync {
     async fn embed(&self, texts: &[&str]) -> Result<EmbeddingResult, AgentError>;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingResult {
     pub embeddings: Vec<Vec<f32>>,
     pub usage: Option<EmbeddingUsage>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingUsage {
     pub tokens: u32,
 }
@@ -79,19 +89,22 @@ pub trait TranscriptionModel: Send + Sync {
     ) -> Result<TranscriptionResult, AgentError>;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionConfig {
     pub media_type: String,
     pub language: Option<String>,
     pub prompt: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionResult {
     pub text: String,
-    pub segments: Vec<TranscriptionSegment>,
+    pub segments: Option<Vec<TranscriptionSegment>>,
     pub language: Option<String>,
     pub duration_seconds: Option<f64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionSegment {
     pub text: String,
     pub start_seconds: f64,
@@ -115,12 +128,14 @@ pub trait SpeechModel: Send + Sync {
     ) -> Result<SpeechResult, AgentError>;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechConfig {
     pub voice: Option<String>,
     pub output_format: Option<String>,
     pub speed: Option<f32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechResult {
     pub audio: Vec<u8>,
     pub media_type: String,
@@ -144,16 +159,19 @@ pub trait ImageModel: Send + Sync {
     ) -> Result<ImageResult, AgentError>;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageConfig {
-    pub n: u32,
+    pub n: Option<u32>,
     pub size: Option<String>,
     pub aspect_ratio: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageResult {
     pub images: Vec<ImageData>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ImageData {
     Base64(String),
     Bytes(Vec<u8>),
@@ -177,15 +195,25 @@ pub trait VideoModel: Send + Sync {
     ) -> Result<VideoResult, AgentError>;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoConfig {
+    pub n: Option<u32>,
     pub duration_seconds: Option<f32>,
     pub size: Option<String>,
     pub aspect_ratio: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoResult {
-    pub videos: Vec<Vec<u8>>,
+    pub videos: Vec<VideoData>,
     pub media_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VideoData {
+    Base64(String),
+    Bytes(Vec<u8>),
+    Url(String),
 }
 ```
 
@@ -206,14 +234,17 @@ pub trait RerankingModel: Send + Sync {
     ) -> Result<RerankResult, AgentError>;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RerankConfig {
     pub top_n: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RerankResult {
     pub rankings: Vec<RankEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RankEntry {
     pub index: usize,
     pub relevance_score: f64,
@@ -234,7 +265,7 @@ pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
 pub use transcription::{TranscriptionModel, TranscriptionConfig, TranscriptionResult, TranscriptionSegment};
 pub use speech::{SpeechModel, SpeechConfig, SpeechResult};
 pub use image::{ImageModel, ImageConfig, ImageResult, ImageData};
-pub use video::{VideoModel, VideoConfig, VideoResult};
+pub use video::{VideoModel, VideoConfig, VideoResult, VideoData};
 pub use reranking::{RerankingModel, RerankConfig, RerankResult, RankEntry};
 ```
 
@@ -243,6 +274,7 @@ pub use reranking::{RerankingModel, RerankConfig, RerankResult, RankEntry};
 ```rust
 // srow-core/src/ports/provider/provider_registry.rs
 
+use std::sync::Arc;
 use agent_types::{
     LanguageModel, EmbeddingModel, TranscriptionModel,
     SpeechModel, ImageModel, VideoModel, RerankingModel,
@@ -311,6 +343,12 @@ ProviderRegistry 同步扩展 6 个 shorthand 方法（`embedding_model(provider
 ### 更新 mod.rs
 
 移除已删除模块的 `pub mod` 声明和 `pub use` re-export。
+
+## 实现注意事项
+
+- 更新 `agent-types/src/AGENTS.md` 的业务域清单，加入 6 个新模块
+- `agent-types` 的 `Cargo.toml` 无需新增依赖（`async-trait`、`serde` 已有）
+- `srow-core` 的 `lib.rs` re-export 中无旧 V4 模型类型引用，删除不会影响外部
 
 ## 不在范围内
 
