@@ -1,2 +1,2 @@
-// Re-export canonical tool types from agent-types.
-pub use agent_types::{ToolCall, ToolDefinition, ToolResult};
+// Re-export canonical tool types from alva-types.
+pub use alva_types::{ToolCall, ToolDefinition, ToolResult};

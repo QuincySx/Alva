@@ -1,9 +1,9 @@
-pub use agent_types::{Provider, ProviderRegistry};
+pub use alva_types::{Provider, ProviderRegistry};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_types::*;
+    use alva_types::*;
     use async_trait::async_trait;
     use std::pin::Pin;
     use std::sync::Arc;

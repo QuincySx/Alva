@@ -2,7 +2,7 @@
 
 ## Goal
 
-将 AI 模型能力（Embedding、Transcription、Speech、Image（含 edit）、Video、Reranking、Moderation）提升为框架级 trait，放在 `agent-types` 中与 `LanguageModel` 同级。Provider 作为能力工厂声明自己支持哪些能力，adapter 消化厂商差异。同时清理旧 V4 重类型（`ProviderOptions`、`ProviderMetadata`、`ProviderWarning`、`ProviderHeaders`）。
+将 AI 模型能力（Embedding、Transcription、Speech、Image（含 edit）、Video、Reranking、Moderation）提升为框架级 trait，放在 `alva-types` 中与 `LanguageModel` 同级。Provider 作为能力工厂声明自己支持哪些能力，adapter 消化厂商差异。同时清理旧 V4 重类型（`ProviderOptions`、`ProviderMetadata`、`ProviderWarning`、`ProviderHeaders`）。
 
 ## 设计原则
 
@@ -16,7 +16,7 @@
 ## 架构分层
 
 ```
-agent-types/                    ← Tier 1: trait 定义（能力语义）
+alva-types/                    ← Tier 1: trait 定义（能力语义）
   LanguageModel                 ← 已有
   EmbeddingModel                ← 新增
   TranscriptionModel            ← 新增
@@ -42,12 +42,12 @@ srow-core/adapters/             ← Tier 4: 具体实现
 - `Vec<u8>` 二进制字段（audio/video）默认 serde 序列化为整数数组；如需 base64 序列化可在 adapter 层用 `serde_bytes` 处理，不在 trait 层强制
 - `RankEntry` 不包含 `document` 文本（同 LangChain `BaseCrossEncoder`），调用者需保留原始 `documents` 切片按 `index` 取值
 
-## agent-types 新增 trait
+## alva-types 新增 trait
 
 ### EmbeddingModel
 
 ```rust
-// agent-types/src/embedding.rs
+// alva-types/src/embedding.rs
 
 #[async_trait]
 pub trait EmbeddingModel: Send + Sync {
@@ -77,7 +77,7 @@ pub struct EmbeddingUsage {
 ### TranscriptionModel
 
 ```rust
-// agent-types/src/transcription.rs
+// alva-types/src/transcription.rs
 
 #[async_trait]
 pub trait TranscriptionModel: Send + Sync {
@@ -116,7 +116,7 @@ pub struct TranscriptionSegment {
 ### SpeechModel
 
 ```rust
-// agent-types/src/speech.rs
+// alva-types/src/speech.rs
 
 #[async_trait]
 pub trait SpeechModel: Send + Sync {
@@ -146,7 +146,7 @@ pub struct SpeechResult {
 ### ImageModel
 
 ```rust
-// agent-types/src/image.rs
+// alva-types/src/image.rs
 
 #[async_trait]
 pub trait ImageModel: Send + Sync {
@@ -199,7 +199,7 @@ pub enum ImageData {
 ### VideoModel
 
 ```rust
-// agent-types/src/video.rs
+// alva-types/src/video.rs
 
 #[async_trait]
 pub trait VideoModel: Send + Sync {
@@ -237,7 +237,7 @@ pub enum VideoData {
 ### RerankingModel
 
 ```rust
-// agent-types/src/reranking.rs
+// alva-types/src/reranking.rs
 
 #[async_trait]
 pub trait RerankingModel: Send + Sync {
@@ -271,7 +271,7 @@ pub struct RankEntry {
 ### ModerationModel
 
 ```rust
-// agent-types/src/moderation.rs
+// alva-types/src/moderation.rs
 
 #[async_trait]
 pub trait ModerationModel: Send + Sync {
@@ -302,7 +302,7 @@ pub struct ModerationCategory {
 }
 ```
 
-### agent-types/src/lib.rs 更新
+### alva-types/src/lib.rs 更新
 
 ```rust
 pub mod embedding;
@@ -328,7 +328,7 @@ pub use moderation::{ModerationModel, ModerationResult, ModerationEntry, Moderat
 // srow-core/src/ports/provider/provider_registry.rs
 
 use std::sync::Arc;
-use agent_types::{
+use alva_types::{
     LanguageModel, EmbeddingModel, TranscriptionModel,
     SpeechModel, ImageModel, VideoModel, RerankingModel, ModerationModel,
 };
@@ -384,12 +384,12 @@ ProviderRegistry 同步扩展 7 个 shorthand 方法（`embedding_model(provider
 
 | 文件 | 原因 |
 |------|------|
-| `srow-core/ports/provider/embedding_model.rs` | 被 `agent_types::EmbeddingModel` 替代 |
-| `srow-core/ports/provider/transcription_model.rs` | 被 `agent_types::TranscriptionModel` 替代 |
-| `srow-core/ports/provider/speech_model.rs` | 被 `agent_types::SpeechModel` 替代 |
-| `srow-core/ports/provider/image_model.rs` | 被 `agent_types::ImageModel` 替代 |
-| `srow-core/ports/provider/video_model.rs` | 被 `agent_types::VideoModel` 替代 |
-| `srow-core/ports/provider/reranking_model.rs` | 被 `agent_types::RerankingModel` 替代 |
+| `srow-core/ports/provider/embedding_model.rs` | 被 `alva_types::EmbeddingModel` 替代 |
+| `srow-core/ports/provider/transcription_model.rs` | 被 `alva_types::TranscriptionModel` 替代 |
+| `srow-core/ports/provider/speech_model.rs` | 被 `alva_types::SpeechModel` 替代 |
+| `srow-core/ports/provider/image_model.rs` | 被 `alva_types::ImageModel` 替代 |
+| `srow-core/ports/provider/video_model.rs` | 被 `alva_types::VideoModel` 替代 |
+| `srow-core/ports/provider/reranking_model.rs` | 被 `alva_types::RerankingModel` 替代 |
 | `srow-core/ports/provider/middleware.rs` | 空占位，暂无实现 |
 
 ### 精简 types.rs
@@ -404,8 +404,8 @@ ProviderRegistry 同步扩展 7 个 shorthand 方法（`embedding_model(provider
 
 ## 实现注意事项
 
-- 更新 `agent-types/src/AGENTS.md` 的业务域清单，加入 6 个新模块
-- `agent-types` 的 `Cargo.toml` 无需新增依赖（`async-trait`、`serde` 已有）
+- 更新 `alva-types/src/AGENTS.md` 的业务域清单，加入 6 个新模块
+- `alva-types` 的 `Cargo.toml` 无需新增依赖（`async-trait`、`serde` 已有）
 - `srow-core` 的 `lib.rs` re-export 中无旧 V4 模型类型引用，删除不会影响外部
 
 ## 不在范围内

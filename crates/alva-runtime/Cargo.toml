@@ -1,0 +1,27 @@
+[package]
+name = "alva-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Batteries-included agent runtime — composes core, tools, security, and memory"
+
+[dependencies]
+alva-types = { path = "../alva-types" }
+alva-core = { path = "../alva-core" }
+alva-tools = { path = "../alva-tools" }
+alva-security = { path = "../alva-security" }
+alva-memory = { path = "../alva-memory" }
+alva-graph = { path = "../alva-graph" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+futures-core = "0.3"
+tokio-stream = "0.1"
+
+[features]
+browser = ["alva-tools/browser"]
+default = ["browser"]
+
+[[example]]
+name = "runtime_basic"

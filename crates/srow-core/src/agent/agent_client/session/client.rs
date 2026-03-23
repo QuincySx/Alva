@@ -1,7 +1,7 @@
 // INPUT:  std::sync, tokio::sync, crate::agent::agent_client::{protocol, connection, session::permission_manager, AcpError}
 // OUTPUT: AcpSessionState, AcpSession
 // POS:    ACP session state machine — drives inbound message handling, content forwarding, and HITL permission flow.
-//         Bodies stubbed with todo!() — awaiting full ACP session rebuild on agent-core event types.
+//         Bodies stubbed with todo!() — awaiting full ACP session rebuild on alva-core event types.
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -41,10 +41,10 @@ impl AcpSession {
     }
 
     pub async fn send_prompt(&self, _prompt: String, _resume: bool) -> Result<(), AcpError> {
-        todo!("Rebuild AcpSession on agent-core event types")
+        todo!("Rebuild AcpSession on alva-core event types")
     }
 
     pub async fn cancel(&self) -> Result<(), AcpError> {
-        todo!("Rebuild AcpSession on agent-core event types")
+        todo!("Rebuild AcpSession on alva-core event types")
     }
 }

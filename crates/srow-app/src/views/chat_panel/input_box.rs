@@ -2,7 +2,7 @@
 //         crate::models, crate::chat, crate::theme, crate::types::AgentStatusKind
 // OUTPUT: pub struct InputBox
 // POS:    Chat input widget using gpui-component Input/Button, Enter-to-send via InputEvent subscription.
-//         Sends messages through GpuiChat (agent-core) and subscribes to GpuiChatEvent for status updates.
+//         Sends messages through GpuiChat (alva-core) and subscribes to GpuiChatEvent for status updates.
 use gpui::{prelude::*, Context, Entity, Render, Subscription, Window, div};
 
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -19,7 +19,7 @@ pub struct InputBox {
     workspace_model: Entity<WorkspaceModel>,
     chat_model: Entity<ChatModel>,
     agent_model: Entity<AgentModel>,
-    settings_model: Entity<SettingsModel>,
+    _settings_model: Entity<SettingsModel>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -28,7 +28,7 @@ impl InputBox {
         workspace_model: Entity<WorkspaceModel>,
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
-        settings_model: Entity<SettingsModel>,
+        _settings_model: Entity<SettingsModel>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {

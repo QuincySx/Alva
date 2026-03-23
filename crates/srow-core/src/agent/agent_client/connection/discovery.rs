@@ -1,5 +1,5 @@
-// Re-export from protocol-agent-client (single source of truth for ACP discovery types)
-pub use protocol_agent_client::connection::{AgentCliCommand, AgentDiscovery, ExternalAgentKind};
+// Re-export from alva-acp (single source of truth for ACP discovery types)
+pub use alva_acp::connection::{AgentCliCommand, AgentDiscovery, ExternalAgentKind};
 
 // ---------------------------------------------------------------------------
 // Well-known agent constructors (app-specific knowledge)

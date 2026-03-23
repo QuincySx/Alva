@@ -1,12 +1,12 @@
-// INPUT:  std::sync, async_trait, tokio::sync, agent_types, crate::error
+// INPUT:  std::sync, async_trait, tokio::sync, alva_types, crate::error
 // OUTPUT: DelegateResult, DelegateFinishReason, AgentDelegate (trait), AcpAgentDelegate, AcpDelegateTool
 // POS:    Wraps ACP external Agent invocation as both a trait (AgentDelegate) and a Tool implementation (AcpDelegateTool).
-//         AcpAgentDelegate bodies stubbed with todo!() — awaiting full ACP delegate rebuild on agent-core event types.
+//         AcpAgentDelegate bodies stubbed with todo!() — awaiting full ACP delegate rebuild on alva-core event types.
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use crate::error::EngineError;
 
 /// Delegate execution result
@@ -75,11 +75,11 @@ impl AgentDelegate for AcpAgentDelegate {
         _prompt: String,
         _workspace: std::path::PathBuf,
     ) -> Result<DelegateResult, EngineError> {
-        todo!("Rebuild AcpAgentDelegate on agent-core event types")
+        todo!("Rebuild AcpAgentDelegate on alva-core event types")
     }
 
     async fn cancel(&self) -> Result<(), EngineError> {
-        todo!("Rebuild AcpAgentDelegate on agent-core event types")
+        todo!("Rebuild AcpAgentDelegate on alva-core event types")
     }
 }
 

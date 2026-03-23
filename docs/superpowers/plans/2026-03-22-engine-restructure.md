@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restructure srow-agent into a three-layer architecture: agent-base (types/traits), agent-core (loop engine), agent-graph (graph execution + orchestration).
+**Goal:** Restructure srow-agent into a three-layer architecture: agent-base (types/traits), alva-core (loop engine), alva-graph (graph execution + orchestration).
 
 **Architecture:** Create 3 new crates additively — no existing code is moved or deleted until the new crates are complete and tested. Existing srow-ai and srow-core continue to function. Migration happens as a final phase.
 
@@ -30,40 +30,40 @@
 | `crates/agent-base/src/cancel.rs` | `CancellationToken` |
 | `crates/agent-base/src/error.rs` | `AgentError` |
 
-**agent-core** — Loop engine (~1200 lines target):
+**alva-core** — Loop engine (~1200 lines target):
 
 | File | Responsibility |
 |------|----------------|
-| `crates/agent-core/Cargo.toml` | Depends on agent-base |
-| `crates/agent-core/src/lib.rs` | Public re-exports |
-| `crates/agent-core/src/types.rs` | `AgentState`, `AgentMessage`, `AgentConfig`, `AgentContext` |
-| `crates/agent-core/src/event.rs` | `AgentEvent` enum |
-| `crates/agent-core/src/agent.rs` | `Agent` class: state + events + steering/followUp queues |
-| `crates/agent-core/src/agent_loop.rs` | Core double-loop: LLM call → tool execution → repeat |
-| `crates/agent-core/src/tool_executor.rs` | Parallel/sequential tool execution with before/after hooks |
+| `crates/alva-core/Cargo.toml` | Depends on agent-base |
+| `crates/alva-core/src/lib.rs` | Public re-exports |
+| `crates/alva-core/src/types.rs` | `AgentState`, `AgentMessage`, `AgentConfig`, `AgentContext` |
+| `crates/alva-core/src/event.rs` | `AgentEvent` enum |
+| `crates/alva-core/src/agent.rs` | `Agent` class: state + events + steering/followUp queues |
+| `crates/alva-core/src/agent_loop.rs` | Core double-loop: LLM call → tool execution → repeat |
+| `crates/alva-core/src/tool_executor.rs` | Parallel/sequential tool execution with before/after hooks |
 
-**agent-graph** — Graph execution + orchestration:
+**alva-graph** — Graph execution + orchestration:
 
 | File | Responsibility |
 |------|----------------|
-| `crates/agent-graph/Cargo.toml` | Depends on agent-core + agent-base |
-| `crates/agent-graph/src/lib.rs` | Public re-exports |
-| `crates/agent-graph/src/graph.rs` | `StateGraph` builder: add_node/add_edge/compile |
-| `crates/agent-graph/src/channel.rs` | `Channel` trait + `LastValue`, `BinaryOperatorAggregate`, `EphemeralValue` |
-| `crates/agent-graph/src/pregel.rs` | Pregel BSP engine: plan → execute → update |
-| `crates/agent-graph/src/session.rs` | `AgentSession`: wraps Agent/Graph with retry + compaction |
-| `crates/agent-graph/src/retry.rs` | `RetryConfig` + exponential backoff |
-| `crates/agent-graph/src/compaction.rs` | `CompactionConfig` + LLM summarization |
-| `crates/agent-graph/src/checkpoint.rs` | `CheckpointSaver` trait + `InMemoryCheckpointSaver` |
-| `crates/agent-graph/src/sub_agent.rs` | `SubAgentConfig` + `create_task_tool()` |
-| `crates/agent-graph/src/context_transform.rs` | `ContextTransform` trait + `TransformPipeline` |
+| `crates/alva-graph/Cargo.toml` | Depends on alva-core + agent-base |
+| `crates/alva-graph/src/lib.rs` | Public re-exports |
+| `crates/alva-graph/src/graph.rs` | `StateGraph` builder: add_node/add_edge/compile |
+| `crates/alva-graph/src/channel.rs` | `Channel` trait + `LastValue`, `BinaryOperatorAggregate`, `EphemeralValue` |
+| `crates/alva-graph/src/pregel.rs` | Pregel BSP engine: plan → execute → update |
+| `crates/alva-graph/src/session.rs` | `AgentSession`: wraps Agent/Graph with retry + compaction |
+| `crates/alva-graph/src/retry.rs` | `RetryConfig` + exponential backoff |
+| `crates/alva-graph/src/compaction.rs` | `CompactionConfig` + LLM summarization |
+| `crates/alva-graph/src/checkpoint.rs` | `CheckpointSaver` trait + `InMemoryCheckpointSaver` |
+| `crates/alva-graph/src/sub_agent.rs` | `SubAgentConfig` + `create_task_tool()` |
+| `crates/alva-graph/src/context_transform.rs` | `ContextTransform` trait + `TransformPipeline` |
 
 ### Files to modify (final migration phase)
 
 | File | Change |
 |------|--------|
 | `Cargo.toml` (workspace) | Add 3 new crate members |
-| `crates/srow-app/Cargo.toml` | Add agent-base, agent-core dependencies |
+| `crates/srow-app/Cargo.toml` | Add agent-base, alva-core dependencies |
 | `crates/srow-core/Cargo.toml` | Add agent-base dependency |
 
 ---
@@ -449,23 +449,23 @@ git commit -m "feat(agent-base): create foundation crate with types, traits, and
 
 ---
 
-## Task 2: agent-core — Loop Engine
+## Task 2: alva-core — Loop Engine
 
 **Files:**
-- Create: `crates/agent-core/Cargo.toml`
-- Create: `crates/agent-core/src/lib.rs`
-- Create: `crates/agent-core/src/types.rs`
-- Create: `crates/agent-core/src/event.rs`
-- Create: `crates/agent-core/src/tool_executor.rs`
-- Create: `crates/agent-core/src/agent_loop.rs`
-- Create: `crates/agent-core/src/agent.rs`
+- Create: `crates/alva-core/Cargo.toml`
+- Create: `crates/alva-core/src/lib.rs`
+- Create: `crates/alva-core/src/types.rs`
+- Create: `crates/alva-core/src/event.rs`
+- Create: `crates/alva-core/src/tool_executor.rs`
+- Create: `crates/alva-core/src/agent_loop.rs`
+- Create: `crates/alva-core/src/agent.rs`
 - Modify: `Cargo.toml` (workspace root)
 
 - [ ] **Step 1: Create Cargo.toml**
 
 ```toml
 [package]
-name = "agent-core"
+name = "alva-core"
 version = "0.1.0"
 edition = "2021"
 
@@ -649,7 +649,7 @@ async fn execute_sequential(/* params */) -> Vec<ToolResult> {
 }
 ```
 
-The implementer should fill in the actual logic following pi-agent-core's tool execution pattern. Key points:
+The implementer should fill in the actual logic following pi-alva-core's tool execution pattern. Key points:
 - Look up each tool by name from the tools Vec
 - Check `before_tool_call` → if `Block`, create error ToolResult with reason
 - Call `tool.execute(input, cancel)`
@@ -905,14 +905,14 @@ pub use agent::Agent;
 
 - [ ] **Step 8: Add to workspace and verify**
 
-Add `"crates/agent-core"` to workspace members.
+Add `"crates/alva-core"` to workspace members.
 
-Run: `cargo check -p agent-core`
+Run: `cargo check -p alva-core`
 Expected: Compiles.
 
 - [ ] **Step 9: Write basic tests**
 
-In `crates/agent-core/src/agent_loop.rs`, add:
+In `crates/alva-core/src/agent_loop.rs`, add:
 
 ```rust
 #[cfg(test)]
@@ -984,38 +984,38 @@ mod tests {
 }
 ```
 
-Run: `cargo test -p agent-core`
+Run: `cargo test -p alva-core`
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add crates/agent-core/ Cargo.toml
-git commit -m "feat(agent-core): create loop engine with Agent, hooks, and events"
+git add crates/alva-core/ Cargo.toml
+git commit -m "feat(alva-core): create loop engine with Agent, hooks, and events"
 ```
 
 ---
 
-## Task 3: agent-graph — Graph Execution
+## Task 3: alva-graph — Graph Execution
 
 **Files:**
-- Create: `crates/agent-graph/Cargo.toml`
-- Create: `crates/agent-graph/src/lib.rs`
-- Create: `crates/agent-graph/src/channel.rs`
-- Create: `crates/agent-graph/src/graph.rs`
-- Create: `crates/agent-graph/src/pregel.rs`
+- Create: `crates/alva-graph/Cargo.toml`
+- Create: `crates/alva-graph/src/lib.rs`
+- Create: `crates/alva-graph/src/channel.rs`
+- Create: `crates/alva-graph/src/graph.rs`
+- Create: `crates/alva-graph/src/pregel.rs`
 - Modify: `Cargo.toml` (workspace root)
 
 - [ ] **Step 1: Create Cargo.toml**
 
 ```toml
 [package]
-name = "agent-graph"
+name = "alva-graph"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 agent-base = { path = "../agent-base" }
-agent-core = { path = "../agent-core" }
+alva-core = { path = "../alva-core" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
 serde = { version = "1", features = ["derive"] }
@@ -1132,31 +1132,31 @@ pub use pregel::Pregel;
 
 - [ ] **Step 6: Verify and commit**
 
-Run: `cargo check -p agent-graph`
+Run: `cargo check -p alva-graph`
 
 ```bash
-git add crates/agent-graph/ Cargo.toml
-git commit -m "feat(agent-graph): create graph execution engine with StateGraph, channels, and Pregel"
+git add crates/alva-graph/ Cargo.toml
+git commit -m "feat(alva-graph): create graph execution engine with StateGraph, channels, and Pregel"
 ```
 
 ---
 
-## Task 4: agent-graph — Orchestration Layer
+## Task 4: alva-graph — Orchestration Layer
 
 **Files:**
-- Create: `crates/agent-graph/src/session.rs`
-- Create: `crates/agent-graph/src/retry.rs`
-- Create: `crates/agent-graph/src/compaction.rs`
-- Create: `crates/agent-graph/src/checkpoint.rs`
-- Create: `crates/agent-graph/src/sub_agent.rs`
-- Create: `crates/agent-graph/src/context_transform.rs`
-- Modify: `crates/agent-graph/src/lib.rs`
+- Create: `crates/alva-graph/src/session.rs`
+- Create: `crates/alva-graph/src/retry.rs`
+- Create: `crates/alva-graph/src/compaction.rs`
+- Create: `crates/alva-graph/src/checkpoint.rs`
+- Create: `crates/alva-graph/src/sub_agent.rs`
+- Create: `crates/alva-graph/src/context_transform.rs`
+- Modify: `crates/alva-graph/src/lib.rs`
 
 - [ ] **Step 1: Create checkpoint.rs**
 
 ```rust
 use async_trait::async_trait;
-use agent_core::AgentState;
+use alva_core::AgentState;
 
 #[async_trait]
 pub trait CheckpointSaver: Send + Sync {
@@ -1196,9 +1196,9 @@ pub struct CompactionConfig {
 }
 
 pub async fn compact_messages(
-    messages: &[agent_core::AgentMessage],
+    messages: &[alva_core::AgentMessage],
     config: &CompactionConfig,
-) -> Result<Vec<agent_core::AgentMessage>, agent_base::AgentError> {
+) -> Result<Vec<alva_core::AgentMessage>, agent_base::AgentError> {
     // 1. Estimate token count
     // 2. If under threshold, return unchanged
     // 3. Split: old messages (to summarize) + recent (to keep)
@@ -1212,7 +1212,7 @@ pub async fn compact_messages(
 
 ```rust
 use agent_base::*;
-use agent_core::*;
+use alva_core::*;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1271,7 +1271,7 @@ pub fn create_task_tool(
 - [ ] **Step 5: Create context_transform.rs**
 
 ```rust
-use agent_core::AgentMessage;
+use alva_core::AgentMessage;
 
 pub trait ContextTransform: Send + Sync {
     fn transform(&self, messages: &[AgentMessage]) -> Vec<AgentMessage>;
@@ -1297,7 +1297,7 @@ impl TransformPipeline {
 - [ ] **Step 6: Create session.rs — AgentSession**
 
 ```rust
-use agent_core::*;
+use alva_core::*;
 use agent_base::*;
 use crate::retry::*;
 use crate::compaction::*;
@@ -1369,11 +1369,11 @@ pub use context_transform::{ContextTransform, TransformPipeline};
 
 - [ ] **Step 8: Verify and commit**
 
-Run: `cargo check -p agent-graph`
+Run: `cargo check -p alva-graph`
 
 ```bash
-git add crates/agent-graph/
-git commit -m "feat(agent-graph): add orchestration layer — session, retry, compaction, checkpoint, sub-agent"
+git add crates/alva-graph/
+git commit -m "feat(alva-graph): add orchestration layer — session, retry, compaction, checkpoint, sub-agent"
 ```
 
 ---
@@ -1386,7 +1386,7 @@ git commit -m "feat(agent-graph): add orchestration layer — session, retry, co
 cargo check --workspace
 ```
 
-All existing crates (srow-core, srow-ai, srow-app, srow-debug) should still compile unchanged. The new crates (agent-base, agent-core, agent-graph) compile independently.
+All existing crates (srow-core, srow-ai, srow-app, srow-debug) should still compile unchanged. The new crates (agent-base, alva-core, alva-graph) compile independently.
 
 - [ ] **Step 2: Run all tests**
 
@@ -1398,7 +1398,7 @@ cargo test --workspace
 
 ```bash
 git add -A
-git commit -m "feat: complete three-layer engine architecture — agent-base, agent-core, agent-graph"
+git commit -m "feat: complete three-layer engine architecture — agent-base, alva-core, alva-graph"
 ```
 
 ---
@@ -1411,10 +1411,10 @@ Once the 3 new crates are stable and tested:
 
 2. **srow-ai migration**: Rename to `agent-base` or merge into it. Remove the `srow-core` dependency from `srow-ai` by using `agent-base` types instead.
 
-3. **Engine migration**: Replace `srow-core::agent::runtime::engine` with `agent-core::Agent`. Wire existing tools to the new `Tool` trait via wrapper.
+3. **Engine migration**: Replace `srow-core::agent::runtime::engine` with `alva-core::Agent`. Wire existing tools to the new `Tool` trait via wrapper.
 
-4. **Orchestrator migration**: Replace `srow-core::agent::orchestrator` with `agent-graph::AgentSession` + sub-agent tools.
+4. **Orchestrator migration**: Replace `srow-core::agent::orchestrator` with `alva-graph::AgentSession` + sub-agent tools.
 
-5. **srow-app migration**: Update imports from `srow_core` to `agent_base`/`agent_core` where appropriate.
+5. **srow-app migration**: Update imports from `srow_core` to `agent_base`/`alva_core` where appropriate.
 
 Each migration step is a separate plan/spec cycle.

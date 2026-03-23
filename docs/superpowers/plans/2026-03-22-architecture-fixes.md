@@ -4,7 +4,7 @@
 
 **Goal:** Fix all architecture issues identified in the review: hardcoded paths (P0), type design problems (P1), hook system limitations (P2), and engine functionality gaps (P3).
 
-**Architecture:** Bottom-up approach — fix foundation types first (agent-types), then engine (agent-core), then graph layer (agent-graph), then protocol crates. Each task produces a compiling workspace. Breaking API changes are batched to minimize churn for consumers (srow-app, srow-core).
+**Architecture:** Bottom-up approach — fix foundation types first (alva-types), then engine (alva-core), then graph layer (alva-graph), then protocol crates. Each task produces a compiling workspace. Breaking API changes are batched to minimize churn for consumers (srow-app, srow-core).
 
 **Tech Stack:** Rust, async-trait, tokio, serde, futures-core
 
@@ -12,36 +12,36 @@
 
 ## File Structure
 
-### agent-types changes
-- Modify: `crates/agent-types/src/message.rs` — remove `tool_calls` field from Message, add computed accessor
-- Modify: `crates/agent-types/src/content.rs` — keep ContentBlock::ToolUse as canonical location
-- Modify: `crates/agent-types/src/tool.rs` — remove `tool_call_id` from ToolResult (engine fills it)
+### alva-types changes
+- Modify: `crates/alva-types/src/message.rs` — remove `tool_calls` field from Message, add computed accessor
+- Modify: `crates/alva-types/src/content.rs` — keep ContentBlock::ToolUse as canonical location
+- Modify: `crates/alva-types/src/tool.rs` — remove `tool_call_id` from ToolResult (engine fills it)
 
-### agent-core changes
-- Modify: `crates/agent-core/src/types.rs` — async hooks, composable Vec, remove system_prompt from convert_to_llm signature
-- Modify: `crates/agent-core/src/agent.rs` — adapt to new hook signatures
-- Modify: `crates/agent-core/src/agent_loop.rs` — add streaming support, adapt to new Message/hook APIs
-- Modify: `crates/agent-core/src/tool_executor.rs` — adapt to async hooks
-- Modify: `crates/agent-core/src/event.rs` — no changes needed
-- Modify: `crates/agent-core/Cargo.toml` — may need futures-util for StreamExt
+### alva-core changes
+- Modify: `crates/alva-core/src/types.rs` — async hooks, composable Vec, remove system_prompt from convert_to_llm signature
+- Modify: `crates/alva-core/src/agent.rs` — adapt to new hook signatures
+- Modify: `crates/alva-core/src/agent_loop.rs` — add streaming support, adapt to new Message/hook APIs
+- Modify: `crates/alva-core/src/tool_executor.rs` — adapt to async hooks
+- Modify: `crates/alva-core/src/event.rs` — no changes needed
+- Modify: `crates/alva-core/Cargo.toml` — may need futures-util for StreamExt
 
-### agent-graph changes
-- Modify: `crates/agent-graph/src/graph.rs` — make StateGraph generic over `S: Serialize + DeserializeOwned + Send`
-- Modify: `crates/agent-graph/src/pregel.rs` — make CompiledGraph generic, add parallel superstep execution
-- Modify: `crates/agent-graph/src/channel.rs` — keep as-is (already typed, will be integrated later)
-- Modify: `crates/agent-graph/src/session.rs` — adapt to generic CompiledGraph
-- Modify: `crates/agent-graph/src/compaction.rs` — adapt to new Message API
-- Modify: `crates/agent-graph/src/lib.rs` — update re-exports
+### alva-graph changes
+- Modify: `crates/alva-graph/src/graph.rs` — make StateGraph generic over `S: Serialize + DeserializeOwned + Send`
+- Modify: `crates/alva-graph/src/pregel.rs` — make CompiledGraph generic, add parallel superstep execution
+- Modify: `crates/alva-graph/src/channel.rs` — keep as-is (already typed, will be integrated later)
+- Modify: `crates/alva-graph/src/session.rs` — adapt to generic CompiledGraph
+- Modify: `crates/alva-graph/src/compaction.rs` — adapt to new Message API
+- Modify: `crates/alva-graph/src/lib.rs` — update re-exports
 
 ### protocol crate changes
-- Modify: `crates/protocol-model-context/src/config.rs` — remove hardcoded path, inject via parameter
-- Modify: `crates/protocol-model-context/src/tool_adapter.rs` — remove empty tool_call_id
-- Modify: `crates/protocol-agent-client/src/connection.rs` — inject packages_dir, extract ExternalAgentKind to app layer
-- Modify: `crates/protocol-agent-client/src/delegate.rs` — adapt to new ExternalAgentKind
-- Modify: `crates/protocol-agent-client/src/lib.rs` — update exports
+- Modify: `crates/alva-mcp/src/config.rs` — remove hardcoded path, inject via parameter
+- Modify: `crates/alva-mcp/src/tool_adapter.rs` — remove empty tool_call_id
+- Modify: `crates/alva-acp/src/connection.rs` — inject packages_dir, extract ExternalAgentKind to app layer
+- Modify: `crates/alva-acp/src/delegate.rs` — adapt to new ExternalAgentKind
+- Modify: `crates/alva-acp/src/lib.rs` — update exports
 
 ### srow-core duplicate code (must update in lockstep with protocol crates)
-- Modify: `crates/srow-core/src/mcp/config.rs` — has same hardcoded `~/.srow` path as protocol-model-context
+- Modify: `crates/srow-core/src/mcp/config.rs` — has same hardcoded `~/.srow` path as alva-mcp
 - Modify: `crates/srow-core/src/agent/agent_client/connection/discovery.rs` — duplicate ExternalAgentKind + AgentDiscovery + builtin_packages_dir
 - Modify: `crates/srow-core/src/agent/agent_client/delegate.rs` — duplicate agent_kind() match
 - Modify: `crates/srow-core/src/agent/agent_client/connection/factory.rs` — calls AgentDiscovery::discover() statically
@@ -56,15 +56,15 @@
 ## Task 1: P0 — Remove hardcoded paths from both MCP config files
 
 **Files:**
-- Modify: `crates/protocol-model-context/src/config.rs`
+- Modify: `crates/alva-mcp/src/config.rs`
 - Modify: `crates/srow-core/src/mcp/config.rs` (duplicate with same hardcoded path)
 
 **Note:** srow-core has its own `McpConfig` struct at `crates/srow-core/src/mcp/config.rs` with the same `default_path()`, `load_default()`, `save_default()` hardcoding `~/.srow/`. Both must be fixed.
 
-- [ ] **Step 1: Remove `default_path()` and `load_default()`/`save_default()` from protocol-model-context**
+- [ ] **Step 1: Remove `default_path()` and `load_default()`/`save_default()` from alva-mcp**
 
 ```rust
-// REMOVE these methods from McpConfigFile impl in protocol-model-context/src/config.rs:
+// REMOVE these methods from McpConfigFile impl in alva-mcp/src/config.rs:
 // - pub fn default_path() -> PathBuf         (line 61)
 // - pub async fn load_default()              (line 67)
 // - pub async fn save_default(&self)         (line 88)
@@ -92,18 +92,18 @@ All callers must pass an explicit path. The app-specific default path (`~/.srow/
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/protocol-model-context/src/config.rs crates/srow-core/src/mcp/config.rs
+git add crates/alva-mcp/src/config.rs crates/srow-core/src/mcp/config.rs
 git commit -m "fix: remove hardcoded ~/.srow path from MCP config — callers supply path"
 ```
 
 ---
 
-## Task 2: P0 — Remove hardcoded paths from protocol-agent-client
+## Task 2: P0 — Remove hardcoded paths from alva-acp
 
 **Files:**
-- Modify: `crates/protocol-agent-client/src/connection.rs`
-- Modify: `crates/protocol-agent-client/src/delegate.rs`
-- Modify: `crates/protocol-agent-client/src/lib.rs`
+- Modify: `crates/alva-acp/src/connection.rs`
+- Modify: `crates/alva-acp/src/delegate.rs`
+- Modify: `crates/alva-acp/src/lib.rs`
 
 - [ ] **Step 1: Make `builtin_packages_dir()` accept an app_name parameter**
 
@@ -258,9 +258,9 @@ pub async fn spawn(
 }
 ```
 
-- [ ] **Step 7: Delete srow-core's duplicate discovery code and re-export from protocol-agent-client**
+- [ ] **Step 7: Delete srow-core's duplicate discovery code and re-export from alva-acp**
 
-**Critical:** srow-core has a COMPLETE DUPLICATE of `ExternalAgentKind`, `AgentDiscovery`, `AgentCliCommand`, `builtin_packages_dir()` at `crates/srow-core/src/agent/agent_client/connection/discovery.rs`. This must be deleted and replaced with re-exports from `protocol-agent-client`.
+**Critical:** srow-core has a COMPLETE DUPLICATE of `ExternalAgentKind`, `AgentDiscovery`, `AgentCliCommand`, `builtin_packages_dir()` at `crates/srow-core/src/agent/agent_client/connection/discovery.rs`. This must be deleted and replaced with re-exports from `alva-acp`.
 
 Files to update:
 - `crates/srow-core/src/agent/agent_client/connection/discovery.rs` — delete all discovery logic, replace with re-exports + well-known agent constants
@@ -272,8 +272,8 @@ Files to update:
 Replace `crates/srow-core/src/agent/agent_client/connection/discovery.rs` with:
 
 ```rust
-// Re-export protocol-agent-client types
-pub use protocol_agent_client::{ExternalAgentKind, AgentCliCommand, AgentDiscovery};
+// Re-export alva-acp types
+pub use alva_acp::{ExternalAgentKind, AgentCliCommand, AgentDiscovery};
 
 // Well-known agent kind constructors (app-specific knowledge lives here, not in the protocol crate)
 pub fn claude_code() -> ExternalAgentKind {
@@ -341,17 +341,17 @@ Update `crates/srow-core/tests/acp_integration.rs:47`:
 - [ ] **Step 9: Commit**
 
 ```bash
-git add crates/protocol-agent-client/ crates/srow-core/
-git commit -m "fix(protocol-agent-client): remove hardcoded paths and product-specific agent kinds"
+git add crates/alva-acp/ crates/srow-core/
+git commit -m "fix(alva-acp): remove hardcoded paths and product-specific agent kinds"
 ```
 
 ---
 
-## Task 3: P1 — Unify ToolCall representation in agent-types
+## Task 3: P1 — Unify ToolCall representation in alva-types
 
 **Files:**
-- Modify: `crates/agent-types/src/message.rs`
-- Modify: `crates/agent-core/src/agent_loop.rs`
+- Modify: `crates/alva-types/src/message.rs`
+- Modify: `crates/alva-core/src/agent_loop.rs`
 - Modify: `crates/srow-app/src/chat/gpui_chat.rs`
 
 - [ ] **Step 1: Replace `tool_calls: Vec<ToolCallData>` with a computed accessor**
@@ -432,13 +432,13 @@ Search for other consumers: `grep -r "ToolCallData\|\.tool_calls" crates/`
 
 - [ ] **Step 6: Run existing tests**
 
-Run: `cargo test -p agent-types -p agent-core`
+Run: `cargo test -p alva-types -p alva-core`
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/agent-types/ crates/agent-core/ crates/srow-app/
-git commit -m "refactor(agent-types): unify tool call representation — ContentBlock::ToolUse is canonical"
+git add crates/alva-types/ crates/alva-core/ crates/srow-app/
+git commit -m "refactor(alva-types): unify tool call representation — ContentBlock::ToolUse is canonical"
 ```
 
 ---
@@ -446,10 +446,10 @@ git commit -m "refactor(agent-types): unify tool call representation — Content
 ## Task 4: P1 — Make StateGraph and CompiledGraph generic
 
 **Files:**
-- Modify: `crates/agent-graph/src/graph.rs`
-- Modify: `crates/agent-graph/src/pregel.rs`
-- Modify: `crates/agent-graph/src/session.rs`
-- Modify: `crates/agent-graph/src/lib.rs`
+- Modify: `crates/alva-graph/src/graph.rs`
+- Modify: `crates/alva-graph/src/pregel.rs`
+- Modify: `crates/alva-graph/src/session.rs`
+- Modify: `crates/alva-graph/src/lib.rs`
 
 - [ ] **Step 1: Make StateGraph generic over state type S**
 
@@ -543,13 +543,13 @@ The existing tests already use `serde_json::Value`, so they should work with `St
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test -p agent-graph`
+Run: `cargo test -p alva-graph`
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/agent-graph/
-git commit -m "refactor(agent-graph): make StateGraph<S> and CompiledGraph<S> generic over state type"
+git add crates/alva-graph/
+git commit -m "refactor(alva-graph): make StateGraph<S> and CompiledGraph<S> generic over state type"
 ```
 
 ---
@@ -557,8 +557,8 @@ git commit -m "refactor(agent-graph): make StateGraph<S> and CompiledGraph<S> ge
 ## Task 5: P1 — Add parallel superstep execution to Pregel engine
 
 **Files:**
-- Modify: `crates/agent-graph/src/pregel.rs`
-- Modify: `crates/agent-graph/src/graph.rs`
+- Modify: `crates/alva-graph/src/pregel.rs`
+- Modify: `crates/alva-graph/src/graph.rs`
 
 - [ ] **Step 1: Write test for parallel execution**
 
@@ -724,14 +724,14 @@ impl<S: Clone + Send + 'static> CompiledGraph<S> {
 
 - [ ] **Step 3: Run tests**
 
-Run: `cargo test -p agent-graph`
+Run: `cargo test -p alva-graph`
 Expected: All existing tests pass + new parallel test passes.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/agent-graph/
-git commit -m "feat(agent-graph): implement BSP parallel superstep execution in Pregel engine"
+git add crates/alva-graph/
+git commit -m "feat(alva-graph): implement BSP parallel superstep execution in Pregel engine"
 ```
 
 ---
@@ -739,11 +739,11 @@ git commit -m "feat(agent-graph): implement BSP parallel superstep execution in 
 ## Task 6: P2 — Make hooks composable (Vec) and async-capable
 
 **Files:**
-- Modify: `crates/agent-core/src/types.rs`
-- Modify: `crates/agent-core/src/agent.rs`
-- Modify: `crates/agent-core/src/agent_loop.rs`
-- Modify: `crates/agent-core/src/tool_executor.rs`
-- Modify: `crates/agent-core/Cargo.toml`
+- Modify: `crates/alva-core/src/types.rs`
+- Modify: `crates/alva-core/src/agent.rs`
+- Modify: `crates/alva-core/src/agent_loop.rs`
+- Modify: `crates/alva-core/src/tool_executor.rs`
+- Modify: `crates/alva-core/Cargo.toml`
 - Modify: `crates/srow-app/src/chat/gpui_chat.rs`
 
 - [ ] **Step 1: Redefine hook types as async + Vec in types.rs**
@@ -948,13 +948,13 @@ fn default_convert_to_llm(ctx: &AgentContext<'_>) -> Vec<Message> {
 
 Both test functions at `agent_loop.rs:295` and `agent_loop.rs:340` use `Arc::new(default_convert_to_llm)` — the signature change ensures they compile.
 
-- [ ] **Step 10: Run `cargo check` then `cargo test -p agent-core`**
+- [ ] **Step 10: Run `cargo check` then `cargo test -p alva-core`**
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add crates/agent-core/ crates/srow-app/
-git commit -m "refactor(agent-core): make hooks composable (Vec) and async-capable"
+git add crates/alva-core/ crates/srow-app/
+git commit -m "refactor(alva-core): make hooks composable (Vec) and async-capable"
 ```
 
 ---
@@ -962,9 +962,9 @@ git commit -m "refactor(agent-core): make hooks composable (Vec) and async-capab
 ## Task 7: P3 — Add streaming support to agent loop
 
 **Files:**
-- Modify: `crates/agent-core/src/agent_loop.rs`
-- Modify: `crates/agent-core/src/agent.rs`
-- Modify: `crates/agent-core/src/types.rs`
+- Modify: `crates/alva-core/src/agent_loop.rs`
+- Modify: `crates/alva-core/src/agent.rs`
+- Modify: `crates/alva-core/src/types.rs`
 
 - [ ] **Step 1: Add `use_streaming` flag to AgentState**
 
@@ -1000,7 +1000,7 @@ let assistant_message = if state.is_streaming {
 async fn stream_llm_response(
     model: &dyn LanguageModel,
     messages: &[Message],
-    tools: &[&dyn agent_types::Tool],
+    tools: &[&dyn alva_types::Tool],
     config: &ModelConfig,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<Message, AgentError> {
@@ -1105,7 +1105,7 @@ impl Agent {
 - [ ] **Step 5: Add futures dependency if needed**
 
 ```toml
-# In crates/agent-core/Cargo.toml, ensure:
+# In crates/alva-core/Cargo.toml, ensure:
 futures-core = "0.3"
 tokio-stream = "0.1"   # for StreamExt on Pin<Box<dyn Stream>>
 ```
@@ -1160,13 +1160,13 @@ async fn test_streaming_text_response() {
 
 - [ ] **Step 7: Run tests**
 
-Run: `cargo test -p agent-core`
+Run: `cargo test -p alva-core`
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/agent-core/
-git commit -m "feat(agent-core): add streaming support to agent loop via model.stream()"
+git add crates/alva-core/
+git commit -m "feat(alva-core): add streaming support to agent loop via model.stream()"
 ```
 
 ---
@@ -1174,9 +1174,9 @@ git commit -m "feat(agent-core): add streaming support to agent loop via model.s
 ## Task 8: P3 — Fix ToolResult.tool_call_id in MCP adapter
 
 **Files:**
-- Modify: `crates/agent-types/src/tool.rs`
-- Modify: `crates/protocol-model-context/src/tool_adapter.rs`
-- Modify: `crates/agent-core/src/tool_executor.rs`
+- Modify: `crates/alva-types/src/tool.rs`
+- Modify: `crates/alva-mcp/src/tool_adapter.rs`
+- Modify: `crates/alva-core/src/tool_executor.rs`
 
 - [ ] **Step 1: Remove `tool_call_id` from ToolResult struct**
 
@@ -1250,11 +1250,11 @@ Ok(ToolResult {
 
 The event already has `tool_call: ToolCall` which contains the id. No change needed.
 
-- [ ] **Step 6: Fix all `agent_types::ToolResult` constructions across the workspace**
+- [ ] **Step 6: Fix all `alva_types::ToolResult` constructions across the workspace**
 
-Run: `grep -rn "ToolResult {" crates/` — but note: `srow-core` has its OWN `ToolResult` struct at `crates/srow-core/src/domain/tool.rs` with different fields (`tool_name`, `output`, `duration_ms`). Only update `agent_types::ToolResult` usages:
-- `crates/agent-core/src/tool_executor.rs` — 7 constructions
-- `crates/protocol-model-context/src/tool_adapter.rs` — 1 construction
+Run: `grep -rn "ToolResult {" crates/` — but note: `srow-core` has its OWN `ToolResult` struct at `crates/srow-core/src/domain/tool.rs` with different fields (`tool_name`, `output`, `duration_ms`). Only update `alva_types::ToolResult` usages:
+- `crates/alva-core/src/tool_executor.rs` — 7 constructions
+- `crates/alva-mcp/src/tool_adapter.rs` — 1 construction
 Do NOT touch `srow-core`'s separate `ToolResult` type.
 
 - [ ] **Step 7: Run `cargo check` then `cargo test`**
@@ -1262,8 +1262,8 @@ Do NOT touch `srow-core`'s separate `ToolResult` type.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/agent-types/ crates/agent-core/ crates/protocol-model-context/
-git commit -m "refactor(agent-types): remove tool_call_id from ToolResult — engine sets it"
+git add crates/alva-types/ crates/alva-core/ crates/alva-mcp/
+git commit -m "refactor(alva-types): remove tool_call_id from ToolResult — engine sets it"
 ```
 
 ---
@@ -1274,15 +1274,15 @@ Tasks should be executed in this order to minimize rework:
 
 1. **Task 8** (P3 — ToolResult.tool_call_id) — smallest, least dependencies
 2. **Task 3** (P1 — Unify ToolCall) — changes Message struct, affects everything
-3. **Task 1** (P0 — MCP config path) — isolated to protocol-model-context + srow-core/mcp
-4. **Task 2** (P0 — ACP paths + srow-core dedup) — protocol-agent-client + srow-core duplicate cleanup
-5. **Task 6** (P2 — Async composable hooks) — major API change to agent-core
+3. **Task 1** (P0 — MCP config path) — isolated to alva-mcp + srow-core/mcp
+4. **Task 2** (P0 — ACP paths + srow-core dedup) — alva-acp + srow-core duplicate cleanup
+5. **Task 6** (P2 — Async composable hooks) — major API change to alva-core
 6. **Task 7** (P3 — Streaming) — builds on new hook API
-7. **Task 4** (P1 — Generic StateGraph) — isolated to agent-graph
+7. **Task 4** (P1 — Generic StateGraph) — isolated to alva-graph
 8. **Task 5** (P1 — Parallel Pregel) — builds on generic StateGraph
 
 Tasks 1+2 can run in parallel (independent protocol crates). Tasks 4+5 can run after 1-3 are done. Task 7 depends on Task 6.
 
-**Note:** Task 2 includes cleaning up srow-core's duplicate ExternalAgentKind/AgentDiscovery code. This is the most impactful P0 change — ensure srow-core re-exports from protocol-agent-client rather than maintaining parallel copies.
+**Note:** Task 2 includes cleaning up srow-core's duplicate ExternalAgentKind/AgentDiscovery code. This is the most impactful P0 change — ensure srow-core re-exports from alva-acp rather than maintaining parallel copies.
 
 Tasks 1+2 can run in parallel. Tasks 4+5 can run after 1-3 are done. Task 7 depends on Task 6.

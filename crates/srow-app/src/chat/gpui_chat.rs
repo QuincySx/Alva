@@ -1,8 +1,8 @@
 // INPUT:  gpui (Context, EventEmitter), srow_core (Agent, AgentHooks, AgentMessage, AgentEvent, AgentContext),
-//         srow_core::agent_types (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
+//         srow_core::alva_types (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
 //         tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
-// POS:    GPUI Entity wrapping agent-core's Agent. Bridges async agent events to GPUI's sync UI thread.
+// POS:    GPUI Entity wrapping alva-core's Agent. Bridges async agent events to GPUI's sync UI thread.
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use gpui::{Context, EventEmitter};
 use tokio::sync::mpsc;
 
-use srow_core::agent_types::{
+use srow_core::alva_types::{
     AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
 use srow_core::{AgentHooks, AgentContext, AgentEvent, AgentMessage};
@@ -80,10 +80,10 @@ impl LanguageModel for PlaceholderModel {
 }
 
 // ---------------------------------------------------------------------------
-// GpuiChat — GPUI Entity wrapping agent-core's Agent
+// GpuiChat — GPUI Entity wrapping alva-core's Agent
 // ---------------------------------------------------------------------------
 
-/// GPUI Entity wrapping agent-core's Agent.
+/// GPUI Entity wrapping alva-core's Agent.
 ///
 /// Holds the agent, a local copy of messages (for synchronous UI reads),
 /// and the running state. The async agent loop runs on the shared tokio
@@ -114,7 +114,7 @@ impl GpuiChat {
                 )
             });
 
-        // Build the agent-core config with a minimal convert_to_llm hook.
+        // Build the alva-core config with a minimal convert_to_llm hook.
         let agent_config = AgentHooks::new(Arc::new(|ctx: &AgentContext<'_>| {
             // Prepend the system prompt as a System message, then pass through Standard messages.
             let mut result = vec![Message::system(ctx.system_prompt)];

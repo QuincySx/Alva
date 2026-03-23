@@ -1,11 +1,11 @@
-// INPUT:  gpui, srow_core::agent_types (MessageRole), srow_core (AgentMessage),
+// INPUT:  gpui, srow_core::alva_types (MessageRole), srow_core (AgentMessage),
 //         crate::models (ChatModel, WorkspaceModel), crate::theme
 // OUTPUT: pub struct MessageList
-// POS:    Scrollable GPUI view rendering chat messages from agent-core.
+// POS:    Scrollable GPUI view rendering chat messages from alva-core.
 
 use gpui::{prelude::*, Context, Entity, Render, Window, div};
 
-use srow_core::agent_types::MessageRole;
+use srow_core::alva_types::MessageRole;
 use srow_core::AgentMessage;
 
 use crate::models::{ChatModel, WorkspaceModel};

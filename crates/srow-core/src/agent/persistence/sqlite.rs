@@ -1,4 +1,4 @@
-// INPUT:  std::path, async_trait, tokio_rusqlite, agent_types, crate::domain::session, crate::error, crate::ports::storage, super::migrations
+// INPUT:  std::path, async_trait, tokio_rusqlite, alva_types, crate::domain::session, crate::error, crate::ports::storage, super::migrations
 // OUTPUT: SqliteStorage
 // POS:    SQLite-backed SessionStorage implementation with WAL mode and migration support.
 //! SQLite-backed implementation of [`SessionStorage`].
@@ -8,7 +8,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use tokio_rusqlite::Connection;
 
-use agent_types::{ContentBlock, Message, MessageRole, UsageMetadata};
+use alva_types::{ContentBlock, Message, MessageRole, UsageMetadata};
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use crate::ports::storage::SessionStorage;
@@ -319,7 +319,7 @@ impl SessionStorage for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_types::{ContentBlock, Message, MessageRole};
+    use alva_types::{ContentBlock, Message, MessageRole};
     use crate::domain::session::{Session, SessionStatus};
 
     fn sample_session() -> Session {

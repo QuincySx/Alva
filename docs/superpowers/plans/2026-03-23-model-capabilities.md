@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add 7 model capability traits to `agent-types`, extend Provider/ProviderRegistry, and delete old V4 model files.
+**Goal:** Add 7 model capability traits to `alva-types`, extend Provider/ProviderRegistry, and delete old V4 model files.
 
-**Architecture:** Each trait gets its own file in `agent-types/src/`. Provider trait gains 7 optional methods with default "unsupported" returns. Old V4 model files in `srow-core/ports/provider/` are deleted along with `ProviderOptions`/`ProviderMetadata`/`ProviderWarning`/`ProviderHeaders`.
+**Architecture:** Each trait gets its own file in `alva-types/src/`. Provider trait gains 7 optional methods with default "unsupported" returns. Old V4 model files in `srow-core/ports/provider/` are deleted along with `ProviderOptions`/`ProviderMetadata`/`ProviderWarning`/`ProviderHeaders`.
 
-**Tech Stack:** Rust, async-trait, serde, agent-types, srow-core
+**Tech Stack:** Rust, async-trait, serde, alva-types, srow-core
 
 **Spec:** `docs/superpowers/specs/2026-03-23-model-capabilities-design.md`
 
@@ -14,15 +14,15 @@
 
 ## File Structure
 
-### Task 1: agent-types trait files (7 new files)
-- Create: `crates/agent-types/src/embedding.rs`
-- Create: `crates/agent-types/src/transcription.rs`
-- Create: `crates/agent-types/src/speech.rs`
-- Create: `crates/agent-types/src/image.rs`
-- Create: `crates/agent-types/src/video.rs`
-- Create: `crates/agent-types/src/reranking.rs`
-- Create: `crates/agent-types/src/moderation.rs`
-- Modify: `crates/agent-types/src/lib.rs`
+### Task 1: alva-types trait files (7 new files)
+- Create: `crates/alva-types/src/embedding.rs`
+- Create: `crates/alva-types/src/transcription.rs`
+- Create: `crates/alva-types/src/speech.rs`
+- Create: `crates/alva-types/src/image.rs`
+- Create: `crates/alva-types/src/video.rs`
+- Create: `crates/alva-types/src/reranking.rs`
+- Create: `crates/alva-types/src/moderation.rs`
+- Modify: `crates/alva-types/src/lib.rs`
 
 ### Task 2: Provider trait + ProviderRegistry extension
 - Modify: `crates/srow-core/src/ports/provider/provider_registry.rs`
@@ -41,21 +41,21 @@
 
 ---
 
-## Task 1: Add 7 Model Capability Traits to agent-types
+## Task 1: Add 7 Model Capability Traits to alva-types
 
 **Files:**
-- Create: `crates/agent-types/src/embedding.rs`
-- Create: `crates/agent-types/src/transcription.rs`
-- Create: `crates/agent-types/src/speech.rs`
-- Create: `crates/agent-types/src/image.rs`
-- Create: `crates/agent-types/src/video.rs`
-- Create: `crates/agent-types/src/reranking.rs`
-- Create: `crates/agent-types/src/moderation.rs`
-- Modify: `crates/agent-types/src/lib.rs`
+- Create: `crates/alva-types/src/embedding.rs`
+- Create: `crates/alva-types/src/transcription.rs`
+- Create: `crates/alva-types/src/speech.rs`
+- Create: `crates/alva-types/src/image.rs`
+- Create: `crates/alva-types/src/video.rs`
+- Create: `crates/alva-types/src/reranking.rs`
+- Create: `crates/alva-types/src/moderation.rs`
+- Modify: `crates/alva-types/src/lib.rs`
 
 - [ ] **Step 1: Create `embedding.rs`**
 
-Create `crates/agent-types/src/embedding.rs`:
+Create `crates/alva-types/src/embedding.rs`:
 
 ```rust
 use async_trait::async_trait;
@@ -91,7 +91,7 @@ pub struct EmbeddingUsage {
 
 - [ ] **Step 2: Create `transcription.rs`**
 
-Create `crates/agent-types/src/transcription.rs`:
+Create `crates/alva-types/src/transcription.rs`:
 
 ```rust
 use async_trait::async_trait;
@@ -142,7 +142,7 @@ pub struct TranscriptionSegment {
 
 - [ ] **Step 3: Create `speech.rs`**
 
-Create `crates/agent-types/src/speech.rs`:
+Create `crates/alva-types/src/speech.rs`:
 
 ```rust
 use async_trait::async_trait;
@@ -180,7 +180,7 @@ pub struct SpeechResult {
 
 - [ ] **Step 4: Create `image.rs`**
 
-Create `crates/agent-types/src/image.rs`:
+Create `crates/alva-types/src/image.rs`:
 
 ```rust
 use async_trait::async_trait;
@@ -241,7 +241,7 @@ pub enum ImageData {
 
 - [ ] **Step 5: Create `video.rs`**
 
-Create `crates/agent-types/src/video.rs`:
+Create `crates/alva-types/src/video.rs`:
 
 ```rust
 use async_trait::async_trait;
@@ -288,7 +288,7 @@ pub enum VideoData {
 
 - [ ] **Step 6: Create `reranking.rs`**
 
-Create `crates/agent-types/src/reranking.rs`:
+Create `crates/alva-types/src/reranking.rs`:
 
 ```rust
 use async_trait::async_trait;
@@ -332,7 +332,7 @@ pub struct RankEntry {
 
 - [ ] **Step 7: Create `moderation.rs`**
 
-Create `crates/agent-types/src/moderation.rs`:
+Create `crates/alva-types/src/moderation.rs`:
 
 ```rust
 use async_trait::async_trait;
@@ -372,7 +372,7 @@ pub struct ModerationCategory {
 
 - [ ] **Step 8: Update `lib.rs` with new modules and re-exports**
 
-In `crates/agent-types/src/lib.rs`, add module declarations and re-exports. The file currently contains:
+In `crates/alva-types/src/lib.rs`, add module declarations and re-exports. The file currently contains:
 
 ```rust
 pub mod cancel;
@@ -410,23 +410,23 @@ pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
 ```
 
-- [ ] **Step 9: Build agent-types to verify**
+- [ ] **Step 9: Build alva-types to verify**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo build -p agent-types`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo build -p alva-types`
 
 Expected: Compiles with no errors.
 
-- [ ] **Step 10: Run all agent-types tests**
+- [ ] **Step 10: Run all alva-types tests**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-types`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-types`
 
 Expected: All existing tests pass. (New traits have no tests — they are pure trait definitions.)
 
 - [ ] **Step 11: Commit**
 
 ```bash
-git add crates/agent-types/src/embedding.rs crates/agent-types/src/transcription.rs crates/agent-types/src/speech.rs crates/agent-types/src/image.rs crates/agent-types/src/video.rs crates/agent-types/src/reranking.rs crates/agent-types/src/moderation.rs crates/agent-types/src/lib.rs
-git commit -m "feat(agent-types): add 7 model capability traits
+git add crates/alva-types/src/embedding.rs crates/alva-types/src/transcription.rs crates/alva-types/src/speech.rs crates/alva-types/src/image.rs crates/alva-types/src/video.rs crates/alva-types/src/reranking.rs crates/alva-types/src/moderation.rs crates/alva-types/src/lib.rs
+git commit -m "feat(alva-types): add 7 model capability traits
 
 Adds EmbeddingModel, TranscriptionModel, SpeechModel, ImageModel (with
 edit), VideoModel, RerankingModel, and ModerationModel traits alongside
@@ -441,12 +441,12 @@ model_id() + one async capability method + Config/Result structs."
 **Files:**
 - Modify: `crates/srow-core/src/ports/provider/provider_registry.rs`
 
-- [ ] **Step 1: Add agent-types imports**
+- [ ] **Step 1: Add alva-types imports**
 
-In `crates/srow-core/src/ports/provider/provider_registry.rs`, update the `use agent_types::LanguageModel;` import to:
+In `crates/srow-core/src/ports/provider/provider_registry.rs`, update the `use alva_types::LanguageModel;` import to:
 
 ```rust
-use agent_types::{
+use alva_types::{
     EmbeddingModel, ImageModel, LanguageModel, ModerationModel, RerankingModel, SpeechModel,
     TranscriptionModel, VideoModel,
 };
@@ -676,7 +676,7 @@ Replace `crates/srow-core/src/ports/provider/types.rs` with:
 ```rust
 // V4 provider types (ProviderOptions, ProviderMetadata, ProviderHeaders,
 // ProviderWarning) have been removed. Model capability traits are now
-// defined in agent-types. This module is kept as a placeholder in case
+// defined in alva-types. This module is kept as a placeholder in case
 // provider-level shared types are needed in the future.
 ```
 
@@ -719,5 +719,5 @@ Removes embedding_model.rs, transcription_model.rs, speech_model.rs,
 image_model.rs, video_model.rs, reranking_model.rs, middleware.rs, and
 the ProviderOptions/ProviderMetadata/ProviderHeaders/ProviderWarning
 types from types.rs. All model capability traits are now defined in
-agent-types."
+alva-types."
 ```

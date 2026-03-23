@@ -36,7 +36,6 @@ pub(crate) fn error_response(status: u16, message: &str) -> Response<std::io::Cu
 }
 
 pub(crate) fn read_body(request: &mut tiny_http::Request) -> Result<String, std::io::Error> {
-    use std::io::Read;
     let mut body = String::new();
     request.as_reader().read_to_string(&mut body)?;
     Ok(body)

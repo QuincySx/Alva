@@ -14,13 +14,13 @@ path = "src/bin/cli.rs"
 
 [dependencies]
 # Extracted agent crates
-agent-types = { path = "../agent-types" }
-agent-core = { path = "../agent-core" }
-agent-tools = { path = "../agent-tools" }
-agent-security = { path = "../agent-security" }
-agent-memory = { path = "../agent-memory" }
-agent-runtime = { path = "../agent-runtime" }
-protocol-agent-client = { path = "../protocol-agent-client" }
+alva-types = { path = "../alva-types" }
+alva-core = { path = "../alva-core" }
+alva-tools = { path = "../alva-tools" }
+alva-security = { path = "../alva-security" }
+alva-memory = { path = "../alva-memory" }
+alva-runtime = { path = "../alva-runtime" }
+alva-acp = { path = "../alva-acp" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

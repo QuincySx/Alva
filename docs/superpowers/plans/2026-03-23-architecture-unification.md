@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Unify the Tool trait system, move Provider trait to agent-types, and make srow-core a proper Facade so srow-app only depends on srow-core (+ srow-debug).
+**Goal:** Unify the Tool trait system, move Provider trait to alva-types, and make srow-core a proper Facade so srow-app only depends on srow-core (+ srow-debug).
 
-**Architecture:** Three sequential phases — (1) unify the two Tool traits into a single `agent_types::Tool`, (2) move Provider/ProviderError to agent-types, (3) make srow-core re-export agent-core types so srow-app can drop direct agent-core/agent-graph/agent-types dependencies. Each phase compiles independently before the next begins.
+**Architecture:** Three sequential phases — (1) unify the two Tool traits into a single `alva_types::Tool`, (2) move Provider/ProviderError to alva-types, (3) make srow-core re-export alva-core types so srow-app can drop direct alva-core/alva-graph/alva-types dependencies. Each phase compiles independently before the next begins.
 
 **Tech Stack:** Rust, async-trait, serde, thiserror, tokio
 
@@ -15,14 +15,14 @@
 ### Phase 1: Tool Unification (P0)
 
 **Modified files:**
-- `crates/agent-types/src/tool.rs` — Add `ToolContext` trait + `ToolDefinition`, expand `ToolResult` fields
-- `crates/agent-types/src/lib.rs` — Re-export new types
-- `crates/agent-core/src/tool_executor.rs` — Pass `ToolContext` to execute()
-- `crates/agent-core/src/types.rs` — Hold `Arc<dyn ToolContext>` in AgentState
+- `crates/alva-types/src/tool.rs` — Add `ToolContext` trait + `ToolDefinition`, expand `ToolResult` fields
+- `crates/alva-types/src/lib.rs` — Re-export new types
+- `crates/alva-core/src/tool_executor.rs` — Pass `ToolContext` to execute()
+- `crates/alva-core/src/types.rs` — Hold `Arc<dyn ToolContext>` in AgentState
 - `crates/srow-core/src/ports/tool.rs` — Delete old Tool/ToolRegistry, implement ToolContext
-- `crates/srow-core/src/domain/tool.rs` — Delete duplicate ToolCall/ToolResult/ToolDefinition, re-export from agent-types
+- `crates/srow-core/src/domain/tool.rs` — Delete duplicate ToolCall/ToolResult/ToolDefinition, re-export from alva-types
 - `crates/srow-core/src/lib.rs` — Update re-exports
-- `crates/srow-core/src/agent/runtime/tools/execute_shell.rs` — Migrate to agent_types::Tool
+- `crates/srow-core/src/agent/runtime/tools/execute_shell.rs` — Migrate to alva_types::Tool
 - `crates/srow-core/src/agent/runtime/tools/create_file.rs` — Migrate
 - `crates/srow-core/src/agent/runtime/tools/file_edit.rs` — Migrate
 - `crates/srow-core/src/agent/runtime/tools/grep_search.rs` — Migrate
@@ -38,49 +38,49 @@
 - `crates/srow-core/src/agent/runtime/tools/browser/browser_snapshot.rs` — Migrate
 - `crates/srow-core/src/agent/runtime/tools/browser/browser_screenshot.rs` — Migrate
 - `crates/srow-core/src/agent/runtime/tools/browser/browser_status.rs` — Migrate
-- `crates/srow-core/src/agent/runtime/tools/mod.rs` — Use agent_types::ToolRegistry
-- `crates/srow-core/src/mcp/tool_adapter.rs` — Migrate to agent_types::Tool
+- `crates/srow-core/src/agent/runtime/tools/mod.rs` — Use alva_types::ToolRegistry
+- `crates/srow-core/src/mcp/tool_adapter.rs` — Migrate to alva_types::Tool
 - `crates/srow-core/src/mcp/tools.rs` — Migrate McpRuntimeTool
 - `crates/srow-core/src/skills/tools.rs` — Migrate SearchSkillsTool, UseSkillTool
 
 ### Phase 2: Provider Migration (P1)
 
 **New files:**
-- `crates/agent-types/src/provider.rs` — Provider trait + ProviderError
+- `crates/alva-types/src/provider.rs` — Provider trait + ProviderError
 
 **Modified files:**
-- `crates/agent-types/src/lib.rs` — Export Provider, ProviderError, ProviderRegistry
-- `crates/srow-core/src/ports/provider/provider_registry.rs` — Delete trait/struct, re-export from agent-types
-- `crates/srow-core/src/ports/provider/errors.rs` — Delete, moved to agent-types
-- `crates/srow-core/src/ports/provider/mod.rs` — Re-export from agent-types
+- `crates/alva-types/src/lib.rs` — Export Provider, ProviderError, ProviderRegistry
+- `crates/srow-core/src/ports/provider/provider_registry.rs` — Delete trait/struct, re-export from alva-types
+- `crates/srow-core/src/ports/provider/errors.rs` — Delete, moved to alva-types
+- `crates/srow-core/src/ports/provider/mod.rs` — Re-export from alva-types
 - `crates/srow-core/src/lib.rs` — Update Provider re-export path
 
 ### Phase 3: Facade Pattern (P2)
 
 **Modified files:**
-- `crates/srow-core/Cargo.toml` — Add agent-core dependency
-- `crates/srow-core/src/lib.rs` — Re-export agent-core and agent-types types
-- `crates/srow-app/Cargo.toml` — Remove agent-types, agent-core, agent-graph deps
+- `crates/srow-core/Cargo.toml` — Add alva-core dependency
+- `crates/srow-core/src/lib.rs` — Re-export alva-core and alva-types types
+- `crates/srow-app/Cargo.toml` — Remove alva-types, alva-core, alva-graph deps
 - `crates/srow-app/src/chat/gpui_chat.rs` — Import from srow_core instead
 - `crates/srow-app/src/views/chat_panel/message_list.rs` — Import from srow_core instead
 
 ---
 
-## Task 1: Expand agent_types::Tool with ToolContext and ToolDefinition
+## Task 1: Expand alva_types::Tool with ToolContext and ToolDefinition
 
-This is the foundation change — we make `agent_types::Tool` capable of receiving runtime context, so srow-core tools can implement it directly.
+This is the foundation change — we make `alva_types::Tool` capable of receiving runtime context, so srow-core tools can implement it directly.
 
-**Design decision:** We add a `ToolContext` trait to agent-types (not a concrete struct) so it remains generic. agent-core's tool_executor will accept `Option<Arc<dyn ToolContext>>`. srow-core will provide its own concrete `SrowToolContext` implementing this trait.
+**Design decision:** We add a `ToolContext` trait to alva-types (not a concrete struct) so it remains generic. alva-core's tool_executor will accept `Option<Arc<dyn ToolContext>>`. srow-core will provide its own concrete `SrowToolContext` implementing this trait.
 
 We also merge the `ToolResult` and `ToolDefinition` types so there's only one canonical version.
 
 **Files:**
-- Modify: `crates/agent-types/src/tool.rs`
-- Modify: `crates/agent-types/src/lib.rs`
+- Modify: `crates/alva-types/src/tool.rs`
+- Modify: `crates/alva-types/src/lib.rs`
 
-- [ ] **Step 1: Update agent_types::Tool with ToolContext trait and expanded types**
+- [ ] **Step 1: Update alva_types::Tool with ToolContext trait and expanded types**
 
-In `crates/agent-types/src/tool.rs`, replace the current content with:
+In `crates/alva-types/src/tool.rs`, replace the current content with:
 
 ```rust
 use async_trait::async_trait;
@@ -128,7 +128,7 @@ pub struct ToolResult {
 
 /// Runtime context available to tools during execution.
 ///
-/// This is a trait (not a concrete struct) so that agent-types stays generic.
+/// This is a trait (not a concrete struct) so that alva-types stays generic.
 /// Each application layer provides its own implementation.
 /// Tools that don't need context can ignore the parameter.
 pub trait ToolContext: Send + Sync {
@@ -238,45 +238,45 @@ impl Default for ToolRegistry {
 }
 ```
 
-- [ ] **Step 2: Update agent_types lib.rs re-exports**
+- [ ] **Step 2: Update alva_types lib.rs re-exports**
 
-In `crates/agent-types/src/lib.rs`, update the tool re-export line:
+In `crates/alva-types/src/lib.rs`, update the tool re-export line:
 
 ```rust
 pub use tool::{EmptyToolContext, Tool, ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
 ```
 
-- [ ] **Step 3: Verify agent-types compiles**
+- [ ] **Step 3: Verify alva-types compiles**
 
-Run: `cargo check -p agent-types`
+Run: `cargo check -p alva-types`
 Expected: PASS (no other crates depend on old signatures yet — we haven't changed them)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/agent-types/src/tool.rs crates/agent-types/src/lib.rs
-git commit -m "feat(agent-types): unify Tool trait with ToolContext, ToolDefinition, expanded API"
+git add crates/alva-types/src/tool.rs crates/alva-types/src/lib.rs
+git commit -m "feat(alva-types): unify Tool trait with ToolContext, ToolDefinition, expanded API"
 ```
 
 ---
 
-## Task 2: Update agent-core to pass ToolContext through execute()
+## Task 2: Update alva-core to pass ToolContext through execute()
 
-agent-core's tool_executor currently calls `tool.execute(args, &cancel)`. We need to update it to `tool.execute(args, &cancel, ctx)`.
+alva-core's tool_executor currently calls `tool.execute(args, &cancel)`. We need to update it to `tool.execute(args, &cancel, ctx)`.
 
 **Files:**
-- Modify: `crates/agent-core/src/types.rs`
-- Modify: `crates/agent-core/src/tool_executor.rs`
-- Modify: `crates/agent-core/src/agent.rs` (if it constructs AgentState)
-- Modify: `crates/agent-core/src/agent_loop.rs` (if it passes tools)
+- Modify: `crates/alva-core/src/types.rs`
+- Modify: `crates/alva-core/src/tool_executor.rs`
+- Modify: `crates/alva-core/src/agent.rs` (if it constructs AgentState)
+- Modify: `crates/alva-core/src/agent_loop.rs` (if it passes tools)
 
 - [ ] **Step 1: Add tool_context to AgentState**
 
-In `crates/agent-core/src/types.rs`, add an import and field:
+In `crates/alva-core/src/types.rs`, add an import and field:
 
 Add import at top:
 ```rust
-use agent_types::ToolContext;
+use alva_types::ToolContext;
 ```
 
 Add field to `AgentState`:
@@ -301,7 +301,7 @@ impl AgentState {
             tools: Vec::new(),
             is_streaming: false,
             model_config,
-            tool_context: Arc::new(agent_types::EmptyToolContext),
+            tool_context: Arc::new(alva_types::EmptyToolContext),
         }
     }
 
@@ -325,7 +325,7 @@ impl AgentState {
 
 - [ ] **Step 2: Update tool_executor to pass ToolContext**
 
-In `crates/agent-core/src/tool_executor.rs`:
+In `crates/alva-core/src/tool_executor.rs`:
 
 Update the function signature to accept `tool_context`:
 
@@ -336,7 +336,7 @@ pub(crate) async fn execute_tools(
     config: &AgentConfig,
     context: &AgentContext<'_>,
     cancel: &CancellationToken,
-    tool_context: &Arc<dyn agent_types::ToolContext>,
+    tool_context: &Arc<dyn alva_types::ToolContext>,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Vec<ToolResult> {
 ```
@@ -365,26 +365,26 @@ t.execute(tc.arguments.clone(), cancel, tool_context.as_ref()).await
 
 Find where `execute_tools` is called in `agent_loop.rs` and add `&state.tool_context` as the new parameter.
 
-- [ ] **Step 4: Verify agent-core compiles**
+- [ ] **Step 4: Verify alva-core compiles**
 
-Run: `cargo check -p agent-core`
+Run: `cargo check -p alva-core`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/agent-core/
-git commit -m "feat(agent-core): pass ToolContext through tool executor"
+git add crates/alva-core/
+git commit -m "feat(alva-core): pass ToolContext through tool executor"
 ```
 
 ---
 
-## Task 3: Update protocol-model-context McpToolAdapter
+## Task 3: Update alva-mcp McpToolAdapter
 
-The MCP tool adapter in protocol-model-context already implements `agent_types::Tool`. We need to update its `execute()` signature to match the new 3-argument version.
+The MCP tool adapter in alva-mcp already implements `alva_types::Tool`. We need to update its `execute()` signature to match the new 3-argument version.
 
 **Files:**
-- Modify: `crates/protocol-model-context/src/tool_adapter.rs`
+- Modify: `crates/alva-mcp/src/tool_adapter.rs`
 
 - [ ] **Step 1: Update McpToolAdapter::execute signature**
 
@@ -403,29 +403,29 @@ async fn execute(
     &self,
     input: Value,
     _cancel: &CancellationToken,
-    _ctx: &dyn agent_types::ToolContext,
+    _ctx: &dyn alva_types::ToolContext,
 ) -> Result<ToolResult, AgentError>
 ```
 
 Also add `description()` and `parameters_schema()` methods if not present, and remove any now-redundant methods.
 
-- [ ] **Step 2: Verify protocol-model-context compiles**
+- [ ] **Step 2: Verify alva-mcp compiles**
 
-Run: `cargo check -p protocol-model-context`
+Run: `cargo check -p alva-mcp`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/protocol-model-context/src/tool_adapter.rs
-git commit -m "refactor(protocol-model-context): update McpToolAdapter to new Tool trait"
+git add crates/alva-mcp/src/tool_adapter.rs
+git commit -m "refactor(alva-mcp): update McpToolAdapter to new Tool trait"
 ```
 
 ---
 
 ## Task 4: Migrate srow-core domain tool types (NO COMMIT — part of atomic batch)
 
-Replace `srow_core::domain::tool::{ToolCall, ToolResult, ToolDefinition}` with re-exports from agent-types.
+Replace `srow_core::domain::tool::{ToolCall, ToolResult, ToolDefinition}` with re-exports from alva-types.
 
 **IMPORTANT:** This task deliberately breaks compilation. Do NOT commit until Task 7 completes and the workspace compiles. Tasks 4-7 form a single atomic batch with one commit at the end.
 
@@ -443,13 +443,13 @@ Replace `srow_core::domain::tool::{ToolCall, ToolResult, ToolDefinition}` with r
 Replace the entire content of `crates/srow-core/src/domain/tool.rs` with:
 
 ```rust
-// Re-export canonical tool types from agent-types.
+// Re-export canonical tool types from alva-types.
 // All crates now use a single ToolCall, ToolResult, ToolDefinition.
 //
 // Breaking field changes:
 //   ToolResult: {tool_call_id, tool_name, output, ..} → {content, is_error, details}
 //   ToolCall:   .input → .arguments
-pub use agent_types::{ToolCall, ToolDefinition, ToolResult};
+pub use alva_types::{ToolCall, ToolDefinition, ToolResult};
 ```
 
 - [ ] **Step 2: Verify types/llm.rs compiles (it re-exports domain types)**
@@ -458,7 +458,7 @@ pub use agent_types::{ToolCall, ToolDefinition, ToolResult};
 ```rust
 pub use crate::domain::tool::{ToolCall, ToolDefinition, ToolResult};
 ```
-This will still compile since domain::tool now re-exports from agent-types. No change needed, but note that downstream consumers of `srow_core::types::llm::ToolCall` will see the `.input` → `.arguments` rename.
+This will still compile since domain::tool now re-exports from alva-types. No change needed, but note that downstream consumers of `srow_core::types::llm::ToolCall` will see the `.input` → `.arguments` rename.
 
 - [ ] **Step 3: DO NOT COMMIT — proceed directly to Task 5**
 
@@ -468,7 +468,7 @@ The workspace is intentionally broken at this point. Continue to Tasks 5-7 befor
 
 ## Task 5: Delete srow_core::ports::Tool, create SrowToolContext, update SecurityGuard (NO COMMIT)
 
-Remove the duplicate `Tool` trait and `ToolRegistry` from srow-core ports. Replace with a concrete `SrowToolContext` implementing `agent_types::ToolContext`. Also update `SecurityGuard` which uses the old concrete `ToolContext` struct.
+Remove the duplicate `Tool` trait and `ToolRegistry` from srow-core ports. Replace with a concrete `SrowToolContext` implementing `alva_types::ToolContext`. Also update `SecurityGuard` which uses the old concrete `ToolContext` struct.
 
 **Files:**
 - Modify: `crates/srow-core/src/ports/tool.rs`
@@ -480,12 +480,12 @@ Remove the duplicate `Tool` trait and `ToolRegistry` from srow-core ports. Repla
 Replace the entire content of `crates/srow-core/src/ports/tool.rs` with:
 
 ```rust
-// Re-export the canonical Tool trait and ToolRegistry from agent-types.
-pub use agent_types::{Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
+// Re-export the canonical Tool trait and ToolRegistry from alva-types.
+pub use alva_types::{Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
 
 /// Concrete runtime context for srow-core tool execution.
 ///
-/// Implements `agent_types::ToolContext` so that srow-core tools can
+/// Implements `alva_types::ToolContext` so that srow-core tools can
 /// access workspace path, session ID, and security flags.
 #[derive(Debug, Clone)]
 pub struct SrowToolContext {
@@ -494,7 +494,7 @@ pub struct SrowToolContext {
     pub allow_dangerous: bool,
 }
 
-impl agent_types::ToolContext for SrowToolContext {
+impl alva_types::ToolContext for SrowToolContext {
     fn workspace(&self) -> &std::path::Path {
         &self.workspace
     }
@@ -566,10 +566,10 @@ fn test_ctx() -> SrowToolContext {
 
 ## Task 6: Migrate all 9 standard tool implementations
 
-Each tool currently implements `srow_core::ports::tool::Tool` with signature `execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolResult, EngineError>`. We migrate to `agent_types::Tool` with signature `execute(&self, input: Value, cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError>`.
+Each tool currently implements `srow_core::ports::tool::Tool` with signature `execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolResult, EngineError>`. We migrate to `alva_types::Tool` with signature `execute(&self, input: Value, cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError>`.
 
 **Key changes per tool:**
-1. Replace `use crate::ports::tool::{Tool, ToolContext}` → `use agent_types::{Tool, ToolContext, ToolResult, ToolDefinition, CancellationToken, AgentError}`
+1. Replace `use crate::ports::tool::{Tool, ToolContext}` → `use alva_types::{Tool, ToolContext, ToolResult, ToolDefinition, CancellationToken, AgentError}`
 2. Remove `use crate::domain::tool::{ToolDefinition, ToolResult}`
 3. Remove `use crate::error::EngineError`
 4. Add `fn description()` and `fn parameters_schema()` methods
@@ -597,7 +597,7 @@ impl Tool for FooTool {
 }
 
 // NEW:
-use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolDefinition, ToolResult};
+use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolDefinition, ToolResult};
 
 #[async_trait]
 impl Tool for FooTool {
@@ -675,10 +675,10 @@ use crate::ports::tool::ToolRegistry;
 ```
 to:
 ```rust
-use agent_types::ToolRegistry;
+use alva_types::ToolRegistry;
 ```
 
-(This should work because `ports::tool` now re-exports `agent_types::ToolRegistry`, but using the canonical path is cleaner.)
+(This should work because `ports::tool` now re-exports `alva_types::ToolRegistry`, but using the canonical path is cleaner.)
 
 - [ ] **Step 11: Verify standard tools compile**
 
@@ -724,7 +724,7 @@ use crate::domain::tool::ToolDefinition;
 use crate::ports::tool::{Tool, ToolContext};
 
 // NEW
-use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolDefinition, ToolResult};
+use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolDefinition, ToolResult};
 ```
 
 Update `execute()` signature to include `_cancel: &CancellationToken, _ctx: &dyn ToolContext`.
@@ -736,7 +736,7 @@ Same pattern.
 
 - [ ] **Step 4: Migrate skill tools (skills/tools.rs)**
 
-Migrate `SearchSkillsTool` and `UseSkillTool` to `agent_types::Tool`.
+Migrate `SearchSkillsTool` and `UseSkillTool` to `alva_types::Tool`.
 
 - [ ] **Step 5: Migrate AcpDelegateTool (agent_client/delegate.rs)**
 
@@ -752,7 +752,7 @@ use crate::{
 };
 
 // NEW
-use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolDefinition, ToolResult};
+use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolDefinition, ToolResult};
 ```
 
 Update `execute()` signature:
@@ -774,7 +774,7 @@ Note: `AgentDelegate` trait's own methods still return `EngineError` — only th
 - [ ] **Step 6: Verify full srow-core compiles**
 
 Run: `cargo check -p srow-core`
-Expected: PASS — all tools now implement `agent_types::Tool`
+Expected: PASS — all tools now implement `alva_types::Tool`
 
 - [ ] **Step 7: Verify full workspace compiles**
 
@@ -787,10 +787,10 @@ This single commit covers all changes from Tasks 4, 5, 6, and 7. The workspace w
 
 ```bash
 git add crates/srow-core/
-git commit -m "refactor(srow-core): unify all tools on agent_types::Tool, delete duplicate traits and types
+git commit -m "refactor(srow-core): unify all tools on alva_types::Tool, delete duplicate traits and types
 
-- Replace domain::tool types with re-exports from agent-types
-- Delete ports::tool::Tool trait, add SrowToolContext implementing agent_types::ToolContext
+- Replace domain::tool types with re-exports from alva-types
+- Delete ports::tool::Tool trait, add SrowToolContext implementing alva_types::ToolContext
 - Migrate all 16 runtime tools + delegate tool + MCP adapters + skill tools
 - Update SecurityGuard to use dyn ToolContext
 - ToolResult: {output,tool_call_id,duration_ms} → {content,details}
@@ -799,19 +799,19 @@ git commit -m "refactor(srow-core): unify all tools on agent_types::Tool, delete
 
 ---
 
-## Task 8: Move Provider trait and ProviderError to agent-types
+## Task 8: Move Provider trait and ProviderError to alva-types
 
-The Provider trait only depends on types already in agent-types (all 8 model capability traits). Moving it eliminates the need for external crates to depend on srow-core just to implement a provider.
+The Provider trait only depends on types already in alva-types (all 8 model capability traits). Moving it eliminates the need for external crates to depend on srow-core just to implement a provider.
 
 **Files:**
-- Create: `crates/agent-types/src/provider.rs`
-- Modify: `crates/agent-types/src/lib.rs`
+- Create: `crates/alva-types/src/provider.rs`
+- Modify: `crates/alva-types/src/lib.rs`
 - Modify: `crates/srow-core/src/ports/provider/errors.rs`
 - Modify: `crates/srow-core/src/ports/provider/provider_registry.rs`
 - Modify: `crates/srow-core/src/ports/provider/mod.rs`
 - Modify: `crates/srow-core/src/lib.rs`
 
-- [ ] **Step 1: Create agent-types/src/provider.rs**
+- [ ] **Step 1: Create alva-types/src/provider.rs**
 
 Create the file with Provider trait, ProviderError, and ProviderRegistry — moved from srow-core:
 
@@ -1101,35 +1101,35 @@ impl Default for ProviderRegistry {
 }
 ```
 
-- [ ] **Step 2: Update agent-types lib.rs**
+- [ ] **Step 2: Update alva-types lib.rs**
 
-Add to `crates/agent-types/src/lib.rs`:
+Add to `crates/alva-types/src/lib.rs`:
 
 ```rust
 pub mod provider;
 pub use provider::{Provider, ProviderError, ProviderRegistry};
 ```
 
-- [ ] **Step 3: Verify agent-types compiles**
+- [ ] **Step 3: Verify alva-types compiles**
 
-Run: `cargo check -p agent-types`
+Run: `cargo check -p alva-types`
 Expected: PASS
 
 - [ ] **Step 4: Replace srow-core provider files with re-exports**
 
 `crates/srow-core/src/ports/provider/errors.rs`:
 ```rust
-pub use agent_types::ProviderError;
+pub use alva_types::ProviderError;
 ```
 
 `crates/srow-core/src/ports/provider/provider_registry.rs`:
 ```rust
-pub use agent_types::{Provider, ProviderRegistry};
+pub use alva_types::{Provider, ProviderRegistry};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_types::*;
+    use alva_types::*;
     use async_trait::async_trait;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -1221,7 +1221,7 @@ The existing line:
 ```rust
 pub use ports::provider::provider_registry::{Provider, ProviderRegistry};
 ```
-remains valid since it now re-exports from agent-types through the chain.
+remains valid since it now re-exports from alva-types through the chain.
 
 - [ ] **Step 6: Verify full workspace compiles**
 
@@ -1236,26 +1236,26 @@ Expected: PASS (3 tests)
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/agent-types/src/provider.rs crates/agent-types/src/lib.rs crates/srow-core/src/ports/provider/
-git commit -m "feat(agent-types): move Provider trait and ProviderError from srow-core"
+git add crates/alva-types/src/provider.rs crates/alva-types/src/lib.rs crates/srow-core/src/ports/provider/
+git commit -m "feat(alva-types): move Provider trait and ProviderError from srow-core"
 ```
 
 ---
 
-## Task 9: Make srow-core a Facade — re-export agent-core types
+## Task 9: Make srow-core a Facade — re-export alva-core types
 
-srow-app currently imports from `agent_core` and `agent_types` directly. We make srow-core re-export everything srow-app needs, so srow-app only depends on `srow-core` (+ `srow-debug` for debug infra).
+srow-app currently imports from `alva_core` and `alva_types` directly. We make srow-core re-export everything srow-app needs, so srow-app only depends on `srow-core` (+ `srow-debug` for debug infra).
 
 **Files:**
-- Modify: `crates/srow-core/Cargo.toml` — add `agent-core` dependency
-- Modify: `crates/srow-core/src/lib.rs` — add agent-core re-exports
+- Modify: `crates/srow-core/Cargo.toml` — add `alva-core` dependency
+- Modify: `crates/srow-core/src/lib.rs` — add alva-core re-exports
 
-- [ ] **Step 1: Add agent-core to srow-core dependencies**
+- [ ] **Step 1: Add alva-core to srow-core dependencies**
 
 In `crates/srow-core/Cargo.toml`, under `[dependencies]`:
 
 ```toml
-agent-core = { path = "../agent-core" }
+alva-core = { path = "../alva-core" }
 ```
 
 - [ ] **Step 2: Add re-exports to srow-core lib.rs**
@@ -1263,19 +1263,19 @@ agent-core = { path = "../agent-core" }
 Add to `crates/srow-core/src/lib.rs`:
 
 ```rust
-// Re-export agent-core types for UI layer consumption.
-// Note: agent-core's AgentConfig is renamed to avoid collision with domain::agent::AgentConfig.
-pub use agent_core::{Agent, AgentConfig as AgentHookConfig, AgentEvent, AgentMessage};
-pub use agent_core::types::AgentContext;
+// Re-export alva-core types for UI layer consumption.
+// Note: alva-core's AgentConfig is renamed to avoid collision with domain::agent::AgentConfig.
+pub use alva_core::{Agent, AgentConfig as AgentHookConfig, AgentEvent, AgentMessage};
+pub use alva_core::types::AgentContext;
 ```
 
 Note: `srow_core::domain::agent::AgentConfig` already exists (agent instance config), so we alias the hook config as `AgentHookConfig`.
 
-Also ensure agent-types types are re-exported (they already are via `pub use agent_types;`):
+Also ensure alva-types types are re-exported (they already are via `pub use alva_types;`):
 
 ```rust
 // Already existing, but verify these are accessible:
-// pub use agent_types;  ← existing line covers all agent-types types
+// pub use alva_types;  ← existing line covers all alva-types types
 ```
 
 - [ ] **Step 3: Verify srow-core compiles**
@@ -1287,14 +1287,14 @@ Expected: PASS
 
 ```bash
 git add crates/srow-core/Cargo.toml crates/srow-core/src/lib.rs
-git commit -m "feat(srow-core): re-export agent-core types as Facade for UI layer"
+git commit -m "feat(srow-core): re-export alva-core types as Facade for UI layer"
 ```
 
 ---
 
 ## Task 10: Update srow-app to import through srow-core Facade
 
-Remove direct dependencies on `agent-types`, `agent-core`, and `agent-graph` from srow-app.
+Remove direct dependencies on `alva-types`, `alva-core`, and `alva-graph` from srow-app.
 
 **Files:**
 - Modify: `crates/srow-app/Cargo.toml`
@@ -1305,24 +1305,24 @@ Remove direct dependencies on `agent-types`, `agent-core`, and `agent-graph` fro
 
 Remove these lines from `[dependencies]`:
 ```toml
-agent-types = { path = "../agent-types" }
-agent-core = { path = "../agent-core" }
-agent-graph = { path = "../agent-graph" }
+alva-types = { path = "../alva-types" }
+alva-core = { path = "../alva-core" }
+alva-graph = { path = "../alva-graph" }
 ```
 
 - [ ] **Step 2: Update gpui_chat.rs imports**
 
 Change:
 ```rust
-use agent_types::{
+use alva_types::{
     AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
-use agent_core::{AgentConfig, AgentContext, AgentEvent, AgentMessage};
+use alva_core::{AgentConfig, AgentContext, AgentEvent, AgentMessage};
 ```
 
 To:
 ```rust
-use srow_core::agent_types::{
+use srow_core::alva_types::{
     AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
 use srow_core::{AgentHookConfig, AgentContext, AgentEvent, AgentMessage};
@@ -1333,7 +1333,7 @@ Also update usages of `AgentConfig` → `AgentHookConfig` in the body:
 let agent_config = AgentHookConfig::new(Arc::new(|ctx: &AgentContext<'_>| { ... }));
 ```
 
-And update `agent_core::Agent` → `srow_core::Agent`:
+And update `alva_core::Agent` → `srow_core::Agent`:
 ```rust
 let agent = srow_core::Agent::new(model, "You are a helpful assistant.", agent_config);
 ```
@@ -1342,13 +1342,13 @@ let agent = srow_core::Agent::new(model, "You are a helpful assistant.", agent_c
 
 Change:
 ```rust
-use agent_types::MessageRole;
-use agent_core::AgentMessage;
+use alva_types::MessageRole;
+use alva_core::AgentMessage;
 ```
 
 To:
 ```rust
-use srow_core::agent_types::MessageRole;
+use srow_core::alva_types::MessageRole;
 use srow_core::AgentMessage;
 ```
 
@@ -1386,20 +1386,20 @@ Expected: PASS
 - [ ] **Step 3: Verify dependency graph is clean**
 
 Run: `cargo tree -p srow-app --depth 1`
-Expected: srow-app should NOT show agent-types, agent-core, or agent-graph as direct dependencies (they appear only as transitive deps through srow-core).
+Expected: srow-app should NOT show alva-types, alva-core, or alva-graph as direct dependencies (they appear only as transitive deps through srow-core).
 
 - [ ] **Step 4: Remove TODO comments**
 
 Search for and remove old migration TODO comments in:
-- `crates/srow-core/src/ports/tool.rs` (old TODO about migrating to agent-types)
+- `crates/srow-core/src/ports/tool.rs` (old TODO about migrating to alva-types)
 - `crates/srow-core/src/domain/tool.rs` (old TODO about migrating)
-- Any other files with "TODO: Migrate to agent-types" comments
+- Any other files with "TODO: Migrate to alva-types" comments
 
 - [ ] **Step 5: Update AGENTS.md files**
 
 Update the AGENTS.md files in affected crates to reflect the new architecture:
-- `crates/agent-types/src/AGENTS.md` — mention Tool, ToolContext, Provider, ProviderError
-- `crates/agent-core/src/AGENTS.md` — mention ToolContext passing
+- `crates/alva-types/src/AGENTS.md` — mention Tool, ToolContext, Provider, ProviderError
+- `crates/alva-core/src/AGENTS.md` — mention ToolContext passing
 - `crates/srow-core/src/AGENTS.md` — mention SrowToolContext, Facade pattern
 
 - [ ] **Step 6: Final commit**

@@ -1,7 +1,6 @@
-// INPUT:  thiserror, std::io
+// INPUT:  thiserror, std::io, alva_memory::MemoryError
 // OUTPUT: EngineError, SkillError
-// POS:    Defines the two root error enums for the engine subsystem and skill subsystem.
-//         ChatError and StreamError removed (depended on deleted ui_message/ui_message_stream).
+// POS:    Defines the two root error enums for the engine and skill subsystems, with From<MemoryError> conversion.
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -46,8 +45,8 @@ pub enum EngineError {
     Cancelled,
 }
 
-impl From<agent_memory::MemoryError> for EngineError {
-    fn from(e: agent_memory::MemoryError) -> Self {
+impl From<alva_memory::MemoryError> for EngineError {
+    fn from(e: alva_memory::MemoryError) -> Self {
         EngineError::Storage(e.to_string())
     }
 }

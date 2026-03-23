@@ -1,18 +1,18 @@
-// INPUT:  agent_core, agent_types, agent_tools, agent_security, agent_memory, agent_runtime, crate::skills, crate::mcp
+// INPUT:  alva_core, alva_types, alva_tools, alva_security, alva_memory, alva_runtime, crate::skills, crate::mcp
 // OUTPUT: BaseAgent, BaseAgentBuilder
 // POS:    Pre-wired batteries-included agent -- auto-composes tools, security, compression, skill injection, MCP.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agent_core::middleware::MiddlewareStack;
-use agent_core::{Agent, AgentHooks, AgentMessage, AgentContext, ConvertToLlmFn};
-use agent_core::event::AgentEvent;
-use agent_core::middleware::{Middleware, CompressionMiddleware, CompressionConfig};
-use agent_runtime::middleware::SecurityMiddleware;
-use agent_security::SandboxMode;
-use agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
-use agent_types::{LanguageModel, Message, ModelConfig, Tool, ToolRegistry};
+use alva_core::middleware::MiddlewareStack;
+use alva_core::{Agent, AgentHooks, AgentMessage, AgentContext, ConvertToLlmFn};
+use alva_core::event::AgentEvent;
+use alva_core::middleware::{Middleware, CompressionMiddleware, CompressionConfig};
+use alva_runtime::middleware::SecurityMiddleware;
+use alva_security::SandboxMode;
+use alva_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
+use alva_types::{LanguageModel, Message, ModelConfig, Tool, ToolRegistry};
 
 use crate::skills::store::SkillStore;
 use crate::skills::loader::SkillLoader;
@@ -235,9 +235,9 @@ impl BaseAgentBuilder {
         // 2. Create ToolRegistry and populate with builtin/browser tools
         let mut tool_registry = ToolRegistry::new();
         if self.enable_browser {
-            agent_tools::register_all_tools(&mut tool_registry);
+            alva_tools::register_all_tools(&mut tool_registry);
         } else {
-            agent_tools::register_builtin_tools(&mut tool_registry);
+            alva_tools::register_builtin_tools(&mut tool_registry);
         }
 
         // 3. Register extra custom tools in the registry
@@ -248,18 +248,18 @@ impl BaseAgentBuilder {
         // 4. Build Arc<dyn Tool> list for the agent (definitions from registry)
         //    We create a fresh set of tools for the agent because ToolRegistry
         //    owns Box<dyn Tool> while Agent needs Vec<Arc<dyn Tool>>.
-        let mut agent_tools_list: Vec<Arc<dyn Tool>> = Vec::new();
+        let mut alva_tools_list: Vec<Arc<dyn Tool>> = Vec::new();
         {
             let mut tmp_registry = ToolRegistry::new();
             if self.enable_browser {
-                agent_tools::register_all_tools(&mut tmp_registry);
+                alva_tools::register_all_tools(&mut tmp_registry);
             } else {
-                agent_tools::register_builtin_tools(&mut tmp_registry);
+                alva_tools::register_builtin_tools(&mut tmp_registry);
             }
             // Extract tools from the temporary registry by draining it
             for def in tmp_registry.definitions() {
                 if let Some(tool) = tmp_registry.remove(&def.name) {
-                    agent_tools_list.push(Arc::from(tool));
+                    alva_tools_list.push(Arc::from(tool));
                 }
             }
         }
@@ -352,7 +352,7 @@ impl BaseAgentBuilder {
         let agent = Agent::new(model, &self.system_prompt, hooks);
 
         // 10. Set tools on the agent
-        agent.set_tools(agent_tools_list).await;
+        agent.set_tools(alva_tools_list).await;
 
         // 11. Optionally create MemoryService
         let memory = if self.enable_memory {

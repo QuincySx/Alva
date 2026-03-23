@@ -6,47 +6,47 @@
 
 **Architecture:** Each fix is independent and targets a specific crate. Fixes are ordered by priority (P0→P1→P2). All changes maintain backward compatibility through defaults.
 
-**Tech Stack:** Rust, tokio, async-trait, serde, agent-types, agent-core, agent-graph, srow-core
+**Tech Stack:** Rust, tokio, async-trait, serde, alva-types, alva-core, alva-graph, srow-core
 
 ---
 
 ## File Structure
 
 ### Fix 1 (P0): Pregel State Merging
-- Modify: `crates/agent-graph/src/graph.rs` — add `set_merge()` to StateGraph, pass merge_fn to CompiledGraph
-- Modify: `crates/agent-graph/src/pregel.rs` — use merge_fn in parallel superstep, add tests
+- Modify: `crates/alva-graph/src/graph.rs` — add `set_merge()` to StateGraph, pass merge_fn to CompiledGraph
+- Modify: `crates/alva-graph/src/pregel.rs` — use merge_fn in parallel superstep, add tests
 
 ### Fix 2 (P1): Provider Registry
-- Modify: `crates/srow-core/src/ports/provider/provider_registry.rs` — rebuild with agent_types::LanguageModel
+- Modify: `crates/srow-core/src/ports/provider/provider_registry.rs` — rebuild with alva_types::LanguageModel
 - Modify: `crates/srow-core/src/ports/provider/mod.rs` — re-export new Provider + ProviderRegistry
 - Modify: `crates/srow-core/src/lib.rs` — add convenience re-exports
 
-### Fix 3 (P1): LLMMessage → agent_types::Message
-- Modify: `crates/srow-core/src/ports/storage.rs` — change trait to use agent_types::Message
-- Modify: `crates/srow-core/src/adapters/storage/memory.rs` — use agent_types::Message
-- Modify: `crates/srow-core/src/agent/persistence/sqlite.rs` — migrate serialization to agent_types types
+### Fix 3 (P1): LLMMessage → alva_types::Message
+- Modify: `crates/srow-core/src/ports/storage.rs` — change trait to use alva_types::Message
+- Modify: `crates/srow-core/src/adapters/storage/memory.rs` — use alva_types::Message
+- Modify: `crates/srow-core/src/agent/persistence/sqlite.rs` — migrate serialization to alva_types types
 - Modify: `crates/srow-core/src/types/llm.rs` — remove LLMMessage re-exports
 - Modify: `crates/srow-core/src/lib.rs` — remove LLMMessage-based re-exports
 - Modify: `crates/srow-core/src/domain/message.rs` — reduce to ImageSource shim (LLMMessage/LLMContent/Role removed)
-- Modify: `crates/agent-types/src/content.rs` — add serde alias for backward-compatible SQLite deserialization
+- Modify: `crates/alva-types/src/content.rs` — add serde alias for backward-compatible SQLite deserialization
 
 ### Fix 4 (P2): Streaming Placeholder
-- Modify: `crates/agent-core/src/agent_loop.rs` — build partial Message from accumulated state
+- Modify: `crates/alva-core/src/agent_loop.rs` — build partial Message from accumulated state
 
 ### Fix 5 (P2): tool_executor Comment Cleanup
-- Modify: `crates/agent-core/src/tool_executor.rs` — clarify the comment as intentional design
+- Modify: `crates/alva-core/src/tool_executor.rs` — clarify the comment as intentional design
 
 ---
 
 ## Task 1: Pregel Parallel State Merging (P0)
 
 **Files:**
-- Modify: `crates/agent-graph/src/graph.rs`
-- Modify: `crates/agent-graph/src/pregel.rs`
+- Modify: `crates/alva-graph/src/graph.rs`
+- Modify: `crates/alva-graph/src/pregel.rs`
 
 - [ ] **Step 1: Write failing test for parallel merge**
 
-In `crates/agent-graph/src/pregel.rs`, add this test at the end of `mod tests`:
+In `crates/alva-graph/src/pregel.rs`, add this test at the end of `mod tests`:
 
 ```rust
 #[tokio::test]
@@ -104,13 +104,13 @@ async fn parallel_fan_out_with_merge() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-graph parallel_fan_out_with_merge`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-graph parallel_fan_out_with_merge`
 
 Expected: Compilation error — `set_merge` method does not exist.
 
 - [ ] **Step 3: Add merge_fn to StateGraph and CompiledGraph**
 
-In `crates/agent-graph/src/graph.rs`, add `merge_fn` field to `StateGraph`:
+In `crates/alva-graph/src/graph.rs`, add `merge_fn` field to `StateGraph`:
 
 ```rust
 pub(crate) type MergeFn<S> = Box<dyn Fn(S, Vec<S>) -> S + Send + Sync>;
@@ -156,7 +156,7 @@ Ok(CompiledGraph {
 })
 ```
 
-In `crates/agent-graph/src/pregel.rs`, add field to `CompiledGraph<S>`:
+In `crates/alva-graph/src/pregel.rs`, add field to `CompiledGraph<S>`:
 ```rust
 pub struct CompiledGraph<S> {
     pub(crate) nodes: HashMap<String, NodeFn<S>>,
@@ -173,7 +173,7 @@ Update the `Debug` impl to include `has_merge_fn`:
 
 - [ ] **Step 4: Implement merge logic in invoke()**
 
-In `crates/agent-graph/src/pregel.rs`, replace the parallel superstep block (lines 63-90) with:
+In `crates/alva-graph/src/pregel.rs`, replace the parallel superstep block (lines 63-90) with:
 
 ```rust
 } else {
@@ -218,7 +218,7 @@ In `crates/agent-graph/src/pregel.rs`, replace the parallel superstep block (lin
 
 - [ ] **Step 5: Update pregel.rs imports**
 
-In `crates/agent-graph/src/pregel.rs`, update the existing import line 7 to include `MergeFn`:
+In `crates/alva-graph/src/pregel.rs`, update the existing import line 7 to include `MergeFn`:
 
 ```rust
 use crate::graph::{Edge, MergeFn, NodeFn, END};
@@ -226,13 +226,13 @@ use crate::graph::{Edge, MergeFn, NodeFn, END};
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-graph parallel_fan_out_with_merge`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-graph parallel_fan_out_with_merge`
 
 Expected: PASS
 
-- [ ] **Step 7: Run all agent-graph tests**
+- [ ] **Step 7: Run all alva-graph tests**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-graph`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-graph`
 
 Expected: All tests pass (existing tests should still pass since merge_fn defaults to None).
 
@@ -240,13 +240,13 @@ Expected: All tests pass (existing tests should still pass since merge_fn defaul
 
 Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo check 2>&1 | head -30`
 
-Expected: No new errors (agent-graph is used by srow-app, verify no downstream breakage).
+Expected: No new errors (alva-graph is used by srow-app, verify no downstream breakage).
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add crates/agent-graph/src/graph.rs crates/agent-graph/src/pregel.rs
-git commit -m "feat(agent-graph): implement merge_fn for parallel superstep state merging
+git add crates/alva-graph/src/graph.rs crates/alva-graph/src/pregel.rs
+git commit -m "feat(alva-graph): implement merge_fn for parallel superstep state merging
 
 Adds set_merge() to StateGraph, enabling proper state combination when
 multiple nodes execute in a parallel BSP superstep. Without a merge
@@ -278,7 +278,7 @@ Replace the contents of `crates/srow-core/src/ports/provider/provider_registry.r
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use agent_types::LanguageModel;
+use alva_types::LanguageModel;
 
 use super::errors::ProviderError;
 
@@ -354,7 +354,7 @@ impl Default for ProviderRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_types::*;
+    use alva_types::*;
     use async_trait::async_trait;
     use std::pin::Pin;
 
@@ -463,7 +463,7 @@ Expected: No new errors.
 
 ```bash
 git add crates/srow-core/src/ports/provider/provider_registry.rs crates/srow-core/src/ports/provider/mod.rs crates/srow-core/src/lib.rs
-git commit -m "feat(srow-core): rebuild Provider registry on agent_types::LanguageModel
+git commit -m "feat(srow-core): rebuild Provider registry on alva_types::LanguageModel
 
 Replaces the commented-out V4 Provider trait with a minimal registry
 that produces Arc<dyn LanguageModel> instances. Embedding/image/speech
@@ -472,7 +472,7 @@ model factories can be added later as needed."
 
 ---
 
-## Task 3: Unify LLMMessage → agent_types::Message (P1)
+## Task 3: Unify LLMMessage → alva_types::Message (P1)
 
 **Files:**
 - Modify: `crates/srow-core/src/ports/storage.rs`
@@ -486,7 +486,7 @@ model factories can be added later as needed."
 
 The old `LLMContent::ToolResult` serialized as `{"tool_use_id": "..."}` while `ContentBlock::ToolResult` uses `{"id": "..."}`. Existing SQLite data would silently lose content without this alias.
 
-In `crates/agent-types/src/content.rs`, add the serde alias to `ToolResult::id`:
+In `crates/alva-types/src/content.rs`, add the serde alias to `ToolResult::id`:
 
 ```rust
     #[serde(rename = "tool_result")]
@@ -505,7 +505,7 @@ This ensures both `"id"` and `"tool_use_id"` are accepted during deserialization
 Replace `crates/srow-core/src/ports/storage.rs` with:
 
 ```rust
-use agent_types::Message;
+use alva_types::Message;
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use async_trait::async_trait;
@@ -533,7 +533,7 @@ pub trait SessionStorage: Send + Sync {
 Replace `crates/srow-core/src/adapters/storage/memory.rs` with:
 
 ```rust
-use agent_types::Message;
+use alva_types::Message;
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use crate::ports::storage::SessionStorage;
@@ -628,7 +628,7 @@ In `crates/srow-core/src/agent/persistence/sqlite.rs`:
 
 Replace imports:
 ```rust
-use agent_types::{ContentBlock, Message, MessageRole, UsageMetadata};
+use alva_types::{ContentBlock, Message, MessageRole, UsageMetadata};
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use crate::ports::storage::SessionStorage;
@@ -742,12 +742,12 @@ async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, EngineErr
 Replace `crates/srow-core/src/domain/message.rs` with a re-export shim that avoids breaking downstream code during gradual migration:
 
 ```rust
-// Migrated to agent_types::Message.
-// This module is kept temporarily for ImageSource which has no equivalent in agent-types yet.
+// Migrated to alva_types::Message.
+// This module is kept temporarily for ImageSource which has no equivalent in alva-types yet.
 
 use serde::{Deserialize, Serialize};
 
-/// Image source type — retained until agent-types adds Image support with source metadata.
+/// Image source type — retained until alva-types adds Image support with source metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageSource {
@@ -761,7 +761,7 @@ pub enum ImageSource {
 Replace `crates/srow-core/src/types/llm.rs` with:
 
 ```rust
-//! LLM-related types — re-exported from agent-types and domain
+//! LLM-related types — re-exported from alva-types and domain
 pub use crate::domain::message::ImageSource;
 pub use crate::domain::tool::{ToolCall, ToolDefinition, ToolResult};
 ```
@@ -784,7 +784,7 @@ Replace the test functions in `crates/srow-core/src/agent/persistence/sqlite.rs`
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_types::{ContentBlock, Message, MessageRole};
+    use alva_types::{ContentBlock, Message, MessageRole};
     use crate::domain::session::{Session, SessionStatus};
 
     fn sample_session() -> Session {
@@ -893,11 +893,11 @@ Fix any remaining compilation errors from callers of the old `LLMMessage` type.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add crates/agent-types/src/content.rs crates/srow-core/src/ports/storage.rs crates/srow-core/src/adapters/storage/memory.rs crates/srow-core/src/agent/persistence/sqlite.rs crates/srow-core/src/domain/message.rs crates/srow-core/src/types/llm.rs
-git commit -m "refactor(srow-core): migrate SessionStorage from LLMMessage to agent_types::Message
+git add crates/alva-types/src/content.rs crates/srow-core/src/ports/storage.rs crates/srow-core/src/adapters/storage/memory.rs crates/srow-core/src/agent/persistence/sqlite.rs crates/srow-core/src/domain/message.rs crates/srow-core/src/types/llm.rs
+git commit -m "refactor(srow-core): migrate SessionStorage from LLMMessage to alva_types::Message
 
 Unifies the message type across the stack. The storage layer now uses
-agent_types::Message directly, eliminating the dual LLMMessage/Message
+alva_types::Message directly, eliminating the dual LLMMessage/Message
 representation. Adds serde alias on ContentBlock::ToolResult::id to
 accept legacy 'tool_use_id' from existing SQLite data. SQLite schema
 is unchanged (turn_index column now stores timestamp as tech debt,
@@ -909,11 +909,11 @@ token_count maps to usage.total_tokens)."
 ## Task 4: Fix Streaming Placeholder (P2)
 
 **Files:**
-- Modify: `crates/agent-core/src/agent_loop.rs`
+- Modify: `crates/alva-core/src/agent_loop.rs`
 
 - [ ] **Step 1: Write test for partial message in MessageUpdate**
 
-In `crates/agent-core/src/agent_loop.rs` `mod tests`, add:
+In `crates/alva-core/src/agent_loop.rs` `mod tests`, add:
 
 ```rust
 #[tokio::test]
@@ -995,13 +995,13 @@ async fn test_streaming_emits_partial_message() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-core test_streaming_emits_partial_message`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-core test_streaming_emits_partial_message`
 
 Expected: FAIL — partial messages are `Custom { type_name: "stream_placeholder" }`, not `Standard(Message)`.
 
 - [ ] **Step 3: Fix stream_llm_response to emit partial messages**
 
-In `crates/agent-core/src/agent_loop.rs`, replace the `MessageUpdate` emit block (around line 279-286) with:
+In `crates/alva-core/src/agent_loop.rs`, replace the `MessageUpdate` emit block (around line 279-286) with:
 
 ```rust
         // Build partial message from accumulated state so far
@@ -1039,13 +1039,13 @@ In `crates/agent-core/src/agent_loop.rs`, replace the `MessageUpdate` emit block
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-core test_streaming_emits_partial_message`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-core test_streaming_emits_partial_message`
 
 Expected: PASS
 
-- [ ] **Step 5: Run all agent-core tests**
+- [ ] **Step 5: Run all alva-core tests**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-core`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-core`
 
 Expected: All tests pass.
 
@@ -1058,8 +1058,8 @@ Expected: No new errors.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/agent-core/src/agent_loop.rs
-git commit -m "fix(agent-core): emit partial Message in streaming MessageUpdate events
+git add crates/alva-core/src/agent_loop.rs
+git commit -m "fix(alva-core): emit partial Message in streaming MessageUpdate events
 
 Replaces the stream_placeholder with a real partial Message built from
 accumulated text/reasoning/tool_call deltas. UI can now reconstruct
@@ -1071,11 +1071,11 @@ message state from streaming events without waiting for MessageEnd."
 ## Task 5: Clean Up tool_executor Comment (P2)
 
 **Files:**
-- Modify: `crates/agent-core/src/tool_executor.rs`
+- Modify: `crates/alva-core/src/tool_executor.rs`
 
 - [ ] **Step 1: Replace the misleading comment**
 
-In `crates/agent-core/src/tool_executor.rs`, replace lines 116-121:
+In `crates/alva-core/src/tool_executor.rs`, replace lines 116-121:
 
 ```rust
             // Note: after_tool_call hook cannot access AgentContext in the
@@ -1096,17 +1096,17 @@ with:
             // to avoid Send requirements on borrowed references.
 ```
 
-- [ ] **Step 2: Run agent-core tests**
+- [ ] **Step 2: Run alva-core tests**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p agent-core`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-core`
 
 Expected: All tests pass (comment-only change).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/agent-core/src/tool_executor.rs
-git commit -m "docs(agent-core): clarify parallel tool hook design as intentional
+git add crates/alva-core/src/tool_executor.rs
+git commit -m "docs(alva-core): clarify parallel tool hook design as intentional
 
 The after_tool_call hooks running after join is a deliberate design
 choice, not a limitation to be fixed. Updated comment to reflect this."

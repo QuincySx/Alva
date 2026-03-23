@@ -2,7 +2,7 @@
 
 ## Overview
 
-Restructure srow-agent's engine from a monolithic `srow-core` into a three-layer architecture inspired by pi-agent-core (minimal loop engine) and LangGraph (graph execution + orchestration). Rename `srow-ai` to `agent-base`.
+Restructure srow-agent's engine from a monolithic `srow-core` into a three-layer architecture inspired by pi-alva-core (minimal loop engine) and LangGraph (graph execution + orchestration). Rename `srow-ai` to `agent-base`.
 
 The goal: separate stable infrastructure (types, traits) from the loop engine, from the graph/orchestration layer. Each layer is independently usable. Agent paradigms change fast — this structure lets us swap the top layers without touching the foundation.
 
@@ -11,16 +11,16 @@ The goal: separate stable infrastructure (types, traits) from the loop engine, f
 | Layer | pi-mono equivalent | LangGraph equivalent |
 |-------|-------------------|---------------------|
 | agent-base | pi-ai | langchain-core (messages, tools, models) |
-| agent-core | pi-agent-core (1,220 lines, 5 files) | langchain-core (Runnable) |
-| agent-graph | coding-agent's AgentSession | langgraph (StateGraph, Pregel, Checkpoint) |
+| alva-core | pi-alva-core (1,220 lines, 5 files) | langchain-core (Runnable) |
+| alva-graph | coding-agent's AgentSession | langgraph (StateGraph, Pregel, Checkpoint) |
 
 ## Crate Structure
 
 ```
 crates/
 ├── agent-base/       ← Foundation: types, traits, providers (stable, rarely changes)
-├── agent-core/       ← Loop engine: Agent + hooks + events (small, focused)
-├── agent-graph/      ← Graph execution + orchestration (checkpoint, sub-agent, retry, compaction)
+├── alva-core/       ← Loop engine: Agent + hooks + events (small, focused)
+├── alva-graph/      ← Graph execution + orchestration (checkpoint, sub-agent, retry, compaction)
 ├── srow-core/        ← Slimmed: MCP, environment, security, domain logic (app-specific)
 ├── srow-app/         ← UI application (unchanged)
 └── srow-debug/       ← Debug server (unchanged)
@@ -31,11 +31,11 @@ crates/
 ```
 agent-base          ← zero engine dependency
     ↑
-agent-core          ← depends only on agent-base
+alva-core          ← depends only on agent-base
     ↑
-agent-graph         ← depends on agent-core + agent-base
+alva-graph         ← depends on alva-core + agent-base
     ↑
-srow-core           ← depends on agent-graph (or agent-core directly)
+srow-core           ← depends on alva-graph (or alva-core directly)
     ↑
 srow-app            ← depends on srow-core
 ```
@@ -43,8 +43,8 @@ srow-app            ← depends on srow-core
 ### Usage Patterns
 
 ```
-Simple agent (linear loop):     agent-base + agent-core
-Complex agent (graph/orchestration): agent-base + agent-core + agent-graph
+Simple agent (linear loop):     agent-base + alva-core
+Complex agent (graph/orchestration): agent-base + alva-core + alva-graph
 Full application:               all crates
 ```
 
@@ -174,14 +174,14 @@ enum StreamEvent {
 
 ---
 
-## agent-core (new crate)
+## alva-core (new crate)
 
-Minimal loop engine. Target: ~1,200 lines, 5-6 files. Modeled on pi-agent-core.
+Minimal loop engine. Target: ~1,200 lines, 5-6 files. Modeled on pi-alva-core.
 
 ### File Structure
 
 ```
-crates/agent-core/src/
+crates/alva-core/src/
 ├── lib.rs
 ├── types.rs            ← AgentState, AgentConfig, AgentEvent, CancellationToken
 ├── agent.rs            ← Agent class: state + event subscription + steering/followUp queues
@@ -247,7 +247,7 @@ enum AgentEvent {
 }
 ```
 
-### Double-Loop Execution (from pi-agent-core)
+### Double-Loop Execution (from pi-alva-core)
 
 ```
 agent_loop(prompt, context, config):
@@ -324,14 +324,14 @@ Upper layer decides how to convert `Custom` to LLM `Message` via the `convert_to
 
 ---
 
-## agent-graph (new crate)
+## alva-graph (new crate)
 
-Graph execution + orchestration. The LangGraph equivalent, built on top of agent-core.
+Graph execution + orchestration. The LangGraph equivalent, built on top of alva-core.
 
 ### File Structure
 
 ```
-crates/agent-graph/src/
+crates/alva-graph/src/
 ├── lib.rs
 │
 │  ── Graph Execution (from LangGraph) ──
@@ -421,7 +421,7 @@ impl<S> Pregel<S> {
 
 ### AgentSession
 
-Wraps `Agent` (from agent-core) or `CompiledGraph` (from graph execution) with orchestration:
+Wraps `Agent` (from alva-core) or `CompiledGraph` (from graph execution) with orchestration:
 
 ```rust
 struct AgentSession {
@@ -486,7 +486,7 @@ SQLite/Postgres implementations live in separate crates (same pattern as LangGra
 
 ### Sub-Agent Scheduling
 
-Sub-agents are tools — registered via agent-core's Tool trait. DeerFlow's `task_tool` pattern:
+Sub-agents are tools — registered via alva-core's Tool trait. DeerFlow's `task_tool` pattern:
 
 ```rust
 struct SubAgentConfig {
@@ -513,7 +513,7 @@ enum SubAgentTools {
 
 `create_task_tool()` creates a Tool that:
 1. Looks up `SubAgentConfig` by `subagent_type` parameter
-2. Spawns a new `agent-core::Agent` (isolated messages, shared sandbox)
+2. Spawns a new `alva-core::Agent` (isolated messages, shared sandbox)
 3. Removes `disallowed_tools` (prevents recursive nesting)
 4. Runs the sub-agent loop, collects result
 5. Returns result as `ToolResult`
@@ -539,7 +539,7 @@ impl TransformPipeline {
 }
 ```
 
-Plugs into agent-core's `transform_context` hook.
+Plugs into alva-core's `transform_context` hook.
 
 ---
 
@@ -568,8 +568,8 @@ crates/srow-core/src/
 
 | Current location | Destination | Notes |
 |-----------------|-------------|-------|
-| `agent/runtime/engine/` | agent-core | Loop, context manager |
-| `agent/orchestrator/` | agent-graph | Orchestration logic |
+| `agent/runtime/engine/` | alva-core | Loop, context manager |
+| `agent/orchestrator/` | alva-graph | Orchestration logic |
 | `domain/message.rs` | agent-base | `LLMMessage` types |
 | `ports/provider/language_model.rs` | agent-base | `LanguageModel` trait |
 | `ports/provider/types.rs` | agent-base | Provider types |
@@ -596,7 +596,7 @@ crates/srow-core/src/
 | `agent/memory/` | Embedding memory (app-specific) |
 | `agent/persistence/` | Session persistence + migrations |
 | `agent/session/` | Session management |
-| `agent/runtime/security/` | Permission guard (plugs into agent-core via `before_tool_call` hook) |
+| `agent/runtime/security/` | Permission guard (plugs into alva-core via `before_tool_call` hook) |
 | `adapters/storage/` | In-memory/SQLite storage implementations |
 | `domain/` (except `message.rs`) | Session, Agent config, Workspace types |
 | `gateway/`, `base/`, `system/` | App infrastructure (stays or removed if unused) |
@@ -604,15 +604,15 @@ crates/srow-core/src/
 
 ### Design decisions
 
-**Orchestrator replacement**: The existing `agent/orchestrator/` (brain/reviewer/explorer architecture) is **replaced** by agent-graph's sub-agent model (DeerFlow's task tool pattern). The old orchestrator code is not adapted — it is removed when agent-graph is ready.
+**Orchestrator replacement**: The existing `agent/orchestrator/` (brain/reviewer/explorer architecture) is **replaced** by alva-graph's sub-agent model (DeerFlow's task tool pattern). The old orchestrator code is not adapted — it is removed when alva-graph is ready.
 
-**SessionStorage decoupling**: The current engine loop calls `self.storage.append_message()` directly. In the new design, agent-core's `Agent` has no storage concept. Persistence is handled by subscribing to `AgentEvent::MessageEnd` in the upper layer (srow-core or srow-app), similar to pi-mono's coding-agent pattern.
+**SessionStorage decoupling**: The current engine loop calls `self.storage.append_message()` directly. In the new design, alva-core's `Agent` has no storage concept. Persistence is handled by subscribing to `AgentEvent::MessageEnd` in the upper layer (srow-core or srow-app), similar to pi-mono's coding-agent pattern.
 
 **Provider trait split** (future): When non-LLM model traits eventually move to agent-base, the `Provider` trait will be split into `LanguageModelProvider` (agent-base) and `MultiModalProvider` (srow-core or agent-base). For now it stays in srow-core intact.
 
 ### Security integration pattern
 
-srow-core's permission guard (`security/`) integrates with agent-core through the `before_tool_call` hook:
+srow-core's permission guard (`security/`) integrates with alva-core through the `before_tool_call` hook:
 
 ```rust
 // In srow-core, when creating an Agent:
@@ -672,7 +672,7 @@ impl Tool for AppToolWrapper {
 
 ---
 
-## agent-graph AgentSession — dual mode
+## alva-graph AgentSession — dual mode
 
 `AgentSession` wraps either a linear `Agent` or a `CompiledGraph`:
 
@@ -697,8 +697,8 @@ Both modes share the same retry/compaction/checkpoint orchestration. The `prompt
 ## Migration Strategy
 
 Phase 1: Create agent-base (rename srow-ai, extract types/traits from srow-core, resolve circular dep)
-Phase 2: Create agent-core (extract engine loop from srow-core)
-Phase 3: Create agent-graph (new code + extract orchestrator from srow-core)
+Phase 2: Create alva-core (extract engine loop from srow-core)
+Phase 3: Create alva-graph (new code + extract orchestrator from srow-core)
 Phase 4: Slim srow-core (remove extracted code, update imports)
 Phase 5: Update srow-app imports
 

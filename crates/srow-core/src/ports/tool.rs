@@ -1,4 +1,7 @@
-pub use agent_types::{LocalToolContext, Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
+// INPUT:  alva_types (LocalToolContext, Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult)
+// OUTPUT: SrowToolContext, re-exports of alva_types tool types
+// POS:    Port re-exports + SrowToolContext concrete impl that bridges both ToolContext and LocalToolContext for the srow application layer.
+pub use alva_types::{LocalToolContext, Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
 
 #[derive(Debug, Clone)]
 pub struct SrowToolContext {
@@ -7,7 +10,7 @@ pub struct SrowToolContext {
     pub allow_dangerous: bool,
 }
 
-impl agent_types::ToolContext for SrowToolContext {
+impl alva_types::ToolContext for SrowToolContext {
     fn session_id(&self) -> &str {
         &self.session_id
     }
@@ -17,12 +20,12 @@ impl agent_types::ToolContext for SrowToolContext {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn local(&self) -> Option<&dyn agent_types::LocalToolContext> {
+    fn local(&self) -> Option<&dyn alva_types::LocalToolContext> {
         Some(self)
     }
 }
 
-impl agent_types::LocalToolContext for SrowToolContext {
+impl alva_types::LocalToolContext for SrowToolContext {
     fn workspace(&self) -> &std::path::Path {
         &self.workspace
     }

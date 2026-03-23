@@ -1,4 +1,4 @@
-// INPUT:  std::sync, agent_types, crate::skills::{loader, store}, async_trait, serde, serde_json
+// INPUT:  std::sync, alva_types, crate::skills::{loader, store}, async_trait, serde, serde_json
 // OUTPUT: SearchSkillsTool, UseSkillTool
 // POS:    Agent-facing meta-tools for discovering and activating Skills at runtime.
 //! Skill meta-tools: search_skills and use_skill
@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use crate::skills::loader::SkillLoader;
 use crate::skills::store::SkillStore;
 use async_trait::async_trait;

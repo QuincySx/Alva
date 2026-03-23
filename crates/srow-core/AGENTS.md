@@ -1,22 +1,47 @@
 # srow-core
-> Rust AI Agent 平台核心引擎库
+> Thin facade over extracted agent crates, plus skill system, MCP, and environment management
 
-## 地位
-`srow-core` 是 srow-agent 项目的核心 crate，提供完整的 AI Agent 运行时栈：从 LLM 交互、工具执行、安全检查到多 Agent 编排。
+## Role
+`srow-core` is the central crate that re-exports public APIs from extracted
+crates (`alva-types`, `alva-core`, `alva-tools`, `alva-security`,
+`alva-memory`, `alva-runtime`) and keeps modules that have not yet been
+extracted: ACP client, skills, MCP, environment runtime, domain models, and
+DDD ports/adapters.
 
-## 逻辑
-遵循 DDD 六边形架构，domain 定义领域实体，ports 定义抽象接口，adapters 提供具体实现。agent/ 子系统驱动核心 agentic loop，skills/ 提供可插拔能力扩展，mcp/ 集成外部 MCP Server，environment/ 管理嵌入式运行时，orchestrator/ 编排多 Agent 协作。
+## Architecture
+- **Facade re-exports** (`lib.rs`) — re-exports `Agent`, `AgentHooks`,
+  `AgentEvent`, `AgentMessage` from `alva-core`; type vocabulary from
+  `alva-types`; tool registrations from `alva-tools`; security from
+  `alva-security`; memory from `alva-memory`; runtime builder from
+  `alva-runtime`.
+- **Kept modules**:
+  - `agent/` — ACP client (`agent_client/`), session management, persistence.
+  - `skills/` — Skill system (loader, store, injector, agent templates).
+  - `mcp/` — MCP protocol layer and tool adapter.
+  - `environment/` — Embedded runtime management (Bun, Node, Python, Chromium).
+  - `gateway/`, `base/`, `system/` — infrastructure placeholders.
+  - `domain/`, `ports/`, `adapters/` — DDD layers.
+  - `error.rs` — `EngineError`, `SkillError` (with `From<MemoryError>`).
+  - `ports/tool.rs` — `SrowToolContext` implementing both `ToolContext` and
+    `LocalToolContext`.
 
-## 约束
+## Constraints
 - Rust 2021 edition
-- 异步运行时：tokio (full features)
-- LLM 框架：rig-core
-- 浏览器自动化：chromiumoxide (CDP)
-- 持久化：rusqlite + tokio-rusqlite (WAL mode)
+- Async runtime: tokio (full features)
+- Persistent storage: rusqlite + tokio-rusqlite (WAL mode)
+- Acts as backward-compat facade; UI layer (`srow-app`) imports through here
 
-## 业务域清单
-| 名称 | 文件/子目录 | 职责 |
-|------|------------|------|
-| src/ | `src/` | crate 源码根目录 |
-| tests/ | `tests/` | 集成测试（skill_system_test、acp_integration） |
-| Cargo.toml | `Cargo.toml` | crate 依赖和构建配置 |
+## Module Map
+| Name | Path | Role |
+|------|------|------|
+| lib.rs | `src/lib.rs` | Facade re-exports + module declarations |
+| error.rs | `src/error.rs` | EngineError, SkillError |
+| agent/ | `src/agent/` | ACP client, persistence, session |
+| ports/tool.rs | `src/ports/tool.rs` | SrowToolContext (ToolContext + LocalToolContext) |
+| skills/ | `src/skills/` | Skill system (loader, store, injector, templates) |
+| mcp/ | `src/mcp/` | MCP protocol, tool adapter |
+| environment/ | `src/environment/` | Embedded runtime management |
+| domain/ | `src/domain/` | Domain models (DDD) |
+| ports/ | `src/ports/` | Port interfaces (DDD) |
+| adapters/ | `src/adapters/` | Adapter implementations (DDD) |
+| tests/ | `tests/` | Integration tests |
