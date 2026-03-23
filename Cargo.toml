@@ -9,6 +9,7 @@ members = [
     "crates/agent-tools",
     "crates/agent-security",
     "crates/agent-memory",
+    "crates/agent-runtime",
     "crates/protocol-context-skill",
     "crates/protocol-model-context",
     "crates/protocol-agent-client",
