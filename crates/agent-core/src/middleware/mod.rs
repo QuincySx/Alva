@@ -1,3 +1,5 @@
+pub mod compression;
+
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -6,6 +8,8 @@ use agent_types::{Message, ToolCall, ToolContext, ToolResult};
 use async_trait::async_trait;
 
 use crate::types::AgentMessage;
+
+pub use compression::{CompressionConfig, CompressionMiddleware};
 
 // ---------------------------------------------------------------------------
 // MiddlewareError

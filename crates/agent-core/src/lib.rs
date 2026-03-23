@@ -11,4 +11,4 @@ pub use types::{
 };
 pub use event::AgentEvent;
 pub use agent::Agent;
-pub use middleware::{Middleware, MiddlewareStack, MiddlewareContext, MiddlewareError, Extensions};
+pub use middleware::{Middleware, MiddlewareStack, MiddlewareContext, MiddlewareError, Extensions, CompressionMiddleware, CompressionConfig};
