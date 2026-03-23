@@ -6,6 +6,7 @@ members = [
     "crates/agent-types",
     "crates/agent-core",
     "crates/agent-graph",
+    "crates/agent-tools",
     "crates/protocol-context-skill",
     "crates/protocol-model-context",
     "crates/protocol-agent-client",

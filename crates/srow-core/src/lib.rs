@@ -65,10 +65,10 @@ pub use skills::skill_ports::mcp_transport::McpTransport;
 pub use skills::agent_template_service::{AgentTemplateService, AgentTemplateInstance};
 pub use skills::tools::{SearchSkillsTool, UseSkillTool};
 
-// Convenience re-exports — browser automation
-pub use agent::runtime::tools::browser::BrowserManager;
-pub use agent::runtime::tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
-pub use agent::runtime::tools::register_all_tools;
+// Convenience re-exports — tools & browser automation (now in agent-tools crate)
+pub use agent_tools::{register_all_tools, register_builtin_tools};
+pub use agent_tools::browser::BrowserManager;
+pub use agent_tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
 
 // Convenience re-exports — security
 pub use agent::runtime::security::guard::{SecurityGuard, SecurityDecision};

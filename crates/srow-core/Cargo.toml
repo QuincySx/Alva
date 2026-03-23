@@ -16,6 +16,7 @@ path = "src/bin/cli.rs"
 # New agent crates (gradual migration)
 agent-types = { path = "../agent-types" }
 agent-core = { path = "../agent-core" }
+agent-tools = { path = "../agent-tools" }
 protocol-agent-client = { path = "../protocol-agent-client" }
 
 # Async runtime
@@ -37,17 +38,11 @@ chrono = { version = "0.4", features = ["serde"] }
 # Error handling
 thiserror = "2"
 
-# Tool implementation helpers
-walkdir = "2"
+# Regex (used by security/sensitive_paths)
 regex = "1"
-glob = "0.3"
 
-# HTTP client (for internet_search, read_url tools)
-reqwest = { version = "0.12", features = ["json", "stream"] }
-
-# Browser automation (Chrome CDP)
-chromiumoxide = { version = "0.9", default-features = false }
-base64 = "0.22"
+# Filesystem traversal (used by memory/sync and skills/skill_fs)
+walkdir = "2"
 
 # SQLite persistence
 rusqlite = { version = "0.31", features = ["bundled"] }
