@@ -1,12 +1,12 @@
-// INPUT:  gpui, agent_base (MessageRole), agent_core (AgentMessage),
+// INPUT:  gpui, srow_core::agent_types (MessageRole), srow_core (AgentMessage),
 //         crate::models (ChatModel, WorkspaceModel), crate::theme
 // OUTPUT: pub struct MessageList
 // POS:    Scrollable GPUI view rendering chat messages from agent-core.
 
 use gpui::{prelude::*, Context, Entity, Render, Window, div};
 
-use agent_base::MessageRole;
-use agent_core::AgentMessage;
+use srow_core::agent_types::MessageRole;
+use srow_core::AgentMessage;
 
 use crate::models::{ChatModel, WorkspaceModel};
 use crate::theme::Theme;

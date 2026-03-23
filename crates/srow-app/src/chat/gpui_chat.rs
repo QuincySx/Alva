@@ -1,5 +1,5 @@
-// INPUT:  gpui (Context, EventEmitter), agent_core (Agent, AgentConfig, AgentMessage, AgentEvent),
-//         agent_types (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
+// INPUT:  gpui (Context, EventEmitter), srow_core (Agent, AgentHookConfig, AgentMessage, AgentEvent, AgentContext),
+//         srow_core::agent_types (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
 //         tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
 // POS:    GPUI Entity wrapping agent-core's Agent. Bridges async agent events to GPUI's sync UI thread.
@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use gpui::{Context, EventEmitter};
 use tokio::sync::mpsc;
 
-use agent_types::{
+use srow_core::agent_types::{
     AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
-use agent_core::{AgentConfig, AgentEvent, AgentMessage};
+use srow_core::{AgentHookConfig, AgentContext, AgentEvent, AgentMessage};
 
 /// GPUI Global holding a shared tokio runtime for all GpuiChat instances.
 pub struct SharedRuntime(pub Arc<tokio::runtime::Runtime>);
@@ -90,7 +90,7 @@ impl LanguageModel for PlaceholderModel {
 /// runtime and sends events back via an `mpsc` channel that is drained
 /// in a GPUI timer/callback.
 pub struct GpuiChat {
-    agent: Arc<agent_core::Agent>,
+    agent: Arc<srow_core::Agent>,
     /// Local snapshot of messages for synchronous UI reads.
     messages: Vec<AgentMessage>,
     is_running: bool,
@@ -115,10 +115,10 @@ impl GpuiChat {
             });
 
         // Build the agent-core config with a minimal convert_to_llm hook.
-        let agent_config = AgentConfig::new(Arc::new(|messages, system_prompt| {
+        let agent_config = AgentHookConfig::new(Arc::new(|ctx: &AgentContext<'_>| {
             // Prepend the system prompt as a System message, then pass through Standard messages.
-            let mut result = vec![Message::system(system_prompt)];
-            for m in messages {
+            let mut result = vec![Message::system(ctx.system_prompt)];
+            for m in ctx.messages {
                 if let AgentMessage::Standard(msg) = m {
                     result.push(msg.clone());
                 }
@@ -127,7 +127,7 @@ impl GpuiChat {
         }));
 
         let model: Arc<dyn LanguageModel> = Arc::new(PlaceholderModel);
-        let agent = agent_core::Agent::new(model, "You are a helpful assistant.", agent_config);
+        let agent = srow_core::Agent::new(model, "You are a helpful assistant.", agent_config);
 
         Self {
             agent: Arc::new(agent),

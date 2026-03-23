@@ -18,11 +18,6 @@ gpui = "0.2"
 # UI component library (shadcn/ui style components for GPUI)
 gpui-component = "0.5"
 
-# New agent crates (gradual migration)
-agent-base = { path = "../agent-base" }
-agent-core = { path = "../agent-core" }
-agent-graph = { path = "../agent-graph" }
-
 # Core crate (unified engine + skills + MCP)
 srow-core = { path = "../srow-core" }
 
