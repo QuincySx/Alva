@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use agent_types::LanguageModel;
+use agent_types::{
+    EmbeddingModel, ImageModel, LanguageModel, ModerationModel, RerankingModel, SpeechModel,
+    TranscriptionModel, VideoModel,
+};
 
 use super::errors::ProviderError;
 
@@ -18,6 +21,76 @@ pub trait Provider: Send + Sync {
         &self,
         model_id: &str,
     ) -> Result<Arc<dyn LanguageModel>, ProviderError>;
+
+    /// Create an embedding model instance for the given model ID.
+    fn embedding_model(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn EmbeddingModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality(
+            "embedding models are not supported by this provider".to_string(),
+        ))
+    }
+
+    /// Create a transcription model instance for the given model ID.
+    fn transcription_model(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn TranscriptionModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality(
+            "transcription models are not supported by this provider".to_string(),
+        ))
+    }
+
+    /// Create a speech model instance for the given model ID.
+    fn speech_model(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn SpeechModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality(
+            "speech models are not supported by this provider".to_string(),
+        ))
+    }
+
+    /// Create an image model instance for the given model ID.
+    fn image_model(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn ImageModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality(
+            "image models are not supported by this provider".to_string(),
+        ))
+    }
+
+    /// Create a video model instance for the given model ID.
+    fn video_model(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn VideoModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality(
+            "video models are not supported by this provider".to_string(),
+        ))
+    }
+
+    /// Create a reranking model instance for the given model ID.
+    fn reranking_model(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn RerankingModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality(
+            "reranking models are not supported by this provider".to_string(),
+        ))
+    }
+
+    /// Create a moderation model instance for the given model ID.
+    fn moderation_model(
+        &self,
+        _model_id: &str,
+    ) -> Result<Arc<dyn ModerationModel>, ProviderError> {
+        Err(ProviderError::UnsupportedFunctionality(
+            "moderation models are not supported by this provider".to_string(),
+        ))
+    }
 }
 
 /// Central registry of all available providers.
@@ -60,6 +133,111 @@ impl ProviderRegistry {
             }
         })?;
         provider.language_model(model_id)
+    }
+
+    /// Shorthand: obtain an embedding model from `provider_id:model_id`.
+    pub fn embedding_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn EmbeddingModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "embedding".to_string(),
+            }
+        })?;
+        provider.embedding_model(model_id)
+    }
+
+    /// Shorthand: obtain a transcription model from `provider_id:model_id`.
+    pub fn transcription_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn TranscriptionModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "transcription".to_string(),
+            }
+        })?;
+        provider.transcription_model(model_id)
+    }
+
+    /// Shorthand: obtain a speech model from `provider_id:model_id`.
+    pub fn speech_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn SpeechModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "speech".to_string(),
+            }
+        })?;
+        provider.speech_model(model_id)
+    }
+
+    /// Shorthand: obtain an image model from `provider_id:model_id`.
+    pub fn image_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn ImageModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "image".to_string(),
+            }
+        })?;
+        provider.image_model(model_id)
+    }
+
+    /// Shorthand: obtain a video model from `provider_id:model_id`.
+    pub fn video_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn VideoModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "video".to_string(),
+            }
+        })?;
+        provider.video_model(model_id)
+    }
+
+    /// Shorthand: obtain a reranking model from `provider_id:model_id`.
+    pub fn reranking_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn RerankingModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "reranking".to_string(),
+            }
+        })?;
+        provider.reranking_model(model_id)
+    }
+
+    /// Shorthand: obtain a moderation model from `provider_id:model_id`.
+    pub fn moderation_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn ModerationModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "moderation".to_string(),
+            }
+        })?;
+        provider.moderation_model(model_id)
     }
 
     /// List all registered provider IDs.
