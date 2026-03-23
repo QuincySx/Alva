@@ -3,9 +3,10 @@ use agent_types::{
 };
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::event::AgentEvent;
+use crate::middleware::{Extensions, MiddlewareContext};
 use crate::tool_executor::execute_tools;
 use crate::types::{AgentConfig, AgentContext, AgentMessage, AgentState};
 
@@ -19,6 +20,16 @@ use crate::types::{AgentConfig, AgentContext, AgentMessage, AgentState};
 ///
 /// The function mutates `state` in place and emits `AgentEvent`s through the
 /// provided channel.
+/// Build a [`MiddlewareContext`] from current agent state.
+fn build_mw_ctx(state: &AgentState) -> MiddlewareContext {
+    MiddlewareContext {
+        session_id: state.tool_context.session_id().to_string(),
+        system_prompt: state.system_prompt.clone(),
+        messages: state.messages.clone(),
+        extensions: Extensions::new(),
+    }
+}
+
 pub(crate) async fn run_agent_loop(
     state: &mut AgentState,
     model: &dyn LanguageModel,
@@ -28,7 +39,31 @@ pub(crate) async fn run_agent_loop(
 ) -> Result<(), agent_types::AgentError> {
     let _ = event_tx.send(AgentEvent::AgentStart);
 
+    // Middleware: on_agent_start
+    if !config.middleware.is_empty() {
+        let mut mw_ctx = build_mw_ctx(state);
+        if let Err(e) = config.middleware.run_on_agent_start(&mut mw_ctx).await {
+            warn!(error = %e, "middleware on_agent_start failed");
+        }
+    }
+
     let result = run_agent_loop_inner(state, model, config, cancel, event_tx).await;
+
+    // Middleware: on_agent_end
+    if !config.middleware.is_empty() {
+        let mut mw_ctx = build_mw_ctx(state);
+        let err_str = match &result {
+            Ok(()) => None,
+            Err(e) => Some(e.to_string()),
+        };
+        if let Err(e) = config
+            .middleware
+            .run_on_agent_end(&mut mw_ctx, err_str.as_deref())
+            .await
+        {
+            warn!(error = %e, "middleware on_agent_end failed");
+        }
+    }
 
     match &result {
         Ok(()) => {
@@ -85,7 +120,19 @@ async fn run_agent_loop_inner(
                 messages: &context_messages,
                 tools: &state.tools,
             };
-            let llm_messages = (config.convert_to_llm)(&convert_ctx);
+            let mut llm_messages = (config.convert_to_llm)(&convert_ctx);
+
+            // 1b. Middleware: before_llm_call --------------------------------
+            if !config.middleware.is_empty() {
+                let mut mw_ctx = build_mw_ctx(state);
+                if let Err(e) = config
+                    .middleware
+                    .run_before_llm_call(&mut mw_ctx, &mut llm_messages)
+                    .await
+                {
+                    warn!(error = %e, "middleware before_llm_call failed");
+                }
+            }
 
             // 2. Collect tool references for the model ----------------------
             let tool_refs: Vec<&dyn agent_types::Tool> =
@@ -99,11 +146,23 @@ async fn run_agent_loop_inner(
                 "calling LLM"
             );
 
-            let assistant_message = if state.is_streaming {
+            let mut assistant_message = if state.is_streaming {
                 stream_llm_response(model, &llm_messages, &tool_refs, &state.model_config, event_tx).await?
             } else {
                 model.complete(&llm_messages, &tool_refs, &state.model_config).await?
             };
+
+            // 3b. Middleware: after_llm_call ---------------------------------
+            if !config.middleware.is_empty() {
+                let mut mw_ctx = build_mw_ctx(state);
+                if let Err(e) = config
+                    .middleware
+                    .run_after_llm_call(&mut mw_ctx, &mut assistant_message)
+                    .await
+                {
+                    warn!(error = %e, "middleware after_llm_call failed");
+                }
+            }
 
             let agent_msg = AgentMessage::Standard(assistant_message.clone());
 

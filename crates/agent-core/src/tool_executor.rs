@@ -5,9 +5,20 @@ use tokio::sync::mpsc;
 use tracing::{error, warn};
 
 use crate::event::AgentEvent;
+use crate::middleware::{Extensions, MiddlewareContext};
 use crate::types::{
     AgentConfig, AgentContext, ToolCallDecision, ToolExecutionMode,
 };
+
+/// Build a [`MiddlewareContext`] from the sync `AgentContext` reference.
+fn build_mw_ctx_from_context(context: &AgentContext<'_>, tool_context: &dyn ToolContext) -> MiddlewareContext {
+    MiddlewareContext {
+        session_id: tool_context.session_id().to_string(),
+        system_prompt: context.system_prompt.to_string(),
+        messages: context.messages.to_vec(),
+        extensions: Extensions::new(),
+    }
+}
 
 /// Execute a batch of tool calls, respecting the configured execution mode,
 /// before/after hooks, and cancellation.
@@ -82,6 +93,34 @@ async fn execute_parallel(
             }
         }
 
+        // Middleware: before_tool_call (on the main task, before spawning) ----
+        if !config.middleware.is_empty() {
+            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
+            if let Err(e) = config
+                .middleware
+                .run_before_tool_call(&mut mw_ctx, tc, tool_context.as_ref())
+                .await
+            {
+                warn!(tool = %tc.name, error = %e, "middleware before_tool_call blocked");
+                let blocked = ToolResult {
+                    content: format!("Blocked by middleware: {e}"),
+                    is_error: true,
+                    details: None,
+                };
+                let tc_clone = tc.clone();
+                let event_tx = event_tx.clone();
+                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
+                    tool_call: tc_clone.clone(),
+                });
+                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
+                    tool_call: tc_clone.clone(),
+                    result: blocked.clone(),
+                });
+                join_set.spawn(async move { (tc_clone, blocked) });
+                continue;
+            }
+        }
+
         // Find the tool ------------------------------------------------------
         let tool = tools.iter().find(|t| t.name() == tc.name).cloned();
         let tc_clone = tc.clone();
@@ -135,6 +174,17 @@ async fn execute_parallel(
         // Apply after_tool_call hooks (on the main task where context lives).
         for hook in &config.after_tool_call {
             result = hook(&tc, result, context);
+        }
+        // Middleware: after_tool_call (on the main task).
+        if !config.middleware.is_empty() {
+            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
+            if let Err(e) = config
+                .middleware
+                .run_after_tool_call(&mut mw_ctx, &tc, &mut result)
+                .await
+            {
+                warn!(tool = %tc.name, error = %e, "middleware after_tool_call failed");
+            }
         }
         results.push(result);
     }
@@ -197,6 +247,32 @@ async fn execute_sequential(
             }
         }
 
+        // Middleware: before_tool_call ----------------------------------------
+        if !config.middleware.is_empty() {
+            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
+            if let Err(e) = config
+                .middleware
+                .run_before_tool_call(&mut mw_ctx, tc, tool_context.as_ref())
+                .await
+            {
+                warn!(tool = %tc.name, error = %e, "middleware before_tool_call blocked");
+                let blocked = ToolResult {
+                    content: format!("Blocked by middleware: {e}"),
+                    is_error: true,
+                    details: None,
+                };
+                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
+                    tool_call: tc.clone(),
+                });
+                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
+                    tool_call: tc.clone(),
+                    result: blocked.clone(),
+                });
+                results.push(blocked);
+                continue;
+            }
+        }
+
         let _ = event_tx.send(AgentEvent::ToolExecutionStart {
             tool_call: tc.clone(),
         });
@@ -228,6 +304,18 @@ async fn execute_sequential(
         // Post-processing ----------------------------------------------------
         for hook in &config.after_tool_call {
             result = hook(tc, result, context);
+        }
+
+        // Middleware: after_tool_call -----------------------------------------
+        if !config.middleware.is_empty() {
+            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
+            if let Err(e) = config
+                .middleware
+                .run_after_tool_call(&mut mw_ctx, tc, &mut result)
+                .await
+            {
+                warn!(tool = %tc.name, error = %e, "middleware after_tool_call failed");
+            }
         }
 
         let _ = event_tx.send(AgentEvent::ToolExecutionEnd {

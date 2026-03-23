@@ -8,6 +8,8 @@ use agent_types::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::middleware::MiddlewareStack;
+
 /// A boxed, pinned, Send future — used for async hook return types.
 pub type HookFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
@@ -148,6 +150,9 @@ pub struct AgentConfig {
 
     /// Guard against runaway loops.
     pub max_iterations: u32,
+
+    /// Async middleware stack (onion model). Runs alongside the sync hooks.
+    pub middleware: MiddlewareStack,
 }
 
 impl AgentConfig {
@@ -164,6 +169,7 @@ impl AgentConfig {
             get_follow_up_messages: Vec::new(),
             tool_execution: ToolExecutionMode::Parallel,
             max_iterations: 100,
+            middleware: MiddlewareStack::new(),
         }
     }
 }
