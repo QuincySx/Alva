@@ -1,24 +1,154 @@
-// INPUT:  super::errors, super model traits
-// OUTPUT: Provider (trait) — COMMENTED OUT
-// POS:    Provider registry trait — factory for obtaining model instances by ID.
-//         Commented out during migration: depends on deleted LanguageModel trait.
-//         TODO: Rebuild using agent_base::LanguageModel.
+use std::collections::HashMap;
+use std::sync::Arc;
 
-// use super::errors::ProviderError;
-// use super::embedding_model::EmbeddingModel;
-// use super::image_model::ImageModel;
-// use super::speech_model::SpeechModel;
-// use super::transcription_model::TranscriptionModel;
-// use super::reranking_model::RerankingModel;
-// use super::video_model::VideoModel;
-//
-// pub trait Provider: Send + Sync {
-//     fn specification_version(&self) -> &str { "v4" }
-//     fn language_model(&self, model_id: &str) -> Result<Box<dyn LanguageModel>, ProviderError>;
-//     fn embedding_model(&self, model_id: &str) -> Result<Box<dyn EmbeddingModel>, ProviderError>;
-//     fn image_model(&self, _model_id: &str) -> Result<Box<dyn ImageModel>, ProviderError> { ... }
-//     fn speech_model(&self, _model_id: &str) -> Result<Box<dyn SpeechModel>, ProviderError> { ... }
-//     fn transcription_model(&self, _model_id: &str) -> Result<Box<dyn TranscriptionModel>, ProviderError> { ... }
-//     fn reranking_model(&self, _model_id: &str) -> Result<Box<dyn RerankingModel>, ProviderError> { ... }
-//     fn video_model(&self, _model_id: &str) -> Result<Box<dyn VideoModel>, ProviderError> { ... }
-// }
+use agent_types::LanguageModel;
+
+use super::errors::ProviderError;
+
+/// Factory for obtaining model instances by provider+model ID.
+///
+/// Implementations wrap a specific LLM backend (e.g., OpenAI, Anthropic)
+/// and produce `LanguageModel` instances on demand.
+pub trait Provider: Send + Sync {
+    /// Unique provider identifier (e.g., "openai", "anthropic").
+    fn id(&self) -> &str;
+
+    /// Create a language model instance for the given model ID.
+    fn language_model(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn LanguageModel>, ProviderError>;
+}
+
+/// Central registry of all available providers.
+///
+/// Supports lookup by provider ID and a convenience method for
+/// `provider_id:model_id` shorthand strings.
+pub struct ProviderRegistry {
+    providers: HashMap<String, Arc<dyn Provider>>,
+}
+
+impl ProviderRegistry {
+    pub fn new() -> Self {
+        Self {
+            providers: HashMap::new(),
+        }
+    }
+
+    /// Register a provider. Replaces any existing provider with the same ID.
+    pub fn register(&mut self, provider: Arc<dyn Provider>) {
+        self.providers.insert(provider.id().to_string(), provider);
+    }
+
+    /// Get a provider by ID.
+    pub fn get(&self, provider_id: &str) -> Option<&Arc<dyn Provider>> {
+        self.providers.get(provider_id)
+    }
+
+    /// Shorthand: obtain a language model from `provider_id:model_id`.
+    ///
+    /// Returns `ProviderError::NoSuchModel` if the provider is not registered.
+    pub fn language_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
+        let provider = self.providers.get(provider_id).ok_or_else(|| {
+            ProviderError::NoSuchModel {
+                model_id: format!("{provider_id}:{model_id}"),
+                model_type: "language".to_string(),
+            }
+        })?;
+        provider.language_model(model_id)
+    }
+
+    /// List all registered provider IDs.
+    pub fn provider_ids(&self) -> Vec<&str> {
+        self.providers.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_types::*;
+    use async_trait::async_trait;
+    use std::pin::Pin;
+
+    struct MockModel {
+        id: String,
+    }
+
+    #[async_trait]
+    impl LanguageModel for MockModel {
+        async fn complete(
+            &self,
+            _messages: &[Message],
+            _tools: &[&dyn Tool],
+            _config: &ModelConfig,
+        ) -> Result<Message, AgentError> {
+            Ok(Message::system("mock"))
+        }
+
+        fn stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[&dyn Tool],
+            _config: &ModelConfig,
+        ) -> Pin<Box<dyn futures::Stream<Item = StreamEvent> + Send>> {
+            Box::pin(tokio_stream::empty())
+        }
+
+        fn model_id(&self) -> &str {
+            &self.id
+        }
+    }
+
+    struct MockProvider;
+
+    impl Provider for MockProvider {
+        fn id(&self) -> &str {
+            "mock"
+        }
+
+        fn language_model(
+            &self,
+            model_id: &str,
+        ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
+            Ok(Arc::new(MockModel {
+                id: model_id.to_string(),
+            }))
+        }
+    }
+
+    #[test]
+    fn register_and_lookup() {
+        let mut registry = ProviderRegistry::new();
+        registry.register(Arc::new(MockProvider));
+
+        assert!(registry.get("mock").is_some());
+        assert!(registry.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn language_model_shorthand() {
+        let mut registry = ProviderRegistry::new();
+        registry.register(Arc::new(MockProvider));
+
+        let model = registry.language_model("mock", "gpt-4").unwrap();
+        assert_eq!(model.model_id(), "gpt-4");
+    }
+
+    #[test]
+    fn missing_provider_returns_error() {
+        let registry = ProviderRegistry::new();
+        let result = registry.language_model("nonexistent", "model");
+        assert!(result.is_err());
+    }
+}

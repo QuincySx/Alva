@@ -16,8 +16,8 @@
 //!   environment/  — Embedded runtime management (Bun, Node, Python, Chromium, etc.)
 //!   adapters/     — Adapter implementations (DDD)
 
-// Re-export agent-base types for gradual migration
-pub use agent_base;
+// Re-export agent-types types for gradual migration
+pub use agent_types;
 
 pub mod agent;
 pub mod mcp;
@@ -39,6 +39,7 @@ pub use domain::tool::{ToolCall, ToolDefinition, ToolResult};
 pub use error::EngineError;
 pub use ports::tool::{Tool, ToolContext, ToolRegistry};
 pub use ports::storage::SessionStorage;
+pub use ports::provider::provider_registry::{Provider, ProviderRegistry};
 
 // Convenience re-exports — skills
 pub use skills::skill_domain::skill::{Skill, SkillBody, SkillKind, SkillMeta};
