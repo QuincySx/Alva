@@ -1,15 +1,12 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, serde, serde_json, super::browser_manager
+// INPUT:  agent_types, async_trait, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserStopTool
 // POS:    Shuts down a running Chrome browser instance and releases all resources.
 //! browser_stop — shut down a Chrome instance
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 use super::browser_manager::SharedBrowserManager;
 
@@ -29,54 +26,47 @@ impl Tool for BrowserStopTool {
         "browser_stop"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "browser_stop".to_string(),
-            description: "Shut down a running Chrome browser instance and release all resources.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Browser instance ID to stop. Default: 'default'"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Shut down a running Chrome browser instance and release all resources."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Browser instance ID to stop. Default: 'default'"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_stop".into(), message: e.to_string() })?;
+
         let id = params.id.unwrap_or_else(|| "default".to_string());
 
         let mut manager = self.manager.lock().await;
 
         match manager.stop(&id).await {
             Ok(()) => {
-                let duration_ms = start.elapsed().as_millis() as u64;
                 Ok(ToolResult {
-                    tool_call_id: String::new(),
-                    tool_name: "browser_stop".to_string(),
-                    output: json!({
+                    content: json!({
                         "status": "stopped",
                         "id": id,
                     })
                     .to_string(),
                     is_error: false,
-                    duration_ms,
+                    details: None,
                 })
             }
             Err(e) => {
-                let duration_ms = start.elapsed().as_millis() as u64;
                 Ok(ToolResult {
-                    tool_call_id: String::new(),
-                    tool_name: "browser_stop".to_string(),
-                    output: json!({ "error": e }).to_string(),
+                    content: json!({ "error": e }).to_string(),
                     is_error: true,
-                    duration_ms,
+                    details: None,
                 })
             }
         }

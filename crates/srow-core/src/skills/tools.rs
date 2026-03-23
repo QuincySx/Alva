@@ -1,4 +1,4 @@
-// INPUT:  std::sync, crate::domain::tool, crate::error, crate::ports::tool, crate::skills::{loader, store}, async_trait, serde, serde_json
+// INPUT:  std::sync, agent_types, crate::skills::{loader, store}, async_trait, serde, serde_json
 // OUTPUT: SearchSkillsTool, UseSkillTool
 // POS:    Agent-facing meta-tools for discovering and activating Skills at runtime.
 //! Skill meta-tools: search_skills and use_skill
@@ -7,15 +7,12 @@
 
 use std::sync::Arc;
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use crate::skills::loader::SkillLoader;
 use crate::skills::store::SkillStore;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 // ---------------------------------------------------------------------------
 // search_skills
@@ -37,28 +34,27 @@ impl Tool for SearchSkillsTool {
         "search_skills"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "search_skills".to_string(),
-            description: "Search available skills by keyword. Returns a list of matching skill names and descriptions.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "required": ["query"],
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search keyword (matched against skill name and description)"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Search available skills by keyword. Returns a list of matching skill names and descriptions."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: SearchSkillsInput =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search keyword (matched against skill name and description)"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: SearchSkillsInput =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "search_skills".into(), message: e.to_string() })?;
+
         let results = self.store.search(&params.query).await;
 
         let output: Vec<Value> = results
@@ -73,15 +69,11 @@ impl Tool for SearchSkillsTool {
             })
             .collect();
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "search_skills".to_string(),
-            output: serde_json::to_string_pretty(&output)
+            content: serde_json::to_string_pretty(&output)
                 .unwrap_or_else(|_| "[]".to_string()),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }
@@ -114,33 +106,31 @@ impl Tool for UseSkillTool {
         "use_skill"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "use_skill".to_string(),
-            description: "Activate a skill by name. Returns the skill's instruction content (SKILL.md body). Use level='full' to also list resource files.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "required": ["skill_name"],
-                "properties": {
-                    "skill_name": {
-                        "type": "string",
-                        "description": "The skill name (id) to activate"
-                    },
-                    "level": {
-                        "type": "string",
-                        "enum": ["preview", "full"],
-                        "description": "Level of detail: 'preview' returns SKILL.md body, 'full' also includes resource file list. Default: 'preview'"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Activate a skill by name. Returns the skill's instruction content (SKILL.md body). Use level='full' to also list resource files."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: UseSkillInput =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["skill_name"],
+            "properties": {
+                "skill_name": {
+                    "type": "string",
+                    "description": "The skill name (id) to activate"
+                },
+                "level": {
+                    "type": "string",
+                    "enum": ["preview", "full"],
+                    "description": "Level of detail: 'preview' returns SKILL.md body, 'full' also includes resource file list. Default: 'preview'"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: UseSkillInput =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "use_skill".into(), message: e.to_string() })?;
 
         // Verify skill exists and is enabled
         let skill = self
@@ -148,10 +138,10 @@ impl Tool for UseSkillTool {
             .find_enabled(&params.skill_name)
             .await
             .ok_or_else(|| {
-                EngineError::ToolExecution(format!(
-                    "Skill '{}' not found or not enabled",
-                    params.skill_name
-                ))
+                AgentError::ToolError {
+                    tool_name: "use_skill".into(),
+                    message: format!("Skill '{}' not found or not enabled", params.skill_name),
+                }
             })?;
 
         // Load SKILL.md body (Level 2)
@@ -159,7 +149,7 @@ impl Tool for UseSkillTool {
             .loader
             .load_skill_body(&params.skill_name)
             .await
-            .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "use_skill".into(), message: e.to_string() })?;
 
         let mut output = json!({
             "skill_name": skill.meta.name,
@@ -178,15 +168,11 @@ impl Tool for UseSkillTool {
             output["resources"] = json!(resources);
         }
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "use_skill".to_string(),
-            output: serde_json::to_string_pretty(&output)
+            content: serde_json::to_string_pretty(&output)
                 .unwrap_or_else(|_| "{}".to_string()),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

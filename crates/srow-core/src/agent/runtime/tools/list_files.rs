@@ -1,15 +1,12 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, serde, serde_json, walkdir
+// INPUT:  agent_types, async_trait, serde, serde_json, walkdir
 // OUTPUT: ListFilesTool
 // POS:    Lists directory contents with recursive traversal and hidden file filtering.
 //! list_files — list directory contents
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 use walkdir::WalkDir;
 
 #[derive(Debug, Deserialize)]
@@ -28,43 +25,42 @@ impl Tool for ListFilesTool {
         "list_files"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "list_files".to_string(),
-            description: "List files and directories in the given path. Returns a tree-like listing of the directory contents.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Directory path relative to workspace root, defaults to workspace root"
-                    },
-                    "recursive": {
-                        "type": "boolean",
-                        "description": "List recursively, default false"
-                    },
-                    "max_depth": {
-                        "type": "integer",
-                        "description": "Max recursion depth, default 3"
-                    },
-                    "show_hidden": {
-                        "type": "boolean",
-                        "description": "Show hidden files (starting with .), default false"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "List files and directories in the given path. Returns a tree-like listing of the directory contents."
     }
 
-    async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory path relative to workspace root, defaults to workspace root"
+                },
+                "recursive": {
+                    "type": "boolean",
+                    "description": "List recursively, default false"
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Max recursion depth, default 3"
+                },
+                "show_hidden": {
+                    "type": "boolean",
+                    "description": "Show hidden files (starting with .), default false"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "list_files".into(), message: e.to_string() })?;
+
         let target = params
             .path
-            .map(|p| ctx.workspace.join(p))
-            .unwrap_or_else(|| ctx.workspace.clone());
+            .map(|p| ctx.workspace().join(p))
+            .unwrap_or_else(|| ctx.workspace().to_path_buf());
 
         let recursive = params.recursive.unwrap_or(false);
         let max_depth = if recursive {
@@ -117,16 +113,12 @@ impl Tool for ListFilesTool {
             files
         })
         .await
-        .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
-
-        let duration_ms = start.elapsed().as_millis() as u64;
+        .map_err(|e| AgentError::ToolError { tool_name: "list_files".into(), message: e.to_string() })?;
 
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "list_files".to_string(),
-            output: entries.join("\n"),
+            content: entries.join("\n"),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

@@ -1,18 +1,15 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, chromiumoxide::cdp, serde, serde_json, base64, super::browser_manager
+// INPUT:  agent_types, async_trait, chromiumoxide::cdp, serde, serde_json, base64, super::browser_manager
 // OUTPUT: BrowserScreenshotTool
 // POS:    Captures page screenshots (viewport, full-page, or element) and saves to file.
 //! browser_screenshot — capture page screenshot
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 use super::browser_manager::SharedBrowserManager;
 
@@ -42,48 +39,47 @@ impl Tool for BrowserScreenshotTool {
         "browser_screenshot"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "browser_screenshot".to_string(),
-            description: "Capture a screenshot of the current page. Can capture the viewport, full page, or a specific element. Saves to a file and returns the path.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Output file path (relative to workspace). Default: 'screenshot.png'"
-                    },
-                    "full_page": {
-                        "type": "boolean",
-                        "description": "Capture the full scrollable page, not just the viewport. Default: false"
-                    },
-                    "selector": {
-                        "type": "string",
-                        "description": "CSS selector to screenshot a specific element instead of the page"
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["png", "jpeg"],
-                        "description": "Image format. Default: 'png'"
-                    },
-                    "quality": {
-                        "type": "integer",
-                        "description": "JPEG quality (0-100). Only used with format='jpeg'. Default: 80"
-                    },
-                    "id": {
-                        "type": "string",
-                        "description": "Browser instance ID. Default: 'default'"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Capture a screenshot of the current page. Can capture the viewport, full page, or a specific element. Saves to a file and returns the path."
     }
 
-    async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Output file path (relative to workspace). Default: 'screenshot.png'"
+                },
+                "full_page": {
+                    "type": "boolean",
+                    "description": "Capture the full scrollable page, not just the viewport. Default: false"
+                },
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector to screenshot a specific element instead of the page"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["png", "jpeg"],
+                    "description": "Image format. Default: 'png'"
+                },
+                "quality": {
+                    "type": "integer",
+                    "description": "JPEG quality (0-100). Only used with format='jpeg'. Default: 80"
+                },
+                "id": {
+                    "type": "string",
+                    "description": "Browser instance ID. Default: 'default'"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_screenshot".into(), message: e.to_string() })?;
+
         let id = params.id.unwrap_or_else(|| "default".to_string());
         let format_str = params.format.as_deref().unwrap_or("png");
         let output_path = params
@@ -94,14 +90,14 @@ impl Tool for BrowserScreenshotTool {
         let full_path = if std::path::Path::new(&output_path).is_absolute() {
             std::path::PathBuf::from(&output_path)
         } else {
-            ctx.workspace.join(&output_path)
+            ctx.workspace().join(&output_path)
         };
 
         let manager = self.manager.lock().await;
         let page = manager
             .active_page(&id)
             .await
-            .map_err(|e| EngineError::ToolExecution(e))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "browser_screenshot".into(), message: e })?;
 
         let result = if let Some(ref selector) = params.selector {
             // Screenshot a specific element
@@ -109,10 +105,10 @@ impl Tool for BrowserScreenshotTool {
                 .find_element(selector)
                 .await
                 .map_err(|e| {
-                    EngineError::ToolExecution(format!(
-                        "Element '{}' not found: {}",
-                        selector, e
-                    ))
+                    AgentError::ToolError {
+                        tool_name: "browser_screenshot".into(),
+                        message: format!("Element '{}' not found: {}", selector, e),
+                    }
                 })?;
 
             {
@@ -124,7 +120,10 @@ impl Tool for BrowserScreenshotTool {
                     .screenshot(img_format)
                     .await
                     .map_err(|e| {
-                        EngineError::ToolExecution(format!("Element screenshot failed: {}", e))
+                        AgentError::ToolError {
+                            tool_name: "browser_screenshot".into(),
+                            message: format!("Element screenshot failed: {}", e),
+                        }
                     })?
             }
         } else {
@@ -153,17 +152,20 @@ impl Tool for BrowserScreenshotTool {
                 .execute(cdp_params)
                 .await
                 .map_err(|e| {
-                    EngineError::ToolExecution(format!("Screenshot failed: {}", e))
+                    AgentError::ToolError {
+                        tool_name: "browser_screenshot".into(),
+                        message: format!("Screenshot failed: {}", e),
+                    }
                 })?;
 
             use base64::Engine;
             base64::engine::general_purpose::STANDARD
                 .decode(&screenshot_response.result.data)
                 .map_err(|e| {
-                    EngineError::ToolExecution(format!(
-                        "Failed to decode screenshot data: {}",
-                        e
-                    ))
+                    AgentError::ToolError {
+                        tool_name: "browser_screenshot".into(),
+                        message: format!("Failed to decode screenshot data: {}", e),
+                    }
                 })?
         };
 
@@ -171,22 +173,21 @@ impl Tool for BrowserScreenshotTool {
         if let Some(parent) = full_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_err(|e| EngineError::ToolExecution(format!("Failed to create directory: {}", e)))?;
+                .map_err(|e| AgentError::ToolError { tool_name: "browser_screenshot".into(), message: format!("Failed to create directory: {}", e) })?;
         }
 
         // Write the screenshot file
         tokio::fs::write(&full_path, &result)
             .await
             .map_err(|e| {
-                EngineError::ToolExecution(format!("Failed to write screenshot: {}", e))
+                AgentError::ToolError {
+                    tool_name: "browser_screenshot".into(),
+                    message: format!("Failed to write screenshot: {}", e),
+                }
             })?;
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "browser_screenshot".to_string(),
-            output: json!({
+            content: json!({
                 "status": "captured",
                 "path": full_path.display().to_string(),
                 "format": format_str,
@@ -194,7 +195,7 @@ impl Tool for BrowserScreenshotTool {
             })
             .to_string(),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

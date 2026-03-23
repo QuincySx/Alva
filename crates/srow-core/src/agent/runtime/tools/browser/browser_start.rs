@@ -1,16 +1,13 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, serde, serde_json, super::browser_manager
+// INPUT:  agent_types, async_trait, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserStartTool
 // POS:    Launches a Chrome browser instance with configurable headless mode, profile, and proxy.
 //! browser_start — launch a Chrome instance
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use std::time::Instant;
 
 use super::browser_manager::SharedBrowserManager;
 
@@ -36,39 +33,38 @@ impl Tool for BrowserStartTool {
         "browser_start"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "browser_start".to_string(),
-            description: "Launch a Chrome browser instance. Returns immediately when the browser is ready. Use browser_navigate to open a URL after starting.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Browser instance ID. Default: 'default'. Use different IDs for multiple browsers."
-                    },
-                    "headless": {
-                        "type": "boolean",
-                        "description": "Run in headless mode (no visible window). Default: true"
-                    },
-                    "profile_dir": {
-                        "type": "string",
-                        "description": "Path to Chrome user data directory for persistent profiles (cookies, storage, etc.)"
-                    },
-                    "proxy": {
-                        "type": "string",
-                        "description": "Proxy server URL, e.g. 'socks5://127.0.0.1:1080' or 'http://proxy:8080'"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Launch a Chrome browser instance. Returns immediately when the browser is ready. Use browser_navigate to open a URL after starting."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Browser instance ID. Default: 'default'. Use different IDs for multiple browsers."
+                },
+                "headless": {
+                    "type": "boolean",
+                    "description": "Run in headless mode (no visible window). Default: true"
+                },
+                "profile_dir": {
+                    "type": "string",
+                    "description": "Path to Chrome user data directory for persistent profiles (cookies, storage, etc.)"
+                },
+                "proxy": {
+                    "type": "string",
+                    "description": "Proxy server URL, e.g. 'socks5://127.0.0.1:1080' or 'http://proxy:8080'"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_start".into(), message: e.to_string() })?;
+
         let id = params.id.unwrap_or_else(|| "default".to_string());
         let headless = params.headless.unwrap_or(true);
         let profile_dir = params.profile_dir.map(PathBuf::from);
@@ -78,28 +74,22 @@ impl Tool for BrowserStartTool {
 
         match manager.start(&id, headless, profile_dir, proxy).await {
             Ok(()) => {
-                let duration_ms = start.elapsed().as_millis() as u64;
                 Ok(ToolResult {
-                    tool_call_id: String::new(),
-                    tool_name: "browser_start".to_string(),
-                    output: json!({
+                    content: json!({
                         "status": "started",
                         "id": id,
                         "headless": headless,
                     })
                     .to_string(),
                     is_error: false,
-                    duration_ms,
+                    details: None,
                 })
             }
             Err(e) => {
-                let duration_ms = start.elapsed().as_millis() as u64;
                 Ok(ToolResult {
-                    tool_call_id: String::new(),
-                    tool_name: "browser_start".to_string(),
-                    output: json!({ "error": e }).to_string(),
+                    content: json!({ "error": e }).to_string(),
                     is_error: true,
-                    duration_ms,
+                    details: None,
                 })
             }
         }

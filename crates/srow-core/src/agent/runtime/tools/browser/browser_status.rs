@@ -1,15 +1,12 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, serde, serde_json, super::browser_manager
+// INPUT:  agent_types, async_trait, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserStatusTool
 // POS:    Queries browser instance status including running state, current URL, title, and open tabs.
 //! browser_status — query browser state (running?, URL, tabs)
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 use super::browser_manager::SharedBrowserManager;
 
@@ -29,27 +26,26 @@ impl Tool for BrowserStatusTool {
         "browser_status"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "browser_status".to_string(),
-            description: "Query the status of browser instances. Returns whether the browser is running, the current URL, page title, and list of open tabs. Use id='*' to list all running instances.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Browser instance ID. Default: 'default'. Use '*' to list all instances."
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Query the status of browser instances. Returns whether the browser is running, the current URL, page title, and list of open tabs. Use id='*' to list all running instances."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Browser instance ID. Default: 'default'. Use '*' to list all instances."
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_status".into(), message: e.to_string() })?;
+
         let id = params.id.unwrap_or_else(|| "default".to_string());
 
         let manager = self.manager.lock().await;
@@ -117,14 +113,10 @@ impl Tool for BrowserStatusTool {
             }
         };
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "browser_status".to_string(),
-            output: output.to_string(),
+            content: output.to_string(),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

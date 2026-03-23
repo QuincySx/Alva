@@ -1,15 +1,11 @@
-// INPUT:  std::sync, async_trait, serde_json, crate::domain::tool, crate::error, crate::ports::tool, crate::mcp::runtime, crate::skills::skill_domain::mcp
+// INPUT:  std::sync, async_trait, serde_json, agent_types, crate::mcp::runtime, crate::skills::skill_domain::mcp
 // OUTPUT: McpToolAdapter, build_mcp_tools
 // POS:    Wraps individual MCP tools as standard Tool trait implementations with namespaced names (mcp:server:tool).
 use std::sync::Arc;
 
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde_json::Value;
-
-use crate::domain::tool::ToolResult;
-use crate::error::EngineError;
-use crate::domain::tool::ToolDefinition;
-use crate::ports::tool::{Tool, ToolContext};
 
 use crate::mcp::runtime::McpManager;
 use crate::skills::skill_domain::mcp::McpToolInfo;
@@ -24,15 +20,19 @@ pub struct McpToolAdapter {
     manager: Arc<McpManager>,
     /// Cached full tool name: "mcp:<server_id>:<tool_name>"
     full_name: String,
+    /// Cached description with server prefix
+    full_description: String,
 }
 
 impl McpToolAdapter {
     pub fn new(info: McpToolInfo, manager: Arc<McpManager>) -> Self {
         let full_name = format!("mcp:{}:{}", info.server_id, info.tool_name);
+        let full_description = format!("[MCP:{}] {}", info.server_id, info.description);
         Self {
             info,
             manager,
             full_name,
+            full_description,
         }
     }
 
@@ -48,39 +48,33 @@ impl Tool for McpToolAdapter {
         &self.full_name
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.full_name.clone(),
-            description: format!(
-                "[MCP:{}] {}",
-                self.info.server_id, self.info.description
-            ),
-            parameters: self.info.input_schema.clone(),
-        }
+    fn description(&self) -> &str {
+        &self.full_description
+    }
+
+    fn parameters_schema(&self) -> Value {
+        self.info.input_schema.clone()
     }
 
     async fn execute(
         &self,
         input: Value,
-        _ctx: &ToolContext,
-    ) -> Result<ToolResult, EngineError> {
-        let start = std::time::Instant::now();
-
+        _cancel: &CancellationToken,
+        _ctx: &dyn ToolContext,
+    ) -> Result<ToolResult, AgentError> {
         let result = self
             .manager
             .call_tool(&self.info.server_id, &self.info.tool_name, input)
             .await
-            .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+            .map_err(|e| AgentError::ToolError { tool_name: self.full_name.clone(), message: e.to_string() })?;
 
         let output =
             serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         Ok(ToolResult {
-            tool_call_id: String::new(), // Filled by engine layer
-            tool_name: self.full_name.clone(),
-            output,
+            content: output,
             is_error: false,
-            duration_ms: start.elapsed().as_millis() as u64,
+            details: None,
         })
     }
 }

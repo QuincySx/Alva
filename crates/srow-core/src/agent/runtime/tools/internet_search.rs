@@ -1,15 +1,12 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, serde, serde_json, reqwest
+// INPUT:  agent_types, async_trait, serde, serde_json, reqwest
 // OUTPUT: InternetSearchTool
 // POS:    Searches the internet using DuckDuckGo Instant Answer API.
 //! internet_search — search the internet using DuckDuckGo Instant Answer API
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -51,32 +48,31 @@ impl Tool for InternetSearchTool {
         "internet_search"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "internet_search".to_string(),
-            description: "Search the internet for information. Returns search results with titles, snippets, and URLs.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "required": ["query"],
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query"
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return (default: 5)"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Search the internet for information. Returns search results with titles, snippets, and URLs."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default: 5)"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: e.to_string() })?;
+
         let max_results = params.max_results.unwrap_or(5);
 
         // Use DuckDuckGo Instant Answer API (JSON, no auth required)
@@ -89,26 +85,26 @@ impl Tool for InternetSearchTool {
             .timeout(std::time::Duration::from_secs(15))
             .user_agent("SrowAgent/0.1")
             .build()
-            .map_err(|e| EngineError::ToolExecution(format!("HTTP client error: {e}")))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: format!("HTTP client error: {e}") })?;
 
         let resp = client
             .get(&url)
             .send()
             .await
-            .map_err(|e| EngineError::ToolExecution(format!("HTTP request failed: {e}")))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: format!("HTTP request failed: {e}") })?;
 
         let status = resp.status();
         if !status.is_success() {
-            return Err(EngineError::ToolExecution(format!(
-                "Search API returned status {}",
-                status
-            )));
+            return Err(AgentError::ToolError {
+                tool_name: "internet_search".into(),
+                message: format!("Search API returned status {}", status),
+            });
         }
 
         let ddg: DdgResponse = resp
             .json()
             .await
-            .map_err(|e| EngineError::ToolExecution(format!("Failed to parse response: {e}")))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: format!("Failed to parse response: {e}") })?;
 
         // Build results
         let mut results: Vec<Value> = Vec::new();
@@ -147,15 +143,11 @@ impl Tool for InternetSearchTool {
             })
         };
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "internet_search".to_string(),
-            output: serde_json::to_string_pretty(&output)
+            content: serde_json::to_string_pretty(&output)
                 .unwrap_or_else(|_| "{}".to_string()),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

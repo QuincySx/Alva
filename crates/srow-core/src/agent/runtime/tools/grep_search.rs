@@ -1,16 +1,13 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, regex, serde, serde_json, walkdir
+// INPUT:  agent_types, async_trait, regex, serde, serde_json, walkdir
 // OUTPUT: GrepSearchTool
 // POS:    Searches for regex patterns across workspace files with glob filtering and line-level results.
 //! grep_search — regex search across files
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 use walkdir::WalkDir;
 
 #[derive(Debug, Deserialize)]
@@ -37,48 +34,47 @@ impl Tool for GrepSearchTool {
         "grep_search"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "grep_search".to_string(),
-            description: "Search for a regex pattern across files in the workspace. Returns matching lines with file paths and line numbers.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "required": ["pattern"],
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Regular expression pattern to search for"
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Directory to search in, relative to workspace root"
-                    },
-                    "file_pattern": {
-                        "type": "string",
-                        "description": "Glob pattern to filter files, e.g. '*.rs'"
-                    },
-                    "case_insensitive": {
-                        "type": "boolean",
-                        "description": "Case insensitive search, default false"
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of matches to return, default 100"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Search for a regex pattern across files in the workspace. Returns matching lines with file paths and line numbers."
     }
 
-    async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["pattern"],
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Regular expression pattern to search for"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Directory to search in, relative to workspace root"
+                },
+                "file_pattern": {
+                    "type": "string",
+                    "description": "Glob pattern to filter files, e.g. '*.rs'"
+                },
+                "case_insensitive": {
+                    "type": "boolean",
+                    "description": "Case insensitive search, default false"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of matches to return, default 100"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: e.to_string() })?;
+
         let search_root = params
             .path
-            .map(|p| ctx.workspace.join(p))
-            .unwrap_or_else(|| ctx.workspace.clone());
+            .map(|p| ctx.workspace().join(p))
+            .unwrap_or_else(|| ctx.workspace().to_path_buf());
 
         let max_results = params.max_results.unwrap_or(100);
 
@@ -90,7 +86,7 @@ impl Tool for GrepSearchTool {
         };
 
         let regex = Regex::new(&pattern_str)
-            .map_err(|e| EngineError::ToolExecution(format!("Invalid regex: {}", e)))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: format!("Invalid regex: {}", e) })?;
 
         // Optional glob filter
         let glob_pattern = params.file_pattern.as_ref().map(|p| {
@@ -141,17 +137,13 @@ impl Tool for GrepSearchTool {
             results
         })
         .await
-        .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
-
-        let duration_ms = start.elapsed().as_millis() as u64;
+        .map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: e.to_string() })?;
 
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "grep_search".to_string(),
-            output: serde_json::to_string_pretty(&matches)
+            content: serde_json::to_string_pretty(&matches)
                 .unwrap_or_else(|_| "[]".to_string()),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

@@ -1,18 +1,15 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, chromiumoxide::cdp, serde, serde_json, super::browser_manager
+// INPUT:  agent_types, async_trait, chromiumoxide::cdp, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserActionTool
 // POS:    Performs page interactions (click/type/press/scroll) via CSS selectors or coordinates.
 //! browser_action — page interaction: click, type, press, scroll
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 use super::browser_manager::SharedBrowserManager;
 
@@ -48,69 +45,68 @@ impl Tool for BrowserActionTool {
         "browser_action"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "browser_action".to_string(),
-            description: "Perform an interaction on the current page. Supports: click (by selector or coordinates), type (text into an element), press (keyboard key), scroll (up/down).".to_string(),
-            parameters: json!({
-                "type": "object",
-                "required": ["action"],
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["click", "type", "press", "scroll"],
-                        "description": "The action to perform"
-                    },
-                    "selector": {
-                        "type": "string",
-                        "description": "CSS selector to target (for click/type)"
-                    },
-                    "text": {
-                        "type": "string",
-                        "description": "Text to type (required for 'type' action)"
-                    },
-                    "key": {
-                        "type": "string",
-                        "description": "Key to press (for 'press' action): Enter, Tab, Escape, ArrowDown, Backspace, etc."
-                    },
-                    "direction": {
-                        "type": "string",
-                        "enum": ["up", "down"],
-                        "description": "Scroll direction (for 'scroll' action). Default: 'down'"
-                    },
-                    "amount": {
-                        "type": "integer",
-                        "description": "Scroll amount in pixels. Default: 300"
-                    },
-                    "x": {
-                        "type": "number",
-                        "description": "X coordinate for click (alternative to selector)"
-                    },
-                    "y": {
-                        "type": "number",
-                        "description": "Y coordinate for click (alternative to selector)"
-                    },
-                    "id": {
-                        "type": "string",
-                        "description": "Browser instance ID. Default: 'default'"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Perform an interaction on the current page. Supports: click (by selector or coordinates), type (text into an element), press (keyboard key), scroll (up/down)."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["click", "type", "press", "scroll"],
+                    "description": "The action to perform"
+                },
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector to target (for click/type)"
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Text to type (required for 'type' action)"
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Key to press (for 'press' action): Enter, Tab, Escape, ArrowDown, Backspace, etc."
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": ["up", "down"],
+                    "description": "Scroll direction (for 'scroll' action). Default: 'down'"
+                },
+                "amount": {
+                    "type": "integer",
+                    "description": "Scroll amount in pixels. Default: 300"
+                },
+                "x": {
+                    "type": "number",
+                    "description": "X coordinate for click (alternative to selector)"
+                },
+                "y": {
+                    "type": "number",
+                    "description": "Y coordinate for click (alternative to selector)"
+                },
+                "id": {
+                    "type": "string",
+                    "description": "Browser instance ID. Default: 'default'"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_action".into(), message: e.to_string() })?;
+
         let id = params.id.clone().unwrap_or_else(|| "default".to_string());
 
         let manager = self.manager.lock().await;
         let page = manager
             .active_page(&id)
             .await
-            .map_err(|e| EngineError::ToolExecution(e))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "browser_action".into(), message: e })?;
 
         let result = match params.action.as_str() {
             "click" => execute_click(&page, &params).await,
@@ -120,27 +116,21 @@ impl Tool for BrowserActionTool {
             other => Err(format!("Unknown action: '{}'. Use click/type/press/scroll.", other)),
         };
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         match result {
             Ok(msg) => Ok(ToolResult {
-                tool_call_id: String::new(),
-                tool_name: "browser_action".to_string(),
-                output: json!({
+                content: json!({
                     "status": "ok",
                     "action": params.action,
                     "detail": msg,
                 })
                 .to_string(),
                 is_error: false,
-                duration_ms,
+                details: None,
             }),
             Err(e) => Ok(ToolResult {
-                tool_call_id: String::new(),
-                tool_name: "browser_action".to_string(),
-                output: json!({ "error": e }).to_string(),
+                content: json!({ "error": e }).to_string(),
                 is_error: true,
-                duration_ms,
+                details: None,
             }),
         }
     }

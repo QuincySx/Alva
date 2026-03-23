@@ -1,18 +1,15 @@
-// INPUT:  std::sync, crate::domain::tool, crate::error, crate::mcp::runtime, crate::ports::tool, async_trait, serde, serde_json
+// INPUT:  std::sync, agent_types, crate::mcp::runtime, async_trait, serde, serde_json
 // OUTPUT: McpRuntimeTool
 // POS:    Unified MCP meta-tool exposing list_servers, list_tools, and call_tool actions to the Agent.
 //! MCP runtime meta-tool: unified interface for listing servers, listing tools, and calling tools.
 
 use std::sync::Arc;
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use crate::mcp::runtime::McpManager;
-use crate::ports::tool::{Tool, ToolContext};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 #[derive(Debug, Deserialize)]
 struct McpRuntimeInput {
@@ -38,41 +35,39 @@ impl Tool for McpRuntimeTool {
         "mcp_runtime"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "mcp_runtime".to_string(),
-            description: "Interact with MCP (Model Context Protocol) servers. Actions: 'list_servers' to see available servers, 'list_tools' to see tools from connected servers, 'call_tool' to invoke a tool on a server.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "required": ["action"],
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["list_servers", "list_tools", "call_tool"],
-                        "description": "The MCP action to perform"
-                    },
-                    "server_id": {
-                        "type": "string",
-                        "description": "Server ID (required for call_tool, optional filter for list_tools)"
-                    },
-                    "tool_name": {
-                        "type": "string",
-                        "description": "Tool name to call (required for call_tool)"
-                    },
-                    "arguments": {
-                        "type": "object",
-                        "description": "Arguments to pass to the tool (for call_tool)"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Interact with MCP (Model Context Protocol) servers. Actions: 'list_servers' to see available servers, 'list_tools' to see tools from connected servers, 'call_tool' to invoke a tool on a server."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: McpRuntimeInput =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list_servers", "list_tools", "call_tool"],
+                    "description": "The MCP action to perform"
+                },
+                "server_id": {
+                    "type": "string",
+                    "description": "Server ID (required for call_tool, optional filter for list_tools)"
+                },
+                "tool_name": {
+                    "type": "string",
+                    "description": "Tool name to call (required for call_tool)"
+                },
+                "arguments": {
+                    "type": "object",
+                    "description": "Arguments to pass to the tool (for call_tool)"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: McpRuntimeInput =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "mcp_runtime".into(), message: e.to_string() })?;
 
         let output = match params.action.as_str() {
             "list_servers" => {
@@ -112,10 +107,10 @@ impl Tool for McpRuntimeTool {
             }
             "call_tool" => {
                 let server_id = params.server_id.ok_or_else(|| {
-                    EngineError::ToolExecution("server_id is required for call_tool".to_string())
+                    AgentError::ToolError { tool_name: "mcp_runtime".into(), message: "server_id is required for call_tool".to_string() }
                 })?;
                 let tool_name = params.tool_name.ok_or_else(|| {
-                    EngineError::ToolExecution("tool_name is required for call_tool".to_string())
+                    AgentError::ToolError { tool_name: "mcp_runtime".into(), message: "tool_name is required for call_tool".to_string() }
                 })?;
                 let arguments = params.arguments.unwrap_or(json!({}));
 
@@ -123,27 +118,23 @@ impl Tool for McpRuntimeTool {
                     .manager
                     .call_tool(&server_id, &tool_name, arguments)
                     .await
-                    .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+                    .map_err(|e| AgentError::ToolError { tool_name: "mcp_runtime".into(), message: e.to_string() })?;
 
                 serde_json::to_string_pretty(&result)
                     .unwrap_or_else(|_| result.to_string())
             }
             other => {
-                return Err(EngineError::ToolExecution(format!(
-                    "Unknown action '{}'. Valid actions: list_servers, list_tools, call_tool",
-                    other
-                )));
+                return Err(AgentError::ToolError {
+                    tool_name: "mcp_runtime".into(),
+                    message: format!("Unknown action '{}'. Valid actions: list_servers, list_tools, call_tool", other),
+                });
             }
         };
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "mcp_runtime".to_string(),
-            output,
+            content: output,
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

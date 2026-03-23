@@ -12,7 +12,7 @@ pub mod list_files;
 pub mod read_url;
 pub mod view_image;
 
-use crate::ports::tool::ToolRegistry;
+use agent_types::ToolRegistry;
 
 /// Register all built-in tools into a ToolRegistry
 pub fn register_builtin_tools(registry: &mut ToolRegistry) {

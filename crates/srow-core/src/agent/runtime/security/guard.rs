@@ -5,6 +5,8 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 use crate::ports::tool::ToolContext;
+#[cfg(test)]
+use crate::ports::tool::SrowToolContext;
 
 use super::authorized_roots::AuthorizedRoots;
 use super::permission::PermissionManager;
@@ -89,7 +91,7 @@ impl SecurityGuard {
         &mut self,
         tool_name: &str,
         args: &Value,
-        _ctx: &ToolContext,
+        _ctx: &dyn ToolContext,
     ) -> SecurityDecision {
         // 1. Extract all paths from tool arguments
         let paths = Self::extract_paths(args);
@@ -249,8 +251,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn test_ctx() -> ToolContext {
-        ToolContext {
+    fn test_ctx() -> SrowToolContext {
+        SrowToolContext {
             session_id: "test-session".to_string(),
             workspace: PathBuf::from("/projects/myapp"),
             allow_dangerous: false,

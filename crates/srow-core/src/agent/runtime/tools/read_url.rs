@@ -1,15 +1,12 @@
-// INPUT:  crate::domain::tool, crate::error, crate::ports::tool, async_trait, serde, serde_json, reqwest
+// INPUT:  agent_types, async_trait, serde, serde_json, reqwest
 // OUTPUT: ReadUrlTool
 // POS:    Fetches a web page and returns plain-text content with HTML tags stripped.
 //! read_url — fetch a web page and return its plain-text content (HTML tags stripped)
 
-use crate::domain::tool::{ToolDefinition, ToolResult};
-use crate::error::EngineError;
-use crate::ports::tool::{Tool, ToolContext};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::Instant;
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -26,32 +23,31 @@ impl Tool for ReadUrlTool {
         "read_url"
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "read_url".to_string(),
-            description: "Fetch a web page URL and return its plain-text content with HTML tags removed. Useful for reading articles, documentation, or any web content.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "required": ["url"],
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to fetch"
-                    },
-                    "max_length": {
-                        "type": "integer",
-                        "description": "Maximum content length in characters (default: 50000)"
-                    }
-                }
-            }),
-        }
+    fn description(&self) -> &str {
+        "Fetch a web page URL and return its plain-text content with HTML tags removed. Useful for reading articles, documentation, or any web content."
     }
 
-    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolResult, EngineError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to fetch"
+                },
+                "max_length": {
+                    "type": "integer",
+                    "description": "Maximum content length in characters (default: 50000)"
+                }
+            }
+        })
+    }
 
-        let start = Instant::now();
+    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+        let params: Input =
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: e.to_string() })?;
+
         let max_length = params.max_length.unwrap_or(50_000);
 
         let client = reqwest::Client::builder()
@@ -59,13 +55,13 @@ impl Tool for ReadUrlTool {
             .user_agent("SrowAgent/0.1 (compatible; bot)")
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
-            .map_err(|e| EngineError::ToolExecution(format!("HTTP client error: {e}")))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: format!("HTTP client error: {e}") })?;
 
         let resp = client
             .get(&params.url)
             .send()
             .await
-            .map_err(|e| EngineError::ToolExecution(format!("HTTP request failed: {e}")))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: format!("HTTP request failed: {e}") })?;
 
         let status = resp.status();
         let content_type = resp
@@ -76,16 +72,16 @@ impl Tool for ReadUrlTool {
             .to_string();
 
         if !status.is_success() {
-            return Err(EngineError::ToolExecution(format!(
-                "HTTP {} for URL: {}",
-                status, params.url
-            )));
+            return Err(AgentError::ToolError {
+                tool_name: "read_url".into(),
+                message: format!("HTTP {} for URL: {}", status, params.url),
+            });
         }
 
         let body = resp
             .text()
             .await
-            .map_err(|e| EngineError::ToolExecution(format!("Failed to read response body: {e}")))?;
+            .map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: format!("Failed to read response body: {e}") })?;
 
         // Strip HTML tags and extract text
         let plain_text = if content_type.contains("text/html") || content_type.contains("application/xhtml") {
@@ -116,15 +112,11 @@ impl Tool for ReadUrlTool {
             "truncated": truncated,
         });
 
-        let duration_ms = start.elapsed().as_millis() as u64;
-
         Ok(ToolResult {
-            tool_call_id: String::new(),
-            tool_name: "read_url".to_string(),
-            output: serde_json::to_string_pretty(&output)
+            content: serde_json::to_string_pretty(&output)
                 .unwrap_or_else(|_| "{}".to_string()),
             is_error: false,
-            duration_ms,
+            details: None,
         })
     }
 }

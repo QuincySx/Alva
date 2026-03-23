@@ -1,4 +1,4 @@
-// INPUT:  std::sync, async_trait, tokio::sync, crate::domain::tool, crate::error, crate::ports::tool
+// INPUT:  std::sync, async_trait, tokio::sync, agent_types, crate::error
 // OUTPUT: DelegateResult, DelegateFinishReason, AgentDelegate (trait), AcpAgentDelegate, AcpDelegateTool
 // POS:    Wraps ACP external Agent invocation as both a trait (AgentDelegate) and a Tool implementation (AcpDelegateTool).
 //         Bodies commented out during migration — depends on deleted UIMessageChunk.
@@ -7,11 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::{
-    domain::tool::{ToolDefinition, ToolResult},
-    error::EngineError,
-    ports::tool::{Tool, ToolContext},
-};
+use agent_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use crate::error::EngineError;
 
 /// Delegate execution result
 #[derive(Debug, Clone)]
@@ -92,7 +89,7 @@ impl AgentDelegate for AcpAgentDelegate {
 pub struct AcpDelegateTool {
     delegate: Arc<dyn AgentDelegate>,
     tool_name: String,
-    description: String,
+    tool_description: String,
 }
 
 impl AcpDelegateTool {
@@ -104,7 +101,7 @@ impl AcpDelegateTool {
         Self {
             delegate,
             tool_name: tool_name.into(),
-            description: description.into(),
+            tool_description: description.into(),
         }
     }
 }
@@ -115,39 +112,39 @@ impl Tool for AcpDelegateTool {
         &self.tool_name
     }
 
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.tool_name.clone(),
-            description: self.description.clone(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["task"],
-                "properties": {
-                    "task": {
-                        "type": "string",
-                        "description": "Complete task description for the external agent"
-                    }
+    fn description(&self) -> &str {
+        &self.tool_description
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "required": ["task"],
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Complete task description for the external agent"
                 }
-            }),
-        }
+            }
+        })
     }
 
     async fn execute(
         &self,
         input: serde_json::Value,
-        ctx: &ToolContext,
-    ) -> Result<ToolResult, EngineError> {
+        _cancel: &CancellationToken,
+        ctx: &dyn ToolContext,
+    ) -> Result<ToolResult, AgentError> {
         let task = input["task"]
             .as_str()
-            .ok_or_else(|| EngineError::ToolExecution("missing 'task' field".to_string()))?
+            .ok_or_else(|| AgentError::ToolError { tool_name: self.tool_name.clone(), message: "missing 'task' field".to_string() })?
             .to_string();
 
-        let start = std::time::Instant::now();
         let result = self
             .delegate
-            .delegate(task, ctx.workspace.clone())
-            .await?;
-        let duration_ms = start.elapsed().as_millis() as u64;
+            .delegate(task, ctx.workspace().to_path_buf())
+            .await
+            .map_err(|e| AgentError::ToolError { tool_name: self.tool_name.clone(), message: e.to_string() })?;
 
         let output = match result.finish_reason {
             DelegateFinishReason::Complete => result.output,
@@ -163,11 +160,9 @@ impl Tool for AcpDelegateTool {
         let is_error = !matches!(result.finish_reason, DelegateFinishReason::Complete);
 
         Ok(ToolResult {
-            tool_call_id: uuid::Uuid::new_v4().to_string(),
-            tool_name: self.tool_name.clone(),
-            output,
+            content: output,
             is_error,
-            duration_ms,
+            details: None,
         })
     }
 }
