@@ -1,3 +1,6 @@
+// INPUT:  agent_types (CancellationToken, Tool, ToolCall, ToolContext, ToolResult), tokio, tracing, crate::middleware, crate::event, crate::types (AgentHooks, AgentContext, ToolCallDecision, ToolExecutionMode)
+// OUTPUT: execute_tools (pub(crate))
+// POS:    Executes tool-call batches in parallel or sequential mode, applying before/after hooks and middleware at each call.
 use std::sync::Arc;
 
 use agent_types::{CancellationToken, Tool, ToolCall, ToolContext, ToolResult};
@@ -5,20 +8,10 @@ use tokio::sync::mpsc;
 use tracing::{error, warn};
 
 use crate::event::AgentEvent;
-use crate::middleware::{Extensions, MiddlewareContext};
+use crate::middleware::MiddlewareContext;
 use crate::types::{
     AgentHooks, AgentContext, ToolCallDecision, ToolExecutionMode,
 };
-
-/// Build a [`MiddlewareContext`] from the sync `AgentContext` reference.
-fn build_mw_ctx_from_context(context: &AgentContext<'_>, tool_context: &dyn ToolContext) -> MiddlewareContext {
-    MiddlewareContext {
-        session_id: tool_context.session_id().to_string(),
-        system_prompt: context.system_prompt.to_string(),
-        messages: context.messages.to_vec(),
-        extensions: Extensions::new(),
-    }
-}
 
 /// Execute a batch of tool calls, respecting the configured execution mode,
 /// before/after hooks, and cancellation.
@@ -30,13 +23,14 @@ pub(crate) async fn execute_tools(
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     tool_context: &Arc<dyn ToolContext>,
+    mw_ctx: &mut MiddlewareContext,
 ) -> Vec<ToolResult> {
     match config.tool_execution {
         ToolExecutionMode::Parallel => {
-            execute_parallel(tool_calls, tools, config, context, cancel, event_tx, tool_context).await
+            execute_parallel(tool_calls, tools, config, context, cancel, event_tx, tool_context, mw_ctx).await
         }
         ToolExecutionMode::Sequential => {
-            execute_sequential(tool_calls, tools, config, context, cancel, event_tx, tool_context).await
+            execute_sequential(tool_calls, tools, config, context, cancel, event_tx, tool_context, mw_ctx).await
         }
     }
 }
@@ -53,6 +47,7 @@ async fn execute_parallel(
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     tool_context: &Arc<dyn ToolContext>,
+    mw_ctx: &mut MiddlewareContext,
 ) -> Vec<ToolResult> {
     use tokio::task::JoinSet;
 
@@ -95,10 +90,9 @@ async fn execute_parallel(
 
         // Middleware: before_tool_call (on the main task, before spawning) ----
         if !config.middleware.is_empty() {
-            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
             if let Err(e) = config
                 .middleware
-                .run_before_tool_call(&mut mw_ctx, tc, tool_context.as_ref())
+                .run_before_tool_call(mw_ctx, tc, tool_context.as_ref())
                 .await
             {
                 warn!(tool = %tc.name, error = %e, "middleware before_tool_call blocked");
@@ -177,10 +171,9 @@ async fn execute_parallel(
         }
         // Middleware: after_tool_call (on the main task).
         if !config.middleware.is_empty() {
-            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
             if let Err(e) = config
                 .middleware
-                .run_after_tool_call(&mut mw_ctx, &tc, &mut result)
+                .run_after_tool_call(mw_ctx, &tc, &mut result)
                 .await
             {
                 warn!(tool = %tc.name, error = %e, "middleware after_tool_call failed");
@@ -203,6 +196,7 @@ async fn execute_sequential(
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     tool_context: &Arc<dyn ToolContext>,
+    mw_ctx: &mut MiddlewareContext,
 ) -> Vec<ToolResult> {
     let mut results = Vec::with_capacity(tool_calls.len());
 
@@ -249,10 +243,9 @@ async fn execute_sequential(
 
         // Middleware: before_tool_call ----------------------------------------
         if !config.middleware.is_empty() {
-            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
             if let Err(e) = config
                 .middleware
-                .run_before_tool_call(&mut mw_ctx, tc, tool_context.as_ref())
+                .run_before_tool_call(mw_ctx, tc, tool_context.as_ref())
                 .await
             {
                 warn!(tool = %tc.name, error = %e, "middleware before_tool_call blocked");
@@ -308,10 +301,9 @@ async fn execute_sequential(
 
         // Middleware: after_tool_call -----------------------------------------
         if !config.middleware.is_empty() {
-            let mut mw_ctx = build_mw_ctx_from_context(context, tool_context.as_ref());
             if let Err(e) = config
                 .middleware
-                .run_after_tool_call(&mut mw_ctx, tc, &mut result)
+                .run_after_tool_call(mw_ctx, tc, &mut result)
                 .await
             {
                 warn!(tool = %tc.name, error = %e, "middleware after_tool_call failed");

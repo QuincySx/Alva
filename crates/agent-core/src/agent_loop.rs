@@ -1,3 +1,6 @@
+// INPUT:  agent_types (CancellationToken, ContentBlock, LanguageModel, Message, MessageRole, StreamEvent, ToolCall), tokio, tokio_stream, tracing, uuid, chrono, crate::middleware, crate::tool_executor, crate::types, crate::event
+// OUTPUT: run_agent_loop (pub(crate))
+// POS:    Double-loop agent execution — outer loop handles follow-ups, inner loop drives LLM + tool calls + steering, with middleware hooks at each stage.
 use agent_types::{
     CancellationToken, ContentBlock, LanguageModel, Message, MessageRole, StreamEvent, ToolCall,
 };
@@ -20,16 +23,10 @@ use crate::types::{AgentHooks, AgentContext, AgentMessage, AgentState};
 ///
 /// The function mutates `state` in place and emits `AgentEvent`s through the
 /// provided channel.
-/// Build a [`MiddlewareContext`] from current agent state.
-fn build_mw_ctx(state: &AgentState) -> MiddlewareContext {
-    MiddlewareContext {
-        session_id: state.tool_context.session_id().to_string(),
-        system_prompt: state.system_prompt.clone(),
-        messages: state.messages.clone(),
-        extensions: Extensions::new(),
-    }
-}
-
+///
+/// A single [`MiddlewareContext`] is created at the start and shared across
+/// all middleware hook invocations so that [`Extensions`] set in
+/// `on_agent_start` are visible to `before_llm_call`, `before_tool_call`, etc.
 pub(crate) async fn run_agent_loop(
     state: &mut AgentState,
     model: &dyn LanguageModel,
@@ -39,19 +36,26 @@ pub(crate) async fn run_agent_loop(
 ) -> Result<(), agent_types::AgentError> {
     let _ = event_tx.send(AgentEvent::AgentStart);
 
+    // Create a single MiddlewareContext that persists across the entire run.
+    let mut mw_ctx = MiddlewareContext {
+        session_id: state.tool_context.session_id().to_string(),
+        system_prompt: state.system_prompt.clone(),
+        messages: state.messages.clone(),
+        extensions: Extensions::new(),
+    };
+
     // Middleware: on_agent_start
     if !config.middleware.is_empty() {
-        let mut mw_ctx = build_mw_ctx(state);
         if let Err(e) = config.middleware.run_on_agent_start(&mut mw_ctx).await {
             warn!(error = %e, "middleware on_agent_start failed");
         }
     }
 
-    let result = run_agent_loop_inner(state, model, config, cancel, event_tx).await;
+    let result = run_agent_loop_inner(state, model, config, cancel, event_tx, &mut mw_ctx).await;
 
     // Middleware: on_agent_end
     if !config.middleware.is_empty() {
-        let mut mw_ctx = build_mw_ctx(state);
+        mw_ctx.messages = state.messages.clone();
         let err_str = match &result {
             Ok(()) => None,
             Err(e) => Some(e.to_string()),
@@ -85,6 +89,7 @@ async fn run_agent_loop_inner(
     config: &AgentHooks,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    mw_ctx: &mut MiddlewareContext,
 ) -> Result<(), agent_types::AgentError> {
     let mut iteration: u32 = 0;
 
@@ -124,10 +129,10 @@ async fn run_agent_loop_inner(
 
             // 1b. Middleware: before_llm_call --------------------------------
             if !config.middleware.is_empty() {
-                let mut mw_ctx = build_mw_ctx(state);
+                mw_ctx.messages = state.messages.clone();
                 if let Err(e) = config
                     .middleware
-                    .run_before_llm_call(&mut mw_ctx, &mut llm_messages)
+                    .run_before_llm_call(mw_ctx, &mut llm_messages)
                     .await
                 {
                     warn!(error = %e, "middleware before_llm_call failed");
@@ -154,10 +159,10 @@ async fn run_agent_loop_inner(
 
             // 3b. Middleware: after_llm_call ---------------------------------
             if !config.middleware.is_empty() {
-                let mut mw_ctx = build_mw_ctx(state);
+                mw_ctx.messages = state.messages.clone();
                 if let Err(e) = config
                     .middleware
-                    .run_after_llm_call(&mut mw_ctx, &mut assistant_message)
+                    .run_after_llm_call(mw_ctx, &mut assistant_message)
                     .await
                 {
                     warn!(error = %e, "middleware after_llm_call failed");
@@ -204,6 +209,7 @@ async fn run_agent_loop_inner(
                 tools: &state.tools,
             };
 
+            mw_ctx.messages = state.messages.clone();
             let results = execute_tools(
                 &tool_calls,
                 &state.tools,
@@ -212,6 +218,7 @@ async fn run_agent_loop_inner(
                 cancel,
                 event_tx,
                 &state.tool_context,
+                mw_ctx,
             )
             .await;
 
@@ -732,6 +739,66 @@ mod tests {
             partial_texts.iter().any(|t| t == "Hello world!"),
             "should have partial with 'Hello world!', got: {:?}",
             partial_texts
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: MiddlewareContext Extensions persist across hooks
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_middleware_extensions_persist_across_hooks() {
+        use crate::middleware::{Middleware, MiddlewareContext, MiddlewareError};
+        use async_trait::async_trait;
+
+        #[derive(Debug)]
+        struct Budget(u32);
+
+        struct PersistenceMiddleware {
+            observed: Arc<parking_lot::Mutex<Option<u32>>>,
+        }
+
+        #[async_trait]
+        impl Middleware for PersistenceMiddleware {
+            async fn on_agent_start(
+                &self,
+                ctx: &mut MiddlewareContext,
+            ) -> Result<(), MiddlewareError> {
+                ctx.extensions.insert(Budget(999));
+                Ok(())
+            }
+            async fn before_llm_call(
+                &self,
+                ctx: &mut MiddlewareContext,
+                _msgs: &mut Vec<Message>,
+            ) -> Result<(), MiddlewareError> {
+                if let Some(b) = ctx.extensions.get::<Budget>() {
+                    *self.observed.lock() = Some(b.0);
+                }
+                Ok(())
+            }
+        }
+
+        let observed = Arc::new(parking_lot::Mutex::new(None));
+        let mw = PersistenceMiddleware {
+            observed: observed.clone(),
+        };
+
+        let mut config = AgentHooks::new(Arc::new(default_convert_to_llm));
+        config.middleware.push(Arc::new(mw));
+
+        let cancel = CancellationToken::new();
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let mut state = AgentState::new("test".to_string(), ModelConfig::default());
+        state
+            .messages
+            .push(AgentMessage::Standard(Message::user("Hi")));
+
+        let _ = run_agent_loop(&mut state, &MockModel, &config, &cancel, &event_tx).await;
+
+        assert_eq!(
+            *observed.lock(),
+            Some(999),
+            "Extensions should persist from on_agent_start to before_llm_call"
         );
     }
 }
