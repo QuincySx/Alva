@@ -2,7 +2,7 @@
 name = "srow-core"
 version = "0.1.0"
 edition = "2021"
-description = "Srow Agent core — agent engine, skill system, MCP integration"
+description = "Srow Agent core — thin facade over extracted crates, plus skills, MCP, environment"
 
 [lib]
 name = "srow_core"
@@ -13,12 +13,13 @@ name = "srow-cli"
 path = "src/bin/cli.rs"
 
 [dependencies]
-# New agent crates (gradual migration)
+# Extracted agent crates
 agent-types = { path = "../agent-types" }
 agent-core = { path = "../agent-core" }
 agent-tools = { path = "../agent-tools" }
 agent-security = { path = "../agent-security" }
 agent-memory = { path = "../agent-memory" }
+agent-runtime = { path = "../agent-runtime" }
 protocol-agent-client = { path = "../protocol-agent-client" }
 
 # Async runtime

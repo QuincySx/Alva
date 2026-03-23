@@ -44,7 +44,10 @@ check_no_workspace_deps "agent-security" "agent-types"
 # Rule 5: agent-memory only depends on agent-types
 check_no_workspace_deps "agent-memory" "agent-types"
 
-# Rule 6: protocol crates don't depend on srow-*
+# Rule 6: agent-runtime only depends on foundation agent-* crates
+check_no_workspace_deps "agent-runtime" "agent-types|agent-core|agent-tools|agent-security|agent-memory"
+
+# Rule 7: protocol crates don't depend on srow-*
 echo "Checking protocol crates..."
 for proto in protocol-context-skill protocol-model-context protocol-agent-client; do
     local_deps=$(cargo tree -p "$proto" --depth 1 --prefix none 2>/dev/null | grep -E "^srow-" || true)
@@ -57,9 +60,9 @@ for proto in protocol-context-skill protocol-model-context protocol-agent-client
     fi
 done
 
-# Rule 7: srow-app must NOT directly depend on agent-types/core/graph
+# Rule 8: srow-app must NOT directly depend on internal agent-* crates
 echo "Checking srow-app facade boundary..."
-app_deps=$(cargo tree -p srow-app --depth 1 --prefix none 2>/dev/null | grep -E "^(agent-types|agent-core|agent-graph) " || true)
+app_deps=$(cargo tree -p srow-app --depth 1 --prefix none 2>/dev/null | grep -E "^(agent-types|agent-core|agent-graph|agent-tools|agent-security|agent-memory|agent-runtime) " || true)
 if [ -n "$app_deps" ]; then
     echo -e "${RED}VIOLATION: srow-app directly depends on internal crates:${NC}"
     echo "$app_deps"
