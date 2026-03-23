@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use agent_types::{CancellationToken, Tool, ToolCall, ToolResult};
+use agent_types::{CancellationToken, Tool, ToolCall, ToolContext, ToolResult};
 use tokio::sync::mpsc;
 use tracing::{error, warn};
 
@@ -18,13 +18,14 @@ pub(crate) async fn execute_tools(
     context: &AgentContext<'_>,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    tool_context: &Arc<dyn ToolContext>,
 ) -> Vec<ToolResult> {
     match config.tool_execution {
         ToolExecutionMode::Parallel => {
-            execute_parallel(tool_calls, tools, config, context, cancel, event_tx).await
+            execute_parallel(tool_calls, tools, config, context, cancel, event_tx, tool_context).await
         }
         ToolExecutionMode::Sequential => {
-            execute_sequential(tool_calls, tools, config, context, cancel, event_tx).await
+            execute_sequential(tool_calls, tools, config, context, cancel, event_tx, tool_context).await
         }
     }
 }
@@ -40,6 +41,7 @@ async fn execute_parallel(
     context: &AgentContext<'_>,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    tool_context: &Arc<dyn ToolContext>,
 ) -> Vec<ToolResult> {
     use tokio::task::JoinSet;
 
@@ -85,6 +87,7 @@ async fn execute_parallel(
         let tc_clone = tc.clone();
         let cancel_clone = cancel.clone();
         let event_tx_clone = event_tx.clone();
+        let tool_ctx = tool_context.clone();
 
         let _ = event_tx.send(AgentEvent::ToolExecutionStart {
             tool_call: tc_clone.clone(),
@@ -92,7 +95,7 @@ async fn execute_parallel(
 
         join_set.spawn(async move {
             let result = match tool {
-                Some(t) => match t.execute(tc_clone.arguments.clone(), &cancel_clone).await {
+                Some(t) => match t.execute(tc_clone.arguments.clone(), &cancel_clone, tool_ctx.as_ref()).await {
                     Ok(r) => r,
                     Err(e) => {
                         error!(tool = %tc_clone.name, error = %e, "tool execution failed");
@@ -149,6 +152,7 @@ async fn execute_sequential(
     context: &AgentContext<'_>,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    tool_context: &Arc<dyn ToolContext>,
 ) -> Vec<ToolResult> {
     let mut results = Vec::with_capacity(tool_calls.len());
 
@@ -200,7 +204,7 @@ async fn execute_sequential(
         // Find & execute -----------------------------------------------------
         let tool = tools.iter().find(|t| t.name() == tc.name);
         let mut result = match tool {
-            Some(t) => match t.execute(tc.arguments.clone(), cancel).await {
+            Some(t) => match t.execute(tc.arguments.clone(), cancel, tool_context.as_ref()).await {
                 Ok(r) => r,
                 Err(e) => {
                     error!(tool = %tc.name, error = %e, "tool execution failed");

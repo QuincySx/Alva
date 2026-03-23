@@ -152,6 +152,7 @@ async fn run_agent_loop_inner(
                 &context,
                 cancel,
                 event_tx,
+                &state.tool_context,
             )
             .await;
 
