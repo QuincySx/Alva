@@ -276,12 +276,35 @@ async fn stream_llm_response(
             _ => {} // Start, Done
         }
 
-        // Emit delta event
+        // Build partial message from accumulated state so far
+        let mut partial_content = Vec::new();
+        if !text.is_empty() {
+            partial_content.push(ContentBlock::Text { text: text.clone() });
+        }
+        if !reasoning.is_empty() {
+            partial_content.push(ContentBlock::Reasoning { text: reasoning.clone() });
+        }
+        for acc in &tool_call_accumulators {
+            let input: serde_json::Value = serde_json::from_str(&acc.arguments_json)
+                .unwrap_or(serde_json::Value::String(acc.arguments_json.clone()));
+            partial_content.push(ContentBlock::ToolUse {
+                id: acc.id.clone(),
+                name: acc.name.clone(),
+                input,
+            });
+        }
+
+        let partial_message = Message {
+            id: String::new(),
+            role: MessageRole::Assistant,
+            content: partial_content,
+            tool_call_id: None,
+            usage: usage.clone(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        };
+
         let _ = event_tx.send(AgentEvent::MessageUpdate {
-            message: AgentMessage::Custom {
-                type_name: "stream_placeholder".into(),
-                data: serde_json::Value::Null,
-            },
+            message: AgentMessage::Standard(partial_message),
             delta: event,
         });
     }
@@ -569,5 +592,86 @@ mod tests {
 
         // State should have the accumulated message
         assert_eq!(state.messages.len(), 2); // user + assistant
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: streaming emits partial messages (not placeholders) in MessageUpdate
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_streaming_emits_partial_message() {
+        struct PartialStreamModel;
+
+        #[async_trait]
+        impl LanguageModel for PartialStreamModel {
+            async fn complete(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Result<Message, AgentError> {
+                panic!("should use stream path")
+            }
+
+            fn stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+                Box::pin(tokio_stream::iter(vec![
+                    StreamEvent::Start,
+                    StreamEvent::TextDelta { text: "Hello ".into() },
+                    StreamEvent::TextDelta { text: "world!".into() },
+                    StreamEvent::Done,
+                ]))
+            }
+
+            fn model_id(&self) -> &str {
+                "partial-stream-mock"
+            }
+        }
+
+        let config = AgentConfig::new(Arc::new(default_convert_to_llm));
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        state.is_streaming = true;
+        state.messages.push(AgentMessage::Standard(Message::user("Hi")));
+
+        let result = run_agent_loop(
+            &mut state,
+            &PartialStreamModel,
+            &config,
+            &cancel,
+            &event_tx,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        drop(event_tx);
+        let mut partial_texts = Vec::new();
+        while let Some(ev) = event_rx.recv().await {
+            if let AgentEvent::MessageUpdate {
+                message: AgentMessage::Standard(m),
+                ..
+            } = &ev
+            {
+                partial_texts.push(m.text_content());
+            }
+        }
+
+        // After "Hello " delta, partial should contain "Hello "
+        // After "world!" delta, partial should contain "Hello world!"
+        assert!(
+            partial_texts.iter().any(|t| t == "Hello "),
+            "should have partial with 'Hello ', got: {:?}",
+            partial_texts
+        );
+        assert!(
+            partial_texts.iter().any(|t| t == "Hello world!"),
+            "should have partial with 'Hello world!', got: {:?}",
+            partial_texts
+        );
     }
 }
