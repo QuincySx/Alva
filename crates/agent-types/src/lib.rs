@@ -13,6 +13,7 @@ pub mod video;
 pub mod reranking;
 pub mod moderation;
 pub mod provider;
+pub mod provider_test;
 
 pub use cancel::CancellationToken;
 pub use content::ContentBlock;
