@@ -1,6 +1,6 @@
-// INPUT:  agent, mcp, skills, gateway, base, system, environment, types, domain, ports, adapters, error
-// OUTPUT: Re-exports of kept modules + facade re-exports from extracted crates.
-// POS:    Crate root — thin facade that re-exports from extracted crates and declares remaining modules.
+// INPUT:  agent_types, agent_core, agent_tools, agent_security, agent_memory, agent_runtime, agent/mcp/skills/gateway/base/system/environment/types/domain/ports/adapters/error
+// OUTPUT: Facade re-exports (Agent, AgentHooks, AgentEvent, AgentMessage, Tool, Message, SecurityGuard, MemoryService, etc.) + kept module public APIs (skills, mcp, environment, domain, ports)
+// POS:    Crate root — thin facade that re-exports from extracted crates and declares remaining kept modules.
 //! Srow Core — thin facade over extracted agent crates, plus skill system, MCP, and environment management
 //!
 //! Extracted crates (re-exported here for backward compat):
@@ -67,7 +67,12 @@ pub mod types;
 pub mod domain;
 pub mod ports;
 pub mod adapters;
+pub mod base_agent;
 pub mod error;
+
+// ── Convenience re-exports — BaseAgent ──────────────────────────────
+
+pub use base_agent::{BaseAgent, BaseAgentBuilder};
 
 // ── Convenience re-exports — domain ─────────────────────────────────
 
@@ -98,6 +103,7 @@ pub use skills::skill_ports::skill_repository::{SkillInstallSource, SkillReposit
 pub use skills::skill_ports::mcp_transport::McpTransport;
 pub use skills::agent_template_service::{AgentTemplateService, AgentTemplateInstance};
 pub use skills::tools::{SearchSkillsTool, UseSkillTool};
+pub use skills::middleware::{SkillInjectionMiddleware, SkillInjectionConfig};
 
 // ── Convenience re-exports — environment runtime management ─────────
 
