@@ -7,6 +7,7 @@
 //! into a ready-to-use agent with a builder API.
 
 pub mod builder;
+pub mod graph;
 pub mod init;
 pub mod middleware;
 

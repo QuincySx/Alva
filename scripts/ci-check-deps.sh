@@ -45,7 +45,7 @@ check_no_workspace_deps "agent-security" "agent-types"
 check_no_workspace_deps "agent-memory" "agent-types"
 
 # Rule 6: agent-runtime only depends on foundation agent-* crates
-check_no_workspace_deps "agent-runtime" "agent-types|agent-core|agent-tools|agent-security|agent-memory"
+check_no_workspace_deps "agent-runtime" "agent-types|agent-core|agent-tools|agent-security|agent-memory|agent-graph"
 
 # Rule 7: protocol crates don't depend on srow-*
 echo "Checking protocol crates..."
