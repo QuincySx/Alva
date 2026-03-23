@@ -1,4 +1,4 @@
-// INPUT:  std::path, async_trait, tokio_rusqlite, crate::domain::{message, session}, crate::error, crate::ports::storage, super::migrations
+// INPUT:  std::path, async_trait, tokio_rusqlite, agent_types, crate::domain::session, crate::error, crate::ports::storage, super::migrations
 // OUTPUT: SqliteStorage
 // POS:    SQLite-backed SessionStorage implementation with WAL mode and migration support.
 //! SQLite-backed implementation of [`SessionStorage`].
@@ -8,7 +8,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use tokio_rusqlite::Connection;
 
-use crate::domain::message::{LLMContent, LLMMessage, Role};
+use agent_types::{ContentBlock, Message, MessageRole, UsageMetadata};
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use crate::ports::storage::SessionStorage;
@@ -85,29 +85,29 @@ fn str_to_status(s: &str) -> SessionStatus {
     }
 }
 
-fn role_to_str(r: &Role) -> &'static str {
+fn role_to_str(r: &MessageRole) -> &'static str {
     match r {
-        Role::System => "system",
-        Role::User => "user",
-        Role::Assistant => "assistant",
-        Role::Tool => "tool",
+        MessageRole::System => "system",
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::Tool => "tool",
     }
 }
 
-fn str_to_role(s: &str) -> Role {
+fn str_to_role(s: &str) -> MessageRole {
     match s {
-        "system" => Role::System,
-        "user" => Role::User,
-        "assistant" => Role::Assistant,
-        "tool" => Role::Tool,
-        _ => Role::User,
+        "system" => MessageRole::System,
+        "user" => MessageRole::User,
+        "assistant" => MessageRole::Assistant,
+        "tool" => MessageRole::Tool,
+        _ => MessageRole::User,
     }
 }
 
 /// Extract a tool_call_id from the first ToolResult block, if any.
-fn extract_tool_call_id(content: &[LLMContent]) -> Option<String> {
+fn extract_tool_call_id(content: &[ContentBlock]) -> Option<String> {
     content.iter().find_map(|c| match c {
-        LLMContent::ToolResult { tool_use_id, .. } => Some(tool_use_id.clone()),
+        ContentBlock::ToolResult { id, .. } => Some(id.clone()),
         _ => None,
     })
 }
@@ -247,23 +247,24 @@ impl SessionStorage for SqliteStorage {
     async fn append_message(
         &self,
         session_id: &str,
-        msg: &LLMMessage,
+        msg: &Message,
     ) -> Result<(), EngineError> {
         let session_id = session_id.to_string();
         let msg_id = msg.id.clone();
         let role = role_to_str(&msg.role).to_string();
         let content_json = serde_json::to_string(&msg.content)
             .map_err(|e| EngineError::Serialization(e.to_string()))?;
-        let turn_index = msg.turn_index as i64;
-        let token_count = msg.token_count.map(|t| t as i64);
-        let tool_call_id = extract_tool_call_id(&msg.content);
+        let timestamp = msg.timestamp;
+        let token_count = msg.usage.as_ref().map(|u| u.total_tokens as i64);
+        let tool_call_id = msg.tool_call_id.clone()
+            .or_else(|| extract_tool_call_id(&msg.content));
 
         self.conn
             .call(move |conn| {
                 conn.execute(
                     "INSERT INTO messages (session_id, msg_id, role, content_json, turn_index, token_count, tool_call_id)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    rusqlite::params![session_id, msg_id, role, content_json, turn_index, token_count, tool_call_id],
+                    rusqlite::params![session_id, msg_id, role, content_json, timestamp, token_count, tool_call_id],
                 )?;
                 Ok(())
             })
@@ -272,12 +273,12 @@ impl SessionStorage for SqliteStorage {
         Ok(())
     }
 
-    async fn get_messages(&self, session_id: &str) -> Result<Vec<LLMMessage>, EngineError> {
+    async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, EngineError> {
         let session_id = session_id.to_string();
         self.conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT msg_id, role, content_json, turn_index, token_count
+                    "SELECT msg_id, role, content_json, turn_index, token_count, tool_call_id
                      FROM messages WHERE session_id = ?1 ORDER BY id ASC",
                 )?;
                 let mut rows = stmt.query(rusqlite::params![session_id])?;
@@ -285,16 +286,23 @@ impl SessionStorage for SqliteStorage {
                 while let Some(row) = rows.next()? {
                     let role_str: String = row.get(1)?;
                     let content_str: String = row.get(2)?;
-                    let turn_index: i64 = row.get(3)?;
+                    let timestamp: i64 = row.get(3)?;
                     let token_count: Option<i64> = row.get(4)?;
-                    let content: Vec<LLMContent> = serde_json::from_str(&content_str)
+                    let tool_call_id: Option<String> = row.get(5)?;
+                    let content: Vec<ContentBlock> = serde_json::from_str(&content_str)
                         .unwrap_or_default();
-                    result.push(LLMMessage {
+                    let usage = token_count.map(|t| UsageMetadata {
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        total_tokens: t as u32,
+                    });
+                    result.push(Message {
                         id: row.get(0)?,
                         role: str_to_role(&role_str),
                         content,
-                        turn_index: turn_index as u32,
-                        token_count: token_count.map(|t| t as u32),
+                        tool_call_id,
+                        usage,
+                        timestamp,
                     });
                 }
                 Ok(result)
@@ -311,7 +319,7 @@ impl SessionStorage for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::message::LLMMessage;
+    use agent_types::{ContentBlock, Message, MessageRole};
     use crate::domain::session::{Session, SessionStatus};
 
     fn sample_session() -> Session {
@@ -330,16 +338,13 @@ mod tests {
         let storage = SqliteStorage::open_in_memory().await.unwrap();
         let session = sample_session();
 
-        // create
         storage.create_session(&session).await.unwrap();
 
-        // get
         let fetched = storage.get_session("sess-001").await.unwrap().unwrap();
         assert_eq!(fetched.id, "sess-001");
         assert_eq!(fetched.status, SessionStatus::Idle);
         assert_eq!(fetched.workspace, "/tmp/test");
 
-        // update status
         storage
             .update_session_status("sess-001", SessionStatus::Running)
             .await
@@ -347,11 +352,9 @@ mod tests {
         let fetched = storage.get_session("sess-001").await.unwrap().unwrap();
         assert_eq!(fetched.status, SessionStatus::Running);
 
-        // list
         let list = storage.list_sessions("/tmp/test").await.unwrap();
         assert_eq!(list.len(), 1);
 
-        // delete
         storage.delete_session("sess-001").await.unwrap();
         assert!(storage.get_session("sess-001").await.unwrap().is_none());
     }
@@ -362,20 +365,27 @@ mod tests {
         let session = sample_session();
         storage.create_session(&session).await.unwrap();
 
-        let msg1 = LLMMessage::user("Hello agent");
-        let msg2 = LLMMessage::assistant(vec![crate::domain::message::LLMContent::Text {
-            text: "Hi there!".into(),
-        }]);
+        let msg1 = Message::user("Hello agent");
+        let msg2 = Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::Text {
+                text: "Hi there!".into(),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        };
 
         storage.append_message("sess-001", &msg1).await.unwrap();
         storage.append_message("sess-001", &msg2).await.unwrap();
 
         let messages = storage.get_messages("sess-001").await.unwrap();
         assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].role, Role::User);
-        assert_eq!(messages[0].text(), "Hello agent");
-        assert_eq!(messages[1].role, Role::Assistant);
-        assert_eq!(messages[1].text(), "Hi there!");
+        assert_eq!(messages[0].role, MessageRole::User);
+        assert_eq!(messages[0].text_content(), "Hello agent");
+        assert_eq!(messages[1].role, MessageRole::Assistant);
+        assert_eq!(messages[1].text_content(), "Hi there!");
     }
 
     #[tokio::test]
@@ -384,10 +394,9 @@ mod tests {
         let session = sample_session();
         storage.create_session(&session).await.unwrap();
 
-        let msg = LLMMessage::user("test");
+        let msg = Message::user("test");
         storage.append_message("sess-001", &msg).await.unwrap();
 
-        // deleting session should cascade to messages
         storage.delete_session("sess-001").await.unwrap();
         let messages = storage.get_messages("sess-001").await.unwrap();
         assert!(messages.is_empty());

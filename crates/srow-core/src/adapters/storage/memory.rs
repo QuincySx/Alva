@@ -1,10 +1,4 @@
-// INPUT:  crate::domain, crate::error, crate::ports::storage, async_trait, std::collections, tokio::sync::RwLock
-// OUTPUT: MemoryStorage
-// POS:    In-memory session storage backed by HashMap + RwLock for development and testing.
-//! In-memory session storage for development and testing.
-//! SQLite persistence will be added in a later sub-project.
-
-use crate::domain::message::LLMMessage;
+use agent_types::Message;
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use crate::ports::storage::SessionStorage;
@@ -15,7 +9,7 @@ use tokio::sync::RwLock;
 /// In-memory storage backed by HashMap + RwLock
 pub struct MemoryStorage {
     sessions: RwLock<HashMap<String, Session>>,
-    messages: RwLock<HashMap<String, Vec<LLMMessage>>>,
+    messages: RwLock<HashMap<String, Vec<Message>>>,
 }
 
 impl MemoryStorage {
@@ -77,7 +71,7 @@ impl SessionStorage for MemoryStorage {
         Ok(())
     }
 
-    async fn append_message(&self, session_id: &str, msg: &LLMMessage) -> Result<(), EngineError> {
+    async fn append_message(&self, session_id: &str, msg: &Message) -> Result<(), EngineError> {
         let mut messages = self.messages.write().await;
         messages
             .entry(session_id.to_string())
@@ -86,7 +80,7 @@ impl SessionStorage for MemoryStorage {
         Ok(())
     }
 
-    async fn get_messages(&self, session_id: &str) -> Result<Vec<LLMMessage>, EngineError> {
+    async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, EngineError> {
         let messages = self.messages.read().await;
         Ok(messages.get(session_id).cloned().unwrap_or_default())
     }

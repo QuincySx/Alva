@@ -1,7 +1,4 @@
-// INPUT:  crate::domain::message, crate::domain::session, crate::error, async_trait
-// OUTPUT: SessionStorage (trait)
-// POS:    Defines the abstract session storage interface for CRUD on sessions and messages.
-use crate::domain::message::LLMMessage;
+use agent_types::Message;
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use async_trait::async_trait;
@@ -19,6 +16,6 @@ pub trait SessionStorage: Send + Sync {
     async fn list_sessions(&self, workspace: &str) -> Result<Vec<Session>, EngineError>;
     async fn delete_session(&self, id: &str) -> Result<(), EngineError>;
 
-    async fn append_message(&self, session_id: &str, msg: &LLMMessage) -> Result<(), EngineError>;
-    async fn get_messages(&self, session_id: &str) -> Result<Vec<LLMMessage>, EngineError>;
+    async fn append_message(&self, session_id: &str, msg: &Message) -> Result<(), EngineError>;
+    async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, EngineError>;
 }
