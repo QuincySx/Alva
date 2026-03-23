@@ -70,12 +70,13 @@ pub use agent_tools::{register_all_tools, register_builtin_tools};
 pub use agent_tools::browser::BrowserManager;
 pub use agent_tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
 
-// Convenience re-exports — security
-pub use agent::runtime::security::guard::{SecurityGuard, SecurityDecision};
-pub use agent::runtime::security::permission::{PermissionManager, PermissionDecision};
-pub use agent::runtime::security::sensitive_paths::SensitivePathFilter;
-pub use agent::runtime::security::authorized_roots::AuthorizedRoots;
-pub use agent::runtime::security::sandbox::{SandboxConfig, SandboxMode};
+// Convenience re-exports — security (now in agent-security crate)
+pub use agent_security::{
+    SecurityGuard, SecurityDecision,
+    PermissionManager, PermissionDecision,
+    SensitivePathFilter, AuthorizedRoots,
+    SandboxConfig, SandboxMode,
+};
 
 // Convenience re-exports — environment runtime management
 pub use environment::EnvironmentManager;

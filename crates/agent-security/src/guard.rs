@@ -1,17 +1,15 @@
-// INPUT:  serde_json, std::path, crate::ports::tool, super::{authorized_roots, permission, sandbox, sensitive_paths}
+// INPUT:  serde_json, std::path, agent_types, crate::{authorized_roots, permission, sandbox, sensitive_paths}
 // OUTPUT: SecurityDecision, SecurityGuard
 // POS:    Unified security gate composing sensitive-path filtering, authorized-root checking, and HITL permission management.
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 use agent_types::ToolContext;
-#[cfg(test)]
-use crate::ports::tool::SrowToolContext;
 
-use super::authorized_roots::AuthorizedRoots;
-use super::permission::PermissionManager;
-use super::sandbox::{SandboxConfig, SandboxMode};
-use super::sensitive_paths::SensitivePathFilter;
+use crate::authorized_roots::AuthorizedRoots;
+use crate::permission::PermissionManager;
+use crate::sandbox::{SandboxConfig, SandboxMode};
+use crate::sensitive_paths::SensitivePathFilter;
 
 /// The outcome of a security check before tool execution.
 #[derive(Debug, Clone)]
@@ -151,7 +149,7 @@ impl SecurityGuard {
         &mut self,
         request_id: &str,
         tool_name: &str,
-        decision: super::permission::PermissionDecision,
+        decision: crate::permission::PermissionDecision,
     ) -> bool {
         self.permission_manager
             .resolve(request_id, tool_name, decision)
@@ -250,12 +248,27 @@ impl SecurityGuard {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::PathBuf;
 
-    fn test_ctx() -> SrowToolContext {
-        SrowToolContext {
-            session_id: "test-session".to_string(),
+    struct TestToolContext {
+        workspace: PathBuf,
+    }
+
+    impl agent_types::ToolContext for TestToolContext {
+        fn session_id(&self) -> &str { "test-session" }
+        fn get_config(&self, _key: &str) -> Option<String> { None }
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn local(&self) -> Option<&dyn agent_types::LocalToolContext> { Some(self) }
+    }
+
+    impl agent_types::LocalToolContext for TestToolContext {
+        fn workspace(&self) -> &std::path::Path { &self.workspace }
+        fn allow_dangerous(&self) -> bool { false }
+    }
+
+    fn test_ctx() -> TestToolContext {
+        TestToolContext {
             workspace: PathBuf::from("/projects/myapp"),
-            allow_dangerous: false,
         }
     }
 
@@ -316,7 +329,7 @@ mod tests {
             guard.resolve_permission(
                 &request_id,
                 "shell",
-                super::super::permission::PermissionDecision::AllowAlways,
+                crate::permission::PermissionDecision::AllowAlways,
             );
         }
         // Second call — should be auto-allowed

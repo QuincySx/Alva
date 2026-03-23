@@ -1,4 +1,3 @@
 // INPUT:  (none)
-// OUTPUT: pub mod security
-// POS:    Module declaration for Agent runtime (security). Tools moved to agent-tools crate.
-pub mod security;
+// OUTPUT: (empty — security moved to agent-security crate, tools moved to agent-tools crate)
+// POS:    Module declaration for Agent runtime. Currently empty after extractions.

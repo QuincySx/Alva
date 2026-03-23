@@ -17,6 +17,7 @@ path = "src/bin/cli.rs"
 agent-types = { path = "../agent-types" }
 agent-core = { path = "../agent-core" }
 agent-tools = { path = "../agent-tools" }
+agent-security = { path = "../agent-security" }
 protocol-agent-client = { path = "../protocol-agent-client" }
 
 # Async runtime
@@ -37,9 +38,6 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Error handling
 thiserror = "2"
-
-# Regex (used by security/sensitive_paths)
-regex = "1"
 
 # Filesystem traversal (used by memory/sync and skills/skill_fs)
 walkdir = "2"
