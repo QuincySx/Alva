@@ -1,5 +1,6 @@
-use srow_debug::{DebugServer, LogCaptureLayer};
+use srow_debug::{ActionRegistry, DebugServer, LogCaptureLayer, RegisteredView};
 use std::io::Read;
+use std::sync::Arc;
 use tracing_subscriber::prelude::*;
 
 #[test]
@@ -100,6 +101,259 @@ fn unknown_endpoint_returns_404() {
 }
 
 // ---------------------------------------------------------------------------
+// New endpoint tests: action, inspect/state, inspect/views, shutdown
+// ---------------------------------------------------------------------------
+
+fn make_test_registry() -> Arc<ActionRegistry> {
+    let registry = Arc::new(ActionRegistry::new());
+    registry.register(
+        "chat_panel",
+        RegisteredView {
+            action_fn: Box::new(|method, args| match method {
+                "send_message" => {
+                    let text = args
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("empty");
+                    Ok(serde_json::json!({"sent": text}))
+                }
+                _ => Err(format!("unknown method: {method}")),
+            }),
+            state_fn: Box::new(|| Some(serde_json::json!({"messages": 3, "loading": false}))),
+            methods: vec!["send_message".into(), "clear".into()],
+        },
+    );
+    registry
+}
+
+#[test]
+fn action_endpoint_success() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19240)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post(
+        "127.0.0.1:19240",
+        "/api/action",
+        r#"{"target":"chat_panel","method":"send_message","args":{"text":"hello"}}"#,
+    );
+    assert!(resp.contains(r#""ok":true"#), "expected ok in: {}", resp);
+    assert!(
+        resp.contains(r#""sent":"hello""#),
+        "expected sent result in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn action_endpoint_unknown_target() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19241)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post(
+        "127.0.0.1:19241",
+        "/api/action",
+        r#"{"target":"nope","method":"foo","args":{}}"#,
+    );
+    assert!(
+        resp.contains("target_not_found"),
+        "expected target_not_found in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn action_endpoint_unknown_method() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19242)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post(
+        "127.0.0.1:19242",
+        "/api/action",
+        r#"{"target":"chat_panel","method":"nonexistent","args":{}}"#,
+    );
+    assert!(
+        resp.contains("method_not_found"),
+        "expected method_not_found in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn action_endpoint_without_registry() {
+    let server = DebugServer::builder().port(19243).build().unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post(
+        "127.0.0.1:19243",
+        "/api/action",
+        r#"{"target":"x","method":"y","args":{}}"#,
+    );
+    assert!(
+        resp.contains("not registered"),
+        "expected 'not registered' in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn inspect_state_endpoint() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19244)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_get("127.0.0.1:19244", "/api/inspect/state?view=chat_panel");
+    assert!(
+        resp.contains(r#""view":"chat_panel""#),
+        "expected view field in: {}",
+        resp
+    );
+    assert!(
+        resp.contains(r#""messages":3"#),
+        "expected messages in state: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn inspect_state_unknown_view() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19245)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_get("127.0.0.1:19245", "/api/inspect/state?view=unknown");
+    assert!(
+        resp.contains("state_error"),
+        "expected state_error in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn inspect_state_missing_param() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19246)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_get("127.0.0.1:19246", "/api/inspect/state");
+    assert!(
+        resp.contains("missing"),
+        "expected 'missing' error in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn inspect_views_endpoint() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19247)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_get("127.0.0.1:19247", "/api/inspect/views");
+    assert!(
+        resp.contains("chat_panel"),
+        "expected 'chat_panel' in views list: {}",
+        resp
+    );
+    assert!(
+        resp.contains("send_message"),
+        "expected 'send_message' method in views: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn inspect_views_without_registry() {
+    let server = DebugServer::builder().port(19248).build().unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_get("127.0.0.1:19248", "/api/inspect/views");
+    assert!(
+        resp.contains("not registered"),
+        "expected 'not registered' in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn shutdown_endpoint() {
+    let shutdown_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server = DebugServer::builder()
+        .port(19249)
+        .with_shutdown_flag(shutdown_flag.clone())
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post("127.0.0.1:19249", "/api/shutdown", "");
+    assert!(resp.contains(r#""ok":true"#), "expected ok in: {}", resp);
+    assert!(
+        shutdown_flag.load(std::sync::atomic::Ordering::SeqCst),
+        "expected shutdown flag to be set"
+    );
+
+    handle.shutdown();
+}
+
+// ---------------------------------------------------------------------------
 // HTTP helpers using raw std::net (zero extra dependencies)
 // ---------------------------------------------------------------------------
 
@@ -110,6 +364,20 @@ fn http_get(addr: &str, path: &str) -> String {
         stream,
         "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
         path, addr
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    extract_body(&response)
+}
+
+fn http_post(addr: &str, path: &str, body: &str) -> String {
+    let mut stream = std::net::TcpStream::connect(addr).unwrap();
+    use std::io::Write;
+    write!(
+        stream,
+        "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        path, addr, body.len(), body
     )
     .unwrap();
     let mut response = String::new();

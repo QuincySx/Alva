@@ -1,6 +1,8 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 
+use crate::action_registry::ActionRegistry;
 use crate::inspect::Inspectable;
 use crate::log_layer::LogHandle;
 use crate::router::Router;
@@ -10,12 +12,16 @@ pub struct DebugServer {
     server: tiny_http::Server,
     log_handle: Option<LogHandle>,
     inspector: Option<Arc<dyn Inspectable>>,
+    action_registry: Option<Arc<ActionRegistry>>,
+    shutdown_flag: Arc<AtomicBool>,
 }
 
 pub struct DebugServerBuilder {
     port: u16,
     log_handle: Option<LogHandle>,
     inspector: Option<Arc<dyn Inspectable>>,
+    action_registry: Option<Arc<ActionRegistry>>,
+    shutdown_flag: Option<Arc<AtomicBool>>,
 }
 
 pub struct DebugServerHandle {
@@ -29,6 +35,8 @@ impl DebugServer {
             port: 9229,
             log_handle: None,
             inspector: None,
+            action_registry: None,
+            shutdown_flag: None,
         }
     }
 }
@@ -49,12 +57,24 @@ impl DebugServerBuilder {
         self
     }
 
+    pub fn with_action_registry(mut self, registry: Arc<ActionRegistry>) -> Self {
+        self.action_registry = Some(registry);
+        self
+    }
+
+    pub fn with_shutdown_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.shutdown_flag = Some(flag);
+        self
+    }
+
     pub fn build(self) -> Result<DebugServer, std::io::Error> {
         let http_server = HttpServer::new(self.port)?;
         Ok(DebugServer {
             server: http_server.into_inner(),
             log_handle: self.log_handle,
             inspector: self.inspector,
+            action_registry: self.action_registry,
+            shutdown_flag: self.shutdown_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
         })
     }
 }
@@ -65,13 +85,18 @@ impl DebugServer {
         let server_for_thread = Arc::clone(&server);
         let log_handle = self.log_handle;
         let inspector = self.inspector;
+        let action_registry = self.action_registry;
+        let shutdown_flag = self.shutdown_flag;
 
         let join_handle = thread::spawn(move || {
             tracing::info!("Debug server started");
-            let router = Router::new(log_handle, inspector);
+            let router = Router::new(log_handle, inspector, action_registry, shutdown_flag.clone());
 
             for request in server_for_thread.incoming_requests() {
                 router.handle(request);
+                if shutdown_flag.load(Ordering::SeqCst) {
+                    break;
+                }
             }
             tracing::info!("Debug server shut down");
         });
