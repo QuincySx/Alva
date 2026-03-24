@@ -232,7 +232,7 @@ impl BaseAgentBuilder {
             .workspace
             .ok_or_else(|| EngineError::ToolExecution("workspace is required".into()))?;
 
-        // 2. Create ToolRegistry and populate with builtin/browser tools
+        // 2. Create ToolRegistry (for name-based lookup) and populate with builtin/browser tools
         let mut tool_registry = ToolRegistry::new();
         if self.enable_browser {
             alva_tools::register_all_tools(&mut tool_registry);
@@ -245,23 +245,29 @@ impl BaseAgentBuilder {
             tool_registry.register(tool);
         }
 
-        // 4. Build Arc<dyn Tool> list for the agent (definitions from registry)
-        //    We create a fresh set of tools for the agent because ToolRegistry
-        //    owns Box<dyn Tool> while Agent needs Vec<Arc<dyn Tool>>.
+        // 4. Build Arc<dyn Tool> list for the agent by draining the registry.
+        //    ToolRegistry owns Box<dyn Tool> while Agent needs Vec<Arc<dyn Tool>>,
+        //    so we drain everything out, wrap in Arc, and then rebuild the
+        //    registry with a fresh set of builtins for name-based lookup.
         let mut alva_tools_list: Vec<Arc<dyn Tool>> = Vec::new();
         {
-            let mut tmp_registry = ToolRegistry::new();
-            if self.enable_browser {
-                alva_tools::register_all_tools(&mut tmp_registry);
-            } else {
-                alva_tools::register_builtin_tools(&mut tmp_registry);
-            }
-            // Extract tools from the temporary registry by draining it
-            for def in tmp_registry.definitions() {
-                if let Some(tool) = tmp_registry.remove(&def.name) {
+            let defs: Vec<String> = tool_registry.definitions().iter().map(|d| d.name.clone()).collect();
+            for name in &defs {
+                if let Some(tool) = tool_registry.remove(name) {
                     alva_tools_list.push(Arc::from(tool));
                 }
             }
+        }
+        // Rebuild the registry so BaseAgent.tool_registry remains usable for
+        // name-based lookup (definitions only — these are separate instances).
+        {
+            let mut fresh_registry = ToolRegistry::new();
+            if self.enable_browser {
+                alva_tools::register_all_tools(&mut fresh_registry);
+            } else {
+                alva_tools::register_builtin_tools(&mut fresh_registry);
+            }
+            tool_registry = fresh_registry;
         }
 
         // 5. Create SkillStore
@@ -428,5 +434,272 @@ mod tests {
             .skill_dir("/path/to/skills2");
 
         assert_eq!(builder.skill_dirs.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Integration tests using alva-test mocks
+    // -----------------------------------------------------------------------
+
+    use alva_test::fixtures::make_assistant_message;
+    use alva_test::mock_provider::MockLanguageModel;
+    use alva_core::event::AgentEvent;
+
+    /// Helper: build a BaseAgent with minimal config using a mock model.
+    async fn build_test_agent(model: Arc<dyn alva_types::LanguageModel>) -> BaseAgent {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        BaseAgent::builder()
+            .workspace(tmp.path())
+            .system_prompt("You are a test agent.")
+            .without_browser()
+            .build(model)
+            .await
+            .expect("build should succeed")
+    }
+
+    #[tokio::test]
+    async fn test_build_without_workspace_fails() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("unused")),
+        );
+
+        let result = BaseAgent::builder()
+            .system_prompt("test")
+            .without_browser()
+            .build(model)
+            .await;
+
+        assert!(result.is_err(), "build without workspace should fail");
+    }
+
+    #[tokio::test]
+    async fn test_build_with_workspace_succeeds() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("unused")),
+        );
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let result = BaseAgent::builder()
+            .workspace(tmp.path())
+            .without_browser()
+            .build(model)
+            .await;
+
+        assert!(result.is_ok(), "build with workspace should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_prompt_produces_events() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("Hello from mock!")),
+        );
+
+        let agent = build_test_agent(model).await;
+        let mut rx = agent.prompt_text("hi");
+
+        let mut got_agent_start = false;
+        let mut got_agent_end = false;
+        let mut got_message_start = false;
+        let mut got_message_end = false;
+
+        while let Some(event) = rx.recv().await {
+            match &event {
+                AgentEvent::AgentStart => got_agent_start = true,
+                AgentEvent::AgentEnd { .. } => {
+                    got_agent_end = true;
+                    break;
+                }
+                AgentEvent::MessageStart { .. } => got_message_start = true,
+                AgentEvent::MessageEnd { .. } => got_message_end = true,
+                _ => {}
+            }
+        }
+
+        assert!(got_agent_start, "should receive AgentStart event");
+        assert!(got_message_start, "should receive MessageStart event");
+        assert!(got_message_end, "should receive MessageEnd event");
+        assert!(got_agent_end, "should receive AgentEnd event");
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_prompt_text_ends_without_error() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("All good!")),
+        );
+
+        let agent = build_test_agent(model).await;
+        let mut rx = agent.prompt_text("Tell me something.");
+
+        let mut end_error: Option<Option<String>> = None;
+        while let Some(event) = rx.recv().await {
+            if let AgentEvent::AgentEnd { error } = event {
+                end_error = Some(error);
+                break;
+            }
+        }
+
+        let error = end_error.expect("should receive AgentEnd");
+        assert!(error.is_none(), "AgentEnd should have no error, got: {:?}", error);
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_messages_after_prompt() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("Response text")),
+        );
+
+        let agent = build_test_agent(model).await;
+        let mut rx = agent.prompt_text("hello");
+
+        // Drain all events until AgentEnd
+        while let Some(event) = rx.recv().await {
+            if matches!(event, AgentEvent::AgentEnd { .. }) {
+                break;
+            }
+        }
+
+        let messages = agent.messages().await;
+        // Should contain at least the user message and assistant message
+        assert!(
+            messages.len() >= 2,
+            "expected at least 2 messages (user + assistant), got {}",
+            messages.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_with_custom_tool() {
+        use alva_test::mock_tool::MockTool;
+        use alva_test::fixtures::make_tool_call_message;
+        use alva_types::tool::ToolResult;
+
+        // The model will first return a tool call, then a final text response.
+        let tool_call_resp = make_tool_call_message(
+            "my_test_tool",
+            serde_json::json!({"key": "value"}),
+        );
+        let final_resp = make_assistant_message("Done using the tool.");
+
+        let mock_model = MockLanguageModel::new()
+            .with_response(tool_call_resp)
+            .with_response(final_resp);
+        let model = Arc::new(mock_model);
+
+        let mock_tool = MockTool::new("my_test_tool")
+            .with_result(ToolResult {
+                content: "tool executed".into(),
+                is_error: false,
+                details: None,
+            });
+        let mock_tool_clone = mock_tool.clone();
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let agent = BaseAgent::builder()
+            .workspace(tmp.path())
+            .system_prompt("You are a test agent.")
+            .without_browser()
+            .tool(Box::new(mock_tool))
+            .build(model)
+            .await
+            .expect("build should succeed");
+
+        let mut rx = agent.prompt_text("Use the tool please.");
+
+        let mut got_tool_exec_start = false;
+        let mut got_tool_exec_end = false;
+        let mut got_agent_end = false;
+
+        while let Some(event) = rx.recv().await {
+            match &event {
+                AgentEvent::ToolExecutionStart { tool_call } => {
+                    assert_eq!(tool_call.name, "my_test_tool");
+                    got_tool_exec_start = true;
+                }
+                AgentEvent::ToolExecutionEnd { tool_call, result } => {
+                    assert_eq!(tool_call.name, "my_test_tool");
+                    assert_eq!(result.content, "tool executed");
+                    assert!(!result.is_error);
+                    got_tool_exec_end = true;
+                }
+                AgentEvent::AgentEnd { error } => {
+                    assert!(error.is_none(), "AgentEnd should have no error");
+                    got_agent_end = true;
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert!(got_tool_exec_start, "should receive ToolExecutionStart");
+        assert!(got_tool_exec_end, "should receive ToolExecutionEnd");
+        assert!(got_agent_end, "should receive AgentEnd");
+
+        // Verify the mock tool actually received the call
+        let calls = mock_tool_clone.calls();
+        assert_eq!(calls.len(), 1, "tool should have been called exactly once");
+        assert_eq!(calls[0], serde_json::json!({"key": "value"}));
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_cancel_stops_loop() {
+        // Queue two responses — but cancel before the second is consumed.
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("first"))
+                .with_response(make_assistant_message("second")),
+        );
+
+        let agent = build_test_agent(model).await;
+        let mut rx = agent.prompt_text("go");
+
+        // Wait for first MessageEnd, then cancel.
+        while let Some(event) = rx.recv().await {
+            if matches!(event, AgentEvent::MessageEnd { .. }) {
+                agent.cancel();
+                break;
+            }
+        }
+
+        // Drain remaining events — should reach AgentEnd.
+        let mut got_agent_end = false;
+        while let Some(event) = rx.recv().await {
+            if matches!(event, AgentEvent::AgentEnd { .. }) {
+                got_agent_end = true;
+                break;
+            }
+        }
+        assert!(got_agent_end, "should receive AgentEnd after cancel");
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_tool_registry_has_builtin_tools() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("unused")),
+        );
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let agent = BaseAgent::builder()
+            .workspace(tmp.path())
+            .without_browser()
+            .build(model)
+            .await
+            .expect("build should succeed");
+
+        // Without browser, we should still have builtin tools registered.
+        let defs = agent.tool_registry().definitions();
+        assert!(
+            !defs.is_empty(),
+            "tool registry should contain builtin tools"
+        );
+
+        // Verify some expected builtins exist
+        let names: Vec<String> = defs.iter().map(|d| d.name.clone()).collect();
+        assert!(names.iter().any(|n| n == "execute_shell" || n == "shell" || n.contains("shell")),
+            "should have a shell tool in builtins, got: {:?}", names);
     }
 }
