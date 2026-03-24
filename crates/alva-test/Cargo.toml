@@ -1,0 +1,12 @@
+[package]
+name = "alva-test"
+version = "0.1.0"
+edition = "2021"
+description = "Shared test utilities: mocks, fixtures, and assertions for the alva framework"
+
+[dependencies]
+alva-types = { path = "../alva-types" }
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+futures = "0.3"

@@ -15,6 +15,7 @@ members = [
     "crates/alva-protocol-acp",
     "crates/alva-engine-runtime",
     "crates/alva-engine-adapter-claude",
+    "crates/alva-test",
 ]
 resolver = "2"
 
