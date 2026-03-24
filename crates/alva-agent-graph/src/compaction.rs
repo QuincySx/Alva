@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use alva_types::{AgentError, LanguageModel};
-use alva_agent_core::AgentMessage;
+use alva_types::AgentMessage;
 
 /// Configuration for context-window compaction.
 ///

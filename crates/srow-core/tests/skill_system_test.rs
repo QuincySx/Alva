@@ -16,7 +16,7 @@ use srow_core::{
         skill_config::{InjectionPolicy, SkillRef},
     },
     skills::skill_ports::skill_repository::SkillRepository,
-    SkillMeta,
+    skills::skill_domain::skill::SkillMeta,
 };
 
 /// Test: parse SKILL.md frontmatter

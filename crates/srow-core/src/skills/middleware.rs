@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use alva_agent_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
-use alva_types::{ContentBlock, Message, MessageRole};
+use alva_types::{Message, MessageRole};
 use async_trait::async_trait;
 
 use crate::skills::injector::SkillInjector;
@@ -107,10 +107,7 @@ impl SkillInjectionMiddleware {
             .map(|m| {
                 m.content
                     .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    })
+                    .filter_map(|b| b.as_text())
                     .collect::<Vec<_>>()
                     .join(" ")
             })
@@ -263,6 +260,7 @@ impl Middleware for SkillInjectionMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alva_types::ContentBlock;
     use crate::skills::loader::SkillLoader;
     use crate::skills::skill_domain::skill::{SkillKind, SkillMeta};
     use crate::skills::skill_fs::FsSkillRepository;

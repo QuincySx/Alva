@@ -147,6 +147,13 @@ pub trait Middleware: Send + Sync {
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
+
+    /// Execution priority (lower values run first in before-hooks).
+    /// Default is 100. Use lower values (e.g. 10) for early middleware like security,
+    /// higher values (e.g. 200) for late middleware like compression.
+    fn priority(&self) -> i32 {
+        100
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -168,9 +175,21 @@ impl MiddlewareStack {
         }
     }
 
-    /// Append a middleware layer to the stack.
+    /// Append a middleware layer to the stack (insertion order).
     pub fn push(&mut self, middleware: Arc<dyn Middleware>) {
         self.layers.push(middleware);
+    }
+
+    /// Insert a middleware layer sorted by priority (lower values first).
+    /// Stable: middleware with equal priority preserves insertion order.
+    pub fn push_sorted(&mut self, middleware: Arc<dyn Middleware>) {
+        let prio = middleware.priority();
+        let pos = self
+            .layers
+            .iter()
+            .position(|m| m.priority() > prio)
+            .unwrap_or(self.layers.len());
+        self.layers.insert(pos, middleware);
     }
 
     pub fn is_empty(&self) -> bool {

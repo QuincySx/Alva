@@ -26,17 +26,28 @@ pub mod browser;
 
 use alva_types::ToolRegistry;
 
+/// Batch-register tools into a ToolRegistry.
+#[macro_export]
+macro_rules! register_tools {
+    ($registry:expr, $($tool:expr),* $(,)?) => {
+        $( $registry.register(Box::new($tool)); )*
+    };
+}
+
 /// Register all built-in tools into a ToolRegistry
 pub fn register_builtin_tools(registry: &mut ToolRegistry) {
-    registry.register(Box::new(execute_shell::ExecuteShellTool));
-    registry.register(Box::new(create_file::CreateFileTool));
-    registry.register(Box::new(file_edit::FileEditTool));
-    registry.register(Box::new(grep_search::GrepSearchTool));
-    registry.register(Box::new(list_files::ListFilesTool));
-    registry.register(Box::new(ask_human::AskHumanTool));
-    registry.register(Box::new(internet_search::InternetSearchTool));
-    registry.register(Box::new(read_url::ReadUrlTool));
-    registry.register(Box::new(view_image::ViewImageTool));
+    register_tools!(
+        registry,
+        execute_shell::ExecuteShellTool,
+        create_file::CreateFileTool,
+        file_edit::FileEditTool,
+        grep_search::GrepSearchTool,
+        list_files::ListFilesTool,
+        ask_human::AskHumanTool,
+        internet_search::InternetSearchTool,
+        read_url::ReadUrlTool,
+        view_image::ViewImageTool,
+    );
 }
 
 /// Register all built-in tools including browser tools into a ToolRegistry.

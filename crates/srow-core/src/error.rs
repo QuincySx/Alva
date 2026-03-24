@@ -30,7 +30,7 @@ pub enum EngineError {
     SessionAlreadyRunning,
 
     #[error("Storage error: {0}")]
-    Storage(String),
+    Storage(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("Serialization error: {0}")]
     Serialization(String),
@@ -45,9 +45,48 @@ pub enum EngineError {
     Cancelled,
 }
 
+impl EngineError {
+    /// Create a Storage error from any displayable message.
+    pub fn storage(msg: impl std::fmt::Display) -> Self {
+        Self::Storage(msg.to_string().into())
+    }
+}
+
 impl From<alva_agent_memory::MemoryError> for EngineError {
     fn from(e: alva_agent_memory::MemoryError) -> Self {
-        EngineError::Storage(e.to_string())
+        EngineError::Storage(Box::new(e))
+    }
+}
+
+impl From<alva_protocol_mcp::error::McpError> for SkillError {
+    fn from(e: alva_protocol_mcp::error::McpError) -> Self {
+        match e {
+            alva_protocol_mcp::error::McpError::ServerNotFound(s) => Self::McpServerNotFound(s),
+            alva_protocol_mcp::error::McpError::NotConnected(s) => Self::McpNotConnected(s),
+            alva_protocol_mcp::error::McpError::ConnectTimeout(s) => Self::McpConnectTimeout(s),
+            alva_protocol_mcp::error::McpError::Transport(s) => Self::McpTransport(s),
+            alva_protocol_mcp::error::McpError::ToolExecution(s) => Self::McpToolCall(s),
+            alva_protocol_mcp::error::McpError::Serialization(s) => Self::Serialization(s),
+            alva_protocol_mcp::error::McpError::Io(s) => Self::Io(s),
+        }
+    }
+}
+
+impl From<alva_protocol_skill::error::SkillError> for SkillError {
+    fn from(e: alva_protocol_skill::error::SkillError) -> Self {
+        match e {
+            alva_protocol_skill::error::SkillError::SkillNotFound(s) => Self::SkillNotFound(s),
+            alva_protocol_skill::error::SkillError::InvalidSkillMd(s) => Self::InvalidSkillMd(s),
+            alva_protocol_skill::error::SkillError::InvalidFrontmatter(s) => {
+                Self::InvalidFrontmatter(s)
+            }
+            alva_protocol_skill::error::SkillError::CannotRemoveBundledSkill(s) => {
+                Self::CannotRemoveBundledSkill(s)
+            }
+            alva_protocol_skill::error::SkillError::PathTraversal(s) => Self::PathTraversal(s),
+            alva_protocol_skill::error::SkillError::Serialization(s) => Self::Serialization(s),
+            alva_protocol_skill::error::SkillError::Io(s) => Self::Io(s),
+        }
     }
 }
 

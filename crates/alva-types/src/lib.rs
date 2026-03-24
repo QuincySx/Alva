@@ -21,7 +21,7 @@ pub mod provider_test;
 pub use cancel::CancellationToken;
 pub use content::ContentBlock;
 pub use error::AgentError;
-pub use message::{Message, MessageRole, UsageMetadata};
+pub use message::{AgentMessage, Message, MessageRole, UsageMetadata};
 pub use model::{LanguageModel, ModelConfig};
 pub use stream::StreamEvent;
 pub use tool::{EmptyToolContext, LocalToolContext, Tool, ToolCall, ToolContext, ToolDefinition, ToolRegistry, ToolResult};

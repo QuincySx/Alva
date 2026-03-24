@@ -37,7 +37,7 @@ fn test_bootstrap() -> BootstrapPayload {
             max_tokens: None,
         },
         attachment_paths: vec![],
-        srow_version: "0.1.0-test".to_string(),
+        protocol_version: "0.1.0-test".to_string(),
     }
 }
 

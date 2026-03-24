@@ -5,7 +5,7 @@
 //! history when token count exceeds threshold.
 
 use async_trait::async_trait;
-use alva_types::{ContentBlock, Message};
+use alva_types::Message;
 
 use super::{Middleware, MiddlewareContext, MiddlewareError};
 
@@ -47,18 +47,15 @@ impl CompressionMiddleware {
     }
 
     fn estimate_tokens(&self, messages: &[Message]) -> u32 {
-        let total_chars: usize = messages
+        let total_tokens: usize = messages
             .iter()
             .flat_map(|m| &m.content)
-            .map(|block| match block {
-                ContentBlock::Text { text } => text.len(),
-                ContentBlock::Reasoning { text } => text.len(),
-                ContentBlock::ToolResult { content, .. } => content.len(),
-                ContentBlock::ToolUse { input, .. } => input.to_string().len(),
-                ContentBlock::Image { data, .. } => data.len(),
-            })
+            .map(|block| block.estimated_tokens())
             .sum();
-        (total_chars as f32 * self.config.tokens_per_char) as u32
+        // Scale by the configured tokens_per_char ratio relative to the
+        // default ~0.25 (1/4) used inside estimated_tokens().
+        let scale = self.config.tokens_per_char / 0.25;
+        (total_tokens as f32 * scale) as u32
     }
 }
 
@@ -111,7 +108,7 @@ impl Middleware for CompressionMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::Message;
+    use alva_types::{ContentBlock, Message};
     use crate::middleware::Extensions;
 
     #[tokio::test]

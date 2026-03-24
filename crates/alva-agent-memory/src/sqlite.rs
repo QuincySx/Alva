@@ -343,6 +343,64 @@ impl MemorySqlite {
 }
 
 // ---------------------------------------------------------------------------
+// MemoryBackend implementation
+// ---------------------------------------------------------------------------
+
+#[async_trait::async_trait]
+impl crate::backend::MemoryBackend for MemorySqlite {
+    async fn upsert_file(&self, file: &MemoryFile) -> Result<(), MemoryError> {
+        self.upsert_file(file).await
+    }
+
+    async fn get_file(&self, path: &str) -> Result<Option<MemoryFile>, MemoryError> {
+        self.get_file(path).await
+    }
+
+    async fn insert_chunk(
+        &self,
+        path: &str,
+        source: &str,
+        start_line: i64,
+        end_line: i64,
+        hash: &str,
+        text: &str,
+        embedding: &[f32],
+    ) -> Result<i64, MemoryError> {
+        self.insert_chunk(path, source, start_line, end_line, hash, text, embedding)
+            .await
+    }
+
+    async fn delete_chunks_for_path(&self, path: &str) -> Result<(), MemoryError> {
+        self.delete_chunks_for_path(path).await
+    }
+
+    async fn fts_search(
+        &self,
+        query: &str,
+        max_results: usize,
+    ) -> Result<Vec<MemoryEntry>, MemoryError> {
+        self.fts_search(query, max_results).await
+    }
+
+    async fn vector_search(
+        &self,
+        query_embedding: &[f32],
+        max_results: usize,
+    ) -> Result<Vec<MemoryEntry>, MemoryError> {
+        self.vector_search(query_embedding, max_results).await
+    }
+
+    async fn cache_embedding(
+        &self,
+        model: &str,
+        hash: &str,
+        embedding: &[f32],
+    ) -> Result<(), MemoryError> {
+        self.cache_embedding(model, hash, embedding).await
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Embedding serialization helpers
 // ---------------------------------------------------------------------------
 

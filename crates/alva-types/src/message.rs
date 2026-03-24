@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::content::ContentBlock;
 
@@ -54,17 +55,30 @@ impl Message {
     }
 
     pub fn has_tool_calls(&self) -> bool {
-        self.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+        self.content.iter().any(|b| b.is_tool_use())
     }
 
     pub fn text_content(&self) -> String {
         self.content
             .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text { text } => Some(text.as_str()),
-                _ => None,
-            })
+            .filter_map(|b| b.as_text())
             .collect::<Vec<_>>()
             .join("")
     }
+}
+
+// ---------------------------------------------------------------------------
+// AgentMessage
+// ---------------------------------------------------------------------------
+
+/// Wraps either a standard LLM message or a custom application-level message
+/// that can flow through the agent event stream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum AgentMessage {
+    Standard(Message),
+    Custom {
+        type_name: String,
+        data: Value,
+    },
 }

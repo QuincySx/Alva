@@ -186,13 +186,12 @@ async fn run_agent_loop_inner(
             let tool_calls: Vec<ToolCall> = assistant_message
                 .content
                 .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::ToolUse { id, name, input } => Some(ToolCall {
-                        id: id.clone(),
-                        name: name.clone(),
+                .filter_map(|b| {
+                    b.as_tool_use().map(|(id, name, input)| ToolCall {
+                        id: id.to_owned(),
+                        name: name.to_owned(),
                         arguments: input.clone(),
-                    }),
-                    _ => None,
+                    })
                 })
                 .collect();
 

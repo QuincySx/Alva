@@ -3,6 +3,7 @@
 // POS:    Crate root — declares all modules and provides the public API via convenience re-exports.
 //! Agent memory — FTS + vector hybrid search, file sync, embedding support.
 
+pub mod backend;
 pub mod error;
 pub mod types;
 pub mod sqlite;
@@ -10,6 +11,7 @@ pub mod embedding;
 pub mod sync;
 pub mod service;
 
+pub use backend::MemoryBackend;
 pub use error::MemoryError;
 pub use service::MemoryService;
 pub use types::{MemoryEntry, MemoryChunk, MemoryFile, SyncReport};

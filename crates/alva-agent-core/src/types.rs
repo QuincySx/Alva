@@ -1,4 +1,4 @@
-// INPUT:  alva_types (Message, ModelConfig, Tool, ToolCall, ToolContext, ToolResult), serde, serde_json, crate::middleware::MiddlewareStack
+// INPUT:  alva_types (Message, ModelConfig, Tool, ToolCall, ToolContext, ToolResult, AgentMessage), serde, serde_json, crate::middleware::MiddlewareStack
 // OUTPUT: AgentMessage, AgentContext, AgentState, AgentHooks, ToolCallDecision, ToolExecutionMode, HookFuture, ConvertToLlmFn
 // POS:    Defines core value types and the hook-based configuration struct (AgentHooks) that drives the agent loop.
 use std::future::Future;
@@ -8,29 +8,14 @@ use std::sync::Arc;
 use alva_types::{
     Message, ModelConfig, Tool, ToolCall, ToolContext, ToolResult,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::middleware::MiddlewareStack;
 
 /// A boxed, pinned, Send future — used for async hook return types.
 pub type HookFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
-// ---------------------------------------------------------------------------
-// AgentMessage
-// ---------------------------------------------------------------------------
-
-/// Wraps either a standard LLM message or a custom application-level message
-/// that can flow through the agent event stream.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum AgentMessage {
-    Standard(Message),
-    Custom {
-        type_name: String,
-        data: Value,
-    },
-}
+// Re-export AgentMessage from alva-types (canonical definition lives there).
+pub use alva_types::AgentMessage;
 
 // ---------------------------------------------------------------------------
 // AgentContext — snapshot passed to hooks

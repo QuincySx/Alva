@@ -1,4 +1,4 @@
-use alva_agent_core::AgentMessage;
+use alva_types::AgentMessage;
 
 /// A single transformation over the agent's message context.
 ///

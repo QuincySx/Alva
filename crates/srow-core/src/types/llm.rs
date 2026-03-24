@@ -1,3 +1,3 @@
-//! LLM-related types — re-exported from alva-types and domain
-pub use crate::domain::message::ImageSource;
-pub use crate::domain::tool::{ToolCall, ToolDefinition, ToolResult};
+// Formerly re-exported domain::tool and domain::message types.
+// All consumers now import directly from alva_types or alva_agent_core.
+// Kept as an empty module to avoid breaking the module tree.

@@ -47,7 +47,16 @@ check_no_workspace_deps "alva-agent-memory" "alva-types"
 # Rule 6: alva-agent-runtime only depends on foundation agent-* crates
 check_no_workspace_deps "alva-agent-runtime" "alva-types|alva-agent-core|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-graph"
 
-# Rule 7: protocol crates don't depend on srow-*
+# Rule 7: alva-agent-graph only depends on alva-types + alva-agent-core
+check_no_workspace_deps "alva-agent-graph" "alva-types|alva-agent-core"
+
+# Rule 8: alva-engine-runtime only depends on alva-types
+check_no_workspace_deps "alva-engine-runtime" "alva-types"
+
+# Rule 9: alva-engine-adapter-claude only depends on alva-types + alva-engine-runtime
+check_no_workspace_deps "alva-engine-adapter-claude" "alva-types|alva-engine-runtime"
+
+# Rule 10: protocol crates don't depend on srow-*
 echo "Checking protocol crates..."
 for proto in alva-protocol-skill alva-protocol-mcp alva-protocol-acp; do
     local_deps=$(cargo tree -p "$proto" --depth 1 --prefix none 2>/dev/null | grep -E "^srow-" || true)
@@ -60,7 +69,7 @@ for proto in alva-protocol-skill alva-protocol-mcp alva-protocol-acp; do
     fi
 done
 
-# Rule 8: srow-app must NOT directly depend on internal agent-* crates
+# Rule 11: srow-app must NOT directly depend on internal agent-* crates
 echo "Checking srow-app facade boundary..."
 app_deps=$(cargo tree -p srow-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-agent-core|alva-agent-graph|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-runtime) " || true)
 if [ -n "$app_deps" ]; then

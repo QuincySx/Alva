@@ -26,7 +26,7 @@ impl SqliteStorage {
         let path = path.as_ref().to_path_buf();
         let conn = Connection::open(&path)
             .await
-            .map_err(|e| EngineError::Storage(format!("sqlite open: {e}")))?;
+            .map_err(|e| EngineError::storage(format!("sqlite open: {e}")))?;
 
         // Enable WAL mode + run migrations inside a single blocking call.
         conn.call(|conn| {
@@ -36,7 +36,7 @@ impl SqliteStorage {
             Ok(())
         })
         .await
-        .map_err(|e| EngineError::Storage(format!("sqlite init: {e}")))?;
+        .map_err(|e| EngineError::storage(format!("sqlite init: {e}")))?;
 
         Ok(Self { conn })
     }
@@ -45,7 +45,7 @@ impl SqliteStorage {
     pub async fn open_in_memory() -> Result<Self, EngineError> {
         let conn = Connection::open_in_memory()
             .await
-            .map_err(|e| EngineError::Storage(format!("sqlite open memory: {e}")))?;
+            .map_err(|e| EngineError::storage(format!("sqlite open memory: {e}")))?;
 
         conn.call(|conn| {
             conn.pragma_update(None, "foreign_keys", "on")?;
@@ -53,7 +53,7 @@ impl SqliteStorage {
             Ok(())
         })
         .await
-        .map_err(|e| EngineError::Storage(format!("sqlite init: {e}")))?;
+        .map_err(|e| EngineError::storage(format!("sqlite init: {e}")))?;
 
         Ok(Self { conn })
     }
@@ -106,10 +106,9 @@ fn str_to_role(s: &str) -> MessageRole {
 
 /// Extract a tool_call_id from the first ToolResult block, if any.
 fn extract_tool_call_id(content: &[ContentBlock]) -> Option<String> {
-    content.iter().find_map(|c| match c {
-        ContentBlock::ToolResult { id, .. } => Some(id.clone()),
-        _ => None,
-    })
+    content
+        .iter()
+        .find_map(|c| c.as_tool_result().map(|(id, _, _)| id.to_owned()))
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +136,7 @@ impl SessionStorage for SqliteStorage {
                 Ok(())
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("create_session: {e}")))?;
+            .map_err(|e| EngineError::storage(format!("create_session: {e}")))?;
 
         Ok(())
     }
@@ -170,7 +169,7 @@ impl SessionStorage for SqliteStorage {
                 }
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("get_session: {e}")))
+            .map_err(|e| EngineError::storage(format!("get_session: {e}")))
     }
 
     async fn update_session_status(
@@ -192,7 +191,7 @@ impl SessionStorage for SqliteStorage {
                 Ok(n)
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("update_session_status: {e}")))?;
+            .map_err(|e| EngineError::storage(format!("update_session_status: {e}")))?;
 
         if rows_affected == 0 {
             return Err(EngineError::SessionNotFound(id_for_err));
@@ -228,7 +227,7 @@ impl SessionStorage for SqliteStorage {
                 Ok(result)
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("list_sessions: {e}")))
+            .map_err(|e| EngineError::storage(format!("list_sessions: {e}")))
     }
 
     async fn delete_session(&self, id: &str) -> Result<(), EngineError> {
@@ -240,7 +239,7 @@ impl SessionStorage for SqliteStorage {
                 Ok(())
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("delete_session: {e}")))?;
+            .map_err(|e| EngineError::storage(format!("delete_session: {e}")))?;
         Ok(())
     }
 
@@ -269,7 +268,7 @@ impl SessionStorage for SqliteStorage {
                 Ok(())
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("append_message: {e}")))?;
+            .map_err(|e| EngineError::storage(format!("append_message: {e}")))?;
         Ok(())
     }
 
@@ -308,7 +307,7 @@ impl SessionStorage for SqliteStorage {
                 Ok(result)
             })
             .await
-            .map_err(|e| EngineError::Storage(format!("get_messages: {e}")))
+            .map_err(|e| EngineError::storage(format!("get_messages: {e}")))
     }
 }
 

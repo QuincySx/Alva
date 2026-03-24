@@ -9,8 +9,8 @@ use std::path::Path;
 
 use crate::error::MemoryError;
 
+use crate::backend::MemoryBackend;
 use crate::embedding::EmbeddingProvider;
-use crate::sqlite::MemorySqlite;
 use crate::types::{MemoryFile, SyncReport};
 
 /// Default chunk size in lines.
@@ -21,7 +21,7 @@ const CHUNK_SIZE: usize = 50;
 /// Scans for `MEMORY.md` files, compares hashes, and re-indexes changed files.
 pub async fn sync_workspace(
     workspace: &Path,
-    store: &MemorySqlite,
+    store: &dyn MemoryBackend,
     embedder: &dyn EmbeddingProvider,
 ) -> Result<SyncReport, MemoryError> {
     let mut report = SyncReport::default();
@@ -166,6 +166,7 @@ fn compute_hash(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sqlite::MemorySqlite;
 
     #[test]
     fn test_chunk_text() {

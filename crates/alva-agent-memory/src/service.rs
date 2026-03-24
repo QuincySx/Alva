@@ -4,7 +4,9 @@
 //! MemoryService — unified entry point for memory CRUD + hybrid search.
 
 use std::path::Path;
+use std::sync::Arc;
 
+use crate::backend::MemoryBackend;
 use crate::error::MemoryError;
 
 use crate::embedding::EmbeddingProvider;
@@ -18,14 +20,25 @@ const VEC_WEIGHT: f64 = 0.6;
 
 /// High-level memory service combining FTS + vector search.
 pub struct MemoryService {
-    store: MemorySqlite,
+    store: Arc<dyn MemoryBackend>,
     embedder: Box<dyn EmbeddingProvider>,
 }
 
 impl MemoryService {
-    /// Create a new `MemoryService` with the given SQLite store and embedding provider.
-    pub fn new(store: MemorySqlite, embedder: Box<dyn EmbeddingProvider>) -> Self {
+    /// Create a new `MemoryService` with the given storage backend and embedding provider.
+    pub fn with_backend(
+        store: Arc<dyn MemoryBackend>,
+        embedder: Box<dyn EmbeddingProvider>,
+    ) -> Self {
         Self { store, embedder }
+    }
+
+    /// Create a new `MemoryService` with the default SQLite backend.
+    pub fn new(store: MemorySqlite, embedder: Box<dyn EmbeddingProvider>) -> Self {
+        Self {
+            store: Arc::new(store),
+            embedder,
+        }
     }
 
     /// Store a key-value memory entry.
@@ -110,12 +123,12 @@ impl MemoryService {
 
     /// Synchronize workspace MEMORY.md files into the store.
     pub async fn sync_workspace(&self, workspace_path: &Path) -> Result<SyncReport, MemoryError> {
-        sync::sync_workspace(workspace_path, &self.store, self.embedder.as_ref()).await
+        sync::sync_workspace(workspace_path, self.store.as_ref(), self.embedder.as_ref()).await
     }
 
-    /// Direct access to the underlying store (for advanced queries).
-    pub fn store(&self) -> &MemorySqlite {
-        &self.store
+    /// Direct access to the underlying storage backend.
+    pub fn store(&self) -> &dyn MemoryBackend {
+        self.store.as_ref()
     }
 }
 

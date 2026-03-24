@@ -1,15 +1,13 @@
-// INPUT:  std::collections, std::sync, tokio::sync, crate::skills::skill_domain::mcp, crate::error, crate::skills::skill_ports::mcp_transport
+// INPUT:  std::collections, std::sync, tokio::sync, alva_protocol_mcp, crate::error
 // OUTPUT: McpTransportFactory (trait), McpManager
 // POS:    MCP Server lifecycle manager — handles registration, connection, disconnection, tool enumeration, and tool invocation.
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::{
-    skills::skill_domain::mcp::{McpServerConfig, McpServerState, McpToolInfo},
-    error::SkillError,
-    skills::skill_ports::mcp_transport::McpTransport,
-};
+use alva_protocol_mcp::transport::McpTransport;
+use alva_protocol_mcp::types::{McpServerConfig, McpServerState, McpToolInfo};
+use crate::error::SkillError;
 
 /// MCP Server runtime instance (in-memory)
 struct McpServerInstance {
@@ -77,7 +75,7 @@ impl McpManager {
         )
         .await
         .map_err(|_| SkillError::McpConnectTimeout(server_id.to_string()))
-        .and_then(|r| r);
+        .and_then(|r| r.map_err(SkillError::from));
 
         match connect_result {
             Ok(()) => {
@@ -139,7 +137,10 @@ impl McpManager {
             .as_ref()
             .ok_or_else(|| SkillError::McpNotConnected(server_id.to_string()))?;
 
-        transport.call_tool(tool_name, arguments).await
+        transport
+            .call_tool(tool_name, arguments)
+            .await
+            .map_err(SkillError::from)
     }
 
     /// Get state snapshot of all Servers
