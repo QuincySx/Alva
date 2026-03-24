@@ -1,0 +1,21 @@
+[package]
+name = "alva-engine-adapter-alva"
+version = "0.1.0"
+edition = "2021"
+description = "EngineRuntime adapter for the local alva-agent-core Agent"
+
+[dependencies]
+alva-engine-runtime = { path = "../alva-engine-runtime" }
+alva-agent-core = { path = "../alva-agent-core" }
+alva-types = { path = "../alva-types" }
+async-trait = "0.1"
+futures-core = "0.3"
+tokio = { version = "1", features = ["sync", "rt", "time"] }
+tokio-stream = "0.1"
+serde_json = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+alva-test = { path = "../alva-test" }
