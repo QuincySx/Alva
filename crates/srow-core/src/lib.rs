@@ -1,15 +1,15 @@
-// INPUT:  alva_types, alva_core, alva_tools, alva_security, alva_memory, alva_runtime, agent/mcp/skills/gateway/base/system/environment/types/domain/ports/adapters/error
+// INPUT:  alva_types, alva_agent_core, alva_agent_tools, alva_agent_security, alva_agent_memory, alva_agent_runtime, agent/mcp/skills/gateway/base/system/environment/types/domain/ports/adapters/error
 // OUTPUT: Facade re-exports (Agent, AgentHooks, AgentEvent, AgentMessage, Tool, Message, SecurityGuard, MemoryService, etc.) + kept module public APIs (skills, mcp, environment, domain, ports)
 // POS:    Crate root — thin facade that re-exports from extracted crates and declares remaining kept modules.
 //! Srow Core — thin facade over extracted agent crates, plus skill system, MCP, and environment management
 //!
 //! Extracted crates (re-exported here for backward compat):
-//!   alva-types    — shared type definitions (Tool, Message, LanguageModel, etc.)
-//!   alva-core     — Agent engine (Agent, AgentEvent, AgentMessage, middleware)
-//!   alva-tools    — Built-in tool implementations (shell, fs, browser, etc.)
-//!   alva-security — Security subsystem (sandbox, permissions, path filtering)
-//!   alva-memory   — Memory/embedding subsystem
-//!   alva-runtime  — Batteries-included runtime builder
+//!   alva-types         — shared type definitions (Tool, Message, LanguageModel, etc.)
+//!   alva-agent-core    — Agent engine (Agent, AgentEvent, AgentMessage, middleware)
+//!   alva-agent-tools   — Built-in tool implementations (shell, fs, browser, etc.)
+//!   alva-agent-security — Security subsystem (sandbox, permissions, path filtering)
+//!   alva-agent-memory  — Memory/embedding subsystem
+//!   alva-agent-runtime — Batteries-included runtime builder
 //!
 //! Kept modules:
 //!   agent/        — ACP client, session, persistence
@@ -29,30 +29,30 @@
 // Re-export alva-types as a module for qualified access (e.g. srow_core::alva_types::Message)
 pub use alva_types;
 
-// Re-export alva-core types for UI layer consumption
-pub use alva_core::{Agent, AgentEvent, AgentMessage};
-pub use alva_core::{AgentHooks, AgentContext};
+// Re-export alva-agent-core types for UI layer consumption
+pub use alva_agent_core::{Agent, AgentEvent, AgentMessage};
+pub use alva_agent_core::{AgentHooks, AgentContext};
 
-// Re-export alva-tools (tool registration + browser automation)
-pub use alva_tools::{register_all_tools, register_builtin_tools};
-pub use alva_tools::browser::BrowserManager;
-pub use alva_tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
+// Re-export alva-agent-tools (tool registration + browser automation)
+pub use alva_agent_tools::{register_all_tools, register_builtin_tools};
+pub use alva_agent_tools::browser::BrowserManager;
+pub use alva_agent_tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
 
-// Re-export alva-security
-pub use alva_security::{
+// Re-export alva-agent-security
+pub use alva_agent_security::{
     SecurityGuard, SecurityDecision,
     PermissionManager, PermissionDecision,
     SensitivePathFilter, AuthorizedRoots,
     SandboxConfig, SandboxMode,
 };
 
-// Re-export alva-memory
-pub use alva_memory::{MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, MemoryError};
-pub use alva_memory::{EmbeddingProvider, NoopEmbeddingProvider, MemorySqlite};
+// Re-export alva-agent-memory
+pub use alva_agent_memory::{MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, MemoryError};
+pub use alva_agent_memory::{EmbeddingProvider, NoopEmbeddingProvider, MemorySqlite};
 
-// Re-export alva-runtime (builder + init)
-pub use alva_runtime::{AgentRuntime, AgentRuntimeBuilder};
-pub use alva_runtime::model;
+// Re-export alva-agent-runtime (builder + init)
+pub use alva_agent_runtime::{AgentRuntime, AgentRuntimeBuilder};
+pub use alva_agent_runtime::model;
 
 // ── Kept modules ─────────────────────────────────────────────────────
 

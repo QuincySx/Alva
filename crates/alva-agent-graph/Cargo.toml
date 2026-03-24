@@ -1,0 +1,16 @@
+[package]
+name = "alva-agent-graph"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alva-types = { path = "../alva-types" }
+alva-agent-core = { path = "../alva-agent-core" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+thiserror = "2"
+parking_lot = "0.12"
+futures-core = "0.3"

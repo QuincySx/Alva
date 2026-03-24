@@ -1,4 +1,4 @@
-// INPUT:  alva_core::middleware, alva_types::Message, crate::skills::{store, injector, skill_domain}
+// INPUT:  alva_agent_core::middleware, alva_types::Message, crate::skills::{store, injector, skill_domain}
 // OUTPUT: SkillInjectionMiddleware
 // POS:    Middleware that dynamically injects relevant skills into the LLM context based on conversation content.
 
@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use alva_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
+use alva_agent_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
 use alva_types::{ContentBlock, Message, MessageRole};
 use async_trait::async_trait;
 
@@ -266,7 +266,7 @@ mod tests {
     use crate::skills::loader::SkillLoader;
     use crate::skills::skill_domain::skill::{SkillKind, SkillMeta};
     use crate::skills::skill_fs::FsSkillRepository;
-    use alva_core::middleware::Extensions;
+    use alva_agent_core::middleware::Extensions;
 
     #[test]
     fn extract_keywords_filters_stop_words() {

@@ -1,4 +1,4 @@
-// INPUT:  thiserror, std::io, alva_memory::MemoryError
+// INPUT:  thiserror, std::io, alva_agent_memory::MemoryError
 // OUTPUT: EngineError, SkillError
 // POS:    Defines the two root error enums for the engine and skill subsystems, with From<MemoryError> conversion.
 use thiserror::Error;
@@ -45,8 +45,8 @@ pub enum EngineError {
     Cancelled,
 }
 
-impl From<alva_memory::MemoryError> for EngineError {
-    fn from(e: alva_memory::MemoryError) -> Self {
+impl From<alva_agent_memory::MemoryError> for EngineError {
+    fn from(e: alva_agent_memory::MemoryError) -> Self {
         EngineError::Storage(e.to_string())
     }
 }

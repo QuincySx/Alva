@@ -32,24 +32,24 @@ check_no_workspace_deps() {
 # Rule 1: alva-types has ZERO workspace deps
 check_no_workspace_deps "alva-types"
 
-# Rule 2: alva-core only depends on alva-types
-check_no_workspace_deps "alva-core" "alva-types"
+# Rule 2: alva-agent-core only depends on alva-types
+check_no_workspace_deps "alva-agent-core" "alva-types"
 
-# Rule 3: alva-tools only depends on alva-types
-check_no_workspace_deps "alva-tools" "alva-types"
+# Rule 3: alva-agent-tools only depends on alva-types
+check_no_workspace_deps "alva-agent-tools" "alva-types"
 
-# Rule 4: alva-security only depends on alva-types
-check_no_workspace_deps "alva-security" "alva-types"
+# Rule 4: alva-agent-security only depends on alva-types
+check_no_workspace_deps "alva-agent-security" "alva-types"
 
-# Rule 5: alva-memory only depends on alva-types
-check_no_workspace_deps "alva-memory" "alva-types"
+# Rule 5: alva-agent-memory only depends on alva-types
+check_no_workspace_deps "alva-agent-memory" "alva-types"
 
-# Rule 6: alva-runtime only depends on foundation agent-* crates
-check_no_workspace_deps "alva-runtime" "alva-types|alva-core|alva-tools|alva-security|alva-memory|alva-graph"
+# Rule 6: alva-agent-runtime only depends on foundation agent-* crates
+check_no_workspace_deps "alva-agent-runtime" "alva-types|alva-agent-core|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-graph"
 
 # Rule 7: protocol crates don't depend on srow-*
 echo "Checking protocol crates..."
-for proto in alva-skill alva-mcp alva-acp; do
+for proto in alva-protocol-skill alva-protocol-mcp alva-protocol-acp; do
     local_deps=$(cargo tree -p "$proto" --depth 1 --prefix none 2>/dev/null | grep -E "^srow-" || true)
     if [ -n "$local_deps" ]; then
         echo -e "${RED}VIOLATION: $proto depends on srow crates:${NC}"
@@ -62,7 +62,7 @@ done
 
 # Rule 8: srow-app must NOT directly depend on internal agent-* crates
 echo "Checking srow-app facade boundary..."
-app_deps=$(cargo tree -p srow-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-core|alva-graph|alva-tools|alva-security|alva-memory|alva-runtime) " || true)
+app_deps=$(cargo tree -p srow-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-agent-core|alva-agent-graph|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-runtime) " || true)
 if [ -n "$app_deps" ]; then
     echo -e "${RED}VIOLATION: srow-app directly depends on internal crates:${NC}"
     echo "$app_deps"

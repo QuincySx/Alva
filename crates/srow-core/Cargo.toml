@@ -15,11 +15,11 @@ path = "src/bin/cli.rs"
 [dependencies]
 # Extracted agent crates
 alva-types = { path = "../alva-types" }
-alva-core = { path = "../alva-core" }
-alva-tools = { path = "../alva-tools" }
-alva-security = { path = "../alva-security" }
-alva-memory = { path = "../alva-memory" }
-alva-runtime = { path = "../alva-runtime" }
+alva-agent-core = { path = "../alva-agent-core" }
+alva-agent-tools = { path = "../alva-agent-tools" }
+alva-agent-security = { path = "../alva-agent-security" }
+alva-agent-memory = { path = "../alva-agent-memory" }
+alva-agent-runtime = { path = "../alva-agent-runtime" }
 alva-protocol-acp = { path = "../alva-protocol-acp" }
 
 # Async runtime

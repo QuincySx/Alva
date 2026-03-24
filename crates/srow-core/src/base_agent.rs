@@ -1,17 +1,17 @@
-// INPUT:  alva_core, alva_types, alva_tools, alva_security, alva_memory, alva_runtime, crate::skills, crate::mcp
+// INPUT:  alva_agent_core, alva_types, alva_agent_tools, alva_agent_security, alva_agent_memory, alva_agent_runtime, crate::skills, crate::mcp
 // OUTPUT: BaseAgent, BaseAgentBuilder
 // POS:    Pre-wired batteries-included agent -- auto-composes tools, security, compression, skill injection, MCP.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_core::middleware::MiddlewareStack;
-use alva_core::{Agent, AgentHooks, AgentMessage, AgentContext, ConvertToLlmFn};
-use alva_core::event::AgentEvent;
-use alva_core::middleware::{Middleware, CompressionMiddleware, CompressionConfig};
-use alva_runtime::middleware::SecurityMiddleware;
-use alva_security::SandboxMode;
-use alva_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
+use alva_agent_core::middleware::MiddlewareStack;
+use alva_agent_core::{Agent, AgentHooks, AgentMessage, AgentContext, ConvertToLlmFn};
+use alva_agent_core::event::AgentEvent;
+use alva_agent_core::middleware::{Middleware, CompressionMiddleware, CompressionConfig};
+use alva_agent_runtime::middleware::SecurityMiddleware;
+use alva_agent_security::SandboxMode;
+use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
 use alva_types::{LanguageModel, Message, ModelConfig, Tool, ToolRegistry};
 
 use crate::skills::store::SkillStore;
@@ -235,9 +235,9 @@ impl BaseAgentBuilder {
         // 2. Create ToolRegistry (for name-based lookup) and populate with builtin/browser tools
         let mut tool_registry = ToolRegistry::new();
         if self.enable_browser {
-            alva_tools::register_all_tools(&mut tool_registry);
+            alva_agent_tools::register_all_tools(&mut tool_registry);
         } else {
-            alva_tools::register_builtin_tools(&mut tool_registry);
+            alva_agent_tools::register_builtin_tools(&mut tool_registry);
         }
 
         // 3. Register extra custom tools in the registry
@@ -263,9 +263,9 @@ impl BaseAgentBuilder {
         {
             let mut fresh_registry = ToolRegistry::new();
             if self.enable_browser {
-                alva_tools::register_all_tools(&mut fresh_registry);
+                alva_agent_tools::register_all_tools(&mut fresh_registry);
             } else {
-                alva_tools::register_builtin_tools(&mut fresh_registry);
+                alva_agent_tools::register_builtin_tools(&mut fresh_registry);
             }
             tool_registry = fresh_registry;
         }
@@ -442,7 +442,7 @@ mod tests {
 
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
-    use alva_core::event::AgentEvent;
+    use alva_agent_core::event::AgentEvent;
 
     /// Helper: build a BaseAgent with minimal config using a mock model.
     async fn build_test_agent(model: Arc<dyn alva_types::LanguageModel>) -> BaseAgent {

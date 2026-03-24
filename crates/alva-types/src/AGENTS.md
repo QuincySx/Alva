@@ -2,7 +2,7 @@
 > Agent 系统的基础类型定义层，提供 Message、Tool、LanguageModel 等核心抽象
 
 ## 地位
-整个 agent 体系的类型基石。所有上层 crate（alva-core、alva-graph、srow-core）均依赖此 crate 获取统一的消息、工具、模型抽象。不包含任何业务逻辑，仅定义数据结构与 trait 接口。
+整个 agent 体系的类型基石。所有上层 crate（alva-agent-core、alva-agent-graph、srow-core）均依赖此 crate 获取统一的消息、工具、模型抽象。不包含任何业务逻辑，仅定义数据结构与 trait 接口。
 
 ## 逻辑
 ```
