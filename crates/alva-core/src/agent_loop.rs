@@ -743,6 +743,283 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Test: simple text response using alva-test MockLanguageModel + fixtures
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_text_response_with_alva_test_mock() {
+        use alva_test::mock_provider::MockLanguageModel;
+        use alva_test::fixtures::{make_assistant_message, make_user_message};
+
+        let response = make_assistant_message("Hello from alva-test mock!");
+        let model = MockLanguageModel::new().with_response(response);
+
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let mut state = AgentState::new(
+            "You are a test assistant.".to_string(),
+            ModelConfig::default(),
+        );
+        state
+            .messages
+            .push(AgentMessage::Standard(make_user_message("Hi")));
+
+        let result =
+            run_agent_loop(&mut state, &model, &config, &cancel, &event_tx).await;
+
+        assert!(result.is_ok(), "agent loop should succeed");
+
+        // Collect all events.
+        drop(event_tx);
+        let mut events = Vec::new();
+        while let Some(ev) = event_rx.recv().await {
+            events.push(ev);
+        }
+
+        // Verify the expected event sequence.
+        assert!(
+            matches!(events.first(), Some(AgentEvent::AgentStart)),
+            "first event should be AgentStart"
+        );
+        assert!(
+            matches!(events.last(), Some(AgentEvent::AgentEnd { error: None })),
+            "last event should be AgentEnd with no error"
+        );
+
+        // Should contain TurnStart and TurnEnd.
+        let has_turn_start = events.iter().any(|e| matches!(e, AgentEvent::TurnStart));
+        let has_turn_end = events.iter().any(|e| matches!(e, AgentEvent::TurnEnd));
+        assert!(has_turn_start, "should have TurnStart event");
+        assert!(has_turn_end, "should have TurnEnd event");
+
+        // Should contain a MessageStart and MessageEnd with the assistant response.
+        let has_message_start = events.iter().any(|e| {
+            matches!(e, AgentEvent::MessageStart { message: AgentMessage::Standard(m) } if m.text_content() == "Hello from alva-test mock!")
+        });
+        let has_message_end = events.iter().any(|e| {
+            matches!(e, AgentEvent::MessageEnd { message: AgentMessage::Standard(m) } if m.text_content() == "Hello from alva-test mock!")
+        });
+        assert!(has_message_start, "should have MessageStart with model response");
+        assert!(has_message_end, "should have MessageEnd with model response");
+
+        // State should now have 2 messages: the user message + assistant.
+        assert_eq!(state.messages.len(), 2);
+
+        // Verify the mock recorded exactly one call.
+        let calls = model.calls();
+        assert_eq!(calls.len(), 1, "model should have been called exactly once");
+        // The call should contain the system prompt + the user message.
+        assert_eq!(calls[0].len(), 2, "call should have system + user message");
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: model error propagates correctly using alva-test MockLanguageModel
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_model_error_with_alva_test_mock() {
+        use alva_test::mock_provider::MockLanguageModel;
+        use alva_test::fixtures::make_user_message;
+
+        let model = MockLanguageModel::new()
+            .with_error(AgentError::LlmError("boom from mock".into()));
+
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let mut state = AgentState::new(
+            "test".to_string(),
+            ModelConfig::default(),
+        );
+        state
+            .messages
+            .push(AgentMessage::Standard(make_user_message("Hi")));
+
+        let result =
+            run_agent_loop(&mut state, &model, &config, &cancel, &event_tx).await;
+
+        assert!(result.is_err(), "agent loop should fail when model errors");
+        let err_str = result.unwrap_err().to_string();
+        assert!(
+            err_str.contains("boom from mock"),
+            "error should contain the mock error message, got: {err_str}"
+        );
+
+        // Events should still have AgentStart and AgentEnd (with error).
+        drop(event_tx);
+        let mut events = Vec::new();
+        while let Some(ev) = event_rx.recv().await {
+            events.push(ev);
+        }
+
+        assert!(
+            matches!(events.first(), Some(AgentEvent::AgentStart)),
+            "first event should be AgentStart"
+        );
+        assert!(
+            matches!(events.last(), Some(AgentEvent::AgentEnd { error: Some(_) })),
+            "last event should be AgentEnd with an error"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: streaming with alva-test MockLanguageModel
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_streaming_with_alva_test_mock() {
+        use alva_test::mock_provider::MockLanguageModel;
+        use alva_test::fixtures::make_user_message;
+
+        let model = MockLanguageModel::new().with_stream_events(vec![
+            StreamEvent::Start,
+            StreamEvent::TextDelta {
+                text: "Streamed ".into(),
+            },
+            StreamEvent::TextDelta {
+                text: "response!".into(),
+            },
+            StreamEvent::Done,
+        ]);
+
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        state.is_streaming = true;
+        state
+            .messages
+            .push(AgentMessage::Standard(make_user_message("Hi")));
+
+        let result =
+            run_agent_loop(&mut state, &model, &config, &cancel, &event_tx).await;
+        assert!(result.is_ok(), "agent loop should succeed");
+
+        drop(event_tx);
+        let mut got_update = false;
+        let mut got_message_end = false;
+        while let Some(ev) = event_rx.recv().await {
+            if matches!(ev, AgentEvent::MessageUpdate { .. }) {
+                got_update = true;
+            }
+            if let AgentEvent::MessageEnd {
+                message: AgentMessage::Standard(m),
+            } = &ev
+            {
+                if m.text_content() == "Streamed response!" {
+                    got_message_end = true;
+                }
+            }
+        }
+        assert!(got_update, "should have received MessageUpdate events");
+        assert!(
+            got_message_end,
+            "should have MessageEnd with accumulated streamed text"
+        );
+
+        // State should have the accumulated message.
+        assert_eq!(state.messages.len(), 2); // user + assistant
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: tool call round-trip using alva-test MockLanguageModel + MockTool
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_tool_call_round_trip_with_alva_test_mocks() {
+        use alva_test::mock_provider::MockLanguageModel;
+        use alva_test::mock_tool::MockTool;
+        use alva_test::fixtures::make_user_message;
+
+        // First call: model requests a tool call.
+        let tool_call_response = Message {
+            id: "msg-tc".to_string(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "call-1".to_string(),
+                name: "greet".to_string(),
+                input: serde_json::json!({"name": "World"}),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        // Second call: model returns final text after receiving tool result.
+        let final_response = Message {
+            id: "msg-final".to_string(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::Text {
+                text: "Greeting sent!".to_string(),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+
+        let model = MockLanguageModel::new()
+            .with_response(tool_call_response)
+            .with_response(final_response);
+
+        let mock_tool = MockTool::new("greet").with_result(alva_types::ToolResult {
+            content: "Hello, World!".into(),
+            is_error: false,
+            details: None,
+        });
+
+        let config = AgentHooks::new(Arc::new(default_convert_to_llm));
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        state.tools.push(Arc::new(mock_tool.clone()));
+        state
+            .messages
+            .push(AgentMessage::Standard(make_user_message("Say hello")));
+
+        let result =
+            run_agent_loop(&mut state, &model, &config, &cancel, &event_tx).await;
+        assert!(result.is_ok(), "agent loop should succeed");
+
+        drop(event_tx);
+        let mut events = Vec::new();
+        while let Some(ev) = event_rx.recv().await {
+            events.push(ev);
+        }
+
+        // Should have tool execution events.
+        let has_tool_exec_start = events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolExecutionStart { .. }));
+        let has_tool_exec_end = events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolExecutionEnd { .. }));
+        assert!(has_tool_exec_start, "should have ToolExecutionStart event");
+        assert!(has_tool_exec_end, "should have ToolExecutionEnd event");
+
+        // Should have the final text response.
+        let has_final = events.iter().any(|e| {
+            matches!(e, AgentEvent::MessageEnd { message: AgentMessage::Standard(m) } if m.text_content() == "Greeting sent!")
+        });
+        assert!(has_final, "should have MessageEnd with final response");
+
+        // Model should have been called twice.
+        let calls = model.calls();
+        assert_eq!(calls.len(), 2, "model should have been called twice (tool call + final)");
+
+        // MockTool should have been called once.
+        let tool_calls = mock_tool.calls();
+        assert_eq!(tool_calls.len(), 1, "tool should have been called once");
+        assert_eq!(
+            tool_calls[0],
+            serde_json::json!({"name": "World"}),
+            "tool should have received the correct input"
+        );
+
+        // State: user + assistant(tool_call) + tool_result + assistant(final)
+        assert_eq!(state.messages.len(), 4);
+    }
+
+    // -----------------------------------------------------------------------
     // Test: MiddlewareContext Extensions persist across hooks
     // -----------------------------------------------------------------------
     #[tokio::test]

@@ -17,5 +17,8 @@ uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 tokio-stream = "0.1"
 
+[dev-dependencies]
+alva-test = { path = "../alva-test" }
+
 [[example]]
 name = "middleware_basic"
