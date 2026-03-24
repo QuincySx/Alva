@@ -16,6 +16,7 @@ members = [
     "crates/alva-engine-runtime",
     "crates/alva-engine-adapter-claude",
     "crates/alva-test",
+    "crates/srow-devtools-mcp",
 ]
 resolver = "2"
 
