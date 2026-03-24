@@ -47,22 +47,40 @@ impl EngineRuntime for ClaudeAdapter {
         // Write bridge script (sync I/O — acceptable here since it's a one-time idempotent write)
         let script_path = ensure_bridge_script()?;
 
+        // Build env with cloud provider flags
+        let mut env = self.config.env.clone();
+        if self.config.use_bedrock {
+            env.insert("CLAUDE_CODE_USE_BEDROCK".into(), "1".into());
+        }
+        if self.config.use_vertex {
+            env.insert("CLAUDE_CODE_USE_VERTEX".into(), "1".into());
+        }
+        if self.config.use_azure {
+            env.insert("CLAUDE_CODE_USE_FOUNDRY".into(), "1".into());
+        }
+
         let bridge_config = BridgeConfig {
             prompt: request.prompt,
             cwd: request
                 .working_directory
                 .map(|p| p.to_string_lossy().into_owned()),
+            system_prompt: request.system_prompt,
+            streaming: request.options.streaming,
+            api_key: self.config.api_key.clone(),
+            api_base_url: self.config.api_base_url.clone(),
             model: self.config.model.clone(),
+            effort: self.config.effort.clone(),
+            max_budget_usd: self.config.max_budget_usd,
             permission_mode: self.config.permission_mode.as_sdk_str().to_string(),
             allowed_tools: self.config.allowed_tools.clone(),
             disallowed_tools: self.config.disallowed_tools.clone(),
-            max_budget_usd: self.config.max_budget_usd,
+            sandbox: self.config.sandbox.clone(),
             mcp_servers: self.config.mcp_servers.clone(),
-            env: self.config.env.clone(),
-            api_key: self.config.api_key.clone(),
+            agents: self.config.agents.clone(),
+            setting_sources: self.config.setting_sources.clone(),
+            persist_session: self.config.persist_session,
             sdk_executable_path: self.config.sdk_package_path.clone(),
-            system_prompt: request.system_prompt,
-            streaming: request.options.streaming,
+            env,
         };
 
         let config_json = serde_json::to_string(&bridge_config)?;

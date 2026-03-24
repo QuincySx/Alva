@@ -102,18 +102,39 @@ async function main() {
     env: { ...process.env, ...(config.env || {}) },
   };
 
+  // --- Model & API ---
   if (config.model) options.model = config.model;
+  if (config.effort) options.effort = config.effort;
   if (config.max_budget_usd != null) options.maxBudgetUsd = config.max_budget_usd;
   if (config.system_prompt) options.systemPrompt = config.system_prompt;
-  if (config.api_key) options.env.ANTHROPIC_API_KEY = config.api_key;
-  if (config.sdk_executable_path) options.pathToClaudeCodeExecutable = config.sdk_executable_path;
 
-  // MCP servers
+  // --- Authentication ---
+  if (config.api_key) options.env.ANTHROPIC_API_KEY = config.api_key;
+  if (config.api_base_url) options.env.ANTHROPIC_BASE_URL = config.api_base_url;
+
+  // --- Execution ---
+  if (config.sdk_executable_path) options.pathToClaudeCodeExecutable = config.sdk_executable_path;
+  if (config.sandbox && config.sandbox.enabled) {
+    options.sandbox = { enabled: true };
+  }
+  if (config.persist_session != null) options.persistSession = config.persist_session;
+
+  // --- Settings sources ---
+  if (config.setting_sources && config.setting_sources.length > 0) {
+    options.settingSources = config.setting_sources;
+  }
+
+  // --- MCP servers ---
   if (config.mcp_servers && Object.keys(config.mcp_servers).length > 0) {
     options.mcpServers = config.mcp_servers;
   }
 
-  // Permission callback (only in default mode)
+  // --- Agents ---
+  if (config.agents && Object.keys(config.agents).length > 0) {
+    options.agents = config.agents;
+  }
+
+  // --- Permission callback (only in default mode) ---
   if (config.permission_mode === "default" || !config.permission_mode) {
     options.canUseTool = canUseTool;
   }
