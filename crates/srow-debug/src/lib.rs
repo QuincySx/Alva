@@ -6,8 +6,10 @@ mod router;
 mod server;
 mod traced;
 
+pub mod action_registry;
 pub mod gpui;
 
+pub use action_registry::{ActionRegistry, RegisteredView};
 pub use builder::{DebugServer, DebugServerBuilder, DebugServerHandle};
 pub use inspect::{Bounds, InspectNode, Inspectable};
 #[cfg(debug_assertions)]
