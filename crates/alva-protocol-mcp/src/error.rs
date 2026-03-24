@@ -1,6 +1,6 @@
 // INPUT:  thiserror
 // OUTPUT: McpError
-// POS:    MCP-specific error types for the alva-mcp crate.
+// POS:    MCP-specific error types for the alva-protocol-mcp crate.
 use thiserror::Error;
 
 /// Errors specific to MCP operations.

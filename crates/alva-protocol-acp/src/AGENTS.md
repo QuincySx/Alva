@@ -1,4 +1,4 @@
-# alva-acp
+# alva-protocol-acp
 > ACP (Agent Client Protocol) 客户端，管理外部 Agent CLI 进程的通信与生命周期
 
 ## 地位

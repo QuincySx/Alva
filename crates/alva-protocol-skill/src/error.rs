@@ -1,7 +1,7 @@
 // INPUT:  thiserror
 // OUTPUT: SkillError
 // POS:    Defines the root error enum for the skill subsystem.
-//         MCP-related variants are excluded (belong in alva-mcp).
+//         MCP-related variants are excluded (belong in alva-protocol-mcp).
 use thiserror::Error;
 
 #[derive(Debug, Error)]

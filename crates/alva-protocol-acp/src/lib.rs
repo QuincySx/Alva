@@ -1,4 +1,4 @@
-// alva-acp: Standalone ACP (Agent Client Protocol) crate.
+// alva-protocol-acp: Standalone ACP (Agent Client Protocol) crate.
 //
 // Provides protocol message types, process management, session handling, and delegate trait
 // for communicating with external Agent CLI processes over stdin/stdout JSON lines.

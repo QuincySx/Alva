@@ -46,26 +46,26 @@ pub enum AcpError {
     Protocol(String),
 }
 
-// Allow alva_acp::AcpError -> AcpError conversion
-impl From<alva_acp::AcpError> for AcpError {
-    fn from(e: alva_acp::AcpError) -> Self {
+// Allow alva_protocol_acp::AcpError -> AcpError conversion
+impl From<alva_protocol_acp::AcpError> for AcpError {
+    fn from(e: alva_protocol_acp::AcpError) -> Self {
         match e {
-            alva_acp::AcpError::AgentNotFound { kind, hint } => {
+            alva_protocol_acp::AcpError::AgentNotFound { kind, hint } => {
                 AcpError::AgentNotFound { kind, hint }
             }
-            alva_acp::AcpError::SpawnFailed { agent, reason } => {
+            alva_protocol_acp::AcpError::SpawnFailed { agent, reason } => {
                 AcpError::SpawnFailed { agent, reason }
             }
-            alva_acp::AcpError::ProcessDead { pid } => AcpError::ProcessDead { pid },
-            alva_acp::AcpError::ProcessNotFound(s) => AcpError::ProcessNotFound(s),
-            alva_acp::AcpError::PermissionRequestNotFound(s) => {
+            alva_protocol_acp::AcpError::ProcessDead { pid } => AcpError::ProcessDead { pid },
+            alva_protocol_acp::AcpError::ProcessNotFound(s) => AcpError::ProcessNotFound(s),
+            alva_protocol_acp::AcpError::PermissionRequestNotFound(s) => {
                 AcpError::PermissionRequestNotFound(s)
             }
-            alva_acp::AcpError::InvalidConfig(s) => AcpError::InvalidConfig(s),
-            alva_acp::AcpError::Serialization(s) => AcpError::Serialization(s),
-            alva_acp::AcpError::Io(s) => AcpError::Io(s),
-            alva_acp::AcpError::Storage(s) => AcpError::Storage(s),
-            alva_acp::AcpError::Protocol(s) => AcpError::Protocol(s),
+            alva_protocol_acp::AcpError::InvalidConfig(s) => AcpError::InvalidConfig(s),
+            alva_protocol_acp::AcpError::Serialization(s) => AcpError::Serialization(s),
+            alva_protocol_acp::AcpError::Io(s) => AcpError::Io(s),
+            alva_protocol_acp::AcpError::Storage(s) => AcpError::Storage(s),
+            alva_protocol_acp::AcpError::Protocol(s) => AcpError::Protocol(s),
         }
     }
 }

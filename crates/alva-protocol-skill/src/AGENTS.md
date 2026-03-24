@@ -1,4 +1,4 @@
-# alva-skill
+# alva-protocol-skill
 > Skill 协议层，负责技能的发现、加载、存储与 prompt 注入
 
 ## 地位

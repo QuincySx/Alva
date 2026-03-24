@@ -234,4 +234,73 @@ mod tests {
         assert!(json.contains("permission_response"));
         assert!(json.contains("allow"));
     }
+
+    // --- Real SDK output tests (captured from Claude Agent SDK v0.2.81) ---
+
+    #[test]
+    fn test_real_sdk_system_init() {
+        let json = r#"{"type":"sdk_message","message":{"type":"system","subtype":"init","cwd":"/private/tmp/alva-sdk-test","session_id":"fcbc2425-ffaa-4c32-a9b4-38cd5800bb02","tools":["Task","Bash","Read","Edit","Write"],"mcp_servers":[],"model":"claude-opus-4-6[1m]","permissionMode":"plan","uuid":"c37263ae-e605-4f21-81e2-7029bce60371"}}"#;
+        let msg: BridgeMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            BridgeMessage::SdkMessage { message: SdkMessage::System { subtype, session_id, model, tools } } => {
+                assert_eq!(subtype.as_deref(), Some("init"));
+                assert_eq!(session_id.as_deref(), Some("fcbc2425-ffaa-4c32-a9b4-38cd5800bb02"));
+                assert_eq!(model.as_deref(), Some("claude-opus-4-6[1m]"));
+                assert_eq!(tools.unwrap().len(), 5);
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_real_sdk_stream_event_text_delta() {
+        let json = r#"{"type":"sdk_message","message":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Four"}},"session_id":"fcbc2425-ffaa-4c32-a9b4-38cd5800bb02","parent_tool_use_id":null,"uuid":"b4919f8d-2934-4098-8479-0202b32e4035"}}"#;
+        let msg: BridgeMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            BridgeMessage::SdkMessage { message: SdkMessage::StreamEvent { uuid, event } } => {
+                assert_eq!(uuid.as_deref(), Some("b4919f8d-2934-4098-8479-0202b32e4035"));
+                let delta = event.unwrap();
+                assert_eq!(delta["delta"]["text"].as_str(), Some("Four"));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_real_sdk_assistant_message() {
+        let json = r#"{"type":"sdk_message","message":{"type":"assistant","message":{"model":"claude-opus-4-6","id":"msg_014BqHc8aZMV26WyHcXqJ1bq","type":"message","role":"assistant","content":[{"type":"text","text":"Four."}],"stop_reason":null,"usage":{"input_tokens":3,"output_tokens":1}},"parent_tool_use_id":null,"session_id":"fcbc2425-ffaa-4c32-a9b4-38cd5800bb02","uuid":"e6944592-7141-4f55-b996-686576cdb540"}}"#;
+        let msg: BridgeMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            BridgeMessage::SdkMessage { message: SdkMessage::Assistant { uuid, message, .. } } => {
+                assert_eq!(uuid.as_deref(), Some("e6944592-7141-4f55-b996-686576cdb540"));
+                let content = message.unwrap().content.unwrap();
+                assert_eq!(content.len(), 1);
+                assert!(matches!(&content[0], SdkContentBlock::Text { text } if text == "Four."));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_real_sdk_result_success() {
+        let json = r#"{"type":"sdk_message","message":{"type":"result","subtype":"success","is_error":false,"duration_ms":3589,"num_turns":1,"result":"Four.","session_id":"fcbc2425-ffaa-4c32-a9b4-38cd5800bb02","total_cost_usd":0.03144475,"usage":{"input_tokens":3,"output_tokens":5},"uuid":"34efce21-30a9-4a28-9ecf-9dc367ed279d"}}"#;
+        let msg: BridgeMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            BridgeMessage::SdkMessage { message: SdkMessage::Result { subtype, result, total_cost_usd, duration_ms, num_turns, .. } } => {
+                assert_eq!(subtype.as_deref(), Some("success"));
+                assert_eq!(result.as_deref(), Some("Four."));
+                assert!((total_cost_usd.unwrap() - 0.03144475).abs() < 1e-8);
+                assert_eq!(duration_ms, Some(3589));
+                assert_eq!(num_turns, Some(1));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_real_sdk_rate_limit_falls_to_unknown() {
+        let json = r#"{"type":"sdk_message","message":{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"uuid":"1e1d33fe-e786-4723-929a-7f951e87c4ae"}}"#;
+        let msg: BridgeMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, BridgeMessage::SdkMessage { message: SdkMessage::Unknown }));
+    }
 }

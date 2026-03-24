@@ -1,5 +1,5 @@
 [package]
-name = "alva-acp"
+name = "alva-protocol-acp"
 version = "0.1.0"
 edition = "2021"
 description = "Standalone ACP (Agent Client Protocol) crate: protocol types, process management, session, and delegate"

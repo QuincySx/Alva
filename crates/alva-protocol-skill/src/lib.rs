@@ -1,6 +1,6 @@
 // INPUT:  (none)
 // OUTPUT: pub mod error, types, repository, loader, injector, store, fs
-// POS:    Root module for the alva-skill crate.
+// POS:    Root module for the alva-protocol-skill crate.
 //         Provides Skill discovery, loading, injection, and in-memory store.
 
 pub mod error;

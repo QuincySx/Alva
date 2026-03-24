@@ -1,7 +1,7 @@
 // INPUT:  (none)
 // OUTPUT: pub mod client, config, error, tool_adapter, transport, types
-// POS:    Crate root for alva-mcp — MCP client library.
-//! # alva-mcp
+// POS:    Crate root for alva-protocol-mcp — MCP client library.
+//! # alva-protocol-mcp
 //!
 //! Standalone MCP (Model Context Protocol) client crate.
 //!
