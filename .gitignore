@@ -5,3 +5,5 @@ Cargo.lock
 .DS_Store
 .idea/
 .vscode/
+.claude/hud-cache.json
+.claude/hud-last-scan
