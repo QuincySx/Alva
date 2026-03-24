@@ -25,7 +25,7 @@ fn main() {
         );
 
     #[cfg(debug_assertions)]
-    let (_debug_handle, _view_registry) = {
+    let (_debug_handle, _view_registry, _action_registry) = {
         let (log_layer, log_handle) = srow_debug::LogCaptureLayer::new(10_000);
 
         tracing_subscriber::registry()
@@ -40,15 +40,17 @@ fn main() {
 
         let view_registry = srow_debug::gpui::ViewRegistry::new();
         let inspector = srow_debug::gpui::GpuiInspector::new(view_registry.clone());
+        let action_registry = Arc::new(srow_debug::ActionRegistry::new());
 
         let server = srow_debug::DebugServer::builder()
             .port(port)
             .with_log_handle(log_handle)
             .with_inspector(inspector)
+            .with_action_registry(action_registry.clone())
             .build()
             .expect("debug server failed to start");
 
-        (server.start(), view_registry)
+        (server.start(), view_registry, action_registry)
     };
 
     #[cfg(not(debug_assertions))]
@@ -72,6 +74,10 @@ fn main() {
         // Store debug ViewRegistry as a GPUI global so views can register themselves
         #[cfg(debug_assertions)]
         cx.set_global(srow_app::DebugViewRegistry(_view_registry));
+
+        // Store debug ActionRegistry as a GPUI global so components can register actions/state
+        #[cfg(debug_assertions)]
+        cx.set_global(srow_app::DebugActionRegistry(_action_registry));
 
         // Create shared models
         let workspace_model = cx.new(|_| WorkspaceModel::default());

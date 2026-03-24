@@ -129,6 +129,40 @@ impl GpuiChat {
         let model: Arc<dyn LanguageModel> = Arc::new(PlaceholderModel);
         let agent = srow_core::Agent::new(model, "You are a helpful assistant.", agent_config);
 
+        // Register this component in the debug ActionRegistry for HTTP inspection.
+        #[cfg(debug_assertions)]
+        {
+            if let Some(action_reg) = cx.try_global::<crate::DebugActionRegistry>() {
+                let _weak = cx.entity().downgrade();
+                let _weak2 = _weak.clone();
+                action_reg.0.register(
+                    "chat_panel",
+                    srow_debug::RegisteredView {
+                        action_fn: Box::new(move |method, _args| {
+                            // Simplified: just acknowledge the method exists.
+                            // Full GPUI dispatch (HTTP → mpsc → GPUI thread) will be
+                            // added in a future iteration.
+                            match method {
+                                "send_message" => {
+                                    Ok(serde_json::json!({"status": "acknowledged"}))
+                                }
+                                _ => Err(format!("unknown method: {method}")),
+                            }
+                        }),
+                        state_fn: Box::new(move || {
+                            // Simplified: return basic info.
+                            // Full state reading requires GPUI context on the main thread.
+                            Some(serde_json::json!({
+                                "registered": true,
+                                "type": "GpuiChat"
+                            }))
+                        }),
+                        methods: vec!["send_message".into()],
+                    },
+                );
+            }
+        }
+
         Self {
             agent: Arc::new(agent),
             messages: Vec::new(),

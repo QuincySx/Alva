@@ -15,3 +15,11 @@ pub struct DebugViewRegistry(pub std::sync::Arc<srow_debug::gpui::ViewRegistry>)
 
 #[cfg(debug_assertions)]
 impl gpui::Global for DebugViewRegistry {}
+
+/// GPUI Global wrapping the debug ActionRegistry so components can register
+/// type-erased action/state closures for the debug HTTP API.
+#[cfg(debug_assertions)]
+pub struct DebugActionRegistry(pub std::sync::Arc<srow_debug::ActionRegistry>);
+
+#[cfg(debug_assertions)]
+impl gpui::Global for DebugActionRegistry {}
