@@ -10,9 +10,11 @@ members = [
     "crates/alva-security",
     "crates/alva-memory",
     "crates/alva-runtime",
-    "crates/alva-skill",
-    "crates/alva-mcp",
-    "crates/alva-acp",
+    "crates/alva-protocol-skill",
+    "crates/alva-protocol-mcp",
+    "crates/alva-protocol-acp",
+    "crates/alva-engine-runtime",
+    "crates/alva-engine-adapter-claude",
 ]
 resolver = "2"
 
