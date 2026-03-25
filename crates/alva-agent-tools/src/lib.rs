@@ -19,10 +19,12 @@ pub mod grep_search;
 pub mod internet_search;
 pub mod list_files;
 pub mod local_fs;
+pub mod mock_fs;
 pub mod read_url;
 pub mod view_image;
 
 pub use local_fs::{walk_dir, LocalToolFs};
+pub use mock_fs::MockToolFs;
 
 #[cfg(feature = "browser")]
 pub mod browser;
