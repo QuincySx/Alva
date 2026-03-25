@@ -5,7 +5,10 @@
 //!
 //! Standard tools (always available):
 //!   ask_human, create_file, execute_shell, file_edit, grep_search,
-//!   internet_search, list_files, read_url, view_image
+//!   list_files, view_image
+//!
+//! Native-only tools (feature = "native", disabled on wasm):
+//!   internet_search, read_url
 //!
 //! Browser tools (feature = "browser"):
 //!   browser_start, browser_stop, browser_navigate, browser_action,
@@ -16,15 +19,21 @@ pub mod create_file;
 pub mod execute_shell;
 pub mod file_edit;
 pub mod grep_search;
-pub mod internet_search;
 pub mod list_files;
-pub mod local_fs;
 pub mod mock_fs;
-pub mod read_url;
 pub mod view_image;
 
+#[cfg(not(target_family = "wasm"))]
+pub mod local_fs;
+#[cfg(not(target_family = "wasm"))]
 pub use local_fs::{walk_dir, LocalToolFs};
+
 pub use mock_fs::MockToolFs;
+
+#[cfg(feature = "native")]
+pub mod internet_search;
+#[cfg(feature = "native")]
+pub mod read_url;
 
 #[cfg(feature = "browser")]
 pub mod browser;
@@ -49,9 +58,14 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
         grep_search::GrepSearchTool,
         list_files::ListFilesTool,
         ask_human::AskHumanTool,
+        view_image::ViewImageTool,
+    );
+
+    #[cfg(feature = "native")]
+    register_tools!(
+        registry,
         internet_search::InternetSearchTool,
         read_url::ReadUrlTool,
-        view_image::ViewImageTool,
     );
 }
 

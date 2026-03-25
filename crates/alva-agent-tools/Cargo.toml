@@ -7,15 +7,18 @@ description = "Built-in tool implementations for the agent framework"
 [dependencies]
 alva-types = { path = "../alva-types" }
 async-trait = "0.1"
-tokio = { version = "1", features = ["process", "time", "fs", "sync", "io-util"] }
+tokio = { version = "1", features = ["sync", "time"] }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 glob = "0.3"
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
 tracing = "0.1"
 base64 = "0.22"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
 
 [dependencies.chromiumoxide]
 version = "0.9"
@@ -27,4 +30,5 @@ tempfile = "3"
 
 [features]
 browser = ["chromiumoxide"]
-default = ["browser"]
+native = ["reqwest"]
+default = ["browser", "native"]
