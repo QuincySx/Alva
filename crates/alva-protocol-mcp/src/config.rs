@@ -9,6 +9,7 @@ use crate::error::McpError;
 use crate::types::{McpServerConfig, McpTransportConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+#[cfg(not(target_family = "wasm"))]
 use std::path::Path;
 
 /// Top-level structure of mcpServerConfig.json.
@@ -57,7 +58,14 @@ pub enum McpTransportEntry {
 }
 
 impl McpConfigFile {
+    /// Parse config from a JSON string. Works on all platforms.
+    pub fn from_str(json: &str) -> Result<Self, McpError> {
+        serde_json::from_str(json)
+            .map_err(|e| McpError::Serialization(format!("Invalid config JSON: {e}")))
+    }
+
     /// Load config from a specific path. Returns empty config if file doesn't exist.
+    #[cfg(not(target_family = "wasm"))]
     pub async fn load(path: &Path) -> Result<Self, McpError> {
         if !path.exists() {
             return Ok(Self::default());
@@ -74,6 +82,7 @@ impl McpConfigFile {
     }
 
     /// Save config to a specific path (creates parent directories if needed).
+    #[cfg(not(target_family = "wasm"))]
     pub async fn save(&self, path: &Path) -> Result<(), McpError> {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent)
