@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement 7 architecture improvements: ToolContext genericization, async Middleware system, srow-core split (alva-tools/alva-security/alva-memory/alva-runtime), unified init API, context compression, CI dependency firewall, and examples.
+**Goal:** Implement 7 architecture improvements: ToolContext genericization, async Middleware system, alva-app-core split (alva-tools/alva-security/alva-memory/alva-runtime), unified init API, context compression, CI dependency firewall, and examples.
 
-**Architecture:** Bottom-up approach — start with foundation layer changes (alva-types), then engine layer (alva-core middleware), then structural split (srow-core → 4 crates), then convenience APIs and examples on top.
+**Architecture:** Bottom-up approach — start with foundation layer changes (alva-types), then engine layer (alva-core middleware), then structural split (alva-app-core → 4 crates), then convenience APIs and examples on top.
 
 **Tech Stack:** Rust, async-trait, tokio, serde, rusqlite, chromiumoxide
 
@@ -14,7 +14,7 @@
 
 ### New crates to create:
 ```
-crates/alva-tools/          ← 16 Tool implementations extracted from srow-core
+crates/alva-tools/          ← 16 Tool implementations extracted from alva-app-core
 crates/alva-security/       ← SecurityGuard + PermissionManager + sandbox
 crates/alva-memory/         ← FTS + vector + persistence (SQLite)
 crates/alva-runtime/        ← Thin integration/orchestration layer
@@ -28,7 +28,7 @@ crates/alva-core/src/types.rs        ← AgentConfig hooks → middleware
 crates/alva-core/src/agent.rs        ← Use middleware chain
 crates/alva-core/src/agent_loop.rs   ← Use middleware chain
 crates/alva-core/src/tool_executor.rs ← Use middleware chain
-crates/srow-core/                     ← Slim down to facade + skills + mcp + environment
+crates/alva-app-core/                     ← Slim down to facade + skills + mcp + environment
 ```
 
 ### New files:
@@ -168,9 +168,9 @@ impl ToolContext for SrowToolContext {
 
 Tools use: `let local = ctx.local().ok_or_else(|| ...)?;`
 
-- [ ] **Step 1.6: Update SrowToolContext in srow-core**
+- [ ] **Step 1.6: Update SrowToolContext in alva-app-core**
 
-`crates/srow-core/src/ports/tool.rs`:
+`crates/alva-app-core/src/ports/tool.rs`:
 ```rust
 pub use alva_types::{LocalToolContext, Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
 
@@ -941,17 +941,17 @@ git commit -m "feat(alva-core): add async Middleware system with MiddlewareStack
 
 ---
 
-## Task 3: Split srow-core into alva-tools
+## Task 3: Split alva-app-core into alva-tools
 
-**Rationale:** Extract all 16 tool implementations into a standalone crate so tools can be reused independently of srow-core's runtime.
+**Rationale:** Extract all 16 tool implementations into a standalone crate so tools can be reused independently of alva-app-core's runtime.
 
 **Files:**
 - Create: `crates/alva-tools/Cargo.toml`
 - Create: `crates/alva-tools/src/lib.rs`
-- Move: `crates/srow-core/src/agent/runtime/tools/*.rs` → `crates/alva-tools/src/`
-- Move: `crates/srow-core/src/agent/runtime/tools/browser/` → `crates/alva-tools/src/browser/`
-- Modify: `crates/srow-core/Cargo.toml` (add alva-tools dep, remove tool-specific deps)
-- Modify: `crates/srow-core/src/lib.rs` (re-export from alva-tools)
+- Move: `crates/alva-app-core/src/agent/runtime/tools/*.rs` → `crates/alva-tools/src/`
+- Move: `crates/alva-app-core/src/agent/runtime/tools/browser/` → `crates/alva-tools/src/browser/`
+- Modify: `crates/alva-app-core/Cargo.toml` (add alva-tools dep, remove tool-specific deps)
+- Modify: `crates/alva-app-core/src/lib.rs` (re-export from alva-tools)
 - Modify: `Cargo.toml` (add workspace member)
 
 - [ ] **Step 3.1: Create alva-tools Cargo.toml**
@@ -1002,14 +1002,14 @@ mkdir -p crates/alva-tools/src/browser
 
 # Standard tools
 for f in ask_human create_file execute_shell file_edit grep_search internet_search list_files read_url view_image; do
-    cp crates/srow-core/src/agent/runtime/tools/${f}.rs crates/alva-tools/src/${f}.rs
+    cp crates/alva-app-core/src/agent/runtime/tools/${f}.rs crates/alva-tools/src/${f}.rs
 done
 
 # Browser tools
 for f in browser_manager browser_start browser_stop browser_navigate browser_action browser_snapshot browser_screenshot browser_status; do
-    cp crates/srow-core/src/agent/runtime/tools/browser/${f}.rs crates/alva-tools/src/browser/${f}.rs
+    cp crates/alva-app-core/src/agent/runtime/tools/browser/${f}.rs crates/alva-tools/src/browser/${f}.rs
 done
-cp crates/srow-core/src/agent/runtime/tools/browser/mod.rs crates/alva-tools/src/browser/mod.rs
+cp crates/alva-app-core/src/agent/runtime/tools/browser/mod.rs crates/alva-tools/src/browser/mod.rs
 ```
 
 - [ ] **Step 3.3: Create alva-tools/src/lib.rs**
@@ -1097,22 +1097,22 @@ members = [
 ]
 ```
 
-- [ ] **Step 3.6: Update srow-core to depend on alva-tools**
+- [ ] **Step 3.6: Update alva-app-core to depend on alva-tools**
 
-In `crates/srow-core/Cargo.toml`:
+In `crates/alva-app-core/Cargo.toml`:
 ```toml
 alva-tools = { path = "../alva-tools" }
 ```
 
-Remove from srow-core's deps: `walkdir`, `glob`, `chromiumoxide`, `base64`, `reqwest` (now in alva-tools).
+Remove from alva-app-core's deps: `walkdir`, `glob`, `chromiumoxide`, `base64`, `reqwest` (now in alva-tools).
 
-**Note:** Keep `regex` in srow-core if other modules still use it (e.g., security's sensitive_paths — which will move in Task 4).
+**Note:** Keep `regex` in alva-app-core if other modules still use it (e.g., security's sensitive_paths — which will move in Task 4).
 
-- [ ] **Step 3.7: Update srow-core to re-export from alva-tools**
+- [ ] **Step 3.7: Update alva-app-core to re-export from alva-tools**
 
-Replace `crates/srow-core/src/agent/runtime/tools/` module with a thin re-export:
+Replace `crates/alva-app-core/src/agent/runtime/tools/` module with a thin re-export:
 
-In `crates/srow-core/src/lib.rs`, change:
+In `crates/alva-app-core/src/lib.rs`, change:
 ```rust
 // Old
 pub use agent::runtime::tools::register_all_tools;
@@ -1123,37 +1123,37 @@ pub use alva_tools::{register_all_tools, register_builtin_tools};
 pub use alva_tools::browser::{BrowserManager, browser_manager::{SharedBrowserManager, shared_browser_manager}};
 ```
 
-Remove the `crates/srow-core/src/agent/runtime/tools/` directory (replaced by alva-tools crate).
+Remove the `crates/alva-app-core/src/agent/runtime/tools/` directory (replaced by alva-tools crate).
 
 - [ ] **Step 3.8: Verify compilation**
 
-Run: `cargo check -p alva-tools -p srow-core`
+Run: `cargo check -p alva-tools -p alva-app-core`
 Expected: compiles.
 
 - [ ] **Step 3.9: Run tests**
 
-Run: `cargo test -p alva-tools -p srow-core`
+Run: `cargo test -p alva-tools -p alva-app-core`
 Expected: all pass.
 
 - [ ] **Step 3.10: Commit**
 
 ```bash
-git add crates/alva-tools/ crates/srow-core/ Cargo.toml
+git add crates/alva-tools/ crates/alva-app-core/ Cargo.toml
 git commit -m "refactor: extract 16 tool implementations into alva-tools crate"
 ```
 
 ---
 
-## Task 4: Split srow-core into alva-security
+## Task 4: Split alva-app-core into alva-security
 
-**Rationale:** Extract security subsystem so it can be reused by any agent runtime, not just srow-core.
+**Rationale:** Extract security subsystem so it can be reused by any agent runtime, not just alva-app-core.
 
 **Files:**
 - Create: `crates/alva-security/Cargo.toml`
 - Create: `crates/alva-security/src/lib.rs`
-- Move: `crates/srow-core/src/agent/runtime/security/*.rs` → `crates/alva-security/src/`
-- Modify: `crates/srow-core/Cargo.toml`
-- Modify: `crates/srow-core/src/lib.rs`
+- Move: `crates/alva-app-core/src/agent/runtime/security/*.rs` → `crates/alva-security/src/`
+- Modify: `crates/alva-app-core/Cargo.toml`
+- Modify: `crates/alva-app-core/src/lib.rs`
 - Modify: `Cargo.toml`
 
 - [ ] **Step 4.1: Create alva-security Cargo.toml**
@@ -1183,7 +1183,7 @@ tokio = { version = "1", features = ["sync"] }
 mkdir -p crates/alva-security/src
 
 for f in guard permission sensitive_paths authorized_roots sandbox; do
-    cp crates/srow-core/src/agent/runtime/security/${f}.rs crates/alva-security/src/${f}.rs
+    cp crates/alva-app-core/src/agent/runtime/security/${f}.rs crates/alva-security/src/${f}.rs
 done
 ```
 
@@ -1223,7 +1223,7 @@ For tests in `guard.rs`, replace `SrowToolContext` with a local test helper:
 mod tests {
     use super::*;
 
-    // Local test context (replaces SrowToolContext from srow-core)
+    // Local test context (replaces SrowToolContext from alva-app-core)
     struct TestToolContext {
         workspace: std::path::PathBuf,
     }
@@ -1248,15 +1248,15 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4.5: Add to workspace and srow-core**
+- [ ] **Step 4.5: Add to workspace and alva-app-core**
 
 Root `Cargo.toml`: add `"crates/alva-security"` to members.
 
-`crates/srow-core/Cargo.toml`: add `alva-security = { path = "../alva-security" }`.
+`crates/alva-app-core/Cargo.toml`: add `alva-security = { path = "../alva-security" }`.
 
-- [ ] **Step 4.6: Update srow-core re-exports**
+- [ ] **Step 4.6: Update alva-app-core re-exports**
 
-In `crates/srow-core/src/lib.rs`:
+In `crates/alva-app-core/src/lib.rs`:
 ```rust
 // Old
 pub use agent::runtime::security::guard::{SecurityGuard, SecurityDecision};
@@ -1271,33 +1271,33 @@ pub use alva_security::{
 };
 ```
 
-Remove `crates/srow-core/src/agent/runtime/security/` directory.
+Remove `crates/alva-app-core/src/agent/runtime/security/` directory.
 
 - [ ] **Step 4.7: Verify and commit**
 
-Run: `cargo check -p alva-security -p srow-core && cargo test -p alva-security -p srow-core`
+Run: `cargo check -p alva-security -p alva-app-core && cargo test -p alva-security -p alva-app-core`
 
 ```bash
-git add crates/alva-security/ crates/srow-core/ Cargo.toml
+git add crates/alva-security/ crates/alva-app-core/ Cargo.toml
 git commit -m "refactor: extract security subsystem into alva-security crate"
 ```
 
 ---
 
-## Task 5: Split srow-core into alva-memory
+## Task 5: Split alva-app-core into alva-memory
 
-**Rationale:** Extract the memory subsystem (FTS + vector search) into a standalone crate. **Note:** `agent/persistence/` (SqliteStorage for sessions) stays in srow-core because it has deep coupling to srow-core's domain types (`Session`, `SessionStatus`, `SessionStorage` trait). Only the memory-specific storage moves.
+**Rationale:** Extract the memory subsystem (FTS + vector search) into a standalone crate. **Note:** `agent/persistence/` (SqliteStorage for sessions) stays in alva-app-core because it has deep coupling to alva-app-core's domain types (`Session`, `SessionStatus`, `SessionStorage` trait). Only the memory-specific storage moves.
 
 **Files:**
 - Create: `crates/alva-memory/Cargo.toml`
 - Create: `crates/alva-memory/src/lib.rs`
 - Create: `crates/alva-memory/src/error.rs` (new MemoryError, replaces EngineError usage)
-- Move: `crates/srow-core/src/agent/memory/` → `crates/alva-memory/src/`
-- Modify: `crates/srow-core/Cargo.toml`
-- Modify: `crates/srow-core/src/lib.rs`
+- Move: `crates/alva-app-core/src/agent/memory/` → `crates/alva-memory/src/`
+- Modify: `crates/alva-app-core/Cargo.toml`
+- Modify: `crates/alva-app-core/src/lib.rs`
 - Modify: `Cargo.toml`
 
-**Important:** `agent/persistence/` stays in srow-core — it depends on `domain::session::Session` and `ports::storage::SessionStorage` which are srow-specific.
+**Important:** `agent/persistence/` stays in alva-app-core — it depends on `domain::session::Session` and `ports::storage::SessionStorage` which are srow-specific.
 
 - [ ] **Step 5.1: Create alva-memory Cargo.toml**
 
@@ -1349,7 +1349,7 @@ mkdir -p crates/alva-memory/src
 
 # Memory subsystem only
 for f in types service sqlite embedding sync; do
-    cp crates/srow-core/src/agent/memory/${f}.rs crates/alva-memory/src/${f}.rs
+    cp crates/alva-app-core/src/agent/memory/${f}.rs crates/alva-memory/src/${f}.rs
 done
 ```
 
@@ -1359,7 +1359,7 @@ done
 //! Agent memory — FTS + vector hybrid search, file sync, embedding support.
 //!
 //! Note: Session persistence (SqliteStorage for sessions/messages) stays in
-//! srow-core because it depends on srow-core's domain model.
+//! alva-app-core because it depends on alva-app-core's domain model.
 
 pub mod error;
 pub mod types;
@@ -1385,23 +1385,23 @@ use crate::error::MemoryError;
 
 Replace all `EngineError::Storage(...)` with `MemoryError::Storage(...)`, etc.
 
-- [ ] **Step 5.6: Add to workspace, update srow-core**
+- [ ] **Step 5.6: Add to workspace, update alva-app-core**
 
-Add to workspace members. Update srow-core to depend on alva-memory.
+Add to workspace members. Update alva-app-core to depend on alva-memory.
 
-In srow-core, add conversion: `impl From<MemoryError> for EngineError`.
+In alva-app-core, add conversion: `impl From<MemoryError> for EngineError`.
 
-Remove `crates/srow-core/src/agent/memory/` directory only.
-**Keep** `crates/srow-core/src/agent/persistence/` in srow-core.
+Remove `crates/alva-app-core/src/agent/memory/` directory only.
+**Keep** `crates/alva-app-core/src/agent/persistence/` in alva-app-core.
 
-`rusqlite` and `tokio-rusqlite` stay in srow-core for persistence. Agent-memory has its own copy for memory-specific FTS storage.
+`rusqlite` and `tokio-rusqlite` stay in alva-app-core for persistence. Agent-memory has its own copy for memory-specific FTS storage.
 
 - [ ] **Step 5.6: Verify and commit**
 
-Run: `cargo check -p alva-memory -p srow-core && cargo test -p alva-memory -p srow-core`
+Run: `cargo check -p alva-memory -p alva-app-core && cargo test -p alva-memory -p alva-app-core`
 
 ```bash
-git add crates/alva-memory/ crates/srow-core/ Cargo.toml
+git add crates/alva-memory/ crates/alva-app-core/ Cargo.toml
 git commit -m "refactor: extract memory and persistence into alva-memory crate"
 ```
 
@@ -1742,14 +1742,14 @@ fn main() {
 
 Root `Cargo.toml`: add `"crates/alva-runtime"`.
 
-- [ ] **Step 6.7: Update srow-core to depend on alva-runtime**
+- [ ] **Step 6.7: Update alva-app-core to depend on alva-runtime**
 
-In `crates/srow-core/Cargo.toml`:
+In `crates/alva-app-core/Cargo.toml`:
 ```toml
 alva-runtime = { path = "../alva-runtime" }
 ```
 
-Update `srow-core/src/lib.rs` re-exports to delegate to alva-runtime where appropriate.
+Update `alva-app-core/src/lib.rs` re-exports to delegate to alva-runtime where appropriate.
 
 - [ ] **Step 6.8: Verify and commit**
 
@@ -1757,7 +1757,7 @@ Run: `cargo check -p alva-runtime && cargo run --example runtime_basic -p alva-r
 Expected: compiles and runs.
 
 ```bash
-git add crates/alva-runtime/ crates/srow-core/ Cargo.toml
+git add crates/alva-runtime/ crates/alva-app-core/ Cargo.toml
 git commit -m "feat: add alva-runtime crate with builder API, unified model init, and examples"
 ```
 
@@ -2079,15 +2079,15 @@ for PROTO in alva-skill alva-mcp alva-acp; do
     fi
 done
 
-# Rule 7: srow-app must NOT directly depend on alva-types, alva-core, alva-graph
-echo "Checking srow-app facade boundary..."
-APP_DIRECT_DEPS=$(cargo tree -p srow-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-core|alva-graph)" || true)
+# Rule 7: alva-app must NOT directly depend on alva-types, alva-core, alva-graph
+echo "Checking alva-app facade boundary..."
+APP_DIRECT_DEPS=$(cargo tree -p alva-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-core|alva-graph)" || true)
 if [ -n "$APP_DIRECT_DEPS" ]; then
-    echo -e "${RED}VIOLATION: srow-app directly depends on internal crates (should use srow-core facade):${NC}"
+    echo -e "${RED}VIOLATION: alva-app directly depends on internal crates (should use alva-app-core facade):${NC}"
     echo "$APP_DIRECT_DEPS"
     VIOLATIONS=$((VIOLATIONS + 1))
 else
-    echo -e "${GREEN}OK: srow-app only uses srow-core facade${NC}"
+    echo -e "${GREEN}OK: alva-app only uses alva-app-core facade${NC}"
 fi
 
 echo ""
@@ -2119,17 +2119,17 @@ git commit -m "ci: add dependency firewall script to enforce crate boundary rule
 
 ---
 
-## Task 9: Update srow-core facade and srow-app
+## Task 9: Update alva-app-core facade and alva-app
 
-**Rationale:** After the split, srow-core becomes a thin facade that re-exports from the new crates. srow-app continues to import only through srow-core.
+**Rationale:** After the split, alva-app-core becomes a thin facade that re-exports from the new crates. alva-app continues to import only through alva-app-core.
 
 **Files:**
-- Modify: `crates/srow-core/Cargo.toml`
-- Modify: `crates/srow-core/src/lib.rs`
-- Modify: `crates/srow-core/src/agent/mod.rs`
-- Modify: `crates/srow-core/src/agent/runtime/mod.rs`
+- Modify: `crates/alva-app-core/Cargo.toml`
+- Modify: `crates/alva-app-core/src/lib.rs`
+- Modify: `crates/alva-app-core/src/agent/mod.rs`
+- Modify: `crates/alva-app-core/src/agent/runtime/mod.rs`
 
-- [ ] **Step 9.1: Clean up srow-core Cargo.toml**
+- [ ] **Step 9.1: Clean up alva-app-core Cargo.toml**
 
 Remove dependencies that moved to sub-crates:
 - Remove: `walkdir`, `regex`, `glob` (in alva-tools)
@@ -2144,7 +2144,7 @@ alva-memory = { path = "../alva-memory" }
 alva-runtime = { path = "../alva-runtime" }
 ```
 
-- [ ] **Step 9.2: Update srow-core/src/lib.rs**
+- [ ] **Step 9.2: Update alva-app-core/src/lib.rs**
 
 Replace direct module paths with re-exports from new crates:
 
@@ -2162,16 +2162,16 @@ pub use alva_security::{SecurityGuard, SecurityDecision, PermissionManager, Perm
 pub use alva_memory::{MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport};
 ```
 
-- [ ] **Step 9.3: Remove migrated directories from srow-core**
+- [ ] **Step 9.3: Remove migrated directories from alva-app-core**
 
 Delete:
-- `crates/srow-core/src/agent/runtime/tools/` (now in alva-tools)
-- `crates/srow-core/src/agent/runtime/security/` (now in alva-security)
-- `crates/srow-core/src/agent/memory/` (now in alva-memory)
-- `crates/srow-core/src/agent/persistence/` (now in alva-memory)
+- `crates/alva-app-core/src/agent/runtime/tools/` (now in alva-tools)
+- `crates/alva-app-core/src/agent/runtime/security/` (now in alva-security)
+- `crates/alva-app-core/src/agent/memory/` (now in alva-memory)
+- `crates/alva-app-core/src/agent/persistence/` (now in alva-memory)
 
-Update `crates/srow-core/src/agent/runtime/mod.rs` to remove `pub mod tools;` and `pub mod security;`.
-Update `crates/srow-core/src/agent/mod.rs` to remove `pub mod memory;` and `pub mod persistence;`.
+Update `crates/alva-app-core/src/agent/runtime/mod.rs` to remove `pub mod tools;` and `pub mod security;`.
+Update `crates/alva-app-core/src/agent/mod.rs` to remove `pub mod memory;` and `pub mod persistence;`.
 
 - [ ] **Step 9.4: Verify full workspace compilation**
 
@@ -2192,21 +2192,21 @@ Expected: all checks pass.
 
 ```bash
 git add -A
-git commit -m "refactor: slim down srow-core to facade, delegate to alva-tools/security/memory/runtime"
+git commit -m "refactor: slim down alva-app-core to facade, delegate to alva-tools/security/memory/runtime"
 ```
 
 ---
 
 ## Task 10: Rename AgentConfig hooks (cleanup)
 
-**Rationale:** AgentConfig in alva-core should be renamed to `AgentHooks` or the hooks struct should be clarified, eliminating the need for the awkward `AgentHookConfig` alias in srow-core.
+**Rationale:** AgentConfig in alva-core should be renamed to `AgentHooks` or the hooks struct should be clarified, eliminating the need for the awkward `AgentHookConfig` alias in alva-app-core.
 
 **Files:**
 - Modify: `crates/alva-core/src/types.rs`
 - Modify: `crates/alva-core/src/lib.rs`
 - Modify: `crates/alva-core/src/agent.rs`
 - Modify: `crates/alva-core/src/agent_loop.rs`
-- Modify: `crates/srow-core/src/lib.rs` (remove alias)
+- Modify: `crates/alva-app-core/src/lib.rs` (remove alias)
 
 - [ ] **Step 10.1: Rename AgentConfig → AgentHooks in alva-core**
 
@@ -2226,9 +2226,9 @@ Update all references in alva-core (agent.rs, agent_loop.rs, tool_executor.rs).
 pub use types::{AgentHooks, AgentMessage, AgentState, AgentContext, ...};
 ```
 
-- [ ] **Step 10.3: Remove alias in srow-core**
+- [ ] **Step 10.3: Remove alias in alva-app-core**
 
-In `crates/srow-core/src/lib.rs`:
+In `crates/alva-app-core/src/lib.rs`:
 ```rust
 // Old
 pub use alva_core::types::{AgentConfig as AgentHookConfig, AgentContext};
@@ -2241,7 +2241,7 @@ pub use alva_core::{AgentHooks, AgentContext};
 Run: `cargo check --workspace && cargo test --workspace`
 
 ```bash
-git add crates/alva-core/ crates/srow-core/
+git add crates/alva-core/ crates/alva-app-core/
 git commit -m "refactor(alva-core): rename AgentConfig to AgentHooks for clarity"
 ```
 
@@ -2253,14 +2253,14 @@ git commit -m "refactor(alva-core): rename AgentConfig to AgentHooks for clarity
 |------|------|------------|----------|
 | 1 | Genericize ToolContext | — | alva-types |
 | 2 | Async Middleware | Task 1 | alva-core |
-| 3 | Extract alva-tools | Task 1 | alva-tools, srow-core |
-| 4 | Extract alva-security | Task 1 | alva-security, srow-core |
-| 5 | Extract alva-memory | — | alva-memory, srow-core |
+| 3 | Extract alva-tools | Task 1 | alva-tools, alva-app-core |
+| 4 | Extract alva-security | Task 1 | alva-security, alva-app-core |
+| 5 | Extract alva-memory | — | alva-memory, alva-app-core |
 | 6 | Create alva-runtime | Tasks 2,3,4,5 | alva-runtime |
 | 7 | Context Compression | Task 2 | alva-core |
 | 8 | CI Dependency Firewall | Tasks 3,4,5 | scripts/ |
-| 9 | Update Facade | Tasks 3,4,5,6 | srow-core |
-| 10 | Rename AgentConfig | Task 2 | alva-core, srow-core |
+| 9 | Update Facade | Tasks 3,4,5,6 | alva-app-core |
+| 10 | Rename AgentConfig | Task 2 | alva-core, alva-app-core |
 
 **Parallelization opportunities:**
 - Tasks 3, 4, 5 can run in parallel (independent crate extractions)
@@ -2269,7 +2269,7 @@ git commit -m "refactor(alva-core): rename AgentConfig to AgentHooks for clarity
 - Task 9 must wait for all splits
 - Task 10 can run after Task 2
 
-**Dual-path phase note:** During Tasks 3-5, srow-core will temporarily have both the old module paths AND new crate dependencies. Each extraction task immediately removes the old module directory from srow-core and replaces with re-exports from the new crate. Task 9 is for final cleanup and verification only — there should be no duplicated code between tasks.
+**Dual-path phase note:** During Tasks 3-5, alva-app-core will temporarily have both the old module paths AND new crate dependencies. Each extraction task immediately removes the old module directory from alva-app-core and replaces with re-exports from the new crate. Task 9 is for final cleanup and verification only — there should be no duplicated code between tasks.
 
 ---
 
@@ -2277,9 +2277,9 @@ git commit -m "refactor(alva-core): rename AgentConfig to AgentHooks for clarity
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  srow-app (GPUI Desktop UI)                                  │ Layer 6
+│  alva-app (GPUI Desktop UI)                                  │ Layer 6
 ├──────────────────────────────────────────────────────────────┤
-│  srow-core (Facade: skills + mcp + environment + re-exports) │ Layer 5
+│  alva-app-core (Facade: skills + mcp + environment + re-exports) │ Layer 5
 ├──────────────────────────────────────────────────────────────┤
 │  alva-runtime (Builder + unified init + composition)        │ Layer 4
 ├──────────┬───────────────┬───────────────────────────────────┤
@@ -2298,7 +2298,7 @@ git commit -m "refactor(alva-core): rename AgentConfig to AgentHooks for clarity
 **Key improvements:**
 - `alva-types::ToolContext` is generic (no filesystem assumption)
 - `alva-core` has async middleware (replaces sync hooks)
-- `srow-core` is 60% lighter (tools, security, memory extracted)
+- `alva-app-core` is 60% lighter (tools, security, memory extracted)
 - `alva-runtime` provides LangChain-like builder API
 - CI enforces dependency boundaries automatically
 - Middleware enables context compression, logging, security as composable layers

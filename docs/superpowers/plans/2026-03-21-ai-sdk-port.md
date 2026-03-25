@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Port Vercel AI SDK (`ai` core + `@ai-sdk/react`) architecture to Rust, creating a three-crate structure (srow-core data/protocol, srow-ai business logic, srow-app GPUI binding).
+**Goal:** Port Vercel AI SDK (`ai` core + `@ai-sdk/react`) architecture to Rust, creating a three-crate structure (alva-app-core data/protocol, srow-ai business logic, alva-app GPUI binding).
 
-**Architecture:** Bottom-up build: data models first (srow-core), then framework-agnostic business logic (srow-ai), then GPUI integration (srow-app). Each layer is independently testable. The existing AgentEngine is migrated last to minimize disruption.
+**Architecture:** Bottom-up build: data models first (alva-app-core), then framework-agnostic business logic (srow-ai), then GPUI integration (alva-app). Each layer is independently testable. The existing AgentEngine is migrated last to minimize disruption.
 
 **Tech Stack:** Rust, tokio, serde, reqwest, futures, GPUI (gpui-ce), tokio-stream
 
@@ -14,19 +14,19 @@
 
 ## File Map
 
-### New files — srow-core
+### New files — alva-app-core
 | File | Responsibility |
 |------|---------------|
-| `src/srow-core/src/ui_message/mod.rs` | UIMessage struct, UIMessageRole enum, re-exports |
-| `src/srow-core/src/ui_message/parts.rs` | UIMessagePart enum, TextPartState, ToolState |
-| `src/srow-core/src/ui_message/convert.rs` | UIMessage ↔ LLMMessage conversion |
-| `src/srow-core/src/ui_message_stream/mod.rs` | UIMessageChunk enum, FinishReason, ChatStatus, TokenUsage, re-exports |
-| `src/srow-core/src/ui_message_stream/state.rs` | StreamingUIMessageState, PartialToolCall |
-| `src/srow-core/src/ui_message_stream/processor.rs` | process_ui_message_stream function |
-| `src/srow-core/src/ui_message_stream/sse.rs` | SSE parse/serialize utilities |
-| `src/srow-core/src/ui_message_stream/writer.rs` | UIMessageStreamWriter |
-| `src/srow-core/tests/ui_message_test.rs` | UIMessage serde + convert tests |
-| `src/srow-core/tests/ui_message_stream_test.rs` | Stream processor + SSE tests |
+| `src/alva-app-core/src/ui_message/mod.rs` | UIMessage struct, UIMessageRole enum, re-exports |
+| `src/alva-app-core/src/ui_message/parts.rs` | UIMessagePart enum, TextPartState, ToolState |
+| `src/alva-app-core/src/ui_message/convert.rs` | UIMessage ↔ LLMMessage conversion |
+| `src/alva-app-core/src/ui_message_stream/mod.rs` | UIMessageChunk enum, FinishReason, ChatStatus, TokenUsage, re-exports |
+| `src/alva-app-core/src/ui_message_stream/state.rs` | StreamingUIMessageState, PartialToolCall |
+| `src/alva-app-core/src/ui_message_stream/processor.rs` | process_ui_message_stream function |
+| `src/alva-app-core/src/ui_message_stream/sse.rs` | SSE parse/serialize utilities |
+| `src/alva-app-core/src/ui_message_stream/writer.rs` | UIMessageStreamWriter |
+| `src/alva-app-core/tests/ui_message_test.rs` | UIMessage serde + convert tests |
+| `src/alva-app-core/tests/ui_message_stream_test.rs` | Stream processor + SSE tests |
 
 ### New files — srow-ai
 | File | Responsibility |
@@ -53,64 +53,64 @@
 | `src/srow-ai/tests/abstract_chat_test.rs` | AbstractChat integration tests |
 | `src/srow-ai/tests/transport_test.rs` | Transport tests |
 
-### New files — srow-app
+### New files — alva-app
 | File | Responsibility |
 |------|---------------|
-| `src/srow-app/src/chat/mod.rs` | Chat module |
-| `src/srow-app/src/chat/gpui_chat_state.rs` | GpuiChatState (ChatState impl) |
-| `src/srow-app/src/chat/gpui_chat.rs` | GpuiChat GPUI Entity |
-| `src/srow-app/src/views/chat_panel/tool_approval.rs` | Inline tool approval UI |
+| `src/alva-app/src/chat/mod.rs` | Chat module |
+| `src/alva-app/src/chat/gpui_chat_state.rs` | GpuiChatState (ChatState impl) |
+| `src/alva-app/src/chat/gpui_chat.rs` | GpuiChat GPUI Entity |
+| `src/alva-app/src/views/chat_panel/tool_approval.rs` | Inline tool approval UI |
 
 ### Modified files
 | File | Change |
 |------|--------|
 | `Cargo.toml` | Add srow-ai to workspace members |
-| `src/srow-core/src/lib.rs` | Add ui_message, ui_message_stream modules; add re-exports |
-| `src/srow-core/src/error.rs` | Add ChatError enum |
-| `src/srow-core/src/agent/runtime/engine/engine.rs` | EngineEvent → UIMessageChunk |
-| `src/srow-core/src/bin/cli.rs` | Update to use UIMessageChunk |
-| `src/srow-app/Cargo.toml` | Add srow-ai dependency |
-| `src/srow-app/src/lib.rs` | Add chat module, remove engine_bridge |
-| `src/srow-app/src/types/mod.rs` | Remove message re-export |
-| `src/srow-app/src/models/mod.rs` | Update ChatModel import |
-| `src/srow-app/src/models/chat_model.rs` | Full rewrite |
-| `src/srow-app/src/views/chat_panel/chat_panel.rs` | Use new model |
-| `src/srow-app/src/views/chat_panel/message_list.rs` | Render UIMessage parts |
-| `src/srow-app/src/views/chat_panel/input_box.rs` | Use GpuiChat |
-| `src/srow-app/src/views/chat_panel/mod.rs` | Add tool_approval |
+| `src/alva-app-core/src/lib.rs` | Add ui_message, ui_message_stream modules; add re-exports |
+| `src/alva-app-core/src/error.rs` | Add ChatError enum |
+| `src/alva-app-core/src/agent/runtime/engine/engine.rs` | EngineEvent → UIMessageChunk |
+| `src/alva-app-core/src/bin/cli.rs` | Update to use UIMessageChunk |
+| `src/alva-app/Cargo.toml` | Add srow-ai dependency |
+| `src/alva-app/src/lib.rs` | Add chat module, remove engine_bridge |
+| `src/alva-app/src/types/mod.rs` | Remove message re-export |
+| `src/alva-app/src/models/mod.rs` | Update ChatModel import |
+| `src/alva-app/src/models/chat_model.rs` | Full rewrite |
+| `src/alva-app/src/views/chat_panel/chat_panel.rs` | Use new model |
+| `src/alva-app/src/views/chat_panel/message_list.rs` | Render UIMessage parts |
+| `src/alva-app/src/views/chat_panel/input_box.rs` | Use GpuiChat |
+| `src/alva-app/src/views/chat_panel/mod.rs` | Add tool_approval |
 
 ### Deleted files
 | File | Reason |
 |------|--------|
-| `src/srow-app/src/types/message.rs` | Replaced by srow-core::ui_message |
-| `src/srow-app/src/engine_bridge/bridge.rs` | Replaced by DirectChatTransport |
-| `src/srow-app/src/engine_bridge/mod.rs` | Replaced by DirectChatTransport |
+| `src/alva-app/src/types/message.rs` | Replaced by alva-app-core::ui_message |
+| `src/alva-app/src/engine_bridge/bridge.rs` | Replaced by DirectChatTransport |
+| `src/alva-app/src/engine_bridge/mod.rs` | Replaced by DirectChatTransport |
 
 ---
 
-## Task 1: UIMessage data model (srow-core)
+## Task 1: UIMessage data model (alva-app-core)
 
 **Files:**
-- Create: `src/srow-core/src/ui_message/mod.rs`
-- Create: `src/srow-core/src/ui_message/parts.rs`
-- Modify: `src/srow-core/src/lib.rs`
-- Test: `src/srow-core/tests/ui_message_test.rs`
+- Create: `src/alva-app-core/src/ui_message/mod.rs`
+- Create: `src/alva-app-core/src/ui_message/parts.rs`
+- Modify: `src/alva-app-core/src/lib.rs`
+- Test: `src/alva-app-core/tests/ui_message_test.rs`
 
 - [ ] **Step 1: Create parts.rs with all enums**
 
-Create `src/srow-core/src/ui_message/parts.rs` with `UIMessagePart`, `TextPartState`, `ToolState` enums. All derive `Clone, Debug, Serialize, Deserialize`. Use `#[serde(tag = "type", rename_all = "kebab-case")]` on UIMessagePart. See spec section 2.2 for exact fields.
+Create `src/alva-app-core/src/ui_message/parts.rs` with `UIMessagePart`, `TextPartState`, `ToolState` enums. All derive `Clone, Debug, Serialize, Deserialize`. Use `#[serde(tag = "type", rename_all = "kebab-case")]` on UIMessagePart. See spec section 2.2 for exact fields.
 
 - [ ] **Step 2: Create mod.rs with UIMessage and UIMessageRole**
 
-Create `src/srow-core/src/ui_message/mod.rs` with `UIMessage` struct (id, role, parts, metadata), `UIMessageRole` enum (System, User, Assistant). Re-export everything from `parts.rs`.
+Create `src/alva-app-core/src/ui_message/mod.rs` with `UIMessage` struct (id, role, parts, metadata), `UIMessageRole` enum (System, User, Assistant). Re-export everything from `parts.rs`.
 
 - [ ] **Step 3: Register module in lib.rs**
 
-Add `pub mod ui_message;` to `src/srow-core/src/lib.rs`. Add convenience re-exports for `UIMessage`, `UIMessagePart`, `UIMessageRole`, `TextPartState`, `ToolState`.
+Add `pub mod ui_message;` to `src/alva-app-core/src/lib.rs`. Add convenience re-exports for `UIMessage`, `UIMessagePart`, `UIMessageRole`, `TextPartState`, `ToolState`.
 
 - [ ] **Step 4: Write serde round-trip tests**
 
-Create `src/srow-core/tests/ui_message_test.rs`. Test:
+Create `src/alva-app-core/tests/ui_message_test.rs`. Test:
 - Serialize/deserialize `UIMessage` with Text part
 - Serialize/deserialize `UIMessage` with Tool part (all ToolState variants)
 - Serialize/deserialize `UIMessage` with mixed parts (Text + Reasoning + Tool + File + StepStart)
@@ -118,71 +118,71 @@ Create `src/srow-core/tests/ui_message_test.rs`. Test:
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test -p srow-core --test ui_message_test`
+Run: `cargo test -p alva-app-core --test ui_message_test`
 Expected: All tests pass.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/srow-core/src/ui_message/ src/srow-core/src/lib.rs src/srow-core/tests/ui_message_test.rs
+git add src/alva-app-core/src/ui_message/ src/alva-app-core/src/lib.rs src/alva-app-core/tests/ui_message_test.rs
 git commit -m "feat(core): add UIMessage + UIMessagePart data model"
 ```
 
 ---
 
-## Task 2: UIMessageChunk stream protocol (srow-core)
+## Task 2: UIMessageChunk stream protocol (alva-app-core)
 
 **Files:**
-- Create: `src/srow-core/src/ui_message_stream/mod.rs`
-- Create: `src/srow-core/src/ui_message_stream/state.rs`
-- Modify: `src/srow-core/src/lib.rs`
-- Modify: `src/srow-core/src/error.rs`
-- Test: `src/srow-core/tests/ui_message_stream_test.rs`
+- Create: `src/alva-app-core/src/ui_message_stream/mod.rs`
+- Create: `src/alva-app-core/src/ui_message_stream/state.rs`
+- Modify: `src/alva-app-core/src/lib.rs`
+- Modify: `src/alva-app-core/src/error.rs`
+- Test: `src/alva-app-core/tests/ui_message_stream_test.rs`
 
 - [ ] **Step 1: Add ChatError to error.rs**
 
-Add `ChatError` enum to `src/srow-core/src/error.rs` (Clone + Debug + thiserror::Error). Variants: `Transport(String)`, `Stream(String)`, `Serialization(String)`, `Engine(String)`.
+Add `ChatError` enum to `src/alva-app-core/src/error.rs` (Clone + Debug + thiserror::Error). Variants: `Transport(String)`, `Stream(String)`, `Serialization(String)`, `Engine(String)`.
 
 Also add `StreamError` enum: `InvalidSse(String)`, `InvalidChunk(String)`, `Interrupted`, `Aborted`.
 
 - [ ] **Step 2: Create mod.rs with UIMessageChunk, FinishReason, ChatStatus, TokenUsage**
 
-Create `src/srow-core/src/ui_message_stream/mod.rs`. All 28+ UIMessageChunk variants as specified in spec section 2.3. Include `FinishReason`, `ChatStatus`, `TokenUsage`. All derive `Clone, Debug, Serialize, Deserialize`.
+Create `src/alva-app-core/src/ui_message_stream/mod.rs`. All 28+ UIMessageChunk variants as specified in spec section 2.3. Include `FinishReason`, `ChatStatus`, `TokenUsage`. All derive `Clone, Debug, Serialize, Deserialize`.
 
 - [ ] **Step 3: Create state.rs with StreamingUIMessageState**
 
-Create `src/srow-core/src/ui_message_stream/state.rs` with `StreamingUIMessageState` and `PartialToolCall` structs as specified in spec section 2.4.
+Create `src/alva-app-core/src/ui_message_stream/state.rs` with `StreamingUIMessageState` and `PartialToolCall` structs as specified in spec section 2.4.
 
 - [ ] **Step 4: Register module in lib.rs**
 
-Add `pub mod ui_message_stream;` to `src/srow-core/src/lib.rs`. Add re-exports for `UIMessageChunk`, `FinishReason`, `ChatStatus`, `TokenUsage`, `ChatError`, `StreamError`.
+Add `pub mod ui_message_stream;` to `src/alva-app-core/src/lib.rs`. Add re-exports for `UIMessageChunk`, `FinishReason`, `ChatStatus`, `TokenUsage`, `ChatError`, `StreamError`.
 
 - [ ] **Step 5: Write serde tests for UIMessageChunk**
 
-Add to `src/srow-core/tests/ui_message_stream_test.rs`:
+Add to `src/alva-app-core/tests/ui_message_stream_test.rs`:
 - Round-trip test for each major chunk category (Start, TextDelta, ToolInputStart, ToolApprovalRequest, Finish, Error, TokenUsage, Data)
 - Verify JSON shape matches AI SDK SSE protocol (e.g. `{"type": "text-delta", "id": "t1", "delta": "hello"}`)
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test -p srow-core --test ui_message_stream_test`
+Run: `cargo test -p alva-app-core --test ui_message_stream_test`
 Expected: All pass.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/srow-core/src/ui_message_stream/ src/srow-core/src/error.rs src/srow-core/src/lib.rs src/srow-core/tests/ui_message_stream_test.rs
+git add src/alva-app-core/src/ui_message_stream/ src/alva-app-core/src/error.rs src/alva-app-core/src/lib.rs src/alva-app-core/tests/ui_message_stream_test.rs
 git commit -m "feat(core): add UIMessageChunk stream protocol + ChatStatus + errors"
 ```
 
 ---
 
-## Task 3: Stream processor (srow-core)
+## Task 3: Stream processor (alva-app-core)
 
 **Files:**
-- Create: `src/srow-core/src/ui_message_stream/processor.rs`
-- Modify: `src/srow-core/src/ui_message_stream/mod.rs`
-- Test: `src/srow-core/tests/ui_message_stream_test.rs` (append)
+- Create: `src/alva-app-core/src/ui_message_stream/processor.rs`
+- Modify: `src/alva-app-core/src/ui_message_stream/mod.rs`
+- Test: `src/alva-app-core/tests/ui_message_stream_test.rs` (append)
 
 - [ ] **Step 1: Define UIMessageStreamUpdate enum**
 
@@ -231,25 +231,25 @@ Add to `ui_message_stream_test.rs`:
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test -p srow-core --test ui_message_stream_test`
+Run: `cargo test -p alva-app-core --test ui_message_stream_test`
 Expected: All pass.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/srow-core/src/ui_message_stream/processor.rs src/srow-core/src/ui_message_stream/mod.rs src/srow-core/tests/ui_message_stream_test.rs
+git add src/alva-app-core/src/ui_message_stream/processor.rs src/alva-app-core/src/ui_message_stream/mod.rs src/alva-app-core/tests/ui_message_stream_test.rs
 git commit -m "feat(core): implement process_ui_message_stream chunk processor"
 ```
 
 ---
 
-## Task 4: SSE parser + UIMessage ↔ LLMMessage conversion (srow-core)
+## Task 4: SSE parser + UIMessage ↔ LLMMessage conversion (alva-app-core)
 
 **Files:**
-- Create: `src/srow-core/src/ui_message_stream/sse.rs`
-- Create: `src/srow-core/src/ui_message/convert.rs`
-- Modify: `src/srow-core/src/ui_message/mod.rs`
-- Modify: `src/srow-core/src/ui_message_stream/mod.rs`
+- Create: `src/alva-app-core/src/ui_message_stream/sse.rs`
+- Create: `src/alva-app-core/src/ui_message/convert.rs`
+- Modify: `src/alva-app-core/src/ui_message/mod.rs`
+- Modify: `src/alva-app-core/src/ui_message_stream/mod.rs`
 - Test: append to existing test files
 
 - [ ] **Step 1: Implement SSE parser**
@@ -273,13 +273,13 @@ Convert tests: UIMessage with Text+Tool parts → LLMMessage vec → verify Role
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test -p srow-core -- ui_message`
+Run: `cargo test -p alva-app-core -- ui_message`
 Expected: All pass.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/srow-core/src/ui_message_stream/sse.rs src/srow-core/src/ui_message/convert.rs
+git add src/alva-app-core/src/ui_message_stream/sse.rs src/alva-app-core/src/ui_message/convert.rs
 git commit -m "feat(core): add SSE parser and UIMessage ↔ LLMMessage conversion"
 ```
 
@@ -298,7 +298,7 @@ git commit -m "feat(core): add SSE parser and UIMessage ↔ LLMMessage conversio
 
 - [ ] **Step 1: Create Cargo.toml**
 
-Create `src/srow-ai/Cargo.toml` with dependencies as specified in spec section 9. Package name: `srow-ai`, depend on `srow-core = { path = "../srow-core" }`.
+Create `src/srow-ai/Cargo.toml` with dependencies as specified in spec section 9. Package name: `srow-ai`, depend on `alva-app-core = { path = "../alva-app-core" }`.
 
 - [ ] **Step 2: Add to workspace**
 
@@ -579,11 +579,11 @@ git commit -m "feat(ai): implement Completion and ObjectGeneration"
 
 ---
 
-## Task 11: Migrate AgentEngine from EngineEvent to UIMessageChunk (srow-core)
+## Task 11: Migrate AgentEngine from EngineEvent to UIMessageChunk (alva-app-core)
 
 **Files:**
-- Modify: `src/srow-core/src/agent/runtime/engine/engine.rs`
-- Modify: `src/srow-core/src/bin/cli.rs`
+- Modify: `src/alva-app-core/src/agent/runtime/engine/engine.rs`
+- Modify: `src/alva-app-core/src/bin/cli.rs`
 
 - [ ] **Step 1: Change engine event_tx type**
 
@@ -614,7 +614,7 @@ Remove `EngineEvent` from engine.rs. Remove the old re-export from lib.rs. Updat
 
 - [ ] **Step 5: Update cli.rs**
 
-Update `src/srow-core/src/bin/cli.rs` to match on `UIMessageChunk` variants instead of `EngineEvent`. Map:
+Update `src/alva-app-core/src/bin/cli.rs` to match on `UIMessageChunk` variants instead of `EngineEvent`. Map:
 - `TextDelta` → print text
 - `ReasoningDelta` → print dim text
 - `ToolInputStart` → print `[tool] calling: {name}`
@@ -624,35 +624,35 @@ Update `src/srow-core/src/bin/cli.rs` to match on `UIMessageChunk` variants inst
 
 - [ ] **Step 6: Verify both cli and lib compile**
 
-Run: `cargo check -p srow-core`
+Run: `cargo check -p alva-app-core`
 Expected: Compiles.
 
 - [ ] **Step 7: Run existing tests**
 
-Run: `cargo test -p srow-core`
+Run: `cargo test -p alva-app-core`
 Expected: Existing tests still pass (some may need minor updates if they reference EngineEvent).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/srow-core/src/agent/runtime/engine/engine.rs src/srow-core/src/bin/cli.rs src/srow-core/src/lib.rs
+git add src/alva-app-core/src/agent/runtime/engine/engine.rs src/alva-app-core/src/bin/cli.rs src/alva-app-core/src/lib.rs
 git commit -m "feat(core): migrate AgentEngine from EngineEvent to UIMessageChunk"
 ```
 
 ---
 
-## Task 12: GPUI Chat binding (srow-app)
+## Task 12: GPUI Chat binding (alva-app)
 
 **Files:**
-- Create: `src/srow-app/src/chat/mod.rs`
-- Create: `src/srow-app/src/chat/gpui_chat_state.rs`
-- Create: `src/srow-app/src/chat/gpui_chat.rs`
-- Modify: `src/srow-app/Cargo.toml`
-- Modify: `src/srow-app/src/lib.rs`
+- Create: `src/alva-app/src/chat/mod.rs`
+- Create: `src/alva-app/src/chat/gpui_chat_state.rs`
+- Create: `src/alva-app/src/chat/gpui_chat.rs`
+- Modify: `src/alva-app/Cargo.toml`
+- Modify: `src/alva-app/src/lib.rs`
 
 - [ ] **Step 1: Add srow-ai dependency**
 
-Add `srow-ai = { path = "../srow-ai" }` to `src/srow-app/Cargo.toml`.
+Add `srow-ai = { path = "../srow-ai" }` to `src/alva-app/Cargo.toml`.
 
 - [ ] **Step 2: Implement GpuiChatState**
 
@@ -664,44 +664,44 @@ In `gpui_chat.rs`: Struct with `inner: AbstractChat<GpuiChatState>`, `runtime: t
 
 - [ ] **Step 4: Create chat/mod.rs and register in lib.rs**
 
-Add `pub mod chat;` to `src/srow-app/src/lib.rs`.
+Add `pub mod chat;` to `src/alva-app/src/lib.rs`.
 
 - [ ] **Step 5: Verify compilation**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 Expected: Compiles (existing views will still reference old ChatModel, that's ok for now).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/srow-app/src/chat/ src/srow-app/Cargo.toml src/srow-app/src/lib.rs
+git add src/alva-app/src/chat/ src/alva-app/Cargo.toml src/alva-app/src/lib.rs
 git commit -m "feat(app): add GpuiChat + GpuiChatState GPUI binding layer"
 ```
 
 ---
 
-## Task 13: Rewrite ChatModel + delete old files (srow-app)
+## Task 13: Rewrite ChatModel + delete old files (alva-app)
 
 **Files:**
-- Modify: `src/srow-app/src/models/chat_model.rs`
-- Modify: `src/srow-app/src/models/mod.rs`
-- Modify: `src/srow-app/src/types/mod.rs`
-- Delete: `src/srow-app/src/types/message.rs`
-- Delete: `src/srow-app/src/engine_bridge/bridge.rs`
-- Delete: `src/srow-app/src/engine_bridge/mod.rs`
-- Modify: `src/srow-app/src/lib.rs`
+- Modify: `src/alva-app/src/models/chat_model.rs`
+- Modify: `src/alva-app/src/models/mod.rs`
+- Modify: `src/alva-app/src/types/mod.rs`
+- Delete: `src/alva-app/src/types/message.rs`
+- Delete: `src/alva-app/src/engine_bridge/bridge.rs`
+- Delete: `src/alva-app/src/engine_bridge/mod.rs`
+- Modify: `src/alva-app/src/lib.rs`
 
 - [ ] **Step 1: Rewrite ChatModel**
 
-Replace `src/srow-app/src/models/chat_model.rs` entirely. New ChatModel: `chats: HashMap<String, Entity<GpuiChat>>`, `drafts: HashMap<String, String>`. Methods: `get_or_create_chat()`, `send_message()`. Event: `ChatModelEvent::ChatCreated`. See spec section 4.5.
+Replace `src/alva-app/src/models/chat_model.rs` entirely. New ChatModel: `chats: HashMap<String, Entity<GpuiChat>>`, `drafts: HashMap<String, String>`. Methods: `get_or_create_chat()`, `send_message()`. Event: `ChatModelEvent::ChatCreated`. See spec section 4.5.
 
 - [ ] **Step 2: Delete old message types**
 
-Delete `src/srow-app/src/types/message.rs`. Remove `pub mod message;` from `src/srow-app/src/types/mod.rs`. Remove `Message`, `MessageContent`, `MessageRole` references.
+Delete `src/alva-app/src/types/message.rs`. Remove `pub mod message;` from `src/alva-app/src/types/mod.rs`. Remove `Message`, `MessageContent`, `MessageRole` references.
 
 - [ ] **Step 3: Delete engine_bridge**
 
-Delete `src/srow-app/src/engine_bridge/` directory. Remove `pub mod engine_bridge;` from `src/srow-app/src/lib.rs`.
+Delete `src/alva-app/src/engine_bridge/` directory. Remove `pub mod engine_bridge;` from `src/alva-app/src/lib.rs`.
 
 - [ ] **Step 4: Update models/mod.rs**
 
@@ -713,26 +713,26 @@ Update all files that reference old `ChatModel`, `Message`, `MessageContent`, `E
 
 - [ ] **Step 6: Verify compilation**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 Expected: Compiles.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A src/srow-app/
+git add -A src/alva-app/
 git commit -m "refactor(app): rewrite ChatModel, delete old Message types and EngineBridge"
 ```
 
 ---
 
-## Task 14: Rewrite chat panel views (srow-app)
+## Task 14: Rewrite chat panel views (alva-app)
 
 **Files:**
-- Modify: `src/srow-app/src/views/chat_panel/message_list.rs`
-- Modify: `src/srow-app/src/views/chat_panel/input_box.rs`
-- Modify: `src/srow-app/src/views/chat_panel/chat_panel.rs`
-- Create: `src/srow-app/src/views/chat_panel/tool_approval.rs`
-- Modify: `src/srow-app/src/views/chat_panel/mod.rs`
+- Modify: `src/alva-app/src/views/chat_panel/message_list.rs`
+- Modify: `src/alva-app/src/views/chat_panel/input_box.rs`
+- Modify: `src/alva-app/src/views/chat_panel/chat_panel.rs`
+- Create: `src/alva-app/src/views/chat_panel/tool_approval.rs`
+- Modify: `src/alva-app/src/views/chat_panel/mod.rs`
 
 - [ ] **Step 1: Rewrite MessageList**
 
@@ -768,7 +768,7 @@ Expected: Entire workspace compiles.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/srow-app/src/views/chat_panel/
+git add src/alva-app/src/views/chat_panel/
 git commit -m "feat(app): rewrite chat panel views with UIMessage parts rendering + tool approval"
 ```
 
@@ -777,7 +777,7 @@ git commit -m "feat(app): rewrite chat panel views with UIMessage parts renderin
 ## Task 15: Final integration + cleanup
 
 **Files:**
-- Modify: `src/srow-app/src/main.rs`
+- Modify: `src/alva-app/src/main.rs`
 - Various cleanup
 
 - [ ] **Step 1: Update main.rs if needed**

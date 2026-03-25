@@ -2,7 +2,7 @@
 > Skill 协议层，负责技能的发现、加载、存储与 prompt 注入
 
 ## 地位
-技能系统的协议实现。定义 Skill 数据模型和仓库接口，提供渐进式加载（SkillLoader）、prompt 注入（SkillInjector）、内存缓存（SkillStore）和文件系统仓库（FsSkillRepository）。被 srow-core 的 skills 模块集成使用。
+技能系统的协议实现。定义 Skill 数据模型和仓库接口，提供渐进式加载（SkillLoader）、prompt 注入（SkillInjector）、内存缓存（SkillStore）和文件系统仓库（FsSkillRepository）。被 alva-app-core 的 skills 模块集成使用。
 
 ## 逻辑
 ```

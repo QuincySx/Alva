@@ -4,7 +4,7 @@
 
 **Goal:** Add AI SDK-style top-level functions (`generate_text`, `stream_text`, `agent`) and `Output` abstraction to srow-ai, wrapping the existing `AgentEngine`.
 
-**Architecture:** Three new modules in srow-ai: `generate` (top-level API functions), `output` (structured output), `stop_condition` (loop control). These wrap `AgentEngine` from srow-core, providing a clean functional API. `generateObject`/`streamObject` are skipped (deprecated in AI SDK — use `generate_text` + `Output::object()` instead). `Agent` is a thin config wrapper around `generate_text`/`stream_text`.
+**Architecture:** Three new modules in srow-ai: `generate` (top-level API functions), `output` (structured output), `stop_condition` (loop control). These wrap `AgentEngine` from alva-app-core, providing a clean functional API. `generateObject`/`streamObject` are skipped (deprecated in AI SDK — use `generate_text` + `Output::object()` instead). `Agent` is a thin config wrapper around `generate_text`/`stream_text`.
 
 **Tech Stack:** Rust, tokio, serde, serde_json, futures, async-trait
 
@@ -91,7 +91,7 @@ pub fn has_tool_call(name: impl Into<String>) -> Box<dyn StopCondition> {
 // src/srow-ai/src/generate/output.rs
 
 use serde::de::DeserializeOwned;
-use srow_core::error::ChatError;
+use alva_app_core::error::ChatError;
 
 /// Output format specification — controls how LLM output is parsed.
 /// Equivalent to AI SDK's `Output` class.
@@ -173,12 +173,12 @@ impl<T: DeserializeOwned + Clone + Send + Sync + 'static> Output for ObjectOutpu
 // src/srow-ai/src/generate/types.rs
 
 use std::sync::Arc;
-use srow_core::domain::message::LLMMessage;
-use srow_core::domain::tool::{ToolCall, ToolDefinition, ToolResult};
-use srow_core::ports::llm_provider::{LLMProvider, StopReason, TokenUsage as LLMTokenUsage};
-use srow_core::ports::tool::ToolRegistry;
-use srow_core::ui_message::{UIMessage, UIMessagePart};
-use srow_core::ui_message_stream::{UIMessageChunk, FinishReason, TokenUsage};
+use alva_app_core::domain::message::LLMMessage;
+use alva_app_core::domain::tool::{ToolCall, ToolDefinition, ToolResult};
+use alva_app_core::ports::llm_provider::{LLMProvider, StopReason, TokenUsage as LLMTokenUsage};
+use alva_app_core::ports::tool::ToolRegistry;
+use alva_app_core::ui_message::{UIMessage, UIMessagePart};
+use alva_app_core::ui_message_stream::{UIMessageChunk, FinishReason, TokenUsage};
 use super::stop_condition::StopCondition;
 
 /// Common call settings for generate_text / stream_text
@@ -293,7 +293,7 @@ Create empty placeholder functions so the module compiles:
 ```rust
 // generate_text.rs
 pub async fn generate_text(_settings: super::CallSettings, _prompt: super::Prompt)
-    -> Result<super::GenerateTextResult, srow_core::error::ChatError> {
+    -> Result<super::GenerateTextResult, alva_app_core::error::ChatError> {
     todo!()
 }
 
@@ -486,13 +486,13 @@ git commit -m "feat(ai): implement stream_text with background streaming and chu
 // src/srow-ai/src/generate/agent.rs
 
 use std::sync::Arc;
-use srow_core::ports::llm_provider::LLMProvider;
-use srow_core::ports::tool::ToolRegistry;
+use alva_app_core::ports::llm_provider::LLMProvider;
+use alva_app_core::ports::tool::ToolRegistry;
 use super::types::*;
 use super::stop_condition::{StopCondition, step_count_is};
 use super::generate_text::generate_text;
 use super::stream_text::stream_text;
-use srow_core::error::ChatError;
+use alva_app_core::error::ChatError;
 
 /// Agent — a configured wrapper around generate_text/stream_text.
 /// Sets default stop_when to step_count_is(20).

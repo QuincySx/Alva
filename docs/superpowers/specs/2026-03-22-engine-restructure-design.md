@@ -2,7 +2,7 @@
 
 ## Overview
 
-Restructure srow-agent's engine from a monolithic `srow-core` into a three-layer architecture inspired by pi-alva-core (minimal loop engine) and LangGraph (graph execution + orchestration). Rename `srow-ai` to `agent-base`.
+Restructure srow-agent's engine from a monolithic `alva-app-core` into a three-layer architecture inspired by pi-alva-core (minimal loop engine) and LangGraph (graph execution + orchestration). Rename `srow-ai` to `agent-base`.
 
 The goal: separate stable infrastructure (types, traits) from the loop engine, from the graph/orchestration layer. Each layer is independently usable. Agent paradigms change fast — this structure lets us swap the top layers without touching the foundation.
 
@@ -21,9 +21,9 @@ crates/
 ├── agent-base/       ← Foundation: types, traits, providers (stable, rarely changes)
 ├── alva-core/       ← Loop engine: Agent + hooks + events (small, focused)
 ├── alva-graph/      ← Graph execution + orchestration (checkpoint, sub-agent, retry, compaction)
-├── srow-core/        ← Slimmed: MCP, environment, security, domain logic (app-specific)
-├── srow-app/         ← UI application (unchanged)
-└── srow-debug/       ← Debug server (unchanged)
+├── alva-app-core/        ← Slimmed: MCP, environment, security, domain logic (app-specific)
+├── alva-app/         ← UI application (unchanged)
+└── alva-app-debug/       ← Debug server (unchanged)
 ```
 
 ### Dependency Direction (strictly one-way)
@@ -35,9 +35,9 @@ alva-core          ← depends only on agent-base
     ↑
 alva-graph         ← depends on alva-core + agent-base
     ↑
-srow-core           ← depends on alva-graph (or alva-core directly)
+alva-app-core           ← depends on alva-graph (or alva-core directly)
     ↑
-srow-app            ← depends on srow-core
+alva-app            ← depends on alva-app-core
 ```
 
 ### Usage Patterns
@@ -165,10 +165,10 @@ enum StreamEvent {
 
 | agent-base | Current source |
 |------------|---------------|
-| Message/ContentBlock | srow-core `domain::message` + srow-ai `types` |
-| Tool trait | srow-core `ports::tool` |
-| LanguageModel trait | srow-core `ports::provider::language_model` |
-| Provider impls | srow-core `adapters::llm::openai` |
+| Message/ContentBlock | alva-app-core `domain::message` + srow-ai `types` |
+| Tool trait | alva-app-core `ports::tool` |
+| LanguageModel trait | alva-app-core `ports::provider::language_model` |
+| Provider impls | alva-app-core `adapters::llm::openai` |
 | StreamEvent | srow-ai `transport` |
 | Transport | srow-ai `transport::traits` |
 
@@ -543,12 +543,12 @@ Plugs into alva-core's `transform_context` hook.
 
 ---
 
-## srow-core (slimmed down)
+## alva-app-core (slimmed down)
 
-After extraction, srow-core keeps app-specific infrastructure:
+After extraction, alva-app-core keeps app-specific infrastructure:
 
 ```
-crates/srow-core/src/
+crates/alva-app-core/src/
 ├── mcp/                    ← MCP protocol client (unchanged)
 ├── skills/                 ← Skill system (unchanged)
 ├── environment/            ← Runtime management: Bun/Python/Chromium (unchanged)
@@ -564,7 +564,7 @@ crates/srow-core/src/
 └── error.rs
 ```
 
-### What moves OUT of srow-core
+### What moves OUT of alva-app-core
 
 | Current location | Destination | Notes |
 |-----------------|-------------|-------|
@@ -582,9 +582,9 @@ crates/srow-core/src/
 | `ui_message/` | agent-base | `UIMessage`, `UIMessagePart`, `UIMessageChunk` |
 | `ui_message_stream/` | agent-base | Stream types |
 
-### What stays in srow-core
+### What stays in alva-app-core
 
-**General rule**: anything not explicitly listed in "moves OUT" stays in srow-core.
+**General rule**: anything not explicitly listed in "moves OUT" stays in alva-app-core.
 
 | Module | Reason |
 |--------|--------|
@@ -606,16 +606,16 @@ crates/srow-core/src/
 
 **Orchestrator replacement**: The existing `agent/orchestrator/` (brain/reviewer/explorer architecture) is **replaced** by alva-graph's sub-agent model (DeerFlow's task tool pattern). The old orchestrator code is not adapted — it is removed when alva-graph is ready.
 
-**SessionStorage decoupling**: The current engine loop calls `self.storage.append_message()` directly. In the new design, alva-core's `Agent` has no storage concept. Persistence is handled by subscribing to `AgentEvent::MessageEnd` in the upper layer (srow-core or srow-app), similar to pi-mono's coding-agent pattern.
+**SessionStorage decoupling**: The current engine loop calls `self.storage.append_message()` directly. In the new design, alva-core's `Agent` has no storage concept. Persistence is handled by subscribing to `AgentEvent::MessageEnd` in the upper layer (alva-app-core or alva-app), similar to pi-mono's coding-agent pattern.
 
-**Provider trait split** (future): When non-LLM model traits eventually move to agent-base, the `Provider` trait will be split into `LanguageModelProvider` (agent-base) and `MultiModalProvider` (srow-core or agent-base). For now it stays in srow-core intact.
+**Provider trait split** (future): When non-LLM model traits eventually move to agent-base, the `Provider` trait will be split into `LanguageModelProvider` (agent-base) and `MultiModalProvider` (alva-app-core or agent-base). For now it stays in alva-app-core intact.
 
 ### Security integration pattern
 
-srow-core's permission guard (`security/`) integrates with alva-core through the `before_tool_call` hook:
+alva-app-core's permission guard (`security/`) integrates with alva-core through the `before_tool_call` hook:
 
 ```rust
-// In srow-core, when creating an Agent:
+// In alva-app-core, when creating an Agent:
 let permission_guard = PermissionGuard::new(config);
 let agent_config = AgentConfig {
     before_tool_call: Some(Box::new(move |call, ctx| {
@@ -635,14 +635,14 @@ let agent_config = AgentConfig {
 
 ### UIMessage / streaming types
 
-The existing `UIMessage`, `UIMessagePart`, `UIMessageChunk`, `ChatStatus`, `ChatError` types currently live in srow-core and are used by srow-ai. These move to agent-base as part of the foundational message/stream system:
+The existing `UIMessage`, `UIMessagePart`, `UIMessageChunk`, `ChatStatus`, `ChatError` types currently live in alva-app-core and are used by srow-ai. These move to agent-base as part of the foundational message/stream system:
 
 | Type | Current | Destination in agent-base |
 |------|---------|--------------------------|
-| `UIMessage` | `srow-core::ui_message` | `agent_base::message` (absorbed into `Message`) |
-| `UIMessagePart` | `srow-core::ui_message::parts` | `agent_base::content` (absorbed into `ContentBlock`) |
-| `UIMessageChunk` | `srow-core::ui_message_stream` | `agent_base::stream` (absorbed into `StreamEvent`) |
-| `ChatStatus` | `srow-ai::chat` | `agent_base::types` or stays in srow-app (UI-specific) |
+| `UIMessage` | `alva-app-core::ui_message` | `agent_base::message` (absorbed into `Message`) |
+| `UIMessagePart` | `alva-app-core::ui_message::parts` | `agent_base::content` (absorbed into `ContentBlock`) |
+| `UIMessageChunk` | `alva-app-core::ui_message_stream` | `agent_base::stream` (absorbed into `StreamEvent`) |
+| `ChatStatus` | `srow-ai::chat` | `agent_base::types` or stays in alva-app (UI-specific) |
 | `ChatError` | `srow-ai::chat` | `agent_base::error` |
 
 The existing V4 provider interface (`LanguageModelCallOptions`, `LanguageModelMessage`) is superseded by the simpler `LanguageModel::complete(messages, tools, config)`. Existing provider implementations (OpenAI, Anthropic) are adapted to the new trait. This is a breaking change within the workspace — acceptable since all consumers are internal.
@@ -652,7 +652,7 @@ The existing V4 provider interface (`LanguageModelCallOptions`, `LanguageModelMe
 The existing `Tool::execute(input, ctx: &ToolContext)` where `ToolContext` carries `session_id`, `workspace`, `allow_dangerous` is simplified in agent-base to `Tool::execute(input, cancel)`. App-specific context is injected via closures when creating tools:
 
 ```rust
-// In srow-core, wrapping a tool with app context:
+// In alva-app-core, wrapping a tool with app context:
 struct AppToolWrapper {
     inner: Box<dyn Tool>,
     workspace: PathBuf,
@@ -696,22 +696,22 @@ Both modes share the same retry/compaction/checkpoint orchestration. The `prompt
 
 ## Migration Strategy
 
-Phase 1: Create agent-base (rename srow-ai, extract types/traits from srow-core, resolve circular dep)
-Phase 2: Create alva-core (extract engine loop from srow-core)
-Phase 3: Create alva-graph (new code + extract orchestrator from srow-core)
-Phase 4: Slim srow-core (remove extracted code, update imports)
-Phase 5: Update srow-app imports
+Phase 1: Create agent-base (rename srow-ai, extract types/traits from alva-app-core, resolve circular dep)
+Phase 2: Create alva-core (extract engine loop from alva-app-core)
+Phase 3: Create alva-graph (new code + extract orchestrator from alva-app-core)
+Phase 4: Slim alva-app-core (remove extracted code, update imports)
+Phase 5: Update alva-app imports
 
 Each phase produces a compiling workspace. No big-bang rewrite.
 
-**Phase 1 critical path**: srow-ai currently depends on srow-core. To break the cycle:
+**Phase 1 critical path**: srow-ai currently depends on alva-app-core. To break the cycle:
 1. Extract shared types (Message, Tool, LanguageModel, UIMessage, StreamEvent) into agent-base first
-2. Both srow-ai (temporarily) and srow-core depend on agent-base
+2. Both srow-ai (temporarily) and alva-app-core depend on agent-base
 3. Then absorb remaining srow-ai code into agent-base and delete srow-ai
 
 ## Out of Scope
 
-- Actual tool implementations (bash, read, edit, etc.) — stay in srow-core or srow-app
-- Extension/plugin system — future work, srow-app layer
+- Actual tool implementations (bash, read, edit, etc.) — stay in alva-app-core or alva-app
+- Extension/plugin system — future work, alva-app layer
 - UI changes — none needed for this restructure
-- Non-LLM model traits (embedding, image, etc.) — stay in srow-core, move to agent-base later if needed
+- Non-LLM model traits (embedding, image, etc.) — stay in alva-app-core, move to agent-base later if needed

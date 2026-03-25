@@ -4,7 +4,7 @@
 
 **Goal:** Build infrastructure that lets AI self-verify code changes — Phase A via `cargo test` TDD, Phase B via UI automation with MCP tools.
 
-**Architecture:** Phase A creates `alva-test` crate with MockLanguageModel, MockTool, and fixtures. Then adds L1/L2 tests for alva-core agent loop and srow-core BaseAgent. Phase B extends srow-debug with ActionRegistry + action dispatch + state dump + screenshot endpoints, then wraps them in a thin MCP server (`srow-devtools-mcp`).
+**Architecture:** Phase A creates `alva-test` crate with MockLanguageModel, MockTool, and fixtures. Then adds L1/L2 tests for alva-core agent loop and alva-app-core BaseAgent. Phase B extends alva-app-debug with ActionRegistry + action dispatch + state dump + screenshot endpoints, then wraps them in a thin MCP server (`alva-app-devtools-mcp`).
 
 **Tech Stack:** Rust, GPUI `#[gpui::test]`, tokio, serde_json, tiny_http, rmcp (MCP SDK), core-graphics (macOS window ID)
 
@@ -634,17 +634,17 @@ git commit -m "test(alva-core): add tool execution flow test using alva-test moc
 
 ---
 
-### Task 6: Add tests for srow-core BaseAgent
+### Task 6: Add tests for alva-app-core BaseAgent
 
 **Files:**
-- Modify: `crates/srow-core/Cargo.toml` (add alva-test to dev-dependencies)
-- Modify: `crates/srow-core/src/base_agent.rs` (add tests)
+- Modify: `crates/alva-app-core/Cargo.toml` (add alva-test to dev-dependencies)
+- Modify: `crates/alva-app-core/src/base_agent.rs` (add tests)
 
-BaseAgent is defined at `crates/srow-core/src/base_agent.rs:45-99`. It wraps `Agent` with tool registry, skills, MCP, and memory. The existing tests (lines 350-385) test basic builder config.
+BaseAgent is defined at `crates/alva-app-core/src/base_agent.rs:45-99`. It wraps `Agent` with tool registry, skills, MCP, and memory. The existing tests (lines 350-385) test basic builder config.
 
 **Step 1: Add dev-dependency**
 
-In `crates/srow-core/Cargo.toml` `[dev-dependencies]`, add:
+In `crates/alva-app-core/Cargo.toml` `[dev-dependencies]`, add:
 ```toml
 alva-test = { path = "../alva-test" }
 ```
@@ -685,7 +685,7 @@ async fn test_base_agent_prompt_produces_events() {
 
 **Step 3: Run test to verify**
 
-Run: `cargo test -p srow-core -- test_base_agent_prompt`
+Run: `cargo test -p alva-app-core -- test_base_agent_prompt`
 Expected: PASS
 
 **Step 4: Write test — BaseAgent with custom tool**
@@ -722,27 +722,27 @@ async fn test_base_agent_registers_custom_tool() {
 }
 ```
 
-**Step 5: Run all srow-core tests**
+**Step 5: Run all alva-app-core tests**
 
-Run: `cargo test -p srow-core`
+Run: `cargo test -p alva-app-core`
 Expected: PASS
 
 **Step 6: Commit**
 
 ```bash
-git add crates/srow-core/
-git commit -m "test(srow-core): add BaseAgent integration tests using alva-test mocks"
+git add crates/alva-app-core/
+git commit -m "test(alva-app-core): add BaseAgent integration tests using alva-test mocks"
 ```
 
 ---
 
 ## Phase B: UI 自动化
 
-### Task 7: Add ActionRegistry to srow-debug
+### Task 7: Add ActionRegistry to alva-app-debug
 
 **Files:**
-- Create: `crates/srow-debug/src/action_registry.rs`
-- Modify: `crates/srow-debug/src/lib.rs` (re-export)
+- Create: `crates/alva-app-debug/src/action_registry.rs`
+- Modify: `crates/alva-app-debug/src/lib.rs` (re-export)
 
 **Step 1: Write test**
 
@@ -782,7 +782,7 @@ mod tests {
 
 **Step 2: Run to verify fail**
 
-Run: `cargo test -p srow-debug -- action_registry`
+Run: `cargo test -p alva-app-debug -- action_registry`
 Expected: FAIL
 
 **Step 3: Implement ActionRegistry**
@@ -855,32 +855,32 @@ Note: The actual action/state closures will capture GPUI WeakEntity internally a
 
 **Step 4: Run tests**
 
-Run: `cargo test -p srow-debug -- action_registry`
+Run: `cargo test -p alva-app-debug -- action_registry`
 Expected: PASS
 
 **Step 5: Add to lib.rs re-exports**
 
-Add `pub mod action_registry;` and `pub use action_registry::ActionRegistry;` to `crates/srow-debug/src/lib.rs`.
+Add `pub mod action_registry;` and `pub use action_registry::ActionRegistry;` to `crates/alva-app-debug/src/lib.rs`.
 
 **Step 6: Commit**
 
 ```bash
-git add crates/srow-debug/
-git commit -m "feat(srow-debug): add ActionRegistry for type-erased view dispatch"
+git add crates/alva-app-debug/
+git commit -m "feat(alva-app-debug): add ActionRegistry for type-erased view dispatch"
 ```
 
 ---
 
-### Task 8: Add DebugState trait and new HTTP endpoints to srow-debug
+### Task 8: Add DebugState trait and new HTTP endpoints to alva-app-debug
 
 **Files:**
-- Modify: `crates/srow-debug/src/inspect.rs` (add DebugState trait)
-- Modify: `crates/srow-debug/src/router.rs` (add /api/action, /api/inspect/state, /api/inspect/views, /api/screenshot, /api/shutdown endpoints)
-- Modify: `crates/srow-debug/src/builder.rs` (accept ActionRegistry)
+- Modify: `crates/alva-app-debug/src/inspect.rs` (add DebugState trait)
+- Modify: `crates/alva-app-debug/src/router.rs` (add /api/action, /api/inspect/state, /api/inspect/views, /api/screenshot, /api/shutdown endpoints)
+- Modify: `crates/alva-app-debug/src/builder.rs` (accept ActionRegistry)
 
 **Step 1: Add DebugState trait**
 
-In `crates/srow-debug/src/inspect.rs`:
+In `crates/alva-app-debug/src/inspect.rs`:
 
 ```rust
 /// Trait for components to expose runtime state for AI verification.
@@ -914,7 +914,7 @@ Each handler:
 
 **Step 4: Write integration test**
 
-In `crates/srow-debug/tests/integration.rs`, add:
+In `crates/alva-app-debug/tests/integration.rs`, add:
 
 ```rust
 #[test]
@@ -945,34 +945,34 @@ fn test_inspect_views_endpoint() {
 
 **Step 5: Run tests**
 
-Run: `cargo test -p srow-debug`
+Run: `cargo test -p alva-app-debug`
 Expected: PASS
 
 **Step 6: Commit**
 
 ```bash
-git add crates/srow-debug/
-git commit -m "feat(srow-debug): add action dispatch, state dump, views, screenshot, shutdown endpoints"
+git add crates/alva-app-debug/
+git commit -m "feat(alva-app-debug): add action dispatch, state dump, views, screenshot, shutdown endpoints"
 ```
 
 ---
 
-### Task 9: Wire ActionRegistry into srow-app with GPUI drain task
+### Task 9: Wire ActionRegistry into alva-app with GPUI drain task
 
 **Files:**
-- Modify: `crates/srow-app/src/main.rs` (create ActionRegistry, spawn drain task)
-- Modify: `crates/srow-app/src/chat/gpui_chat.rs` (register in ActionRegistry, implement DebugState)
-- Modify: `crates/srow-app/src/lib.rs` (export DebugActionRegistry global)
+- Modify: `crates/alva-app/src/main.rs` (create ActionRegistry, spawn drain task)
+- Modify: `crates/alva-app/src/chat/gpui_chat.rs` (register in ActionRegistry, implement DebugState)
+- Modify: `crates/alva-app/src/lib.rs` (export DebugActionRegistry global)
 
 This is the hardest task — wiring the ActionRegistry through a persistent mpsc channel to the GPUI main thread.
 
 **Step 1: Define the command channel types**
 
-In `crates/srow-app/src/lib.rs`:
+In `crates/alva-app/src/lib.rs`:
 
 ```rust
 #[cfg(debug_assertions)]
-pub struct DebugActionRegistry(pub std::sync::Arc<srow_debug::ActionRegistry>);
+pub struct DebugActionRegistry(pub std::sync::Arc<alva_app_debug::ActionRegistry>);
 #[cfg(debug_assertions)]
 impl gpui::Global for DebugActionRegistry {}
 ```
@@ -984,12 +984,12 @@ After `cx.set_global(SharedRuntime(...))`:
 ```rust
 #[cfg(debug_assertions)]
 {
-    let action_registry = srow_debug::ActionRegistry::new();
+    let action_registry = alva_app_debug::ActionRegistry::new();
     let registry_arc = std::sync::Arc::new(action_registry);
-    cx.set_global(srow_app::DebugActionRegistry(registry_arc.clone()));
+    cx.set_global(alva_app::DebugActionRegistry(registry_arc.clone()));
 
     // Pass registry to debug server builder
-    // server = srow_debug::DebugServer::builder()
+    // server = alva_app_debug::DebugServer::builder()
     //     ...
     //     .with_action_registry(registry_arc)
     //     ...
@@ -1006,7 +1006,7 @@ In `GpuiChat::new()`, after entity creation:
     if let Some(registry) = cx.try_global::<crate::DebugActionRegistry>() {
         let weak = cx.entity().downgrade();
         let weak2 = weak.clone();
-        registry.0.register("chat_panel", srow_debug::action_registry::RegisteredView {
+        registry.0.register("chat_panel", alva_app_debug::action_registry::RegisteredView {
             action_fn: Box::new(move |method, args| {
                 // This will be called from the GPUI drain task context
                 // For now: simplified direct dispatch
@@ -1029,25 +1029,25 @@ Note: The full GPUI-threaded dispatch (with mpsc channel + oneshot response) sho
 
 **Step 4: Verify app still compiles and debug server starts**
 
-Run: `cargo build -p srow-app`
+Run: `cargo build -p alva-app`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add crates/srow-app/ crates/srow-debug/
-git commit -m "feat(srow-app): wire ActionRegistry into GPUI with component registration"
+git add crates/alva-app/ crates/alva-app-debug/
+git commit -m "feat(alva-app): wire ActionRegistry into GPUI with component registration"
 ```
 
 ---
 
-### Task 10: Implement srow-devtools-mcp
+### Task 10: Implement alva-app-devtools-mcp
 
 **Files:**
-- Create: `crates/srow-devtools-mcp/Cargo.toml`
-- Create: `crates/srow-devtools-mcp/src/lib.rs`
-- Create: `crates/srow-devtools-mcp/src/main.rs`
-- Create: `crates/srow-devtools-mcp/src/tools.rs`
+- Create: `crates/alva-app-devtools-mcp/Cargo.toml`
+- Create: `crates/alva-app-devtools-mcp/src/lib.rs`
+- Create: `crates/alva-app-devtools-mcp/src/main.rs`
+- Create: `crates/alva-app-devtools-mcp/src/tools.rs`
 - Modify: `Cargo.toml` (workspace members)
 
 **Step 1: Create crate scaffold**
@@ -1055,13 +1055,13 @@ git commit -m "feat(srow-app): wire ActionRegistry into GPUI with component regi
 `Cargo.toml`:
 ```toml
 [package]
-name = "srow-devtools-mcp"
+name = "alva-app-devtools-mcp"
 version = "0.1.0"
 edition = "2021"
-description = "MCP server that wraps srow-debug HTTP API for AI-driven development"
+description = "MCP server that wraps alva-app-debug HTTP API for AI-driven development"
 
 [[bin]]
-name = "srow-devtools-mcp"
+name = "alva-app-devtools-mcp"
 path = "src/main.rs"
 
 [dependencies]
@@ -1076,7 +1076,7 @@ Note: Check actual `rmcp` crate availability and version on crates.io. If unavai
 
 **Step 2: Implement MCP tools**
 
-Each tool maps to a srow-debug HTTP endpoint. The MCP server reads from stdin, parses JSON-RPC, dispatches to the right HTTP call, and writes the response to stdout.
+Each tool maps to a alva-app-debug HTTP endpoint. The MCP server reads from stdin, parses JSON-RPC, dispatches to the right HTTP call, and writes the response to stdout.
 
 Tools:
 - `srow_views` → `GET http://127.0.0.1:9229/api/inspect/views`
@@ -1087,18 +1087,18 @@ Tools:
 
 **Step 3: Add to workspace**
 
-Add `"crates/srow-devtools-mcp"` to root `Cargo.toml`.
+Add `"crates/alva-app-devtools-mcp"` to root `Cargo.toml`.
 
 **Step 4: Verify build**
 
-Run: `cargo build -p srow-devtools-mcp`
+Run: `cargo build -p alva-app-devtools-mcp`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add crates/srow-devtools-mcp/ Cargo.toml
-git commit -m "feat(srow-devtools-mcp): MCP server wrapping srow-debug HTTP API"
+git add crates/alva-app-devtools-mcp/ Cargo.toml
+git commit -m "feat(alva-app-devtools-mcp): MCP server wrapping alva-app-debug HTTP API"
 ```
 
 ---
@@ -1110,18 +1110,18 @@ git commit -m "feat(srow-devtools-mcp): MCP server wrapping srow-debug HTTP API"
 **Step 1: Run all tests**
 
 Run: `cargo test --workspace`
-Expected: PASS (except srow-app known issue)
+Expected: PASS (except alva-app known issue)
 
 **Step 2: Manual E2E — Phase A**
 
-Run: `cargo test -p alva-core -p srow-core`
+Run: `cargo test -p alva-core -p alva-app-core`
 Expected: All tests pass, including new alva-test-based tests
 
 **Step 3: Manual E2E — Phase B**
 
 ```bash
 # Terminal 1: Start app
-cargo run -p srow-app &
+cargo run -p alva-app &
 
 # Terminal 2: Test endpoints
 curl http://127.0.0.1:9229/api/health

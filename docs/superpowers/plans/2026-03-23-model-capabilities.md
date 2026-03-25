@@ -4,9 +4,9 @@
 
 **Goal:** Add 7 model capability traits to `alva-types`, extend Provider/ProviderRegistry, and delete old V4 model files.
 
-**Architecture:** Each trait gets its own file in `alva-types/src/`. Provider trait gains 7 optional methods with default "unsupported" returns. Old V4 model files in `srow-core/ports/provider/` are deleted along with `ProviderOptions`/`ProviderMetadata`/`ProviderWarning`/`ProviderHeaders`.
+**Architecture:** Each trait gets its own file in `alva-types/src/`. Provider trait gains 7 optional methods with default "unsupported" returns. Old V4 model files in `alva-app-core/ports/provider/` are deleted along with `ProviderOptions`/`ProviderMetadata`/`ProviderWarning`/`ProviderHeaders`.
 
-**Tech Stack:** Rust, async-trait, serde, alva-types, srow-core
+**Tech Stack:** Rust, async-trait, serde, alva-types, alva-app-core
 
 **Spec:** `docs/superpowers/specs/2026-03-23-model-capabilities-design.md`
 
@@ -25,19 +25,19 @@
 - Modify: `crates/alva-types/src/lib.rs`
 
 ### Task 2: Provider trait + ProviderRegistry extension
-- Modify: `crates/srow-core/src/ports/provider/provider_registry.rs`
+- Modify: `crates/alva-app-core/src/ports/provider/provider_registry.rs`
 
 ### Task 3: Old V4 cleanup
-- Delete: `crates/srow-core/src/ports/provider/embedding_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/transcription_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/speech_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/image_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/video_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/reranking_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/middleware.rs`
-- Modify: `crates/srow-core/src/ports/provider/types.rs` (delete or empty)
-- Modify: `crates/srow-core/src/ports/provider/mod.rs`
-- Modify: `crates/srow-core/src/lib.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/embedding_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/transcription_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/speech_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/image_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/video_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/reranking_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/middleware.rs`
+- Modify: `crates/alva-app-core/src/ports/provider/types.rs` (delete or empty)
+- Modify: `crates/alva-app-core/src/ports/provider/mod.rs`
+- Modify: `crates/alva-app-core/src/lib.rs`
 
 ---
 
@@ -439,11 +439,11 @@ model_id() + one async capability method + Config/Result structs."
 ## Task 2: Extend Provider Trait and ProviderRegistry
 
 **Files:**
-- Modify: `crates/srow-core/src/ports/provider/provider_registry.rs`
+- Modify: `crates/alva-app-core/src/ports/provider/provider_registry.rs`
 
 - [ ] **Step 1: Add alva-types imports**
 
-In `crates/srow-core/src/ports/provider/provider_registry.rs`, update the `use alva_types::LanguageModel;` import to:
+In `crates/alva-app-core/src/ports/provider/provider_registry.rs`, update the `use alva_types::LanguageModel;` import to:
 
 ```rust
 use alva_types::{
@@ -615,9 +615,9 @@ After the existing `language_model()` method in `impl ProviderRegistry`, add 7 m
     }
 ```
 
-- [ ] **Step 4: Run srow-core tests**
+- [ ] **Step 4: Run alva-app-core tests**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p srow-core`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-app-core`
 
 Expected: All tests pass. Existing `MockProvider` only implements `language_model()` — the 7 new methods have defaults, so no breakage.
 
@@ -630,8 +630,8 @@ Expected: No new errors.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/srow-core/src/ports/provider/provider_registry.rs
-git commit -m "feat(srow-core): extend Provider trait with 7 model capability methods
+git add crates/alva-app-core/src/ports/provider/provider_registry.rs
+git commit -m "feat(alva-app-core): extend Provider trait with 7 model capability methods
 
 Provider now supports embedding_model(), transcription_model(),
 speech_model(), image_model(), video_model(), reranking_model(), and
@@ -645,33 +645,33 @@ methods."
 ## Task 3: Delete Old V4 Model Files and Clean Up
 
 **Files:**
-- Delete: `crates/srow-core/src/ports/provider/embedding_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/transcription_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/speech_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/image_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/video_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/reranking_model.rs`
-- Delete: `crates/srow-core/src/ports/provider/middleware.rs`
-- Modify: `crates/srow-core/src/ports/provider/types.rs`
-- Modify: `crates/srow-core/src/ports/provider/mod.rs`
-- Modify: `crates/srow-core/src/lib.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/embedding_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/transcription_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/speech_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/image_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/video_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/reranking_model.rs`
+- Delete: `crates/alva-app-core/src/ports/provider/middleware.rs`
+- Modify: `crates/alva-app-core/src/ports/provider/types.rs`
+- Modify: `crates/alva-app-core/src/ports/provider/mod.rs`
+- Modify: `crates/alva-app-core/src/lib.rs`
 
 - [ ] **Step 1: Delete the 7 old model files + middleware**
 
 ```bash
 cd /Users/smallraw/Development/QuincyWork/srow-agent
-rm crates/srow-core/src/ports/provider/embedding_model.rs
-rm crates/srow-core/src/ports/provider/transcription_model.rs
-rm crates/srow-core/src/ports/provider/speech_model.rs
-rm crates/srow-core/src/ports/provider/image_model.rs
-rm crates/srow-core/src/ports/provider/video_model.rs
-rm crates/srow-core/src/ports/provider/reranking_model.rs
-rm crates/srow-core/src/ports/provider/middleware.rs
+rm crates/alva-app-core/src/ports/provider/embedding_model.rs
+rm crates/alva-app-core/src/ports/provider/transcription_model.rs
+rm crates/alva-app-core/src/ports/provider/speech_model.rs
+rm crates/alva-app-core/src/ports/provider/image_model.rs
+rm crates/alva-app-core/src/ports/provider/video_model.rs
+rm crates/alva-app-core/src/ports/provider/reranking_model.rs
+rm crates/alva-app-core/src/ports/provider/middleware.rs
 ```
 
 - [ ] **Step 2: Empty `types.rs`**
 
-Replace `crates/srow-core/src/ports/provider/types.rs` with:
+Replace `crates/alva-app-core/src/ports/provider/types.rs` with:
 
 ```rust
 // V4 provider types (ProviderOptions, ProviderMetadata, ProviderHeaders,
@@ -682,7 +682,7 @@ Replace `crates/srow-core/src/ports/provider/types.rs` with:
 
 - [ ] **Step 3: Update `mod.rs`**
 
-Replace `crates/srow-core/src/ports/provider/mod.rs` with:
+Replace `crates/alva-app-core/src/ports/provider/mod.rs` with:
 
 ```rust
 pub mod types;
@@ -695,7 +695,7 @@ pub use provider_registry::{Provider, ProviderRegistry};
 
 - [ ] **Step 4: Check `lib.rs` for stale re-exports**
 
-In `crates/srow-core/src/lib.rs`, check for any re-exports of the deleted V4 types (`EmbeddingModel`, `ImageModel`, `SpeechModel`, `TranscriptionModel`, `VideoModel`, `RerankingModel` from `ports::provider`). If any exist, remove them. The current `lib.rs` only re-exports `Provider` and `ProviderRegistry` from the provider module, so no changes should be needed.
+In `crates/alva-app-core/src/lib.rs`, check for any re-exports of the deleted V4 types (`EmbeddingModel`, `ImageModel`, `SpeechModel`, `TranscriptionModel`, `VideoModel`, `RerankingModel` from `ports::provider`). If any exist, remove them. The current `lib.rs` only re-exports `Provider` and `ProviderRegistry` from the provider module, so no changes should be needed.
 
 - [ ] **Step 5: Build workspace**
 
@@ -712,8 +712,8 @@ Expected: All tests pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A crates/srow-core/src/ports/provider/
-git commit -m "refactor(srow-core): delete old V4 model traits and provider types
+git add -A crates/alva-app-core/src/ports/provider/
+git commit -m "refactor(alva-app-core): delete old V4 model traits and provider types
 
 Removes embedding_model.rs, transcription_model.rs, speech_model.rs,
 image_model.rs, video_model.rs, reranking_model.rs, middleware.rs, and

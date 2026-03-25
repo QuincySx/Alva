@@ -6,7 +6,7 @@
 
 **Architecture:** Each fix is independent and targets a specific crate. Fixes are ordered by priority (P0→P1→P2). All changes maintain backward compatibility through defaults.
 
-**Tech Stack:** Rust, tokio, async-trait, serde, alva-types, alva-core, alva-graph, srow-core
+**Tech Stack:** Rust, tokio, async-trait, serde, alva-types, alva-core, alva-graph, alva-app-core
 
 ---
 
@@ -17,17 +17,17 @@
 - Modify: `crates/alva-graph/src/pregel.rs` — use merge_fn in parallel superstep, add tests
 
 ### Fix 2 (P1): Provider Registry
-- Modify: `crates/srow-core/src/ports/provider/provider_registry.rs` — rebuild with alva_types::LanguageModel
-- Modify: `crates/srow-core/src/ports/provider/mod.rs` — re-export new Provider + ProviderRegistry
-- Modify: `crates/srow-core/src/lib.rs` — add convenience re-exports
+- Modify: `crates/alva-app-core/src/ports/provider/provider_registry.rs` — rebuild with alva_types::LanguageModel
+- Modify: `crates/alva-app-core/src/ports/provider/mod.rs` — re-export new Provider + ProviderRegistry
+- Modify: `crates/alva-app-core/src/lib.rs` — add convenience re-exports
 
 ### Fix 3 (P1): LLMMessage → alva_types::Message
-- Modify: `crates/srow-core/src/ports/storage.rs` — change trait to use alva_types::Message
-- Modify: `crates/srow-core/src/adapters/storage/memory.rs` — use alva_types::Message
-- Modify: `crates/srow-core/src/agent/persistence/sqlite.rs` — migrate serialization to alva_types types
-- Modify: `crates/srow-core/src/types/llm.rs` — remove LLMMessage re-exports
-- Modify: `crates/srow-core/src/lib.rs` — remove LLMMessage-based re-exports
-- Modify: `crates/srow-core/src/domain/message.rs` — reduce to ImageSource shim (LLMMessage/LLMContent/Role removed)
+- Modify: `crates/alva-app-core/src/ports/storage.rs` — change trait to use alva_types::Message
+- Modify: `crates/alva-app-core/src/adapters/storage/memory.rs` — use alva_types::Message
+- Modify: `crates/alva-app-core/src/agent/persistence/sqlite.rs` — migrate serialization to alva_types types
+- Modify: `crates/alva-app-core/src/types/llm.rs` — remove LLMMessage re-exports
+- Modify: `crates/alva-app-core/src/lib.rs` — remove LLMMessage-based re-exports
+- Modify: `crates/alva-app-core/src/domain/message.rs` — reduce to ImageSource shim (LLMMessage/LLMContent/Role removed)
 - Modify: `crates/alva-types/src/content.rs` — add serde alias for backward-compatible SQLite deserialization
 
 ### Fix 4 (P2): Streaming Placeholder
@@ -240,7 +240,7 @@ Expected: All tests pass (existing tests should still pass since merge_fn defaul
 
 Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo check 2>&1 | head -30`
 
-Expected: No new errors (alva-graph is used by srow-app, verify no downstream breakage).
+Expected: No new errors (alva-graph is used by alva-app, verify no downstream breakage).
 
 - [ ] **Step 9: Commit**
 
@@ -258,13 +258,13 @@ function, behavior falls back to last-result-wins (backward compatible)."
 ## Task 2: Provider Registry Rebuild (P1)
 
 **Files:**
-- Modify: `crates/srow-core/src/ports/provider/provider_registry.rs`
-- Modify: `crates/srow-core/src/ports/provider/mod.rs`
-- Modify: `crates/srow-core/src/lib.rs`
+- Modify: `crates/alva-app-core/src/ports/provider/provider_registry.rs`
+- Modify: `crates/alva-app-core/src/ports/provider/mod.rs`
+- Modify: `crates/alva-app-core/src/lib.rs`
 
 - [ ] **Step 1: Add tokio-stream dev-dependency**
 
-Check if `tokio-stream` is in `crates/srow-core/Cargo.toml`. If not, add to `[dev-dependencies]`:
+Check if `tokio-stream` is in `crates/alva-app-core/Cargo.toml`. If not, add to `[dev-dependencies]`:
 
 ```toml
 tokio-stream = "0.1"
@@ -272,7 +272,7 @@ tokio-stream = "0.1"
 
 - [ ] **Step 2: Write the Provider trait and ProviderRegistry**
 
-Replace the contents of `crates/srow-core/src/ports/provider/provider_registry.rs` with:
+Replace the contents of `crates/alva-app-core/src/ports/provider/provider_registry.rs` with:
 
 ```rust
 use std::collections::HashMap;
@@ -433,7 +433,7 @@ mod tests {
 
 - [ ] **Step 3: Update mod.rs to re-export**
 
-In `crates/srow-core/src/ports/provider/mod.rs`, add the re-export:
+In `crates/alva-app-core/src/ports/provider/mod.rs`, add the re-export:
 
 ```rust
 pub use provider_registry::{Provider, ProviderRegistry};
@@ -441,7 +441,7 @@ pub use provider_registry::{Provider, ProviderRegistry};
 
 - [ ] **Step 4: Add convenience re-exports in lib.rs**
 
-In `crates/srow-core/src/lib.rs`, add after the existing provider-area re-exports:
+In `crates/alva-app-core/src/lib.rs`, add after the existing provider-area re-exports:
 
 ```rust
 pub use ports::provider::provider_registry::{Provider, ProviderRegistry};
@@ -449,7 +449,7 @@ pub use ports::provider::provider_registry::{Provider, ProviderRegistry};
 
 - [ ] **Step 5: Run tests**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p srow-core provider_registry`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-app-core provider_registry`
 
 Expected: All 3 tests pass.
 
@@ -462,8 +462,8 @@ Expected: No new errors.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/srow-core/src/ports/provider/provider_registry.rs crates/srow-core/src/ports/provider/mod.rs crates/srow-core/src/lib.rs
-git commit -m "feat(srow-core): rebuild Provider registry on alva_types::LanguageModel
+git add crates/alva-app-core/src/ports/provider/provider_registry.rs crates/alva-app-core/src/ports/provider/mod.rs crates/alva-app-core/src/lib.rs
+git commit -m "feat(alva-app-core): rebuild Provider registry on alva_types::LanguageModel
 
 Replaces the commented-out V4 Provider trait with a minimal registry
 that produces Arc<dyn LanguageModel> instances. Embedding/image/speech
@@ -475,12 +475,12 @@ model factories can be added later as needed."
 ## Task 3: Unify LLMMessage → alva_types::Message (P1)
 
 **Files:**
-- Modify: `crates/srow-core/src/ports/storage.rs`
-- Modify: `crates/srow-core/src/adapters/storage/memory.rs`
-- Modify: `crates/srow-core/src/agent/persistence/sqlite.rs`
-- Modify: `crates/srow-core/src/types/llm.rs`
-- Modify: `crates/srow-core/src/domain/message.rs`
-- Modify: `crates/srow-core/src/lib.rs`
+- Modify: `crates/alva-app-core/src/ports/storage.rs`
+- Modify: `crates/alva-app-core/src/adapters/storage/memory.rs`
+- Modify: `crates/alva-app-core/src/agent/persistence/sqlite.rs`
+- Modify: `crates/alva-app-core/src/types/llm.rs`
+- Modify: `crates/alva-app-core/src/domain/message.rs`
+- Modify: `crates/alva-app-core/src/lib.rs`
 
 - [ ] **Step 1: Add serde alias for backward-compatible deserialization**
 
@@ -502,7 +502,7 @@ This ensures both `"id"` and `"tool_use_id"` are accepted during deserialization
 
 - [ ] **Step 2: Update SessionStorage trait**
 
-Replace `crates/srow-core/src/ports/storage.rs` with:
+Replace `crates/alva-app-core/src/ports/storage.rs` with:
 
 ```rust
 use alva_types::Message;
@@ -530,7 +530,7 @@ pub trait SessionStorage: Send + Sync {
 
 - [ ] **Step 3: Update MemoryStorage**
 
-Replace `crates/srow-core/src/adapters/storage/memory.rs` with:
+Replace `crates/alva-app-core/src/adapters/storage/memory.rs` with:
 
 ```rust
 use alva_types::Message;
@@ -624,7 +624,7 @@ impl SessionStorage for MemoryStorage {
 
 - [ ] **Step 4: Update SqliteStorage**
 
-In `crates/srow-core/src/agent/persistence/sqlite.rs`:
+In `crates/alva-app-core/src/agent/persistence/sqlite.rs`:
 
 Replace imports:
 ```rust
@@ -739,7 +739,7 @@ async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, EngineErr
 
 - [ ] **Step 5: Clean up domain/message.rs**
 
-Replace `crates/srow-core/src/domain/message.rs` with a re-export shim that avoids breaking downstream code during gradual migration:
+Replace `crates/alva-app-core/src/domain/message.rs` with a re-export shim that avoids breaking downstream code during gradual migration:
 
 ```rust
 // Migrated to alva_types::Message.
@@ -758,7 +758,7 @@ pub enum ImageSource {
 
 - [ ] **Step 6: Clean up types/llm.rs**
 
-Replace `crates/srow-core/src/types/llm.rs` with:
+Replace `crates/alva-app-core/src/types/llm.rs` with:
 
 ```rust
 //! LLM-related types — re-exported from alva-types and domain
@@ -768,7 +768,7 @@ pub use crate::domain::tool::{ToolCall, ToolDefinition, ToolResult};
 
 - [ ] **Step 7: Update lib.rs re-exports**
 
-In `crates/srow-core/src/lib.rs`, the line:
+In `crates/alva-app-core/src/lib.rs`, the line:
 ```rust
 pub use domain::agent::{AgentConfig, LLMConfig, LLMProviderKind};
 ```
@@ -778,7 +778,7 @@ No LLMMessage was re-exported from lib.rs, so no change needed there.
 
 - [ ] **Step 8: Update SQLite tests**
 
-Replace the test functions in `crates/srow-core/src/agent/persistence/sqlite.rs` `mod tests`:
+Replace the test functions in `crates/alva-app-core/src/agent/persistence/sqlite.rs` `mod tests`:
 
 ```rust
 #[cfg(test)]
@@ -878,9 +878,9 @@ mod tests {
 }
 ```
 
-- [ ] **Step 9: Run all srow-core storage tests**
+- [ ] **Step 9: Run all alva-app-core storage tests**
 
-Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p srow-core -- storage sqlite`
+Run: `cd /Users/smallraw/Development/QuincyWork/srow-agent && cargo test -p alva-app-core -- storage sqlite`
 
 Expected: All tests pass.
 
@@ -893,8 +893,8 @@ Fix any remaining compilation errors from callers of the old `LLMMessage` type.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add crates/alva-types/src/content.rs crates/srow-core/src/ports/storage.rs crates/srow-core/src/adapters/storage/memory.rs crates/srow-core/src/agent/persistence/sqlite.rs crates/srow-core/src/domain/message.rs crates/srow-core/src/types/llm.rs
-git commit -m "refactor(srow-core): migrate SessionStorage from LLMMessage to alva_types::Message
+git add crates/alva-types/src/content.rs crates/alva-app-core/src/ports/storage.rs crates/alva-app-core/src/adapters/storage/memory.rs crates/alva-app-core/src/agent/persistence/sqlite.rs crates/alva-app-core/src/domain/message.rs crates/alva-app-core/src/types/llm.rs
+git commit -m "refactor(alva-app-core): migrate SessionStorage from LLMMessage to alva_types::Message
 
 Unifies the message type across the stack. The storage layer now uses
 alva_types::Message directly, eliminating the dual LLMMessage/Message

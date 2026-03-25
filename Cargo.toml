@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "crates/srow-app",
-    "crates/srow-core",
-    "crates/srow-debug",
+    "crates/alva-app",
+    "crates/alva-app-core",
+    "crates/alva-app-debug",
     "crates/alva-types",
     "crates/alva-agent-core",
     "crates/alva-agent-graph",
@@ -17,7 +17,7 @@ members = [
     "crates/alva-engine-adapter-claude",
     "crates/alva-engine-adapter-alva",
     "crates/alva-test",
-    "crates/srow-devtools-mcp",
+    "crates/alva-app-devtools-mcp",
 ]
 resolver = "2"
 

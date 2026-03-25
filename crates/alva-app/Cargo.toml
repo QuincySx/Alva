@@ -1,0 +1,54 @@
+[package]
+name = "alva-app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "alva-agent"
+path = "src/main.rs"
+
+[lib]
+name = "alva_app"
+path = "src/lib.rs"
+
+[dependencies]
+# UI framework (official Zed GPUI)
+gpui = "0.2"
+
+# UI component library (shadcn/ui style components for GPUI)
+gpui-component = "0.5"
+
+# Core crate (unified engine + skills + MCP)
+alva-app-core = { path = "../alva-app-core" }
+
+# Debug server (tracing capture, GPUI inspector)
+alva-app-debug = { path = "../alva-app-debug" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ID / time
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Async runtime (needed for engine bridge)
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+futures = "0.3"
+async-trait = "0.1"
+
+# Cross-platform dirs
+dirs = "5"
+
+# Markdown rendering
+pulldown-cmark = "0.12"
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "html", "regex-onig"] }
+once_cell = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

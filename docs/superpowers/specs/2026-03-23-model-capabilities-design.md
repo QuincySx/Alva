@@ -26,11 +26,11 @@ alva-types/                    ← Tier 1: trait 定义（能力语义）
   RerankingModel                ← 新增
   ModerationModel               ← 新增
 
-srow-core/ports/provider/       ← Tier 4: Provider 工厂
+alva-app-core/ports/provider/       ← Tier 4: Provider 工厂
   Provider trait                ← 扩展：7 个可选能力方法
   ProviderRegistry              ← 已有，加 7 个 shorthand 方法
 
-srow-core/adapters/             ← Tier 4: 具体实现
+alva-app-core/adapters/             ← Tier 4: 具体实现
   (后续实现 OpenAI-compat 等 adapter)
 ```
 
@@ -325,7 +325,7 @@ pub use moderation::{ModerationModel, ModerationResult, ModerationEntry, Moderat
 ## Provider trait 扩展
 
 ```rust
-// srow-core/src/ports/provider/provider_registry.rs
+// alva-app-core/src/ports/provider/provider_registry.rs
 
 use std::sync::Arc;
 use alva_types::{
@@ -384,13 +384,13 @@ ProviderRegistry 同步扩展 7 个 shorthand 方法（`embedding_model(provider
 
 | 文件 | 原因 |
 |------|------|
-| `srow-core/ports/provider/embedding_model.rs` | 被 `alva_types::EmbeddingModel` 替代 |
-| `srow-core/ports/provider/transcription_model.rs` | 被 `alva_types::TranscriptionModel` 替代 |
-| `srow-core/ports/provider/speech_model.rs` | 被 `alva_types::SpeechModel` 替代 |
-| `srow-core/ports/provider/image_model.rs` | 被 `alva_types::ImageModel` 替代 |
-| `srow-core/ports/provider/video_model.rs` | 被 `alva_types::VideoModel` 替代 |
-| `srow-core/ports/provider/reranking_model.rs` | 被 `alva_types::RerankingModel` 替代 |
-| `srow-core/ports/provider/middleware.rs` | 空占位，暂无实现 |
+| `alva-app-core/ports/provider/embedding_model.rs` | 被 `alva_types::EmbeddingModel` 替代 |
+| `alva-app-core/ports/provider/transcription_model.rs` | 被 `alva_types::TranscriptionModel` 替代 |
+| `alva-app-core/ports/provider/speech_model.rs` | 被 `alva_types::SpeechModel` 替代 |
+| `alva-app-core/ports/provider/image_model.rs` | 被 `alva_types::ImageModel` 替代 |
+| `alva-app-core/ports/provider/video_model.rs` | 被 `alva_types::VideoModel` 替代 |
+| `alva-app-core/ports/provider/reranking_model.rs` | 被 `alva_types::RerankingModel` 替代 |
+| `alva-app-core/ports/provider/middleware.rs` | 空占位，暂无实现 |
 
 ### 精简 types.rs
 
@@ -406,7 +406,7 @@ ProviderRegistry 同步扩展 7 个 shorthand 方法（`embedding_model(provider
 
 - 更新 `alva-types/src/AGENTS.md` 的业务域清单，加入 6 个新模块
 - `alva-types` 的 `Cargo.toml` 无需新增依赖（`async-trait`、`serde` 已有）
-- `srow-core` 的 `lib.rs` re-export 中无旧 V4 模型类型引用，删除不会影响外部
+- `alva-app-core` 的 `lib.rs` re-export 中无旧 V4 模型类型引用，删除不会影响外部
 
 ## 不在范围内
 

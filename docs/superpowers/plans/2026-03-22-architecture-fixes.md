@@ -4,7 +4,7 @@
 
 **Goal:** Fix all architecture issues identified in the review: hardcoded paths (P0), type design problems (P1), hook system limitations (P2), and engine functionality gaps (P3).
 
-**Architecture:** Bottom-up approach — fix foundation types first (alva-types), then engine (alva-core), then graph layer (alva-graph), then protocol crates. Each task produces a compiling workspace. Breaking API changes are batched to minimize churn for consumers (srow-app, srow-core).
+**Architecture:** Bottom-up approach — fix foundation types first (alva-types), then engine (alva-core), then graph layer (alva-graph), then protocol crates. Each task produces a compiling workspace. Breaking API changes are batched to minimize churn for consumers (alva-app, alva-app-core).
 
 **Tech Stack:** Rust, async-trait, tokio, serde, futures-core
 
@@ -40,16 +40,16 @@
 - Modify: `crates/alva-acp/src/delegate.rs` — adapt to new ExternalAgentKind
 - Modify: `crates/alva-acp/src/lib.rs` — update exports
 
-### srow-core duplicate code (must update in lockstep with protocol crates)
-- Modify: `crates/srow-core/src/mcp/config.rs` — has same hardcoded `~/.srow` path as alva-mcp
-- Modify: `crates/srow-core/src/agent/agent_client/connection/discovery.rs` — duplicate ExternalAgentKind + AgentDiscovery + builtin_packages_dir
-- Modify: `crates/srow-core/src/agent/agent_client/delegate.rs` — duplicate agent_kind() match
-- Modify: `crates/srow-core/src/agent/agent_client/connection/factory.rs` — calls AgentDiscovery::discover() statically
-- Modify: `crates/srow-core/src/agent/agent_client/mod.rs` — re-exports ExternalAgentKind
-- Modify: `crates/srow-core/tests/acp_integration.rs` — uses ExternalAgentKind::Generic
+### alva-app-core duplicate code (must update in lockstep with protocol crates)
+- Modify: `crates/alva-app-core/src/mcp/config.rs` — has same hardcoded `~/.srow` path as alva-mcp
+- Modify: `crates/alva-app-core/src/agent/agent_client/connection/discovery.rs` — duplicate ExternalAgentKind + AgentDiscovery + builtin_packages_dir
+- Modify: `crates/alva-app-core/src/agent/agent_client/delegate.rs` — duplicate agent_kind() match
+- Modify: `crates/alva-app-core/src/agent/agent_client/connection/factory.rs` — calls AgentDiscovery::discover() statically
+- Modify: `crates/alva-app-core/src/agent/agent_client/mod.rs` — re-exports ExternalAgentKind
+- Modify: `crates/alva-app-core/tests/acp_integration.rs` — uses ExternalAgentKind::Generic
 
 ### Consumer changes
-- Modify: `crates/srow-app/src/chat/gpui_chat.rs` — adapt to new APIs
+- Modify: `crates/alva-app/src/chat/gpui_chat.rs` — adapt to new APIs
 
 ---
 
@@ -57,9 +57,9 @@
 
 **Files:**
 - Modify: `crates/alva-mcp/src/config.rs`
-- Modify: `crates/srow-core/src/mcp/config.rs` (duplicate with same hardcoded path)
+- Modify: `crates/alva-app-core/src/mcp/config.rs` (duplicate with same hardcoded path)
 
-**Note:** srow-core has its own `McpConfig` struct at `crates/srow-core/src/mcp/config.rs` with the same `default_path()`, `load_default()`, `save_default()` hardcoding `~/.srow/`. Both must be fixed.
+**Note:** alva-app-core has its own `McpConfig` struct at `crates/alva-app-core/src/mcp/config.rs` with the same `default_path()`, `load_default()`, `save_default()` hardcoding `~/.srow/`. Both must be fixed.
 
 - [ ] **Step 1: Remove `default_path()` and `load_default()`/`save_default()` from alva-mcp**
 
@@ -72,10 +72,10 @@
 // The existing load(path) and save(path) methods stay as-is.
 ```
 
-- [ ] **Step 2: Remove same methods from srow-core's McpConfig**
+- [ ] **Step 2: Remove same methods from alva-app-core's McpConfig**
 
 ```rust
-// REMOVE from crates/srow-core/src/mcp/config.rs:
+// REMOVE from crates/alva-app-core/src/mcp/config.rs:
 // - pub fn default_path() -> PathBuf
 // - pub async fn load_default()
 // - pub async fn save_default(&self)
@@ -85,14 +85,14 @@
 - [ ] **Step 3: Find and fix all callers**
 
 Run: `grep -rn "load_default\|save_default\|default_path" crates/`
-All callers must pass an explicit path. The app-specific default path (`~/.srow/mcpServerConfig.json`) should be defined in srow-app or srow-core as a constant, not in the generic protocol crate.
+All callers must pass an explicit path. The app-specific default path (`~/.srow/mcpServerConfig.json`) should be defined in alva-app or alva-app-core as a constant, not in the generic protocol crate.
 
 - [ ] **Step 4: Run `cargo check` to verify full workspace compiles**
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/alva-mcp/src/config.rs crates/srow-core/src/mcp/config.rs
+git add crates/alva-mcp/src/config.rs crates/alva-app-core/src/mcp/config.rs
 git commit -m "fix: remove hardcoded ~/.srow path from MCP config — callers supply path"
 ```
 
@@ -258,18 +258,18 @@ pub async fn spawn(
 }
 ```
 
-- [ ] **Step 7: Delete srow-core's duplicate discovery code and re-export from alva-acp**
+- [ ] **Step 7: Delete alva-app-core's duplicate discovery code and re-export from alva-acp**
 
-**Critical:** srow-core has a COMPLETE DUPLICATE of `ExternalAgentKind`, `AgentDiscovery`, `AgentCliCommand`, `builtin_packages_dir()` at `crates/srow-core/src/agent/agent_client/connection/discovery.rs`. This must be deleted and replaced with re-exports from `alva-acp`.
+**Critical:** alva-app-core has a COMPLETE DUPLICATE of `ExternalAgentKind`, `AgentDiscovery`, `AgentCliCommand`, `builtin_packages_dir()` at `crates/alva-app-core/src/agent/agent_client/connection/discovery.rs`. This must be deleted and replaced with re-exports from `alva-acp`.
 
 Files to update:
-- `crates/srow-core/src/agent/agent_client/connection/discovery.rs` — delete all discovery logic, replace with re-exports + well-known agent constants
-- `crates/srow-core/src/agent/agent_client/delegate.rs:66-76` — update `agent_kind()` match to use new enum
-- `crates/srow-core/src/agent/agent_client/connection/factory.rs:69` — update `AgentDiscovery::discover(&kind)?` to use instance method
-- `crates/srow-core/src/agent/agent_client/mod.rs` — update re-exports
-- `crates/srow-core/tests/acp_integration.rs:47` — update `ExternalAgentKind::Generic` usage
+- `crates/alva-app-core/src/agent/agent_client/connection/discovery.rs` — delete all discovery logic, replace with re-exports + well-known agent constants
+- `crates/alva-app-core/src/agent/agent_client/delegate.rs:66-76` — update `agent_kind()` match to use new enum
+- `crates/alva-app-core/src/agent/agent_client/connection/factory.rs:69` — update `AgentDiscovery::discover(&kind)?` to use instance method
+- `crates/alva-app-core/src/agent/agent_client/mod.rs` — update re-exports
+- `crates/alva-app-core/tests/acp_integration.rs:47` — update `ExternalAgentKind::Generic` usage
 
-Replace `crates/srow-core/src/agent/agent_client/connection/discovery.rs` with:
+Replace `crates/alva-app-core/src/agent/agent_client/connection/discovery.rs` with:
 
 ```rust
 // Re-export alva-acp types
@@ -309,7 +309,7 @@ pub fn gemini_cli() -> ExternalAgentKind {
 }
 ```
 
-Update `crates/srow-core/src/agent/agent_client/connection/factory.rs:69`:
+Update `crates/alva-app-core/src/agent/agent_client/connection/factory.rs:69`:
 ```rust
 // BEFORE:
 let cmd = super::discovery::AgentDiscovery::discover(&kind)?;
@@ -318,7 +318,7 @@ let cmd = super::discovery::AgentDiscovery::discover(&kind)?;
 let cmd = discovery.discover(&kind)?;
 ```
 
-Update `crates/srow-core/src/agent/agent_client/delegate.rs:66-76`:
+Update `crates/alva-app-core/src/agent/agent_client/delegate.rs:66-76`:
 ```rust
 // BEFORE: match on ClaudeCode/QwenCode/CodexCli/GeminiCli
 // AFTER:
@@ -330,7 +330,7 @@ fn agent_kind(&self) -> &str {
 }
 ```
 
-Update `crates/srow-core/tests/acp_integration.rs:47`:
+Update `crates/alva-app-core/tests/acp_integration.rs:47`:
 ```rust
 // BEFORE: ExternalAgentKind::Generic { command: "echo".into() }
 // AFTER: same (Generic variant unchanged)
@@ -341,7 +341,7 @@ Update `crates/srow-core/tests/acp_integration.rs:47`:
 - [ ] **Step 9: Commit**
 
 ```bash
-git add crates/alva-acp/ crates/srow-core/
+git add crates/alva-acp/ crates/alva-app-core/
 git commit -m "fix(alva-acp): remove hardcoded paths and product-specific agent kinds"
 ```
 
@@ -352,7 +352,7 @@ git commit -m "fix(alva-acp): remove hardcoded paths and product-specific agent 
 **Files:**
 - Modify: `crates/alva-types/src/message.rs`
 - Modify: `crates/alva-core/src/agent_loop.rs`
-- Modify: `crates/srow-app/src/chat/gpui_chat.rs`
+- Modify: `crates/alva-app/src/chat/gpui_chat.rs`
 
 - [ ] **Step 1: Replace `tool_calls: Vec<ToolCallData>` with a computed accessor**
 
@@ -437,7 +437,7 @@ Run: `cargo test -p alva-types -p alva-core`
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/alva-types/ crates/alva-core/ crates/srow-app/
+git add crates/alva-types/ crates/alva-core/ crates/alva-app/
 git commit -m "refactor(alva-types): unify tool call representation — ContentBlock::ToolUse is canonical"
 ```
 
@@ -744,7 +744,7 @@ git commit -m "feat(alva-graph): implement BSP parallel superstep execution in P
 - Modify: `crates/alva-core/src/agent_loop.rs`
 - Modify: `crates/alva-core/src/tool_executor.rs`
 - Modify: `crates/alva-core/Cargo.toml`
-- Modify: `crates/srow-app/src/chat/gpui_chat.rs`
+- Modify: `crates/alva-app/src/chat/gpui_chat.rs`
 
 - [ ] **Step 1: Redefine hook types as async + Vec in types.rs**
 
@@ -897,7 +897,7 @@ cfg.get_steering_messages.push(Arc::new(move |_ctx| {
 }));
 ```
 
-- [ ] **Step 8: Update srow-app/gpui_chat.rs — adapt convert_to_llm signature**
+- [ ] **Step 8: Update alva-app/gpui_chat.rs — adapt convert_to_llm signature**
 
 ```rust
 // BEFORE (line 119):
@@ -953,7 +953,7 @@ Both test functions at `agent_loop.rs:295` and `agent_loop.rs:340` use `Arc::new
 - [ ] **Step 10: Commit**
 
 ```bash
-git add crates/alva-core/ crates/srow-app/
+git add crates/alva-core/ crates/alva-app/
 git commit -m "refactor(alva-core): make hooks composable (Vec) and async-capable"
 ```
 
@@ -1252,10 +1252,10 @@ The event already has `tool_call: ToolCall` which contains the id. No change nee
 
 - [ ] **Step 6: Fix all `alva_types::ToolResult` constructions across the workspace**
 
-Run: `grep -rn "ToolResult {" crates/` — but note: `srow-core` has its OWN `ToolResult` struct at `crates/srow-core/src/domain/tool.rs` with different fields (`tool_name`, `output`, `duration_ms`). Only update `alva_types::ToolResult` usages:
+Run: `grep -rn "ToolResult {" crates/` — but note: `alva-app-core` has its OWN `ToolResult` struct at `crates/alva-app-core/src/domain/tool.rs` with different fields (`tool_name`, `output`, `duration_ms`). Only update `alva_types::ToolResult` usages:
 - `crates/alva-core/src/tool_executor.rs` — 7 constructions
 - `crates/alva-mcp/src/tool_adapter.rs` — 1 construction
-Do NOT touch `srow-core`'s separate `ToolResult` type.
+Do NOT touch `alva-app-core`'s separate `ToolResult` type.
 
 - [ ] **Step 7: Run `cargo check` then `cargo test`**
 
@@ -1274,8 +1274,8 @@ Tasks should be executed in this order to minimize rework:
 
 1. **Task 8** (P3 — ToolResult.tool_call_id) — smallest, least dependencies
 2. **Task 3** (P1 — Unify ToolCall) — changes Message struct, affects everything
-3. **Task 1** (P0 — MCP config path) — isolated to alva-mcp + srow-core/mcp
-4. **Task 2** (P0 — ACP paths + srow-core dedup) — alva-acp + srow-core duplicate cleanup
+3. **Task 1** (P0 — MCP config path) — isolated to alva-mcp + alva-app-core/mcp
+4. **Task 2** (P0 — ACP paths + alva-app-core dedup) — alva-acp + alva-app-core duplicate cleanup
 5. **Task 6** (P2 — Async composable hooks) — major API change to alva-core
 6. **Task 7** (P3 — Streaming) — builds on new hook API
 7. **Task 4** (P1 — Generic StateGraph) — isolated to alva-graph
@@ -1283,6 +1283,6 @@ Tasks should be executed in this order to minimize rework:
 
 Tasks 1+2 can run in parallel (independent protocol crates). Tasks 4+5 can run after 1-3 are done. Task 7 depends on Task 6.
 
-**Note:** Task 2 includes cleaning up srow-core's duplicate ExternalAgentKind/AgentDiscovery code. This is the most impactful P0 change — ensure srow-core re-exports from alva-acp rather than maintaining parallel copies.
+**Note:** Task 2 includes cleaning up alva-app-core's duplicate ExternalAgentKind/AgentDiscovery code. This is the most impactful P0 change — ensure alva-app-core re-exports from alva-acp rather than maintaining parallel copies.
 
 Tasks 1+2 can run in parallel. Tasks 4+5 can run after 1-3 are done. Task 7 depends on Task 6.

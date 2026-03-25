@@ -10,35 +10,35 @@
 ```
 AI SDK                          Rust crate
 ─────────────────────────────────────────────
-@ai-sdk/provider         →     srow-core::ports       (已有)
-@ai-sdk/provider-utils   →     srow-core 新增模块      (JSON/schema 工具)
+@ai-sdk/provider         →     alva-app-core::ports       (已有)
+@ai-sdk/provider-utils   →     alva-app-core 新增模块      (JSON/schema 工具)
 ai (core)                →     srow-ai                 (新 crate)
-@ai-sdk/react            →     srow-app                (改造)
+@ai-sdk/react            →     alva-app                (改造)
 ```
 
 ```toml
 # Cargo.toml (workspace)
 [workspace]
 members = [
-    "src/srow-app",
-    "src/srow-core",
+    "src/alva-app",
+    "src/alva-app-core",
     "src/srow-ai",
 ]
 ```
 
-依赖方向：`srow-app → srow-ai → srow-core`
+依赖方向：`alva-app → srow-ai → alva-app-core`
 
 > **命名说明**：新 crate 命名为 `srow-ai` 而非 `srow-ui`，因为该 crate 包含的是框架无关的
 > AI 交互业务逻辑（Chat/Transport/Stream），不包含任何 UI 代码。
 
 ---
 
-## 2. srow-core 改造：数据模型 + 流协议
+## 2. alva-app-core 改造：数据模型 + 流协议
 
 ### 2.1 新增模块结构
 
 ```
-src/srow-core/src/
+src/alva-app-core/src/
 ├── ui_message/
 │   ├── mod.rs              # UIMessage, UIMessagePart, UIMessageRole, re-exports
 │   ├── parts.rs            # 所有 Part 变体和状态枚举
@@ -861,18 +861,18 @@ impl<T: DeserializeOwned> ObjectGeneration<T> {
 
 ---
 
-## 4. srow-app 改造：GPUI 绑定层
+## 4. alva-app 改造：GPUI 绑定层
 
 ### 4.1 删除的文件
 
-- `src/srow-app/src/types/message.rs` — `Message`, `MessageContent`, `MessageRole`
-- `src/srow-app/src/models/chat_model.rs` — `ChatModel`, `ChatModelEvent`
-- `src/srow-app/src/engine_bridge/` — 整个模块
+- `src/alva-app/src/types/message.rs` — `Message`, `MessageContent`, `MessageRole`
+- `src/alva-app/src/models/chat_model.rs` — `ChatModel`, `ChatModelEvent`
+- `src/alva-app/src/engine_bridge/` — 整个模块
 
 ### 4.2 新增模块
 
 ```
-src/srow-app/src/
+src/alva-app/src/
 ├── chat/                           # 新增
 │   ├── mod.rs
 │   ├── gpui_chat.rs                # GpuiChat — GPUI Entity 包装
@@ -1239,7 +1239,7 @@ pub struct AgentEngine {
 ## 7. 错误处理
 
 ```rust
-// srow-core
+// alva-app-core
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ChatError {
@@ -1286,27 +1286,27 @@ pub enum StreamError {
 ## 8. 与现有模块的关系
 
 ### 保留不变
-- `srow-core::domain::message::LLMMessage` — LLM API 通信用
-- `srow-core::ports::*` — LLMProvider, Tool, SessionStorage trait
-- `srow-core::adapters::*` — OpenAICompatProvider, MemoryStorage
-- `srow-core::agent::runtime::tools::*` — 所有工具实现
-- `srow-core::agent::runtime::security::*` — 安全层
-- `srow-core::mcp::*` — MCP 协议层
-- `srow-core::skills::*` — 技能系统
-- `srow-core::environment::*` — 环境管理
+- `alva-app-core::domain::message::LLMMessage` — LLM API 通信用
+- `alva-app-core::ports::*` — LLMProvider, Tool, SessionStorage trait
+- `alva-app-core::adapters::*` — OpenAICompatProvider, MemoryStorage
+- `alva-app-core::agent::runtime::tools::*` — 所有工具实现
+- `alva-app-core::agent::runtime::security::*` — 安全层
+- `alva-app-core::mcp::*` — MCP 协议层
+- `alva-app-core::skills::*` — 技能系统
+- `alva-app-core::environment::*` — 环境管理
 
 ### 改造
-- `srow-core::agent::runtime::engine::engine` — `EngineEvent` → `UIMessageChunk`，集成 SecurityGuard
-- `srow-app::models::chat_model` — 重写
-- `srow-app::engine_bridge` — 删除
-- `srow-app::types::message` — 删除
-- `srow-app::views::chat_panel::*` — 基于新模型改造
+- `alva-app-core::agent::runtime::engine::engine` — `EngineEvent` → `UIMessageChunk`，集成 SecurityGuard
+- `alva-app::models::chat_model` — 重写
+- `alva-app::engine_bridge` — 删除
+- `alva-app::types::message` — 删除
+- `alva-app::views::chat_panel::*` — 基于新模型改造
 
 ### 新增
-- `srow-core::ui_message` — 数据模型
-- `srow-core::ui_message_stream` — 流协议 + 处理逻辑
+- `alva-app-core::ui_message` — 数据模型
+- `alva-app-core::ui_message_stream` — 流协议 + 处理逻辑
 - `srow-ai` — 整个新 crate
-- `srow-app::chat` — GPUI Chat 绑定
+- `alva-app::chat` — GPUI Chat 绑定
 
 ---
 
@@ -1321,7 +1321,7 @@ edition = "2021"
 description = "Srow AI interaction layer — chat, transport, completion, object generation"
 
 [dependencies]
-srow-core = { path = "../srow-core" }
+alva-app-core = { path = "../alva-app-core" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt"] }
 futures = "0.3"
@@ -1335,7 +1335,7 @@ tracing = "0.1"
 tokio-stream = "0.1"
 ```
 
-### srow-core 新增依赖
+### alva-app-core 新增依赖
 无新增（已有 serde, serde_json, tokio, futures, bytes）。
 
 ---
@@ -1344,11 +1344,11 @@ tokio-stream = "0.1"
 
 | 层 | 测试类型 | 关注点 |
 |---|---|---|
-| `srow-core::ui_message` | 单元测试 | serde round-trip, UIMessage ↔ LLMMessage 转换（含 Tool parts → Role::Tool） |
-| `srow-core::ui_message_stream` | 单元测试 | process_ui_message_stream 对各种 chunk 序列的状态构建 |
-| `srow-core::ui_message_stream::sse` | 单元测试 | SSE 文本解析为 UIMessageChunk |
+| `alva-app-core::ui_message` | 单元测试 | serde round-trip, UIMessage ↔ LLMMessage 转换（含 Tool parts → Role::Tool） |
+| `alva-app-core::ui_message_stream` | 单元测试 | process_ui_message_stream 对各种 chunk 序列的状态构建 |
+| `alva-app-core::ui_message_stream::sse` | 单元测试 | SSE 文本解析为 UIMessageChunk |
 | `srow-ai::chat` | 集成测试 | AbstractChat + MockTransport 的完整交互（发送、流式、工具、审批） |
 | `srow-ai::transport::direct` | 集成测试 | DirectTransport + 真实 AgentEngine 端到端 |
 | `srow-ai::transport::http_sse` | 集成测试 | HttpSseTransport + mock HTTP server |
 | `srow-ai::util` | 单元测试 | SerialJobExecutor 串行保证, AbortHandle 取消语义 |
-| `srow-app` | 手动测试 | GPUI 渲染 + 交互 |
+| `alva-app` | 手动测试 | GPUI 渲染 + 交互 |

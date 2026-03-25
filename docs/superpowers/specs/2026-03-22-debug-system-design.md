@@ -1,8 +1,8 @@
-# srow-debug: AI-Friendly Debug & Logging System
+# alva-app-debug: AI-Friendly Debug & Logging System
 
 ## Overview
 
-A standalone, reusable Rust crate (`srow-debug`) providing a local HTTP debug server with structured logging and UI view tree inspection. Designed for AI-driven dynamic debugging — all outputs are structured JSON, easy to query and parse programmatically.
+A standalone, reusable Rust crate (`alva-app-debug`) providing a local HTTP debug server with structured logging and UI view tree inspection. Designed for AI-driven dynamic debugging — all outputs are structured JSON, easy to query and parse programmatically.
 
 The crate is framework-agnostic at its core, with optional GPUI integration via feature flag.
 
@@ -24,7 +24,7 @@ The crate is framework-agnostic at its core, with optional GPUI integration via 
 ### Crate Structure
 
 ```
-crates/srow-debug/
+crates/alva-app-debug/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs          // DebugServer builder + public API
@@ -52,7 +52,7 @@ crates/srow-debug/
 
 ```toml
 [package]
-name = "srow-debug"
+name = "alva-app-debug"
 version = "0.1.0"
 edition = "2021"
 
@@ -77,7 +77,7 @@ optional = true
 
 ### Workspace Integration
 
-The workspace `Cargo.toml` must add `"crates/srow-debug"` to the `members` list. The consuming crate (`srow-app`) adds `srow-debug` as a dependency with `features = ["gpui"]`.
+The workspace `Cargo.toml` must add `"crates/alva-app-debug"` to the `members` list. The consuming crate (`alva-app`) adds `alva-app-debug` as a dependency with `features = ["gpui"]`.
 
 ## HTTP API
 
@@ -110,7 +110,7 @@ All error responses use a consistent schema with appropriate HTTP status codes:
 
 Query parameters:
 - `level` — minimum level filter (`trace`, `debug`, `info`, `warn`, `error`)
-- `module` — module path prefix match (e.g. `srow_core::agent`)
+- `module` — module path prefix match (e.g. `alva_app_core::agent`)
 - `since` — unix timestamp in milliseconds, only return logs after this time
 - `cursor` — sequence ID from previous query, for reliable pagination (monotonic, gap-free)
 - `keyword` — substring match in message text (linear scan, performant at 10k buffer size)
@@ -125,7 +125,7 @@ Response:
       "seq": 10042,
       "timestamp": 1711100001234,
       "level": "WARN",
-      "target": "srow_core::mcp::runtime",
+      "target": "alva_app_core::mcp::runtime",
       "message": "MCP server auto-connect failed",
       "fields": {"server": "filesystem"},
       "span_stack": ["agent_session", "mcp_init"]
@@ -140,12 +140,12 @@ The `seq` field is a monotonically increasing sequence ID (in-memory only, reset
 
 Request body:
 ```json
-{"filter": "srow_core::agent=trace,srow_ai=debug"}
+{"filter": "alva_app_core::agent=trace,srow_ai=debug"}
 ```
 
 Response:
 ```json
-{"ok": true, "filter": "srow_core::agent=trace,srow_ai=debug"}
+{"ok": true, "filter": "alva_app_core::agent=trace,srow_ai=debug"}
 ```
 
 ### GET /api/logs/level
@@ -192,7 +192,7 @@ struct LogRecord {
     seq: u64,                                // monotonic sequence ID
     timestamp: i64,                          // unix millis
     level: Level,                            // TRACE/DEBUG/INFO/WARN/ERROR
-    target: String,                          // module path, e.g. "srow_core::agent::engine"
+    target: String,                          // module path, e.g. "alva_app_core::agent::engine"
     message: String,                         // formatted message
     fields: HashMap<String, serde_json::Value>,  // structured fields
     span_stack: Vec<String>,                 // current span chain
@@ -237,7 +237,7 @@ Ring buffer with fixed capacity (default: 10,000 records). Overflow overwrites o
 
 ### Migration: Existing tracing Setup
 
-**Important**: The current codebase uses `tracing_subscriber::fmt().init()` in both `srow-app/src/main.rs` and `srow-core/src/bin/cli.rs`. This is **incompatible** with the layered approach — `init()` can only be called once per process.
+**Important**: The current codebase uses `tracing_subscriber::fmt().init()` in both `alva-app/src/main.rs` and `alva-app-core/src/bin/cli.rs`. This is **incompatible** with the layered approach — `init()` can only be called once per process.
 
 Migration required:
 
@@ -248,7 +248,7 @@ tracing_subscriber::fmt()
         .unwrap_or_else(|_| EnvFilter::new("info")))
     .init();
 
-// AFTER (with srow-debug):
+// AFTER (with alva-app-debug):
 use tracing_subscriber::prelude::*;
 
 let fmt_layer = tracing_subscriber::fmt::layer()
@@ -257,7 +257,7 @@ let fmt_layer = tracing_subscriber::fmt::layer()
 
 #[cfg(debug_assertions)]
 {
-    let (log_layer, log_handle) = srow_debug::LogCaptureLayer::new(10_000);
+    let (log_layer, log_handle) = alva_app_debug::LogCaptureLayer::new(10_000);
     tracing_subscriber::registry()
         .with(log_layer)
         .with(fmt_layer)
@@ -308,11 +308,11 @@ trait Inspectable: Send + Sync {
 ```rust
 /// Opt-in trait for views to expose custom debug properties.
 /// Guarded by #[cfg(debug_assertions)] — in release builds,
-/// srow-debug is not compiled, so this trait does not exist.
+/// alva-app-debug is not compiled, so this trait does not exist.
 ///
 /// Usage in application views:
 ///   #[cfg(debug_assertions)]
-///   impl srow_debug::DebugInspect for ChatPanel {
+///   impl alva_app_debug::DebugInspect for ChatPanel {
 ///       fn debug_properties(&self) -> HashMap<String, serde_json::Value> { ... }
 ///   }
 #[cfg(debug_assertions)]
@@ -323,7 +323,7 @@ trait DebugInspect {
 }
 ```
 
-Application views annotate their `impl DebugInspect` blocks with `#[cfg(debug_assertions)]` so that release builds compile cleanly without the srow-debug dependency.
+Application views annotate their `impl DebugInspect` blocks with `#[cfg(debug_assertions)]` so that release builds compile cleanly without the alva-app-debug dependency.
 
 ### GPUI Implementation (feature = "gpui")
 
@@ -438,7 +438,7 @@ The `DebugServerHandle` is stored in the application (e.g., as a GPUI global or 
 ### Full Initialization Example
 
 ```rust
-// In srow-app/src/main.rs:
+// In alva-app/src/main.rs:
 use tracing_subscriber::prelude::*;
 
 let fmt_layer = tracing_subscriber::fmt::layer()
@@ -447,7 +447,7 @@ let fmt_layer = tracing_subscriber::fmt::layer()
 
 #[cfg(debug_assertions)]
 let _debug_handle = {
-    let (log_layer, log_handle) = srow_debug::LogCaptureLayer::new(10_000);
+    let (log_layer, log_handle) = alva_app_debug::LogCaptureLayer::new(10_000);
 
     tracing_subscriber::registry()
         .with(log_layer)
@@ -459,9 +459,9 @@ let _debug_handle = {
         .and_then(|s| s.parse().ok())
         .unwrap_or(9229);
 
-    let inspector = srow_debug::gpui::GpuiInspector::new(/* channel setup */);
+    let inspector = alva_app_debug::gpui::GpuiInspector::new(/* channel setup */);
 
-    let server = srow_debug::DebugServer::builder()
+    let server = alva_app_debug::DebugServer::builder()
         .port(port)
         .with_log_handle(log_handle)
         .with_inspector(inspector)
@@ -487,7 +487,7 @@ The debug server is only as useful as the tracing data flowing through it. V1 mu
 
 Each span wraps a logical unit of work. When something fails, the `span_stack` in log records reveals exactly which stage broke.
 
-**Agent engine loop** (`srow-core::agent::runtime::engine`):
+**Agent engine loop** (`alva-app-core::agent::runtime::engine`):
 - `agent_turn` span per iteration — covers prompt → LLM call → tool execution → result
 - `llm_request` span — LLM API call with model name, token counts
 - `tool_execution` span — tool name, input summary, success/failure
@@ -497,11 +497,11 @@ Each span wraps a logical unit of work. When something fails, the `span_stack` i
 - `chat_stream` span — streaming response, with chunk count on completion
 - `chat_error` event — any error during the flow
 
-**MCP/ACP protocol** (`srow-core::mcp`, `srow-core::agent::agent_client`):
+**MCP/ACP protocol** (`alva-app-core::mcp`, `alva-app-core::agent::agent_client`):
 - `mcp_request` span — server name, method, success/failure
 - `acp_message` span — message type, direction (send/receive)
 
-**GPUI event handling** (`srow-app`):
+**GPUI event handling** (`alva-app`):
 - `action_dispatch` span on key user actions (send message, switch session, etc.)
 
 ### Instrumentation guidelines

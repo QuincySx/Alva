@@ -1,10 +1,10 @@
-# srow-debug Implementation Plan
+# alva-app-debug Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a standalone debug crate with local HTTP server, structured log capture, and GPUI view tree inspection for AI-driven debugging.
 
-**Architecture:** `srow-debug` crate with core layer (HTTP server + tracing Layer + ring buffer) and optional GPUI feature. Consumer (`srow-app`) wraps all usage in `#[cfg(debug_assertions)]`. Cross-thread GPUI snapshot via `std::sync::mpsc` channels.
+**Architecture:** `alva-app-debug` crate with core layer (HTTP server + tracing Layer + ring buffer) and optional GPUI feature. Consumer (`alva-app`) wraps all usage in `#[cfg(debug_assertions)]`. Cross-thread GPUI snapshot via `std::sync::mpsc` channels.
 
 **Tech Stack:** `tiny_http` (HTTP), `tracing`/`tracing-subscriber` (logging Layer), `parking_lot` (RwLock), `serde`/`serde_json` (serialization), `gpui` (optional feature).
 
@@ -14,31 +14,31 @@
 
 ## File Structure
 
-### New files (srow-debug crate)
+### New files (alva-app-debug crate)
 
 | File | Responsibility |
 |------|----------------|
-| `crates/srow-debug/Cargo.toml` | Crate config, dependencies, gpui feature flag |
-| `crates/srow-debug/src/lib.rs` | Public API re-exports, module declarations |
-| `crates/srow-debug/src/log_store.rs` | `LogRecord`, `LogQuery`, `LogStore` ring buffer |
-| `crates/srow-debug/src/log_layer.rs` | `LogCaptureLayer` (tracing Layer) + `LogHandle` |
-| `crates/srow-debug/src/inspect.rs` | `InspectNode`, `Bounds`, `Inspectable` trait, `DebugInspect` trait |
-| `crates/srow-debug/src/server.rs` | `tiny_http` server loop, JSON response helpers |
-| `crates/srow-debug/src/router.rs` | Route dispatch, request parsing, endpoint handlers |
-| `crates/srow-debug/src/builder.rs` | `DebugServer`, `DebugServerBuilder`, `DebugServerHandle` |
-| `crates/srow-debug/src/gpui/mod.rs` | `GpuiInspector` — cross-thread channel + `Inspectable` impl |
+| `crates/alva-app-debug/Cargo.toml` | Crate config, dependencies, gpui feature flag |
+| `crates/alva-app-debug/src/lib.rs` | Public API re-exports, module declarations |
+| `crates/alva-app-debug/src/log_store.rs` | `LogRecord`, `LogQuery`, `LogStore` ring buffer |
+| `crates/alva-app-debug/src/log_layer.rs` | `LogCaptureLayer` (tracing Layer) + `LogHandle` |
+| `crates/alva-app-debug/src/inspect.rs` | `InspectNode`, `Bounds`, `Inspectable` trait, `DebugInspect` trait |
+| `crates/alva-app-debug/src/server.rs` | `tiny_http` server loop, JSON response helpers |
+| `crates/alva-app-debug/src/router.rs` | Route dispatch, request parsing, endpoint handlers |
+| `crates/alva-app-debug/src/builder.rs` | `DebugServer`, `DebugServerBuilder`, `DebugServerHandle` |
+| `crates/alva-app-debug/src/gpui/mod.rs` | `GpuiInspector` — cross-thread channel + `Inspectable` impl |
 
 ### Modified files
 
 | File | Change |
 |------|--------|
-| `Cargo.toml` (workspace root) | Add `"crates/srow-debug"` to members |
-| `crates/srow-app/Cargo.toml` | Add `srow-debug` dependency with `features = ["gpui"]` |
-| `crates/srow-app/src/main.rs` | Migrate tracing init, start debug server |
-| `crates/srow-core/src/bin/cli.rs` | Migrate tracing init to layered approach |
-| `crates/srow-core/src/agent/runtime/engine/engine.rs` | Add `#[instrument]` spans to `run()`, `execute_tools()` |
-| `crates/srow-core/src/agent/agent_client/session/client.rs` | Add spans to `handle_inbound()`, `send_prompt()` |
-| `crates/srow-core/src/mcp/runtime.rs` | Add spans to `connect()`, `call_tool()` |
+| `Cargo.toml` (workspace root) | Add `"crates/alva-app-debug"` to members |
+| `crates/alva-app/Cargo.toml` | Add `alva-app-debug` dependency with `features = ["gpui"]` |
+| `crates/alva-app/src/main.rs` | Migrate tracing init, start debug server |
+| `crates/alva-app-core/src/bin/cli.rs` | Migrate tracing init to layered approach |
+| `crates/alva-app-core/src/agent/runtime/engine/engine.rs` | Add `#[instrument]` spans to `run()`, `execute_tools()` |
+| `crates/alva-app-core/src/agent/agent_client/session/client.rs` | Add spans to `handle_inbound()`, `send_prompt()` |
+| `crates/alva-app-core/src/mcp/runtime.rs` | Add spans to `connect()`, `call_tool()` |
 | `crates/srow-ai/src/chat/abstract_chat.rs` | Add spans to `send_message()` |
 
 ---
@@ -46,16 +46,16 @@
 ## Task 1: Crate scaffold + LogRecord + LogStore
 
 **Files:**
-- Create: `crates/srow-debug/Cargo.toml`
-- Create: `crates/srow-debug/src/lib.rs`
-- Create: `crates/srow-debug/src/log_store.rs`
+- Create: `crates/alva-app-debug/Cargo.toml`
+- Create: `crates/alva-app-debug/src/lib.rs`
+- Create: `crates/alva-app-debug/src/log_store.rs`
 - Modify: `Cargo.toml` (workspace root)
 
 - [ ] **Step 1: Create Cargo.toml**
 
 ```toml
 [package]
-name = "srow-debug"
+name = "alva-app-debug"
 version = "0.1.0"
 edition = "2021"
 
@@ -88,7 +88,7 @@ pub use log_store::{LogRecord, LogQuery, LogQueryResponse};
 
 - [ ] **Step 3: Write LogStore tests first**
 
-In `crates/srow-debug/src/log_store.rs`:
+In `crates/alva-app-debug/src/log_store.rs`:
 
 ```rust
 use serde::Serialize;
@@ -290,15 +290,15 @@ mod tests {
     #[test]
     fn filter_by_module_prefix() {
         let mut store = LogStore::new(100);
-        store.push(make_record("INFO", "srow_core::agent::engine", "a", 1000));
+        store.push(make_record("INFO", "alva_app_core::agent::engine", "a", 1000));
         store.push(make_record("INFO", "srow_ai::chat", "b", 2000));
 
         let result = store.query(&LogQuery {
-            module: Some("srow_core".to_string()),
+            module: Some("alva_app_core".to_string()),
             ..Default::default()
         });
         assert_eq!(result.total_matches, 1);
-        assert_eq!(result.records[0].target, "srow_core::agent::engine");
+        assert_eq!(result.records[0].target, "alva_app_core::agent::engine");
     }
 
     #[test]
@@ -350,14 +350,14 @@ mod tests {
     #[test]
     fn combined_filters() {
         let mut store = LogStore::new(100);
-        store.push(make_record("DEBUG", "srow_core::agent", "step 1", 1000));
-        store.push(make_record("WARN", "srow_core::agent", "step 2 failed", 2000));
+        store.push(make_record("DEBUG", "alva_app_core::agent", "step 1", 1000));
+        store.push(make_record("WARN", "alva_app_core::agent", "step 2 failed", 2000));
         store.push(make_record("WARN", "srow_ai::chat", "chat failed", 3000));
-        store.push(make_record("ERROR", "srow_core::mcp", "mcp error", 4000));
+        store.push(make_record("ERROR", "alva_app_core::mcp", "mcp error", 4000));
 
         let result = store.query(&LogQuery {
             level: Some("WARN".to_string()),
-            module: Some("srow_core".to_string()),
+            module: Some("alva_app_core".to_string()),
             keyword: Some("failed".to_string()),
             ..Default::default()
         });
@@ -367,20 +367,20 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Add srow-debug to workspace members**
+- [ ] **Step 4: Add alva-app-debug to workspace members**
 
-In root `Cargo.toml`, add `"crates/srow-debug"` to members list.
+In root `Cargo.toml`, add `"crates/alva-app-debug"` to members list.
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test -p srow-debug`
+Run: `cargo test -p alva-app-debug`
 Expected: All 7 tests pass.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/srow-debug/ Cargo.toml
-git commit -m "feat(srow-debug): add crate scaffold with LogStore ring buffer"
+git add crates/alva-app-debug/ Cargo.toml
+git commit -m "feat(alva-app-debug): add crate scaffold with LogStore ring buffer"
 ```
 
 ---
@@ -388,7 +388,7 @@ git commit -m "feat(srow-debug): add crate scaffold with LogStore ring buffer"
 ## Task 2: LogCaptureLayer + LogHandle
 
 **Files:**
-- Create: `crates/srow-debug/src/log_layer.rs`
+- Create: `crates/alva-app-debug/src/log_layer.rs`
 
 - [ ] **Step 1: Write LogCaptureLayer test**
 
@@ -491,7 +491,7 @@ where
 
 fn should_capture(event: &tracing::Event<'_>, filter_str: &str) -> bool {
     // Simple level-based filtering
-    // For module-level filtering like "srow_core=trace,srow_ai=debug",
+    // For module-level filtering like "alva_app_core=trace,srow_ai=debug",
     // parse the filter string and match against event target and level
     let target = event.metadata().target();
     let event_level = level_order(event.metadata().level());
@@ -658,14 +658,14 @@ pub use log_layer::{LogCaptureLayer, LogHandle};
 
 - [ ] **Step 3: Run tests**
 
-Run: `cargo test -p srow-debug`
+Run: `cargo test -p alva-app-debug`
 Expected: All tests pass (LogStore + LogCaptureLayer).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/srow-debug/src/log_layer.rs crates/srow-debug/src/lib.rs
-git commit -m "feat(srow-debug): add LogCaptureLayer tracing Layer with dynamic filter"
+git add crates/alva-app-debug/src/log_layer.rs crates/alva-app-debug/src/lib.rs
+git commit -m "feat(alva-app-debug): add LogCaptureLayer tracing Layer with dynamic filter"
 ```
 
 ---
@@ -673,7 +673,7 @@ git commit -m "feat(srow-debug): add LogCaptureLayer tracing Layer with dynamic 
 ## Task 3: Inspectable trait + InspectNode types
 
 **Files:**
-- Create: `crates/srow-debug/src/inspect.rs`
+- Create: `crates/alva-app-debug/src/inspect.rs`
 
 - [ ] **Step 1: Write inspect.rs**
 
@@ -771,14 +771,14 @@ pub use inspect::DebugInspect;
 
 - [ ] **Step 3: Run tests**
 
-Run: `cargo test -p srow-debug`
+Run: `cargo test -p alva-app-debug`
 Expected: All tests pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/srow-debug/src/inspect.rs crates/srow-debug/src/lib.rs
-git commit -m "feat(srow-debug): add Inspectable trait and InspectNode types"
+git add crates/alva-app-debug/src/inspect.rs crates/alva-app-debug/src/lib.rs
+git commit -m "feat(alva-app-debug): add Inspectable trait and InspectNode types"
 ```
 
 ---
@@ -786,8 +786,8 @@ git commit -m "feat(srow-debug): add Inspectable trait and InspectNode types"
 ## Task 4: HTTP server + router
 
 **Files:**
-- Create: `crates/srow-debug/src/server.rs`
-- Create: `crates/srow-debug/src/router.rs`
+- Create: `crates/alva-app-debug/src/server.rs`
+- Create: `crates/alva-app-debug/src/router.rs`
 
 - [ ] **Step 1: Write server.rs — tiny_http wrapper**
 
@@ -989,14 +989,14 @@ pub use inspect::DebugInspect;
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cargo check -p srow-debug`
+Run: `cargo check -p alva-app-debug`
 Expected: Compiles.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/srow-debug/src/server.rs crates/srow-debug/src/router.rs crates/srow-debug/src/lib.rs
-git commit -m "feat(srow-debug): add HTTP server and router with all API endpoints"
+git add crates/alva-app-debug/src/server.rs crates/alva-app-debug/src/router.rs crates/alva-app-debug/src/lib.rs
+git commit -m "feat(alva-app-debug): add HTTP server and router with all API endpoints"
 ```
 
 ---
@@ -1004,7 +1004,7 @@ git commit -m "feat(srow-debug): add HTTP server and router with all API endpoin
 ## Task 5: DebugServer builder + DebugServerHandle
 
 **Files:**
-- Create: `crates/srow-debug/src/builder.rs`
+- Create: `crates/alva-app-debug/src/builder.rs`
 
 - [ ] **Step 1: Write builder.rs**
 
@@ -1159,19 +1159,19 @@ pub use builder::{DebugServer, DebugServerBuilder, DebugServerHandle};
 
 - [ ] **Step 3: Verify full crate compiles**
 
-Run: `cargo check -p srow-debug`
+Run: `cargo check -p alva-app-debug`
 Expected: Compiles with no errors.
 
 - [ ] **Step 4: Run all tests**
 
-Run: `cargo test -p srow-debug`
+Run: `cargo test -p alva-app-debug`
 Expected: All existing tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/srow-debug/src/builder.rs crates/srow-debug/src/lib.rs
-git commit -m "feat(srow-debug): add DebugServer builder and lifecycle handle"
+git add crates/alva-app-debug/src/builder.rs crates/alva-app-debug/src/lib.rs
+git commit -m "feat(alva-app-debug): add DebugServer builder and lifecycle handle"
 ```
 
 ---
@@ -1179,12 +1179,12 @@ git commit -m "feat(srow-debug): add DebugServer builder and lifecycle handle"
 ## Task 6: Integration test — full HTTP server round-trip
 
 **Files:**
-- Create: `crates/srow-debug/tests/integration.rs`
+- Create: `crates/alva-app-debug/tests/integration.rs`
 
 - [ ] **Step 1: Write integration test**
 
 ```rust
-use srow_debug::{DebugServer, LogCaptureLayer};
+use alva_app_debug::{DebugServer, LogCaptureLayer};
 use tracing_subscriber::prelude::*;
 use std::io::Read;
 
@@ -1316,14 +1316,14 @@ fn http_put(addr: &str, path: &str, body: &str) -> String {
 
 - [ ] **Step 2: Run integration tests**
 
-Run: `cargo test -p srow-debug --test integration`
+Run: `cargo test -p alva-app-debug --test integration`
 Expected: All 4 tests pass.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/srow-debug/tests/integration.rs
-git commit -m "test(srow-debug): add integration tests for HTTP API endpoints"
+git add crates/alva-app-debug/tests/integration.rs
+git commit -m "test(alva-app-debug): add integration tests for HTTP API endpoints"
 ```
 
 ---
@@ -1331,7 +1331,7 @@ git commit -m "test(srow-debug): add integration tests for HTTP API endpoints"
 ## Task 7: GPUI Inspector (feature = "gpui")
 
 **Files:**
-- Create: `crates/srow-debug/src/gpui/mod.rs`
+- Create: `crates/alva-app-debug/src/gpui/mod.rs`
 
 - [ ] **Step 1: Spike — verify GPUI view tree traversal API**
 
@@ -1572,34 +1572,34 @@ pub use builder::{DebugServer, DebugServerBuilder, DebugServerHandle};
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p srow-debug`
+Run: `cargo test -p alva-app-debug`
 Expected: All tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/srow-debug/src/gpui/ crates/srow-debug/src/lib.rs
-git commit -m "feat(srow-debug): add GPUI inspector with explicit view registration"
+git add crates/alva-app-debug/src/gpui/ crates/alva-app-debug/src/lib.rs
+git commit -m "feat(alva-app-debug): add GPUI inspector with explicit view registration"
 ```
 
 ---
 
-## Task 8: Integrate into srow-app — tracing migration + debug server
+## Task 8: Integrate into alva-app — tracing migration + debug server
 
 **Files:**
-- Modify: `crates/srow-app/Cargo.toml`
-- Modify: `crates/srow-app/src/main.rs`
-- Modify: `crates/srow-core/src/bin/cli.rs`
+- Modify: `crates/alva-app/Cargo.toml`
+- Modify: `crates/alva-app/src/main.rs`
+- Modify: `crates/alva-app-core/src/bin/cli.rs`
 
-- [ ] **Step 1: Add srow-debug dependency to srow-app**
+- [ ] **Step 1: Add alva-app-debug dependency to alva-app**
 
-In `crates/srow-app/Cargo.toml`, add:
+In `crates/alva-app/Cargo.toml`, add:
 
 ```toml
-srow-debug = { path = "../srow-debug", features = ["gpui"] }
+alva-app-debug = { path = "../alva-app-debug", features = ["gpui"] }
 ```
 
-- [ ] **Step 2: Migrate tracing init in srow-app/src/main.rs**
+- [ ] **Step 2: Migrate tracing init in alva-app/src/main.rs**
 
 Replace the current tracing init (lines 19-24):
 
@@ -1627,7 +1627,7 @@ let fmt_layer = tracing_subscriber::fmt::layer()
 
 #[cfg(debug_assertions)]
 let _debug_handle = {
-    let (log_layer, log_handle) = srow_debug::LogCaptureLayer::new(10_000);
+    let (log_layer, log_handle) = alva_app_debug::LogCaptureLayer::new(10_000);
 
     tracing_subscriber::registry()
         .with(log_layer)
@@ -1639,10 +1639,10 @@ let _debug_handle = {
         .and_then(|s| s.parse().ok())
         .unwrap_or(9229);
 
-    let view_registry = srow_debug::gpui::ViewRegistry::new();
-    let inspector = srow_debug::gpui::GpuiInspector::new(view_registry.clone());
+    let view_registry = alva_app_debug::gpui::ViewRegistry::new();
+    let inspector = alva_app_debug::gpui::GpuiInspector::new(view_registry.clone());
 
-    let server = srow_debug::DebugServer::builder()
+    let server = alva_app_debug::DebugServer::builder()
         .port(port)
         .with_log_handle(log_handle)
         .with_inspector(inspector)
@@ -1662,7 +1662,7 @@ let _debug_handle = {
 
 > **Note**: The `view_registry` should be stored somewhere accessible to views (e.g., as a GPUI global) so views can register themselves. The exact mechanism depends on how GPUI globals work in this codebase — `SharedRuntime` is the existing pattern. Follow the same pattern for `ViewRegistry`.
 
-- [ ] **Step 3: Migrate tracing init in srow-core/src/bin/cli.rs**
+- [ ] **Step 3: Migrate tracing init in alva-app-core/src/bin/cli.rs**
 
 Replace the current tracing init (lines 34-39) with the layered approach. CLI doesn't need the debug server or GPUI inspector, just the compatible init:
 
@@ -1682,12 +1682,12 @@ tracing_subscriber::registry()
 
 - [ ] **Step 4: Verify both binaries compile**
 
-Run: `cargo check -p srow-app && cargo check -p srow-core`
+Run: `cargo check -p alva-app && cargo check -p alva-app-core`
 Expected: Both compile.
 
 - [ ] **Step 5: Verify debug server starts (manual test)**
 
-Run: `cargo run -p srow-app`
+Run: `cargo run -p alva-app`
 Expected: See log line "Debug server listening on http://127.0.0.1:9229" in console output.
 
 Then in another terminal:
@@ -1697,8 +1697,8 @@ Expected: `{"status":"ok","uptime_secs":...}`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/srow-app/Cargo.toml crates/srow-app/src/main.rs crates/srow-core/src/bin/cli.rs
-git commit -m "feat(srow-app): integrate srow-debug server with tracing migration"
+git add crates/alva-app/Cargo.toml crates/alva-app/src/main.rs crates/alva-app-core/src/bin/cli.rs
+git commit -m "feat(alva-app): integrate alva-app-debug server with tracing migration"
 ```
 
 ---
@@ -1706,7 +1706,7 @@ git commit -m "feat(srow-app): integrate srow-debug server with tracing migratio
 ## Task 9: Tracing instrumentation — Agent engine
 
 **Files:**
-- Modify: `crates/srow-core/src/agent/runtime/engine/engine.rs`
+- Modify: `crates/alva-app-core/src/agent/runtime/engine/engine.rs`
 
 - [ ] **Step 1: Add #[instrument] to engine::run()**
 
@@ -1759,14 +1759,14 @@ tracing::error!(error_type = "llm_stream", error = %error, "LLM stream error");
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cargo check -p srow-core`
+Run: `cargo check -p alva-app-core`
 Expected: Compiles.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/srow-core/src/agent/runtime/engine/engine.rs
-git commit -m "feat(srow-core): add tracing spans to agent engine loop"
+git add crates/alva-app-core/src/agent/runtime/engine/engine.rs
+git commit -m "feat(alva-app-core): add tracing spans to agent engine loop"
 ```
 
 ---
@@ -1775,8 +1775,8 @@ git commit -m "feat(srow-core): add tracing spans to agent engine loop"
 
 **Files:**
 - Modify: `crates/srow-ai/src/chat/abstract_chat.rs`
-- Modify: `crates/srow-core/src/mcp/runtime.rs`
-- Modify: `crates/srow-core/src/agent/agent_client/session/client.rs`
+- Modify: `crates/alva-app-core/src/mcp/runtime.rs`
+- Modify: `crates/alva-app-core/src/agent/agent_client/session/client.rs`
 
 - [ ] **Step 1: Add spans to AbstractChat methods**
 
@@ -1836,7 +1836,7 @@ Expected: All crates compile.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/srow-ai/src/chat/abstract_chat.rs crates/srow-core/src/mcp/runtime.rs crates/srow-core/src/agent/agent_client/session/client.rs
+git add crates/srow-ai/src/chat/abstract_chat.rs crates/alva-app-core/src/mcp/runtime.rs crates/alva-app-core/src/agent/agent_client/session/client.rs
 git commit -m "feat: add tracing spans to chat, MCP, and ACP boundaries"
 ```
 
@@ -1845,19 +1845,19 @@ git commit -m "feat: add tracing spans to chat, MCP, and ACP boundaries"
 ## Task 11: Register views with ViewRegistry
 
 **Files:**
-- Modify: `crates/srow-app/src/main.rs` (store ViewRegistry as GPUI global)
-- Modify: `crates/srow-app/src/views/root_view.rs`
-- Modify: `crates/srow-app/src/views/chat_panel/chat_panel.rs`
-- Modify: `crates/srow-app/src/views/agent_panel/agent_panel.rs`
+- Modify: `crates/alva-app/src/main.rs` (store ViewRegistry as GPUI global)
+- Modify: `crates/alva-app/src/views/root_view.rs`
+- Modify: `crates/alva-app/src/views/chat_panel/chat_panel.rs`
+- Modify: `crates/alva-app/src/views/agent_panel/agent_panel.rs`
 
 - [ ] **Step 1: Make ViewRegistry a GPUI global**
 
 In `main.rs`, after creating the `view_registry`, store it as a GPUI global so views can access it:
 
 ```rust
-// In srow-app, define a wrapper:
+// In alva-app, define a wrapper:
 #[cfg(debug_assertions)]
-pub struct DebugViewRegistry(pub std::sync::Arc<srow_debug::gpui::ViewRegistry>);
+pub struct DebugViewRegistry(pub std::sync::Arc<alva_app_debug::gpui::ViewRegistry>);
 #[cfg(debug_assertions)]
 impl gpui::Global for DebugViewRegistry {}
 
@@ -1877,12 +1877,12 @@ In `root_view.rs`, at the end of `new()`:
         let side_panel = self.side_panel.clone();
         let chat_panel = self.chat_panel.clone();
         let agent_panel = self.agent_panel.clone();
-        registry.0.register(srow_debug::gpui::ViewEntry {
+        registry.0.register(alva_app_debug::gpui::ViewEntry {
             id: "root_view".to_string(),
             type_name: "RootView".to_string(),
             parent_id: None,
             snapshot_fn: Box::new(move || {
-                srow_debug::InspectNode {
+                alva_app_debug::InspectNode {
                     id: "root_view".to_string(),
                     type_name: "RootView".to_string(),
                     bounds: None,
@@ -1906,7 +1906,7 @@ In `chat_panel.rs`, register with diagnostic state. The `snapshot_fn` closure sh
         // Capture state references for diagnostic properties
         // Adjust these captures based on what ChatPanel actually holds
         // (e.g., message_list entity, chat model, etc.)
-        registry.0.register(srow_debug::gpui::ViewEntry {
+        registry.0.register(alva_app_debug::gpui::ViewEntry {
             id: "chat_panel".to_string(),
             type_name: "ChatPanel".to_string(),
             parent_id: Some("root_view".to_string()),
@@ -1918,7 +1918,7 @@ In `chat_panel.rs`, register with diagnostic state. The `snapshot_fn` closure sh
                 //   props.insert("message_count".into(), json!(chat.messages().len()));
                 //   props.insert("status".into(), json!(format!("{:?}", chat.status())));
                 //   props.insert("last_error".into(), json!(null));
-                srow_debug::InspectNode {
+                alva_app_debug::InspectNode {
                     id: "chat_panel".to_string(),
                     type_name: "ChatPanel".to_string(),
                     bounds: None,
@@ -1951,10 +1951,10 @@ This is required by the spec's "GPUI event handling" instrumentation section. Ad
 
 - [ ] **Step 6: Verify compilation and test inspect endpoint**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 Manual test:
-Run: `cargo run -p srow-app`
+Run: `cargo run -p alva-app`
 Then: `curl http://127.0.0.1:9229/api/inspect/tree | python3 -m json.tool`
 
 Expected: JSON tree with root_view, chat_panel, agent_panel as children.
@@ -1962,8 +1962,8 @@ Expected: JSON tree with root_view, chat_panel, agent_panel as children.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/srow-app/src/main.rs crates/srow-app/src/views/
-git commit -m "feat(srow-app): register views with debug ViewRegistry and add action spans"
+git add crates/alva-app/src/main.rs crates/alva-app/src/views/
+git commit -m "feat(alva-app): register views with debug ViewRegistry and add action spans"
 ```
 
 ---
@@ -1979,7 +1979,7 @@ Expected: All tests pass.
 
 Start the app:
 ```bash
-RUST_LOG=debug cargo run -p srow-app
+RUST_LOG=debug cargo run -p alva-app
 ```
 
 In another terminal, verify all endpoints:
@@ -1994,7 +1994,7 @@ curl "http://127.0.0.1:9229/api/logs?limit=5" | python3 -m json.tool
 curl http://127.0.0.1:9229/api/logs/level
 
 # Change log level
-curl -X PUT http://127.0.0.1:9229/api/logs/level -d '{"filter": "srow_core=trace"}'
+curl -X PUT http://127.0.0.1:9229/api/logs/level -d '{"filter": "alva_app_core=trace"}'
 
 # View tree
 curl http://127.0.0.1:9229/api/inspect/tree | python3 -m json.tool
@@ -2007,5 +2007,5 @@ curl http://127.0.0.1:9229/api/nonexistent
 
 ```bash
 git add -A
-git commit -m "feat(srow-debug): complete V1 debug system with logging, inspection, and instrumentation"
+git commit -m "feat(alva-app-debug): complete V1 debug system with logging, inspection, and instrumentation"
 ```

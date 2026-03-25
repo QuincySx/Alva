@@ -86,7 +86,7 @@ srow-agent/
 ├── .gitignore
 │
 ├── crates/
-│   ├── srow-app/                       # ← Sub-1：GPUI 应用主 crate
+│   ├── alva-app/                       # ← Sub-1：GPUI 应用主 crate
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── main.rs                 # 入口：gpui::App::new()，注册 View，打开窗口
@@ -143,7 +143,7 @@ srow-agent/
 ```
 
 **说明：**
-- `srow-app` 是 Sub-1 交付的主 crate，依赖 `srow-engine`
+- `alva-app` 是 Sub-1 交付的主 crate，依赖 `srow-engine`
 - `srow-engine` 在 Sub-1 阶段只提供类型定义和占位实现，Sub-2 填充真实逻辑
 - 不存在 `src/`（前端）目录、`package.json`、`pnpm-workspace.yaml` 等前端工件
 
@@ -405,7 +405,7 @@ Sub-2 完成后，`EngineBridge` 只需将 `AgentEngine::run_mock` 替换为 `Ag
 ## 8. 数据类型定义
 
 ```rust
-// crates/srow-app/src/types/workspace.rs
+// crates/alva-app/src/types/workspace.rs
 
 #[derive(Debug, Clone)]
 pub struct Workspace {
@@ -427,7 +427,7 @@ pub struct Session {
 ```
 
 ```rust
-// crates/srow-app/src/types/message.rs
+// crates/alva-app/src/types/message.rs
 
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -455,7 +455,7 @@ pub enum MessageContent {
 ```
 
 ```rust
-// crates/srow-app/src/types/agent.rs
+// crates/alva-app/src/types/agent.rs
 
 #[derive(Debug, Clone)]
 pub struct AgentStatus {
@@ -495,7 +495,7 @@ impl AgentStatusKind {
 ### 9.1 WorkspaceModel
 
 ```rust
-// crates/srow-app/src/models/workspace_model.rs
+// crates/alva-app/src/models/workspace_model.rs
 
 pub struct WorkspaceModel {
     pub workspaces: Vec<Workspace>,
@@ -534,7 +534,7 @@ impl WorkspaceModel {
 ### 9.2 ChatModel
 
 ```rust
-// crates/srow-app/src/models/chat_model.rs
+// crates/alva-app/src/models/chat_model.rs
 
 pub struct ChatModel {
     // key: session_id → messages
@@ -570,7 +570,7 @@ impl ChatModel {
 ### 9.3 AgentModel
 
 ```rust
-// crates/srow-app/src/models/agent_model.rs
+// crates/alva-app/src/models/agent_model.rs
 
 pub struct AgentModel {
     pub statuses: std::collections::HashMap<String, AgentStatus>,
@@ -669,7 +669,7 @@ impl Render for RootView {
 ## 11. 应用入口（main.rs）
 
 ```rust
-// crates/srow-app/src/main.rs
+// crates/alva-app/src/main.rs
 
 fn main() {
     gpui::App::new().run(|cx: &mut AppContext| {
@@ -711,7 +711,7 @@ fn main() {
 ```toml
 [workspace]
 members = [
-    "crates/srow-app",
+    "crates/alva-app",
     "crates/srow-engine",
 ]
 resolver = "2"
@@ -727,11 +727,11 @@ opt-level = 3
 strip = true
 ```
 
-### 12.2 srow-app/Cargo.toml
+### 12.2 alva-app/Cargo.toml
 
 ```toml
 [package]
-name = "srow-app"
+name = "alva-app"
 version = "0.1.0"
 edition = "2021"
 
@@ -740,7 +740,7 @@ name = "srow-agent"
 path = "src/main.rs"
 
 [lib]
-name = "srow_app"
+name = "alva_app"
 path = "src/lib.rs"
 
 [dependencies]
@@ -809,7 +809,7 @@ thiserror = "1"
 ## 13. 错误类型
 
 ```rust
-// crates/srow-app/src/error.rs
+// crates/alva-app/src/error.rs
 
 #[derive(Debug, thiserror::Error)]
 pub enum SrowError {
@@ -893,7 +893,7 @@ tokio::spawn(async move {
 | 验收项 | 说明 |
 |---|---|
 | `cargo build` 通过 | workspace 所有 crate 无编译错误 |
-| `cargo run -p srow-app` 启动 | 主窗口可以打开，无 panic |
+| `cargo run -p alva-app` 启动 | 主窗口可以打开，无 panic |
 | 三栏布局渲染正确 | 左(220px) / 中(弹性) / 右(280px) 三栏正常显示，分隔线清晰 |
 | Workspace / Session 可交互 | 可通过 UI 切换 Workspace 和 Session，列表正确刷新 |
 | 消息可发送（mock 流式回复） | 用户输入后显示用户消息，流式逐字显示 mock 回复 |

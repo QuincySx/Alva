@@ -1,6 +1,6 @@
 # Provider V4 完整对齐设计
 
-> 将 srow-core 的 provider 接口完全对齐 AI SDK `@ai-sdk/provider` V4 规格，去掉 rig-core 依赖，实现 Anthropic + OpenAI provider。
+> 将 alva-app-core 的 provider 接口完全对齐 AI SDK `@ai-sdk/provider` V4 规格，去掉 rig-core 依赖，实现 Anthropic + OpenAI provider。
 
 ---
 
@@ -21,7 +21,7 @@
 ## 2. 新的 ports/provider/ 模块结构
 
 ```
-src/srow-core/src/ports/provider/
+src/alva-app-core/src/ports/provider/
 ├── mod.rs                    # 所有 re-exports
 ├── language_model.rs         # LanguageModelV4 trait + CallOptions + Result + StreamPart
 ├── embedding_model.rs        # EmbeddingModelV4 trait
@@ -450,7 +450,7 @@ pub enum ProviderError {
 ### 4.1 新的 adapters/llm/ 结构
 
 ```
-src/srow-core/src/adapters/llm/
+src/alva-app-core/src/adapters/llm/
 ├── mod.rs
 ├── http.rs              # 共用 HTTP 层（SSE 解析、重试）
 ├── openai.rs            # OpenAI Chat Completions
@@ -481,7 +481,7 @@ impl LanguageModel for AnthropicLanguageModel { ... }
 | `generate/generate_text.rs` | 同上 |
 | `generate/stream_text.rs` | 同上 |
 | `bin/cli.rs` | 更新 provider 构造 |
-| `srow-app` views | 更新 provider 构造 |
+| `alva-app` views | 更新 provider 构造 |
 | `ui_message/convert.rs` | `LLMMessage`/`LLMContent` → 用新的 `LanguageModelMessage`/`LanguageModelContent` 或添加转换层 |
 
 ### 关于 LLMMessage 的处理

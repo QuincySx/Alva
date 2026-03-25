@@ -7,19 +7,19 @@
 ## 1. 改动范围
 
 ### 删除
-- `src/srow-core/src/adapters/llm/openai_compat.rs` (593 行 rig 包装)
+- `src/alva-app-core/src/adapters/llm/openai_compat.rs` (593 行 rig 包装)
 - `Cargo.toml` 中的 `rig-core` 依赖
 
 ### 新建
-- `src/srow-core/src/adapters/llm/http.rs` — 共用 HTTP 工具（SSE 解析、重试、错误处理）
-- `src/srow-core/src/adapters/llm/openai.rs` — OpenAI Chat Completions API 直接实现
-- `src/srow-core/src/adapters/llm/anthropic.rs` — Anthropic Messages API 直接实现
+- `src/alva-app-core/src/adapters/llm/http.rs` — 共用 HTTP 工具（SSE 解析、重试、错误处理）
+- `src/alva-app-core/src/adapters/llm/openai.rs` — OpenAI Chat Completions API 直接实现
+- `src/alva-app-core/src/adapters/llm/anthropic.rs` — Anthropic Messages API 直接实现
 
 ### 修改
-- `src/srow-core/src/adapters/llm/mod.rs` — 替换模块声明
-- `src/srow-core/Cargo.toml` — 去 rig-core，确保 reqwest + serde 足够
-- `src/srow-core/src/bin/cli.rs` — 更新 provider 构造
-- `src/srow-app/src/views/chat_panel/input_box.rs` — 更新 provider 构造
+- `src/alva-app-core/src/adapters/llm/mod.rs` — 替换模块声明
+- `src/alva-app-core/Cargo.toml` — 去 rig-core，确保 reqwest + serde 足够
+- `src/alva-app-core/src/bin/cli.rs` — 更新 provider 构造
+- `src/alva-app/src/views/chat_panel/input_box.rs` — 更新 provider 构造
 
 ---
 

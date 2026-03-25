@@ -6,7 +6,7 @@
 
 **Architecture:** Two-column default layout (Sidebar + Chat), with on-demand third column (Agent Detail Panel) that slides in when an Agent block is clicked. Running Agents pin above the input box while active, then fold into message stream on completion. Agent and Skill management via full-screen Dialogs.
 
-**Tech Stack:** GPUI 0.2, gpui-component 0.5 (Dialog, List, Input, Button, Select), pulldown-cmark (Markdown parsing), syntect (syntax highlighting), existing srow-core/srow-ai infrastructure.
+**Tech Stack:** GPUI 0.2, gpui-component 0.5 (Dialog, List, Input, Button, Select), pulldown-cmark (Markdown parsing), syntect (syntax highlighting), existing alva-app-core/srow-ai infrastructure.
 
 **Spec:** `docs/superpowers/specs/2026-03-22-ui-redesign-design.md`
 
@@ -18,64 +18,64 @@
 
 | File | Responsibility |
 |------|----------------|
-| `crates/srow-app/src/views/sidebar/mod.rs` | New sidebar module |
-| `crates/srow-app/src/views/sidebar/sidebar.rs` | Sidebar container: search + buttons + session list + settings |
-| `crates/srow-app/src/views/sidebar/session_list.rs` | Time-grouped session list with search filter |
-| `crates/srow-app/src/views/sidebar/management_buttons.rs` | Vertical button list (Agents, Skills, ...) |
-| `crates/srow-app/src/views/chat_panel/markdown.rs` | Markdown → GPUI element renderer |
-| `crates/srow-app/src/views/chat_panel/code_block.rs` | Syntax-highlighted code block with copy button |
-| `crates/srow-app/src/views/chat_panel/message_bubble.rs` | User/assistant message with Markdown rendering |
-| `crates/srow-app/src/views/chat_panel/tool_call_block.rs` | Collapsible tool call display |
-| `crates/srow-app/src/views/chat_panel/thinking_block.rs` | Collapsible reasoning display |
-| `crates/srow-app/src/views/chat_panel/agent_block.rs` | Running/completed Agent block in chat |
-| `crates/srow-app/src/views/chat_panel/running_agents_zone.rs` | Pinned area above input for active Agents |
-| `crates/srow-app/src/views/chat_panel/chat_input.rs` | Multi-line input with toolbar |
-| `crates/srow-app/src/views/agent_detail_panel.rs` | Right-side sliding Agent detail panel |
-| `crates/srow-app/src/views/dialogs/mod.rs` | Dialogs module |
-| `crates/srow-app/src/views/dialogs/agents_dialog.rs` | Agent CRUD dialog (list + edit views) |
-| `crates/srow-app/src/views/dialogs/skills_dialog.rs` | Skill CRUD dialog (list + edit + import views) |
-| `crates/srow-app/src/views/dialogs/settings_dialog.rs` | Settings dialog (wraps existing SettingsPanel) |
+| `crates/alva-app/src/views/sidebar/mod.rs` | New sidebar module |
+| `crates/alva-app/src/views/sidebar/sidebar.rs` | Sidebar container: search + buttons + session list + settings |
+| `crates/alva-app/src/views/sidebar/session_list.rs` | Time-grouped session list with search filter |
+| `crates/alva-app/src/views/sidebar/management_buttons.rs` | Vertical button list (Agents, Skills, ...) |
+| `crates/alva-app/src/views/chat_panel/markdown.rs` | Markdown → GPUI element renderer |
+| `crates/alva-app/src/views/chat_panel/code_block.rs` | Syntax-highlighted code block with copy button |
+| `crates/alva-app/src/views/chat_panel/message_bubble.rs` | User/assistant message with Markdown rendering |
+| `crates/alva-app/src/views/chat_panel/tool_call_block.rs` | Collapsible tool call display |
+| `crates/alva-app/src/views/chat_panel/thinking_block.rs` | Collapsible reasoning display |
+| `crates/alva-app/src/views/chat_panel/agent_block.rs` | Running/completed Agent block in chat |
+| `crates/alva-app/src/views/chat_panel/running_agents_zone.rs` | Pinned area above input for active Agents |
+| `crates/alva-app/src/views/chat_panel/chat_input.rs` | Multi-line input with toolbar |
+| `crates/alva-app/src/views/agent_detail_panel.rs` | Right-side sliding Agent detail panel |
+| `crates/alva-app/src/views/dialogs/mod.rs` | Dialogs module |
+| `crates/alva-app/src/views/dialogs/agents_dialog.rs` | Agent CRUD dialog (list + edit views) |
+| `crates/alva-app/src/views/dialogs/skills_dialog.rs` | Skill CRUD dialog (list + edit + import views) |
+| `crates/alva-app/src/views/dialogs/settings_dialog.rs` | Settings dialog (wraps existing SettingsPanel) |
 
 ### Files to modify
 
 | File | Change |
 |------|--------|
-| `crates/srow-app/Cargo.toml` | Add pulldown-cmark, syntect |
-| `crates/srow-app/src/lib.rs` | No change needed (views module covers new files) |
-| `crates/srow-app/src/views/mod.rs` | Add new submodules: sidebar, dialogs, agent_detail_panel |
-| `crates/srow-app/src/views/root_view.rs` | Two-column default, conditional third column |
-| `crates/srow-app/src/views/chat_panel/mod.rs` | Add new component modules |
-| `crates/srow-app/src/views/chat_panel/chat_panel.rs` | Restructure with running zone + new message rendering |
-| `crates/srow-app/src/views/chat_panel/message_list.rs` | Replace with new message type rendering |
-| `crates/srow-app/src/views/chat_panel/input_box.rs` | Replace with chat_input.rs (or rewrite in-place) |
-| `crates/srow-app/src/models/workspace_model.rs` | Add summary field, time-group helpers |
+| `crates/alva-app/Cargo.toml` | Add pulldown-cmark, syntect |
+| `crates/alva-app/src/lib.rs` | No change needed (views module covers new files) |
+| `crates/alva-app/src/views/mod.rs` | Add new submodules: sidebar, dialogs, agent_detail_panel |
+| `crates/alva-app/src/views/root_view.rs` | Two-column default, conditional third column |
+| `crates/alva-app/src/views/chat_panel/mod.rs` | Add new component modules |
+| `crates/alva-app/src/views/chat_panel/chat_panel.rs` | Restructure with running zone + new message rendering |
+| `crates/alva-app/src/views/chat_panel/message_list.rs` | Replace with new message type rendering |
+| `crates/alva-app/src/views/chat_panel/input_box.rs` | Replace with chat_input.rs (or rewrite in-place) |
+| `crates/alva-app/src/models/workspace_model.rs` | Add summary field, time-group helpers |
 
 ### Files to remove (replaced)
 
 | File | Replaced by |
 |------|-------------|
-| `crates/srow-app/src/views/side_panel/` | `crates/srow-app/src/views/sidebar/` |
-| `crates/srow-app/src/views/agent_panel/` | `crates/srow-app/src/views/agent_detail_panel.rs` (on-demand) |
+| `crates/alva-app/src/views/side_panel/` | `crates/alva-app/src/views/sidebar/` |
+| `crates/alva-app/src/views/agent_panel/` | `crates/alva-app/src/views/agent_detail_panel.rs` (on-demand) |
 
 ---
 
 ## Task 1: Dependencies + Layout Restructure
 
 **Files:**
-- Modify: `crates/srow-app/Cargo.toml`
-- Modify: `crates/srow-app/src/views/root_view.rs`
-- Modify: `crates/srow-app/src/views/mod.rs`
+- Modify: `crates/alva-app/Cargo.toml`
+- Modify: `crates/alva-app/src/views/root_view.rs`
+- Modify: `crates/alva-app/src/views/mod.rs`
 
 - [ ] **Step 1: Add new dependencies**
 
-In `crates/srow-app/Cargo.toml`, add:
+In `crates/alva-app/Cargo.toml`, add:
 ```toml
 pulldown-cmark = "0.12"
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "html", "regex-onig"] }
 once_cell = "1"
 ```
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 - [ ] **Step 2: Restructure RootView to two-column default**
 
@@ -142,7 +142,7 @@ fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoEl
 
 - [ ] **Step 3: Create placeholder Sidebar view**
 
-Create `crates/srow-app/src/views/sidebar/mod.rs` and `sidebar.rs` with a minimal placeholder that compiles (just renders "+ New Chat" button and text "Sidebar"). This replaces the old SidePanel temporarily.
+Create `crates/alva-app/src/views/sidebar/mod.rs` and `sidebar.rs` with a minimal placeholder that compiles (just renders "+ New Chat" button and text "Sidebar"). This replaces the old SidePanel temporarily.
 
 - [ ] **Step 4: Update views/mod.rs**
 
@@ -161,13 +161,13 @@ Update `RootView::new()` to create a `Sidebar` instead of `SidePanel`, remove `A
 
 - [ ] **Step 6: Verify compilation**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/srow-app/
-git commit -m "refactor(srow-app): restructure layout to two-column default with sidebar"
+git add crates/alva-app/
+git commit -m "refactor(alva-app): restructure layout to two-column default with sidebar"
 ```
 
 ---
@@ -175,11 +175,11 @@ git commit -m "refactor(srow-app): restructure layout to two-column default with
 ## Task 2: Sidebar — Session List with Time Groups
 
 **Files:**
-- Create: `crates/srow-app/src/views/sidebar/session_list.rs`
-- Create: `crates/srow-app/src/views/sidebar/management_buttons.rs`
-- Modify: `crates/srow-app/src/views/sidebar/sidebar.rs`
-- Modify: `crates/srow-app/src/views/sidebar/mod.rs`
-- Modify: `crates/srow-app/src/models/workspace_model.rs`
+- Create: `crates/alva-app/src/views/sidebar/session_list.rs`
+- Create: `crates/alva-app/src/views/sidebar/management_buttons.rs`
+- Modify: `crates/alva-app/src/views/sidebar/sidebar.rs`
+- Modify: `crates/alva-app/src/views/sidebar/mod.rs`
+- Modify: `crates/alva-app/src/models/workspace_model.rs`
 
 - [ ] **Step 1: Add time-group helpers to WorkspaceModel**
 
@@ -264,11 +264,11 @@ Pass `workspace_model`, `chat_model`, `agent_model`, `settings_model` to Sidebar
 
 - [ ] **Step 6: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): add new sidebar with time-grouped sessions and management buttons"
+git add crates/alva-app/
+git commit -m "feat(alva-app): add new sidebar with time-grouped sessions and management buttons"
 ```
 
 ---
@@ -276,9 +276,9 @@ git commit -m "feat(srow-app): add new sidebar with time-grouped sessions and ma
 ## Task 3: Markdown Renderer
 
 **Files:**
-- Create: `crates/srow-app/src/views/chat_panel/markdown.rs`
-- Create: `crates/srow-app/src/views/chat_panel/code_block.rs`
-- Modify: `crates/srow-app/src/views/chat_panel/mod.rs`
+- Create: `crates/alva-app/src/views/chat_panel/markdown.rs`
+- Create: `crates/alva-app/src/views/chat_panel/code_block.rs`
+- Modify: `crates/alva-app/src/views/chat_panel/mod.rs`
 
 - [ ] **Step 1: Create CodeBlock component**
 
@@ -358,11 +358,11 @@ mod tests {
 
 - [ ] **Step 5: Verify and commit**
 
-Run: `cargo check -p srow-app && cargo test -p srow-app`
+Run: `cargo check -p alva-app && cargo test -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): add Markdown renderer and syntax-highlighted code blocks"
+git add crates/alva-app/
+git commit -m "feat(alva-app): add Markdown renderer and syntax-highlighted code blocks"
 ```
 
 ---
@@ -370,11 +370,11 @@ git commit -m "feat(srow-app): add Markdown renderer and syntax-highlighted code
 ## Task 4: Message Type Components
 
 **Files:**
-- Create: `crates/srow-app/src/views/chat_panel/message_bubble.rs`
-- Create: `crates/srow-app/src/views/chat_panel/tool_call_block.rs`
-- Create: `crates/srow-app/src/views/chat_panel/thinking_block.rs`
-- Create: `crates/srow-app/src/views/chat_panel/agent_block.rs`
-- Modify: `crates/srow-app/src/views/chat_panel/mod.rs`
+- Create: `crates/alva-app/src/views/chat_panel/message_bubble.rs`
+- Create: `crates/alva-app/src/views/chat_panel/tool_call_block.rs`
+- Create: `crates/alva-app/src/views/chat_panel/thinking_block.rs`
+- Create: `crates/alva-app/src/views/chat_panel/agent_block.rs`
+- Modify: `crates/alva-app/src/views/chat_panel/mod.rs`
 
 - [ ] **Step 1: Create MessageBubble**
 
@@ -499,11 +499,11 @@ pub mod agent_block;
 
 - [ ] **Step 6: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): add message type components — bubble, tool, thinking, agent blocks"
+git add crates/alva-app/
+git commit -m "feat(alva-app): add message type components — bubble, tool, thinking, agent blocks"
 ```
 
 ---
@@ -511,7 +511,7 @@ git commit -m "feat(srow-app): add message type components — bubble, tool, thi
 ## Task 5: Message List Overhaul
 
 **Files:**
-- Modify: `crates/srow-app/src/views/chat_panel/message_list.rs`
+- Modify: `crates/alva-app/src/views/chat_panel/message_list.rs`
 
 - [ ] **Step 1: Rewrite message rendering**
 
@@ -576,15 +576,15 @@ UIMessagePart::Custom {
 }
 ```
 
-The `render_message_part` function checks `data["type"] == "agent_block"` and delegates to `AgentBlock::render_completed(...)`. This avoids modifying `srow-core`'s `UIMessagePart` enum.
+The `render_message_part` function checks `data["type"] == "agent_block"` and delegates to `AgentBlock::render_completed(...)`. This avoids modifying `alva-app-core`'s `UIMessagePart` enum.
 
 - [ ] **Step 7: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): overhaul message list with Markdown, code blocks, and new message types"
+git add crates/alva-app/
+git commit -m "feat(alva-app): overhaul message list with Markdown, code blocks, and new message types"
 ```
 
 ---
@@ -592,9 +592,9 @@ git commit -m "feat(srow-app): overhaul message list with Markdown, code blocks,
 ## Task 6: Chat Input Redesign
 
 **Files:**
-- Create: `crates/srow-app/src/views/chat_panel/chat_input.rs`
-- Modify: `crates/srow-app/src/views/chat_panel/chat_panel.rs`
-- Modify: `crates/srow-app/src/views/chat_panel/mod.rs`
+- Create: `crates/alva-app/src/views/chat_panel/chat_input.rs`
+- Modify: `crates/alva-app/src/views/chat_panel/chat_panel.rs`
+- Modify: `crates/alva-app/src/views/chat_panel/mod.rs`
 
 - [ ] **Step 1: Create ChatInput component**
 
@@ -635,11 +635,11 @@ Delete `input_box.rs` or keep as reference, update `mod.rs`.
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): redesign chat input with multi-line, agent selector, and toolbar"
+git add crates/alva-app/
+git commit -m "feat(alva-app): redesign chat input with multi-line, agent selector, and toolbar"
 ```
 
 ---
@@ -647,8 +647,8 @@ git commit -m "feat(srow-app): redesign chat input with multi-line, agent select
 ## Task 7: Running Agents Zone
 
 **Files:**
-- Create: `crates/srow-app/src/views/chat_panel/running_agents_zone.rs`
-- Modify: `crates/srow-app/src/views/chat_panel/chat_panel.rs`
+- Create: `crates/alva-app/src/views/chat_panel/running_agents_zone.rs`
+- Modify: `crates/alva-app/src/views/chat_panel/chat_panel.rs`
 
 - [ ] **Step 1: Create RunningAgentsZone**
 
@@ -685,16 +685,16 @@ When an Agent's status changes from Running to Idle/Error:
 - ChatPanel subscribes to `AgentModelEvent::StatusChanged`. On status change to Idle/Error:
   1. Create a `UIMessagePart::Custom` with `data: {"type": "agent_block", "agent_name": ..., "status": "completed"/"error", "summary": ...}`
   2. Append it as a new part to the current assistant message (or create a new system message)
-  3. This is UI-layer only — no changes to srow-core needed
+  3. This is UI-layer only — no changes to alva-app-core needed
 - The RunningAgentsZone automatically shrinks as agents complete (it reads from AgentModel)
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): add running agents zone pinned above chat input"
+git add crates/alva-app/
+git commit -m "feat(alva-app): add running agents zone pinned above chat input"
 ```
 
 ---
@@ -702,9 +702,9 @@ git commit -m "feat(srow-app): add running agents zone pinned above chat input"
 ## Task 8: Agent Detail Panel
 
 **Files:**
-- Create: `crates/srow-app/src/views/agent_detail_panel.rs`
-- Modify: `crates/srow-app/src/views/mod.rs`
-- Modify: `crates/srow-app/src/views/root_view.rs`
+- Create: `crates/alva-app/src/views/agent_detail_panel.rs`
+- Modify: `crates/alva-app/src/views/mod.rs`
+- Modify: `crates/alva-app/src/views/root_view.rs`
 
 - [ ] **Step 1: Create AgentDetailPanel**
 
@@ -741,11 +741,11 @@ Close button emits `AgentDetailPanelEvent::Close`.
 
 - [ ] **Step 3: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): add Agent detail panel with sliding right column"
+git add crates/alva-app/
+git commit -m "feat(alva-app): add Agent detail panel with sliding right column"
 ```
 
 ---
@@ -753,8 +753,8 @@ git commit -m "feat(srow-app): add Agent detail panel with sliding right column"
 ## Task 9: Agents Dialog
 
 **Files:**
-- Create: `crates/srow-app/src/views/dialogs/mod.rs`
-- Create: `crates/srow-app/src/views/dialogs/agents_dialog.rs`
+- Create: `crates/alva-app/src/views/dialogs/mod.rs`
+- Create: `crates/alva-app/src/views/dialogs/agents_dialog.rs`
 
 - [ ] **Step 1: Create AgentsDialog — list view**
 
@@ -800,11 +800,11 @@ In Sidebar's ManagementButtons, the "Agents" button click opens the dialog:
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): add Agents dialog with list and edit views"
+git add crates/alva-app/
+git commit -m "feat(alva-app): add Agents dialog with list and edit views"
 ```
 
 ---
@@ -812,8 +812,8 @@ git commit -m "feat(srow-app): add Agents dialog with list and edit views"
 ## Task 10: Skills Dialog
 
 **Files:**
-- Create: `crates/srow-app/src/views/dialogs/skills_dialog.rs`
-- Modify: `crates/srow-app/src/views/dialogs/mod.rs`
+- Create: `crates/alva-app/src/views/dialogs/skills_dialog.rs`
+- Modify: `crates/alva-app/src/views/dialogs/mod.rs`
 
 - [ ] **Step 1: Create SkillsDialog — list view**
 
@@ -857,11 +857,11 @@ Import from GitHub: text input for `owner/repo#skill_name`, submit button (disab
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `cargo check -p srow-app`
+Run: `cargo check -p alva-app`
 
 ```bash
-git add crates/srow-app/
-git commit -m "feat(srow-app): add Skills dialog with list, edit, and import views"
+git add crates/alva-app/
+git commit -m "feat(alva-app): add Skills dialog with list, edit, and import views"
 ```
 
 ---
@@ -869,10 +869,10 @@ git commit -m "feat(srow-app): add Skills dialog with list, edit, and import vie
 ## Task 11: Settings Dialog + Cleanup
 
 **Files:**
-- Create: `crates/srow-app/src/views/dialogs/settings_dialog.rs`
-- Modify: `crates/srow-app/src/views/sidebar/sidebar.rs`
-- Remove: `crates/srow-app/src/views/side_panel/` (old sidebar)
-- Remove: `crates/srow-app/src/views/agent_panel/` (old agent panel)
+- Create: `crates/alva-app/src/views/dialogs/settings_dialog.rs`
+- Modify: `crates/alva-app/src/views/sidebar/sidebar.rs`
+- Remove: `crates/alva-app/src/views/side_panel/` (old sidebar)
+- Remove: `crates/alva-app/src/views/agent_panel/` (old agent panel)
 
 - [ ] **Step 1: Create SettingsDialog**
 
@@ -893,20 +893,20 @@ Bottom "⚙ Settings" button opens SettingsDialog.
 - [ ] **Step 3: Remove old side_panel and agent_panel**
 
 Delete:
-- `crates/srow-app/src/views/side_panel/` (entire directory)
-- `crates/srow-app/src/views/agent_panel/` (entire directory)
+- `crates/alva-app/src/views/side_panel/` (entire directory)
+- `crates/alva-app/src/views/agent_panel/` (entire directory)
 
-Update `crates/srow-app/src/views/mod.rs` to remove references. **Keep `settings_panel` module** — it's still used inside `SettingsDialog`.
+Update `crates/alva-app/src/views/mod.rs` to remove references. **Keep `settings_panel` module** — it's still used inside `SettingsDialog`.
 
 - [ ] **Step 4: Full verification**
 
-Run: `cargo check -p srow-app && cargo test --workspace`
+Run: `cargo check -p alva-app && cargo test --workspace`
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(srow-app): add settings dialog, remove old panels, complete UI restructure"
+git commit -m "feat(alva-app): add settings dialog, remove old panels, complete UI restructure"
 ```
 
 ---
@@ -925,7 +925,7 @@ git commit -m "feat(srow-app): add settings dialog, remove old panels, complete 
 
 **Theme access**: `let theme = Theme::for_appearance(window, cx);`
 
-**Traced events**: Use `srow_debug::traced!` / `srow_debug::traced_listener!` macros on all new event handlers.
+**Traced events**: Use `alva_app_debug::traced!` / `alva_app_debug::traced_listener!` macros on all new event handlers.
 
 ### Markdown Rendering Strategy
 
@@ -952,7 +952,7 @@ lazy_static! {
 }
 ```
 
-Use `lazy_static` or `once_cell::sync::Lazy` to avoid re-loading on every render. The `srow-app` Cargo.toml may need `lazy_static = "1"` or `once_cell = "1"` added.
+Use `lazy_static` or `once_cell::sync::Lazy` to avoid re-loading on every render. The `alva-app` Cargo.toml may need `lazy_static = "1"` or `once_cell = "1"` added.
 
 ### Dialog Pattern with gpui-component
 

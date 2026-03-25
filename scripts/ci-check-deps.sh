@@ -14,7 +14,7 @@ check_no_workspace_deps() {
 
     echo "Checking $crate..."
     local deps
-    deps=$(cargo tree -p "$crate" --depth 1 --prefix none 2>/dev/null | grep -E "^(agent-|srow-|protocol-)" | grep -v "^${crate} " || true)
+    deps=$(cargo tree -p "$crate" --depth 1 --prefix none 2>/dev/null | grep -E "^(agent-|alva-app|protocol-)" | grep -v "^${crate} " || true)
 
     if [ -n "$allowed" ]; then
         deps=$(echo "$deps" | grep -v -E "^($allowed) " || true)
@@ -59,12 +59,12 @@ check_no_workspace_deps "alva-engine-adapter-claude" "alva-types|alva-engine-run
 # Rule 10: alva-engine-adapter-alva only depends on alva-types + alva-engine-runtime + alva-agent-core
 check_no_workspace_deps "alva-engine-adapter-alva" "alva-types|alva-engine-runtime|alva-agent-core"
 
-# Rule 11: protocol crates don't depend on srow-*
+# Rule 11: protocol crates don't depend on alva-app-*
 echo "Checking protocol crates..."
 for proto in alva-protocol-skill alva-protocol-mcp alva-protocol-acp; do
-    local_deps=$(cargo tree -p "$proto" --depth 1 --prefix none 2>/dev/null | grep -E "^srow-" || true)
+    local_deps=$(cargo tree -p "$proto" --depth 1 --prefix none 2>/dev/null | grep -E "^alva-app" || true)
     if [ -n "$local_deps" ]; then
-        echo -e "${RED}VIOLATION: $proto depends on srow crates:${NC}"
+        echo -e "${RED}VIOLATION: $proto depends on alva-app crates:${NC}"
         echo "$local_deps"
         VIOLATIONS=$((VIOLATIONS + 1))
     else
@@ -72,15 +72,15 @@ for proto in alva-protocol-skill alva-protocol-mcp alva-protocol-acp; do
     fi
 done
 
-# Rule 12: srow-app must NOT directly depend on internal agent-* crates
-echo "Checking srow-app facade boundary..."
-app_deps=$(cargo tree -p srow-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-agent-core|alva-agent-graph|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-runtime) " || true)
+# Rule 12: alva-app must NOT directly depend on internal agent-* crates
+echo "Checking alva-app facade boundary..."
+app_deps=$(cargo tree -p alva-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-agent-core|alva-agent-graph|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-runtime) " || true)
 if [ -n "$app_deps" ]; then
-    echo -e "${RED}VIOLATION: srow-app directly depends on internal crates:${NC}"
+    echo -e "${RED}VIOLATION: alva-app directly depends on internal crates:${NC}"
     echo "$app_deps"
     VIOLATIONS=$((VIOLATIONS + 1))
 else
-    echo -e "${GREEN}OK: srow-app uses facade only${NC}"
+    echo -e "${GREEN}OK: alva-app uses facade only${NC}"
 fi
 
 echo ""

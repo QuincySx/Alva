@@ -17,32 +17,32 @@
 ### New files
 | File | Responsibility |
 |------|---------------|
-| `src/srow-core/src/adapters/llm/http.rs` | Raw SSE parser, retry logic, ProviderError |
-| `src/srow-core/src/adapters/llm/openai.rs` | OpenAI Chat Completions provider |
-| `src/srow-core/src/adapters/llm/anthropic.rs` | Anthropic Messages provider |
-| `src/srow-core/tests/openai_provider_test.rs` | OpenAI format conversion + SSE parse tests |
-| `src/srow-core/tests/anthropic_provider_test.rs` | Anthropic format conversion + SSE parse tests |
+| `src/alva-app-core/src/adapters/llm/http.rs` | Raw SSE parser, retry logic, ProviderError |
+| `src/alva-app-core/src/adapters/llm/openai.rs` | OpenAI Chat Completions provider |
+| `src/alva-app-core/src/adapters/llm/anthropic.rs` | Anthropic Messages provider |
+| `src/alva-app-core/tests/openai_provider_test.rs` | OpenAI format conversion + SSE parse tests |
+| `src/alva-app-core/tests/anthropic_provider_test.rs` | Anthropic format conversion + SSE parse tests |
 
 ### Delete
 | File | Reason |
 |------|--------|
-| `src/srow-core/src/adapters/llm/openai_compat.rs` | Replaced by openai.rs |
+| `src/alva-app-core/src/adapters/llm/openai_compat.rs` | Replaced by openai.rs |
 
 ### Modify
 | File | Change |
 |------|--------|
-| `src/srow-core/src/adapters/llm/mod.rs` | Replace openai_compat with openai + anthropic + http |
-| `src/srow-core/Cargo.toml` | Remove rig-core |
-| `src/srow-core/src/bin/cli.rs` | Use new OpenAIProvider |
-| `src/srow-app/src/views/chat_panel/input_box.rs` | Use new provider constructors |
+| `src/alva-app-core/src/adapters/llm/mod.rs` | Replace openai_compat with openai + anthropic + http |
+| `src/alva-app-core/Cargo.toml` | Remove rig-core |
+| `src/alva-app-core/src/bin/cli.rs` | Use new OpenAIProvider |
+| `src/alva-app/src/views/chat_panel/input_box.rs` | Use new provider constructors |
 
 ---
 
 ## Task 1: HTTP shared layer + raw SSE parser
 
 **Files:**
-- Create: `src/srow-core/src/adapters/llm/http.rs`
-- Modify: `src/srow-core/src/adapters/llm/mod.rs`
+- Create: `src/alva-app-core/src/adapters/llm/http.rs`
+- Modify: `src/alva-app-core/src/adapters/llm/mod.rs`
 
 - [ ] **Step 1: Implement SseEvent + parse_raw_sse**
 
@@ -82,8 +82,8 @@ git commit -m "feat(core): add shared HTTP layer with raw SSE parser and retry"
 ## Task 2: OpenAI Provider
 
 **Files:**
-- Create: `src/srow-core/src/adapters/llm/openai.rs`
-- Test: `src/srow-core/tests/openai_provider_test.rs`
+- Create: `src/alva-app-core/src/adapters/llm/openai.rs`
+- Test: `src/alva-app-core/tests/openai_provider_test.rs`
 
 - [ ] **Step 1: Implement request conversion (LLMRequest → OpenAI JSON)**
 
@@ -139,8 +139,8 @@ git commit -m "feat(core): implement OpenAI provider with direct HTTP"
 ## Task 3: Anthropic Provider
 
 **Files:**
-- Create: `src/srow-core/src/adapters/llm/anthropic.rs`
-- Test: `src/srow-core/tests/anthropic_provider_test.rs`
+- Create: `src/alva-app-core/src/adapters/llm/anthropic.rs`
+- Test: `src/alva-app-core/tests/anthropic_provider_test.rs`
 
 - [ ] **Step 1: Implement message merging logic**
 
@@ -213,12 +213,12 @@ git commit -m "feat(core): implement Anthropic provider with direct HTTP"
 ## Task 4: Remove rig-core + wire up
 
 **Files:**
-- Delete: `src/srow-core/src/adapters/llm/openai_compat.rs`
-- Modify: `src/srow-core/src/adapters/llm/mod.rs`
-- Modify: `src/srow-core/Cargo.toml`
-- Modify: `src/srow-core/src/lib.rs`
-- Modify: `src/srow-core/src/bin/cli.rs`
-- Modify: `src/srow-app/src/views/chat_panel/input_box.rs`
+- Delete: `src/alva-app-core/src/adapters/llm/openai_compat.rs`
+- Modify: `src/alva-app-core/src/adapters/llm/mod.rs`
+- Modify: `src/alva-app-core/Cargo.toml`
+- Modify: `src/alva-app-core/src/lib.rs`
+- Modify: `src/alva-app-core/src/bin/cli.rs`
+- Modify: `src/alva-app/src/views/chat_panel/input_box.rs`
 
 - [ ] **Step 1: Update adapters/llm/mod.rs**
 
@@ -233,7 +233,7 @@ pub mod anthropic;
 
 - [ ] **Step 3: Remove rig-core from Cargo.toml**
 
-Remove `rig-core = { version = "0.33", features = ["all"] }` from srow-core's Cargo.toml.
+Remove `rig-core = { version = "0.33", features = ["all"] }` from alva-app-core's Cargo.toml.
 
 - [ ] **Step 4: Update lib.rs re-exports**
 

@@ -4,7 +4,7 @@
 
 **Goal:** Restructure srow-agent into a three-layer architecture: agent-base (types/traits), alva-core (loop engine), alva-graph (graph execution + orchestration).
 
-**Architecture:** Create 3 new crates additively — no existing code is moved or deleted until the new crates are complete and tested. Existing srow-ai and srow-core continue to function. Migration happens as a final phase.
+**Architecture:** Create 3 new crates additively — no existing code is moved or deleted until the new crates are complete and tested. Existing srow-ai and alva-app-core continue to function. Migration happens as a final phase.
 
 **Tech Stack:** Rust, async-trait, tokio, serde/serde_json, futures-core (streams), thiserror.
 
@@ -63,8 +63,8 @@
 | File | Change |
 |------|--------|
 | `Cargo.toml` (workspace) | Add 3 new crate members |
-| `crates/srow-app/Cargo.toml` | Add agent-base, alva-core dependencies |
-| `crates/srow-core/Cargo.toml` | Add agent-base dependency |
+| `crates/alva-app/Cargo.toml` | Add agent-base, alva-core dependencies |
+| `crates/alva-app-core/Cargo.toml` | Add agent-base dependency |
 
 ---
 
@@ -1386,7 +1386,7 @@ git commit -m "feat(alva-graph): add orchestration layer — session, retry, com
 cargo check --workspace
 ```
 
-All existing crates (srow-core, srow-ai, srow-app, srow-debug) should still compile unchanged. The new crates (agent-base, alva-core, alva-graph) compile independently.
+All existing crates (alva-app-core, srow-ai, alva-app, alva-app-debug) should still compile unchanged. The new crates (agent-base, alva-core, alva-graph) compile independently.
 
 - [ ] **Step 2: Run all tests**
 
@@ -1407,14 +1407,14 @@ git commit -m "feat: complete three-layer engine architecture — agent-base, al
 
 Once the 3 new crates are stable and tested:
 
-1. **srow-core migration**: Update `srow-core` to depend on `agent-base` for types. Gradually replace `ports/provider/language_model.rs` imports with `agent_base::LanguageModel`. Replace `ports/tool.rs` with `agent_base::Tool`. Remove duplicated types.
+1. **alva-app-core migration**: Update `alva-app-core` to depend on `agent-base` for types. Gradually replace `ports/provider/language_model.rs` imports with `agent_base::LanguageModel`. Replace `ports/tool.rs` with `agent_base::Tool`. Remove duplicated types.
 
-2. **srow-ai migration**: Rename to `agent-base` or merge into it. Remove the `srow-core` dependency from `srow-ai` by using `agent-base` types instead.
+2. **srow-ai migration**: Rename to `agent-base` or merge into it. Remove the `alva-app-core` dependency from `srow-ai` by using `agent-base` types instead.
 
-3. **Engine migration**: Replace `srow-core::agent::runtime::engine` with `alva-core::Agent`. Wire existing tools to the new `Tool` trait via wrapper.
+3. **Engine migration**: Replace `alva-app-core::agent::runtime::engine` with `alva-core::Agent`. Wire existing tools to the new `Tool` trait via wrapper.
 
-4. **Orchestrator migration**: Replace `srow-core::agent::orchestrator` with `alva-graph::AgentSession` + sub-agent tools.
+4. **Orchestrator migration**: Replace `alva-app-core::agent::orchestrator` with `alva-graph::AgentSession` + sub-agent tools.
 
-5. **srow-app migration**: Update imports from `srow_core` to `agent_base`/`alva_core` where appropriate.
+5. **alva-app migration**: Update imports from `alva_app_core` to `agent_base`/`alva_core` where appropriate.
 
 Each migration step is a separate plan/spec cycle.

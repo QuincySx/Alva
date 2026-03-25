@@ -12,7 +12,7 @@
 
 ### 问题
 
-当前 `BaseAgent`（srow-core）硬编码了 alva-core 作为唯一 Agent 引擎。无法接入 Claude Code、OpenClaw 等外部引擎。
+当前 `BaseAgent`（alva-app-core）硬编码了 alva-core 作为唯一 Agent 引擎。无法接入 Claude Code、OpenClaw 等外部引擎。
 
 ### 参考实现
 
@@ -83,9 +83,9 @@ alva-engine-runtime                 ← EngineRuntime trait（依赖 alva-types 
     ↑
 alva-engine-adapter-claude          ← Claude 适配器（依赖 runtime trait）
     ↑
-srow-core                           ← 消费者（通过 feature flag 选择适配器）
+alva-app-core                           ← 消费者（通过 feature flag 选择适配器）
     ↑
-srow-app                            ← UI 层
+alva-app                            ← UI 层
 ```
 
 `alva-engine-runtime` 不依赖 `alva-core`。`alva-engine-adapter-claude` 也不依赖 `alva-core`。两者完全独立。
