@@ -18,8 +18,11 @@ pub mod file_edit;
 pub mod grep_search;
 pub mod internet_search;
 pub mod list_files;
+pub mod local_fs;
 pub mod read_url;
 pub mod view_image;
+
+pub use local_fs::{walk_dir, LocalToolFs};
 
 #[cfg(feature = "browser")]
 pub mod browser;
