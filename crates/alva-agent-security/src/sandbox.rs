@@ -128,11 +128,7 @@ impl SandboxConfig {
         config.add_writable_dir(workspace.to_path_buf());
 
         // Always allow writes to temp
-        if let Ok(tmp) = std::env::var("TMPDIR") {
-            config.add_writable_dir(std::path::PathBuf::from(tmp));
-        } else {
-            config.add_writable_dir(std::path::PathBuf::from("/tmp"));
-        }
+        config.add_writable_dir(std::env::temp_dir());
 
         config
     }

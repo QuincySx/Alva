@@ -22,7 +22,7 @@ pub struct SensitivePathFilter {
 impl SensitivePathFilter {
     /// Create with the default Wukong-derived ruleset.
     pub fn default_rules() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        let home = Self::resolve_home_dir();
 
         let denied_dirs = vec![
             home.join(".gnupg"),
@@ -124,6 +124,17 @@ impl SensitivePathFilter {
         None
     }
 
+    fn resolve_home_dir() -> PathBuf {
+        #[cfg(feature = "native")]
+        {
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
+        }
+        #[cfg(not(feature = "native"))]
+        {
+            PathBuf::from("/home/agent")
+        }
+    }
+
     /// Best-effort normalization for paths that may not exist yet.
     fn normalize(&self, path: &Path) -> PathBuf {
         let mut out = PathBuf::new();
@@ -161,6 +172,7 @@ mod tests {
         assert!(filter.check(Path::new("/project/keystore.pfx")).is_some());
     }
 
+    #[cfg(feature = "native")]
     #[test]
     fn blocks_gnupg_directory() {
         let filter = SensitivePathFilter::default_rules();
@@ -169,6 +181,7 @@ mod tests {
         assert!(filter.check(&path).is_some());
     }
 
+    #[cfg(feature = "native")]
     #[test]
     fn blocks_ssh_directory() {
         let filter = SensitivePathFilter::default_rules();

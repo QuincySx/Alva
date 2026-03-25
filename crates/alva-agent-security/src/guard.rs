@@ -53,6 +53,17 @@ const PATH_KEYS: &[&str] = &[
     "cwd",
 ];
 
+fn expand_home(path: &str) -> PathBuf {
+    #[cfg(feature = "native")]
+    {
+        dirs::home_dir().unwrap_or_default().join(path)
+    }
+    #[cfg(not(feature = "native"))]
+    {
+        PathBuf::from("/home/agent").join(path)
+    }
+}
+
 /// Unified security gate — the single entry point checked before every tool
 /// execution.
 ///
@@ -198,9 +209,7 @@ impl SecurityGuard {
                         let p = Path::new(s);
                         if p.is_absolute() || s.starts_with("~/") || s.starts_with("./") || s.starts_with("../") {
                             let expanded = if let Some(rest) = s.strip_prefix("~/") {
-                                dirs::home_dir()
-                                    .unwrap_or_default()
-                                    .join(rest)
+                                expand_home(rest)
                             } else {
                                 PathBuf::from(s)
                             };
@@ -233,7 +242,7 @@ impl SecurityGuard {
                 || cleaned.starts_with("../")
             {
                 let expanded = if let Some(rest) = cleaned.strip_prefix("~/") {
-                    dirs::home_dir().unwrap_or_default().join(rest)
+                    expand_home(rest)
                 } else {
                     PathBuf::from(cleaned)
                 };
