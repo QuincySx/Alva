@@ -7,9 +7,9 @@ description = "Batteries-included agent runtime — composes core, tools, securi
 [dependencies]
 alva-types = { path = "../alva-types" }
 alva-agent-core = { path = "../alva-agent-core" }
-alva-agent-tools = { path = "../alva-agent-tools" }
-alva-agent-security = { path = "../alva-agent-security" }
-alva-agent-memory = { path = "../alva-agent-memory" }
+alva-agent-tools = { path = "../alva-agent-tools", default-features = false }
+alva-agent-security = { path = "../alva-agent-security", default-features = false }
+alva-agent-memory = { path = "../alva-agent-memory", optional = true }
 alva-agent-graph = { path = "../alva-agent-graph" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt"] }
@@ -20,8 +20,13 @@ futures-core = "0.3"
 tokio-stream = "0.1"
 
 [features]
+default = ["native"]
+native = [
+    "alva-agent-tools/default",
+    "alva-agent-security/native",
+    "alva-agent-memory",
+]
 browser = ["alva-agent-tools/browser"]
-default = ["browser"]
 
 [[example]]
 name = "runtime_basic"

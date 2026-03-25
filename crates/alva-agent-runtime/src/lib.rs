@@ -1,5 +1,5 @@
-// INPUT:  alva_agent_core, alva_types, alva_agent_tools, alva_agent_security, alva_agent_memory, builder, init
-// OUTPUT: AgentRuntime, AgentRuntimeBuilder, model, Agent, AgentEvent, AgentMessage, AgentHooks, Tool, ToolContext, ToolRegistry, LanguageModel, Provider, ProviderRegistry, SecurityGuard, SandboxMode, SecurityMiddleware, MemoryService
+// INPUT:  alva_agent_core, alva_types, alva_agent_tools, alva_agent_security, alva_agent_memory (native), builder, init
+// OUTPUT: AgentRuntime, AgentRuntimeBuilder, model, Agent, AgentEvent, AgentMessage, AgentHooks, Tool, ToolContext, ToolRegistry, LanguageModel, Provider, ProviderRegistry, SecurityGuard, SandboxMode, SecurityMiddleware, MemoryService (native)
 // POS:    Crate root — composes all agent subsystems and re-exports a batteries-included API.
 //! Batteries-included agent runtime.
 //!
@@ -21,4 +21,5 @@ pub use alva_types::{Tool, ToolContext, ToolRegistry, LanguageModel, Provider, P
 pub use alva_agent_tools::{register_builtin_tools, register_all_tools};
 pub use alva_agent_security::{SecurityGuard, SandboxMode};
 pub use middleware::SecurityMiddleware;
+#[cfg(feature = "native")]
 pub use alva_agent_memory::MemoryService;
