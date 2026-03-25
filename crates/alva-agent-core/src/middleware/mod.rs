@@ -344,11 +344,11 @@ mod tests {
     #[tokio::test]
     async fn test_middleware_execution_order() {
         // Track the order in which before/after hooks fire.
-        let order = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+        let order = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
 
         struct OrderMiddleware {
             label: String,
-            order: Arc<parking_lot::Mutex<Vec<String>>>,
+            order: Arc<std::sync::Mutex<Vec<String>>>,
         }
 
         #[async_trait]
@@ -360,6 +360,7 @@ mod tests {
             ) -> Result<(), MiddlewareError> {
                 self.order
                     .lock()
+                    .unwrap()
                     .push(format!("before:{}", self.label));
                 Ok(())
             }
@@ -370,6 +371,7 @@ mod tests {
             ) -> Result<(), MiddlewareError> {
                 self.order
                     .lock()
+                    .unwrap()
                     .push(format!("after:{}", self.label));
                 Ok(())
             }
@@ -406,7 +408,7 @@ mod tests {
         };
         stack.run_after_llm_call(&mut ctx, &mut response).await.unwrap();
 
-        let trace = order.lock().clone();
+        let trace = order.lock().unwrap().clone();
         // Before: top-to-bottom (A, B, C)
         // After: bottom-to-top (C, B, A)
         assert_eq!(
@@ -483,11 +485,11 @@ mod tests {
     // -----------------------------------------------------------------------
     #[tokio::test]
     async fn test_agent_lifecycle_order() {
-        let order = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+        let order = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
 
         struct LifecycleMiddleware {
             label: String,
-            order: Arc<parking_lot::Mutex<Vec<String>>>,
+            order: Arc<std::sync::Mutex<Vec<String>>>,
         }
 
         #[async_trait]
@@ -498,6 +500,7 @@ mod tests {
             ) -> Result<(), MiddlewareError> {
                 self.order
                     .lock()
+                    .unwrap()
                     .push(format!("start:{}", self.label));
                 Ok(())
             }
@@ -508,6 +511,7 @@ mod tests {
             ) -> Result<(), MiddlewareError> {
                 self.order
                     .lock()
+                    .unwrap()
                     .push(format!("end:{}", self.label));
                 Ok(())
             }
@@ -527,7 +531,7 @@ mod tests {
         stack.run_on_agent_start(&mut ctx).await.unwrap();
         stack.run_on_agent_end(&mut ctx, None).await.unwrap();
 
-        let trace = order.lock().clone();
+        let trace = order.lock().unwrap().clone();
         assert_eq!(trace, vec!["start:X", "start:Y", "end:Y", "end:X"]);
     }
 
@@ -597,7 +601,7 @@ mod tests {
         }
 
         struct BudgetReader {
-            observed: Arc<parking_lot::Mutex<Option<u32>>>,
+            observed: Arc<std::sync::Mutex<Option<u32>>>,
         }
 
         #[async_trait]
@@ -607,13 +611,13 @@ mod tests {
                 ctx: &mut MiddlewareContext,
             ) -> Result<(), MiddlewareError> {
                 if let Some(budget) = ctx.extensions.get::<TokenBudget>() {
-                    *self.observed.lock() = Some(budget.0);
+                    *self.observed.lock().unwrap() = Some(budget.0);
                 }
                 Ok(())
             }
         }
 
-        let observed = Arc::new(parking_lot::Mutex::new(None));
+        let observed = Arc::new(std::sync::Mutex::new(None));
 
         let mut stack = MiddlewareStack::new();
         stack.push(Arc::new(BudgetSetter));
@@ -624,6 +628,6 @@ mod tests {
         let mut ctx = test_ctx();
         stack.run_on_agent_start(&mut ctx).await.unwrap();
 
-        assert_eq!(*observed.lock(), Some(1000));
+        assert_eq!(*observed.lock().unwrap(), Some(1000));
     }
 }

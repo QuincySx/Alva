@@ -1,4 +1,4 @@
-// INPUT:  alva_types, tokio, tokio_stream, tracing, uuid, chrono, async_trait, thiserror, serde, serde_json, parking_lot
+// INPUT:  alva_types, tokio, tokio_stream, tracing, uuid, chrono, async_trait, thiserror, serde, serde_json
 // OUTPUT: Agent, AgentEvent, AgentMessage, AgentHooks, AgentState, AgentContext, Middleware, MiddlewareStack, Extensions, CompressionMiddleware, ConvertToLlmFn
 // POS:    Crate root — declares modules and re-exports the public API for the agent engine.
 pub mod types;

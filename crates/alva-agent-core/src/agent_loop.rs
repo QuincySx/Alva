@@ -1030,7 +1030,7 @@ mod tests {
         struct Budget(u32);
 
         struct PersistenceMiddleware {
-            observed: Arc<parking_lot::Mutex<Option<u32>>>,
+            observed: Arc<std::sync::Mutex<Option<u32>>>,
         }
 
         #[async_trait]
@@ -1048,13 +1048,13 @@ mod tests {
                 _msgs: &mut Vec<Message>,
             ) -> Result<(), MiddlewareError> {
                 if let Some(b) = ctx.extensions.get::<Budget>() {
-                    *self.observed.lock() = Some(b.0);
+                    *self.observed.lock().unwrap() = Some(b.0);
                 }
                 Ok(())
             }
         }
 
-        let observed = Arc::new(parking_lot::Mutex::new(None));
+        let observed = Arc::new(std::sync::Mutex::new(None));
         let mw = PersistenceMiddleware {
             observed: observed.clone(),
         };
@@ -1072,7 +1072,7 @@ mod tests {
         let _ = run_agent_loop(&mut state, &MockModel, &config, &cancel, &event_tx).await;
 
         assert_eq!(
-            *observed.lock(),
+            *observed.lock().unwrap(),
             Some(999),
             "Extensions should persist from on_agent_start to before_llm_call"
         );
