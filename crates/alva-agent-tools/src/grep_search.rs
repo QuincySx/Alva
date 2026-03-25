@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, regex, serde, serde_json, walkdir
+// INPUT:  alva_types, async_trait, regex, serde, serde_json, crate::local_fs::{LocalToolFs, walk_dir}
 // OUTPUT: GrepSearchTool
 // POS:    Searches for regex patterns across workspace files with glob filtering and line-level results.
 //! grep_search — regex search across files
@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use walkdir::WalkDir;
+
+use crate::local_fs::{walk_dir, LocalToolFs};
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -97,54 +98,52 @@ impl Tool for GrepSearchTool {
             glob::Pattern::new(p).unwrap_or_else(|_| glob::Pattern::new("*").unwrap())
         });
 
-        // Walk directory and search (blocking, run in spawn_blocking)
-        let matches = tokio::task::spawn_blocking(move || {
-            let mut results: Vec<GrepMatch> = Vec::new();
+        let fallback = LocalToolFs::new(local.workspace());
+        let fs = ctx.tool_fs().unwrap_or(&fallback);
 
-            for entry in WalkDir::new(&search_root)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().is_file())
-            {
-                if results.len() >= max_results {
-                    break;
-                }
+        // Walk directory to get all file paths (hidden files excluded)
+        let search_root_str = search_root.to_str().unwrap_or_default();
+        let file_paths = walk_dir(fs, search_root_str, None, false).await?;
 
-                let path = entry.path();
+        let mut results: Vec<GrepMatch> = Vec::new();
 
-                // Apply glob filter
-                if let Some(ref glob) = glob_pattern {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if !glob.matches(name) {
-                            continue;
-                        }
-                    }
-                }
+        for file_path in file_paths {
+            if results.len() >= max_results {
+                break;
+            }
 
-                // Skip binary files (heuristic: try reading as UTF-8)
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    for (line_num, line) in content.lines().enumerate() {
-                        if results.len() >= max_results {
-                            break;
-                        }
-                        if regex.is_match(line) {
-                            results.push(GrepMatch {
-                                file: path.display().to_string(),
-                                line: line_num + 1,
-                                content: line.to_string(),
-                            });
-                        }
+            // Apply glob filter on file name
+            if let Some(ref glob) = glob_pattern {
+                if let Some(name) = std::path::Path::new(&file_path).file_name().and_then(|n| n.to_str()) {
+                    if !glob.matches(name) {
+                        continue;
                     }
                 }
             }
 
-            results
-        })
-        .await
-        .map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: e.to_string() })?;
+            // Read file via ToolFs; skip binary / unreadable files
+            let bytes = match fs.read_file(&file_path).await {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let content = String::from_utf8_lossy(&bytes);
+
+            for (line_num, line) in content.lines().enumerate() {
+                if results.len() >= max_results {
+                    break;
+                }
+                if regex.is_match(line) {
+                    results.push(GrepMatch {
+                        file: file_path.clone(),
+                        line: line_num + 1,
+                        content: line.to_string(),
+                    });
+                }
+            }
+        }
 
         Ok(ToolResult {
-            content: serde_json::to_string_pretty(&matches)
+            content: serde_json::to_string_pretty(&results)
                 .unwrap_or_else(|_| "[]".to_string()),
             is_error: false,
             details: None,
