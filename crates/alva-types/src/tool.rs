@@ -63,6 +63,12 @@ pub trait ToolContext: Send + Sync {
     fn local(&self) -> Option<&dyn LocalToolContext> {
         None
     }
+
+    /// Returns an abstract FS interface (sandbox, remote, or mock).
+    /// When None, tools fall back to direct local operations.
+    fn tool_fs(&self) -> Option<&dyn ToolFs> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +82,59 @@ pub trait LocalToolContext: ToolContext {
 
     /// Whether the tool is allowed to perform dangerous operations.
     fn allow_dangerous(&self) -> bool;
+}
+
+// ---------------------------------------------------------------------------
+// ToolFs — abstract filesystem + command execution interface
+// ---------------------------------------------------------------------------
+
+/// Abstract filesystem + command execution interface.
+///
+/// Tools call these methods instead of direct system APIs.
+/// Implementations include local FS, sandbox delegates, or mocks.
+#[async_trait]
+pub trait ToolFs: Send + Sync {
+    /// Execute a shell command. Returns (stdout, stderr, exit_code).
+    async fn exec(
+        &self,
+        command: &str,
+        cwd: Option<&str>,
+        timeout_ms: u64,
+    ) -> Result<ToolFsExecResult, AgentError>;
+
+    /// Read a file's contents.
+    async fn read_file(&self, path: &str) -> Result<Vec<u8>, AgentError>;
+
+    /// Write content to a file (creates parent dirs as needed).
+    async fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgentError>;
+
+    /// List directory entries (non-recursive).
+    async fn list_dir(&self, path: &str) -> Result<Vec<ToolFsDirEntry>, AgentError>;
+
+    /// Check if a path exists.
+    async fn exists(&self, path: &str) -> Result<bool, AgentError>;
+}
+
+/// Result of ToolFs::exec().
+#[derive(Debug, Clone)]
+pub struct ToolFsExecResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+impl ToolFsExecResult {
+    pub fn success(&self) -> bool {
+        self.exit_code == 0
+    }
+}
+
+/// Directory entry from ToolFs::list_dir().
+#[derive(Debug, Clone)]
+pub struct ToolFsDirEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
 }
 
 /// No-op context for tools that don't need runtime information.
