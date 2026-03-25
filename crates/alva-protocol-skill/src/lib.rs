@@ -9,4 +9,6 @@ pub mod repository;
 pub mod loader;
 pub mod injector;
 pub mod store;
+#[cfg(feature = "fs")]
 pub mod fs;
+pub mod memory;
