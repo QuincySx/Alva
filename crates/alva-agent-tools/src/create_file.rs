@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, tokio::fs
+// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: CreateFileTool
 // POS:    Creates or overwrites a file with auto-creation of parent directories.
 //! create_file — create or overwrite a file
@@ -7,6 +7,8 @@ use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+use crate::local_fs::LocalToolFs;
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -57,17 +59,12 @@ impl Tool for CreateFileTool {
             message: "local filesystem context required".into(),
         })?;
         let file_path = local.workspace().join(&params.path);
-        let create_dirs = params.create_dirs.unwrap_or(true);
+        let fallback = LocalToolFs::new(local.workspace());
+        let fs = ctx.tool_fs().unwrap_or(&fallback);
 
-        if create_dirs {
-            if let Some(parent) = file_path.parent() {
-                tokio::fs::create_dir_all(parent)
-                    .await
-                    .map_err(|e| AgentError::ToolError { tool_name: "create_file".into(), message: e.to_string() })?;
-            }
-        }
-
-        tokio::fs::write(&file_path, &params.content)
+        // write_file handles parent directory creation internally
+        let _ = params.create_dirs; // honoured by ToolFs::write_file unconditionally
+        fs.write_file(file_path.to_str().unwrap_or_default(), params.content.as_bytes())
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "create_file".into(), message: e.to_string() })?;
 

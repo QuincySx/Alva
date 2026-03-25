@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, base64, tokio::fs
+// INPUT:  alva_types, async_trait, serde, serde_json, base64, crate::local_fs::LocalToolFs
 // OUTPUT: ViewImageTool
 // POS:    Reads image files and returns base64-encoded content with MIME type detection.
 //! view_image — read an image file and return its base64-encoded content
@@ -8,6 +8,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::Path;
+
+use crate::local_fs::LocalToolFs;
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -55,8 +57,12 @@ impl Tool for ViewImageTool {
             local.workspace().join(&params.path)
         };
 
+        let fallback = LocalToolFs::new(local.workspace());
+        let fs = ctx.tool_fs().unwrap_or(&fallback);
+
         // Verify file exists
-        if !file_path.exists() {
+        let path_str = file_path.to_str().unwrap_or_default();
+        if !fs.exists(path_str).await.map_err(|e| AgentError::ToolError { tool_name: "view_image".into(), message: e.to_string() })? {
             return Err(AgentError::ToolError {
                 tool_name: "view_image".into(),
                 message: format!("Image file not found: {}", file_path.display()),
@@ -87,7 +93,8 @@ impl Tool for ViewImageTool {
         };
 
         // Read file
-        let data = tokio::fs::read(&file_path)
+        let data = fs
+            .read_file(path_str)
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "view_image".into(), message: format!("Failed to read image: {e}") })?;
 

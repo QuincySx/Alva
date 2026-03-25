@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, tokio::fs
+// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: FileEditTool
 // POS:    Performs string-replace-based file editing requiring unique match of old_str.
 //! file_edit — string-replace based file editing (like Claude Code's Edit tool)
@@ -7,6 +7,8 @@ use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+use crate::local_fs::LocalToolFs;
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -57,10 +59,14 @@ impl Tool for FileEditTool {
             message: "local filesystem context required".into(),
         })?;
         let file_path = local.workspace().join(&params.path);
+        let fallback = LocalToolFs::new(local.workspace());
+        let fs = ctx.tool_fs().unwrap_or(&fallback);
 
-        let content = tokio::fs::read_to_string(&file_path)
+        let raw = fs
+            .read_file(file_path.to_str().unwrap_or_default())
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot read file: {}", e) })?;
+        let content = String::from_utf8_lossy(&raw).into_owned();
 
         // Verify old_str is unique
         let count = content.matches(&params.old_str).count();
@@ -83,7 +89,7 @@ impl Tool for FileEditTool {
         }
 
         let new_content = content.replacen(&params.old_str, &params.new_str, 1);
-        tokio::fs::write(&file_path, &new_content)
+        fs.write_file(file_path.to_str().unwrap_or_default(), new_content.as_bytes())
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot write file: {}", e) })?;
 
