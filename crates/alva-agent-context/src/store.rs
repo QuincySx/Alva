@@ -365,3 +365,343 @@ fn preview_message(msg: &AgentMessage, max_chars: usize) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_types::{ContentBlock, Message, MessageRole};
+    use std::path::PathBuf;
+
+    /// Create a ContextStore with a 10_000 token model window and 8_000 budget.
+    fn test_store() -> ContextStore {
+        ContextStore::new(10_000, 8_000, PathBuf::from("/tmp/test-context"))
+    }
+
+    /// Create a ContextEntry with given id, layer, and estimated token count.
+    fn test_entry(id: &str, layer: ContextLayer, tokens: usize) -> ContextEntry {
+        ContextEntry {
+            id: id.to_string(),
+            message: AgentMessage::Standard(Message {
+                id: id.to_string(),
+                role: MessageRole::User,
+                content: vec![ContentBlock::Text {
+                    text: format!("msg-{}", id),
+                }],
+                tool_call_id: None,
+                usage: None,
+                timestamp: 1000,
+            }),
+            metadata: ContextMetadata::new(layer).with_tokens(tokens),
+        }
+    }
+
+    #[test]
+    fn test_append_and_get() {
+        let mut store = test_store();
+        let entry = test_entry("e1", ContextLayer::RuntimeInject, 100);
+        store.append(entry);
+
+        let got = store.get_entry("e1");
+        assert!(got.is_some());
+        assert_eq!(got.unwrap().id, "e1");
+
+        // Non-existent entry returns None.
+        assert!(store.get_entry("nope").is_none());
+    }
+
+    #[test]
+    fn test_total_tokens() {
+        let mut store = test_store();
+        store.append(test_entry("a", ContextLayer::AlwaysPresent, 100));
+        store.append(test_entry("b", ContextLayer::RuntimeInject, 250));
+        assert_eq!(store.total_tokens(), 350);
+
+        // Compacted entries are excluded from total_tokens.
+        if let Some(e) = store.get_entry_mut("a") {
+            e.metadata.compacted = true;
+        }
+        assert_eq!(store.total_tokens(), 250);
+    }
+
+    #[test]
+    fn test_usage_ratio() {
+        let mut store = test_store(); // model_window = 10_000
+        store.append(test_entry("a", ContextLayer::AlwaysPresent, 5000));
+        let ratio = store.usage_ratio();
+        assert!((ratio - 0.5).abs() < f32::EPSILON);
+
+        // Zero-window edge case.
+        let store_zero = ContextStore::new(0, 0, PathBuf::from("/tmp"));
+        assert_eq!(store_zero.usage_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_layer_breakdown() {
+        let mut store = test_store();
+        store.append(test_entry("a", ContextLayer::AlwaysPresent, 200));
+        store.append(test_entry("b", ContextLayer::AlwaysPresent, 300));
+        store.append(test_entry("c", ContextLayer::RuntimeInject, 500));
+
+        let breakdown = store.layer_breakdown();
+
+        let l0 = breakdown.get(&ContextLayer::AlwaysPresent).unwrap();
+        assert_eq!(l0.token_count, 500);
+        assert_eq!(l0.entry_count, 2);
+
+        let l2 = breakdown.get(&ContextLayer::RuntimeInject).unwrap();
+        assert_eq!(l2.token_count, 500);
+        assert_eq!(l2.entry_count, 1);
+
+        // Percentage: each layer is 500 out of 1000 total = 0.5
+        assert!((l0.percentage - 0.5).abs() < f32::EPSILON);
+        assert!((l2.percentage - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_remove_message() {
+        let mut store = test_store();
+        store.append(test_entry("a", ContextLayer::AlwaysPresent, 100));
+        store.append(test_entry("b", ContextLayer::RuntimeInject, 200));
+        assert_eq!(store.entries().len(), 2);
+
+        store.remove_message("a");
+        assert_eq!(store.entries().len(), 1);
+        assert!(store.get_entry("a").is_none());
+        assert!(store.get_entry("b").is_some());
+
+        // Removing non-existent is a no-op.
+        store.remove_message("nope");
+        assert_eq!(store.entries().len(), 1);
+    }
+
+    #[test]
+    fn test_sliding_window() {
+        let mut store = test_store();
+        // L0 entries are not affected by sliding_window.
+        store.append(test_entry("l0", ContextLayer::AlwaysPresent, 100));
+        // Add RuntimeInject (L2) entries which ARE subject to sliding window.
+        for i in 0..5 {
+            store.append(test_entry(
+                &format!("rt{}", i),
+                ContextLayer::RuntimeInject,
+                50,
+            ));
+        }
+        // Also add Memory (L3) entries which are also subject to sliding window.
+        for i in 0..3 {
+            store.append(test_entry(
+                &format!("mem{}", i),
+                ContextLayer::Memory,
+                50,
+            ));
+        }
+        // Total: 1 L0 + 5 L2 + 3 L3 = 9 entries. 8 conversation entries.
+        assert_eq!(store.entries().len(), 9);
+
+        // Keep 3 most recent conversation entries (L2+L3).
+        store.sliding_window(3);
+
+        // L0 untouched + 3 kept = 4
+        assert_eq!(store.entries().len(), 4);
+        assert!(store.get_entry("l0").is_some());
+        // The oldest 5 conversation entries should be gone.
+        assert!(store.get_entry("rt0").is_none());
+        assert!(store.get_entry("rt1").is_none());
+        assert!(store.get_entry("rt2").is_none());
+        assert!(store.get_entry("rt3").is_none());
+        assert!(store.get_entry("rt4").is_none());
+        // The 3 most recent (mem0, mem1, mem2) should survive.
+        assert!(store.get_entry("mem0").is_some());
+        assert!(store.get_entry("mem1").is_some());
+        assert!(store.get_entry("mem2").is_some());
+    }
+
+    #[test]
+    fn test_replace_tool_result_keeps_in_context() {
+        let mut store = test_store();
+        store.append(test_entry("tr1", ContextLayer::RuntimeInject, 5000));
+
+        store.replace_tool_result("tr1", "Summary of tool result.");
+
+        let entry = store.get_entry("tr1").unwrap();
+        // Must NOT be compacted — the summary should remain visible to the LLM.
+        assert!(!entry.metadata.compacted);
+        assert_eq!(
+            entry.metadata.replacement_summary,
+            Some("Summary of tool result.".to_string())
+        );
+        // Token count is updated to reflect summary size.
+        assert_eq!(
+            entry.metadata.estimated_tokens,
+            estimate_tokens("Summary of tool result.")
+        );
+        // The message content is replaced with the summary text.
+        if let AgentMessage::Standard(m) = &entry.message {
+            assert_eq!(m.text_content(), "Summary of tool result.");
+        } else {
+            panic!("Expected Standard message");
+        }
+        // total_tokens counts the summary (entry is not compacted).
+        assert_eq!(
+            store.total_tokens(),
+            estimate_tokens("Summary of tool result.")
+        );
+    }
+
+    #[test]
+    fn test_clear_layer() {
+        let mut store = test_store();
+        store.append(test_entry("a", ContextLayer::AlwaysPresent, 100));
+        store.append(test_entry("b", ContextLayer::RuntimeInject, 200));
+        store.append(test_entry("c", ContextLayer::RuntimeInject, 300));
+        store.append(test_entry("d", ContextLayer::Memory, 150));
+
+        store.clear_layer(ContextLayer::RuntimeInject);
+
+        assert_eq!(store.entries().len(), 2);
+        assert!(store.get_entry("a").is_some());
+        assert!(store.get_entry("b").is_none());
+        assert!(store.get_entry("c").is_none());
+        assert!(store.get_entry("d").is_some());
+    }
+
+    #[test]
+    fn test_clear_conversation_keeps_l0() {
+        let mut store = test_store();
+        store.append(test_entry("l0a", ContextLayer::AlwaysPresent, 100));
+        store.append(test_entry("l0b", ContextLayer::AlwaysPresent, 200));
+        store.append(test_entry("l1", ContextLayer::OnDemand, 300));
+        store.append(test_entry("l2", ContextLayer::RuntimeInject, 400));
+        store.append(test_entry("l3", ContextLayer::Memory, 500));
+
+        store.clear_conversation();
+
+        // Only L0 (AlwaysPresent) should remain.
+        assert_eq!(store.entries().len(), 2);
+        assert!(store.get_entry("l0a").is_some());
+        assert!(store.get_entry("l0b").is_some());
+        assert!(store.get_entry("l1").is_none());
+        assert!(store.get_entry("l2").is_none());
+        assert!(store.get_entry("l3").is_none());
+    }
+
+    #[test]
+    fn test_clear_all() {
+        let mut store = test_store();
+        store.append(test_entry("l0", ContextLayer::AlwaysPresent, 100));
+        store.append(test_entry("l2", ContextLayer::RuntimeInject, 200));
+
+        store.clear_all();
+
+        assert!(store.entries().is_empty());
+        assert_eq!(store.total_tokens(), 0);
+    }
+
+    #[test]
+    fn test_sync_external_usage() {
+        let mut store = test_store(); // model_window = 10_000, budget = 8_000
+
+        store.sync_external_usage(3000);
+
+        // total_tokens should reflect the external usage.
+        assert_eq!(store.total_tokens(), 3000);
+
+        // budget_info should show 3000 used, 5000 remaining.
+        let info = store.budget_info();
+        assert_eq!(info.used_tokens, 3000);
+        assert_eq!(info.remaining_tokens, 5000);
+
+        // Calling again replaces (not adds).
+        store.sync_external_usage(6000);
+        assert_eq!(store.total_tokens(), 6000);
+        let info = store.budget_info();
+        assert_eq!(info.remaining_tokens, 2000);
+
+        // Syncing 0 removes the synthetic entry.
+        store.sync_external_usage(0);
+        assert_eq!(store.total_tokens(), 0);
+    }
+
+    #[test]
+    fn test_build_llm_messages_layer_order() {
+        let mut store = test_store();
+        // Insert in reverse order to verify sorting.
+        store.append(test_entry("mem", ContextLayer::Memory, 50));
+        store.append(test_entry("rt", ContextLayer::RuntimeInject, 50));
+        store.append(test_entry("od", ContextLayer::OnDemand, 50));
+        store.append(test_entry("ap", ContextLayer::AlwaysPresent, 50));
+
+        let msgs = store.build_llm_messages();
+        assert_eq!(msgs.len(), 4);
+
+        // Extract ids in order.
+        let ids: Vec<String> = msgs
+            .iter()
+            .map(|m| match m {
+                AgentMessage::Standard(msg) => msg.id.clone(),
+                AgentMessage::Custom { .. } => "custom".to_string(),
+            })
+            .collect();
+
+        // Expected order: AlwaysPresent → OnDemand → RuntimeInject → Memory
+        assert_eq!(ids, vec!["ap", "od", "rt", "mem"]);
+    }
+
+    #[test]
+    fn test_build_llm_messages_excludes_compacted() {
+        let mut store = test_store();
+        store.append(test_entry("a", ContextLayer::AlwaysPresent, 100));
+        store.append(test_entry("b", ContextLayer::RuntimeInject, 200));
+
+        // Mark "b" as compacted.
+        if let Some(e) = store.get_entry_mut("b") {
+            e.metadata.compacted = true;
+        }
+
+        let msgs = store.build_llm_messages();
+        assert_eq!(msgs.len(), 1);
+    }
+
+    #[test]
+    fn test_tool_pattern_tracking() {
+        let mut store = test_store();
+
+        store.track_tool_call("grep", 500);
+        store.track_tool_call("grep", 300);
+        store.track_tool_call("read_file", 1000);
+
+        let patterns = store.get_tool_patterns(10);
+        assert_eq!(patterns.len(), 2);
+
+        let grep_pattern = patterns.iter().find(|p| p.tool_name == "grep").unwrap();
+        assert_eq!(grep_pattern.call_count, 2);
+        assert_eq!(grep_pattern.total_result_tokens, 800);
+        assert_eq!(grep_pattern.avg_result_tokens, 400); // 800/2
+
+        let read_pattern = patterns
+            .iter()
+            .find(|p| p.tool_name == "read_file")
+            .unwrap();
+        assert_eq!(read_pattern.call_count, 1);
+        assert_eq!(read_pattern.total_result_tokens, 1000);
+        assert_eq!(read_pattern.avg_result_tokens, 1000);
+    }
+
+    #[test]
+    fn test_tool_pattern_tracking_last_n() {
+        let mut store = test_store();
+
+        // Track 5 calls with different token counts.
+        for i in 1..=5 {
+            store.track_tool_call("tool", i * 100);
+        }
+
+        // Get only last 3.
+        let patterns = store.get_tool_patterns(3);
+        let p = &patterns[0];
+        assert_eq!(p.call_count, 3);
+        // Last 3 are 500, 400, 300 (reversed iteration) → total = 1200, avg = 400
+        assert_eq!(p.total_result_tokens, 1200);
+        assert_eq!(p.avg_result_tokens, 400);
+    }
+}

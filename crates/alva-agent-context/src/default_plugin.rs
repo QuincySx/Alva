@@ -893,3 +893,187 @@ impl ContextPlugin for DefaultContextPlugin {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugin::ContextPlugin;
+    use crate::sdk_impl::ContextSDKImpl;
+    use crate::store::ContextStore;
+    use alva_types::{ContentBlock, Message, MessageRole};
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    /// Create a real SDK backed by a ContextStore for testing.
+    fn test_sdk() -> ContextSDKImpl {
+        let store = Arc::new(Mutex::new(ContextStore::new(
+            100_000,
+            80_000,
+            PathBuf::from("/tmp/test"),
+        )));
+        ContextSDKImpl::new(store)
+    }
+
+    /// Create a user AgentMessage with the given text.
+    fn user_msg(text: &str) -> AgentMessage {
+        AgentMessage::Standard(Message {
+            id: format!("msg-{}", text),
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 1000,
+        })
+    }
+
+    /// Create a tool-result AgentMessage with the given text and token-like size.
+    fn tool_msg(id: &str, text: &str) -> AgentMessage {
+        AgentMessage::Standard(Message {
+            id: id.to_string(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            tool_call_id: Some(format!("call-{}", id)),
+            usage: None,
+            timestamp: 3000,
+        })
+    }
+
+    #[tokio::test]
+    async fn test_assemble_sliding_window() {
+        let sdk = test_sdk();
+        let config = DefaultPluginConfig {
+            sliding_window_keep: 5,
+            ..DefaultPluginConfig::default()
+        };
+        let plugin = DefaultContextPlugin::new(config);
+
+        // Create 10 user messages.
+        let messages: Vec<AgentMessage> = (0..10)
+            .map(|i| user_msg(&format!("message number {}", i)))
+            .collect();
+
+        let result = plugin
+            .assemble(&sdk, "agent-1", messages, 100_000)
+            .await;
+
+        // Should keep only the last 5.
+        assert_eq!(result.len(), 5);
+
+        // Verify the kept messages are the last 5 (indices 5..10).
+        for (i, msg) in result.iter().enumerate() {
+            if let AgentMessage::Standard(m) = msg {
+                let expected_text = format!("message number {}", i + 5);
+                assert_eq!(m.text_content(), expected_text);
+            } else {
+                panic!("Expected Standard message");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_assemble_micro_compact() {
+        let sdk = test_sdk();
+        let config = DefaultPluginConfig {
+            sliding_window_keep: 100, // High enough to not trigger sliding window.
+            ..DefaultPluginConfig::default()
+        };
+        let plugin = DefaultContextPlugin::new(config);
+
+        // Create messages: 6 old tool results (>500 tokens each) + 5 recent user msgs.
+        // The old tool results should be compacted (micro_compact).
+        let large_text: String = "line1\n".repeat(400); // ~2400 chars = ~600 tokens
+        let mut messages = Vec::new();
+        for i in 0..6 {
+            messages.push(tool_msg(&format!("tool-{}", i), &large_text));
+        }
+        for i in 0..5 {
+            messages.push(user_msg(&format!("recent {}", i)));
+        }
+
+        let result = plugin
+            .assemble(&sdk, "agent-1", messages, 100_000)
+            .await;
+
+        assert_eq!(result.len(), 11); // All 11 messages kept (no sliding window)
+
+        // The first 6 (old tool results) should have been compacted.
+        for msg in result.iter().take(6) {
+            if let AgentMessage::Standard(m) = msg {
+                assert_eq!(m.role, MessageRole::Tool);
+                // Compacted message should contain "[...X lines" marker.
+                assert!(
+                    m.text_content().contains("[..."),
+                    "Expected compacted tool result, got: {}",
+                    m.text_content()
+                );
+            } else {
+                panic!("Expected Standard message");
+            }
+        }
+
+        // The last 5 (recent user) should be unchanged.
+        for (i, msg) in result.iter().skip(6).enumerate() {
+            if let AgentMessage::Standard(m) = msg {
+                assert_eq!(m.text_content(), format!("recent {}", i));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_assemble_budget_enforcement() {
+        let sdk = test_sdk();
+        let config = DefaultPluginConfig {
+            sliding_window_keep: 100,
+            ..DefaultPluginConfig::default()
+        };
+        let plugin = DefaultContextPlugin::new(config);
+
+        // Each message is ~100 tokens (400 chars / 4). Create 10 messages.
+        let text_400_chars: String = "a".repeat(400);
+        let messages: Vec<AgentMessage> = (0..10)
+            .map(|i| {
+                AgentMessage::Standard(Message {
+                    id: format!("m{}", i),
+                    role: MessageRole::User,
+                    content: vec![ContentBlock::Text {
+                        text: text_400_chars.clone(),
+                    }],
+                    tool_call_id: None,
+                    usage: None,
+                    timestamp: 1000 + i as i64,
+                })
+            })
+            .collect();
+
+        // Budget of 300 tokens. Each message ~100 tokens.
+        // Budget enforcement drops oldest until total <= 300, keeping at least 1.
+        let result = plugin
+            .assemble(&sdk, "agent-1", messages, 300)
+            .await;
+
+        // 300 budget / 100 tokens per message ≈ 3 messages should fit.
+        assert!(result.len() <= 3, "Expected <=3, got {}", result.len());
+        assert!(!result.is_empty());
+
+        // Verify the kept messages are the most recent ones.
+        if let AgentMessage::Standard(m) = &result[result.len() - 1] {
+            assert_eq!(m.id, "m9"); // The last message should survive.
+        }
+    }
+
+    #[tokio::test]
+    async fn test_assemble_empty() {
+        let sdk = test_sdk();
+        let plugin = DefaultContextPlugin::new(DefaultPluginConfig::default());
+
+        let result = plugin
+            .assemble(&sdk, "agent-1", vec![], 100_000)
+            .await;
+
+        assert!(result.is_empty());
+    }
+}

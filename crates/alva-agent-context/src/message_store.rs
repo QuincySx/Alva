@@ -181,3 +181,172 @@ impl MessageStore for InMemoryMessageStore {
         store.remove(session_id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_types::{ContentBlock, Message, MessageRole};
+
+    /// Create a simple user AgentMessage with the given text.
+    fn user_msg(text: &str) -> AgentMessage {
+        AgentMessage::Standard(Message {
+            id: format!("msg-{}", text),
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 1000,
+        })
+    }
+
+    /// Create an assistant AgentMessage with the given text.
+    fn assistant_msg(text: &str) -> AgentMessage {
+        AgentMessage::Standard(Message {
+            id: format!("msg-{}", text),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 2000,
+        })
+    }
+
+    /// Build a Turn with one user message and one agent response.
+    fn make_turn(index: usize, user_text: &str, agent_text: &str) -> Turn {
+        Turn {
+            index,
+            user_message: user_msg(user_text),
+            agent_messages: vec![assistant_msg(agent_text)],
+            started_at: 1000,
+            completed_at: Some(2000),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_append_and_get_turns() {
+        let store = InMemoryMessageStore::new();
+        let sid = "session-1";
+
+        store
+            .append_turn(sid, make_turn(0, "hello", "hi there"))
+            .await;
+        store
+            .append_turn(sid, make_turn(1, "how?", "fine"))
+            .await;
+
+        let turns = store.get_turns(sid).await;
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0].index, 0);
+        assert_eq!(turns[1].index, 1);
+
+        // Different session is empty.
+        let other = store.get_turns("other-session").await;
+        assert!(other.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_recent_turns() {
+        let store = InMemoryMessageStore::new();
+        let sid = "s1";
+
+        for i in 0..5 {
+            store
+                .append_turn(sid, make_turn(i, &format!("q{}", i), &format!("a{}", i)))
+                .await;
+        }
+
+        let recent = store.get_recent_turns(sid, 2).await;
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].index, 3);
+        assert_eq!(recent[1].index, 4);
+
+        // Requesting more than available returns all.
+        let all = store.get_recent_turns(sid, 100).await;
+        assert_eq!(all.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_messages() {
+        let store = InMemoryMessageStore::new();
+        let sid = "s1";
+
+        store
+            .append_turn(sid, make_turn(0, "q0", "a0"))
+            .await;
+        store
+            .append_turn(sid, make_turn(1, "q1", "a1"))
+            .await;
+
+        let msgs = store.get_all_messages(sid).await;
+        // 2 turns × (1 user + 1 assistant) = 4 messages.
+        assert_eq!(msgs.len(), 4);
+
+        // Verify order: user0, assistant0, user1, assistant1.
+        let ids: Vec<String> = msgs
+            .iter()
+            .map(|m| match m {
+                AgentMessage::Standard(msg) => msg.id.clone(),
+                AgentMessage::Custom { .. } => "custom".to_string(),
+            })
+            .collect();
+        assert_eq!(ids, vec!["msg-q0", "msg-a0", "msg-q1", "msg-a1"]);
+    }
+
+    #[tokio::test]
+    async fn test_turn_count() {
+        let store = InMemoryMessageStore::new();
+        let sid = "s1";
+
+        assert_eq!(store.turn_count(sid).await, 0);
+
+        store
+            .append_turn(sid, make_turn(0, "q0", "a0"))
+            .await;
+        assert_eq!(store.turn_count(sid).await, 1);
+
+        store
+            .append_turn(sid, make_turn(1, "q1", "a1"))
+            .await;
+        assert_eq!(store.turn_count(sid).await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_remove_turns_before() {
+        let store = InMemoryMessageStore::new();
+        let sid = "s1";
+
+        for i in 0..5 {
+            store
+                .append_turn(sid, make_turn(i, &format!("q{}", i), &format!("a{}", i)))
+                .await;
+        }
+
+        // Remove turns before index 3 (i.e., remove turns 0, 1, 2).
+        store.remove_turns_before(sid, 3).await;
+
+        let turns = store.get_turns(sid).await;
+        assert_eq!(turns.len(), 2);
+        // After removal, turns are re-indexed starting from 0.
+        assert_eq!(turns[0].index, 0);
+        assert_eq!(turns[1].index, 1);
+    }
+
+    #[tokio::test]
+    async fn test_clear() {
+        let store = InMemoryMessageStore::new();
+        let sid = "s1";
+
+        store
+            .append_turn(sid, make_turn(0, "q0", "a0"))
+            .await;
+        assert_eq!(store.turn_count(sid).await, 1);
+
+        store.clear(sid).await;
+        assert_eq!(store.turn_count(sid).await, 0);
+        assert!(store.get_turns(sid).await.is_empty());
+    }
+}
