@@ -318,10 +318,103 @@ async fn run_agent_loop_inner(
                                 }
                             }
                         }
-                        alva_agent_context::CompressAction::Summarize { .. } => {
-                            // LLM summarization requires async LLM call — skip for now,
-                            // let assemble's own budget enforcement handle it.
-                            debug!("budget: summarize action deferred to assemble");
+                        alva_agent_context::CompressAction::Summarize { range, hints } => {
+                            // Resolve the MessageRange to indices on state.messages.
+                            let msg_len = state.messages.len();
+                            let from_idx = match &range.from {
+                                alva_agent_context::MessageSelector::FromStart => 0,
+                                alva_agent_context::MessageSelector::ByIndex(i) => (*i).min(msg_len),
+                                alva_agent_context::MessageSelector::ById(id) => {
+                                    state.messages.iter().position(|m| match m {
+                                        AgentMessage::Standard(msg) => msg.id == *id,
+                                        _ => false,
+                                    }).unwrap_or(0)
+                                }
+                                alva_agent_context::MessageSelector::ToEnd => 0,
+                            };
+                            let to_idx = match &range.to {
+                                alva_agent_context::MessageSelector::ToEnd => msg_len,
+                                alva_agent_context::MessageSelector::ByIndex(i) => (*i).min(msg_len),
+                                alva_agent_context::MessageSelector::ById(id) => {
+                                    state.messages.iter().position(|m| match m {
+                                        AgentMessage::Standard(msg) => msg.id == *id,
+                                        _ => false,
+                                    }).map(|i| i + 1).unwrap_or(msg_len)
+                                }
+                                alva_agent_context::MessageSelector::FromStart => msg_len,
+                            };
+
+                            if from_idx < to_idx && to_idx <= msg_len {
+                                // Serialize the messages in the range to text for summarization.
+                                let range_text: String = state.messages[from_idx..to_idx]
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, m)| {
+                                        let role = match m {
+                                            AgentMessage::Standard(msg) => format!("{:?}", msg.role),
+                                            AgentMessage::Custom { .. } => "Custom".to_string(),
+                                        };
+                                        let text = match m {
+                                            AgentMessage::Standard(msg) => msg.text_content(),
+                                            AgentMessage::Custom { data, .. } => data.to_string(),
+                                        };
+                                        // Truncate individual message text to avoid blowing up the summary input
+                                        let truncated = if text.len() > 2000 {
+                                            format!("{}...[truncated]", &text[..2000])
+                                        } else {
+                                            text
+                                        };
+                                        format!("[{}] {}: {}", from_idx + i, role, truncated)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+
+                                // Call SDK summarize with a 5-second timeout.
+                                let summary_result = tokio::time::timeout(
+                                    std::time::Duration::from_secs(5),
+                                    config.context_sdk.summarize(
+                                        &state.session_id,
+                                        range.clone(),
+                                        &hints,
+                                    ),
+                                ).await;
+
+                                let summary_text = match summary_result {
+                                    Ok(s) => s,
+                                    Err(_) => {
+                                        warn!("budget: summarize timed out, falling back to truncation");
+                                        let truncated: String = range_text.chars().take(2000).collect();
+                                        format!("{}\n\n[... summarization timed out, truncated]", truncated)
+                                    }
+                                };
+
+                                // Replace the range with a single system message containing the summary.
+                                let summary_msg = AgentMessage::Standard(alva_types::Message {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    role: MessageRole::User,
+                                    content: vec![ContentBlock::Text {
+                                        text: format!(
+                                            "<conversation_summary>\n{}\n</conversation_summary>",
+                                            summary_text
+                                        ),
+                                    }],
+                                    tool_call_id: None,
+                                    usage: None,
+                                    timestamp: chrono::Utc::now().timestamp_millis(),
+                                });
+
+                                // Drain the range and insert the summary message.
+                                state.messages.drain(from_idx..to_idx);
+                                state.messages.insert(from_idx, summary_msg);
+                                debug!(
+                                    from = from_idx,
+                                    to = to_idx,
+                                    "budget: applied LLM summarization, replaced {} messages with summary",
+                                    to_idx - from_idx
+                                );
+                            } else {
+                                debug!(from = from_idx, to = to_idx, len = msg_len, "budget: summarize range invalid, skipping");
+                            }
                         }
                         alva_agent_context::CompressAction::Externalize { .. } => {
                             // File externalization not yet implemented.

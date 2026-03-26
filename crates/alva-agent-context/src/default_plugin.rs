@@ -412,8 +412,75 @@ impl ContextPlugin for DefaultContextPlugin {
         // Walk messages, for any ToolResult older than the recent 5, replace
         // with a one-liner if it's over 500 tokens. This runs BEFORE
         // sliding window so we save tokens without losing message count.
+        //
+        // S3: LLM summarization — for large old messages (>2000 tokens) that
+        // have summarize_fn available, use LLM summary instead of first-line
+        // truncation. Limited to 3 concurrent summarizations with 5s timeout.
         let mut compacted: Vec<AgentMessage> = Vec::with_capacity(messages.len());
         let recent_boundary = messages.len().saturating_sub(5);
+
+        // Collect indices of old large messages eligible for LLM summarization.
+        // We limit to 3 to bound latency.
+        let mut llm_summary_candidates: Vec<(usize, String, Vec<String>)> = Vec::new();
+        if self.config.summarize_fn.is_some() {
+            for (i, msg) in messages.iter().enumerate() {
+                if i >= recent_boundary {
+                    break;
+                }
+                let msg_tokens = Self::estimate_message_tokens(msg);
+                let is_tool_result = Self::is_tool_result(msg);
+                // Only LLM-summarize non-tool messages > 2000 tokens (tool results
+                // use the cheaper compact_tool_result path below).
+                if !is_tool_result && msg_tokens > 2000 && llm_summary_candidates.len() < 3 {
+                    let text = match msg {
+                        AgentMessage::Standard(m) => m.text_content(),
+                        AgentMessage::Custom { data, .. } => data.to_string(),
+                    };
+                    llm_summary_candidates.push((
+                        i,
+                        text,
+                        vec!["Preserve key decisions and identifiers".to_string()],
+                    ));
+                }
+            }
+        }
+
+        // Run LLM summarizations concurrently (up to 3) with 5-second timeout each.
+        let mut llm_summaries: std::collections::HashMap<usize, String> =
+            std::collections::HashMap::new();
+        if let Some(ref summarize_fn) = self.config.summarize_fn {
+            let futs: Vec<_> = llm_summary_candidates
+                .into_iter()
+                .map(|(idx, text, hints)| {
+                    let sf = summarize_fn.clone();
+                    async move {
+                        let result = tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            sf(text, hints),
+                        )
+                        .await;
+                        match result {
+                            Ok(Ok(summary)) => (idx, Some(summary)),
+                            Ok(Err(e)) => {
+                                tracing::warn!("assemble LLM summarize failed: {}", e);
+                                (idx, None)
+                            }
+                            Err(_) => {
+                                tracing::warn!("assemble LLM summarize timed out for index {}", idx);
+                                (idx, None)
+                            }
+                        }
+                    }
+                })
+                .collect();
+
+            let results = futures::future::join_all(futs).await;
+            for (idx, summary_opt) in results {
+                if let Some(summary) = summary_opt {
+                    llm_summaries.insert(idx, summary);
+                }
+            }
+        }
 
         for (i, msg) in messages.into_iter().enumerate() {
             let msg_tokens = Self::estimate_message_tokens(&msg);
@@ -421,7 +488,7 @@ impl ContextPlugin for DefaultContextPlugin {
             let is_tool_result = Self::is_tool_result(&msg);
 
             if is_old && is_tool_result && msg_tokens > 500 {
-                // Replace with compact placeholder
+                // Replace tool results with compact placeholder (cheap, deterministic).
                 let summary = Self::compact_tool_result(&msg);
                 let summary_tokens = estimate_tokens(&summary);
                 total_tokens = total_tokens - msg_tokens + summary_tokens;
@@ -430,6 +497,24 @@ impl ContextPlugin for DefaultContextPlugin {
                     role: alva_types::MessageRole::Tool,
                     content: vec![alva_types::ContentBlock::Text { text: summary }],
                     tool_call_id: Self::extract_tool_call_id(&msg),
+                    usage: None,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                }));
+            } else if let Some(summary) = llm_summaries.remove(&i) {
+                // Replace with LLM-generated summary.
+                let summary_tokens = estimate_tokens(&summary);
+                total_tokens = total_tokens - msg_tokens + summary_tokens;
+                let role = match &msg {
+                    AgentMessage::Standard(m) => m.role.clone(),
+                    _ => alva_types::MessageRole::User,
+                };
+                compacted.push(AgentMessage::Standard(alva_types::Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    role,
+                    content: vec![alva_types::ContentBlock::Text {
+                        text: format!("[summarized] {}", summary),
+                    }],
+                    tool_call_id: None,
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 }));
