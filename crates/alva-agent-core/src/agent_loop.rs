@@ -97,6 +97,12 @@ pub(crate) async fn run_agent_loop(
         }
     }
 
+    // Context plugin: on_inject_file — NOT called here.
+    // The on_inject_file hook is intended for upper layers (e.g. UI, CLI) to call
+    // when injecting file content into state.messages. The caller should invoke
+    // `plugin.on_inject_file(sdk, agent_id, path, content, tokens)` before adding
+    // the file content message, and respect the returned InjectDecision.
+
     // Context plugin: on_inject_media — scan last user message for Image blocks.
     // For each image, call the plugin hook and apply the decision (Keep/Describe/Remove/Reject).
     if let Some(AgentMessage::Standard(last_msg)) = state.messages.last_mut() {
@@ -433,7 +439,28 @@ async fn run_agent_loop_inner(
                 config.context_sdk.sync_external_usage(&state.session_id, used_tokens);
             }
 
-            // 1c. Assemble context (plugin applies its own compression strategies).
+            // 1c. Context plugin: on_inject_system_prompt — let plugin modify system prompt sections.
+            // Default plugin returns sections unchanged (prompt-cache friendly).
+            // Custom plugins may add, remove, or reorder sections.
+            {
+                let sections = vec![alva_agent_context::PromptSection {
+                    id: "system".to_string(),
+                    content: state.system_prompt.clone(),
+                    priority: alva_agent_context::Priority::Critical,
+                }];
+                let modified_sections = config.context_plugin.on_inject_system_prompt(
+                    config.context_sdk.as_ref(),
+                    &state.session_id,
+                    sections,
+                ).await;
+                state.system_prompt = modified_sections
+                    .iter()
+                    .map(|s| s.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+            }
+
+            // 1d. Assemble context (plugin applies its own compression strategies).
             let budget = config.context_sdk.budget(&state.session_id);
             let context_messages = config.context_plugin.assemble(
                 config.context_sdk.as_ref(),

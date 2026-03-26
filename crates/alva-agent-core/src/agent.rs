@@ -215,4 +215,15 @@ impl Agent {
         let mut st = self.state.lock().await;
         st.is_streaming = streaming;
     }
+
+    /// Gracefully shut down the agent, releasing plugin resources.
+    ///
+    /// This calls `dispose()` on the context plugin. Must be called explicitly
+    /// because `Drop` cannot run async code.
+    pub async fn shutdown(&self) {
+        let config = self.config.lock().await;
+        if let Err(e) = config.context_plugin.dispose().await {
+            error!(error = %e, "context plugin dispose failed");
+        }
+    }
 }

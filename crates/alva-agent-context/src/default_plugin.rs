@@ -817,11 +817,11 @@ impl ContextPlugin for DefaultContextPlugin {
         if let Some(ref extract_fn) = self.config.extract_memory_fn {
             match extract_fn(conversation).await {
                 Ok(candidates) => {
-                    for candidate in candidates {
-                        if candidate.confidence < 0.65 {
-                            continue;
-                        }
-                        let fact = MemoryFact {
+                    // Build candidate MemoryFacts from raw extraction results.
+                    let mut facts: Vec<MemoryFact> = candidates
+                        .into_iter()
+                        .filter(|c| c.confidence >= 0.65)
+                        .map(|candidate| MemoryFact {
                             id: uuid::Uuid::new_v4().to_string(),
                             text: candidate.text,
                             fingerprint: String::new(), // TODO: compute SHA1
@@ -831,7 +831,13 @@ impl ContextPlugin for DefaultContextPlugin {
                             created_at: chrono::Utc::now().timestamp_millis(),
                             last_accessed_at: chrono::Utc::now().timestamp_millis(),
                             access_count: 0,
-                        };
+                        })
+                        .collect();
+
+                    // Let on_extract_memory filter/modify candidates before storing.
+                    facts = self.on_extract_memory(sdk, agent_id, facts).await;
+
+                    for fact in facts {
                         sdk.store_memory(fact);
                     }
                 }
