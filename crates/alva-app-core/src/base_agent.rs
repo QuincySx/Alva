@@ -355,7 +355,7 @@ impl BaseAgentBuilder {
         hooks.max_iterations = self.max_iterations;
 
         // 9. Create Agent
-        let agent = Agent::new(model, &self.system_prompt, hooks);
+        let agent = Agent::new(model, "", &self.system_prompt, hooks);
 
         // 10. Set tools on the agent
         agent.set_tools(alva_tools_list).await;

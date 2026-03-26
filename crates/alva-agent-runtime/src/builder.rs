@@ -124,7 +124,7 @@ impl AgentRuntimeBuilder {
         let mut config = AgentHooks::new(convert_fn);
         config.middleware = self.middleware;
 
-        let agent = Agent::new(model, self.system_prompt, config);
+        let agent = Agent::new(model, "", self.system_prompt, config);
 
         AgentRuntime {
             agent,

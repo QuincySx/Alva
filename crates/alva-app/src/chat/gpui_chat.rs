@@ -127,7 +127,7 @@ impl GpuiChat {
         }));
 
         let model: Arc<dyn LanguageModel> = Arc::new(PlaceholderModel);
-        let agent = alva_app_core::Agent::new(model, "You are a helpful assistant.", agent_config);
+        let agent = alva_app_core::Agent::new(model, "", "You are a helpful assistant.", agent_config);
 
         // Register this component in the debug ActionRegistry for HTTP inspection.
         #[cfg(debug_assertions)]

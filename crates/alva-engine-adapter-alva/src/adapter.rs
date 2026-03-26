@@ -82,6 +82,7 @@ impl EngineRuntime for AlvaAdapter {
         // 4. Create Agent synchronously.
         let agent = Arc::new(Agent::new(
             self.config.model.clone(),
+            &session_id,
             system_prompt,
             hooks,
         ));
