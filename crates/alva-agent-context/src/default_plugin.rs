@@ -255,25 +255,24 @@ impl ContextPlugin for DefaultContextPlugin {
         sdk: &dyn ContextManagementSDK,
         agent_id: &str,
     ) -> Result<(), ContextError> {
-        // Check if we're approaching budget before the turn even starts
+        // NOTE: In the current architecture, the real conversation lives in
+        // AgentState.messages (owned by the agent loop), not in ContextStore.
+        // The store only holds a synthetic usage-tracking entry. Therefore,
+        // Disposable-entry cleanup via snapshot is a no-op here.
+        //
+        // Actual compression happens in two places:
+        //   1. agent_loop: on_budget_exceeded → CompressAction applied to state.messages
+        //   2. assemble(): micro_compact + sliding_window + budget enforcement
+        //
+        // Budget check still works because sync_external_usage provides real
+        // token counts before this hook is called.
         let budget = sdk.budget(agent_id);
         if budget.usage_ratio > self.config.compress_threshold {
             tracing::info!(
                 agent_id,
                 usage = format!("{:.0}%", budget.usage_ratio * 100.0),
-                "maintain: proactive compression"
+                "maintain: budget approaching threshold (compression deferred to assemble)"
             );
-            // Proactively remove Disposable entries
-            let snapshot = sdk.snapshot(agent_id);
-            let disposable_ids: Vec<String> = snapshot
-                .entries
-                .iter()
-                .filter(|e| e.priority == Priority::Disposable)
-                .map(|e| e.id.clone())
-                .collect();
-            for id in disposable_ids {
-                sdk.remove_message(agent_id, &id);
-            }
         }
         Ok(())
     }
@@ -475,10 +474,19 @@ impl ContextPlugin for DefaultContextPlugin {
 
     /// Budget exceeded callback — escalating strategies.
     ///
-    /// Level 1 (cheap): Remove Disposable entries
-    /// Level 2 (cheap): Replace old large tool results
+    /// Level 1 (cheap): Remove Disposable entries — no-op until store holds real entries
+    /// Level 2 (cheap): Replace old large tool results — no-op until store holds real entries
     /// Level 3 (costs LLM): Summarize old conversation
-    /// Level 4 (emergency): Hard sliding window
+    /// Level 4 (emergency): Hard sliding window — ALWAYS works (applied to state.messages by agent loop)
+    ///
+    /// NOTE: In the current architecture, the snapshot only contains the synthetic
+    /// usage-tracking entry from sync_external_usage. Levels 1 and 2 scan
+    /// snapshot.entries for Disposable/Tool entries, which won't exist yet.
+    /// These levels will activate once ContextStore is integrated with the
+    /// real conversation (tracked in store integration TODO).
+    ///
+    /// Tool-result compression for the current architecture is handled by
+    /// `assemble()` (S2: micro_compact), which operates on actual messages.
     async fn on_budget_exceeded(
         &self,
         sdk: &dyn ContextManagementSDK,
@@ -496,14 +504,16 @@ impl ContextPlugin for DefaultContextPlugin {
             "on_budget_exceeded: compressing"
         );
 
-        // Level 1: remove Disposable
+        // Level 1: remove Disposable (effective once store holds real entries)
         if snapshot.entries.iter().any(|e| e.priority == Priority::Disposable) {
             actions.push(CompressAction::RemoveByPriority {
                 priority: Priority::Disposable,
             });
         }
 
-        // Level 2: replace old large tool results (auto_compact)
+        // Level 2: replace old large tool results (effective once store holds real entries)
+        // In the current architecture, assemble()'s micro_compact (S2) provides
+        // equivalent functionality directly on the message list.
         for entry in &snapshot.entries {
             if entry.priority <= Priority::Low
                 && entry.estimated_tokens > 500
@@ -541,7 +551,8 @@ impl ContextPlugin for DefaultContextPlugin {
             }
         }
 
-        // Level 4: emergency sliding window
+        // Level 4: emergency sliding window (always effective — agent loop applies
+        // this directly to state.messages via drain)
         if budget.usage_ratio > self.config.emergency_threshold {
             actions.push(CompressAction::SlidingWindow {
                 keep_recent: self.config.sliding_window_keep,

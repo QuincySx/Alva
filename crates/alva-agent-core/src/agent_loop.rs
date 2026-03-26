@@ -275,6 +275,13 @@ async fn run_agent_loop_inner(
             }
 
             // 1b. Check budget and trigger compression if exceeded.
+            //
+            // NOTE: The snapshot passed to on_budget_exceeded only contains
+            // the synthetic usage entry (from sync_external_usage), not real
+            // conversation entries. Snapshot-based actions (RemoveByPriority,
+            // ReplaceToolResult) are therefore limited. The primary effective
+            // actions are SlidingWindow (applied here) and the three-strategy
+            // compression in assemble() which operates on real messages.
             let budget = config.context_sdk.budget(&state.session_id);
             if budget.usage_ratio > 0.7 {
                 let snapshot = config.context_sdk.snapshot(&state.session_id);
@@ -296,8 +303,9 @@ async fn run_agent_loop_inner(
                         alva_agent_context::CompressAction::RemoveByPriority { .. } => {
                             // Priority-based removal operates on ContextStore entries.
                             // Since messages live in state.messages, this is a no-op
-                            // here; the plugin already removed them via sdk calls in
-                            // on_budget_exceeded. Noted for future store integration.
+                            // here. Will activate once ContextStore is integrated with
+                            // the real conversation. For now, assemble() handles all
+                            // message-level compression.
                         }
                         alva_agent_context::CompressAction::ReplaceToolResult { message_id, summary } => {
                             // Replace matching tool result in state.messages by message id.
