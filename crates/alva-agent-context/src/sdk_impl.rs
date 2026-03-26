@@ -1,8 +1,7 @@
 //! Concrete implementation of ContextManagementSDK backed by ContextStore.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
-use tokio::sync::Mutex;
 
 use alva_types::AgentMessage;
 
@@ -12,6 +11,12 @@ use crate::store::{ContextStore, estimate_tokens};
 use crate::types::*;
 
 /// Concrete SDK implementation wrapping a shared ContextStore.
+///
+/// Uses `std::sync::Mutex` (not `tokio::sync::Mutex`) because all ContextStore
+/// operations are pure in-memory work with no I/O or `.await` points while the
+/// lock is held. This avoids `blocking_lock()` panics on single-threaded tokio
+/// runtimes and eliminates any deadlock risk from calling SDK methods inside
+/// async plugin hooks.
 pub struct ContextSDKImpl {
     store: Arc<Mutex<ContextStore>>,
     message_store: Option<Arc<dyn MessageStore>>,
@@ -44,22 +49,22 @@ impl ContextManagementSDK for ContextSDKImpl {
     // =====================================================================
 
     fn snapshot(&self, _agent_id: &str) -> ContextSnapshot {
-        let store = self.store.blocking_lock();
+        let store = self.store.lock().expect("ContextStore mutex poisoned");
         store.snapshot()
     }
 
     fn budget(&self, _agent_id: &str) -> BudgetInfo {
-        let store = self.store.blocking_lock();
+        let store = self.store.lock().expect("ContextStore mutex poisoned");
         store.budget_info()
     }
 
     fn read_message(&self, _agent_id: &str, message_id: &str) -> Option<ContextEntry> {
-        let store = self.store.blocking_lock();
+        let store = self.store.lock().expect("ContextStore mutex poisoned");
         store.get_entry(message_id).cloned()
     }
 
     fn tool_patterns(&self, _agent_id: &str, last_n: usize) -> Vec<ToolPattern> {
-        let store = self.store.blocking_lock();
+        let store = self.store.lock().expect("ContextStore mutex poisoned");
         store.get_tool_patterns(last_n)
     }
 
@@ -68,7 +73,7 @@ impl ContextManagementSDK for ContextSDKImpl {
     // =====================================================================
 
     fn inject_message(&self, _agent_id: &str, layer: ContextLayer, message: AgentMessage) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         let tokens = match &message {
             AgentMessage::Standard(m) => estimate_tokens(&m.text_content()),
             AgentMessage::Custom { data, .. } => estimate_tokens(&data.to_string()),
@@ -102,38 +107,38 @@ impl ContextManagementSDK for ContextSDKImpl {
     // =====================================================================
 
     fn remove_message(&self, _agent_id: &str, message_id: &str) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.remove_message(message_id);
     }
 
     fn remove_range(&self, _agent_id: &str, range: &MessageRange) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         let (from, to) = resolve_range(&store, range);
         store.remove_range(from, to);
     }
 
     fn rewrite_message(&self, _agent_id: &str, message_id: &str, new_content: AgentMessage) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.rewrite_message(message_id, new_content);
     }
 
     fn rewrite_batch(&self, _agent_id: &str, rewrites: Vec<(String, AgentMessage)>) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.rewrite_batch(rewrites);
     }
 
     fn clear_layer(&self, _agent_id: &str, layer: ContextLayer) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.clear_layer(layer);
     }
 
     fn clear_conversation(&self, _agent_id: &str) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.clear_conversation();
     }
 
     fn clear_all(&self, _agent_id: &str) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.clear_all();
     }
 
@@ -142,12 +147,12 @@ impl ContextManagementSDK for ContextSDKImpl {
     // =====================================================================
 
     fn sliding_window(&self, _agent_id: &str, keep_recent: usize) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.sliding_window(keep_recent);
     }
 
     fn replace_tool_result(&self, _agent_id: &str, message_id: &str, summary: &str) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.replace_tool_result(message_id, summary);
     }
 
@@ -172,12 +177,12 @@ impl ContextManagementSDK for ContextSDKImpl {
     // =====================================================================
 
     fn tag_priority(&self, _agent_id: &str, message_id: &str, priority: Priority) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.tag_priority(message_id, priority);
     }
 
     fn tag_exclude(&self, _agent_id: &str, message_id: &str) {
-        let mut store = self.store.blocking_lock();
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         store.tag_exclude(message_id);
     }
 
@@ -212,6 +217,11 @@ impl ContextManagementSDK for ContextSDKImpl {
     ) -> Vec<ContextEntry> {
         // TODO: semantic search over context entries
         vec![]
+    }
+
+    fn sync_external_usage(&self, _agent_id: &str, used_tokens: usize) {
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
+        store.sync_external_usage(used_tokens);
     }
 }
 

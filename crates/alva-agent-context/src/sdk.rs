@@ -119,4 +119,17 @@ pub trait ContextManagementSDK: Send + Sync {
         task_description: &str,
         max_tokens: usize,
     ) -> Vec<ContextEntry>;
+
+    // =====================================================================
+    // Usage sync (for bridging external message lists)
+    // =====================================================================
+
+    /// Sync token usage from an externally-managed message list.
+    ///
+    /// The agent loop keeps messages in `AgentState.messages`, not in the
+    /// ContextStore. This method lets the loop report the real token count
+    /// so that `budget()` returns accurate values.
+    ///
+    /// Default implementation is a no-op for backward compatibility.
+    fn sync_external_usage(&self, _agent_id: &str, _used_tokens: usize) {}
 }

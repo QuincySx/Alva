@@ -37,7 +37,10 @@ pub(crate) async fn run_agent_loop(
     let _ = event_tx.send(AgentEvent::AgentStart);
 
     // Turn tracking for MessageStore persistence.
-    let turn_start_msg_index = state.messages.len();
+    // The user message is expected to be the last element of state.messages when
+    // run_agent_loop is called (pushed by the caller). We subtract 1 so the
+    // turn slice includes it; if messages is empty we fall back to 0.
+    let turn_start_msg_index = state.messages.len().saturating_sub(1);
     let turn_start_time = chrono::Utc::now().timestamp_millis();
 
     // Create a single MiddlewareContext that persists across the entire run.
@@ -91,6 +94,77 @@ pub(crate) async fn run_agent_loop(
                     state.messages.push(msg);
                 }
             }
+        }
+    }
+
+    // Context plugin: on_inject_media — scan last user message for Image blocks.
+    // For each image, call the plugin hook and apply the decision (Keep/Describe/Remove/Reject).
+    if let Some(AgentMessage::Standard(last_msg)) = state.messages.last_mut() {
+        if last_msg.role == MessageRole::User {
+            let mut new_content = Vec::new();
+            let mut modified = false;
+            for block in last_msg.content.drain(..) {
+                if let ContentBlock::Image { ref data, ref media_type } = block {
+                    let size_bytes = data.len();
+                    let estimated_tokens = (size_bytes + 3) / 4;
+                    let source = alva_agent_context::MediaSource::UserMessage {
+                        message_id: last_msg.id.clone(),
+                    };
+                    let decision = config.context_plugin.on_inject_media(
+                        config.context_sdk.as_ref(),
+                        &state.session_id,
+                        media_type,
+                        source,
+                        size_bytes,
+                        estimated_tokens,
+                    ).await;
+                    match decision {
+                        alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Keep) => {
+                            new_content.push(block);
+                        }
+                        alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Describe { description }) => {
+                            new_content.push(ContentBlock::Text { text: description });
+                            modified = true;
+                        }
+                        alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Remove)
+                        | alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Externalize { .. }) => {
+                            modified = true;
+                            // Drop the image block.
+                        }
+                        alva_agent_context::InjectDecision::Reject { reason } => {
+                            new_content.push(ContentBlock::Text {
+                                text: format!("[Image rejected: {}]", reason),
+                            });
+                            modified = true;
+                        }
+                        alva_agent_context::InjectDecision::Modify(action) => {
+                            match action {
+                                alva_agent_context::MediaAction::Keep => {
+                                    new_content.push(block);
+                                }
+                                alva_agent_context::MediaAction::Describe { description } => {
+                                    new_content.push(ContentBlock::Text { text: description });
+                                    modified = true;
+                                }
+                                alva_agent_context::MediaAction::Remove
+                                | alva_agent_context::MediaAction::Externalize { .. } => {
+                                    modified = true;
+                                }
+                            }
+                        }
+                        alva_agent_context::InjectDecision::Summarize { summary } => {
+                            new_content.push(ContentBlock::Text { text: summary });
+                            modified = true;
+                        }
+                    }
+                } else {
+                    new_content.push(block);
+                }
+            }
+            if modified {
+                debug!(msg_id = %last_msg.id, "on_inject_media: modified user message content");
+            }
+            last_msg.content = new_content;
         }
     }
 
@@ -187,9 +261,79 @@ async fn run_agent_loop_inner(
             let _ = event_tx.send(AgentEvent::TurnStart);
 
             // 1. Build the messages to send to the LLM ---------------------
-            let budget = tokio::task::block_in_place(|| {
-                config.context_sdk.budget(&state.session_id)
-            });
+
+            // 1a. Sync actual token usage from state.messages into ContextStore
+            // so that sdk.budget() returns real values instead of 0.
+            {
+                let used_tokens: usize = state.messages.iter().map(|m| {
+                    match m {
+                        AgentMessage::Standard(msg) => msg.content.iter().map(|b| b.estimated_tokens()).sum::<usize>(),
+                        AgentMessage::Custom { data, .. } => data.to_string().len() / 4,
+                    }
+                }).sum();
+                config.context_sdk.sync_external_usage(&state.session_id, used_tokens);
+            }
+
+            // 1b. Check budget and trigger compression if exceeded.
+            let budget = config.context_sdk.budget(&state.session_id);
+            if budget.usage_ratio > 0.7 {
+                let snapshot = config.context_sdk.snapshot(&state.session_id);
+                let actions = config.context_plugin.on_budget_exceeded(
+                    config.context_sdk.as_ref(),
+                    &state.session_id,
+                    &snapshot,
+                ).await;
+
+                for action in actions {
+                    match action {
+                        alva_agent_context::CompressAction::SlidingWindow { keep_recent } => {
+                            if state.messages.len() > keep_recent {
+                                let drop_count = state.messages.len() - keep_recent;
+                                state.messages.drain(..drop_count);
+                                debug!(drop_count, keep_recent, "budget: applied sliding window");
+                            }
+                        }
+                        alva_agent_context::CompressAction::RemoveByPriority { .. } => {
+                            // Priority-based removal operates on ContextStore entries.
+                            // Since messages live in state.messages, this is a no-op
+                            // here; the plugin already removed them via sdk calls in
+                            // on_budget_exceeded. Noted for future store integration.
+                        }
+                        alva_agent_context::CompressAction::ReplaceToolResult { message_id, summary } => {
+                            // Replace matching tool result in state.messages by message id.
+                            for msg in state.messages.iter_mut() {
+                                if let AgentMessage::Standard(m) = msg {
+                                    if m.id == message_id {
+                                        m.content = vec![ContentBlock::Text { text: summary.clone() }];
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        alva_agent_context::CompressAction::Summarize { .. } => {
+                            // LLM summarization requires async LLM call — skip for now,
+                            // let assemble's own budget enforcement handle it.
+                            debug!("budget: summarize action deferred to assemble");
+                        }
+                        alva_agent_context::CompressAction::Externalize { .. } => {
+                            // File externalization not yet implemented.
+                            debug!("budget: externalize action not yet implemented");
+                        }
+                    }
+                }
+
+                // Re-sync usage after compression.
+                let used_tokens: usize = state.messages.iter().map(|m| {
+                    match m {
+                        AgentMessage::Standard(msg) => msg.content.iter().map(|b| b.estimated_tokens()).sum::<usize>(),
+                        AgentMessage::Custom { data, .. } => data.to_string().len() / 4,
+                    }
+                }).sum();
+                config.context_sdk.sync_external_usage(&state.session_id, used_tokens);
+            }
+
+            // 1c. Assemble context (plugin applies its own compression strategies).
+            let budget = config.context_sdk.budget(&state.session_id);
             let context_messages = config.context_plugin.assemble(
                 config.context_sdk.as_ref(),
                 &state.session_id,
@@ -261,8 +405,30 @@ async fn run_agent_loop_inner(
                 message: agent_msg.clone(),
             });
 
-            // 5. Push assistant message into state --------------------------
-            state.messages.push(agent_msg.clone());
+            // 5. Context plugin: ingest — let plugin decide keep/modify/skip
+            let mut agent_msg = agent_msg;
+            {
+                let ingest_action = config.context_plugin.ingest(
+                    config.context_sdk.as_ref(), &state.session_id, &mut agent_msg,
+                ).await;
+                match ingest_action {
+                    alva_agent_context::IngestAction::Skip => {
+                        // Plugin says skip — do NOT push to state.messages.
+                        // But we still need to check for tool calls below.
+                    }
+                    alva_agent_context::IngestAction::Modify(new_msg) => {
+                        state.messages.push(new_msg);
+                    }
+                    alva_agent_context::IngestAction::TagAndKeep { .. } => {
+                        // TODO: apply priority tag to ContextStore entry when
+                        // ContextStore is integrated with state.messages.
+                        state.messages.push(agent_msg.clone());
+                    }
+                    alva_agent_context::IngestAction::Keep => {
+                        state.messages.push(agent_msg.clone());
+                    }
+                }
+            }
 
             // 6. Check for tool calls ---------------------------------------
             let tool_calls: Vec<ToolCall> = assistant_message
@@ -320,9 +486,26 @@ async fn run_agent_loop_inner(
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
-                state
-                    .messages
-                    .push(AgentMessage::Standard(tool_msg));
+                let mut tool_agent_msg = AgentMessage::Standard(tool_msg);
+
+                // Context plugin: ingest — let plugin decide on tool results too.
+                let ingest_action = config.context_plugin.ingest(
+                    config.context_sdk.as_ref(), &state.session_id, &mut tool_agent_msg,
+                ).await;
+                match ingest_action {
+                    alva_agent_context::IngestAction::Skip => {
+                        // Plugin says skip this tool result.
+                    }
+                    alva_agent_context::IngestAction::Modify(new_msg) => {
+                        state.messages.push(new_msg);
+                    }
+                    alva_agent_context::IngestAction::TagAndKeep { .. } => {
+                        state.messages.push(tool_agent_msg);
+                    }
+                    alva_agent_context::IngestAction::Keep => {
+                        state.messages.push(tool_agent_msg);
+                    }
+                }
             }
 
             let _ = event_tx.send(AgentEvent::TurnEnd);

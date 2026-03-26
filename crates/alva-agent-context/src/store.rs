@@ -213,8 +213,10 @@ impl ContextStore {
     pub fn replace_tool_result(&mut self, id: &str, summary: &str) {
         if let Some(entry) = self.get_entry_mut(id) {
             entry.metadata.replacement_summary = Some(summary.to_string());
-            entry.metadata.compacted = true;
-            // Replace message content with summary
+            // NOTE: Do NOT set compacted = true here. The summary should remain
+            // in context (visible to LLM via build_llm_messages and counted in
+            // total_tokens). `compacted = true` means "fully externalized, do not
+            // include in LLM context" — which is wrong for a summary replacement.
             entry.message = AgentMessage::Standard(alva_types::Message {
                 id: entry.id.clone(),
                 role: alva_types::MessageRole::Tool,
@@ -312,6 +314,29 @@ impl ContextStore {
 
     pub fn increment_turn(&mut self) {
         self.turn_index += 1;
+    }
+
+    /// Sync token usage from externally-managed messages.
+    ///
+    /// Since the actual conversation lives in `AgentState.messages` (not in
+    /// ContextStore entries), this method lets the agent loop tell the store
+    /// how many tokens are currently in use, so that `budget_info()` and
+    /// `usage_ratio()` return accurate values.
+    pub fn sync_external_usage(&mut self, used_tokens: usize) {
+        // We store a single synthetic entry that represents the external usage.
+        // Clear any previous sync entry first.
+        self.entries.retain(|e| e.id != "__external_usage_sync__");
+        if used_tokens > 0 {
+            self.entries.push(ContextEntry {
+                id: "__external_usage_sync__".to_string(),
+                message: AgentMessage::Custom {
+                    type_name: "external_usage_sync".to_string(),
+                    data: serde_json::Value::Null,
+                },
+                metadata: ContextMetadata::new(ContextLayer::RuntimeInject)
+                    .with_tokens(used_tokens),
+            });
+        }
     }
 }
 
