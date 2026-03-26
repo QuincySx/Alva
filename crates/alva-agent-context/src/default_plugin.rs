@@ -100,6 +100,9 @@ impl Default for DefaultPluginConfig {
 // Plugin state
 // ---------------------------------------------------------------------------
 
+/// Maximum number of recent messages to keep for memory extraction.
+const RECENT_MESSAGE_BUFFER_SIZE: usize = 10;
+
 /// Per-session state tracked by the plugin.
 struct SessionState {
     /// Whether bootstrap has run.
@@ -108,6 +111,16 @@ struct SessionState {
     tool_token_totals: Vec<(String, usize)>,
     /// Number of turns completed.
     turn_count: usize,
+    /// Recent message texts for memory extraction.
+    /// Populated by `on_user_message` and `on_llm_output` hooks.
+    /// Used by `collect_conversation_text` in `after_turn`.
+    recent_messages: Vec<RecentMessage>,
+}
+
+/// A cached recent message for memory extraction.
+struct RecentMessage {
+    role: &'static str,
+    text: String,
 }
 
 impl Default for SessionState {
@@ -116,6 +129,7 @@ impl Default for SessionState {
             bootstrapped: false,
             tool_token_totals: Vec::new(),
             turn_count: 0,
+            recent_messages: Vec::new(),
         }
     }
 }
@@ -203,15 +217,26 @@ impl DefaultContextPlugin {
         }
     }
 
-    /// Extract conversation text for summarization from a snapshot.
-    fn collect_conversation_text(sdk: &dyn ContextManagementSDK, agent_id: &str) -> String {
-        let snapshot = sdk.snapshot(agent_id);
-        snapshot
-            .entries
+    /// Extract conversation text for memory extraction from the recent messages buffer.
+    ///
+    /// Previously this read from the ContextStore snapshot, but the store only
+    /// holds a synthetic usage-tracking entry. Now we use the internal buffer
+    /// populated by `on_user_message` and `on_llm_output`.
+    fn collect_conversation_text(recent: &[RecentMessage]) -> String {
+        recent
             .iter()
-            .map(|e| format!("[{}] {}", format!("{:?}", e.origin), e.preview))
+            .map(|m| format!("[{}] {}", m.role, m.text))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// Push a message into the recent messages buffer, evicting oldest if full.
+    async fn record_recent_message(&self, role: &'static str, text: String) {
+        let mut state = self.state.lock().await;
+        if state.recent_messages.len() >= RECENT_MESSAGE_BUFFER_SIZE {
+            state.recent_messages.remove(0);
+        }
+        state.recent_messages.push(RecentMessage { role, text });
     }
 }
 
@@ -749,7 +774,10 @@ impl ContextPlugin for DefaultContextPlugin {
             _ => String::new(),
         };
 
+        // Record into recent messages buffer for memory extraction
         if !query.is_empty() {
+            self.record_recent_message("User", query.clone()).await;
+
             // Query memory for relevant facts
             let facts = sdk.query_memory(&query, self.config.max_memory_inject);
             if !facts.is_empty() {
@@ -769,20 +797,24 @@ impl ContextPlugin for DefaultContextPlugin {
         sdk: &dyn ContextManagementSDK,
         agent_id: &str,
     ) {
-        let mut state = self.state.lock().await;
-        state.turn_count += 1;
+        // Collect recent messages under lock, then release before async LLM work.
+        let conversation = {
+            let mut state = self.state.lock().await;
+            state.turn_count += 1;
 
-        // Extract memory every 3 turns (not every turn, to save cost)
-        if state.turn_count % 3 != 0 {
+            // Extract memory every 3 turns (not every turn, to save cost)
+            if state.turn_count % 3 != 0 || self.config.extract_memory_fn.is_none() {
+                return;
+            }
+
+            Self::collect_conversation_text(&state.recent_messages)
+        };
+
+        if conversation.is_empty() {
             return;
         }
 
         if let Some(ref extract_fn) = self.config.extract_memory_fn {
-            let conversation = Self::collect_conversation_text(sdk, agent_id);
-            if conversation.is_empty() {
-                return;
-            }
-
             match extract_fn(conversation).await {
                 Ok(candidates) => {
                     for candidate in candidates {
@@ -826,6 +858,22 @@ impl ContextPlugin for DefaultContextPlugin {
             budget = budget.budget_tokens,
             "turn start"
         );
+    }
+
+    /// ⓭ Record LLM output text into the recent messages buffer for memory extraction.
+    async fn on_llm_output(
+        &self,
+        _sdk: &dyn ContextManagementSDK,
+        _agent_id: &str,
+        response: &AgentMessage,
+    ) {
+        let text = match response {
+            AgentMessage::Standard(m) => m.text_content(),
+            AgentMessage::Custom { data, .. } => data.to_string(),
+        };
+        if !text.is_empty() {
+            self.record_recent_message("Assistant", text).await;
+        }
     }
 
     async fn on_agent_end(
