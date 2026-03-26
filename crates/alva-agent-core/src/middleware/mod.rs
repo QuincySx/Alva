@@ -149,11 +149,41 @@ pub trait Middleware: Send + Sync {
     }
 
     /// Execution priority (lower values run first in before-hooks).
-    /// Default is 100. Use lower values (e.g. 10) for early middleware like security,
-    /// higher values (e.g. 200) for late middleware like compression.
+    /// Use `MiddlewarePriority` constants for standard tiers.
+    /// Default is `MiddlewarePriority::DEFAULT` (3000).
     fn priority(&self) -> i32 {
-        100
+        MiddlewarePriority::DEFAULT
     }
+}
+
+// ---------------------------------------------------------------------------
+// MiddlewarePriority — standard tiers with 1000-wide gaps
+// ---------------------------------------------------------------------------
+
+/// Standard priority tiers for middleware ordering.
+///
+/// Each tier has 999 slots for sub-ordering within the tier.
+/// Use `MiddlewarePriority::SECURITY + 1`, `+ 2`, etc. for multiple
+/// middlewares within the same tier.
+///
+/// ```text
+/// 1000  SECURITY    — auth, permission, sandbox
+/// 2000  GUARDRAIL   — safety checks, PII filtering
+/// 3000  CONTEXT     — context management plugins
+/// 4000  ROUTING     — model selection, A/B testing
+/// 5000  OBSERVATION  — logging, metrics, tracing
+/// 6000  RETRY       — error handling, retry, fallback
+/// ```
+pub struct MiddlewarePriority;
+
+impl MiddlewarePriority {
+    pub const SECURITY: i32 = 1000;
+    pub const GUARDRAIL: i32 = 2000;
+    pub const CONTEXT: i32 = 3000;
+    pub const DEFAULT: i32 = 3000;
+    pub const ROUTING: i32 = 4000;
+    pub const OBSERVATION: i32 = 5000;
+    pub const RETRY: i32 = 6000;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +220,23 @@ impl MiddlewareStack {
             .position(|m| m.priority() > prio)
             .unwrap_or(self.layers.len());
         self.layers.insert(pos, middleware);
+    }
+
+    /// Get the next available priority within a tier.
+    /// If there are already middlewares at `base_priority`, `base_priority + 1`, etc.,
+    /// returns the next unused slot.
+    ///
+    /// ```rust,ignore
+    /// let prio = stack.next_priority(MiddlewarePriority::CONTEXT); // 3000, 3001, 3002, ...
+    /// ```
+    pub fn next_priority(&self, base_priority: i32) -> i32 {
+        let mut next = base_priority;
+        for layer in &self.layers {
+            if layer.priority() >= next && layer.priority() < base_priority + 1000 {
+                next = layer.priority() + 1;
+            }
+        }
+        next
     }
 
     pub fn is_empty(&self) -> bool {

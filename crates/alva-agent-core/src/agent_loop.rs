@@ -36,9 +36,13 @@ pub(crate) async fn run_agent_loop(
 ) -> Result<(), alva_types::AgentError> {
     let _ = event_tx.send(AgentEvent::AgentStart);
 
+    // Turn tracking for MessageStore persistence.
+    let turn_start_msg_index = state.messages.len();
+    let turn_start_time = chrono::Utc::now().timestamp_millis();
+
     // Create a single MiddlewareContext that persists across the entire run.
     let mut mw_ctx = MiddlewareContext {
-        session_id: state.tool_context.session_id().to_string(),
+        session_id: state.session_id.clone(),
         system_prompt: state.system_prompt.clone(),
         messages: state.messages.clone(),
         extensions: Extensions::new(),
@@ -51,7 +55,64 @@ pub(crate) async fn run_agent_loop(
         }
     }
 
+    // Context plugin: bootstrap + on_agent_start + maintain
+    {
+        let ctx_plugin = &config.context_plugin;
+        let ctx_sdk = config.context_sdk.as_ref();
+        if let Err(e) = ctx_plugin.bootstrap(ctx_sdk, &state.session_id).await {
+            tracing::warn!("context plugin bootstrap: {}", e);
+        }
+        ctx_plugin.on_agent_start(ctx_sdk, &state.session_id).await;
+        if let Err(e) = ctx_plugin.maintain(ctx_sdk, &state.session_id).await {
+            tracing::warn!("context plugin maintain: {}", e);
+        }
+    }
+
+    // Context plugin: on_user_message — get injections
+    if let Some(last_msg) = state.messages.last() {
+        let injections = config.context_plugin.on_user_message(
+            config.context_sdk.as_ref(), &state.session_id, last_msg
+        ).await;
+        for inj in injections {
+            match inj {
+                alva_agent_context::Injection::Memory(facts) => {
+                    if !facts.is_empty() {
+                        let text = facts.iter().map(|f| format!("- {}", f.text)).collect::<Vec<_>>().join("\n");
+                        state.system_prompt.push_str(&format!("\n\n<user_memory>\n{}\n</user_memory>", text));
+                    }
+                }
+                alva_agent_context::Injection::Skill { name, content } => {
+                    state.system_prompt.push_str(&format!("\n\n<skill name=\"{}\">\n{}\n</skill>", name, content));
+                }
+                alva_agent_context::Injection::RuntimeContext(data) => {
+                    state.system_prompt.push_str(&format!("\n\n<runtime>\n{}\n</runtime>", data));
+                }
+                alva_agent_context::Injection::Message(msg) => {
+                    state.messages.push(msg);
+                }
+            }
+        }
+    }
+
     let result = run_agent_loop_inner(state, model, config, cancel, event_tx, &mut mw_ctx).await;
+
+    // Persist turn to MessageStore.
+    if let Some(store) = &config.message_store {
+        let turn_messages: Vec<AgentMessage> = state.messages[turn_start_msg_index..].to_vec();
+        if let Some((user_msg, agent_msgs)) = turn_messages.split_first() {
+            let turn = alva_agent_context::Turn {
+                index: store.turn_count(&state.session_id).await,
+                user_message: user_msg.clone(),
+                agent_messages: agent_msgs.to_vec(),
+                started_at: turn_start_time,
+                completed_at: Some(chrono::Utc::now().timestamp_millis()),
+            };
+            store.append_turn(&state.session_id, turn).await;
+        }
+    }
+
+    // Context plugin: after_turn
+    config.context_plugin.after_turn(config.context_sdk.as_ref(), &state.session_id).await;
 
     // Middleware: on_agent_end
     if !config.middleware.is_empty() {
@@ -67,6 +128,17 @@ pub(crate) async fn run_agent_loop(
         {
             warn!(error = %e, "middleware on_agent_end failed");
         }
+    }
+
+    // Context plugin: on_agent_end
+    {
+        let error = match &result {
+            Ok(()) => None,
+            Err(e) => Some(e.to_string()),
+        };
+        config.context_plugin.on_agent_end(
+            config.context_sdk.as_ref(), &state.session_id, error.as_deref()
+        ).await;
     }
 
     match &result {
@@ -115,10 +187,15 @@ async fn run_agent_loop_inner(
             let _ = event_tx.send(AgentEvent::TurnStart);
 
             // 1. Build the messages to send to the LLM ---------------------
-            let context_messages = match &config.transform_context {
-                Some(transform) => transform(&state.messages),
-                None => state.messages.clone(),
-            };
+            let budget = tokio::task::block_in_place(|| {
+                config.context_sdk.budget(&state.session_id)
+            });
+            let context_messages = config.context_plugin.assemble(
+                config.context_sdk.as_ref(),
+                &state.session_id,
+                state.messages.clone(),
+                budget.budget_tokens,
+            ).await;
 
             let convert_ctx = AgentContext {
                 system_prompt: &state.system_prompt,
@@ -171,6 +248,11 @@ async fn run_agent_loop_inner(
 
             let agent_msg = AgentMessage::Standard(assistant_message.clone());
 
+            // 3c. Context plugin: on_llm_output
+            config.context_plugin.on_llm_output(
+                config.context_sdk.as_ref(), &state.session_id, &agent_msg
+            ).await;
+
             // 4. Emit message events ----------------------------------------
             let _ = event_tx.send(AgentEvent::MessageStart {
                 message: agent_msg.clone(),
@@ -218,6 +300,9 @@ async fn run_agent_loop_inner(
                 event_tx,
                 &state.tool_context,
                 mw_ctx,
+                &config.context_plugin,
+                &config.context_sdk,
+                &state.session_id,
             )
             .await;
 
@@ -493,7 +578,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: simple text response with no tool calls
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_simple_text_response() {
         let model = MockModel;
         let config = AgentHooks::new(Arc::new(default_convert_to_llm));
@@ -501,6 +586,7 @@ mod tests {
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
         let mut state = AgentState::new(
+            "test-session",
             "You are a test assistant.".to_string(),
             ModelConfig::default(),
         );
@@ -546,7 +632,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: cancellation stops the loop
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_cancellation() {
         let model = MockModel;
         let config = AgentHooks::new(Arc::new(default_convert_to_llm));
@@ -555,6 +641,7 @@ mod tests {
 
         let (event_tx, _event_rx) = mpsc::unbounded_channel();
         let mut state = AgentState::new(
+            "test-session",
             "test".to_string(),
             ModelConfig::default(),
         );
@@ -575,7 +662,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: streaming text response
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_streaming_text_response() {
         // Create a model that implements stream() returning TextDelta events
         struct StreamingMockModel;
@@ -618,7 +705,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
-        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        let mut state = AgentState::new("test-session", "test".to_string(), ModelConfig::default());
         state.is_streaming = true;
         state
             .messages
@@ -663,7 +750,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: streaming emits partial messages (not placeholders) in MessageUpdate
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_streaming_emits_partial_message() {
         struct PartialStreamModel;
 
@@ -701,7 +788,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
-        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        let mut state = AgentState::new("test-session", "test".to_string(), ModelConfig::default());
         state.is_streaming = true;
         state.messages.push(AgentMessage::Standard(Message::user("Hi")));
 
@@ -744,7 +831,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: simple text response using alva-test MockLanguageModel + fixtures
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_text_response_with_alva_test_mock() {
         use alva_test::mock_provider::MockLanguageModel;
         use alva_test::fixtures::{make_assistant_message, make_user_message};
@@ -757,6 +844,7 @@ mod tests {
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
         let mut state = AgentState::new(
+            "test-session",
             "You are a test assistant.".to_string(),
             ModelConfig::default(),
         );
@@ -815,7 +903,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: model error propagates correctly using alva-test MockLanguageModel
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_model_error_with_alva_test_mock() {
         use alva_test::mock_provider::MockLanguageModel;
         use alva_test::fixtures::make_user_message;
@@ -828,6 +916,7 @@ mod tests {
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
         let mut state = AgentState::new(
+            "test-session",
             "test".to_string(),
             ModelConfig::default(),
         );
@@ -865,7 +954,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: streaming with alva-test MockLanguageModel
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_streaming_with_alva_test_mock() {
         use alva_test::mock_provider::MockLanguageModel;
         use alva_test::fixtures::make_user_message;
@@ -885,7 +974,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
-        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        let mut state = AgentState::new("test-session", "test".to_string(), ModelConfig::default());
         state.is_streaming = true;
         state
             .messages
@@ -924,7 +1013,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: tool call round-trip using alva-test MockLanguageModel + MockTool
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_tool_call_round_trip_with_alva_test_mocks() {
         use alva_test::mock_provider::MockLanguageModel;
         use alva_test::mock_tool::MockTool;
@@ -969,7 +1058,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
-        let mut state = AgentState::new("test".into(), ModelConfig::default());
+        let mut state = AgentState::new("test-session", "test".to_string(), ModelConfig::default());
         state.tools.push(Arc::new(mock_tool.clone()));
         state
             .messages
@@ -1021,7 +1110,7 @@ mod tests {
     // -----------------------------------------------------------------------
     // Test: MiddlewareContext Extensions persist across hooks
     // -----------------------------------------------------------------------
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_middleware_extensions_persist_across_hooks() {
         use crate::middleware::{Middleware, MiddlewareContext, MiddlewareError};
         use async_trait::async_trait;
@@ -1064,7 +1153,7 @@ mod tests {
 
         let cancel = CancellationToken::new();
         let (event_tx, _event_rx) = mpsc::unbounded_channel();
-        let mut state = AgentState::new("test".to_string(), ModelConfig::default());
+        let mut state = AgentState::new("test-session", "test".to_string(), ModelConfig::default());
         state
             .messages
             .push(AgentMessage::Standard(Message::user("Hi")));

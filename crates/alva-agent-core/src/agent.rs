@@ -1,4 +1,4 @@
-// INPUT:  alva_types (CancellationToken, LanguageModel, ModelConfig, Tool), tokio, tracing, crate::types (AgentHooks, AgentMessage, AgentState), crate::agent_loop, crate::event
+// INPUT:  alva_types (CancellationToken, LanguageModel, ModelConfig, Tool), tokio, tracing, crate::types (AgentHooks, AgentMessage, AgentState), crate::agent_loop, crate::event, alva_agent_context
 // OUTPUT: Agent
 // POS:    Public agent handle — owns model, hooks, state, and cancellation; exposes prompt(), steer(), follow_up().
 use std::sync::Arc;
@@ -35,10 +35,12 @@ impl Agent {
     /// Create a new agent.
     ///
     /// * `model` — the LLM backend.
+    /// * `session_id` — unique session identifier.
     /// * `system_prompt` — initial system prompt.
     /// * `config` — hooks & settings.
     pub fn new(
         model: Arc<dyn LanguageModel>,
+        session_id: impl Into<String>,
         system_prompt: impl Into<String>,
         config: AgentHooks,
     ) -> Self {
@@ -49,6 +51,7 @@ impl Agent {
             model,
             config: Arc::new(Mutex::new(config)),
             state: Arc::new(Mutex::new(AgentState::new(
+                session_id,
                 system_prompt.into(),
                 ModelConfig::default(),
             ))),
@@ -58,6 +61,23 @@ impl Agent {
             follow_up_tx,
             follow_up_rx: Arc::new(Mutex::new(follow_up_rx)),
         }
+    }
+
+    /// Set the context plugin and SDK.
+    pub fn set_context_plugin(
+        &self,
+        plugin: Arc<dyn alva_agent_context::ContextPlugin>,
+        sdk: Arc<dyn alva_agent_context::ContextManagementSDK>,
+    ) {
+        let mut config = self.config.blocking_lock();
+        config.context_plugin = plugin;
+        config.context_sdk = sdk;
+    }
+
+    /// Set the message store for turn-based persistence.
+    pub fn set_message_store(&self, store: Arc<dyn alva_agent_context::MessageStore>) {
+        let mut config = self.config.blocking_lock();
+        config.message_store = Some(store);
     }
 
     /// Start executing the agent with the given user messages.
