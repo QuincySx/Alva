@@ -12,6 +12,24 @@ use crate::sdk::ContextHandle;
 use crate::store::{ContextStore, estimate_tokens};
 use crate::types::*;
 
+/// Optional memory backend — allows the context handle to delegate
+/// memory operations without depending on `alva-agent-memory` directly.
+///
+/// Inject via `ContextHandleImpl::with_memory()`.
+#[async_trait]
+pub trait MemoryBackend: Send + Sync {
+    fn query(&self, query: &str, max_results: usize) -> Vec<MemoryFact>;
+    fn store(&self, fact: MemoryFact);
+    fn delete(&self, fact_id: &str);
+}
+
+/// Optional summarization backend — allows plugging in an LLM or
+/// heuristic summarizer without coupling to a specific model provider.
+///
+/// Inject via `ContextHandleImpl::with_summarizer()`.
+pub type SummarizeFn =
+    Arc<dyn Fn(&[AgentMessage], &[String]) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>> + Send + Sync>;
+
 /// Concrete SDK implementation wrapping a shared ContextStore.
 ///
 /// Uses `std::sync::Mutex` (not `tokio::sync::Mutex`) because all ContextStore
@@ -21,11 +39,29 @@ use crate::types::*;
 /// async plugin hooks.
 pub struct ContextHandleImpl {
     store: Arc<Mutex<ContextStore>>,
+    memory: Option<Arc<dyn MemoryBackend>>,
+    summarizer: Option<SummarizeFn>,
 }
 
 impl ContextHandleImpl {
     pub fn new(store: Arc<Mutex<ContextStore>>) -> Self {
-        Self { store }
+        Self {
+            store,
+            memory: None,
+            summarizer: None,
+        }
+    }
+
+    /// Attach a memory backend for query/store/delete operations.
+    pub fn with_memory(mut self, memory: Arc<dyn MemoryBackend>) -> Self {
+        self.memory = Some(memory);
+        self
+    }
+
+    /// Attach a summarization function for the `summarize()` method.
+    pub fn with_summarizer(mut self, summarizer: SummarizeFn) -> Self {
+        self.summarizer = Some(summarizer);
+        self
     }
 
     /// Access the underlying store directly (for middleware adapter).
@@ -83,15 +119,69 @@ impl ContextHandle for ContextHandleImpl {
     }
 
     fn inject_memory(&self, _agent_id: &str, query: &str, max_tokens: usize) -> Vec<MemoryFact> {
-        // TODO: integrate with alva-agent-memory for real search
-        let _ = (query, max_tokens);
-        vec![]
+        match &self.memory {
+            Some(backend) => {
+                let facts = backend.query(query, 20);
+                // Trim to fit within token budget
+                let mut result = Vec::new();
+                let mut tokens_used = 0usize;
+                for fact in facts {
+                    let fact_tokens = estimate_tokens(&fact.text);
+                    if tokens_used + fact_tokens > max_tokens {
+                        break;
+                    }
+                    tokens_used += fact_tokens;
+                    result.push(fact);
+                }
+                result
+            }
+            None => vec![],
+        }
     }
 
     fn inject_from_file(&self, _agent_id: &str, path: &str, lines: Option<(usize, usize)>) {
-        // TODO: read file content and inject as RuntimeInject entry
-        let _ = (path, lines);
-        tracing::debug!(path, "inject_from_file: not yet implemented");
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(path, error = %e, "inject_from_file: failed to read");
+                return;
+            }
+        };
+
+        // Extract requested line range
+        let text = match lines {
+            Some((start, end)) => content
+                .lines()
+                .skip(start.saturating_sub(1))
+                .take(end.saturating_sub(start.saturating_sub(1)))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            None => content,
+        };
+
+        let tokens = estimate_tokens(&text);
+        let entry = ContextEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            message: AgentMessage::Standard(alva_types::Message {
+                id: uuid::Uuid::new_v4().to_string(),
+                role: alva_types::MessageRole::System,
+                content: vec![alva_types::ContentBlock::Text {
+                    text: format!("<file path=\"{}\">\n{}\n</file>", path, text),
+                }],
+                tool_call_id: None,
+                usage: None,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            }),
+            metadata: ContextMetadata::new(ContextLayer::RuntimeInject)
+                .with_tokens(tokens)
+                .with_origin(EntryOrigin::Plugin {
+                    plugin_name: "sdk:inject_from_file".to_string(),
+                }),
+        };
+        self.store
+            .lock()
+            .expect("ContextStore mutex poisoned")
+            .append(entry);
     }
 
     // =====================================================================
@@ -149,19 +239,112 @@ impl ContextHandle for ContextHandleImpl {
     }
 
     fn externalize(&self, _agent_id: &str, range: MessageRange, path: &str) {
-        // TODO: write entries to file, replace with reference
-        let _ = (range, path);
-        tracing::debug!(path, "externalize: not yet implemented");
+        let store = self.store.lock().expect("ContextStore mutex poisoned");
+        let entries = store.entries();
+        let len = entries.len();
+        let (from, to) = {
+            let from = match &range.from {
+                MessageSelector::FromStart => 0,
+                MessageSelector::ByIndex(i) => *i,
+                MessageSelector::ById(id) => entries.iter().position(|e| e.id == *id).unwrap_or(0),
+                MessageSelector::ToEnd => 0,
+            };
+            let to = match &range.to {
+                MessageSelector::ToEnd => len,
+                MessageSelector::ByIndex(i) => *i,
+                MessageSelector::ById(id) => entries
+                    .iter()
+                    .position(|e| e.id == *id)
+                    .map(|i| i + 1)
+                    .unwrap_or(len),
+                MessageSelector::FromStart => len,
+            };
+            (from.min(len), to.min(len))
+        };
+        drop(store);
+
+        // Serialize entries to file
+        let store = self.store.lock().expect("ContextStore mutex poisoned");
+        let to_externalize: Vec<&ContextEntry> = store.entries()[from..to].iter().collect();
+        let json = serde_json::to_string_pretty(&to_externalize.iter().map(|e| {
+            serde_json::json!({
+                "id": e.id,
+                "message": e.message,
+                "layer": format!("{:?}", e.metadata.layer),
+            })
+        }).collect::<Vec<_>>()).unwrap_or_default();
+        drop(store);
+
+        if let Err(e) = std::fs::write(path, &json) {
+            tracing::warn!(path, error = %e, "externalize: failed to write");
+            return;
+        }
+
+        // Remove externalized entries and append a reference placeholder
+        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
+        let count = to - from;
+        store.remove_range(from, to);
+        let placeholder = ContextEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            message: AgentMessage::Standard(alva_types::Message::system(
+                &format!("[Externalized {} entries to {}]", count, path)
+            )),
+            metadata: ContextMetadata::new(ContextLayer::RuntimeInject)
+                .with_tokens(10)
+                .with_origin(EntryOrigin::System),
+        };
+        store.append(placeholder);
+        tracing::debug!(path, count, "externalized entries");
     }
 
     async fn summarize(
         &self,
         _agent_id: &str,
-        _range: MessageRange,
-        _hints: &[String],
+        range: MessageRange,
+        hints: &[String],
     ) -> String {
-        // TODO: call LLM for summarization
-        "[summary placeholder]".to_string()
+        // Collect messages in the range — lock scope is limited to this block
+        let messages: Vec<AgentMessage> = {
+            let store = self.store.lock().expect("ContextStore mutex poisoned");
+            let entries = store.entries();
+            let (from, to) = resolve_range(&store, &range);
+
+            entries[from..to]
+                .iter()
+                .map(|e| e.message.clone())
+                .collect()
+        }; // MutexGuard dropped here, before any .await
+
+        // Use plugged-in summarizer if available
+        if let Some(summarizer) = &self.summarizer {
+            return summarizer(&messages, hints).await;
+        }
+
+        // Fallback: truncated concatenation (no LLM)
+        let mut text = String::new();
+        for msg in &messages {
+            match msg {
+                AgentMessage::Standard(m) => {
+                    let content = m.text_content();
+                    if content.len() > 200 {
+                        text.push_str(&content[..200]);
+                        text.push_str("...");
+                    } else {
+                        text.push_str(&content);
+                    }
+                    text.push('\n');
+                }
+                AgentMessage::Custom { type_name, .. } => {
+                    text.push_str(&format!("[custom: {}]\n", type_name));
+                }
+            }
+        }
+
+        if !hints.is_empty() {
+            text.push_str(&format!("\nHints: {}", hints.join(", ")));
+        }
+
+        format!("[Summary of {} messages]\n{}", messages.len(), text.trim())
     }
 
     // =====================================================================
@@ -182,19 +365,29 @@ impl ContextHandle for ContextHandleImpl {
     // Memory
     // =====================================================================
 
-    fn query_memory(&self, _query: &str, _max_results: usize) -> Vec<MemoryFact> {
-        // TODO: integrate with alva-agent-memory
-        vec![]
+    fn query_memory(&self, query: &str, max_results: usize) -> Vec<MemoryFact> {
+        match &self.memory {
+            Some(backend) => backend.query(query, max_results),
+            None => vec![],
+        }
     }
 
     fn store_memory(&self, fact: MemoryFact) {
-        // TODO: integrate with alva-agent-memory
-        tracing::debug!(fact_id = fact.id, "store_memory: recorded (not yet persisted)");
+        match &self.memory {
+            Some(backend) => backend.store(fact),
+            None => {
+                tracing::debug!(fact_id = fact.id, "store_memory: no memory backend configured");
+            }
+        }
     }
 
     fn delete_memory(&self, fact_id: &str) {
-        // TODO: integrate with alva-agent-memory
-        tracing::debug!(fact_id, "delete_memory: not yet implemented");
+        match &self.memory {
+            Some(backend) => backend.delete(fact_id),
+            None => {
+                tracing::debug!(fact_id, "delete_memory: no memory backend configured");
+            }
+        }
     }
 
 }

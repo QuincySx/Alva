@@ -37,7 +37,7 @@ pub mod default_plugin;
 
 pub use plugin::{ContextError, ContextHooks};
 pub use sdk::ContextHandle;
-pub use sdk_impl::ContextHandleImpl;
+pub use sdk_impl::{ContextHandleImpl, MemoryBackend, SummarizeFn};
 pub use store::ContextStore;
 pub use chain::ContextHooksChain;
 pub use context_system::{ContextSystem, default_context_system};
