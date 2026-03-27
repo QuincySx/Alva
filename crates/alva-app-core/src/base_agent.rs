@@ -245,6 +245,11 @@ impl BaseAgentBuilder {
             alva_agent_tools::register_builtin_tools(&mut tool_registry);
         }
 
+        // 2b. Register built-in plugin tools (team, task)
+        tool_registry.register(
+            crate::plugins::team::create_team_tool(model.clone())
+        );
+
         // 3. Register extra custom tools in the registry
         for tool in self.extra_tools {
             tool_registry.register(tool);
