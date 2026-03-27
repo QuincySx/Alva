@@ -75,10 +75,7 @@ impl SessionStore {
 
     /// Create a new session and return its ID.
     pub fn create(&self, summary: &str) -> String {
-        let id = format!(
-            "{}",
-            chrono::Utc::now().format("%Y%m%d-%H%M%S")
-        );
+        let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis();
 
         let meta = SessionMeta {
