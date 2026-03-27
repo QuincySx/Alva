@@ -1,7 +1,7 @@
 // INPUT:  alva_types::AgentMessage, async_trait, crate::types (ContextSnapshot, BudgetInfo, ContextEntry, ToolPattern, ContextLayer, MemoryFact, MessageRange, Priority)
-// OUTPUT: pub trait ContextSDK
+// OUTPUT: pub trait ContextHandle
 // POS:    Defines the privileged SDK interface that context plugins call to read, write, compress, and query the context store.
-//! ContextSDK trait — the privileged interface that plugins use to operate on context.
+//! ContextHandle trait — the privileged interface that plugins use to operate on context.
 
 use alva_types::AgentMessage;
 use async_trait::async_trait;
@@ -10,9 +10,9 @@ use crate::types::*;
 
 /// The SDK interface that plugins call to read/write the context store.
 ///
-/// Implemented by the framework. Plugins receive `&dyn ContextSDK` in every hook.
+/// Implemented by the framework. Plugins receive `&dyn ContextHandle` in every hook.
 #[async_trait]
-pub trait ContextSDK: Send + Sync {
+pub trait ContextHandle: Send + Sync {
     // =====================================================================
     // Read operations
     // =====================================================================

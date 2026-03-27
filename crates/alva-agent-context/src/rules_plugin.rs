@@ -1,4 +1,4 @@
-// INPUT:  async_trait, crate::plugin::ContextHooks, crate::sdk::ContextSDK, crate::types (ContextSnapshot, CompressAction, Priority)
+// INPUT:  async_trait, crate::plugin::ContextHooks, crate::sdk::ContextHandle, crate::types (ContextSnapshot, CompressAction, Priority)
 // OUTPUT: pub struct RulesContextHooks
 // POS:    Deterministic, zero-LLM-cost context plugin for development and fallback use.
 //! RulesContextHooks — deterministic, zero-LLM-cost plugin for development and fallback.
@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 
 use crate::plugin::ContextHooks;
-use crate::sdk::ContextSDK;
+use crate::sdk::ContextHandle;
 use crate::types::*;
 
 /// A pure-rules context plugin. No LLM calls, fully deterministic.
@@ -34,7 +34,7 @@ impl ContextHooks for RulesContextHooks {
 
     async fn on_budget_exceeded(
         &self,
-        _sdk: &dyn ContextSDK,
+        _sdk: &dyn ContextHandle,
         _agent_id: &str,
         snapshot: &ContextSnapshot,
     ) -> Vec<CompressAction> {

@@ -67,7 +67,7 @@ impl Agent {
     pub fn set_context_plugin(
         &self,
         plugin: Arc<dyn alva_agent_context::ContextHooks>,
-        sdk: Arc<dyn alva_agent_context::ContextSDK>,
+        sdk: Arc<dyn alva_agent_context::ContextHandle>,
     ) {
         let mut config = self.config.blocking_lock();
         config.context_plugin = plugin;

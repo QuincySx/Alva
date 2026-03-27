@@ -1,7 +1,7 @@
-// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::AgentMessage, uuid, crate::message_store::MessageStore, crate::sdk::ContextSDK, crate::store::{ContextStore, estimate_tokens}, crate::types
-// OUTPUT: pub struct ContextSDKImpl
-// POS:    Concrete ContextSDK implementation backed by a shared ContextStore with Mutex-based synchronization.
-//! Concrete implementation of ContextSDK backed by ContextStore.
+// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::AgentMessage, uuid, crate::message_store::MessageStore, crate::sdk::ContextHandle, crate::store::{ContextStore, estimate_tokens}, crate::types
+// OUTPUT: pub struct ContextHandleImpl
+// POS:    Concrete ContextHandle implementation backed by a shared ContextStore with Mutex-based synchronization.
+//! Concrete implementation of ContextHandle backed by ContextStore.
 
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use alva_types::AgentMessage;
 
 use crate::message_store::MessageStore;
-use crate::sdk::ContextSDK;
+use crate::sdk::ContextHandle;
 use crate::store::{ContextStore, estimate_tokens};
 use crate::types::*;
 
@@ -20,12 +20,12 @@ use crate::types::*;
 /// lock is held. This avoids `blocking_lock()` panics on single-threaded tokio
 /// runtimes and eliminates any deadlock risk from calling SDK methods inside
 /// async plugin hooks.
-pub struct ContextSDKImpl {
+pub struct ContextHandleImpl {
     store: Arc<Mutex<ContextStore>>,
     message_store: Option<Arc<dyn MessageStore>>,
 }
 
-impl ContextSDKImpl {
+impl ContextHandleImpl {
     pub fn new(store: Arc<Mutex<ContextStore>>) -> Self {
         Self {
             store,
@@ -46,7 +46,7 @@ impl ContextSDKImpl {
 }
 
 #[async_trait]
-impl ContextSDK for ContextSDKImpl {
+impl ContextHandle for ContextHandleImpl {
     // =====================================================================
     // Read
     // =====================================================================

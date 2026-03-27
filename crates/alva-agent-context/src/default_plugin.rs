@@ -1,4 +1,4 @@
-// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextSDK, crate::store::estimate_tokens, crate::types
+// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextHandle, crate::store::estimate_tokens, crate::types
 // OUTPUT: pub type SummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultHooksConfig, pub struct DefaultContextHooks
 // POS:    Built-in production context plugin combining deterministic rules with optional LLM callbacks for summarization and memory extraction.
 //! DefaultContextHooks — the built-in production plugin.
@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::plugin::{ContextError, ContextHooks};
-use crate::sdk::ContextSDK;
+use crate::sdk::ContextHandle;
 use crate::store::estimate_tokens;
 use crate::types::*;
 
@@ -237,7 +237,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn bootstrap(
         &self,
-        sdk: &dyn ContextSDK,
+        sdk: &dyn ContextHandle,
         agent_id: &str,
     ) -> Result<(), ContextError> {
         let mut state = self.state.lock().await;
@@ -281,7 +281,7 @@ impl ContextHooks for DefaultContextHooks {
     /// Compression replaces the message inside the entry, preserving metadata.
     async fn assemble(
         &self,
-        _sdk: &dyn ContextSDK,
+        _sdk: &dyn ContextHandle,
         _agent_id: &str,
         entries: Vec<ContextEntry>,
         token_budget: usize,
@@ -476,7 +476,7 @@ impl ContextHooks for DefaultContextHooks {
     /// `assemble()` (S2: micro_compact), which operates on actual messages.
     async fn on_budget_exceeded(
         &self,
-        sdk: &dyn ContextSDK,
+        sdk: &dyn ContextHandle,
         agent_id: &str,
         snapshot: &ContextSnapshot,
     ) -> Vec<CompressAction> {
@@ -555,7 +555,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn on_message(
         &self,
-        sdk: &dyn ContextSDK,
+        sdk: &dyn ContextHandle,
         _agent_id: &str,
         message: &AgentMessage,
     ) -> Vec<Injection> {
@@ -591,7 +591,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn ingest(
         &self,
-        _sdk: &dyn ContextSDK,
+        _sdk: &dyn ContextHandle,
         _agent_id: &str,
         entry: &ContextEntry,
     ) -> IngestAction {
@@ -621,7 +621,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn after_turn(
         &self,
-        sdk: &dyn ContextSDK,
+        sdk: &dyn ContextHandle,
         agent_id: &str,
     ) {
         // Collect recent messages under lock, then release before async LLM work.
@@ -677,20 +677,20 @@ impl ContextHooks for DefaultContextHooks {
 mod tests {
     use super::*;
     use crate::plugin::ContextHooks;
-    use crate::sdk_impl::ContextSDKImpl;
+    use crate::sdk_impl::ContextHandleImpl;
     use crate::store::ContextStore;
     use alva_types::{ContentBlock, Message, MessageRole};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     /// Create a real SDK backed by a ContextStore for testing.
-    fn test_sdk() -> ContextSDKImpl {
+    fn test_sdk() -> ContextHandleImpl {
         let store = Arc::new(Mutex::new(ContextStore::new(
             100_000,
             80_000,
             PathBuf::from("/tmp/test"),
         )));
-        ContextSDKImpl::new(store)
+        ContextHandleImpl::new(store)
     }
 
     /// Create a user AgentMessage with the given text.
