@@ -122,6 +122,7 @@ pub struct BaseAgentBuilder {
     pub(crate) skill_dirs: Vec<PathBuf>,
     pub(crate) enable_memory: bool,
     pub(crate) enable_browser: bool,
+    pub(crate) enable_team: bool,
     pub(crate) compression_threshold: u32,
     pub(crate) max_iterations: u32,
 
@@ -142,6 +143,7 @@ impl BaseAgentBuilder {
             skill_dirs: Vec::new(),
             enable_memory: false,
             enable_browser: true,
+            enable_team: false,
             compression_threshold: 100_000,
             max_iterations: 100,
             convert_to_llm: None,
@@ -208,6 +210,16 @@ impl BaseAgentBuilder {
         self
     }
 
+    /// Enable the `team` tool (multi-agent orchestration). Default: off.
+    ///
+    /// Only enable on the top-level agent. Sub-agents created by the team
+    /// tool intentionally do NOT get this capability to prevent infinite
+    /// recursion.
+    pub fn with_team(mut self) -> Self {
+        self.enable_team = true;
+        self
+    }
+
     /// Set the compression threshold in estimated tokens (default: 100,000).
     pub fn compression_threshold(mut self, tokens: u32) -> Self {
         self.compression_threshold = tokens;
@@ -245,10 +257,12 @@ impl BaseAgentBuilder {
             alva_agent_tools::register_builtin_tools(&mut tool_registry);
         }
 
-        // 2b. Register built-in plugin tools (team, task)
-        tool_registry.register(
-            crate::plugins::team::create_team_tool(model.clone())
-        );
+        // 2b. Register built-in plugin tools (only for top-level agents)
+        if self.enable_team {
+            tool_registry.register(
+                crate::plugins::team::create_team_tool(model.clone())
+            );
+        }
 
         // 3. Register extra custom tools in the registry
         for tool in self.extra_tools {
