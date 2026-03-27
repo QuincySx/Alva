@@ -28,6 +28,7 @@ pub mod sdk_impl;
 pub mod store;
 pub mod session;
 pub mod chain;
+pub mod context_system;
 pub mod rules_plugin;
 pub mod default_plugin;
 
@@ -36,6 +37,7 @@ pub use sdk::ContextHandle;
 pub use sdk_impl::ContextHandleImpl;
 pub use store::ContextStore;
 pub use chain::ContextHooksChain;
+pub use context_system::ContextSystem;
 pub use rules_plugin::RulesContextHooks;
 pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig};
 pub use session::{SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession};

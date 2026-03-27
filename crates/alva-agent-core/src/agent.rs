@@ -63,21 +63,10 @@ impl Agent {
         }
     }
 
-    /// Set the context plugin and SDK.
-    pub fn set_context_hooks(
-        &self,
-        plugin: Arc<dyn alva_agent_context::ContextHooks>,
-        sdk: Arc<dyn alva_agent_context::ContextHandle>,
-    ) {
+    /// Set the context system (hooks + handle + session).
+    pub fn set_context(&self, context: alva_agent_context::ContextSystem) {
         let mut config = self.config.blocking_lock();
-        config.context_hooks = plugin;
-        config.context_handle = sdk;
-    }
-
-    /// Set the session for event-based persistence.
-    pub fn set_session(&self, session: Arc<dyn alva_agent_context::SessionAccess>) {
-        let mut config = self.config.blocking_lock();
-        config.session = Some(session);
+        config.context = context;
     }
 
     /// Start executing the agent with the given user messages.
@@ -222,7 +211,7 @@ impl Agent {
     /// because `Drop` cannot run async code.
     pub async fn shutdown(&self) {
         let config = self.config.lock().await;
-        if let Err(e) = config.context_hooks.dispose().await {
+        if let Err(e) = config.context.hooks().dispose().await {
             error!(error = %e, "context plugin dispose failed");
         }
     }

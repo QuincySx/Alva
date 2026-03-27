@@ -36,13 +36,6 @@ pub(crate) async fn run_agent_loop(
 ) -> Result<(), alva_types::AgentError> {
     let _ = event_tx.send(AgentEvent::AgentStart);
 
-    // Turn tracking for MessageStore persistence.
-    // The user message is expected to be the last element of state.messages when
-    // run_agent_loop is called (pushed by the caller). We subtract 1 so the
-    // turn slice includes it; if messages is empty we fall back to 0.
-    let turn_start_msg_index = state.messages.len().saturating_sub(1);
-    let turn_start_time = chrono::Utc::now().timestamp_millis();
-
     // Create a single MiddlewareContext that persists across the entire run.
     let mut mw_ctx = MiddlewareContext {
         session_id: state.session_id.clone(),
@@ -60,8 +53,8 @@ pub(crate) async fn run_agent_loop(
 
     // Context plugin: bootstrap
     {
-        let ctx_plugin = &config.context_hooks;
-        let ctx_sdk = config.context_handle.as_ref();
+        let ctx_plugin = config.context.hooks();
+        let ctx_sdk = config.context.handle();
         if let Err(e) = ctx_plugin.bootstrap(ctx_sdk, &state.session_id).await {
             tracing::warn!("context plugin bootstrap: {}", e);
         }
@@ -69,8 +62,8 @@ pub(crate) async fn run_agent_loop(
 
     // Context plugin: on_message — get injections
     if let Some(last_msg) = state.messages.last() {
-        let injections = config.context_hooks.on_message(
-            config.context_handle.as_ref(), &state.session_id, last_msg
+        let injections = config.context.hooks().on_message(
+            config.context.handle(), &state.session_id, last_msg
         ).await;
         for injection in injections {
             match injection.content {
@@ -98,7 +91,7 @@ pub(crate) async fn run_agent_loop(
     }
 
     // Session: append user message event
-    if let Some(session) = &config.session {
+    if let Some(session) = config.context.session() {
         if let Some(last_msg) = state.messages.last() {
             let content = match last_msg {
                 AgentMessage::Standard(m) => serde_json::to_value(&m.content).unwrap_or_default(),
@@ -111,8 +104,8 @@ pub(crate) async fn run_agent_loop(
     let result = run_agent_loop_inner(state, model, config, cancel, event_tx, &mut mw_ctx).await;
 
     // Session: save context snapshot after turn
-    if let Some(session) = &config.session {
-        let snapshot = config.context_handle.snapshot(&state.session_id);
+    if let Some(session) = config.context.session() {
+        let snapshot = config.context.handle().snapshot(&state.session_id);
         if let Ok(data) = serde_json::to_vec(&snapshot) {
             session.save_snapshot(&data).await;
         }
@@ -121,7 +114,7 @@ pub(crate) async fn run_agent_loop(
 
 
     // Context plugin: after_turn
-    config.context_hooks.after_turn(config.context_handle.as_ref(), &state.session_id).await;
+    config.context.hooks().after_turn(config.context.handle(), &state.session_id).await;
 
     // Middleware: on_agent_end
     if !config.middleware.is_empty() {
@@ -187,11 +180,11 @@ async fn run_agent_loop_inner(
             // 1. Build the messages to send to the LLM ---------------------
 
             // 1a. Check budget and trigger compression if exceeded.
-            let budget = config.context_handle.budget(&state.session_id);
+            let budget = config.context.handle().budget(&state.session_id);
             if budget.usage_ratio > 0.7 {
-                let snapshot = config.context_handle.snapshot(&state.session_id);
-                let actions = config.context_hooks.on_budget_exceeded(
-                    config.context_handle.as_ref(),
+                let snapshot = config.context.handle().snapshot(&state.session_id);
+                let actions = config.context.hooks().on_budget_exceeded(
+                    config.context.handle(),
                     &state.session_id,
                     &snapshot,
                 ).await;
@@ -277,7 +270,7 @@ async fn run_agent_loop_inner(
                                 // Call SDK summarize with a 5-second timeout.
                                 let summary_result = tokio::time::timeout(
                                     std::time::Duration::from_secs(5),
-                                    config.context_handle.summarize(
+                                    config.context.handle().summarize(
                                         &state.session_id,
                                         range.clone(),
                                         &hints,
@@ -331,7 +324,7 @@ async fn run_agent_loop_inner(
             }
 
             // 1c. Assemble context (plugin applies its own compression strategies).
-            let budget = config.context_handle.budget(&state.session_id);
+            let budget = config.context.handle().budget(&state.session_id);
             // Wrap state.messages in ContextEntry for the plugin.
             // Transitional: in the future, ContextStore holds entries directly.
             let entries: Vec<alva_agent_context::ContextEntry> = state.messages.iter().map(|msg| {
@@ -343,8 +336,8 @@ async fn run_agent_loop_inner(
                     ),
                 }
             }).collect();
-            let assembled = config.context_hooks.assemble(
-                config.context_handle.as_ref(),
+            let assembled = config.context.hooks().assemble(
+                config.context.handle(),
                 &state.session_id,
                 entries,
                 budget.budget_tokens,
@@ -411,7 +404,7 @@ async fn run_agent_loop_inner(
             });
 
             // Session: append assistant message event
-            if let Some(session) = &config.session {
+            if let Some(session) = config.context.session() {
                 let content = serde_json::to_value(&assistant_message.content).unwrap_or_default();
                 session.append(alva_agent_context::SessionEvent::assistant_message(content)).await;
             }
@@ -426,8 +419,8 @@ async fn run_agent_loop_inner(
                         alva_agent_context::ContextLayer::RuntimeInject,
                     ).with_origin(alva_agent_context::EntryOrigin::Model),
                 };
-                let ingest_action = config.context_hooks.ingest(
-                    config.context_handle.as_ref(), &state.session_id, &entry,
+                let ingest_action = config.context.hooks().ingest(
+                    config.context.handle(), &state.session_id, &entry,
                 ).await;
                 match ingest_action {
                     alva_agent_context::IngestAction::Skip => {
@@ -485,7 +478,7 @@ async fn run_agent_loop_inner(
             // 8. Push tool results as messages into state -------------------
             for (tc, result) in tool_calls.iter().zip(results.iter()) {
                 // Session: append tool result event (raw, before ingest may modify)
-                if let Some(session) = &config.session {
+                if let Some(session) = config.context.session() {
                     let content = serde_json::json!({
                         "tool_use_id": tc.id,
                         "content": result.content,
@@ -518,8 +511,8 @@ async fn run_agent_loop_inner(
                         tool_name: tc.name.clone(),
                     }),
                 };
-                let ingest_action = config.context_hooks.ingest(
-                    config.context_handle.as_ref(), &state.session_id, &tool_entry,
+                let ingest_action = config.context.hooks().ingest(
+                    config.context.handle(), &state.session_id, &tool_entry,
                 ).await;
                 match ingest_action {
                     alva_agent_context::IngestAction::Skip => {

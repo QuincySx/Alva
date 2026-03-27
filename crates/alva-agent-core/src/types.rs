@@ -115,14 +115,8 @@ pub struct AgentHooks {
     /// Required — turns agent messages into LLM messages.
     pub convert_to_llm: ConvertToLlmFn,
 
-    /// Context management plugin — drives context lifecycle hooks.
-    pub context_hooks: Arc<dyn alva_agent_context::ContextHooks>,
-
-    /// Context management SDK — operations interface for the plugin.
-    pub context_handle: Arc<dyn alva_agent_context::ContextHandle>,
-
-    /// Optional session — append-only event log for conversation persistence.
-    pub session: Option<Arc<dyn alva_agent_context::SessionAccess>>,
+    /// Context management system — hooks + handle + session bundled together.
+    pub context: alva_agent_context::ContextSystem,
 
     /// Composable — decide whether a tool call should proceed.
     /// First `Block` wins; if all return `Allow`, the call proceeds.
@@ -155,24 +149,11 @@ impl AgentHooks {
     /// All optional hooks default to `None`, tool execution defaults to
     /// `Parallel`, and max iterations defaults to 100.
     ///
-    /// Default context plugin: `RulesContextHooks` (deterministic, zero-LLM-cost).
-    /// Default context SDK: `ContextHandleImpl` backed by an in-memory `ContextStore`.
+    /// Default context: `RulesContextHooks` + in-memory `ContextStore`.
     pub fn new(convert_to_llm: ConvertToLlmFn) -> Self {
-        let ctx_store = Arc::new(std::sync::Mutex::new(
-            alva_agent_context::ContextStore::new(200_000, 180_000)
-        ));
-        let sdk: Arc<dyn alva_agent_context::ContextHandle> = Arc::new(
-            alva_agent_context::ContextHandleImpl::new(ctx_store)
-        );
-        let plugin: Arc<dyn alva_agent_context::ContextHooks> = Arc::new(
-            alva_agent_context::RulesContextHooks::default()
-        );
-
         Self {
             convert_to_llm,
-            context_hooks: plugin,
-            context_handle: sdk,
-            session: None,
+            context: alva_agent_context::ContextSystem::default(),
             before_tool_call: Vec::new(),
             after_tool_call: Vec::new(),
             get_steering_messages: Vec::new(),
