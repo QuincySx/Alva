@@ -1,3 +1,6 @@
+// INPUT:  std::collections::HashMap, alva_types::AgentMessage, serde::{Deserialize, Serialize}, chrono
+// OUTPUT: pub enum ContextLayer, pub enum Priority, pub struct ContextEntry, pub struct ContextMetadata, pub enum EntryOrigin, pub struct MessageRange, pub enum MessageSelector, pub struct PromptSection, pub struct RuntimeContext, pub struct MemoryFact, pub enum MemoryCategory, pub enum MemorySource, pub enum MediaSource, pub enum MediaAction, pub struct RetrievalChunk, pub enum IngestAction, pub enum ToolCallAction, pub enum ToolResultAction, pub enum CompressAction, pub enum InjectionContent, pub struct Injection, pub struct ContextSnapshot, pub struct LayerStats, pub struct EntrySnapshot, pub struct ToolPattern, pub struct BudgetInfo
+// POS:    Central type definitions for the context management system including layers, priorities, entries, actions, and snapshot types.
 //! Context management types — ContextEntry, ContextLayer, Priority, and all action/decision enums.
 
 use std::collections::HashMap;
@@ -247,19 +250,6 @@ pub struct RetrievalChunk {
 // Action / Decision enums (returned by plugin hooks)
 // ---------------------------------------------------------------------------
 
-/// Generic three-state decision for injection hooks.
-#[derive(Debug, Clone)]
-pub enum InjectDecision<T> {
-    /// Allow the content to enter context as-is.
-    Allow(T),
-    /// Modify the content before injection.
-    Modify(T),
-    /// Reject — do not inject, with reason.
-    Reject { reason: String },
-    /// Replace with a summary.
-    Summarize { summary: String },
-}
-
 /// What to do when ingesting a new message into the store.
 #[derive(Debug, Clone)]
 pub enum IngestAction {
@@ -296,34 +286,83 @@ pub enum CompressAction {
     RemoveByPriority { priority: Priority },
 }
 
-/// How sub-agent results should flow back to the parent.
-#[derive(Debug, Clone)]
-pub enum InjectionPlan {
-    FullResult,
-    Summary { text: String },
-    Externalized { path: String, summary: String },
-    Error { message: String },
-}
-
-/// Directive from parent to running sub-agent.
-#[derive(Debug, Clone)]
-pub enum SubAgentDirective {
-    Continue,
-    Steer { guidance: String },
-    Terminate { reason: String },
-}
-
 // ---------------------------------------------------------------------------
-// Injection (what on_user_message returns)
+// Injection (what on_message returns)
 // ---------------------------------------------------------------------------
 
-/// Content to inject into the context as a result of a hook decision.
+/// 注入请求的内容类型
 #[derive(Debug, Clone)]
-pub enum Injection {
-    Memory(Vec<MemoryFact>),
+pub enum InjectionContent {
+    /// L0: 系统提示词段落
+    SystemPrompt(PromptSection),
+    /// L1: 技能/领域知识
     Skill { name: String, content: String },
+    /// L2: 对话消息、工具结果
     Message(AgentMessage),
+    /// L2: 运行时元数据
     RuntimeContext(String),
+    /// L3: 记忆事实
+    Memory(Vec<MemoryFact>),
+}
+
+/// 注入请求 — plugin 通过 on_message 返回
+#[derive(Debug, Clone)]
+pub struct Injection {
+    pub content: InjectionContent,
+    pub layer: ContextLayer,
+    pub priority: Option<Priority>,
+}
+
+impl Injection {
+    pub fn system_prompt(section: PromptSection) -> Self {
+        Self {
+            content: InjectionContent::SystemPrompt(section),
+            layer: ContextLayer::AlwaysPresent,
+            priority: None,
+        }
+    }
+
+    pub fn skill(name: String, content: String) -> Self {
+        Self {
+            content: InjectionContent::Skill { name, content },
+            layer: ContextLayer::OnDemand,
+            priority: None,
+        }
+    }
+
+    pub fn message(msg: AgentMessage) -> Self {
+        Self {
+            content: InjectionContent::Message(msg),
+            layer: ContextLayer::RuntimeInject,
+            priority: None,
+        }
+    }
+
+    pub fn runtime_context(data: String) -> Self {
+        Self {
+            content: InjectionContent::RuntimeContext(data),
+            layer: ContextLayer::RuntimeInject,
+            priority: None,
+        }
+    }
+
+    pub fn memory(facts: Vec<MemoryFact>) -> Self {
+        Self {
+            content: InjectionContent::Memory(facts),
+            layer: ContextLayer::Memory,
+            priority: None,
+        }
+    }
+
+    pub fn with_layer(mut self, layer: ContextLayer) -> Self {
+        self.layer = layer;
+        self
+    }
+
+    pub fn with_priority(mut self, p: Priority) -> Self {
+        self.priority = Some(p);
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
