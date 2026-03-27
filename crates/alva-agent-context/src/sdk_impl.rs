@@ -1,7 +1,7 @@
-// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::AgentMessage, uuid, crate::message_store::MessageStore, crate::sdk::ContextPluginSDK, crate::store::{ContextStore, estimate_tokens}, crate::types
+// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::AgentMessage, uuid, crate::message_store::MessageStore, crate::sdk::ContextHooksSDK, crate::store::{ContextStore, estimate_tokens}, crate::types
 // OUTPUT: pub struct ContextSDKImpl
-// POS:    Concrete ContextPluginSDK implementation backed by a shared ContextStore with Mutex-based synchronization.
-//! Concrete implementation of ContextPluginSDK backed by ContextStore.
+// POS:    Concrete ContextHooksSDK implementation backed by a shared ContextStore with Mutex-based synchronization.
+//! Concrete implementation of ContextHooksSDK backed by ContextStore.
 
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use alva_types::AgentMessage;
 
 use crate::message_store::MessageStore;
-use crate::sdk::ContextPluginSDK;
+use crate::sdk::ContextHooksSDK;
 use crate::store::{ContextStore, estimate_tokens};
 use crate::types::*;
 
@@ -46,7 +46,7 @@ impl ContextSDKImpl {
 }
 
 #[async_trait]
-impl ContextPluginSDK for ContextSDKImpl {
+impl ContextHooksSDK for ContextSDKImpl {
     // =====================================================================
     // Read
     // =====================================================================

@@ -1,7 +1,7 @@
-// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextPlugin), crate::sdk::ContextPluginSDK, crate::store::estimate_tokens, crate::types
-// OUTPUT: pub type SummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultPluginConfig, pub struct DefaultContextPlugin
+// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextHooksSDK, crate::store::estimate_tokens, crate::types
+// OUTPUT: pub type SummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultHooksConfig, pub struct DefaultContextHooks
 // POS:    Built-in production context plugin combining deterministic rules with optional LLM callbacks for summarization and memory extraction.
-//! DefaultContextPlugin — the built-in production plugin.
+//! DefaultContextHooks — the built-in production plugin.
 //!
 //! Uses deterministic rules for fast-path decisions + LLM callbacks for
 //! summarization and memory extraction. This is the plugin that ships as default.
@@ -20,8 +20,8 @@ use alva_types::AgentMessage;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use crate::plugin::{ContextError, ContextPlugin};
-use crate::sdk::ContextPluginSDK;
+use crate::plugin::{ContextError, ContextHooks};
+use crate::sdk::ContextHooksSDK;
 use crate::store::estimate_tokens;
 use crate::types::*;
 
@@ -56,7 +56,7 @@ pub struct MemoryCandidate {
 // ---------------------------------------------------------------------------
 
 /// Configuration for the default context plugin.
-pub struct DefaultPluginConfig {
+pub struct DefaultHooksConfig {
     /// Hard-cap threshold at which emergency sliding window fires. Default: 0.95.
     pub emergency_threshold: f32,
     /// Messages to keep after sliding window. Default: 20.
@@ -71,7 +71,7 @@ pub struct DefaultPluginConfig {
     pub extract_memory_fn: Option<ExtractMemoryFn>,
 }
 
-impl Default for DefaultPluginConfig {
+impl Default for DefaultHooksConfig {
     fn default() -> Self {
         Self {
             emergency_threshold: 0.95,
@@ -120,7 +120,7 @@ impl Default for SessionState {
 }
 
 // ---------------------------------------------------------------------------
-// DefaultContextPlugin
+// DefaultContextHooks
 // ---------------------------------------------------------------------------
 
 /// The built-in production context management plugin.
@@ -129,13 +129,13 @@ impl Default for SessionState {
 /// - Rules handle: budget checks, file/media truncation, tool result sizing
 /// - LLM handles: summarization, memory extraction (when callbacks provided)
 /// - Falls back to truncation if LLM is unavailable
-pub struct DefaultContextPlugin {
-    config: DefaultPluginConfig,
+pub struct DefaultContextHooks {
+    config: DefaultHooksConfig,
     state: Mutex<SessionState>,
 }
 
-impl DefaultContextPlugin {
-    pub fn new(config: DefaultPluginConfig) -> Self {
+impl DefaultContextHooks {
+    pub fn new(config: DefaultHooksConfig) -> Self {
         Self {
             config,
             state: Mutex::new(SessionState::default()),
@@ -226,7 +226,7 @@ impl DefaultContextPlugin {
 }
 
 #[async_trait]
-impl ContextPlugin for DefaultContextPlugin {
+impl ContextHooks for DefaultContextHooks {
     fn name(&self) -> &str {
         "default-context-plugin"
     }
@@ -237,7 +237,7 @@ impl ContextPlugin for DefaultContextPlugin {
 
     async fn bootstrap(
         &self,
-        sdk: &dyn ContextPluginSDK,
+        sdk: &dyn ContextHooksSDK,
         agent_id: &str,
     ) -> Result<(), ContextError> {
         let mut state = self.state.lock().await;
@@ -281,7 +281,7 @@ impl ContextPlugin for DefaultContextPlugin {
     /// Compression replaces the message inside the entry, preserving metadata.
     async fn assemble(
         &self,
-        _sdk: &dyn ContextPluginSDK,
+        _sdk: &dyn ContextHooksSDK,
         _agent_id: &str,
         entries: Vec<ContextEntry>,
         token_budget: usize,
@@ -476,7 +476,7 @@ impl ContextPlugin for DefaultContextPlugin {
     /// `assemble()` (S2: micro_compact), which operates on actual messages.
     async fn on_budget_exceeded(
         &self,
-        sdk: &dyn ContextPluginSDK,
+        sdk: &dyn ContextHooksSDK,
         agent_id: &str,
         snapshot: &ContextSnapshot,
     ) -> Vec<CompressAction> {
@@ -555,7 +555,7 @@ impl ContextPlugin for DefaultContextPlugin {
 
     async fn on_message(
         &self,
-        sdk: &dyn ContextPluginSDK,
+        sdk: &dyn ContextHooksSDK,
         _agent_id: &str,
         message: &AgentMessage,
     ) -> Vec<Injection> {
@@ -591,7 +591,7 @@ impl ContextPlugin for DefaultContextPlugin {
 
     async fn ingest(
         &self,
-        _sdk: &dyn ContextPluginSDK,
+        _sdk: &dyn ContextHooksSDK,
         _agent_id: &str,
         entry: &ContextEntry,
     ) -> IngestAction {
@@ -621,7 +621,7 @@ impl ContextPlugin for DefaultContextPlugin {
 
     async fn after_turn(
         &self,
-        sdk: &dyn ContextPluginSDK,
+        sdk: &dyn ContextHooksSDK,
         agent_id: &str,
     ) {
         // Collect recent messages under lock, then release before async LLM work.
@@ -676,7 +676,7 @@ impl ContextPlugin for DefaultContextPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::ContextPlugin;
+    use crate::plugin::ContextHooks;
     use crate::sdk_impl::ContextSDKImpl;
     use crate::store::ContextStore;
     use alva_types::{ContentBlock, Message, MessageRole};
@@ -737,11 +737,11 @@ mod tests {
     #[tokio::test]
     async fn test_assemble_sliding_window() {
         let sdk = test_sdk();
-        let config = DefaultPluginConfig {
+        let config = DefaultHooksConfig {
             sliding_window_keep: 5,
-            ..DefaultPluginConfig::default()
+            ..DefaultHooksConfig::default()
         };
-        let plugin = DefaultContextPlugin::new(config);
+        let plugin = DefaultContextHooks::new(config);
 
         // Create 10 user messages wrapped in entries.
         let entries: Vec<ContextEntry> = (0..10)
@@ -769,11 +769,11 @@ mod tests {
     #[tokio::test]
     async fn test_assemble_micro_compact() {
         let sdk = test_sdk();
-        let config = DefaultPluginConfig {
+        let config = DefaultHooksConfig {
             sliding_window_keep: 100, // High enough to not trigger sliding window.
-            ..DefaultPluginConfig::default()
+            ..DefaultHooksConfig::default()
         };
-        let plugin = DefaultContextPlugin::new(config);
+        let plugin = DefaultContextHooks::new(config);
 
         // Create entries: 6 old tool results (>500 tokens each) + 5 recent user msgs.
         // The old tool results should be compacted (micro_compact).
@@ -820,11 +820,11 @@ mod tests {
     #[tokio::test]
     async fn test_assemble_budget_enforcement() {
         let sdk = test_sdk();
-        let config = DefaultPluginConfig {
+        let config = DefaultHooksConfig {
             sliding_window_keep: 100,
-            ..DefaultPluginConfig::default()
+            ..DefaultHooksConfig::default()
         };
-        let plugin = DefaultContextPlugin::new(config);
+        let plugin = DefaultContextHooks::new(config);
 
         // Each message is ~100 tokens (400 chars / 4). Create 10 entries.
         let text_400_chars: String = "a".repeat(400);
@@ -862,7 +862,7 @@ mod tests {
     #[tokio::test]
     async fn test_assemble_empty() {
         let sdk = test_sdk();
-        let plugin = DefaultContextPlugin::new(DefaultPluginConfig::default());
+        let plugin = DefaultContextHooks::new(DefaultHooksConfig::default());
 
         let result = plugin
             .assemble(&sdk, "agent-1", vec![], 100_000)

@@ -1,24 +1,24 @@
-// INPUT:  async_trait, crate::plugin::ContextPlugin, crate::sdk::ContextPluginSDK, crate::types (ContextSnapshot, CompressAction, Priority)
-// OUTPUT: pub struct RulesContextPlugin
+// INPUT:  async_trait, crate::plugin::ContextHooks, crate::sdk::ContextHooksSDK, crate::types (ContextSnapshot, CompressAction, Priority)
+// OUTPUT: pub struct RulesContextHooks
 // POS:    Deterministic, zero-LLM-cost context plugin for development and fallback use.
-//! RulesContextPlugin — deterministic, zero-LLM-cost plugin for development and fallback.
+//! RulesContextHooks — deterministic, zero-LLM-cost plugin for development and fallback.
 
 use async_trait::async_trait;
 
-use crate::plugin::ContextPlugin;
-use crate::sdk::ContextPluginSDK;
+use crate::plugin::ContextHooks;
+use crate::sdk::ContextHooksSDK;
 use crate::types::*;
 
 /// A pure-rules context plugin. No LLM calls, fully deterministic.
 ///
 /// Use during development to verify the hooks pipeline works,
 /// or as a fallback when the Agent-driven plugin is unavailable.
-pub struct RulesContextPlugin {
+pub struct RulesContextHooks {
     /// Max conversation messages to keep (sliding window).
     pub max_messages: usize,
 }
 
-impl Default for RulesContextPlugin {
+impl Default for RulesContextHooks {
     fn default() -> Self {
         Self {
             max_messages: 30,
@@ -27,14 +27,14 @@ impl Default for RulesContextPlugin {
 }
 
 #[async_trait]
-impl ContextPlugin for RulesContextPlugin {
+impl ContextHooks for RulesContextHooks {
     fn name(&self) -> &str {
         "rules-context-plugin"
     }
 
     async fn on_budget_exceeded(
         &self,
-        _sdk: &dyn ContextPluginSDK,
+        _sdk: &dyn ContextHooksSDK,
         _agent_id: &str,
         snapshot: &ContextSnapshot,
     ) -> Vec<CompressAction> {

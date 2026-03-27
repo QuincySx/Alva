@@ -1,4 +1,7 @@
-//! MessageStore trait — the storage interface that ContextPlugin depends on.
+// INPUT:  alva_types::AgentMessage, async_trait, tokio::sync::Mutex, std::collections::HashMap, crate::store::estimate_tokens
+// OUTPUT: pub struct Turn, pub trait MessageStore, pub struct InMemoryMessageStore
+// POS:    Defines the turn-based conversation storage interface and provides an in-memory implementation for development and testing.
+//! MessageStore trait — the storage interface that ContextHooks depends on.
 //!
 //! This is the source of truth for conversation history. The agent loop writes to it,
 //! the context plugin reads from it. Both go through this interface.
