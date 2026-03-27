@@ -1,33 +1,33 @@
-// INPUT:  plugin, sdk, sdk_impl, store, rules_plugin, default_plugin, message_store, types
-// OUTPUT: pub mod types/plugin/sdk/sdk_impl/store/message_store/rules_plugin/default_plugin; re-exports ContextHooks, ContextHandle, ContextHandleImpl, ContextStore, RulesContextHooks, DefaultContextHooks, DefaultHooksConfig, MessageStore, InMemoryMessageStore, Turn
+// INPUT:  plugin, sdk, sdk_impl, store, rules_plugin, default_plugin, session, message_store, types
+// OUTPUT: re-exports ContextHooks, ContextHandle, ContextHandleImpl, ContextStore, RulesContextHooks, DefaultContextHooks, DefaultHooksConfig, SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession, MessageStore, InMemoryMessageStore, Turn
 // POS:    Crate root that declares submodules and re-exports all public types for the context management system.
-//! alva-agent-context — Context management hooks, SDK, and plugin system.
+//! alva-agent-context — Context management hooks, session storage, and plugin system.
 //!
 //! # Architecture
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────┐
-//! │  Plugin Layer (strategy)                     │
-//! │  impl ContextHooks — 8 hooks               │
+//! │  Hooks Layer (strategy)                      │
+//! │  impl ContextHooks — 8 hooks                │
 //! ├─────────────────────────────────────────────┤
-//! │  SDK Layer (operations)                      │
-//! │  ContextHandleImpl → ContextHandle          │
+//! │  Handle Layer (operations)                   │
+//! │  ContextHandleImpl → ContextHandle           │
 //! ├─────────────────────────────────────────────┤
-//! │  Store Layer (data)                          │
-//! │  ContextStore — four-layer CRUD              │
-//! │  MessageStore — turn-based persistence       │
+//! │  Storage Layer (data)                        │
+//! │  ContextStore — four-layer runtime context   │
+//! │  SessionAccess — append-only event log       │
 //! └─────────────────────────────────────────────┘
 //! ```
 //!
-//! ContextHooks and MessageStore are injected into the Agent as components.
-//! The agent loop calls plugin hooks directly — no middleware adapter needed.
+//! ContextHooks and SessionAccess are injected into the Agent as components.
 
 pub mod types;
 pub mod plugin;
 pub mod sdk;
 pub mod sdk_impl;
 pub mod store;
-pub mod message_store;
+pub mod session;
+pub mod message_store;  // kept for backward compatibility, will be removed
 pub mod rules_plugin;
 pub mod default_plugin;
 
@@ -37,5 +37,6 @@ pub use sdk_impl::ContextHandleImpl;
 pub use store::ContextStore;
 pub use rules_plugin::RulesContextHooks;
 pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig};
-pub use message_store::{MessageStore, InMemoryMessageStore, Turn};
+pub use session::{SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession};
+pub use message_store::{MessageStore, InMemoryMessageStore, Turn};  // backward compat
 pub use types::*;

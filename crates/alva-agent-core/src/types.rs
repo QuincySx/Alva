@@ -121,7 +121,10 @@ pub struct AgentHooks {
     /// Context management SDK — operations interface for the plugin.
     pub context_sdk: Arc<dyn alva_agent_context::ContextHandle>,
 
-    /// Optional message store — turn-based conversation persistence.
+    /// Optional session — append-only event log for conversation persistence.
+    pub session: Option<Arc<dyn alva_agent_context::SessionAccess>>,
+
+    /// Legacy message store (backward compatibility, prefer `session`).
     pub message_store: Option<Arc<dyn alva_agent_context::MessageStore>>,
 
     /// Composable — decide whether a tool call should proceed.
@@ -172,6 +175,7 @@ impl AgentHooks {
             convert_to_llm,
             context_plugin: plugin,
             context_sdk: sdk,
+            session: None,
             message_store: None,
             before_tool_call: Vec::new(),
             after_tool_call: Vec::new(),

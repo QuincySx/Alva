@@ -20,5 +20,6 @@ pub use middleware::{Middleware, MiddlewareStack, MiddlewareContext, MiddlewareE
 pub use alva_agent_context::{
     ContextHooks, ContextHandle, ContextHandleImpl, ContextStore,
     RulesContextHooks, DefaultContextHooks, DefaultHooksConfig,
+    SessionAccess, SessionEvent, InMemorySession, EventQuery, EventMatch,
     MessageStore, InMemoryMessageStore, Turn,
 };

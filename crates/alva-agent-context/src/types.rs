@@ -311,7 +311,7 @@ impl Injection {
 // ---------------------------------------------------------------------------
 
 /// Read-only snapshot of the context store, passed to the plugin for decisions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
     pub total_tokens: usize,
     pub budget_tokens: usize,
@@ -322,7 +322,7 @@ pub struct ContextSnapshot {
     pub recent_tool_patterns: Vec<ToolPattern>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayerStats {
     pub token_count: usize,
     pub entry_count: usize,
@@ -330,7 +330,7 @@ pub struct LayerStats {
 }
 
 /// Lightweight view of a single entry (no full content, just metadata + preview).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntrySnapshot {
     pub id: String,
     pub layer: ContextLayer,
@@ -343,7 +343,7 @@ pub struct EntrySnapshot {
 }
 
 /// Tool call pattern statistics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolPattern {
     pub tool_name: String,
     pub call_count: usize,

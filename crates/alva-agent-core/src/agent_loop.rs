@@ -97,9 +97,28 @@ pub(crate) async fn run_agent_loop(
         }
     }
 
+    // Session: append user message event
+    if let Some(session) = &config.session {
+        if let Some(last_msg) = state.messages.last() {
+            let content = match last_msg {
+                AgentMessage::Standard(m) => serde_json::to_value(&m.content).unwrap_or_default(),
+                AgentMessage::Custom { data, .. } => data.clone(),
+            };
+            session.append(alva_agent_context::SessionEvent::user_message(content)).await;
+        }
+    }
+
     let result = run_agent_loop_inner(state, model, config, cancel, event_tx, &mut mw_ctx).await;
 
-    // Persist turn to MessageStore.
+    // Session: save context snapshot after turn
+    if let Some(session) = &config.session {
+        let snapshot = config.context_sdk.snapshot(&state.session_id);
+        if let Ok(data) = serde_json::to_vec(&snapshot) {
+            session.save_snapshot(&data).await;
+        }
+    }
+
+    // Persist turn to MessageStore (legacy).
     if let Some(store) = &config.message_store {
         let turn_messages: Vec<AgentMessage> = state.messages[turn_start_msg_index..].to_vec();
         if let Some((user_msg, agent_msgs)) = turn_messages.split_first() {
@@ -404,6 +423,12 @@ async fn run_agent_loop_inner(
                 message: agent_msg.clone(),
             });
 
+            // Session: append assistant message event
+            if let Some(session) = &config.session {
+                let content = serde_json::to_value(&assistant_message.content).unwrap_or_default();
+                session.append(alva_agent_context::SessionEvent::assistant_message(content)).await;
+            }
+
             // 5. Context plugin: ingest — let plugin decide keep/modify/skip
             let agent_msg = agent_msg;
             {
@@ -472,6 +497,16 @@ async fn run_agent_loop_inner(
 
             // 8. Push tool results as messages into state -------------------
             for (tc, result) in tool_calls.iter().zip(results.iter()) {
+                // Session: append tool result event (raw, before ingest may modify)
+                if let Some(session) = &config.session {
+                    let content = serde_json::json!({
+                        "tool_use_id": tc.id,
+                        "content": result.content,
+                        "is_error": result.is_error,
+                    });
+                    session.append(alva_agent_context::SessionEvent::tool_result(&tc.id, content)).await;
+                }
+
                 let tool_msg = Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     role: MessageRole::Tool,
