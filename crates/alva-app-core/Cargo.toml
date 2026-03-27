@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "alva-cli"
-path = "src/bin/cli.rs"
+path = "src/bin/cli/main.rs"
 
 [dependencies]
 # Extracted agent crates

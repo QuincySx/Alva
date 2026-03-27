@@ -77,6 +77,11 @@ impl BaseAgent {
         self.agent.messages().await
     }
 
+    /// Restore message history (e.g., when resuming a session).
+    pub async fn restore_messages(&self, messages: Vec<AgentMessage>) {
+        self.agent.restore_messages(messages).await;
+    }
+
     /// Access the skill store.
     pub fn skill_store(&self) -> &Arc<SkillStore> {
         &self.skill_store

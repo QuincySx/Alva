@@ -178,6 +178,13 @@ impl Agent {
         st.messages.clone()
     }
 
+    /// Restore message history (e.g., when resuming a session).
+    /// Replaces the current messages entirely.
+    pub async fn restore_messages(&self, messages: Vec<AgentMessage>) {
+        let mut st = self.state.lock().await;
+        st.messages = messages;
+    }
+
     /// Replace the tool set.
     pub async fn set_tools(&self, tools: Vec<Arc<dyn Tool>>) {
         let mut st = self.state.lock().await;
