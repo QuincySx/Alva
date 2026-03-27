@@ -116,16 +116,13 @@ pub struct AgentHooks {
     pub convert_to_llm: ConvertToLlmFn,
 
     /// Context management plugin — drives context lifecycle hooks.
-    pub context_plugin: Arc<dyn alva_agent_context::ContextHooks>,
+    pub context_hooks: Arc<dyn alva_agent_context::ContextHooks>,
 
     /// Context management SDK — operations interface for the plugin.
-    pub context_sdk: Arc<dyn alva_agent_context::ContextHandle>,
+    pub context_handle: Arc<dyn alva_agent_context::ContextHandle>,
 
     /// Optional session — append-only event log for conversation persistence.
     pub session: Option<Arc<dyn alva_agent_context::SessionAccess>>,
-
-    /// Legacy message store (backward compatibility, prefer `session`).
-    pub message_store: Option<Arc<dyn alva_agent_context::MessageStore>>,
 
     /// Composable — decide whether a tool call should proceed.
     /// First `Block` wins; if all return `Allow`, the call proceeds.
@@ -173,10 +170,9 @@ impl AgentHooks {
 
         Self {
             convert_to_llm,
-            context_plugin: plugin,
-            context_sdk: sdk,
+            context_hooks: plugin,
+            context_handle: sdk,
             session: None,
-            message_store: None,
             before_tool_call: Vec::new(),
             after_tool_call: Vec::new(),
             get_steering_messages: Vec::new(),

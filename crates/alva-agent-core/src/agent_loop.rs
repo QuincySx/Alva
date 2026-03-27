@@ -60,8 +60,8 @@ pub(crate) async fn run_agent_loop(
 
     // Context plugin: bootstrap
     {
-        let ctx_plugin = &config.context_plugin;
-        let ctx_sdk = config.context_sdk.as_ref();
+        let ctx_plugin = &config.context_hooks;
+        let ctx_sdk = config.context_handle.as_ref();
         if let Err(e) = ctx_plugin.bootstrap(ctx_sdk, &state.session_id).await {
             tracing::warn!("context plugin bootstrap: {}", e);
         }
@@ -69,8 +69,8 @@ pub(crate) async fn run_agent_loop(
 
     // Context plugin: on_message — get injections
     if let Some(last_msg) = state.messages.last() {
-        let injections = config.context_plugin.on_message(
-            config.context_sdk.as_ref(), &state.session_id, last_msg
+        let injections = config.context_hooks.on_message(
+            config.context_handle.as_ref(), &state.session_id, last_msg
         ).await;
         for injection in injections {
             match injection.content {
@@ -112,29 +112,16 @@ pub(crate) async fn run_agent_loop(
 
     // Session: save context snapshot after turn
     if let Some(session) = &config.session {
-        let snapshot = config.context_sdk.snapshot(&state.session_id);
+        let snapshot = config.context_handle.snapshot(&state.session_id);
         if let Ok(data) = serde_json::to_vec(&snapshot) {
             session.save_snapshot(&data).await;
         }
     }
 
-    // Persist turn to MessageStore (legacy).
-    if let Some(store) = &config.message_store {
-        let turn_messages: Vec<AgentMessage> = state.messages[turn_start_msg_index..].to_vec();
-        if let Some((user_msg, agent_msgs)) = turn_messages.split_first() {
-            let turn = alva_agent_context::Turn {
-                index: store.turn_count(&state.session_id).await,
-                user_message: user_msg.clone(),
-                agent_messages: agent_msgs.to_vec(),
-                started_at: turn_start_time,
-                completed_at: Some(chrono::Utc::now().timestamp_millis()),
-            };
-            store.append_turn(&state.session_id, turn).await;
-        }
-    }
+
 
     // Context plugin: after_turn
-    config.context_plugin.after_turn(config.context_sdk.as_ref(), &state.session_id).await;
+    config.context_hooks.after_turn(config.context_handle.as_ref(), &state.session_id).await;
 
     // Middleware: on_agent_end
     if !config.middleware.is_empty() {
@@ -200,11 +187,11 @@ async fn run_agent_loop_inner(
             // 1. Build the messages to send to the LLM ---------------------
 
             // 1a. Check budget and trigger compression if exceeded.
-            let budget = config.context_sdk.budget(&state.session_id);
+            let budget = config.context_handle.budget(&state.session_id);
             if budget.usage_ratio > 0.7 {
-                let snapshot = config.context_sdk.snapshot(&state.session_id);
-                let actions = config.context_plugin.on_budget_exceeded(
-                    config.context_sdk.as_ref(),
+                let snapshot = config.context_handle.snapshot(&state.session_id);
+                let actions = config.context_hooks.on_budget_exceeded(
+                    config.context_handle.as_ref(),
                     &state.session_id,
                     &snapshot,
                 ).await;
@@ -290,7 +277,7 @@ async fn run_agent_loop_inner(
                                 // Call SDK summarize with a 5-second timeout.
                                 let summary_result = tokio::time::timeout(
                                     std::time::Duration::from_secs(5),
-                                    config.context_sdk.summarize(
+                                    config.context_handle.summarize(
                                         &state.session_id,
                                         range.clone(),
                                         &hints,
@@ -344,7 +331,7 @@ async fn run_agent_loop_inner(
             }
 
             // 1c. Assemble context (plugin applies its own compression strategies).
-            let budget = config.context_sdk.budget(&state.session_id);
+            let budget = config.context_handle.budget(&state.session_id);
             // Wrap state.messages in ContextEntry for the plugin.
             // Transitional: in the future, ContextStore holds entries directly.
             let entries: Vec<alva_agent_context::ContextEntry> = state.messages.iter().map(|msg| {
@@ -356,8 +343,8 @@ async fn run_agent_loop_inner(
                     ),
                 }
             }).collect();
-            let assembled = config.context_plugin.assemble(
-                config.context_sdk.as_ref(),
+            let assembled = config.context_hooks.assemble(
+                config.context_handle.as_ref(),
                 &state.session_id,
                 entries,
                 budget.budget_tokens,
@@ -439,8 +426,8 @@ async fn run_agent_loop_inner(
                         alva_agent_context::ContextLayer::RuntimeInject,
                     ).with_origin(alva_agent_context::EntryOrigin::Model),
                 };
-                let ingest_action = config.context_plugin.ingest(
-                    config.context_sdk.as_ref(), &state.session_id, &entry,
+                let ingest_action = config.context_hooks.ingest(
+                    config.context_handle.as_ref(), &state.session_id, &entry,
                 ).await;
                 match ingest_action {
                     alva_agent_context::IngestAction::Skip => {
@@ -531,8 +518,8 @@ async fn run_agent_loop_inner(
                         tool_name: tc.name.clone(),
                     }),
                 };
-                let ingest_action = config.context_plugin.ingest(
-                    config.context_sdk.as_ref(), &state.session_id, &tool_entry,
+                let ingest_action = config.context_hooks.ingest(
+                    config.context_handle.as_ref(), &state.session_id, &tool_entry,
                 ).await;
                 match ingest_action {
                     alva_agent_context::IngestAction::Skip => {
