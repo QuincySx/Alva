@@ -1,3 +1,6 @@
+// INPUT:  serde::Serialize, std::collections::HashMap, serde_json::Value
+// OUTPUT: pub struct LogRecord, pub struct LogQuery, pub struct LogQueryResponse, pub struct LogStore
+// POS:    Ring-buffer log store with filtered query support for level, module, cursor, and keyword.
 use serde::Serialize;
 use std::collections::HashMap;
 

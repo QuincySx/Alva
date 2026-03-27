@@ -1,4 +1,6 @@
-// ACP special message types: execution plan steps and heartbeat ping/pong.
+// INPUT:  serde
+// OUTPUT: pub struct PlanData, pub struct PlanStep, pub enum PlanStepStatus, pub struct PingPongData
+// POS:    Defines ACP special message types for execution plan steps and heartbeat ping/pong.
 use serde::{Deserialize, Serialize};
 
 /// Agent execution plan (step list, displayed to user)

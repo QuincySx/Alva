@@ -79,20 +79,33 @@ impl Default for WorkspaceModel {
 
 fn mock_sidebar_items() -> Vec<SidebarItem> {
     vec![
-        // Global sessions
+        // Global sessions (tasks)
         SidebarItem::GlobalSession(Session {
             id: "sess-g1".into(),
             workspace_id: None,
-            name: "查天气".into(),
+            name: "项目运行环境搭建".into(),
             created_at: 1710950000000,
             updated_at: 1710950000000,
+            status_text: Some("已完成".into()),
+            duration_text: Some("6m".into()),
         }),
         SidebarItem::GlobalSession(Session {
             id: "sess-g2".into(),
             workspace_id: None,
-            name: "邮件助手".into(),
+            name: "英语四级核心词汇整理".into(),
             created_at: 1710940000000,
             updated_at: 1710940000000,
+            status_text: Some("已完成".into()),
+            duration_text: Some("21h".into()),
+        }),
+        SidebarItem::GlobalSession(Session {
+            id: "sess-g3".into(),
+            workspace_id: None,
+            name: "数据分析报告生成".into(),
+            created_at: 1710930000000,
+            updated_at: 1710930000000,
+            status_text: Some("运行中".into()),
+            duration_text: Some("3m".into()),
         }),
         // Workspace: srow-agent
         SidebarItem::Workspace(Workspace {
@@ -104,52 +117,24 @@ fn mock_sidebar_items() -> Vec<SidebarItem> {
                 Session {
                     id: "sess-1a".into(),
                     workspace_id: Some("ws-1".into()),
-                    name: "重构引擎".into(),
+                    name: "重构引擎架构".into(),
                     created_at: 1710900000000,
                     updated_at: 1710900000000,
+                    status_text: Some("已完成".into()),
+                    duration_text: Some("45m".into()),
                 },
                 Session {
                     id: "sess-1b".into(),
                     workspace_id: Some("ws-1".into()),
-                    name: "修复 bug".into(),
+                    name: "修复 MCP 连接问题".into(),
                     created_at: 1710890000000,
                     updated_at: 1710890000000,
-                },
-                Session {
-                    id: "sess-1c".into(),
-                    workspace_id: Some("ws-1".into()),
-                    name: "写测试".into(),
-                    created_at: 1710880000000,
-                    updated_at: 1710880000000,
+                    status_text: Some("已完成".into()),
+                    duration_text: Some("12m".into()),
                 },
             ],
             created_at: 1710900000000,
             updated_at: 1710920000000,
-        }),
-        // Workspace: web-app
-        SidebarItem::Workspace(Workspace {
-            id: "ws-2".into(),
-            name: "web-app".into(),
-            path: "/Users/dev/web-app".into(),
-            expanded: false,
-            sessions: vec![
-                Session {
-                    id: "sess-2a".into(),
-                    workspace_id: Some("ws-2".into()),
-                    name: "首页设计".into(),
-                    created_at: 1710800000000,
-                    updated_at: 1710800000000,
-                },
-                Session {
-                    id: "sess-2b".into(),
-                    workspace_id: Some("ws-2".into()),
-                    name: "API 对接".into(),
-                    created_at: 1710790000000,
-                    updated_at: 1710790000000,
-                },
-            ],
-            created_at: 1710800000000,
-            updated_at: 1710810000000,
         }),
     ]
 }

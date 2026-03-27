@@ -1,3 +1,7 @@
+// INPUT:  std::path::PathBuf, dirs, alva_engine_runtime::RuntimeError
+// OUTPUT: pub(crate) fn ensure_bridge_script
+// POS:    Embeds and deploys the Node.js bridge script to a user-level cache directory.
+
 use std::path::PathBuf;
 
 use alva_engine_runtime::RuntimeError;

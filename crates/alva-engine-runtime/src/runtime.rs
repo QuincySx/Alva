@@ -1,3 +1,7 @@
+// INPUT:  std::pin::Pin, async_trait, futures_core::Stream, crate::{RuntimeError, RuntimeEvent, PermissionDecision, RuntimeCapabilities, RuntimeRequest}
+// OUTPUT: pub trait EngineRuntime
+// POS:    Defines the unified async trait that all engine adapters must implement for session execution and control.
+
 use std::pin::Pin;
 
 use async_trait::async_trait;

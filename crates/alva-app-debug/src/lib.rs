@@ -1,3 +1,6 @@
+// INPUT:  builder, inspect, log_layer, log_store, router, server, traced, action_registry, gpui (sub-modules)
+// OUTPUT: ActionRegistry, RegisteredView, DebugServer, DebugServerBuilder, DebugServerHandle, InspectNode, Inspectable, LogCaptureLayer, LogHandle, LogQuery, LogRecord
+// POS:    Crate root for alva-app-debug — exposes debug server, log capture, and UI inspection infrastructure
 mod builder;
 mod inspect;
 mod log_layer;

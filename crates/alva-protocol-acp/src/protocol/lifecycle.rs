@@ -1,4 +1,6 @@
-// ACP task lifecycle message types: start, complete, system messages, finish, and error data.
+// INPUT:  serde, serde_json::Value
+// OUTPUT: pub struct TaskStartData, pub struct TaskCompleteData, pub enum TaskFinishReason, pub struct SystemMessageData, pub enum SystemMessageLevel, pub struct FinishData, pub struct ErrorData
+// POS:    Defines ACP task lifecycle message types including start, complete, system messages, finish, and error data.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

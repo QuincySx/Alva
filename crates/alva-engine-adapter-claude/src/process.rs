@@ -1,3 +1,7 @@
+// INPUT:  std::process::Stdio, tokio::io, tokio::process, tokio::time, tracing, alva_engine_runtime::RuntimeError, crate::protocol
+// OUTPUT: pub(crate) struct BridgeSpawnConfig, pub(crate) struct BridgeProcess
+// POS:    Manages the Node.js bridge child process lifecycle including spawn, JSON-line I/O, and shutdown.
+
 use std::process::Stdio;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};

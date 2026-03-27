@@ -1,3 +1,6 @@
+// INPUT:  thiserror
+// OUTPUT: pub enum AgentError
+// POS:    Unified error enum for agent-level failures including LLM, tool, cancellation, and configuration errors.
 use thiserror::Error;
 
 #[derive(Debug, Error)]

@@ -1,8 +1,6 @@
-// INPUT:  serde, std::collections, std::path
-// OUTPUT: SkillMeta, SkillBody, SkillResource, ResourceContentType, Skill, SkillKind,
-//         SkillRef, InjectionPolicy
-// POS:    Defines core Skill entity types across three loading levels: metadata, instructions, and resources.
-//         Also defines Skill reference and injection strategy for system prompt composition.
+// INPUT:  serde, serde_yaml, std::collections::HashMap, std::path::PathBuf
+// OUTPUT: pub struct SkillMeta, pub struct SkillBody, pub struct SkillResource, pub enum ResourceContentType, pub struct Skill, pub enum SkillKind, pub struct SkillRef, pub enum InjectionPolicy
+// POS:    Defines core Skill entity types across three loading levels (metadata, instructions, resources) plus reference and injection strategy for system prompt composition.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

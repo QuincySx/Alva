@@ -1,7 +1,6 @@
-// alva-protocol-acp: Standalone ACP (Agent Client Protocol) crate.
-//
-// Provides protocol message types, process management, session handling, and delegate trait
-// for communicating with external Agent CLI processes over stdin/stdout JSON lines.
+// INPUT:  protocol, connection, session, delegate, error (sub-modules)
+// OUTPUT: AcpError, BootstrapPayload, ModelConfig, SandboxLevel, AcpInboundMessage, AcpOutboundMessage, PermissionData, AcpSession, AgentDelegate, AcpAgentDelegate (+ more re-exports)
+// POS:    Crate root for alva-protocol-acp — re-exports protocol messages, process management, session handling, and delegate trait for external Agent CLI communication
 
 pub mod protocol;
 pub mod connection;

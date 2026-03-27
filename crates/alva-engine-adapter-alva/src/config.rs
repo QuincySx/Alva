@@ -1,3 +1,7 @@
+// INPUT:  std::sync::Arc, alva_types::{LanguageModel, Tool, ToolContext}, alva_agent_core::{ConvertToLlmFn, ToolExecutionMode}
+// OUTPUT: pub struct AlvaAdapterConfig
+// POS:    Configuration for the Alva native engine adapter including model, tools, and execution settings.
+
 use std::sync::Arc;
 use alva_types::{LanguageModel, Tool, ToolContext};
 use alva_agent_core::{ConvertToLlmFn, ToolExecutionMode};

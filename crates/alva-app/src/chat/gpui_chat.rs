@@ -1,8 +1,6 @@
-// INPUT:  gpui (Context, EventEmitter), alva_app_core (Agent, AgentHooks, AgentMessage, AgentEvent, AgentContext),
-//         alva_app_core::alva_types (Message, MessageRole, ContentBlock, LanguageModel, ModelConfig, StreamEvent, AgentError, Tool),
-//         tokio, std::sync::Arc, std::pin::Pin
+// INPUT:  gpui, alva_app_core (Agent, AgentHooks, AgentMessage, AgentEvent, alva_types), tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
-// POS:    GPUI Entity wrapping alva-core's Agent. Bridges async agent events to GPUI's sync UI thread.
+// POS:    GPUI Entity wrapping alva-core's Agent that bridges async agent events to GPUI's sync UI thread.
 use std::pin::Pin;
 use std::sync::Arc;
 

@@ -4,4 +4,5 @@
 pub mod memory;
 
 // Re-export SQLite storage from the persistence module for convenience.
+#[allow(unused_imports)]
 pub use crate::agent::persistence::SqliteStorage;

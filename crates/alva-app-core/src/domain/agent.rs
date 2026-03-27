@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// LLM provider identifier
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LLMProviderKind {
@@ -15,6 +16,7 @@ pub enum LLMProviderKind {
 }
 
 /// LLM connection configuration
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMConfig {
     pub provider: LLMProviderKind,
@@ -27,6 +29,7 @@ pub struct LLMConfig {
 }
 
 /// Agent instance configuration
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     pub id: String,

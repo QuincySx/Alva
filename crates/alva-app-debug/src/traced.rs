@@ -1,3 +1,6 @@
+// INPUT:  tracing
+// OUTPUT: pub macro traced, pub macro traced_listener
+// POS:    Macros that wrap GPUI event handlers with tracing instrumentation, compiling to zero overhead in release builds.
 /// Wraps a GPUI event handler (3 params: event, window, cx) with tracing.
 /// In release builds, this compiles to just the handler — zero overhead.
 ///

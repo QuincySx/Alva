@@ -1,4 +1,4 @@
-// INPUT:  alva_types (CancellationToken, LanguageModel, ModelConfig, Tool), tokio, tracing, crate::types (AgentHooks, AgentMessage, AgentState), crate::agent_loop, crate::event, alva_agent_context
+// INPUT:  alva_types (CancellationToken, LanguageModel, ModelConfig, Tool, context::ContextSystem), tokio, tracing, crate::types (AgentHooks, AgentMessage, AgentState), crate::agent_loop, crate::event
 // OUTPUT: Agent
 // POS:    Public agent handle — owns model, hooks, state, and cancellation; exposes prompt(), steer(), follow_up().
 use std::sync::Arc;
@@ -64,7 +64,7 @@ impl Agent {
     }
 
     /// Set the context system (hooks + handle + session).
-    pub fn set_context(&self, context: alva_agent_context::ContextSystem) {
+    pub fn set_context(&self, context: alva_types::context::ContextSystem) {
         let mut config = self.config.blocking_lock();
         config.context = context;
     }

@@ -1,3 +1,6 @@
+// INPUT:  rmcp::{ServerHandler, ServiceExt, ToolRouter, Parameters, ServerCapabilities, ServerInfo}, reqwest, schemars, serde, tokio, tracing_subscriber
+// OUTPUT: pub struct InspectParams, pub struct ActionParams, pub struct AlvaDevtools
+// POS:    MCP stdio server that proxies tool calls to the alva-app-debug HTTP API for remote inspection and control.
 use rmcp::{
     ServerHandler, ServiceExt,
     handler::server::router::tool::ToolRouter,

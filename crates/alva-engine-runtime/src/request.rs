@@ -1,3 +1,7 @@
+// INPUT:  std::collections::HashMap, std::path::PathBuf, serde_json::Value
+// OUTPUT: pub struct RuntimeRequest, pub struct RuntimeOptions
+// POS:    Defines the engine-agnostic request and options types for executing an agent session.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 

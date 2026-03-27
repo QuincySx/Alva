@@ -9,6 +9,7 @@ members = [
     "crates/alva-agent-tools",
     "crates/alva-agent-security",
     "crates/alva-agent-memory",
+    "crates/alva-agent-context",
     "crates/alva-agent-runtime",
     "crates/alva-protocol-skill",
     "crates/alva-protocol-mcp",
@@ -18,6 +19,7 @@ members = [
     "crates/alva-engine-adapter-alva",
     "crates/alva-test",
     "crates/alva-app-devtools-mcp",
+    "crates/alva-environment",
 ]
 resolver = "2"
 

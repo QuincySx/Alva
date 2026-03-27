@@ -1,9 +1,7 @@
-// INPUT:  gpui, gpui_component (Input, InputState, InputEvent, Button, ButtonVariants, Disableable),
-//         crate::models, crate::chat, crate::theme, crate::types::AgentStatusKind
+// INPUT:  gpui, gpui_component (Input, InputState, InputEvent, Button, ButtonVariants, Disableable), crate::models, crate::chat, crate::theme
 // OUTPUT: pub struct InputBox
-// POS:    Chat input widget using gpui-component Input/Button, Enter-to-send via InputEvent subscription.
-//         Sends messages through GpuiChat (alva-core) and subscribes to GpuiChatEvent for status updates.
-use gpui::{prelude::*, Context, Entity, Render, Subscription, Window, div};
+// POS:    Chat input widget with model selector, attachment, skills, and send/stop buttons.
+use gpui::{prelude::*, Context, Entity, Render, Subscription, Window, div, px};
 
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState, Input};
@@ -19,7 +17,8 @@ pub struct InputBox {
     workspace_model: Entity<WorkspaceModel>,
     chat_model: Entity<ChatModel>,
     agent_model: Entity<AgentModel>,
-    _settings_model: Entity<SettingsModel>,
+    #[allow(dead_code)]
+    settings_model: Entity<SettingsModel>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -28,29 +27,26 @@ impl InputBox {
         workspace_model: Entity<WorkspaceModel>,
         chat_model: Entity<ChatModel>,
         agent_model: Entity<AgentModel>,
-        _settings_model: Entity<SettingsModel>,
+        settings_model: Entity<SettingsModel>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let input_state = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Type a message...")
+                .placeholder("继续对话...")
         });
 
         let mut subscriptions = Vec::new();
 
-        // Subscribe to InputEvent from the input state
+        // Enter to send
         subscriptions.push(cx.subscribe_in(
             &input_state,
             window,
             |this, _state, event: &InputEvent, window, cx| {
-                match event {
-                    InputEvent::PressEnter { secondary } => {
-                        if !secondary {
-                            this.send_message(window, cx);
-                        }
+                if let InputEvent::PressEnter { secondary } = event {
+                    if !secondary {
+                        this.send_message(window, cx);
                     }
-                    _ => {}
                 }
             },
         ));
@@ -71,7 +67,6 @@ impl InputBox {
     }
 
     fn send_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        tracing::info!("action_dispatch: send_message");
         let text = self.input_state.read(cx).value().to_string();
         let text = text.trim().to_string();
         if text.is_empty() {
@@ -86,17 +81,17 @@ impl InputBox {
             }
         };
 
-        // Check if agent is already running for this session
+        // Check if agent is already running
         {
             let agent = self.agent_model.read(cx);
             if let Some(status) = agent.get_status(&session_id) {
                 if status.kind == AgentStatusKind::Running {
-                    return; // Don't send while running
+                    return;
                 }
             }
         }
 
-        // Ensure the GpuiChat exists for this session
+        // Ensure GpuiChat exists
         let chat_entity = {
             let needs_create = {
                 let cm = self.chat_model.read(cx);
@@ -124,28 +119,23 @@ impl InputBox {
             model.set_status(&session_id, AgentStatusKind::Running, cx);
         });
 
-        // Subscribe to GpuiChatEvent so we know when the agent finishes.
+        // Subscribe to chat events
         {
             let agent_model = self.agent_model.clone();
             let sid = session_id.clone();
-            let sub = cx.subscribe(&chat_entity, move |_this, _chat, event: &GpuiChatEvent, cx| {
-                match event {
-                    GpuiChatEvent::Updated => {
-                        // Check if the agent is still running; if not, mark idle.
-                        let chat = _chat.read(cx);
-                        if !chat.is_running() {
-                            agent_model.update(cx, |model, cx| {
-                                model.set_status(&sid, AgentStatusKind::Idle, cx);
-                            });
-                        }
-                        cx.notify();
-                    }
+            let sub = cx.subscribe(&chat_entity, move |_this, chat, _event: &GpuiChatEvent, cx| {
+                let chat = chat.read(cx);
+                if !chat.is_running() {
+                    agent_model.update(cx, |model, cx| {
+                        model.set_status(&sid, AgentStatusKind::Idle, cx);
+                    });
                 }
+                cx.notify();
             });
             self._subscriptions.push(sub);
         }
 
-        // Send via GpuiChat (needs mutable access + cx for async bridging)
+        // Send
         chat_entity.update(cx, |chat, cx| {
             chat.send_message(&text, cx);
         });
@@ -158,7 +148,6 @@ impl InputBox {
     }
 
     fn stop_agent(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        tracing::info!("action_dispatch: stop_agent");
         let session_id = {
             let ws = self.workspace_model.read(cx);
             match ws.selected_session_id.clone() {
@@ -167,7 +156,6 @@ impl InputBox {
             }
         };
 
-        // Stop the chat if it exists
         {
             let cm = self.chat_model.read(cx);
             if let Some(chat) = cm.get_chat(&session_id) {
@@ -175,7 +163,6 @@ impl InputBox {
             }
         }
 
-        // Mark agent as idle
         self.agent_model.update(cx, |model, cx| {
             model.set_status(&session_id, AgentStatusKind::Idle, cx);
         });
@@ -199,89 +186,106 @@ impl Render for InputBox {
         let has_text = !self.input_state.read(cx).value().trim().is_empty();
         let has_session = self.workspace_model.read(cx).selected_session_id.is_some();
         let is_running = self.is_agent_running(cx);
-
         let can_send = has_text && has_session && !is_running;
-
-        // Attach button -- disabled placeholder
-        let attach_button = Button::new("attach-btn")
-            .label("Attach")
-            .outline()
-            .small()
-            .disabled(true);
-
-        // Agent selector -- simple label for now
-        let agent_label = div()
-            .flex()
-            .items_center()
-            .gap_1()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .text_xs()
-            .text_color(theme.text_muted)
-            .child("Main Agent");
-
-        // Send / Stop button
-        let action_button = if is_running {
-            Button::new("stop-btn")
-                .label("Stop")
-                .outline()
-                .small()
-                .on_click(cx.listener(alva_app_debug::traced_listener!("input:stop_agent", |this, _, window, cx| {
-                    this.stop_agent(window, cx);
-                })))
-        } else {
-            Button::new("send-btn")
-                .label("Send")
-                .primary()
-                .small()
-                .disabled(!can_send)
-                .on_click(cx.listener(alva_app_debug::traced_listener!("input:send_message", |this, _, window, cx| {
-                    this.send_message(window, cx);
-                })))
-        };
 
         div()
             .flex()
             .flex_col()
             .w_full()
-            .border_t_1()
-            .border_color(theme.border)
-            .bg(theme.background)
-            // Multi-line input area
-            .child(
-                div()
-                    .flex_1()
-                    .p_3()
-                    .child(
-                        Input::new(&self.input_state)
-                            .disabled(is_running)
-                    )
-            )
-            // Toolbar
+            .px(px(16.))
+            .pb(px(12.))
+            // Input container with border
             .child(
                 div()
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .px_3()
-                    .py_2()
-                    .gap_2()
-                    .border_t_1()
+                    .flex_col()
+                    .w_full()
+                    .rounded(px(12.))
+                    .border_1()
                     .border_color(theme.border)
-                    .child(attach_button)
-                    .child(div().flex_1()) // spacer
-                    .child(agent_label)
-                    .child(action_button)
-            )
-            // Hint text
-            .child(
-                div()
-                    .px_3()
-                    .pb_1()
-                    .text_xs()
-                    .text_color(theme.text_muted)
-                    .child("Enter send \u{00B7} Shift+Enter newline")
+                    .bg(theme.surface)
+                    .overflow_hidden()
+                    // Text input area
+                    .child(
+                        div()
+                            .p(px(12.))
+                            .child(
+                                Input::new(&self.input_state)
+                                    .disabled(is_running),
+                            ),
+                    )
+                    // Toolbar
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .px(px(12.))
+                            .py(px(8.))
+                            .border_t_1()
+                            .border_color(theme.border_subtle)
+                            // Model selector (left)
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(4.))
+                                    .px(px(8.))
+                                    .py(px(4.))
+                                    .rounded(px(6.))
+                                    .text_xs()
+                                    .text_color(theme.text_muted)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme.surface_hover))
+                                    .child("Alva Agent")
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme.text_subtle)
+                                            .child("\u{25BE}"),
+                                    ),
+                            )
+                            // Spacer
+                            .child(div().flex_1())
+                            // Attachment button
+                            .child(
+                                Button::new("attach-btn")
+                                    .label("\u{1F4CE}")
+                                    .ghost()
+                                    .small()
+                                    .disabled(true),
+                            )
+                            // Skills button
+                            .child(
+                                Button::new("skills-btn")
+                                    .label("\u{26A1}")
+                                    .ghost()
+                                    .small()
+                                    .disabled(true),
+                            )
+                            // Send / Stop button
+                            .child(if is_running {
+                                Button::new("stop-btn")
+                                    .label("停止")
+                                    .outline()
+                                    .small()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.stop_agent(window, cx);
+                                    }))
+                                    .into_any_element()
+                            } else {
+                                Button::new("send-btn")
+                                    .label("发送")
+                                    .primary()
+                                    .small()
+                                    .disabled(!can_send)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.send_message(window, cx);
+                                    }))
+                                    .into_any_element()
+                            }),
+                    ),
             )
     }
 }

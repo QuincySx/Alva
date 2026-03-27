@@ -1,4 +1,6 @@
-// ACP session management: session state machine and permission cache.
+// INPUT:  tokio::sync, crate::error, crate::protocol::permission
+// OUTPUT: AcpSession, AcpSessionState, PermissionManager
+// POS:    Session state machine and permission approval cache for ACP interaction cycles
 
 use std::collections::HashMap;
 use std::sync::Arc;

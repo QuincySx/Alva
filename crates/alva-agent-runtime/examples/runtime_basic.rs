@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_runtime, alva_agent_core, alva_types, async_trait, futures_core
+// OUTPUT: (none — example binary)
+// POS:    Example demonstrating agent runtime builder API with a stub LLM provider, tools, and middleware
 //! Example: building an agent runtime with the builder API.
 //!
 //! Demonstrates:

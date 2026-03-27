@@ -1,9 +1,9 @@
-// INPUT:  crate::types, crate::error, serde, std::collections, std::path, tokio::fs
-// OUTPUT: McpConfigFile, McpServerEntry, McpTransportEntry
-// POS:    Manages mcpServerConfig.json — the user-facing MCP Server configuration file.
-//! mcpServerConfig.json reader/writer
+// INPUT:  crate::types, crate::error, serde, std::collections, std::path (non-wasm), tokio::fs (non-wasm)
+// OUTPUT: McpConfigFile (from_str + load/save on non-wasm), McpServerEntry, McpTransportEntry
+// POS:    MCP Server config management — JSON parsing (all platforms) + file I/O (non-wasm only, cfg-gated).
+//! MCP Server configuration reader/writer.
 //!
-//! Reads and writes MCP server configuration files. Callers supply the path.
+//! `from_str()` works everywhere. `load()`/`save()` are cfg-gated for non-wasm platforms.
 
 use crate::error::McpError;
 use crate::types::{McpServerConfig, McpTransportConfig};

@@ -1,3 +1,6 @@
+// INPUT:  async_trait, serde, crate::error::AgentError
+// OUTPUT: pub trait RerankingModel, pub struct RerankConfig, pub struct RerankResult, pub struct RankEntry
+// POS:    Trait and wire types for document reranking models that score query-document relevance.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 

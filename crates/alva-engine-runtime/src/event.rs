@@ -1,3 +1,7 @@
+// INPUT:  alva_types::{ContentBlock, MessageRole, StreamEvent, ToolResult}, serde::{Deserialize, Serialize}, serde_json::Value
+// OUTPUT: pub enum RuntimeEvent, pub struct RuntimeUsage, pub struct RuntimeCapabilities, pub enum PermissionDecision
+// POS:    Defines the unified event, usage, capability, and permission types emitted by all engine adapters.
+
 use alva_types::{ContentBlock, MessageRole, StreamEvent, ToolResult};
 use serde::{Deserialize, Serialize};
 

@@ -1,3 +1,6 @@
+// INPUT:  async_trait, serde, crate::error::AgentError
+// OUTPUT: pub trait VideoModel, pub struct VideoConfig, pub struct VideoResult, pub enum VideoData
+// POS:    Trait and wire types for video generation models.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 

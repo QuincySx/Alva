@@ -1,3 +1,7 @@
+// INPUT:  serde::{Deserialize, Serialize}, serde_json::Value
+// OUTPUT: pub enum BridgeMessage, pub enum SdkMessage, pub struct SdkAssistantPayload, pub enum SdkContentBlock, pub struct SdkUsage, pub enum BridgeOutbound, pub enum BridgePermissionDecision
+// POS:    Defines the JSON-line wire protocol types for stdin/stdout communication with the Node.js bridge.
+
 use serde::Deserialize;
 use serde_json::Value;
 

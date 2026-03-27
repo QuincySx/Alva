@@ -1,3 +1,6 @@
+// INPUT:  serde, serde_json
+// OUTPUT: pub enum ContentBlock
+// POS:    Tagged content block enum representing text, image, reasoning, tool-use, and tool-result payloads.
 use serde::{Deserialize, Serialize};
 
 #[non_exhaustive]

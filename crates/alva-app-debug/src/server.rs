@@ -1,3 +1,6 @@
+// INPUT:  tiny_http::{Header, Response, Server, StatusCode}, serde_json
+// OUTPUT: pub(crate) struct HttpServer, pub(crate) fn json_response, pub(crate) fn error_response, pub(crate) fn read_body, pub(crate) fn parse_query_param
+// POS:    Low-level HTTP server wrapper and response helpers for the debug API.
 use tiny_http::{Header, Response, Server, StatusCode};
 
 pub(crate) struct HttpServer {

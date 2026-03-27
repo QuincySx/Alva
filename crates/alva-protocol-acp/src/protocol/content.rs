@@ -1,4 +1,6 @@
-// ACP content block enum: Text (with delta support), ToolUse, and ToolResult.
+// INPUT:  serde, serde_json::Value
+// OUTPUT: pub enum ContentBlock
+// POS:    Defines the ACP content block enum with Text (delta support), ToolUse, and ToolResult variants.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

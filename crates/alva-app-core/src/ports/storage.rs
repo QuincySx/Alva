@@ -1,9 +1,13 @@
+// INPUT:  alva_types::Message, crate::domain::session, crate::error, async_trait
+// OUTPUT: pub trait SessionStorage
+// POS:    Defines the abstract SessionStorage trait for persisting sessions and messages.
 use alva_types::Message;
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
 use async_trait::async_trait;
 
 /// Abstract session storage interface
+#[allow(dead_code)]
 #[async_trait]
 pub trait SessionStorage: Send + Sync {
     async fn create_session(&self, session: &Session) -> Result<(), EngineError>;

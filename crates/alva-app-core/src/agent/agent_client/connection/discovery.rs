@@ -1,3 +1,6 @@
+// INPUT:  alva_protocol_acp::connection
+// OUTPUT: pub AgentCliCommand, AgentDiscovery, ExternalAgentKind, pub fn claude_code, qwen_code, codex_cli, gemini_cli
+// POS:    Re-exports ACP discovery types and provides well-known external agent constructors.
 // Re-export from alva-acp (single source of truth for ACP discovery types)
 pub use alva_protocol_acp::connection::{AgentCliCommand, AgentDiscovery, ExternalAgentKind};
 

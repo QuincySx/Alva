@@ -1,3 +1,6 @@
+// INPUT:  alva_types
+// OUTPUT: pub Provider, ProviderRegistry
+// POS:    Re-exports Provider and ProviderRegistry from alva-types with integration tests.
 pub use alva_types::{Provider, ProviderRegistry};
 
 #[cfg(test)]

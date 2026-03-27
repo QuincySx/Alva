@@ -1,4 +1,6 @@
-// ACP agent delegate: trait for driving external Agent invocation and concrete ACP implementation.
+// INPUT:  async_trait, crate::connection, crate::error, crate::protocol::bootstrap
+// OUTPUT: AgentDelegate, AcpAgentDelegate, DelegateResult, DelegateFinishReason, DelegateToolCallSummary
+// POS:    Trait for driving external Agent invocation and concrete ACP protocol implementation
 
 use std::sync::Arc;
 

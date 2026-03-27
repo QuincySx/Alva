@@ -21,4 +21,11 @@
 | ChatPanel | `chat_panel.rs` | 组合 MessageList + InputBox 并渲染 header |
 | MessageList | `message_list.rs` | 滚动展示已完成消息、thinking 指示器、streaming 增量和 tool call 卡片 |
 | InputBox | `input_box.rs` | 可聚焦输入控件，处理键盘事件、draft 管理、发送消息 |
+| MessageBubble | `message_bubble.rs` | 无状态消息气泡渲染（user/assistant/system），支持 Markdown |
+| AgentBlock | `agent_block.rs` | 已完成/运行中 Agent 块渲染，支持点击展开 |
+| ThinkingBlock | `thinking_block.rs` | 可折叠推理/思考块，展开状态由父组件持有 |
+| ToolCallBlock | `tool_call_block.rs` | 工具调用块渲染（placeholder） |
+| RunningAgentsZone | `running_agents_zone.rs` | 输入框上方运行中 Agent 状态条 |
+| Markdown | `markdown.rs` | Markdown → GPUI 元素转换：标题、列表、代码、加粗/斜体、链接 |
+| CodeBlock | `code_block.rs` | 语法高亮代码块渲染，带语言标签和复制按钮 |
 | mod | `mod.rs` | 桶模块，re-export ChatPanel |

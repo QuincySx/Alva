@@ -1,3 +1,6 @@
+// INPUT:  std::sync::Arc, parking_lot::RwLock, tracing, tracing_subscriber, crate::log_store::{LogQuery, LogQueryResponse, LogRecord, LogStore}
+// OUTPUT: pub struct LogCaptureLayer, pub struct LogHandle
+// POS:    Tracing subscriber layer that captures log events into an in-memory LogStore with dynamic filtering.
 use std::sync::Arc;
 
 use parking_lot::RwLock;

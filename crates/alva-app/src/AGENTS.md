@@ -8,8 +8,8 @@
 ```
 main.rs → RootView
              ├─→ Sidebar
-             │     ├─→ SessionList (会话列表)
-             │     └─→ ManagementButtons (Agent/Skill/Settings 快捷按钮)
+             │     ├─→ NavItems (搜索/调度/技能/MCP 导航)
+             │     └─→ TaskList (任务历史)
              ├─→ ChatPanel
              │     ├─→ MessageList → MessageBubble / AgentBlock / ThinkingBlock / ToolCallBlock
              │     ├─→ InputBox (用户输入)
@@ -39,10 +39,11 @@ theme.rs → 主题系统（语义色 + 暗色/亮色主题）
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | 根视图 | `views/root_view.rs` | RootView 顶层布局容器 |
-| 侧边栏 | `views/sidebar/` | Sidebar、SessionList、ManagementButtons |
+| 侧边栏 | `views/sidebar/` | Sidebar、NavItems（导航项）、TaskList（任务历史） |
 | 聊天面板 | `views/chat_panel/` | ChatPanel、MessageList、MessageBubble、InputBox、AgentBlock、ThinkingBlock、ToolCallBlock、RunningAgentsZone、Markdown、CodeBlock |
 | Agent 详情 | `views/agent_detail_panel.rs` | AgentDetailPanel 展示 Agent 运行详情 |
 | 设置面板 | `views/settings_panel/` | SettingsPanel 用户设置界面 |
+| 欢迎页 | `views/session_welcome.rs` | 空会话欢迎页：Logo + 标题 + 输入框 + 快捷操作卡片 |
 | 对话框 | `views/dialogs/` | AgentsDialog、SkillsDialog、SettingsDialog |
 | 聊天引擎 | `chat/` | GpuiChat 聊天控制器 + GpuiChatState 状态管理 |
 | 数据模型 | `models/` | WorkspaceModel、AgentModel、ChatModel、SettingsModel |

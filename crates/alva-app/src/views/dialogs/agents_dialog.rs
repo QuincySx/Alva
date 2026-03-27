@@ -1,7 +1,6 @@
-// INPUT:  gpui, gpui_component (Button, ButtonVariants, Input, InputState, InputEvent, Dialog, WindowExt),
-//         crate::theme::Theme
+// INPUT:  gpui, gpui_component (Button, ButtonVariants, Input, InputState, InputEvent, Dialog, WindowExt), crate::theme::Theme
 // OUTPUT: pub struct AgentsDialogContent
-// POS:    GPUI view for agents management — list/edit modes inside a Dialog.
+// POS:    GPUI view for agents management with list/edit modes inside a Dialog.
 use gpui::{prelude::*, App, Context, Entity, FontWeight, Render, Subscription, Window, div, px};
 
 use gpui_component::button::{Button, ButtonVariant, ButtonVariants as _};

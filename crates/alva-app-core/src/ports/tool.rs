@@ -1,8 +1,10 @@
 // INPUT:  alva_types (LocalToolContext, Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult)
 // OUTPUT: SrowToolContext, re-exports of alva_types tool types
 // POS:    Port re-exports + SrowToolContext concrete impl that bridges both ToolContext and LocalToolContext for the alva application layer.
+#[allow(unused_imports)]
 pub use alva_types::{LocalToolContext, Tool, ToolContext, ToolDefinition, ToolRegistry, ToolResult};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SrowToolContext {
     pub session_id: String,

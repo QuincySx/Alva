@@ -18,15 +18,25 @@ pub struct Theme {
     // Base
     pub text: Rgba,
     pub text_muted: Rgba,
+    pub text_subtle: Rgba,
     pub background: Rgba,
     pub surface: Rgba,
     pub surface_hover: Rgba,
     pub border: Rgba,
+    pub border_subtle: Rgba,
+
+    // Sidebar
+    pub sidebar_bg: Rgba,
 
     // Accent
     pub accent: Rgba,
     pub accent_hover: Rgba,
+    pub accent_subtle: Rgba,
     pub selected_text: Rgba,
+
+    // Card
+    pub card_bg: Rgba,
+    pub card_border: Rgba,
 
     // Semantic
     pub error: Rgba,
@@ -62,13 +72,19 @@ impl Theme {
         Self {
             text: rgb(0xE5E7EB),
             text_muted: rgb(0x9CA3AF),
-            background: rgb(0x111827),
-            surface: rgb(0x1F2937),
-            surface_hover: rgb(0x374151),
-            border: rgb(0x374151),
-            accent: rgb(0x3B82F6),
-            accent_hover: rgb(0x2563EB),
+            text_subtle: rgb(0x6B7280),
+            background: rgb(0x0F1117),
+            surface: rgb(0x1A1D27),
+            surface_hover: rgb(0x252833),
+            border: rgb(0x2A2D3A),
+            border_subtle: rgb(0x1F2230),
+            sidebar_bg: rgb(0x141620),
+            accent: rgb(0x6366F1),
+            accent_hover: rgb(0x4F46E5),
+            accent_subtle: rgb(0x1E1B4B),
             selected_text: rgb(0xFFFFFF),
+            card_bg: rgb(0x1A1D27),
+            card_border: rgb(0x2A2D3A),
             error: rgb(0xF87171),
             success: rgb(0x4ADE80),
             warning: rgb(0xFBBF24),
@@ -78,19 +94,25 @@ impl Theme {
 
     pub fn light() -> Self {
         Self {
-            text: rgb(0x1F2937),
+            text: rgb(0x1A1A2E),
             text_muted: rgb(0x6B7280),
+            text_subtle: rgb(0x9CA3AF),
             background: rgb(0xFFFFFF),
-            surface: rgb(0xF3F4F6),
-            surface_hover: rgb(0xE5E7EB),
-            border: rgb(0xD1D5DB),
-            accent: rgb(0x3B82F6),
-            accent_hover: rgb(0x2563EB),
+            surface: rgb(0xF8F9FC),
+            surface_hover: rgb(0xF0F1F5),
+            border: rgb(0xE5E7EB),
+            border_subtle: rgb(0xF0F1F5),
+            sidebar_bg: rgb(0xF3F4F8),
+            accent: rgb(0x6366F1),
+            accent_hover: rgb(0x4F46E5),
+            accent_subtle: rgb(0xEEF2FF),
             selected_text: rgb(0xFFFFFF),
+            card_bg: rgb(0xFFFFFF),
+            card_border: rgb(0xE5E7EB),
             error: rgb(0xEF4444),
             success: rgb(0x22C55E),
             warning: rgb(0xF59E0B),
-            info: rgb(0x3B82F6),
+            info: rgb(0x6366F1),
         }
     }
 }

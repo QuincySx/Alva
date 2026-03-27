@@ -1,8 +1,6 @@
-// INPUT:  gpui (div, px, IntoElement, ParentElement, Styled, FontWeight, Hsla),
-//         gpui::prelude::FluentBuilder, crate::theme::Theme
+// INPUT:  gpui (div, px, IntoElement, ParentElement, Styled, FontWeight, Hsla, FluentBuilder), crate::theme::Theme
 // OUTPUT: pub fn render_thinking
-// POS:    Stateless render helper for collapsible reasoning/thinking blocks.
-//         Expanded state is owned by the parent; click handling is added by the parent.
+// POS:    Stateless render helper for collapsible reasoning/thinking blocks with parent-owned expand state.
 
 use gpui::{div, px, FontWeight, Hsla, IntoElement, ParentElement, Styled};
 

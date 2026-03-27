@@ -1,18 +1,17 @@
-// INPUT:  gpui, gpui_component (Button, Input, InputState, InputEvent),
-//         crate::models (WorkspaceModel, ChatModel, AgentModel, SettingsModel), crate::theme,
-//         super::session_list::SessionList, super::management_buttons
+// INPUT:  gpui, gpui_component (Button), crate::models (WorkspaceModel, ChatModel, AgentModel, SettingsModel), crate::theme, sub-views
 // OUTPUT: pub struct Sidebar
-// POS:    Left sidebar view with search, management buttons, new-chat, time-grouped session list, and settings.
-use gpui::{prelude::*, Context, Entity, FontWeight, Render, Subscription, Window, div, px};
+// POS:    Left sidebar with new task button, navigation items, task history, and settings.
+use gpui::{prelude::*, Context, Entity, FontWeight, Hsla, Render, Subscription, Window, div, px};
 
-use gpui_component::button::Button;
-use gpui_component::input::{InputEvent, InputState, Input};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::{Icon, IconName};
+use gpui_component::Sizable;
 
 use crate::models::{AgentModel, ChatModel, SettingsModel, WorkspaceModel};
 use crate::theme::Theme;
 
-use super::management_buttons::render_management_buttons;
-use super::session_list::SessionList;
+use super::nav_items::render_nav_items;
+use super::task_list::TaskList;
 
 pub struct Sidebar {
     workspace_model: Entity<WorkspaceModel>,
@@ -20,11 +19,8 @@ pub struct Sidebar {
     chat_model: Entity<ChatModel>,
     #[allow(dead_code)]
     agent_model: Entity<AgentModel>,
-    #[allow(dead_code)]
     settings_model: Entity<SettingsModel>,
-    search_input: Entity<InputState>,
-    search_query: String,
-    session_list: Entity<SessionList>,
+    task_list: Entity<TaskList>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -37,70 +33,32 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let search_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search sessions...")
-        });
-
         let wm_for_list = workspace_model.clone();
-        let session_list = cx.new(|cx| SessionList::new(wm_for_list, window, cx));
+        let task_list = cx.new(|cx| TaskList::new(wm_for_list, window, cx));
 
         let mut subscriptions = Vec::new();
 
-        // Subscribe to workspace model for session changes
         subscriptions.push(cx.subscribe(&workspace_model, |_this, _model, _event, cx| {
             cx.notify();
         }));
 
-        // Subscribe to search input for filtering
-        subscriptions.push(cx.subscribe_in(
-            &search_input,
-            window,
-            |this, state, event: &InputEvent, _window, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.search_query = state.read(cx).value().to_string();
-                    cx.notify();
-                }
-            },
-        ));
-
-        let view = Self {
+        Self {
             workspace_model,
             chat_model,
             agent_model,
             settings_model,
-            search_input,
-            search_query: String::new(),
-            session_list,
+            task_list,
             _subscriptions: subscriptions,
-        };
-
-        #[cfg(debug_assertions)]
-        {
-            if let Some(registry) = cx.try_global::<crate::DebugViewRegistry>() {
-                registry.0.register(alva_app_debug::gpui::ViewEntry {
-                    id: "sidebar".to_string(),
-                    type_name: "Sidebar".to_string(),
-                    parent_id: Some("root_view".to_string()),
-                    snapshot_fn: Box::new(|| alva_app_debug::InspectNode {
-                        id: "sidebar".to_string(),
-                        type_name: "Sidebar".to_string(),
-                        bounds: None,
-                        properties: std::collections::HashMap::new(),
-                        children: vec![],
-                    }),
-                });
-            }
         }
-
-        view
     }
 
     /// Render a horizontal divider line.
     fn render_divider(theme: &Theme) -> impl IntoElement {
         div()
-            .mx_2()
+            .mx(px(16.))
+            .my(px(4.))
             .h(px(1.))
-            .bg(theme.border)
+            .bg(theme.border_subtle)
     }
 }
 
@@ -108,42 +66,29 @@ impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::for_appearance(window, cx);
         let workspace_model = self.workspace_model.clone();
-        let search_query = self.search_query.clone();
 
-        // Render the session list content via the SessionList entity
-        let session_list_content = self.session_list.update(cx, |list, cx| {
-            list.render_grouped(&search_query, &theme, cx)
+        // Render task list content
+        let task_list_content = self.task_list.update(cx, |list, cx| {
+            list.render_tasks("", &theme, cx)
         });
 
         div()
             .flex()
             .flex_col()
             .size_full()
-            .bg(theme.surface)
-            // Search input (top)
+            .bg(theme.sidebar_bg)
+            // "+ 新建任务" button (prominent, top)
             .child(
                 div()
-                    .px_2()
-                    .pt_2()
-                    .pb_1()
-                    .child(Input::new(&self.search_input)),
-            )
-            // Management buttons (Agents, Skills)
-            .child(render_management_buttons(&theme))
-            // Divider
-            .child(Self::render_divider(&theme))
-            // "+ New Chat" button
-            .child(
-                div()
-                    .mx_2()
-                    .my_1()
+                    .px(px(12.))
+                    .pt(px(16.))
+                    .pb(px(8.))
                     .child(
-                        Button::new("new-chat-btn")
-                            .label("+ New Chat")
-                            .outline()
-                            .on_click(alva_app_debug::traced!("sidebar:new_chat", move |_, _, cx| {
-                                tracing::info!("action_dispatch: new_chat");
-                                let new_id = format!("sess-{}", chrono::Utc::now().timestamp_millis());
+                        Button::new("new-task-btn")
+                            .label("+ 新建任务")
+                            .primary()
+                            .on_click(move |_, _, cx| {
+                                let new_id = format!("task-{}", chrono::Utc::now().timestamp_millis());
                                 workspace_model.update(cx, |model, cx| {
                                     model.sidebar_items.insert(
                                         0,
@@ -151,61 +96,71 @@ impl Render for Sidebar {
                                             crate::types::Session {
                                                 id: new_id.clone(),
                                                 workspace_id: None,
-                                                name: "New Session".into(),
+                                                name: "新任务".into(),
                                                 created_at: chrono::Utc::now().timestamp_millis(),
                                                 updated_at: chrono::Utc::now().timestamp_millis(),
+                                                status_text: None,
+                                                duration_text: None,
                                             },
                                         ),
                                     );
                                     model.select_session(new_id, cx);
                                 });
-                            })),
+                            }),
                     ),
             )
-            // Session list (scrollable, flex-1)
+            // Navigation items (Search, Schedule, Skills, MCP)
+            .child(render_nav_items(&theme))
+            // Divider
+            .child(Self::render_divider(&theme))
+            // Task history list (scrollable, flex-1)
             .child(
                 div()
-                    .id("session-list-scroll")
+                    .id("task-list-scroll")
                     .flex_1()
                     .overflow_y_scroll()
-                    .child(session_list_content),
+                    .child(task_list_content),
             )
             // Divider
             .child(Self::render_divider(&theme))
             // Settings button (fixed at bottom)
             .child(
                 div()
-                    .px_2()
-                    .py_1()
+                    .px(px(12.))
+                    .py(px(8.))
                     .child(
                         div()
                             .id("settings-btn")
                             .flex()
                             .flex_row()
                             .items_center()
-                            .gap_1()
-                            .px_2()
-                            .py(px(4.))
-                            .rounded_md()
+                            .gap(px(8.))
+                            .px(px(12.))
+                            .py(px(6.))
+                            .rounded(px(6.))
                             .cursor_pointer()
-                            .text_xs()
+                            .text_sm()
                             .text_color(theme.text_muted)
-                            .hover(|style| style.bg(theme.surface_hover))
+                            .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
+                            .child(
+                                Icon::new(IconName::Settings)
+                                    .small()
+                                    .text_color(Into::<Hsla>::into(theme.text_muted)),
+                            )
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .child("Settings"),
+                                    .child("设置"),
                             )
                             .on_click({
                                 let settings_model = self.settings_model.clone();
-                                alva_app_debug::traced!("sidebar:settings", move |_, window, cx| {
-                                    tracing::info!("open settings dialog");
+                                move |_, window, cx| {
                                     crate::views::dialogs::open_settings_dialog(
                                         settings_model.clone(),
                                         window,
                                         cx,
                                     );
-                                })
+                                }
                             }),
                     ),
             )

@@ -45,55 +45,27 @@ impl RootView {
         subscriptions.push(cx.subscribe(
             &chat_panel,
             |this: &mut Self, _panel, event: &ChatPanelEvent, cx| {
-                match event {
-                    ChatPanelEvent::AgentClicked { session_id } => {
-                        this.open_agent_detail(session_id.clone(), cx);
-                    }
-                }
+                let ChatPanelEvent::AgentClicked { session_id } = event;
+                this.open_agent_detail(session_id.clone(), cx);
             },
         ));
 
-        let view = Self {
+        Self {
             sidebar,
             chat_panel,
             agent_model: am_root,
             agent_detail: None,
             _subscriptions: subscriptions,
-        };
-
-        #[cfg(debug_assertions)]
-        {
-            if let Some(registry) = cx.try_global::<crate::DebugViewRegistry>() {
-                registry.0.register(alva_app_debug::gpui::ViewEntry {
-                    id: "root_view".to_string(),
-                    type_name: "RootView".to_string(),
-                    parent_id: None,
-                    snapshot_fn: Box::new(|| alva_app_debug::InspectNode {
-                        id: "root_view".to_string(),
-                        type_name: "RootView".to_string(),
-                        bounds: None,
-                        properties: std::collections::HashMap::new(),
-                        children: vec![],
-                    }),
-                });
-            }
         }
-
-        view
     }
 
     fn open_agent_detail(&mut self, session_id: String, cx: &mut Context<Self>) {
         let am = self.agent_model.clone();
         let detail = cx.new(|cx| AgentDetailPanel::new(session_id, am, cx));
 
-        // Subscribe to AgentDetailPanel close event
-        let sub = cx.subscribe(&detail, |this: &mut Self, _panel, event: &AgentDetailPanelEvent, cx| {
-            match event {
-                AgentDetailPanelEvent::Close => {
-                    this.agent_detail = None;
-                    cx.notify();
-                }
-            }
+        let sub = cx.subscribe(&detail, |this: &mut Self, _panel, _event: &AgentDetailPanelEvent, cx| {
+            this.agent_detail = None;
+            cx.notify();
         });
         self._subscriptions.push(sub);
 

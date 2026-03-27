@@ -1,4 +1,6 @@
-// ACP tool execution notification types: pre-use, post-use, and complete call data.
+// INPUT:  serde, serde_json::Value
+// OUTPUT: pub struct PreToolUseData, pub struct PostToolUseData, pub struct ToolCallData
+// POS:    Defines ACP tool execution notification types for pre-use, post-use, and complete call data.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

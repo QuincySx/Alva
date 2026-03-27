@@ -1,4 +1,6 @@
-// ACP connection management: agent discovery, process spawning, orphan cleanup, and process handles.
+// INPUT:  tokio, crate::error, crate::protocol::{bootstrap, message}
+// OUTPUT: ExternalAgentKind, AgentCliCommand, AgentDiscovery, AcpProcessHandle, AcpProcessManager, ProcessManagerConfig, ProcessState
+// POS:    Agent discovery, process spawning, orphan cleanup, and stdio-based process handles for ACP connections
 
 use std::collections::HashMap;
 use std::path::PathBuf;

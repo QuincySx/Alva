@@ -1,3 +1,7 @@
+// INPUT:  thiserror::Error, std::io::Error, serde_json::Error
+// OUTPUT: pub enum RuntimeError
+// POS:    Defines the error types for engine runtime operations including process, protocol, and session errors.
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]

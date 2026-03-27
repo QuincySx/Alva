@@ -1,3 +1,6 @@
+// INPUT:  alva_types::Message, crate::domain::session, crate::error, crate::ports::storage, async_trait, std::collections, tokio::sync
+// OUTPUT: pub struct MemoryStorage
+// POS:    In-memory SessionStorage implementation backed by HashMap and RwLock for testing and lightweight use.
 use alva_types::Message;
 use crate::domain::session::{Session, SessionStatus};
 use crate::error::EngineError;
@@ -7,12 +10,14 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 /// In-memory storage backed by HashMap + RwLock
+#[allow(dead_code)]
 pub struct MemoryStorage {
     sessions: RwLock<HashMap<String, Session>>,
     messages: RwLock<HashMap<String, Vec<Message>>>,
 }
 
 impl MemoryStorage {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),

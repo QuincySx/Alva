@@ -27,3 +27,5 @@
 | BrowserSnapshot | src/browser/browser_snapshot.rs | Extracts page content in text, HTML, or readability (article-extraction) mode |
 | BrowserScreenshot | src/browser/browser_screenshot.rs | Captures page screenshots (viewport, full-page, or element) and saves to file |
 | BrowserStatus | src/browser/browser_status.rs | Queries browser instance status including running state, current URL, title, and open tabs |
+| LocalFs | src/local_fs.rs | Concrete ToolFs implementation for local filesystem and shell execution |
+| MockFs | src/mock_fs.rs | Test-only in-memory ToolFs implementation with pre-queued exec responses |

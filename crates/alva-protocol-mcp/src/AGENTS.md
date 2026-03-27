@@ -19,15 +19,17 @@ McpTransport trait
 McpToolAdapter
   └─→ MCP tool → alva_types::Tool (trait object)
 
-config::McpConfig
-  └─→ 读写 mcpServerConfig.json
+config::McpConfigFile
+  ├─→ from_str(json) → 解析 JSON（全平台含 wasm）
+  ├─→ load(path) → 读文件（非 wasm）
+  └─→ save(path) → 写文件（非 wasm）
 ```
 
 ## 约束
 - McpClient 管理多个 server 连接，每个 server 独立生命周期
 - McpTransport 是 async trait，实现者需处理底层 I/O
 - McpToolAdapter 将 MCP 的 JSON Schema 映射为 alva-types 的 Tool trait
-- config 模块仅处理 JSON 文件的序列化/反序列化
+- config 模块支持 wasm 平台（from_str 全平台可用，文件 I/O 用 cfg gate 隔离）
 
 ## 业务域清单
 | 名称 | 文件 | 职责 |
@@ -36,5 +38,5 @@ config::McpConfig
 | 传输层 | `transport.rs` | McpTransport trait 及传输实现 |
 | 工具适配 | `tool_adapter.rs` | McpToolAdapter 将 MCP 工具适配为 alva_types::Tool |
 | 类型定义 | `types.rs` | McpServerConfig、McpServerState、McpToolInfo 等 |
-| 配置 | `config.rs` | mcpServerConfig.json 读写 |
+| 配置 | `config.rs` | MCP 配置管理：from_str（全平台）+ load/save（非 wasm，cfg-gated） |
 | 错误 | `error.rs` | MCP 相关错误类型 |

@@ -1,3 +1,6 @@
+// INPUT:  (none - no external dependencies)
+// OUTPUT: pub trait Channel, pub struct LastValue, pub struct BinaryOperatorAggregate, pub struct EphemeralValue
+// POS:    Typed state channels (last-value, reducer, ephemeral) for graph step communication.
 /// Channel types for typed state management in graph execution.
 ///
 /// Three channel implementations modeled after LangGraph:

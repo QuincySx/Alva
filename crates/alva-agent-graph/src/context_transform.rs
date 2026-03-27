@@ -1,3 +1,6 @@
+// INPUT:  alva_types::AgentMessage
+// OUTPUT: pub trait ContextTransform, pub struct TransformPipeline
+// POS:    Ordered pipeline of message transforms applied to agent context before model invocation.
 use alva_types::AgentMessage;
 
 /// A single transformation over the agent's message context.

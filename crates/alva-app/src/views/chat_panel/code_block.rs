@@ -1,6 +1,4 @@
-// INPUT:  gpui (div, px, hsla, HighlightStyle, StyledText, SharedString, ClipboardItem,
-//         IntoElement, InteractiveElement, ParentElement, Styled, StyleRefinement),
-//         once_cell, syntect, crate::theme::Theme
+// INPUT:  gpui (div, px, hsla, HighlightStyle, StyledText, SharedString, ClipboardItem, etc.), once_cell, syntect, crate::theme::Theme
 // OUTPUT: pub fn render_code_block
 // POS:    Helper function that renders a syntax-highlighted code block with language label and copy button.
 

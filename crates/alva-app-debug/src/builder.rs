@@ -1,3 +1,6 @@
+// INPUT:  std::sync, std::thread, tiny_http, crate::{ActionRegistry, Inspectable, LogHandle, Router, HttpServer}
+// OUTPUT: pub struct DebugServer, pub struct DebugServerBuilder, pub struct DebugServerHandle
+// POS:    Builder and lifecycle manager for the debug HTTP server, spawning it on a background thread.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;

@@ -1,3 +1,6 @@
+// INPUT:  std::sync::Arc, std::time::Duration, alva_types::{LanguageModel, Tool}
+// OUTPUT: pub struct SubAgentConfig, pub enum SubAgentModel, pub enum SubAgentTools, pub fn create_task_tool
+// POS:    Sub-agent configuration and task-tool factory for spawning child agents within a parent's tool-call cycle.
 use std::sync::Arc;
 use std::time::Duration;
 

@@ -1,3 +1,6 @@
+// INPUT:  parking_lot::RwLock, std::collections::HashMap, serde_json::Value
+// OUTPUT: pub type ActionFn, pub type StateFn, pub struct RegisteredView, pub struct ActionRegistry
+// POS:    Thread-safe registry that maps view IDs to type-erased action dispatch and state-reading closures.
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use serde_json::Value;

@@ -1,3 +1,6 @@
+// INPUT:  std::collections::HashMap, std::sync::Arc, parking_lot::RwLock, crate::inspect::{InspectNode, Inspectable}
+// OUTPUT: pub struct ViewEntry, pub struct ViewRegistry, pub struct GpuiInspector
+// POS:    GPUI view registry that builds an inspect tree from registered view snapshots.
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -1,3 +1,6 @@
+// INPUT:  std::collections::HashMap, std::future::Future, std::pin::Pin, alva_types::AgentError, crate::pregel::CompiledGraph
+// OUTPUT: pub const START, pub const END, pub struct StateGraph
+// POS:    StateGraph builder that defines nodes and edges, then compiles into an executable CompiledGraph.
 /// StateGraph builder — defines nodes and edges, then compiles into a `CompiledGraph`.
 
 use std::collections::HashMap;

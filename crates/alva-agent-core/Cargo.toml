@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 alva-types = { path = "../alva-types" }
-alva-agent-context = { path = "../alva-agent-context" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
 serde = { version = "1", features = ["derive"] }

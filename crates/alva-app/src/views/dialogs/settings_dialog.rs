@@ -1,14 +1,12 @@
-// INPUT:  gpui, gpui_component (Dialog, WindowExt),
-//         crate::models::SettingsModel, crate::views::settings_panel::SettingsPanel
+// INPUT:  gpui, gpui_component (Dialog, WindowExt), crate::models::SettingsModel, crate::views::settings_panel::SettingsPanel
 // OUTPUT: pub fn open_settings_dialog()
-// POS:    Opens the settings panel inside a gpui-component Dialog.
+// POS:    Opens the categorized settings panel inside a larger gpui-component Dialog.
 use gpui::{prelude::*, Entity, Window, px};
 
 use crate::models::SettingsModel;
 use crate::views::settings_panel::SettingsPanel;
 
 /// Opens the Settings dialog using gpui-component's Dialog API.
-/// Wraps the existing SettingsPanel inside a Dialog container.
 pub fn open_settings_dialog(
     settings_model: Entity<SettingsModel>,
     window: &mut Window,
@@ -20,8 +18,12 @@ pub fn open_settings_dialog(
 
     window.open_dialog(cx, move |dialog, _window, _cx| {
         dialog
-            .title("Settings")
-            .width(px(520.))
-            .child(panel.clone())
+            .title("设置")
+            .width(px(680.))
+            .child(
+                gpui::div()
+                    .h(px(480.))
+                    .child(panel.clone()),
+            )
     });
 }

@@ -1,3 +1,6 @@
+// INPUT:  std::collections::HashMap, std::sync::Arc, thiserror, crate::{EmbeddingModel, ImageModel, LanguageModel, ModerationModel, RerankingModel, SpeechModel, TranscriptionModel, VideoModel}
+// OUTPUT: pub enum ProviderError, pub trait Provider, pub struct ProviderRegistry
+// POS:    Provider abstraction and registry for obtaining model instances by provider and model ID.
 use std::collections::HashMap;
 use std::sync::Arc;
 

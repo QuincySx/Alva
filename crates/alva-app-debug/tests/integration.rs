@@ -1,3 +1,6 @@
+// INPUT:  alva_app_debug::{ActionRegistry, DebugServer, LogCaptureLayer, RegisteredView}, std::net, tracing_subscriber
+// OUTPUT: (none -- integration test module)
+// POS:    End-to-end tests for the debug HTTP server covering health, logs, inspect, action, and shutdown endpoints.
 use alva_app_debug::{ActionRegistry, DebugServer, LogCaptureLayer, RegisteredView};
 use std::io::Read;
 use std::sync::Arc;

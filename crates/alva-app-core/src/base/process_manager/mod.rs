@@ -4,5 +4,7 @@
 //! Process manager infrastructure
 //! Re-exports from agent::agent_client::connection for convenience.
 
+#[allow(unused_imports)]
 pub use crate::agent::agent_client::connection::factory::{AcpProcessManager, ProcessManagerConfig};
+#[allow(unused_imports)]
 pub use crate::agent::agent_client::connection::processes::ProcessState;

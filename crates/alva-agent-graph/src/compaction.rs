@@ -1,3 +1,6 @@
+// INPUT:  std::sync::Arc, alva_types::{AgentError, LanguageModel, AgentMessage}
+// OUTPUT: pub struct CompactionConfig, pub fn estimate_tokens, pub fn should_compact, pub fn compact_messages
+// POS:    Context-window compaction via token estimation and message truncation to stay within model limits.
 use std::sync::Arc;
 
 use alva_types::{AgentError, LanguageModel};

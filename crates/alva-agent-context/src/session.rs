@@ -1,186 +1,14 @@
-// INPUT:  serde, serde_json, async_trait, tokio::sync::Mutex, std::collections::HashMap, uuid, chrono
-// OUTPUT: pub struct SessionEvent, pub struct SessionMessage, pub struct EventQuery, pub struct EventMatch, pub trait SessionAccess, pub struct InMemorySession
-// POS:    Event-based session storage — append-only event log with query/rollback/snapshot, modeled after Claude Code's JSONL format.
-//! Session storage — append-only event log.
-//!
-//! Session records everything that happens: user messages, assistant responses,
-//! tool calls, progress events, system events. Unlike ContextStore (which manages
-//! the runtime LLM window), Session is the permanent record of "what happened".
-//!
-//! Design: each event is a self-contained JSON-serializable record. Storage
-//! backends (SQLite, files, remote) implement `SessionAccess`. The in-memory
-//! implementation is provided for testing.
+// INPUT:  alva_types::context (SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch), async_trait, tokio::sync::Mutex
+// OUTPUT: re-exports SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch; provides InMemorySession
+// POS:    Re-exports session traits/types from alva_types::context and provides the InMemorySession implementation.
+//! Session storage — trait re-exported from `alva_types::context`, with InMemorySession implementation.
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Event types
-// ---------------------------------------------------------------------------
-
-/// A single event in the session log.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionEvent {
-    /// Unique identifier for this event.
-    pub uuid: String,
-    /// Parent event (e.g., tool_result points to tool_use).
-    pub parent_uuid: Option<String>,
-    /// Event type: "user", "assistant", "system", "progress", etc.
-    #[serde(rename = "type")]
-    pub event_type: String,
-    /// Timestamp (epoch millis).
-    pub timestamp: i64,
-    /// Conversation message (present for user/assistant events).
-    pub message: Option<SessionMessage>,
-    /// Arbitrary payload (present for progress/system events).
-    pub data: Option<serde_json::Value>,
-}
-
-/// A conversation message within a session event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionMessage {
-    /// "user", "assistant", "tool"
-    pub role: String,
-    /// Message content — string or content blocks array.
-    pub content: serde_json::Value,
-}
-
-impl SessionEvent {
-    /// Create a user message event.
-    pub fn user_message(content: serde_json::Value) -> Self {
-        Self {
-            uuid: uuid::Uuid::new_v4().to_string(),
-            parent_uuid: None,
-            event_type: "user".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            message: Some(SessionMessage {
-                role: "user".to_string(),
-                content,
-            }),
-            data: None,
-        }
-    }
-
-    /// Create an assistant message event.
-    pub fn assistant_message(content: serde_json::Value) -> Self {
-        Self {
-            uuid: uuid::Uuid::new_v4().to_string(),
-            parent_uuid: None,
-            event_type: "assistant".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            message: Some(SessionMessage {
-                role: "assistant".to_string(),
-                content,
-            }),
-            data: None,
-        }
-    }
-
-    /// Create a tool result event linked to a parent tool_use.
-    pub fn tool_result(parent_tool_use_uuid: &str, content: serde_json::Value) -> Self {
-        Self {
-            uuid: uuid::Uuid::new_v4().to_string(),
-            parent_uuid: Some(parent_tool_use_uuid.to_string()),
-            event_type: "tool_result".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            message: Some(SessionMessage {
-                role: "tool".to_string(),
-                content,
-            }),
-            data: None,
-        }
-    }
-
-    /// Create a progress event (tool execution status, hook triggers, etc.)
-    pub fn progress(data: serde_json::Value) -> Self {
-        Self {
-            uuid: uuid::Uuid::new_v4().to_string(),
-            parent_uuid: None,
-            event_type: "progress".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            message: None,
-            data: Some(data),
-        }
-    }
-
-    /// Create a system event.
-    pub fn system(data: serde_json::Value) -> Self {
-        Self {
-            uuid: uuid::Uuid::new_v4().to_string(),
-            parent_uuid: None,
-            event_type: "system".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            message: None,
-            data: Some(data),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Query
-// ---------------------------------------------------------------------------
-
-/// Filter criteria for querying session events.
-/// All fields are optional — None means "don't filter on this".
-#[derive(Debug, Clone, Default)]
-pub struct EventQuery {
-    /// Filter by event type ("user", "assistant", "progress", etc.)
-    pub event_type: Option<String>,
-    /// Filter by message role ("user", "assistant", "tool")
-    pub role: Option<String>,
-    /// Text search in message content
-    pub text_contains: Option<String>,
-    /// Only events after this uuid (cursor-based pagination)
-    pub after_uuid: Option<String>,
-    /// Only the last N matching events
-    pub last_n: Option<usize>,
-    /// Maximum results to return
-    pub limit: usize,
-}
-
-/// A query result with preview text.
-#[derive(Debug, Clone)]
-pub struct EventMatch {
-    pub event: SessionEvent,
-    /// Truncated preview of the content (for display).
-    pub preview: String,
-}
-
-// ---------------------------------------------------------------------------
-// SessionAccess trait
-// ---------------------------------------------------------------------------
-
-/// The session storage interface.
-///
-/// Append-only event log with query and rollback support.
-/// Implementations: InMemorySession (testing), SQLite (desktop), file (CLI), remote (cloud).
-#[async_trait]
-pub trait SessionAccess: Send + Sync {
-    /// Session identifier.
-    fn session_id(&self) -> &str;
-
-    /// Append an event to the log.
-    async fn append(&self, event: SessionEvent);
-
-    /// Query events matching the filter. Storage layer does the filtering.
-    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>;
-
-    /// Count events matching the filter (without loading content).
-    async fn count(&self, filter: &EventQuery) -> usize;
-
-    /// Rollback: delete all events after the given uuid.
-    /// Returns the number of events removed.
-    async fn rollback_after(&self, uuid: &str) -> usize;
-
-    /// Save a context snapshot (binary, opaque to storage).
-    async fn save_snapshot(&self, data: &[u8]);
-
-    /// Load the last saved context snapshot.
-    async fn load_snapshot(&self) -> Option<Vec<u8>>;
-
-    /// Clear all events and snapshots.
-    async fn clear(&self);
-}
+// Re-export traits and types from alva_types::context
+pub use alva_types::context::{
+    EventMatch, EventQuery, SessionAccess, SessionEvent, SessionMessage,
+};
 
 // ---------------------------------------------------------------------------
 // InMemorySession — for testing
@@ -430,7 +258,7 @@ mod tests {
             session.append(event).await;
         }
 
-        // Rollback after event 2 — events 3 and 4 should be removed.
+        // Rollback after event 2 -- events 3 and 4 should be removed.
         let removed = session.rollback_after(&uuids[2]).await;
         assert_eq!(removed, 2);
         assert_eq!(

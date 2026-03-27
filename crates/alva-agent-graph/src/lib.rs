@@ -1,3 +1,6 @@
+// INPUT:  channel, checkpoint, compaction, context_transform, graph, pregel, retry, session, sub_agent
+// OUTPUT: pub mod channel/checkpoint/compaction/context_transform/graph/pregel/retry/session/sub_agent, re-exports of key types
+// POS:    Crate root that declares submodules and re-exports all public types for the agent graph library.
 pub mod channel;
 pub mod checkpoint;
 pub mod compaction;

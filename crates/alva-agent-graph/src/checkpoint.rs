@@ -1,3 +1,6 @@
+// INPUT:  async_trait, std::collections::HashMap, tokio::sync::Mutex, serde_json::Value, alva_types::AgentError
+// OUTPUT: pub trait CheckpointSaver, pub struct InMemoryCheckpointSaver
+// POS:    Checkpoint persistence trait and in-memory implementation for saving/loading agent session state.
 use async_trait::async_trait;
 use std::collections::HashMap;
 use tokio::sync::Mutex;

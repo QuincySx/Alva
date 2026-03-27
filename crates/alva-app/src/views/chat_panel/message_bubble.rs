@@ -1,6 +1,4 @@
-// INPUT:  gpui (div, px, IntoElement, ParentElement, Styled, FontWeight, Hsla),
-//         gpui::prelude::FluentBuilder, crate::theme::Theme,
-//         super::markdown::render_markdown
+// INPUT:  gpui (div, px, IntoElement, ParentElement, Styled, FontWeight, Hsla, FluentBuilder), crate::theme::Theme, super::markdown
 // OUTPUT: pub fn render_user_message, pub fn render_assistant_message, pub fn render_system_message
 // POS:    Stateless render helpers for user, assistant, and system message bubbles.
 

@@ -1,3 +1,7 @@
+// INPUT:  async_trait, futures_core::Stream, tokio::sync, alva_engine_runtime::*, crate::{bridge, config, mapping, process, protocol}
+// OUTPUT: pub struct ClaudeAdapter
+// POS:    EngineRuntime implementation that spawns a Node.js bridge process to communicate with the Claude Agent SDK.
+
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;

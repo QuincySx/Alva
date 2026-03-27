@@ -1,5 +1,4 @@
-// INPUT:  gpui (prelude, Context, Entity, EventEmitter, FontWeight, Hsla, Render, Subscription, Window, div, px),
-//         crate::models::AgentModel, crate::types::{AgentStatus, AgentStatusKind}, crate::theme::Theme
+// INPUT:  gpui (prelude, Context, Entity, EventEmitter, FontWeight, Hsla, Render, etc.), crate::models::AgentModel, crate::types, crate::theme
 // OUTPUT: pub struct AgentDetailPanel, pub enum AgentDetailPanelEvent
 // POS:    GPUI view showing agent details in a sliding right-side panel.
 use gpui::{prelude::*, Context, Entity, EventEmitter, FontWeight, Hsla, Render, Subscription, Window, div, px};

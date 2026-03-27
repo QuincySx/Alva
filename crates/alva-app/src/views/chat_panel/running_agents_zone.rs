@@ -1,6 +1,4 @@
-// INPUT:  gpui (prelude, Context, Entity, EventEmitter, FontWeight, Render, Subscription, Window, div, px),
-//         crate::models::AgentModel, crate::types::AgentStatusKind, crate::theme::Theme,
-//         super::agent_block::render_running_agent
+// INPUT:  gpui, crate::models::AgentModel, crate::types::AgentStatusKind, crate::theme::Theme, super::agent_block
 // OUTPUT: pub struct RunningAgentsZone, pub enum RunningAgentsZoneEvent
 // POS:    GPUI view showing currently running agents pinned above the chat input box.
 use gpui::{prelude::*, Context, Entity, EventEmitter, FontWeight, Render, Subscription, Window, div, px};

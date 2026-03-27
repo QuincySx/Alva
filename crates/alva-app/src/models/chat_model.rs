@@ -1,9 +1,6 @@
-// INPUT:  std::collections::HashMap, gpui (Context, Entity, EventEmitter, Subscription),
-//         crate::chat (GpuiChat, GpuiChatConfig, GpuiChatEvent)
+// INPUT:  std::collections::HashMap, gpui (Context, Entity, EventEmitter, Subscription), crate::chat (GpuiChat, GpuiChatConfig, GpuiChatEvent)
 // OUTPUT: pub struct ChatModel, pub enum ChatModelEvent
-// POS:    GPUI model managing per-session GpuiChat instances.
-//         Subscribes to each GpuiChat and re-emits ChatUpdated so views like MessageList
-//         can re-render when messages change.
+// POS:    GPUI model managing per-session GpuiChat instances and re-emitting ChatUpdated for view re-renders.
 use std::collections::HashMap;
 
 use gpui::{AppContext, Context, Entity, EventEmitter, Subscription};

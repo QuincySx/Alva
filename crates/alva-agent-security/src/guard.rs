@@ -25,13 +25,14 @@ pub enum SecurityDecision {
 
 /// Tools that are considered dangerous and always require HITL review
 /// (unless the user has opted into "always allow" for them).
+///
+/// Names must match the `Tool::name()` return values exactly.
 const DANGEROUS_TOOLS: &[&str] = &[
-    "shell",
-    "bash",
-    "execute_command",
-    "write_file",
-    "delete_file",
-    "move_file",
+    "execute_shell",
+    "create_file",
+    "file_edit",
+    "browser_action",
+    "browser_navigate",
 ];
 
 /// Well-known JSON keys that contain file paths in tool arguments.
@@ -321,7 +322,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "command": "ls /projects/myapp" });
-        let decision = guard.check_tool_call("shell", &args, &test_ctx());
+        let decision = guard.check_tool_call("execute_shell", &args, &test_ctx());
         assert!(matches!(decision, SecurityDecision::NeedHumanApproval { .. }));
     }
 
@@ -333,16 +334,16 @@ mod tests {
         );
         // First call — needs approval
         let args = json!({ "command": "ls /projects/myapp" });
-        let decision = guard.check_tool_call("shell", &args, &test_ctx());
+        let decision = guard.check_tool_call("execute_shell", &args, &test_ctx());
         if let SecurityDecision::NeedHumanApproval { request_id } = decision {
             guard.resolve_permission(
                 &request_id,
-                "shell",
+                "execute_shell",
                 crate::permission::PermissionDecision::AllowAlways,
             );
         }
         // Second call — should be auto-allowed
-        let decision2 = guard.check_tool_call("shell", &args, &test_ctx());
+        let decision2 = guard.check_tool_call("execute_shell", &args, &test_ctx());
         assert!(matches!(decision2, SecurityDecision::Allow));
     }
 

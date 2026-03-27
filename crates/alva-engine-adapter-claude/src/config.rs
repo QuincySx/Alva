@@ -1,3 +1,7 @@
+// INPUT:  std::collections::HashMap, serde::{Deserialize, Serialize}, serde_json::Value
+// OUTPUT: pub struct ClaudeAdapterConfig, pub struct SandboxConfig, pub enum PermissionMode
+// POS:    Defines all configuration types for the Claude Agent SDK bridge adapter.
+
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};

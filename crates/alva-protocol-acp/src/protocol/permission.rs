@@ -1,4 +1,6 @@
-// ACP permission request/response types with four-option HITL model (allow/reject once/always).
+// INPUT:  serde
+// OUTPUT: pub struct PermissionRequest, pub enum RiskLevel, pub struct PermissionData, pub enum PermissionOption
+// POS:    Defines ACP permission request/response types with a four-option HITL model (allow/reject once/always).
 use serde::{Deserialize, Serialize};
 
 /// Permission request from external Agent

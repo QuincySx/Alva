@@ -1,3 +1,6 @@
+// INPUT:  std::sync::Arc, tokio::sync::watch
+// OUTPUT: pub struct CancellationToken
+// POS:    Cooperative cancellation primitive backed by a tokio watch channel.
 use std::sync::Arc;
 use tokio::sync::watch;
 

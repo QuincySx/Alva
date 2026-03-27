@@ -1,3 +1,6 @@
+// INPUT:  std::sync, std::time, tiny_http, serde_json, crate::{ActionRegistry, Inspectable, LogHandle, LogQuery, server}
+// OUTPUT: pub(crate) struct Router
+// POS:    HTTP request router that dispatches debug API endpoints to log, inspect, action, and lifecycle handlers.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;

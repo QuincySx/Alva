@@ -19,4 +19,8 @@ pub struct Session {
     pub name: String,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Display text for task status (e.g. "已完成", "运行中")
+    pub status_text: Option<String>,
+    /// Display text for task duration (e.g. "6m", "21h")
+    pub duration_text: Option<String>,
 }

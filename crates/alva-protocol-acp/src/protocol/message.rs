@@ -1,4 +1,6 @@
-// Top-level ACP protocol envelopes: 13 inbound event types and 5 outbound command types.
+// INPUT:  serde, content::ContentBlock, lifecycle, permission, special, tool
+// OUTPUT: pub enum AcpInboundMessage, pub enum AcpOutboundMessage
+// POS:    Defines top-level ACP protocol envelopes with 13 inbound event types and 5 outbound command types.
 use serde::{Deserialize, Serialize};
 
 use super::{

@@ -1,3 +1,6 @@
+// INPUT:  std::collections::HashMap, alva_types::AgentError, crate::graph::{Edge, MergeFn, NodeFn, END}
+// OUTPUT: pub struct CompiledGraph
+// POS:    Pregel-style BSP execution engine that runs compiled graphs with sequential and parallel supersteps.
 /// Pregel-style BSP execution engine for compiled graphs.
 
 use std::collections::HashMap;

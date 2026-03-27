@@ -54,4 +54,5 @@
 | 类型 | `types/` | 共享类型定义（如 AcpMessage） |
 | 网关 | `gateway/` | API 网关（placeholder） |
 | 系统能力 | `system/` | 系统能力抽象（placeholder） |
+| BaseAgent | `base_agent.rs` | 开箱即用 Agent：自动组装工具、安全、压缩、Skill 注入、MCP |
 | 错误 | `error.rs` | EngineError / SkillError 统一错误类型 |

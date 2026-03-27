@@ -1,4 +1,6 @@
-// ACP bootstrap payload written to child stdin on spawn -- workspace, model config, sandbox level.
+// INPUT:  serde
+// OUTPUT: pub enum SandboxLevel, pub struct ModelConfig, pub struct BootstrapPayload
+// POS:    Defines the ACP bootstrap payload written to child stdin on spawn, including workspace, model config, and sandbox level.
 use serde::{Deserialize, Serialize};
 
 /// Sandbox level enumeration.

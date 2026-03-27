@@ -14,4 +14,5 @@
 | MemorySqlite | src/sqlite.rs | SQLite storage backend: FTS5 full-text search, brute-force vector search, embedding cache, and file/chunk CRUD |
 | EmbeddingProvider | src/embedding.rs | Embedding provider trait for vector search and a no-op placeholder implementation |
 | Workspace Sync | src/sync.rs | Scans workspace for MEMORY.md files, chunks content, computes embeddings, and indexes into MemorySqlite |
+| MemoryBackend | src/backend.rs | Abstract storage backend trait for pluggable memory implementations |
 | MemoryService | src/service.rs | Unified memory service combining FTS + vector hybrid search with weighted score fusion |

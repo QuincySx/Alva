@@ -65,7 +65,7 @@ pub(crate) async fn run_agent_loop(
         let injections = config.context.hooks().on_message(
             config.context.handle(), &state.session_id, last_msg
         ).await;
-        alva_agent_context::apply::apply_injections(
+        alva_types::context::apply::apply_injections(
             injections, &mut state.system_prompt, &mut state.messages,
         );
     }
@@ -77,7 +77,7 @@ pub(crate) async fn run_agent_loop(
                 AgentMessage::Standard(m) => serde_json::to_value(&m.content).unwrap_or_default(),
                 AgentMessage::Custom { data, .. } => data.clone(),
             };
-            session.append(alva_agent_context::SessionEvent::user_message(content)).await;
+            session.append(alva_types::context::SessionEvent::user_message(content)).await;
         }
     }
 
@@ -169,7 +169,7 @@ async fn run_agent_loop_inner(
                     &snapshot,
                 ).await;
 
-                alva_agent_context::apply::apply_compressions(
+                alva_types::context::apply::apply_compressions(
                     actions,
                     &mut state.messages,
                     config.context.handle(),
@@ -182,12 +182,12 @@ async fn run_agent_loop_inner(
             let budget = config.context.handle().budget(&state.session_id);
             // Wrap state.messages in ContextEntry for the plugin.
             // Transitional: in the future, ContextStore holds entries directly.
-            let entries: Vec<alva_agent_context::ContextEntry> = state.messages.iter().map(|msg| {
-                alva_agent_context::ContextEntry {
+            let entries: Vec<alva_types::context::ContextEntry> = state.messages.iter().map(|msg| {
+                alva_types::context::ContextEntry {
                     id: uuid::Uuid::new_v4().to_string(),
                     message: msg.clone(),
-                    metadata: alva_agent_context::ContextMetadata::new(
-                        alva_agent_context::ContextLayer::RuntimeInject,
+                    metadata: alva_types::context::ContextMetadata::new(
+                        alva_types::context::ContextLayer::RuntimeInject,
                     ),
                 }
             }).collect();
@@ -261,31 +261,31 @@ async fn run_agent_loop_inner(
             // Session: append assistant message event
             if let Some(session) = config.context.session() {
                 let content = serde_json::to_value(&assistant_message.content).unwrap_or_default();
-                session.append(alva_agent_context::SessionEvent::assistant_message(content)).await;
+                session.append(alva_types::context::SessionEvent::assistant_message(content)).await;
             }
 
             // 5. Context plugin: ingest — let plugin decide keep/modify/skip
             let agent_msg = agent_msg;
             {
-                let entry = alva_agent_context::ContextEntry {
+                let entry = alva_types::context::ContextEntry {
                     id: uuid::Uuid::new_v4().to_string(),
                     message: agent_msg.clone(),
-                    metadata: alva_agent_context::ContextMetadata::new(
-                        alva_agent_context::ContextLayer::RuntimeInject,
-                    ).with_origin(alva_agent_context::EntryOrigin::Model),
+                    metadata: alva_types::context::ContextMetadata::new(
+                        alva_types::context::ContextLayer::RuntimeInject,
+                    ).with_origin(alva_types::context::EntryOrigin::Model),
                 };
                 let ingest_action = config.context.hooks().ingest(
                     config.context.handle(), &state.session_id, &entry,
                 ).await;
                 match ingest_action {
-                    alva_agent_context::IngestAction::Skip => {
+                    alva_types::context::IngestAction::Skip => {
                         // Plugin says skip — do NOT push to state.messages.
                         // But we still need to check for tool calls below.
                     }
-                    alva_agent_context::IngestAction::Modify { message, .. } => {
+                    alva_types::context::IngestAction::Modify { message, .. } => {
                         state.messages.push(message);
                     }
-                    alva_agent_context::IngestAction::Keep => {
+                    alva_types::context::IngestAction::Keep => {
                         state.messages.push(agent_msg.clone());
                     }
                 }
@@ -339,7 +339,7 @@ async fn run_agent_loop_inner(
                         "content": result.content,
                         "is_error": result.is_error,
                     });
-                    session.append(alva_agent_context::SessionEvent::tool_result(&tc.id, content)).await;
+                    session.append(alva_types::context::SessionEvent::tool_result(&tc.id, content)).await;
                 }
 
                 let tool_msg = Message {
@@ -357,12 +357,12 @@ async fn run_agent_loop_inner(
                 let tool_agent_msg = AgentMessage::Standard(tool_msg);
 
                 // Context plugin: ingest — let plugin decide on tool results too.
-                let tool_entry = alva_agent_context::ContextEntry {
+                let tool_entry = alva_types::context::ContextEntry {
                     id: uuid::Uuid::new_v4().to_string(),
                     message: tool_agent_msg.clone(),
-                    metadata: alva_agent_context::ContextMetadata::new(
-                        alva_agent_context::ContextLayer::RuntimeInject,
-                    ).with_origin(alva_agent_context::EntryOrigin::Tool {
+                    metadata: alva_types::context::ContextMetadata::new(
+                        alva_types::context::ContextLayer::RuntimeInject,
+                    ).with_origin(alva_types::context::EntryOrigin::Tool {
                         tool_name: tc.name.clone(),
                     }),
                 };
@@ -370,13 +370,13 @@ async fn run_agent_loop_inner(
                     config.context.handle(), &state.session_id, &tool_entry,
                 ).await;
                 match ingest_action {
-                    alva_agent_context::IngestAction::Skip => {
+                    alva_types::context::IngestAction::Skip => {
                         // Plugin says skip this tool result.
                     }
-                    alva_agent_context::IngestAction::Modify { message, .. } => {
+                    alva_types::context::IngestAction::Modify { message, .. } => {
                         state.messages.push(message);
                     }
-                    alva_agent_context::IngestAction::Keep => {
+                    alva_types::context::IngestAction::Keep => {
                         state.messages.push(tool_agent_msg);
                     }
                 }

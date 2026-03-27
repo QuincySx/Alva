@@ -1,3 +1,6 @@
+// INPUT:  alva_types::{ContentBlock, Message, MessageRole}, serde_json::Value, uuid
+// OUTPUT: pub fn make_user_message, pub fn make_assistant_message, pub fn make_tool_call_message
+// POS:    Provides factory functions for constructing test Message fixtures with various roles and content blocks.
 use alva_types::{ContentBlock, Message, MessageRole};
 use serde_json::Value;
 

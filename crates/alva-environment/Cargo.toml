@@ -1,0 +1,20 @@
+[package]
+name = "alva-environment"
+version = "0.1.0"
+edition = "2021"
+description = "Runtime environment management: install, version-track, and resolve Bun/Node/Python/Chromium executables"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+thiserror = "2"
+dirs = "5"
+zip = "2"
+tar = "0.4"
+flate2 = "1"
+tokio = { version = "1", features = ["fs", "io-util"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }

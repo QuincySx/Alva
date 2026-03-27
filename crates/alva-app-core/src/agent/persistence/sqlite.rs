@@ -17,6 +17,7 @@ use super::migrations;
 
 /// Persistent session storage backed by SQLite (WAL mode).
 pub struct SqliteStorage {
+    #[allow(dead_code)]
     conn: Connection,
 }
 
@@ -63,6 +64,7 @@ impl SqliteStorage {
 // Helpers
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn status_to_str(s: &SessionStatus) -> &'static str {
     match s {
         SessionStatus::Idle => "idle",
@@ -74,6 +76,7 @@ fn status_to_str(s: &SessionStatus) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn str_to_status(s: &str) -> SessionStatus {
     match s {
         "running" => SessionStatus::Running,
@@ -85,6 +88,7 @@ fn str_to_status(s: &str) -> SessionStatus {
     }
 }
 
+#[allow(dead_code)]
 fn role_to_str(r: &MessageRole) -> &'static str {
     match r {
         MessageRole::System => "system",
@@ -94,6 +98,7 @@ fn role_to_str(r: &MessageRole) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn str_to_role(s: &str) -> MessageRole {
     match s {
         "system" => MessageRole::System,
@@ -105,6 +110,7 @@ fn str_to_role(s: &str) -> MessageRole {
 }
 
 /// Extract a tool_call_id from the first ToolResult block, if any.
+#[allow(dead_code)]
 fn extract_tool_call_id(content: &[ContentBlock]) -> Option<String> {
     content
         .iter()

@@ -1,4 +1,6 @@
-// ACP-specific error types.
+// INPUT:  thiserror
+// OUTPUT: AcpError
+// POS:    Unified error enum for all ACP protocol operations (spawn, permission, IO, serialization)
 use thiserror::Error;
 
 #[derive(Debug, Error)]

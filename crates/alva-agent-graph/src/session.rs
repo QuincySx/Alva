@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_core::Agent, crate::checkpoint::CheckpointSaver, crate::compaction::CompactionConfig, crate::pregel::CompiledGraph, crate::retry::RetryConfig
+// OUTPUT: pub struct AgentSession
+// POS:    High-level session wrapper bundling a linear agent or compiled graph with retry, compaction, and checkpointing.
 use alva_agent_core::Agent;
 
 use crate::checkpoint::CheckpointSaver;

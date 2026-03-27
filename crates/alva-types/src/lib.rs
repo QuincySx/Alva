@@ -3,6 +3,7 @@
 // POS:    Crate root — declares all type modules and re-exports their public items as the shared vocabulary for the agent ecosystem.
 pub mod cancel;
 pub mod content;
+pub mod context;
 pub mod error;
 pub mod message;
 pub mod model;

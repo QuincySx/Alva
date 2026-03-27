@@ -1,4 +1,4 @@
-// INPUT:  alva_types (Message, ModelConfig, Tool, ToolCall, ToolContext, ToolResult, AgentMessage), serde, serde_json, crate::middleware::MiddlewareStack, alva_agent_context
+// INPUT:  alva_types (Message, ModelConfig, Tool, ToolCall, ToolContext, ToolResult, AgentMessage, context::ContextSystem), serde, serde_json, crate::middleware::MiddlewareStack
 // OUTPUT: AgentMessage, AgentContext, AgentState, AgentHooks, ToolCallDecision, ToolExecutionMode, HookFuture, ConvertToLlmFn
 // POS:    Defines core value types and the hook-based configuration struct (AgentHooks) that drives the agent loop.
 use std::future::Future;
@@ -116,7 +116,7 @@ pub struct AgentHooks {
     pub convert_to_llm: ConvertToLlmFn,
 
     /// Context management system — hooks + handle + session bundled together.
-    pub context: alva_agent_context::ContextSystem,
+    pub context: alva_types::context::ContextSystem,
 
     /// Composable — decide whether a tool call should proceed.
     /// First `Block` wins; if all return `Allow`, the call proceeds.
@@ -153,7 +153,7 @@ impl AgentHooks {
     pub fn new(convert_to_llm: ConvertToLlmFn) -> Self {
         Self {
             convert_to_llm,
-            context: alva_agent_context::ContextSystem::default(),
+            context: alva_types::context::ContextSystem::default(),
             before_tool_call: Vec::new(),
             after_tool_call: Vec::new(),
             get_steering_messages: Vec::new(),

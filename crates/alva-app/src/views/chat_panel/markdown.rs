@@ -1,10 +1,6 @@
-// INPUT:  gpui (div, px, Div, FontWeight, HighlightStyle, Hsla, IntoElement, ParentElement,
-//         SharedString, Styled, StyledText, AnyElement),
-//         pulldown_cmark (Parser, Event, Tag, TagEnd, CodeBlockKind, HeadingLevel),
-//         crate::theme::Theme, super::code_block::render_code_block
+// INPUT:  gpui (div, px, Div, FontWeight, HighlightStyle, Hsla, etc.), pulldown_cmark, crate::theme::Theme, super::code_block
 // OUTPUT: pub fn render_markdown
-// POS:    Parses Markdown text and converts to GPUI elements supporting headings, paragraphs,
-//         bold/italic/code inline spans, code blocks, lists, horizontal rules, and links.
+// POS:    Parses Markdown text and converts to GPUI elements with headings, paragraphs, inline spans, code blocks, lists, and links.
 
 use gpui::{
     div, px, AnyElement, FontWeight, HighlightStyle, IntoElement, ParentElement, SharedString,

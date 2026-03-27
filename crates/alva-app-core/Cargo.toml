@@ -2,7 +2,7 @@
 name = "alva-app-core"
 version = "0.1.0"
 edition = "2021"
-description = "Alva App core — thin facade over extracted crates, plus skills, MCP, environment"
+description = "Alva App core — application orchestration layer: agent lifecycle, skills, MCP, ACP, environment, persistence"
 
 [lib]
 name = "alva_app_core"
@@ -23,6 +23,7 @@ alva-agent-runtime = { path = "../alva-agent-runtime" }
 alva-protocol-acp = { path = "../alva-protocol-acp" }
 alva-protocol-skill = { path = "../alva-protocol-skill" }
 alva-protocol-mcp = { path = "../alva-protocol-mcp" }
+alva-environment = { path = "../alva-environment" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -52,11 +53,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Cross-platform app data directory
 dirs = "5"
-
-# Archive extraction (environment runtime management)
-zip = "2"
-tar = "0.4"
-flate2 = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"

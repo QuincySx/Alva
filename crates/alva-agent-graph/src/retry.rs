@@ -1,3 +1,6 @@
+// INPUT:  std::time::Duration, alva_types::AgentError
+// OUTPUT: pub struct RetryConfig
+// POS:    Exponential-backoff retry configuration with a customizable retryable-error predicate.
 use std::time::Duration;
 
 use alva_types::AgentError;

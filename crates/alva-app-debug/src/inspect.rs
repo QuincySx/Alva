@@ -1,3 +1,6 @@
+// INPUT:  serde::Serialize, std::collections::HashMap, serde_json::Value
+// OUTPUT: pub struct InspectNode, pub struct Bounds, pub trait Inspectable, pub trait DebugInspect
+// POS:    Defines the inspect tree data model and traits for runtime UI introspection.
 use serde::Serialize;
 use std::collections::HashMap;
 

@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_core, alva_types, async_trait
+// OUTPUT: (none — example binary)
+// POS:    Example demonstrating middleware composition (logging, security, token counting) into an AgentHooks config
 //! Example: composing middleware into an agent config.
 //!
 //! Demonstrates:

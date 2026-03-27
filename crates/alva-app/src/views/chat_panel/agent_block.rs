@@ -1,8 +1,6 @@
-// INPUT:  gpui (div, px, IntoElement, ParentElement, Styled, FontWeight, Hsla),
-//         gpui::prelude::FluentBuilder, crate::theme::Theme
+// INPUT:  gpui (div, px, IntoElement, ParentElement, Styled, FontWeight, Hsla, FluentBuilder), crate::theme::Theme
 // OUTPUT: pub fn render_completed_agent, pub fn render_running_agent
 // POS:    Stateless render helpers for agent blocks in the message stream and running agents zone.
-//         Click handling is added by the parent.
 
 use gpui::{div, px, FontWeight, Hsla, IntoElement, ParentElement, Styled};
 use gpui::prelude::FluentBuilder;
