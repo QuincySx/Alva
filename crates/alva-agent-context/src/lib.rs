@@ -29,6 +29,7 @@ pub mod store;
 pub mod session;
 pub mod chain;
 pub mod context_system;
+pub mod apply;
 pub mod rules_plugin;
 pub mod default_plugin;
 
