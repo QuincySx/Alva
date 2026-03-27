@@ -18,7 +18,7 @@ pub use middleware::{Middleware, MiddlewareStack, MiddlewareContext, MiddlewareE
 
 /// Re-export context types so downstream crates don't need a direct dependency.
 pub use alva_agent_context::{
-    ContextHooks, ContextHooksSDK, ContextSDKImpl, ContextStore,
+    ContextHooks, ContextSDK, ContextSDKImpl, ContextStore,
     RulesContextHooks, DefaultContextHooks, DefaultHooksConfig,
     MessageStore, InMemoryMessageStore, Turn,
 };

@@ -1,5 +1,5 @@
 // INPUT:  plugin, sdk, sdk_impl, store, rules_plugin, default_plugin, message_store, types
-// OUTPUT: pub mod types/plugin/sdk/sdk_impl/store/message_store/rules_plugin/default_plugin; re-exports ContextHooks, ContextHooksSDK, ContextSDKImpl, ContextStore, RulesContextHooks, DefaultContextHooks, DefaultHooksConfig, MessageStore, InMemoryMessageStore, Turn
+// OUTPUT: pub mod types/plugin/sdk/sdk_impl/store/message_store/rules_plugin/default_plugin; re-exports ContextHooks, ContextSDK, ContextSDKImpl, ContextStore, RulesContextHooks, DefaultContextHooks, DefaultHooksConfig, MessageStore, InMemoryMessageStore, Turn
 // POS:    Crate root that declares submodules and re-exports all public types for the context management system.
 //! alva-agent-context — Context management hooks, SDK, and plugin system.
 //!
@@ -11,7 +11,7 @@
 //! │  impl ContextHooks — 8 hooks               │
 //! ├─────────────────────────────────────────────┤
 //! │  SDK Layer (operations)                      │
-//! │  ContextSDKImpl → ContextHooksSDK          │
+//! │  ContextSDKImpl → ContextSDK          │
 //! ├─────────────────────────────────────────────┤
 //! │  Store Layer (data)                          │
 //! │  ContextStore — four-layer CRUD              │
@@ -32,7 +32,7 @@ pub mod rules_plugin;
 pub mod default_plugin;
 
 pub use plugin::{ContextError, ContextHooks};
-pub use sdk::ContextHooksSDK;
+pub use sdk::ContextSDK;
 pub use sdk_impl::ContextSDKImpl;
 pub use store::ContextStore;
 pub use rules_plugin::RulesContextHooks;

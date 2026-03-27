@@ -119,7 +119,7 @@ pub struct AgentHooks {
     pub context_plugin: Arc<dyn alva_agent_context::ContextHooks>,
 
     /// Context management SDK — operations interface for the plugin.
-    pub context_sdk: Arc<dyn alva_agent_context::ContextHooksSDK>,
+    pub context_sdk: Arc<dyn alva_agent_context::ContextSDK>,
 
     /// Optional message store — turn-based conversation persistence.
     pub message_store: Option<Arc<dyn alva_agent_context::MessageStore>>,
@@ -161,7 +161,7 @@ impl AgentHooks {
         let ctx_store = Arc::new(std::sync::Mutex::new(
             alva_agent_context::ContextStore::new(200_000, 180_000, "/tmp/alva-ctx".into())
         ));
-        let sdk: Arc<dyn alva_agent_context::ContextHooksSDK> = Arc::new(
+        let sdk: Arc<dyn alva_agent_context::ContextSDK> = Arc::new(
             alva_agent_context::ContextSDKImpl::new(ctx_store)
         );
         let plugin: Arc<dyn alva_agent_context::ContextHooks> = Arc::new(

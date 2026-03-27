@@ -1,4 +1,4 @@
-// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextHooksSDK, crate::store::estimate_tokens, crate::types
+// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextSDK, crate::store::estimate_tokens, crate::types
 // OUTPUT: pub type SummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultHooksConfig, pub struct DefaultContextHooks
 // POS:    Built-in production context plugin combining deterministic rules with optional LLM callbacks for summarization and memory extraction.
 //! DefaultContextHooks — the built-in production plugin.
@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::plugin::{ContextError, ContextHooks};
-use crate::sdk::ContextHooksSDK;
+use crate::sdk::ContextSDK;
 use crate::store::estimate_tokens;
 use crate::types::*;
 
@@ -237,7 +237,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn bootstrap(
         &self,
-        sdk: &dyn ContextHooksSDK,
+        sdk: &dyn ContextSDK,
         agent_id: &str,
     ) -> Result<(), ContextError> {
         let mut state = self.state.lock().await;
@@ -281,7 +281,7 @@ impl ContextHooks for DefaultContextHooks {
     /// Compression replaces the message inside the entry, preserving metadata.
     async fn assemble(
         &self,
-        _sdk: &dyn ContextHooksSDK,
+        _sdk: &dyn ContextSDK,
         _agent_id: &str,
         entries: Vec<ContextEntry>,
         token_budget: usize,
@@ -476,7 +476,7 @@ impl ContextHooks for DefaultContextHooks {
     /// `assemble()` (S2: micro_compact), which operates on actual messages.
     async fn on_budget_exceeded(
         &self,
-        sdk: &dyn ContextHooksSDK,
+        sdk: &dyn ContextSDK,
         agent_id: &str,
         snapshot: &ContextSnapshot,
     ) -> Vec<CompressAction> {
@@ -555,7 +555,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn on_message(
         &self,
-        sdk: &dyn ContextHooksSDK,
+        sdk: &dyn ContextSDK,
         _agent_id: &str,
         message: &AgentMessage,
     ) -> Vec<Injection> {
@@ -591,7 +591,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn ingest(
         &self,
-        _sdk: &dyn ContextHooksSDK,
+        _sdk: &dyn ContextSDK,
         _agent_id: &str,
         entry: &ContextEntry,
     ) -> IngestAction {
@@ -621,7 +621,7 @@ impl ContextHooks for DefaultContextHooks {
 
     async fn after_turn(
         &self,
-        sdk: &dyn ContextHooksSDK,
+        sdk: &dyn ContextSDK,
         agent_id: &str,
     ) {
         // Collect recent messages under lock, then release before async LLM work.
