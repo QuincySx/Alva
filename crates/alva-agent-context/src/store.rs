@@ -1,3 +1,6 @@
+// INPUT:  std::collections::HashMap, std::path::PathBuf, alva_types::AgentMessage, crate::types (ContextEntry, ContextLayer, ContextMetadata, Priority, ContextSnapshot, EntrySnapshot, BudgetInfo, ToolPattern, LayerStats)
+// OUTPUT: pub struct ContextStore, pub fn estimate_tokens
+// POS:    Per-agent context container providing five-layer CRUD, token tracking, compression shortcuts, and LLM message assembly.
 //! ContextStore — per-agent context container with five-layer management.
 
 use std::collections::HashMap;
@@ -316,28 +319,6 @@ impl ContextStore {
         self.turn_index += 1;
     }
 
-    /// Sync token usage from externally-managed messages.
-    ///
-    /// Since the actual conversation lives in `AgentState.messages` (not in
-    /// ContextStore entries), this method lets the agent loop tell the store
-    /// how many tokens are currently in use, so that `budget_info()` and
-    /// `usage_ratio()` return accurate values.
-    pub fn sync_external_usage(&mut self, used_tokens: usize) {
-        // We store a single synthetic entry that represents the external usage.
-        // Clear any previous sync entry first.
-        self.entries.retain(|e| e.id != "__external_usage_sync__");
-        if used_tokens > 0 {
-            self.entries.push(ContextEntry {
-                id: "__external_usage_sync__".to_string(),
-                message: AgentMessage::Custom {
-                    type_name: "external_usage_sync".to_string(),
-                    data: serde_json::Value::Null,
-                },
-                metadata: ContextMetadata::new(ContextLayer::RuntimeInject)
-                    .with_tokens(used_tokens),
-            });
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -594,31 +575,6 @@ mod tests {
         store.clear_all();
 
         assert!(store.entries().is_empty());
-        assert_eq!(store.total_tokens(), 0);
-    }
-
-    #[test]
-    fn test_sync_external_usage() {
-        let mut store = test_store(); // model_window = 10_000, budget = 8_000
-
-        store.sync_external_usage(3000);
-
-        // total_tokens should reflect the external usage.
-        assert_eq!(store.total_tokens(), 3000);
-
-        // budget_info should show 3000 used, 5000 remaining.
-        let info = store.budget_info();
-        assert_eq!(info.used_tokens, 3000);
-        assert_eq!(info.remaining_tokens, 5000);
-
-        // Calling again replaces (not adds).
-        store.sync_external_usage(6000);
-        assert_eq!(store.total_tokens(), 6000);
-        let info = store.budget_info();
-        assert_eq!(info.remaining_tokens, 2000);
-
-        // Syncing 0 removes the synthetic entry.
-        store.sync_external_usage(0);
         assert_eq!(store.total_tokens(), 0);
     }
 

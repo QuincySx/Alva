@@ -1,4 +1,7 @@
-//! Concrete implementation of ContextManagementSDK backed by ContextStore.
+// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::AgentMessage, uuid, crate::message_store::MessageStore, crate::sdk::ContextPluginSDK, crate::store::{ContextStore, estimate_tokens}, crate::types
+// OUTPUT: pub struct ContextSDKImpl
+// POS:    Concrete ContextPluginSDK implementation backed by a shared ContextStore with Mutex-based synchronization.
+//! Concrete implementation of ContextPluginSDK backed by ContextStore.
 
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
@@ -6,7 +9,7 @@ use async_trait::async_trait;
 use alva_types::AgentMessage;
 
 use crate::message_store::MessageStore;
-use crate::sdk::ContextManagementSDK;
+use crate::sdk::ContextPluginSDK;
 use crate::store::{ContextStore, estimate_tokens};
 use crate::types::*;
 
@@ -43,7 +46,7 @@ impl ContextSDKImpl {
 }
 
 #[async_trait]
-impl ContextManagementSDK for ContextSDKImpl {
+impl ContextPluginSDK for ContextSDKImpl {
     // =====================================================================
     // Read
     // =====================================================================
@@ -205,24 +208,6 @@ impl ContextManagementSDK for ContextSDKImpl {
         tracing::debug!(fact_id, "delete_memory: not yet implemented");
     }
 
-    // =====================================================================
-    // Sub-agent context
-    // =====================================================================
-
-    fn extract_relevant(
-        &self,
-        _agent_id: &str,
-        _task_description: &str,
-        _max_tokens: usize,
-    ) -> Vec<ContextEntry> {
-        // TODO: semantic search over context entries
-        vec![]
-    }
-
-    fn sync_external_usage(&self, _agent_id: &str, used_tokens: usize) {
-        let mut store = self.store.lock().expect("ContextStore mutex poisoned");
-        store.sync_external_usage(used_tokens);
-    }
 }
 
 /// Resolve a MessageRange to (from_index, to_index) on the store.

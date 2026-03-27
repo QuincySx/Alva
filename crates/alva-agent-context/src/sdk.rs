@@ -1,4 +1,7 @@
-//! ContextManagementSDK trait — the privileged interface that plugins use to operate on context.
+// INPUT:  alva_types::AgentMessage, async_trait, crate::types (ContextSnapshot, BudgetInfo, ContextEntry, ToolPattern, ContextLayer, MemoryFact, MessageRange, Priority)
+// OUTPUT: pub trait ContextPluginSDK
+// POS:    Defines the privileged SDK interface that context plugins call to read, write, compress, and query the context store.
+//! ContextPluginSDK trait — the privileged interface that plugins use to operate on context.
 
 use alva_types::AgentMessage;
 use async_trait::async_trait;
@@ -7,9 +10,9 @@ use crate::types::*;
 
 /// The SDK interface that plugins call to read/write the context store.
 ///
-/// Implemented by the framework. Plugins receive `&dyn ContextManagementSDK` in every hook.
+/// Implemented by the framework. Plugins receive `&dyn ContextPluginSDK` in every hook.
 #[async_trait]
-pub trait ContextManagementSDK: Send + Sync {
+pub trait ContextPluginSDK: Send + Sync {
     // =====================================================================
     // Read operations
     // =====================================================================
@@ -108,28 +111,4 @@ pub trait ContextManagementSDK: Send + Sync {
     /// Delete a memory fact by ID.
     fn delete_memory(&self, fact_id: &str);
 
-    // =====================================================================
-    // Sub-agent context
-    // =====================================================================
-
-    /// Extract context entries relevant to a task description, within a token budget.
-    fn extract_relevant(
-        &self,
-        agent_id: &str,
-        task_description: &str,
-        max_tokens: usize,
-    ) -> Vec<ContextEntry>;
-
-    // =====================================================================
-    // Usage sync (for bridging external message lists)
-    // =====================================================================
-
-    /// Sync token usage from an externally-managed message list.
-    ///
-    /// The agent loop keeps messages in `AgentState.messages`, not in the
-    /// ContextStore. This method lets the loop report the real token count
-    /// so that `budget()` returns accurate values.
-    ///
-    /// Default implementation is a no-op for backward compatibility.
-    fn sync_external_usage(&self, _agent_id: &str, _used_tokens: usize) {}
 }
