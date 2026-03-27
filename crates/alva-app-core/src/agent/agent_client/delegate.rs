@@ -46,18 +46,26 @@ pub trait AgentDelegate: Send + Sync {
 }
 
 /// ACP protocol concrete implementation of AgentDelegate.
-/// Body commented out — depends on deleted UIMessageChunk.
+///
+/// Uses the app-level `AcpProcessManager` to spawn and communicate
+/// with external agent processes.
 pub struct AcpAgentDelegate {
     kind: super::connection::discovery::ExternalAgentKind,
+    model_config: super::protocol::bootstrap::ModelConfig,
+    process_manager: Arc<super::connection::factory::AcpProcessManager>,
 }
 
 impl AcpAgentDelegate {
     pub fn new(
         kind: super::connection::discovery::ExternalAgentKind,
-        _model_config: super::protocol::bootstrap::ModelConfig,
-        _process_manager: Arc<super::connection::factory::AcpProcessManager>,
+        model_config: super::protocol::bootstrap::ModelConfig,
+        process_manager: Arc<super::connection::factory::AcpProcessManager>,
     ) -> Self {
-        Self { kind }
+        Self {
+            kind,
+            model_config,
+            process_manager,
+        }
     }
 }
 
@@ -72,14 +80,106 @@ impl AgentDelegate for AcpAgentDelegate {
 
     async fn delegate(
         &self,
-        _prompt: String,
-        _workspace: std::path::PathBuf,
+        prompt: String,
+        workspace: std::path::PathBuf,
     ) -> Result<DelegateResult, EngineError> {
-        todo!("Rebuild AcpAgentDelegate on alva-core event types")
+        use super::protocol::bootstrap::{BootstrapPayload, SandboxLevel};
+        use super::protocol::content::ContentBlock;
+        use super::protocol::message::{AcpInboundMessage, AcpOutboundMessage};
+
+        let ws = workspace.to_string_lossy().to_string();
+        let bootstrap = BootstrapPayload {
+            workspace: ws.clone(),
+            model_config: self.model_config.clone(),
+            authorized_roots: vec![ws],
+            sandbox_level: SandboxLevel::None,
+            attachment_paths: Vec::new(),
+            protocol_version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+
+        let process_id = self
+            .process_manager
+            .spawn(self.kind.clone(), bootstrap)
+            .await
+            .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+
+        // Send prompt
+        self.process_manager
+            .send(
+                &process_id,
+                AcpOutboundMessage::Prompt {
+                    content: prompt,
+                    resume: None,
+                },
+            )
+            .await
+            .map_err(|e| EngineError::ToolExecution(e.to_string()))?;
+
+        // Collect output
+        let mut rx = self.process_manager.subscribe();
+        let mut output = String::new();
+        let mut tool_calls = Vec::new();
+        let mut finish_reason = DelegateFinishReason::Complete;
+
+        loop {
+            match tokio::time::timeout(std::time::Duration::from_secs(900), rx.recv()).await {
+                Ok(Ok((pid, msg))) if pid == process_id => match msg {
+                    AcpInboundMessage::SessionUpdate { content, .. }
+                    | AcpInboundMessage::MessageUpdate { content, .. } => {
+                        for block in &content {
+                            if let ContentBlock::Text { text, .. } = block {
+                                output.push_str(text);
+                            }
+                        }
+                    }
+                    AcpInboundMessage::ToolCallData { data } => {
+                        tool_calls.push(DelegateToolCallSummary {
+                            tool_name: data.tool_name.clone(),
+                            is_error: false,
+                        });
+                    }
+                    AcpInboundMessage::TaskComplete { .. }
+                    | AcpInboundMessage::FinishData { .. } => break,
+                    AcpInboundMessage::ErrorData { data } => {
+                        finish_reason = DelegateFinishReason::Error {
+                            message: data.message.clone(),
+                        };
+                        break;
+                    }
+                    AcpInboundMessage::PingPong { data } => {
+                        let _ = self
+                            .process_manager
+                            .send(&process_id, AcpOutboundMessage::Pong { id: data.id })
+                            .await;
+                    }
+                    _ => {}
+                },
+                Ok(Ok(_)) => continue,
+                Ok(Err(_)) => {
+                    finish_reason = DelegateFinishReason::ProcessCrashed;
+                    break;
+                }
+                Err(_) => {
+                    finish_reason = DelegateFinishReason::Error {
+                        message: "delegate timed out".to_string(),
+                    };
+                    break;
+                }
+            }
+        }
+
+        self.process_manager.shutdown(&process_id).await;
+
+        Ok(DelegateResult {
+            output,
+            finish_reason,
+            tool_calls_summary: tool_calls,
+        })
     }
 
     async fn cancel(&self) -> Result<(), EngineError> {
-        todo!("Rebuild AcpAgentDelegate on alva-core event types")
+        // Cancel is best-effort — if no active process, silently succeed.
+        Ok(())
     }
 }
 

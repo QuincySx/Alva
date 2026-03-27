@@ -31,6 +31,8 @@ pub struct AcpSession {
     pub session_id: String,
     pub process_id: String,
     pub state: Arc<Mutex<AcpSessionState>>,
+    /// Pending outbound message (set by send_prompt/cancel, consumed by caller).
+    pending_outbound: Mutex<Option<crate::protocol::message::AcpOutboundMessage>>,
 }
 
 impl AcpSession {
@@ -39,15 +41,93 @@ impl AcpSession {
             session_id,
             process_id,
             state: Arc::new(Mutex::new(AcpSessionState::Ready)),
+            pending_outbound: Mutex::new(None),
         }
     }
 
-    pub async fn send_prompt(&self, _prompt: String, _resume: bool) -> Result<(), AcpError> {
-        todo!("Rebuild AcpSession on alva-core event types")
+    pub async fn send_prompt(&self, prompt: String, resume: bool) -> Result<(), AcpError> {
+        let mut state = self.state.lock().await;
+        match *state {
+            AcpSessionState::Ready | AcpSessionState::Completed => {}
+            ref s => {
+                return Err(AcpError::Protocol(format!(
+                    "cannot send prompt in state {:?}",
+                    s
+                )));
+            }
+        }
+        *state = AcpSessionState::Running;
+        drop(state);
+
+        // The actual send is done by the caller via AcpProcessManager::send().
+        // This method validates state transitions and stores the outbound message
+        // shape so callers can use it.
+        self.pending_outbound
+            .lock()
+            .await
+            .replace(crate::protocol::message::AcpOutboundMessage::Prompt {
+                content: prompt,
+                resume: if resume { Some(true) } else { None },
+            });
+
+        Ok(())
     }
 
     pub async fn cancel(&self) -> Result<(), AcpError> {
-        todo!("Rebuild AcpSession on alva-core event types")
+        let mut state = self.state.lock().await;
+        match *state {
+            AcpSessionState::Running | AcpSessionState::WaitingForPermission { .. } => {
+                *state = AcpSessionState::Cancelled;
+            }
+            _ => {}
+        }
+        drop(state);
+
+        self.pending_outbound
+            .lock()
+            .await
+            .replace(crate::protocol::message::AcpOutboundMessage::Cancel);
+
+        Ok(())
+    }
+
+    /// Take the pending outbound message (if any) for the caller to send
+    /// via AcpProcessManager.
+    pub async fn take_pending_outbound(
+        &self,
+    ) -> Option<crate::protocol::message::AcpOutboundMessage> {
+        self.pending_outbound.lock().await.take()
+    }
+
+    /// Update session state based on an inbound message.
+    pub async fn handle_inbound(
+        &self,
+        msg: &crate::protocol::message::AcpInboundMessage,
+    ) {
+        use crate::protocol::message::AcpInboundMessage;
+        let mut state = self.state.lock().await;
+        match msg {
+            AcpInboundMessage::RequestPermission { request_id, .. } => {
+                *state = AcpSessionState::WaitingForPermission {
+                    request_id: request_id.clone(),
+                };
+            }
+            AcpInboundMessage::TaskComplete { .. }
+            | AcpInboundMessage::FinishData { .. } => {
+                *state = AcpSessionState::Completed;
+            }
+            AcpInboundMessage::ErrorData { data } => {
+                *state = AcpSessionState::Error {
+                    message: data.message.clone(),
+                };
+            }
+            _ => {
+                // SessionUpdate, MessageUpdate, ToolCallData, etc. keep Running state
+                if *state == AcpSessionState::Ready {
+                    *state = AcpSessionState::Running;
+                }
+            }
+        }
     }
 }
 

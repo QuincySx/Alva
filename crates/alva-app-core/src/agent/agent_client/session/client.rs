@@ -1,50 +1,58 @@
-// INPUT:  std::sync, tokio::sync, crate::agent::agent_client::{protocol, connection, session::permission_manager, AcpError}
+// INPUT:  std::sync, tokio::sync, alva_protocol_acp, crate::agent::agent_client::AcpError
 // OUTPUT: AcpSessionState, AcpSession
-// POS:    ACP session state machine — drives inbound message handling, content forwarding, and HITL permission flow.
-//         Bodies stubbed with todo!() — awaiting full ACP session rebuild on alva-core event types.
+// POS:    App-level ACP session — thin wrapper over protocol-level AcpSession with app error types.
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use crate::agent::agent_client::AcpError;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum AcpSessionState {
-    Ready,
-    Running,
-    WaitingForPermission { request_id: String },
-    Completed,
-    Cancelled,
-    Error { message: String },
-    Crashed,
-}
+/// Re-export protocol session state as the app-level type.
+pub use alva_protocol_acp::AcpSessionState;
 
-/// A single ACP interaction session (corresponds to one prompt -> response cycle).
+/// App-level ACP session wrapping the protocol-level session.
 ///
-/// Body commented out during migration — UIMessageChunk dependency removed.
+/// Provides the same API but converts protocol errors to app-level AcpError.
 pub struct AcpSession {
-    pub session_id: String,
-    pub process_id: String,
-    pub state: Arc<Mutex<AcpSessionState>>,
+    inner: alva_protocol_acp::AcpSession,
 }
 
 impl AcpSession {
-    pub fn new(
-        session_id: String,
-        process_id: String,
-    ) -> Self {
+    pub fn new(session_id: String, process_id: String) -> Self {
         Self {
-            session_id,
-            process_id,
-            state: Arc::new(Mutex::new(AcpSessionState::Ready)),
+            inner: alva_protocol_acp::AcpSession::new(session_id, process_id),
         }
     }
 
-    pub async fn send_prompt(&self, _prompt: String, _resume: bool) -> Result<(), AcpError> {
-        todo!("Rebuild AcpSession on alva-core event types")
+    pub fn session_id(&self) -> &str {
+        &self.inner.session_id
+    }
+
+    pub fn process_id(&self) -> &str {
+        &self.inner.process_id
+    }
+
+    pub async fn state(&self) -> AcpSessionState {
+        self.inner.state.lock().await.clone()
+    }
+
+    pub async fn send_prompt(&self, prompt: String, resume: bool) -> Result<(), AcpError> {
+        self.inner
+            .send_prompt(prompt, resume)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn cancel(&self) -> Result<(), AcpError> {
-        todo!("Rebuild AcpSession on alva-core event types")
+        self.inner.cancel().await.map_err(Into::into)
+    }
+
+    pub async fn take_pending_outbound(
+        &self,
+    ) -> Option<alva_protocol_acp::AcpOutboundMessage> {
+        self.inner.take_pending_outbound().await
+    }
+
+    pub async fn handle_inbound(&self, msg: &alva_protocol_acp::AcpInboundMessage) {
+        self.inner.handle_inbound(msg).await
     }
 }

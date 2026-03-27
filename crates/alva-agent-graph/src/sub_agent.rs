@@ -4,7 +4,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alva_types::{LanguageModel, Tool};
+use alva_types::{
+    AgentError, CancellationToken, LanguageModel, Tool, ToolContext, ToolResult,
+};
+use async_trait::async_trait;
+use serde_json::Value;
 
 /// Configuration for a sub-agent that can be spawned as a child task.
 ///
@@ -71,13 +75,216 @@ impl Default for SubAgentConfig {
 
 /// Creates a "task" tool that spawns sub-agents.
 ///
-/// The returned tool, when invoked by a parent agent, selects and runs a
-/// sub-agent based on the provided configs. Implementation deferred to the
-/// integration phase.
+/// The returned tool, when invoked by a parent agent, selects the matching
+/// sub-agent config by name, spawns a child `Agent`, and returns its output.
+///
+/// Input schema:
+/// ```json
+/// {
+///   "agent": "agent-name",      // must match a SubAgentConfig.name
+///   "task": "description..."     // injected as user message
+/// }
+/// ```
 pub fn create_task_tool(
-    _configs: Vec<SubAgentConfig>,
-    _parent_model: Arc<dyn LanguageModel>,
-    _parent_tools: Vec<Arc<dyn Tool>>,
+    configs: Vec<SubAgentConfig>,
+    parent_model: Arc<dyn LanguageModel>,
+    parent_tools: Vec<Arc<dyn Tool>>,
 ) -> Box<dyn Tool> {
-    todo!("Implement task tool that spawns sub-agent loops")
+    Box::new(SubAgentTool {
+        configs: Arc::new(configs),
+        parent_model,
+        parent_tools: Arc::new(parent_tools),
+    })
+}
+
+/// Tool implementation that spawns sub-agents from configuration.
+struct SubAgentTool {
+    configs: Arc<Vec<SubAgentConfig>>,
+    parent_model: Arc<dyn LanguageModel>,
+    parent_tools: Arc<Vec<Arc<dyn Tool>>>,
+}
+
+impl SubAgentTool {
+    fn resolve_model(&self, config: &SubAgentConfig) -> Arc<dyn LanguageModel> {
+        match &config.model {
+            SubAgentModel::Inherit => self.parent_model.clone(),
+            SubAgentModel::Specific(model) => model.clone(),
+        }
+    }
+
+    fn resolve_tools(&self, config: &SubAgentConfig) -> Vec<Arc<dyn Tool>> {
+        let base_tools: Vec<Arc<dyn Tool>> = match &config.tools {
+            SubAgentTools::Inherit => self.parent_tools.as_ref().clone(),
+            SubAgentTools::Whitelist(names) => self
+                .parent_tools
+                .iter()
+                .filter(|t| names.contains(&t.name().to_string()))
+                .cloned()
+                .collect(),
+        };
+
+        // Filter out disallowed tools (including "task" to prevent recursion)
+        base_tools
+            .into_iter()
+            .filter(|t| !config.disallowed_tools.contains(&t.name().to_string()))
+            .collect()
+    }
+}
+
+#[async_trait]
+impl Tool for SubAgentTool {
+    fn name(&self) -> &str {
+        "task"
+    }
+
+    fn description(&self) -> &str {
+        "Delegate a task to a specialized sub-agent"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        let agent_names: Vec<String> = self.configs.iter().map(|c| c.name.clone()).collect();
+        let agent_descriptions: Vec<String> = self
+            .configs
+            .iter()
+            .map(|c| format!("{}: {}", c.name, c.description))
+            .collect();
+
+        serde_json::json!({
+            "type": "object",
+            "required": ["agent", "task"],
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "description": format!(
+                        "Name of the sub-agent to use. Available: {}",
+                        agent_descriptions.join("; ")
+                    ),
+                    "enum": agent_names,
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Complete task description for the sub-agent"
+                }
+            }
+        })
+    }
+
+    async fn execute(
+        &self,
+        input: Value,
+        cancel: &CancellationToken,
+        _ctx: &dyn ToolContext,
+    ) -> Result<ToolResult, AgentError> {
+        let agent_name = input["agent"].as_str().ok_or_else(|| AgentError::ToolError {
+            tool_name: "task".into(),
+            message: "missing 'agent' field".into(),
+        })?;
+
+        let task = input["task"].as_str().ok_or_else(|| AgentError::ToolError {
+            tool_name: "task".into(),
+            message: "missing 'task' field".into(),
+        })?;
+
+        let config = self
+            .configs
+            .iter()
+            .find(|c| c.name == agent_name)
+            .ok_or_else(|| AgentError::ToolError {
+                tool_name: "task".into(),
+                message: format!("unknown sub-agent: {}", agent_name),
+            })?;
+
+        let model = self.resolve_model(config);
+        let tools = self.resolve_tools(config);
+
+        // Build sub-agent with its own hooks and run it.
+        use alva_agent_core::{Agent, AgentEvent, AgentHooks};
+        use alva_types::{AgentMessage, Message};
+
+        // Default convert_to_llm: pass messages through as standard LLM messages
+        let convert_fn: alva_agent_core::ConvertToLlmFn = Arc::new(|ctx| {
+            ctx.messages
+                .iter()
+                .filter_map(|m| match m {
+                    AgentMessage::Standard(msg) => Some(msg.clone()),
+                    _ => None,
+                })
+                .collect()
+        });
+
+        let user_msg = AgentMessage::Standard(Message::user(task));
+
+        let mut hooks = AgentHooks::new(convert_fn);
+        hooks.max_iterations = config.max_turns;
+
+        let session_id = format!(
+            "sub-{}-{}",
+            agent_name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let agent = Agent::new(
+            model,
+            session_id,
+            config.system_prompt.clone(),
+            hooks,
+        );
+
+        // Register resolved tools on the sub-agent
+        agent.set_tools(tools).await;
+
+        // Run with timeout
+        let timeout = config.timeout;
+        let cancel_clone = cancel.clone();
+        let result = tokio::time::timeout(timeout, async {
+            let mut rx = agent.prompt(vec![user_msg]);
+            let mut output = String::new();
+
+            while let Some(event) = rx.recv().await {
+                if cancel_clone.is_cancelled() {
+                    agent.cancel();
+                    break;
+                }
+                match event {
+                    AgentEvent::MessageEnd { message } => {
+                        if let AgentMessage::Standard(msg) = &message {
+                            output.push_str(&msg.text_content());
+                        }
+                    }
+                    AgentEvent::AgentEnd { error: Some(e) } => {
+                        return Err(AgentError::ToolError {
+                            tool_name: "task".into(),
+                            message: e,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+
+            Ok(output)
+        })
+        .await;
+
+        match result {
+            Ok(Ok(output)) => Ok(ToolResult {
+                content: output,
+                is_error: false,
+                details: None,
+            }),
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                agent.cancel();
+                Ok(ToolResult {
+                    content: format!(
+                        "[Sub-agent '{}' timed out after {:?}]",
+                        agent_name, config.timeout
+                    ),
+                    is_error: true,
+                    details: None,
+                })
+            }
+        }
+    }
 }
