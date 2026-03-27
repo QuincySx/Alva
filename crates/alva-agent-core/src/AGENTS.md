@@ -34,3 +34,4 @@ Agent::run(user_message)
 | 工具执行器 | `tool_executor.rs` | 并行/串行执行 ToolCall，调用 before/after hook |
 | 类型定义 | `types.rs` | AgentConfig、AgentState、AgentContext、AgentMessage、ToolCallDecision |
 | 事件 | `event.rs` | AgentEvent 枚举（流式输出、工具调用、完成等事件） |
+| 中间件 | `middleware/` | 异步 Middleware trait + MiddlewareStack 洋葱模型 + CompressionMiddleware 上下文压缩 |

@@ -142,21 +142,6 @@ impl DefaultContextHooks {
         }
     }
 
-    /// Try LLM summarization, fall back to truncation on failure.
-    async fn summarize_or_truncate(&self, text: &str, hints: &[String]) -> String {
-        if let Some(ref summarize) = self.config.summarize_fn {
-            match summarize(text.to_string(), hints.to_vec()).await {
-                Ok(summary) => return summary,
-                Err(e) => {
-                    tracing::warn!("LLM summarization failed, falling back to truncation: {}", e);
-                }
-            }
-        }
-        // Fallback: keep first 2000 chars
-        let truncated: String = text.chars().take(2000).collect();
-        format!("{}\n\n[... summarization unavailable, truncated]", truncated)
-    }
-
     /// Check if a message is a tool result.
     fn is_tool_result(msg: &AgentMessage) -> bool {
         match msg {

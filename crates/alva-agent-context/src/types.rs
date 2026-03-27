@@ -199,53 +199,6 @@ pub enum MemoryCategory {
     Constraint,
 }
 
-/// Source discriminator for memory injection (covers both memory facts and RAG results).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MemorySource {
-    /// Long-term memory fact.
-    Fact,
-    /// RAG/vector retrieval result.
-    Retrieval { query: String },
-}
-
-// ---------------------------------------------------------------------------
-// Media types
-// ---------------------------------------------------------------------------
-
-/// Where a multi-modal content block came from.
-#[derive(Debug, Clone)]
-pub enum MediaSource {
-    UserMessage { message_id: String },
-    ToolResult { tool_name: String, message_id: String },
-    FileAttachment { file_path: String },
-}
-
-/// What to do with a multi-modal content block.
-#[derive(Debug, Clone)]
-pub enum MediaAction {
-    /// Keep the media in context as-is.
-    Keep,
-    /// Replace with a text description (e.g. from a vision tool).
-    Describe { description: String },
-    /// Write to file, leave a reference in context.
-    Externalize { path: String },
-    /// Remove entirely.
-    Remove,
-}
-
-// ---------------------------------------------------------------------------
-// Retrieval chunk
-// ---------------------------------------------------------------------------
-
-/// A chunk returned by RAG/vector search.
-#[derive(Debug, Clone)]
-pub struct RetrievalChunk {
-    pub source: String,
-    pub text: String,
-    pub score: f64,
-    pub metadata: HashMap<String, String>,
-}
-
 // ---------------------------------------------------------------------------
 // Action / Decision enums (returned by plugin hooks)
 // ---------------------------------------------------------------------------
@@ -253,27 +206,15 @@ pub struct RetrievalChunk {
 /// What to do when ingesting a new message into the store.
 #[derive(Debug, Clone)]
 pub enum IngestAction {
+    /// Keep entry as-is.
     Keep,
-    Modify(AgentMessage),
+    /// Skip — do not add to context.
     Skip,
-    TagAndKeep { priority: Priority },
-}
-
-/// Tool call evaluation result.
-#[derive(Debug, Clone)]
-pub enum ToolCallAction {
-    Allow,
-    Block { reason: String },
-    AllowWithWarning { warning: String },
-}
-
-/// How to handle a tool result before it enters context.
-#[derive(Debug, Clone)]
-pub enum ToolResultAction {
-    Keep,
-    Replace { summary: String },
-    Externalize { path: String },
-    Truncate { max_lines: usize },
+    /// Modify message content and/or override priority.
+    Modify {
+        message: AgentMessage,
+        priority: Option<Priority>,
+    },
 }
 
 /// Compression actions the plugin can request.

@@ -422,13 +422,8 @@ async fn run_agent_loop_inner(
                         // Plugin says skip — do NOT push to state.messages.
                         // But we still need to check for tool calls below.
                     }
-                    alva_agent_context::IngestAction::Modify(new_msg) => {
-                        state.messages.push(new_msg);
-                    }
-                    alva_agent_context::IngestAction::TagAndKeep { .. } => {
-                        // TODO: apply priority tag to ContextStore entry when
-                        // ContextStore is integrated with state.messages.
-                        state.messages.push(agent_msg.clone());
+                    alva_agent_context::IngestAction::Modify { message, .. } => {
+                        state.messages.push(message);
                     }
                     alva_agent_context::IngestAction::Keep => {
                         state.messages.push(agent_msg.clone());
@@ -508,11 +503,8 @@ async fn run_agent_loop_inner(
                     alva_agent_context::IngestAction::Skip => {
                         // Plugin says skip this tool result.
                     }
-                    alva_agent_context::IngestAction::Modify(new_msg) => {
-                        state.messages.push(new_msg);
-                    }
-                    alva_agent_context::IngestAction::TagAndKeep { .. } => {
-                        state.messages.push(tool_agent_msg);
+                    alva_agent_context::IngestAction::Modify { message, .. } => {
+                        state.messages.push(message);
                     }
                     alva_agent_context::IngestAction::Keep => {
                         state.messages.push(tool_agent_msg);
