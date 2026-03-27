@@ -1,3 +1,6 @@
+// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextPlugin), crate::sdk::ContextPluginSDK, crate::store::estimate_tokens, crate::types
+// OUTPUT: pub type SummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultPluginConfig, pub struct DefaultContextPlugin
+// POS:    Built-in production context plugin combining deterministic rules with optional LLM callbacks for summarization and memory extraction.
 //! DefaultContextPlugin — the built-in production plugin.
 //!
 //! Uses deterministic rules for fast-path decisions + LLM callbacks for
@@ -18,7 +21,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::plugin::{ContextError, ContextPlugin};
-use crate::sdk::ContextManagementSDK;
+use crate::sdk::ContextPluginSDK;
 use crate::store::estimate_tokens;
 use crate::types::*;
 
@@ -54,20 +57,10 @@ pub struct MemoryCandidate {
 
 /// Configuration for the default context plugin.
 pub struct DefaultPluginConfig {
-    /// Budget threshold (0.0-1.0) at which compression triggers. Default: 0.7.
-    pub compress_threshold: f32,
     /// Hard-cap threshold at which emergency sliding window fires. Default: 0.95.
     pub emergency_threshold: f32,
     /// Messages to keep after sliding window. Default: 20.
     pub sliding_window_keep: usize,
-    /// Tool result token threshold for auto-replace. Default: 5000.
-    pub large_tool_result_tokens: usize,
-    /// File injection token threshold for auto-truncate. Default: 8000.
-    pub large_file_tokens: usize,
-    /// Media token threshold for auto-remove. Default: 2000.
-    pub large_media_tokens: usize,
-    /// Sub-agent result token threshold for summarization. Default: 2000.
-    pub sub_agent_result_tokens: usize,
     /// Max memory facts to inject per turn. Default: 10.
     pub max_memory_inject: usize,
     /// Max tokens for memory injection. Default: 1500.
@@ -81,13 +74,8 @@ pub struct DefaultPluginConfig {
 impl Default for DefaultPluginConfig {
     fn default() -> Self {
         Self {
-            compress_threshold: 0.7,
             emergency_threshold: 0.95,
             sliding_window_keep: 20,
-            large_tool_result_tokens: 5000,
-            large_file_tokens: 8000,
-            large_media_tokens: 2000,
-            sub_agent_result_tokens: 2000,
             max_memory_inject: 10,
             max_memory_tokens: 1500,
             summarize_fn: None,
@@ -107,12 +95,10 @@ const RECENT_MESSAGE_BUFFER_SIZE: usize = 10;
 struct SessionState {
     /// Whether bootstrap has run.
     bootstrapped: bool,
-    /// Accumulated tool call token counts this session.
-    tool_token_totals: Vec<(String, usize)>,
     /// Number of turns completed.
     turn_count: usize,
     /// Recent message texts for memory extraction.
-    /// Populated by `on_user_message` and `on_llm_output` hooks.
+    /// Populated by `ingest` and `on_message` hooks.
     /// Used by `collect_conversation_text` in `after_turn`.
     recent_messages: Vec<RecentMessage>,
 }
@@ -127,7 +113,6 @@ impl Default for SessionState {
     fn default() -> Self {
         Self {
             bootstrapped: false,
-            tool_token_totals: Vec::new(),
             turn_count: 0,
             recent_messages: Vec::new(),
         }
@@ -221,7 +206,7 @@ impl DefaultContextPlugin {
     ///
     /// Previously this read from the ContextStore snapshot, but the store only
     /// holds a synthetic usage-tracking entry. Now we use the internal buffer
-    /// populated by `on_user_message` and `on_llm_output`.
+    /// populated by `on_message` and `ingest`.
     fn collect_conversation_text(recent: &[RecentMessage]) -> String {
         recent
             .iter()
@@ -252,7 +237,7 @@ impl ContextPlugin for DefaultContextPlugin {
 
     async fn bootstrap(
         &self,
-        sdk: &dyn ContextManagementSDK,
+        sdk: &dyn ContextPluginSDK,
         agent_id: &str,
     ) -> Result<(), ContextError> {
         let mut state = self.state.lock().await;
@@ -275,134 +260,6 @@ impl ContextPlugin for DefaultContextPlugin {
         Ok(())
     }
 
-    async fn maintain(
-        &self,
-        sdk: &dyn ContextManagementSDK,
-        agent_id: &str,
-    ) -> Result<(), ContextError> {
-        // NOTE: In the current architecture, the real conversation lives in
-        // AgentState.messages (owned by the agent loop), not in ContextStore.
-        // The store only holds a synthetic usage-tracking entry. Therefore,
-        // Disposable-entry cleanup via snapshot is a no-op here.
-        //
-        // Actual compression happens in two places:
-        //   1. agent_loop: on_budget_exceeded → CompressAction applied to state.messages
-        //   2. assemble(): micro_compact + sliding_window + budget enforcement
-        //
-        // Budget check still works because sync_external_usage provides real
-        // token counts before this hook is called.
-        let budget = sdk.budget(agent_id);
-        if budget.usage_ratio > self.config.compress_threshold {
-            tracing::info!(
-                agent_id,
-                usage = format!("{:.0}%", budget.usage_ratio * 100.0),
-                "maintain: budget approaching threshold (compression deferred to assemble)"
-            );
-        }
-        Ok(())
-    }
-
-    // =====================================================================
-    // PHASE 3: Five-layer injection control
-    // =====================================================================
-
-    async fn on_inject_memory(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _agent_id: &str,
-        mut facts: Vec<MemoryFact>,
-    ) -> Vec<MemoryFact> {
-        // Cap the number of facts
-        facts.truncate(self.config.max_memory_inject);
-
-        // Cap total tokens
-        let mut total_tokens = 0;
-        facts.retain(|f| {
-            let tokens = estimate_tokens(&f.text);
-            if total_tokens + tokens > self.config.max_memory_tokens {
-                return false;
-            }
-            total_tokens += tokens;
-            true
-        });
-
-        facts
-    }
-
-    async fn on_inject_skill(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _agent_id: &str,
-        skill_name: &str,
-        skill_content: String,
-    ) -> InjectDecision<String> {
-        let tokens = estimate_tokens(&skill_content);
-        if tokens > 15000 {
-            // Very large skill: summarize if we have LLM, otherwise truncate
-            let summary = self
-                .summarize_or_truncate(
-                    &skill_content,
-                    &[format!("Skill: {}", skill_name)],
-                )
-                .await;
-            InjectDecision::Summarize { summary }
-        } else {
-            InjectDecision::Allow(skill_content)
-        }
-    }
-
-    async fn on_inject_file(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _agent_id: &str,
-        file_path: &str,
-        content: String,
-        content_tokens: usize,
-    ) -> InjectDecision<String> {
-        if content_tokens > self.config.large_file_tokens {
-            tracing::info!(
-                file_path,
-                tokens = content_tokens,
-                "on_inject_file: file exceeds threshold, truncating"
-            );
-            let truncated: String = content.lines().take(500).collect::<Vec<_>>().join("\n");
-            InjectDecision::Modify(format!(
-                "{}\n\n[... file truncated: {} → ~{} tokens. Use read tool for full content.]",
-                truncated,
-                content_tokens,
-                estimate_tokens(&truncated)
-            ))
-        } else {
-            InjectDecision::Allow(content)
-        }
-    }
-
-    async fn on_inject_media(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _agent_id: &str,
-        media_type: &str,
-        _source: MediaSource,
-        _size_bytes: usize,
-        estimated_tokens: usize,
-    ) -> InjectDecision<MediaAction> {
-        if estimated_tokens > self.config.large_media_tokens {
-            tracing::info!(
-                media_type,
-                tokens = estimated_tokens,
-                "on_inject_media: large media, rejecting"
-            );
-            InjectDecision::Reject {
-                reason: format!(
-                    "Media ({}) is {} tokens. Use a vision/analysis tool to process it instead.",
-                    media_type, estimated_tokens
-                ),
-            }
-        } else {
-            InjectDecision::Allow(MediaAction::Keep)
-        }
-    }
-
     // =====================================================================
     // PHASE 4: Assembly & compression
     //
@@ -419,45 +276,48 @@ impl ContextPlugin for DefaultContextPlugin {
     // =====================================================================
 
     /// Core assembly: three-strategy compression within token budget.
+    ///
+    /// Operates on `Vec<ContextEntry>` — each entry wraps a message + metadata.
+    /// Compression replaces the message inside the entry, preserving metadata.
     async fn assemble(
         &self,
-        _sdk: &dyn ContextManagementSDK,
+        _sdk: &dyn ContextPluginSDK,
         _agent_id: &str,
-        messages: Vec<AgentMessage>,
+        entries: Vec<ContextEntry>,
         token_budget: usize,
-    ) -> Vec<AgentMessage> {
-        if messages.is_empty() {
-            return messages;
+    ) -> Vec<ContextEntry> {
+        if entries.is_empty() {
+            return entries;
         }
 
         let max_messages = self.config.sliding_window_keep;
-        let mut total_tokens: usize = messages.iter().map(|m| Self::estimate_message_tokens(m)).sum();
+        let mut total_tokens: usize = entries.iter().map(|e| Self::estimate_message_tokens(&e.message)).sum();
 
         // --- S2: micro_compact — replace old tool results in-place -------
-        // Walk messages, for any ToolResult older than the recent 5, replace
+        // Walk entries, for any ToolResult older than the recent 5, replace
         // with a one-liner if it's over 500 tokens. This runs BEFORE
         // sliding window so we save tokens without losing message count.
         //
         // S3: LLM summarization — for large old messages (>2000 tokens) that
         // have summarize_fn available, use LLM summary instead of first-line
         // truncation. Limited to 3 concurrent summarizations with 5s timeout.
-        let mut compacted: Vec<AgentMessage> = Vec::with_capacity(messages.len());
-        let recent_boundary = messages.len().saturating_sub(5);
+        let mut compacted: Vec<ContextEntry> = Vec::with_capacity(entries.len());
+        let recent_boundary = entries.len().saturating_sub(5);
 
         // Collect indices of old large messages eligible for LLM summarization.
         // We limit to 3 to bound latency.
         let mut llm_summary_candidates: Vec<(usize, String, Vec<String>)> = Vec::new();
         if self.config.summarize_fn.is_some() {
-            for (i, msg) in messages.iter().enumerate() {
+            for (i, entry) in entries.iter().enumerate() {
                 if i >= recent_boundary {
                     break;
                 }
-                let msg_tokens = Self::estimate_message_tokens(msg);
-                let is_tool_result = Self::is_tool_result(msg);
+                let msg_tokens = Self::estimate_message_tokens(&entry.message);
+                let is_tool_result = Self::is_tool_result(&entry.message);
                 // Only LLM-summarize non-tool messages > 2000 tokens (tool results
                 // use the cheaper compact_tool_result path below).
                 if !is_tool_result && msg_tokens > 2000 && llm_summary_candidates.len() < 3 {
-                    let text = match msg {
+                    let text = match &entry.message {
                         AgentMessage::Standard(m) => m.text_content(),
                         AgentMessage::Custom { data, .. } => data.to_string(),
                     };
@@ -507,33 +367,41 @@ impl ContextPlugin for DefaultContextPlugin {
             }
         }
 
-        for (i, msg) in messages.into_iter().enumerate() {
-            let msg_tokens = Self::estimate_message_tokens(&msg);
+        for (i, entry) in entries.into_iter().enumerate() {
+            let msg_tokens = Self::estimate_message_tokens(&entry.message);
             let is_old = i < recent_boundary;
-            let is_tool_result = Self::is_tool_result(&msg);
+            let is_tool_result = Self::is_tool_result(&entry.message);
 
             if is_old && is_tool_result && msg_tokens > 500 {
                 // Replace tool results with compact placeholder (cheap, deterministic).
-                let summary = Self::compact_tool_result(&msg);
+                let summary = Self::compact_tool_result(&entry.message);
                 let summary_tokens = estimate_tokens(&summary);
                 total_tokens = total_tokens - msg_tokens + summary_tokens;
-                compacted.push(AgentMessage::Standard(alva_types::Message {
+                let new_msg = AgentMessage::Standard(alva_types::Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     role: alva_types::MessageRole::Tool,
                     content: vec![alva_types::ContentBlock::Text { text: summary }],
-                    tool_call_id: Self::extract_tool_call_id(&msg),
+                    tool_call_id: Self::extract_tool_call_id(&entry.message),
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
-                }));
+                });
+                let mut meta = entry.metadata.clone();
+                meta.compacted = true;
+                meta.estimated_tokens = summary_tokens;
+                compacted.push(ContextEntry {
+                    id: entry.id,
+                    message: new_msg,
+                    metadata: meta,
+                });
             } else if let Some(summary) = llm_summaries.remove(&i) {
                 // Replace with LLM-generated summary.
                 let summary_tokens = estimate_tokens(&summary);
                 total_tokens = total_tokens - msg_tokens + summary_tokens;
-                let role = match &msg {
+                let role = match &entry.message {
                     AgentMessage::Standard(m) => m.role.clone(),
                     _ => alva_types::MessageRole::User,
                 };
-                compacted.push(AgentMessage::Standard(alva_types::Message {
+                let new_msg = AgentMessage::Standard(alva_types::Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     role,
                     content: vec![alva_types::ContentBlock::Text {
@@ -542,18 +410,27 @@ impl ContextPlugin for DefaultContextPlugin {
                     tool_call_id: None,
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
-                }));
+                });
+                let mut meta = entry.metadata.clone();
+                meta.compacted = true;
+                meta.estimated_tokens = summary_tokens;
+                meta.replacement_summary = Some(summary);
+                compacted.push(ContextEntry {
+                    id: entry.id,
+                    message: new_msg,
+                    metadata: meta,
+                });
             } else {
-                compacted.push(msg);
+                compacted.push(entry);
             }
         }
 
         // --- S1: sliding window — cap message count ----------------------
-        let mut kept: Vec<AgentMessage> = if compacted.len() > max_messages {
+        let mut kept: Vec<ContextEntry> = if compacted.len() > max_messages {
             let dropped = compacted.len() - max_messages;
             // Recalculate tokens for dropped messages
-            for msg in compacted.iter().take(dropped) {
-                total_tokens -= Self::estimate_message_tokens(msg);
+            for entry in compacted.iter().take(dropped) {
+                total_tokens -= Self::estimate_message_tokens(&entry.message);
             }
             tracing::debug!(
                 total = compacted.len(),
@@ -569,7 +446,7 @@ impl ContextPlugin for DefaultContextPlugin {
         // --- Budget enforcement — drop oldest until fit ------------------
         while total_tokens > token_budget && kept.len() > 1 {
             let removed = kept.remove(0);
-            total_tokens -= Self::estimate_message_tokens(&removed);
+            total_tokens -= Self::estimate_message_tokens(&removed.message);
         }
 
         tracing::debug!(
@@ -599,7 +476,7 @@ impl ContextPlugin for DefaultContextPlugin {
     /// `assemble()` (S2: micro_compact), which operates on actual messages.
     async fn on_budget_exceeded(
         &self,
-        sdk: &dyn ContextManagementSDK,
+        sdk: &dyn ContextPluginSDK,
         agent_id: &str,
         snapshot: &ContextSnapshot,
     ) -> Vec<CompressAction> {
@@ -673,96 +550,12 @@ impl ContextPlugin for DefaultContextPlugin {
     }
 
     // =====================================================================
-    // PHASE 5: Tool & sub-agent
-    // =====================================================================
-
-    /// After tool execution: track patterns + truncate large results.
-    ///
-    /// This is the "new result" path. Old results get micro_compacted
-    /// during `assemble` on subsequent turns.
-    async fn after_tool_call(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _agent_id: &str,
-        tool_name: &str,
-        _result: &AgentMessage,
-        result_tokens: usize,
-    ) -> ToolResultAction {
-        // Track for pattern analysis
-        {
-            let mut state = self.state.lock().await;
-            if let Some(entry) = state
-                .tool_token_totals
-                .iter_mut()
-                .find(|(name, _)| name == tool_name)
-            {
-                entry.1 += result_tokens;
-            } else {
-                state
-                    .tool_token_totals
-                    .push((tool_name.to_string(), result_tokens));
-            }
-        }
-
-        if result_tokens > self.config.large_tool_result_tokens {
-            tracing::info!(
-                tool_name,
-                tokens = result_tokens,
-                "after_tool_call: large result, truncating"
-            );
-            ToolResultAction::Truncate { max_lines: 200 }
-        } else {
-            ToolResultAction::Keep
-        }
-    }
-
-    async fn on_sub_agent_turn(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _parent_id: &str,
-        child_id: &str,
-        turn_index: usize,
-        _turn_summary: &str,
-    ) -> SubAgentDirective {
-        // Safety: terminate if sub-agent runs too many turns
-        if turn_index > 50 {
-            tracing::warn!(child_id, turn_index, "sub-agent exceeded 50 turns, terminating");
-            return SubAgentDirective::Terminate {
-                reason: "Exceeded maximum turn count (50)".to_string(),
-            };
-        }
-        SubAgentDirective::Continue
-    }
-
-    async fn on_sub_agent_complete(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _parent_id: &str,
-        _child_id: &str,
-        result: &str,
-        result_tokens: usize,
-    ) -> InjectionPlan {
-        if result_tokens > self.config.sub_agent_result_tokens {
-            // Summarize if LLM available
-            let summary = self
-                .summarize_or_truncate(
-                    result,
-                    &["Sub-agent result summary".to_string()],
-                )
-                .await;
-            InjectionPlan::Summary { text: summary }
-        } else {
-            InjectionPlan::FullResult
-        }
-    }
-
-    // =====================================================================
     // PHASE 4: User message enrichment
     // =====================================================================
 
-    async fn on_user_message(
+    async fn on_message(
         &self,
-        sdk: &dyn ContextManagementSDK,
+        sdk: &dyn ContextPluginSDK,
         _agent_id: &str,
         message: &AgentMessage,
     ) -> Vec<Injection> {
@@ -781,7 +574,7 @@ impl ContextPlugin for DefaultContextPlugin {
             // Query memory for relevant facts
             let facts = sdk.query_memory(&query, self.config.max_memory_inject);
             if !facts.is_empty() {
-                injections.push(Injection::Memory(facts));
+                injections.push(Injection::memory(facts));
             }
         }
 
@@ -792,9 +585,43 @@ impl ContextPlugin for DefaultContextPlugin {
     // PHASE 6: Post-turn
     // =====================================================================
 
+    // =====================================================================
+    // PHASE 5: Ingest
+    // =====================================================================
+
+    async fn ingest(
+        &self,
+        _sdk: &dyn ContextPluginSDK,
+        _agent_id: &str,
+        entry: &ContextEntry,
+    ) -> IngestAction {
+        // Record LLM output text into the recent messages buffer for memory extraction.
+        let text = match &entry.message {
+            AgentMessage::Standard(m) => m.text_content(),
+            AgentMessage::Custom { data, .. } => data.to_string(),
+        };
+        if !text.is_empty() {
+            let role = match &entry.message {
+                AgentMessage::Standard(m) => match m.role {
+                    alva_types::MessageRole::User => "User",
+                    alva_types::MessageRole::Assistant => "Assistant",
+                    alva_types::MessageRole::Tool => "Tool",
+                    _ => "System",
+                },
+                _ => "Custom",
+            };
+            self.record_recent_message(role, text).await;
+        }
+        IngestAction::Keep
+    }
+
+    // =====================================================================
+    // PHASE 6: Post-turn
+    // =====================================================================
+
     async fn after_turn(
         &self,
-        sdk: &dyn ContextManagementSDK,
+        sdk: &dyn ContextPluginSDK,
         agent_id: &str,
     ) {
         // Collect recent messages under lock, then release before async LLM work.
@@ -818,7 +645,7 @@ impl ContextPlugin for DefaultContextPlugin {
             match extract_fn(conversation).await {
                 Ok(candidates) => {
                     // Build candidate MemoryFacts from raw extraction results.
-                    let mut facts: Vec<MemoryFact> = candidates
+                    let facts: Vec<MemoryFact> = candidates
                         .into_iter()
                         .filter(|c| c.confidence >= 0.65)
                         .map(|candidate| MemoryFact {
@@ -834,9 +661,6 @@ impl ContextPlugin for DefaultContextPlugin {
                         })
                         .collect();
 
-                    // Let on_extract_memory filter/modify candidates before storing.
-                    facts = self.on_extract_memory(sdk, agent_id, facts).await;
-
                     for fact in facts {
                         sdk.store_memory(fact);
                     }
@@ -846,57 +670,6 @@ impl ContextPlugin for DefaultContextPlugin {
                 }
             }
         }
-    }
-
-    // =====================================================================
-    // PHASE 2: Observation
-    // =====================================================================
-
-    async fn on_agent_start(
-        &self,
-        sdk: &dyn ContextManagementSDK,
-        agent_id: &str,
-    ) {
-        let budget = sdk.budget(agent_id);
-        tracing::debug!(
-            agent_id,
-            used = budget.used_tokens,
-            budget = budget.budget_tokens,
-            "turn start"
-        );
-    }
-
-    /// ⓭ Record LLM output text into the recent messages buffer for memory extraction.
-    async fn on_llm_output(
-        &self,
-        _sdk: &dyn ContextManagementSDK,
-        _agent_id: &str,
-        response: &AgentMessage,
-    ) {
-        let text = match response {
-            AgentMessage::Standard(m) => m.text_content(),
-            AgentMessage::Custom { data, .. } => data.to_string(),
-        };
-        if !text.is_empty() {
-            self.record_recent_message("Assistant", text).await;
-        }
-    }
-
-    async fn on_agent_end(
-        &self,
-        sdk: &dyn ContextManagementSDK,
-        agent_id: &str,
-        error: Option<&str>,
-    ) {
-        let budget = sdk.budget(agent_id);
-        let state = self.state.lock().await;
-        tracing::info!(
-            agent_id,
-            turns = state.turn_count,
-            final_tokens = budget.used_tokens,
-            error = error.unwrap_or("none"),
-            "agent ended"
-        );
     }
 }
 
@@ -948,6 +721,19 @@ mod tests {
         })
     }
 
+    /// Wrap an AgentMessage in a ContextEntry with default metadata.
+    fn wrap_entry(msg: AgentMessage) -> ContextEntry {
+        let id = match &msg {
+            AgentMessage::Standard(m) => m.id.clone(),
+            AgentMessage::Custom { data, .. } => data.to_string(),
+        };
+        ContextEntry {
+            id,
+            message: msg,
+            metadata: ContextMetadata::new(ContextLayer::RuntimeInject),
+        }
+    }
+
     #[tokio::test]
     async fn test_assemble_sliding_window() {
         let sdk = test_sdk();
@@ -957,21 +743,21 @@ mod tests {
         };
         let plugin = DefaultContextPlugin::new(config);
 
-        // Create 10 user messages.
-        let messages: Vec<AgentMessage> = (0..10)
-            .map(|i| user_msg(&format!("message number {}", i)))
+        // Create 10 user messages wrapped in entries.
+        let entries: Vec<ContextEntry> = (0..10)
+            .map(|i| wrap_entry(user_msg(&format!("message number {}", i))))
             .collect();
 
         let result = plugin
-            .assemble(&sdk, "agent-1", messages, 100_000)
+            .assemble(&sdk, "agent-1", entries, 100_000)
             .await;
 
         // Should keep only the last 5.
         assert_eq!(result.len(), 5);
 
-        // Verify the kept messages are the last 5 (indices 5..10).
-        for (i, msg) in result.iter().enumerate() {
-            if let AgentMessage::Standard(m) = msg {
+        // Verify the kept entries are the last 5 (indices 5..10).
+        for (i, entry) in result.iter().enumerate() {
+            if let AgentMessage::Standard(m) = &entry.message {
                 let expected_text = format!("message number {}", i + 5);
                 assert_eq!(m.text_content(), expected_text);
             } else {
@@ -989,26 +775,26 @@ mod tests {
         };
         let plugin = DefaultContextPlugin::new(config);
 
-        // Create messages: 6 old tool results (>500 tokens each) + 5 recent user msgs.
+        // Create entries: 6 old tool results (>500 tokens each) + 5 recent user msgs.
         // The old tool results should be compacted (micro_compact).
         let large_text: String = "line1\n".repeat(400); // ~2400 chars = ~600 tokens
-        let mut messages = Vec::new();
+        let mut entries = Vec::new();
         for i in 0..6 {
-            messages.push(tool_msg(&format!("tool-{}", i), &large_text));
+            entries.push(wrap_entry(tool_msg(&format!("tool-{}", i), &large_text)));
         }
         for i in 0..5 {
-            messages.push(user_msg(&format!("recent {}", i)));
+            entries.push(wrap_entry(user_msg(&format!("recent {}", i))));
         }
 
         let result = plugin
-            .assemble(&sdk, "agent-1", messages, 100_000)
+            .assemble(&sdk, "agent-1", entries, 100_000)
             .await;
 
-        assert_eq!(result.len(), 11); // All 11 messages kept (no sliding window)
+        assert_eq!(result.len(), 11); // All 11 entries kept (no sliding window)
 
         // The first 6 (old tool results) should have been compacted.
-        for msg in result.iter().take(6) {
-            if let AgentMessage::Standard(m) = msg {
+        for entry in result.iter().take(6) {
+            if let AgentMessage::Standard(m) = &entry.message {
                 assert_eq!(m.role, MessageRole::Tool);
                 // Compacted message should contain "[...X lines" marker.
                 assert!(
@@ -1016,14 +802,16 @@ mod tests {
                     "Expected compacted tool result, got: {}",
                     m.text_content()
                 );
+                // Metadata should be marked as compacted.
+                assert!(entry.metadata.compacted);
             } else {
                 panic!("Expected Standard message");
             }
         }
 
         // The last 5 (recent user) should be unchanged.
-        for (i, msg) in result.iter().skip(6).enumerate() {
-            if let AgentMessage::Standard(m) = msg {
+        for (i, entry) in result.iter().skip(6).enumerate() {
+            if let AgentMessage::Standard(m) = &entry.message {
                 assert_eq!(m.text_content(), format!("recent {}", i));
             }
         }
@@ -1038,11 +826,11 @@ mod tests {
         };
         let plugin = DefaultContextPlugin::new(config);
 
-        // Each message is ~100 tokens (400 chars / 4). Create 10 messages.
+        // Each message is ~100 tokens (400 chars / 4). Create 10 entries.
         let text_400_chars: String = "a".repeat(400);
-        let messages: Vec<AgentMessage> = (0..10)
+        let entries: Vec<ContextEntry> = (0..10)
             .map(|i| {
-                AgentMessage::Standard(Message {
+                wrap_entry(AgentMessage::Standard(Message {
                     id: format!("m{}", i),
                     role: MessageRole::User,
                     content: vec![ContentBlock::Text {
@@ -1051,22 +839,22 @@ mod tests {
                     tool_call_id: None,
                     usage: None,
                     timestamp: 1000 + i as i64,
-                })
+                }))
             })
             .collect();
 
         // Budget of 300 tokens. Each message ~100 tokens.
         // Budget enforcement drops oldest until total <= 300, keeping at least 1.
         let result = plugin
-            .assemble(&sdk, "agent-1", messages, 300)
+            .assemble(&sdk, "agent-1", entries, 300)
             .await;
 
-        // 300 budget / 100 tokens per message ≈ 3 messages should fit.
+        // 300 budget / 100 tokens per message = 3 messages should fit.
         assert!(result.len() <= 3, "Expected <=3, got {}", result.len());
         assert!(!result.is_empty());
 
-        // Verify the kept messages are the most recent ones.
-        if let AgentMessage::Standard(m) = &result[result.len() - 1] {
+        // Verify the kept entries are the most recent ones.
+        if let AgentMessage::Standard(m) = &result[result.len() - 1].message {
             assert_eq!(m.id, "m9"); // The last message should survive.
         }
     }
