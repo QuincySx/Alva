@@ -21,7 +21,7 @@
 //!   types/        — Shared type definitions (legacy, prefer alva-types)
 //!   domain/       — Domain models (DDD)
 //!   ports/        — Port/interface definitions (DDD)
-//!   environment/  — Embedded runtime management (Bun, Node, Python, Chromium, etc.)
+//!   environment/  — Embedded runtime management (extracted to alva-sandbox, re-exported here)
 //!   adapters/     — Adapter implementations (DDD)
 
 // ── Facade re-exports from extracted crates ──────────────────────────
@@ -59,6 +59,9 @@ pub use alva_protocol_acp;
 pub use alva_protocol_mcp;
 pub use alva_protocol_skill;
 
+// Re-export alva-sandbox (environment management)
+pub use alva_environment;
+
 // ── Kept modules ─────────────────────────────────────────────────────
 
 pub mod agent;
@@ -67,13 +70,14 @@ pub mod skills;
 pub mod gateway;
 pub(crate) mod base;
 pub mod system;
-pub mod environment;
+pub use alva_environment::environment;
 pub(crate) mod types;
 pub(crate) mod domain;
 pub(crate) mod ports;
 pub(crate) mod adapters;
 pub mod base_agent;
 pub mod error;
+pub mod plugins;
 
 // ── Convenience re-exports — BaseAgent ──────────────────────────────
 
