@@ -1,6 +1,6 @@
-// INPUT:  alva_types (CancellationToken, Tool, ToolCall, ToolContext, ToolResult), tokio, tracing, crate::middleware, crate::event, crate::types (AgentHooks, AgentContext, ToolCallDecision, ToolExecutionMode), alva_agent_context
+// INPUT:  alva_types (CancellationToken, Tool, ToolCall, ToolContext, ToolResult), tokio, tracing, crate::middleware, crate::event, crate::types (AgentHooks, AgentContext, ToolCallDecision, ToolExecutionMode)
 // OUTPUT: execute_tools (pub(crate))
-// POS:    Executes tool-call batches in parallel or sequential mode, applying before/after hooks, context plugin hooks, and middleware at each call.
+// POS:    Executes tool-call batches in parallel or sequential mode, applying before/after hooks and middleware at each call.
 use std::sync::Arc;
 
 use alva_types::{CancellationToken, Tool, ToolCall, ToolContext, ToolResult};
@@ -10,11 +10,11 @@ use tracing::{error, warn};
 use crate::event::AgentEvent;
 use crate::middleware::MiddlewareContext;
 use crate::types::{
-    AgentHooks, AgentContext, AgentMessage, ToolCallDecision, ToolExecutionMode,
+    AgentHooks, AgentContext, ToolCallDecision, ToolExecutionMode,
 };
 
 /// Execute a batch of tool calls, respecting the configured execution mode,
-/// before/after hooks, context plugin hooks, and cancellation.
+/// before/after hooks, and cancellation.
 pub(crate) async fn execute_tools(
     tool_calls: &[ToolCall],
     tools: &[Arc<dyn Tool>],
@@ -24,16 +24,13 @@ pub(crate) async fn execute_tools(
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     tool_context: &Arc<dyn ToolContext>,
     mw_ctx: &mut MiddlewareContext,
-    context_plugin: &Arc<dyn alva_agent_context::ContextPlugin>,
-    context_sdk: &Arc<dyn alva_agent_context::ContextManagementSDK>,
-    session_id: &str,
 ) -> Vec<ToolResult> {
     match config.tool_execution {
         ToolExecutionMode::Parallel => {
-            execute_parallel(tool_calls, tools, config, context, cancel, event_tx, tool_context, mw_ctx, context_plugin, context_sdk, session_id).await
+            execute_parallel(tool_calls, tools, config, context, cancel, event_tx, tool_context, mw_ctx).await
         }
         ToolExecutionMode::Sequential => {
-            execute_sequential(tool_calls, tools, config, context, cancel, event_tx, tool_context, mw_ctx, context_plugin, context_sdk, session_id).await
+            execute_sequential(tool_calls, tools, config, context, cancel, event_tx, tool_context, mw_ctx).await
         }
     }
 }
@@ -51,44 +48,12 @@ async fn execute_parallel(
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     tool_context: &Arc<dyn ToolContext>,
     mw_ctx: &mut MiddlewareContext,
-    context_plugin: &Arc<dyn alva_agent_context::ContextPlugin>,
-    context_sdk: &Arc<dyn alva_agent_context::ContextManagementSDK>,
-    session_id: &str,
 ) -> Vec<ToolResult> {
     use tokio::task::JoinSet;
 
     let mut join_set = JoinSet::new();
 
     for tc in tool_calls {
-        // Context plugin: before_tool_call -----------------------------------
-        let plugin_action = context_plugin.before_tool_call(
-            context_sdk.as_ref(), session_id, &tc.name, &tc.arguments,
-        ).await;
-        match plugin_action {
-            alva_agent_context::ToolCallAction::Block { reason } => {
-                let blocked_result = ToolResult {
-                    content: format!("Tool call blocked by context plugin: {reason}"),
-                    is_error: true,
-                    details: None,
-                };
-                let tc_clone = tc.clone();
-                let event_tx = event_tx.clone();
-                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-                    tool_call: tc_clone.clone(),
-                });
-                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-                    tool_call: tc_clone.clone(),
-                    result: blocked_result.clone(),
-                });
-                join_set.spawn(async move { (tc_clone, blocked_result) });
-                continue;
-            }
-            alva_agent_context::ToolCallAction::AllowWithWarning { warning } => {
-                tracing::warn!(tool = %tc.name, warning = %warning, "context plugin warning");
-            }
-            alva_agent_context::ToolCallAction::Allow => {}
-        }
-
         // Pre-flight check ---------------------------------------------------
         let mut decision = ToolCallDecision::Allow;
         for hook in &config.before_tool_call {
@@ -214,36 +179,6 @@ async fn execute_parallel(
                 warn!(tool = %tc.name, error = %e, "middleware after_tool_call failed");
             }
         }
-        // Context plugin: after_tool_call
-        {
-            let result_msg = AgentMessage::Standard(alva_types::Message {
-                id: String::new(),
-                role: alva_types::MessageRole::Tool,
-                content: vec![alva_types::ContentBlock::Text { text: result.content.clone() }],
-                tool_call_id: Some(tc.id.clone()),
-                usage: None,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-            });
-            let result_tokens = alva_agent_context::store::estimate_tokens(&result.content);
-            let action = context_plugin.after_tool_call(
-                context_sdk.as_ref(), session_id, &tc.name, &result_msg, result_tokens,
-            ).await;
-            match action {
-                alva_agent_context::ToolResultAction::Truncate { max_lines } => {
-                    let truncated: String = result.content.lines().take(max_lines).collect::<Vec<_>>().join("\n");
-                    if truncated.len() < result.content.len() {
-                        result.content = format!("{}\n[... truncated to {} lines]", truncated, max_lines);
-                    }
-                }
-                alva_agent_context::ToolResultAction::Replace { summary } => {
-                    result.content = summary;
-                }
-                alva_agent_context::ToolResultAction::Externalize { path } => {
-                    result.content = format!("[result externalized to {}]", path);
-                }
-                alva_agent_context::ToolResultAction::Keep => {}
-            }
-        }
         results.push(result);
     }
     results
@@ -262,9 +197,6 @@ async fn execute_sequential(
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     tool_context: &Arc<dyn ToolContext>,
     mw_ctx: &mut MiddlewareContext,
-    context_plugin: &Arc<dyn alva_agent_context::ContextPlugin>,
-    context_sdk: &Arc<dyn alva_agent_context::ContextManagementSDK>,
-    session_id: &str,
 ) -> Vec<ToolResult> {
     let mut results = Vec::with_capacity(tool_calls.len());
 
@@ -276,33 +208,6 @@ async fn execute_sequential(
                 details: None,
             });
             continue;
-        }
-
-        // Context plugin: before_tool_call -----------------------------------
-        let plugin_action = context_plugin.before_tool_call(
-            context_sdk.as_ref(), session_id, &tc.name, &tc.arguments,
-        ).await;
-        match plugin_action {
-            alva_agent_context::ToolCallAction::Block { reason } => {
-                let blocked = ToolResult {
-                    content: format!("Tool call blocked by context plugin: {reason}"),
-                    is_error: true,
-                    details: None,
-                };
-                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-                    tool_call: tc.clone(),
-                });
-                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-                    tool_call: tc.clone(),
-                    result: blocked.clone(),
-                });
-                results.push(blocked);
-                continue;
-            }
-            alva_agent_context::ToolCallAction::AllowWithWarning { warning } => {
-                tracing::warn!(tool = %tc.name, warning = %warning, "context plugin warning");
-            }
-            alva_agent_context::ToolCallAction::Allow => {}
         }
 
         // Pre-flight check ---------------------------------------------------
@@ -402,37 +307,6 @@ async fn execute_sequential(
                 .await
             {
                 warn!(tool = %tc.name, error = %e, "middleware after_tool_call failed");
-            }
-        }
-
-        // Context plugin: after_tool_call ------------------------------------
-        {
-            let result_msg = AgentMessage::Standard(alva_types::Message {
-                id: String::new(),
-                role: alva_types::MessageRole::Tool,
-                content: vec![alva_types::ContentBlock::Text { text: result.content.clone() }],
-                tool_call_id: Some(tc.id.clone()),
-                usage: None,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-            });
-            let result_tokens = alva_agent_context::store::estimate_tokens(&result.content);
-            let action = context_plugin.after_tool_call(
-                context_sdk.as_ref(), session_id, &tc.name, &result_msg, result_tokens,
-            ).await;
-            match action {
-                alva_agent_context::ToolResultAction::Truncate { max_lines } => {
-                    let truncated: String = result.content.lines().take(max_lines).collect::<Vec<_>>().join("\n");
-                    if truncated.len() < result.content.len() {
-                        result.content = format!("{}\n[... truncated to {} lines]", truncated, max_lines);
-                    }
-                }
-                alva_agent_context::ToolResultAction::Replace { summary } => {
-                    result.content = summary;
-                }
-                alva_agent_context::ToolResultAction::Externalize { path } => {
-                    result.content = format!("[result externalized to {}]", path);
-                }
-                alva_agent_context::ToolResultAction::Keep => {}
             }
         }
 

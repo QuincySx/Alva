@@ -58,119 +58,42 @@ pub(crate) async fn run_agent_loop(
         }
     }
 
-    // Context plugin: bootstrap + on_agent_start + maintain
+    // Context plugin: bootstrap
     {
         let ctx_plugin = &config.context_plugin;
         let ctx_sdk = config.context_sdk.as_ref();
         if let Err(e) = ctx_plugin.bootstrap(ctx_sdk, &state.session_id).await {
             tracing::warn!("context plugin bootstrap: {}", e);
         }
-        ctx_plugin.on_agent_start(ctx_sdk, &state.session_id).await;
-        if let Err(e) = ctx_plugin.maintain(ctx_sdk, &state.session_id).await {
-            tracing::warn!("context plugin maintain: {}", e);
-        }
     }
 
-    // Context plugin: on_user_message — get injections
+    // Context plugin: on_message — get injections
     if let Some(last_msg) = state.messages.last() {
-        let injections = config.context_plugin.on_user_message(
+        let injections = config.context_plugin.on_message(
             config.context_sdk.as_ref(), &state.session_id, last_msg
         ).await;
-        for inj in injections {
-            match inj {
-                alva_agent_context::Injection::Memory(facts) => {
+        for injection in injections {
+            match injection.content {
+                alva_agent_context::InjectionContent::Memory(facts) => {
                     if !facts.is_empty() {
                         let text = facts.iter().map(|f| format!("- {}", f.text)).collect::<Vec<_>>().join("\n");
                         state.system_prompt.push_str(&format!("\n\n<user_memory>\n{}\n</user_memory>", text));
                     }
                 }
-                alva_agent_context::Injection::Skill { name, content } => {
+                alva_agent_context::InjectionContent::Skill { name, content } => {
                     state.system_prompt.push_str(&format!("\n\n<skill name=\"{}\">\n{}\n</skill>", name, content));
                 }
-                alva_agent_context::Injection::RuntimeContext(data) => {
+                alva_agent_context::InjectionContent::RuntimeContext(data) => {
                     state.system_prompt.push_str(&format!("\n\n<runtime>\n{}\n</runtime>", data));
                 }
-                alva_agent_context::Injection::Message(msg) => {
+                alva_agent_context::InjectionContent::Message(msg) => {
                     state.messages.push(msg);
                 }
-            }
-        }
-    }
-
-    // Context plugin: on_inject_file — NOT called here.
-    // The on_inject_file hook is intended for upper layers (e.g. UI, CLI) to call
-    // when injecting file content into state.messages. The caller should invoke
-    // `plugin.on_inject_file(sdk, agent_id, path, content, tokens)` before adding
-    // the file content message, and respect the returned InjectDecision.
-
-    // Context plugin: on_inject_media — scan last user message for Image blocks.
-    // For each image, call the plugin hook and apply the decision (Keep/Describe/Remove/Reject).
-    if let Some(AgentMessage::Standard(last_msg)) = state.messages.last_mut() {
-        if last_msg.role == MessageRole::User {
-            let mut new_content = Vec::new();
-            let mut modified = false;
-            for block in last_msg.content.drain(..) {
-                if let ContentBlock::Image { ref data, ref media_type } = block {
-                    let size_bytes = data.len();
-                    let estimated_tokens = (size_bytes + 3) / 4;
-                    let source = alva_agent_context::MediaSource::UserMessage {
-                        message_id: last_msg.id.clone(),
-                    };
-                    let decision = config.context_plugin.on_inject_media(
-                        config.context_sdk.as_ref(),
-                        &state.session_id,
-                        media_type,
-                        source,
-                        size_bytes,
-                        estimated_tokens,
-                    ).await;
-                    match decision {
-                        alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Keep) => {
-                            new_content.push(block);
-                        }
-                        alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Describe { description }) => {
-                            new_content.push(ContentBlock::Text { text: description });
-                            modified = true;
-                        }
-                        alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Remove)
-                        | alva_agent_context::InjectDecision::Allow(alva_agent_context::MediaAction::Externalize { .. }) => {
-                            modified = true;
-                            // Drop the image block.
-                        }
-                        alva_agent_context::InjectDecision::Reject { reason } => {
-                            new_content.push(ContentBlock::Text {
-                                text: format!("[Image rejected: {}]", reason),
-                            });
-                            modified = true;
-                        }
-                        alva_agent_context::InjectDecision::Modify(action) => {
-                            match action {
-                                alva_agent_context::MediaAction::Keep => {
-                                    new_content.push(block);
-                                }
-                                alva_agent_context::MediaAction::Describe { description } => {
-                                    new_content.push(ContentBlock::Text { text: description });
-                                    modified = true;
-                                }
-                                alva_agent_context::MediaAction::Remove
-                                | alva_agent_context::MediaAction::Externalize { .. } => {
-                                    modified = true;
-                                }
-                            }
-                        }
-                        alva_agent_context::InjectDecision::Summarize { summary } => {
-                            new_content.push(ContentBlock::Text { text: summary });
-                            modified = true;
-                        }
-                    }
-                } else {
-                    new_content.push(block);
+                alva_agent_context::InjectionContent::SystemPrompt(section) => {
+                    state.system_prompt.push_str("\n\n");
+                    state.system_prompt.push_str(&section.content);
                 }
             }
-            if modified {
-                debug!(msg_id = %last_msg.id, "on_inject_media: modified user message content");
-            }
-            last_msg.content = new_content;
         }
     }
 
@@ -208,17 +131,6 @@ pub(crate) async fn run_agent_loop(
         {
             warn!(error = %e, "middleware on_agent_end failed");
         }
-    }
-
-    // Context plugin: on_agent_end
-    {
-        let error = match &result {
-            Ok(()) => None,
-            Err(e) => Some(e.to_string()),
-        };
-        config.context_plugin.on_agent_end(
-            config.context_sdk.as_ref(), &state.session_id, error.as_deref()
-        ).await;
     }
 
     match &result {
@@ -268,26 +180,7 @@ async fn run_agent_loop_inner(
 
             // 1. Build the messages to send to the LLM ---------------------
 
-            // 1a. Sync actual token usage from state.messages into ContextStore
-            // so that sdk.budget() returns real values instead of 0.
-            {
-                let used_tokens: usize = state.messages.iter().map(|m| {
-                    match m {
-                        AgentMessage::Standard(msg) => msg.content.iter().map(|b| b.estimated_tokens()).sum::<usize>(),
-                        AgentMessage::Custom { data, .. } => data.to_string().len() / 4,
-                    }
-                }).sum();
-                config.context_sdk.sync_external_usage(&state.session_id, used_tokens);
-            }
-
-            // 1b. Check budget and trigger compression if exceeded.
-            //
-            // NOTE: The snapshot passed to on_budget_exceeded only contains
-            // the synthetic usage entry (from sync_external_usage), not real
-            // conversation entries. Snapshot-based actions (RemoveByPriority,
-            // ReplaceToolResult) are therefore limited. The primary effective
-            // actions are SlidingWindow (applied here) and the three-strategy
-            // compression in assemble() which operates on real messages.
+            // 1a. Check budget and trigger compression if exceeded.
             let budget = config.context_sdk.budget(&state.session_id);
             if budget.usage_ratio > 0.7 {
                 let snapshot = config.context_sdk.snapshot(&state.session_id);
@@ -429,45 +322,28 @@ async fn run_agent_loop_inner(
                     }
                 }
 
-                // Re-sync usage after compression.
-                let used_tokens: usize = state.messages.iter().map(|m| {
-                    match m {
-                        AgentMessage::Standard(msg) => msg.content.iter().map(|b| b.estimated_tokens()).sum::<usize>(),
-                        AgentMessage::Custom { data, .. } => data.to_string().len() / 4,
-                    }
-                }).sum();
-                config.context_sdk.sync_external_usage(&state.session_id, used_tokens);
             }
 
-            // 1c. Context plugin: on_inject_system_prompt — let plugin modify system prompt sections.
-            // Default plugin returns sections unchanged (prompt-cache friendly).
-            // Custom plugins may add, remove, or reorder sections.
-            {
-                let sections = vec![alva_agent_context::PromptSection {
-                    id: "system".to_string(),
-                    content: state.system_prompt.clone(),
-                    priority: alva_agent_context::Priority::Critical,
-                }];
-                let modified_sections = config.context_plugin.on_inject_system_prompt(
-                    config.context_sdk.as_ref(),
-                    &state.session_id,
-                    sections,
-                ).await;
-                state.system_prompt = modified_sections
-                    .iter()
-                    .map(|s| s.content.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n\n");
-            }
-
-            // 1d. Assemble context (plugin applies its own compression strategies).
+            // 1c. Assemble context (plugin applies its own compression strategies).
             let budget = config.context_sdk.budget(&state.session_id);
-            let context_messages = config.context_plugin.assemble(
+            // Wrap state.messages in ContextEntry for the plugin.
+            // Transitional: in the future, ContextStore holds entries directly.
+            let entries: Vec<alva_agent_context::ContextEntry> = state.messages.iter().map(|msg| {
+                alva_agent_context::ContextEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    message: msg.clone(),
+                    metadata: alva_agent_context::ContextMetadata::new(
+                        alva_agent_context::ContextLayer::RuntimeInject,
+                    ),
+                }
+            }).collect();
+            let assembled = config.context_plugin.assemble(
                 config.context_sdk.as_ref(),
                 &state.session_id,
-                state.messages.clone(),
+                entries,
                 budget.budget_tokens,
             ).await;
+            let context_messages: Vec<AgentMessage> = assembled.into_iter().map(|e| e.message).collect();
 
             let convert_ctx = AgentContext {
                 system_prompt: &state.system_prompt,
@@ -520,11 +396,6 @@ async fn run_agent_loop_inner(
 
             let agent_msg = AgentMessage::Standard(assistant_message.clone());
 
-            // 3c. Context plugin: on_llm_output
-            config.context_plugin.on_llm_output(
-                config.context_sdk.as_ref(), &state.session_id, &agent_msg
-            ).await;
-
             // 4. Emit message events ----------------------------------------
             let _ = event_tx.send(AgentEvent::MessageStart {
                 message: agent_msg.clone(),
@@ -534,10 +405,17 @@ async fn run_agent_loop_inner(
             });
 
             // 5. Context plugin: ingest — let plugin decide keep/modify/skip
-            let mut agent_msg = agent_msg;
+            let agent_msg = agent_msg;
             {
+                let entry = alva_agent_context::ContextEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    message: agent_msg.clone(),
+                    metadata: alva_agent_context::ContextMetadata::new(
+                        alva_agent_context::ContextLayer::RuntimeInject,
+                    ).with_origin(alva_agent_context::EntryOrigin::Model),
+                };
                 let ingest_action = config.context_plugin.ingest(
-                    config.context_sdk.as_ref(), &state.session_id, &mut agent_msg,
+                    config.context_sdk.as_ref(), &state.session_id, &entry,
                 ).await;
                 match ingest_action {
                     alva_agent_context::IngestAction::Skip => {
@@ -594,9 +472,6 @@ async fn run_agent_loop_inner(
                 event_tx,
                 &state.tool_context,
                 mw_ctx,
-                &config.context_plugin,
-                &config.context_sdk,
-                &state.session_id,
             )
             .await;
 
@@ -614,11 +489,20 @@ async fn run_agent_loop_inner(
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
-                let mut tool_agent_msg = AgentMessage::Standard(tool_msg);
+                let tool_agent_msg = AgentMessage::Standard(tool_msg);
 
                 // Context plugin: ingest — let plugin decide on tool results too.
+                let tool_entry = alva_agent_context::ContextEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    message: tool_agent_msg.clone(),
+                    metadata: alva_agent_context::ContextMetadata::new(
+                        alva_agent_context::ContextLayer::RuntimeInject,
+                    ).with_origin(alva_agent_context::EntryOrigin::Tool {
+                        tool_name: tc.name.clone(),
+                    }),
+                };
                 let ingest_action = config.context_plugin.ingest(
-                    config.context_sdk.as_ref(), &state.session_id, &mut tool_agent_msg,
+                    config.context_sdk.as_ref(), &state.session_id, &tool_entry,
                 ).await;
                 match ingest_action {
                     alva_agent_context::IngestAction::Skip => {
