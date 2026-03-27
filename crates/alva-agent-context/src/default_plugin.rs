@@ -665,16 +665,11 @@ mod tests {
     use crate::sdk_impl::ContextHandleImpl;
     use crate::store::ContextStore;
     use alva_types::{ContentBlock, Message, MessageRole};
-    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     /// Create a real SDK backed by a ContextStore for testing.
     fn test_sdk() -> ContextHandleImpl {
-        let store = Arc::new(Mutex::new(ContextStore::new(
-            100_000,
-            80_000,
-            PathBuf::from("/tmp/test"),
-        )));
+        let store = Arc::new(Mutex::new(ContextStore::new(100_000, 80_000)));
         ContextHandleImpl::new(store)
     }
 

@@ -1,10 +1,9 @@
 // INPUT:  std::collections::HashMap, std::path::PathBuf, alva_types::AgentMessage, crate::types (ContextEntry, ContextLayer, ContextMetadata, Priority, ContextSnapshot, EntrySnapshot, BudgetInfo, ToolPattern, LayerStats)
 // OUTPUT: pub struct ContextStore, pub fn estimate_tokens
-// POS:    Per-agent context container providing five-layer CRUD, token tracking, compression shortcuts, and LLM message assembly.
-//! ContextStore — per-agent context container with five-layer management.
+// POS:    Per-agent context container providing four-layer CRUD, token tracking, compression shortcuts, and LLM message assembly.
+//! ContextStore — per-agent context container with four-layer management.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use alva_types::AgentMessage;
 
@@ -17,8 +16,6 @@ pub struct ContextStore {
     model_window: usize,
     /// Token budget (may be less than model_window).
     budget_tokens: usize,
-    /// Directory for externalized files.
-    pub externalize_dir: PathBuf,
     /// Current turn index (incremented each turn).
     turn_index: usize,
     /// Tool call pattern tracking.
@@ -32,12 +29,11 @@ struct ToolPatternTracker {
 }
 
 impl ContextStore {
-    pub fn new(model_window: usize, budget_tokens: usize, externalize_dir: PathBuf) -> Self {
+    pub fn new(model_window: usize, budget_tokens: usize) -> Self {
         Self {
             entries: Vec::new(),
             model_window,
             budget_tokens,
-            externalize_dir,
             turn_index: 0,
             tool_patterns: Vec::new(),
         }
@@ -351,11 +347,10 @@ fn preview_message(msg: &AgentMessage, max_chars: usize) -> String {
 mod tests {
     use super::*;
     use alva_types::{ContentBlock, Message, MessageRole};
-    use std::path::PathBuf;
 
     /// Create a ContextStore with a 10_000 token model window and 8_000 budget.
     fn test_store() -> ContextStore {
-        ContextStore::new(10_000, 8_000, PathBuf::from("/tmp/test-context"))
+        ContextStore::new(10_000, 8_000)
     }
 
     /// Create a ContextEntry with given id, layer, and estimated token count.
@@ -412,7 +407,7 @@ mod tests {
         assert!((ratio - 0.5).abs() < f32::EPSILON);
 
         // Zero-window edge case.
-        let store_zero = ContextStore::new(0, 0, PathBuf::from("/tmp"));
+        let store_zero = ContextStore::new(0, 0);
         assert_eq!(store_zero.usage_ratio(), 0.0);
     }
 

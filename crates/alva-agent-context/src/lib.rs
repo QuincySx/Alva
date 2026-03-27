@@ -27,7 +27,6 @@ pub mod sdk;
 pub mod sdk_impl;
 pub mod store;
 pub mod session;
-pub mod message_store;  // kept for backward compatibility, will be removed
 pub mod chain;
 pub mod rules_plugin;
 pub mod default_plugin;
@@ -40,5 +39,4 @@ pub use chain::ContextHooksChain;
 pub use rules_plugin::RulesContextHooks;
 pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig};
 pub use session::{SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession};
-pub use message_store::{MessageStore, InMemoryMessageStore, Turn};  // backward compat
 pub use types::*;

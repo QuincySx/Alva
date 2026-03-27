@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 // Core enums
 // ---------------------------------------------------------------------------
 
-/// Which layer of the five-layer context model an entry belongs to.
+/// Which layer of the four-layer context model an entry belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ContextLayer {
     /// L0: Identity, conventions, hard constraints. Always present.

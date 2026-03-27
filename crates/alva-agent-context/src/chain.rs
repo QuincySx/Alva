@@ -201,7 +201,7 @@ mod tests {
 
     fn make_sdk() -> crate::sdk_impl::ContextHandleImpl {
         let store = Arc::new(std::sync::Mutex::new(
-            crate::store::ContextStore::new(100_000, 80_000, "/tmp/test".into()),
+            crate::store::ContextStore::new(100_000, 80_000),
         ));
         crate::sdk_impl::ContextHandleImpl::new(store)
     }

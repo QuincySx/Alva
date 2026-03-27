@@ -8,7 +8,6 @@ use async_trait::async_trait;
 
 use alva_types::AgentMessage;
 
-use crate::message_store::MessageStore;
 use crate::sdk::ContextHandle;
 use crate::store::{ContextStore, estimate_tokens};
 use crate::types::*;
@@ -22,21 +21,11 @@ use crate::types::*;
 /// async plugin hooks.
 pub struct ContextHandleImpl {
     store: Arc<Mutex<ContextStore>>,
-    message_store: Option<Arc<dyn MessageStore>>,
 }
 
 impl ContextHandleImpl {
     pub fn new(store: Arc<Mutex<ContextStore>>) -> Self {
-        Self {
-            store,
-            message_store: None,
-        }
-    }
-
-    /// Attach a `MessageStore` for turn-based persistence.
-    pub fn with_message_store(mut self, ms: Arc<dyn MessageStore>) -> Self {
-        self.message_store = Some(ms);
-        self
+        Self { store }
     }
 
     /// Access the underlying store directly (for middleware adapter).

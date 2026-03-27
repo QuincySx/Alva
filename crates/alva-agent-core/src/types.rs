@@ -159,7 +159,7 @@ impl AgentHooks {
     /// Default context SDK: `ContextHandleImpl` backed by an in-memory `ContextStore`.
     pub fn new(convert_to_llm: ConvertToLlmFn) -> Self {
         let ctx_store = Arc::new(std::sync::Mutex::new(
-            alva_agent_context::ContextStore::new(200_000, 180_000, "/tmp/alva-ctx".into())
+            alva_agent_context::ContextStore::new(200_000, 180_000)
         ));
         let sdk: Arc<dyn alva_agent_context::ContextHandle> = Arc::new(
             alva_agent_context::ContextHandleImpl::new(ctx_store)
