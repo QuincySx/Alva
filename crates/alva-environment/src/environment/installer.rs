@@ -102,18 +102,34 @@ impl Installer {
             fs::create_dir_all(&packages_dir)
                 .map_err(|e| InstallerError::Io(packages_dir.clone(), e))?;
 
-            info!(
-                component = name,
-                url = url.as_str(),
-                "Downloading component (not yet implemented — placeholder)"
-            );
-            // TODO(Sub-8): Implement actual HTTP download.
-            // For now, return an error indicating the archive is missing.
-            return Err(InstallerError::ArchiveNotFound {
-                component: name.to_string(),
-                expected_path: bundled_path,
-                url: Some(url.clone()),
-            });
+            let target_path = packages_dir.join(&artifact.file);
+
+            #[cfg(feature = "download")]
+            {
+                info!(
+                    component = name,
+                    url = url.as_str(),
+                    target = %target_path.display(),
+                    "Downloading component"
+                );
+
+                self.download_file(url, &target_path).await?;
+                return Ok(target_path);
+            }
+
+            #[cfg(not(feature = "download"))]
+            {
+                info!(
+                    component = name,
+                    url = url.as_str(),
+                    "Download feature not enabled — cannot fetch remote archive"
+                );
+                return Err(InstallerError::ArchiveNotFound {
+                    component: name.to_string(),
+                    expected_path: bundled_path,
+                    url: Some(url.clone()),
+                });
+            }
         }
 
         Err(InstallerError::ArchiveNotFound {
@@ -121,6 +137,52 @@ impl Installer {
             expected_path: bundled_path,
             url: None,
         })
+    }
+
+    // -- Download implementation ----------------------------------------------
+
+    /// Download a file from a URL to the target path.
+    #[cfg(feature = "download")]
+    async fn download_file(&self, url: &str, target: &Path) -> Result<(), InstallerError> {
+        use tokio::io::AsyncWriteExt;
+
+        let response = reqwest::get(url)
+            .await
+            .map_err(|e| InstallerError::Other(format!("HTTP request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(InstallerError::Other(format!(
+                "HTTP {} for {}",
+                response.status(),
+                url,
+            )));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| InstallerError::Other(format!("failed to read response body: {}", e)))?;
+
+        let mut file = tokio::fs::File::create(target)
+            .await
+            .map_err(|e| InstallerError::Io(target.to_path_buf(), e))?;
+
+        file.write_all(&bytes)
+            .await
+            .map_err(|e| InstallerError::Io(target.to_path_buf(), e))?;
+
+        file.flush()
+            .await
+            .map_err(|e| InstallerError::Io(target.to_path_buf(), e))?;
+
+        info!(
+            url,
+            target = %target.display(),
+            bytes = bytes.len(),
+            "Download complete"
+        );
+
+        Ok(())
     }
 
     // -- Extraction implementations ------------------------------------------
