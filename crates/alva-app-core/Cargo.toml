@@ -23,6 +23,7 @@ alva-agent-runtime = { path = "../alva-agent-runtime" }
 alva-protocol-acp = { path = "../alva-protocol-acp" }
 alva-protocol-skill = { path = "../alva-protocol-skill" }
 alva-protocol-mcp = { path = "../alva-protocol-mcp" }
+alva-provider = { path = "../alva-provider" }
 alva-environment = { path = "../alva-environment" }
 
 # Async runtime
