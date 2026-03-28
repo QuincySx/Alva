@@ -8,6 +8,7 @@
 //! - [`blackboard`] — shared multi-agent communication space
 //! - [`evaluation`] — QA evaluation loop, sprint contracts, grading criteria
 
+pub mod agent_spawn;
 pub mod blackboard;
 pub mod evaluation;
 pub mod team;

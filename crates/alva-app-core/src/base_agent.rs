@@ -122,7 +122,8 @@ pub struct BaseAgentBuilder {
     pub(crate) skill_dirs: Vec<PathBuf>,
     pub(crate) enable_memory: bool,
     pub(crate) enable_browser: bool,
-    pub(crate) enable_team: bool,
+    pub(crate) enable_sub_agents: bool,
+    pub(crate) sub_agent_max_depth: u32,
     pub(crate) compression_threshold: u32,
     pub(crate) max_iterations: u32,
 
@@ -143,7 +144,8 @@ impl BaseAgentBuilder {
             skill_dirs: Vec::new(),
             enable_memory: false,
             enable_browser: true,
-            enable_team: false,
+            enable_sub_agents: false,
+            sub_agent_max_depth: 3,
             compression_threshold: 100_000,
             max_iterations: 100,
             convert_to_llm: None,
@@ -210,12 +212,19 @@ impl BaseAgentBuilder {
         self
     }
 
-    /// Enable the `team` tool (multi-agent orchestration). Default: off.
+    /// Enable the `agent` tool (sub-agent spawning). Default: off.
     ///
-    /// Even when enabled, the tool has a built-in depth limiter that
-    /// prevents infinite nesting at runtime.
-    pub fn with_team(mut self) -> Self {
-        self.enable_team = true;
+    /// Sub-agents can spawn further sub-agents up to `max_depth` levels.
+    /// Default max depth: 3.
+    pub fn with_sub_agents(mut self) -> Self {
+        self.enable_sub_agents = true;
+        self
+    }
+
+    /// Set the maximum sub-agent nesting depth (default: 3).
+    /// Only meaningful when sub-agents are enabled.
+    pub fn sub_agent_max_depth(mut self, depth: u32) -> Self {
+        self.sub_agent_max_depth = depth;
         self
     }
 
@@ -257,12 +266,7 @@ impl BaseAgentBuilder {
             alva_agent_tools::register_builtin_tools(&mut tool_registry);
         }
 
-        // 2b. Register built-in plugin tools
-        if self.enable_team {
-            tool_registry.register(
-                crate::plugins::team::create_team_tool(model.clone())
-            );
-        }
+        // 2b. (sub-agent tool registered later — needs the final tool list)
 
         // 3. Register extra custom tools in the registry
         for tool in self.extra_tools {
@@ -378,10 +382,22 @@ impl BaseAgentBuilder {
         hooks.middleware = middleware_stack;
         hooks.max_iterations = self.max_iterations;
 
-        // 9. Create Agent
+        // 9. Create Agent (clone model Arc before moving into Agent)
+        let model_for_spawn = model.clone();
         let agent = Agent::new(model, "", &self.system_prompt, hooks);
 
-        // 10. Set tools on the agent
+        // 10. Optionally add the agent spawn tool (needs the tool list first)
+        if self.enable_sub_agents {
+            let guard = alva_types::tool_guard::ToolGuard::max_depth(self.sub_agent_max_depth);
+            let spawn_tool = crate::plugins::agent_spawn::create_agent_spawn_tool(
+                model_for_spawn,
+                alva_tools_list.clone(),
+                guard,
+            );
+            alva_tools_list.push(Arc::from(spawn_tool));
+        }
+
+        // 11. Set tools on the agent
         agent.set_tools(alva_tools_list).await;
 
         // 11. Optionally create MemoryService

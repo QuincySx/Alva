@@ -72,7 +72,8 @@ async fn run() {
              Be concise in your responses.",
         )
         .without_browser()
-        .with_team()
+        .with_sub_agents()
+        .sub_agent_max_depth(3)
         .build(model)
         .await
         .expect("failed to build agent");
