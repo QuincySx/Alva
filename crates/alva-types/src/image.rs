@@ -1,10 +1,10 @@
-// INPUT:  async_trait, serde, crate::error::AgentError
+// INPUT:  async_trait, serde, crate::base::error::AgentError
 // OUTPUT: pub trait ImageModel, pub struct ImageConfig, pub struct ImageEditConfig, pub struct ImageResult, pub enum ImageData
 // POS:    Trait and wire types for image generation and editing models.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::AgentError;
+use crate::base::error::AgentError;
 
 /// Interface for image generation and editing models.
 #[async_trait]

@@ -1,13 +1,9 @@
 // INPUT:  async_trait, serde, serde_json, thiserror, chrono, tokio_util
 // OUTPUT: CancellationToken, ContentBlock, AgentError, Message, MessageRole, UsageMetadata, LanguageModel, ModelConfig, StreamEvent, Tool, ToolCall, ToolContext, LocalToolContext, EmptyToolContext, ToolDefinition, ToolRegistry, ToolResult, EmbeddingModel, TranscriptionModel, SpeechModel, ImageModel, VideoModel, RerankingModel, ModerationModel, Provider, ProviderRegistry
 // POS:    Crate root — declares all type modules and re-exports their public items as the shared vocabulary for the agent ecosystem.
-pub mod cancel;
-pub mod content;
+pub mod base;
 pub mod context;
-pub mod error;
-pub mod message;
 pub mod model;
-pub mod stream;
 pub mod tool;
 pub mod embedding;
 pub mod transcription;
@@ -21,12 +17,12 @@ pub mod provider_test;
 pub mod scope;
 pub mod tool_guard;
 
-pub use cancel::CancellationToken;
-pub use content::ContentBlock;
-pub use error::AgentError;
-pub use message::{AgentMessage, Message, MessageRole, UsageMetadata};
+pub use base::cancel::CancellationToken;
+pub use base::content::ContentBlock;
+pub use base::error::AgentError;
+pub use base::message::{AgentMessage, Message, MessageRole, UsageMetadata};
 pub use model::{LanguageModel, ModelConfig};
-pub use stream::StreamEvent;
+pub use base::stream::StreamEvent;
 pub use tool::{EmptyToolContext, LocalToolContext, Tool, ToolCall, ToolContext, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry, ToolResult};
 pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
 pub use transcription::{

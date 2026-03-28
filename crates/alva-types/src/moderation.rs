@@ -1,10 +1,10 @@
-// INPUT:  async_trait, serde, crate::error::AgentError
+// INPUT:  async_trait, serde, crate::base::error::AgentError
 // OUTPUT: pub trait ModerationModel, pub struct ModerationResult, pub struct ModerationEntry, pub struct ModerationCategory
 // POS:    Trait and result types for content moderation and safety classification models.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::AgentError;
+use crate::base::error::AgentError;
 
 /// Interface for content moderation / safety classification models.
 #[async_trait]

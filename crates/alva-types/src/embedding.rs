@@ -1,10 +1,10 @@
-// INPUT:  async_trait, serde, crate::error::AgentError
+// INPUT:  async_trait, serde, crate::base::error::AgentError
 // OUTPUT: pub trait EmbeddingModel, pub struct EmbeddingResult, pub struct EmbeddingUsage
 // POS:    Trait and result types for text embedding models that map text to vector representations.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::AgentError;
+use crate::base::error::AgentError;
 
 /// Interface for text embedding models.
 ///

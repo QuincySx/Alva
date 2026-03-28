@@ -1,10 +1,10 @@
-// INPUT:  serde, serde_json, uuid, chrono, crate::content::ContentBlock
+// INPUT:  serde, serde_json, uuid, chrono, crate::base::content::ContentBlock
 // OUTPUT: pub enum MessageRole, pub struct UsageMetadata, pub struct Message, pub enum AgentMessage
 // POS:    Core message types representing LLM conversation turns, token usage, and an agent-level message wrapper.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::content::ContentBlock;
+use crate::base::content::ContentBlock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]

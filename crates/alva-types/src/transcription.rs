@@ -1,10 +1,10 @@
-// INPUT:  async_trait, serde, crate::error::AgentError
+// INPUT:  async_trait, serde, crate::base::error::AgentError
 // OUTPUT: pub trait TranscriptionModel, pub struct TranscriptionConfig, pub struct TranscriptionResult, pub struct TranscriptionSegment
 // POS:    Trait and wire types for audio transcription (speech-to-text) models.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::AgentError;
+use crate::base::error::AgentError;
 
 /// Interface for audio transcription (ASR) models.
 ///

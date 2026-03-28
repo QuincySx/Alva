@@ -1,13 +1,13 @@
-// INPUT:  async_trait, futures_core::Stream, std::pin::Pin, crate::error::AgentError, crate::message::Message, crate::stream::StreamEvent, crate::tool::Tool
+// INPUT:  async_trait, futures_core::Stream, std::pin::Pin, crate::base::error::AgentError, crate::base::message::Message, crate::base::stream::StreamEvent, crate::tool::Tool
 // OUTPUT: pub struct ModelConfig, pub trait LanguageModel
 // POS:    Language model trait providing synchronous completion and streaming interfaces over messages and tools.
 use async_trait::async_trait;
 use futures_core::Stream;
 use std::pin::Pin;
 
-use crate::error::AgentError;
-use crate::message::Message;
-use crate::stream::StreamEvent;
+use crate::base::error::AgentError;
+use crate::base::message::Message;
+use crate::base::stream::StreamEvent;
 use crate::tool::Tool;
 
 #[derive(Debug, Clone, Default)]

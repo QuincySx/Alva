@@ -1,4 +1,4 @@
-// INPUT:  async_trait, serde, serde_json, crate::cancel::CancellationToken, crate::error::AgentError
+// INPUT:  async_trait, serde, serde_json, crate::base::cancel::CancellationToken, crate::base::error::AgentError
 // OUTPUT: ToolDefinition, ToolCall, ToolResult, ToolContext (trait), LocalToolContext (trait), EmptyToolContext, Tool (trait), ToolRegistry
 // POS:    Canonical tool abstractions — defines the Tool trait, split ToolContext/LocalToolContext hierarchy, wire types, and a name-based registry.
 use async_trait::async_trait;
@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 
-use crate::cancel::CancellationToken;
-use crate::error::AgentError;
+use crate::base::cancel::CancellationToken;
+use crate::base::error::AgentError;
 
 // ---------------------------------------------------------------------------
 // ToolDefinition — JSON Schema description for LLM function calling

@@ -1,9 +1,9 @@
-// INPUT:  serde, crate::message::UsageMetadata
+// INPUT:  serde, crate::base::message::UsageMetadata
 // OUTPUT: pub enum StreamEvent
 // POS:    Streaming event enum representing incremental deltas from a language model response.
 use serde::{Deserialize, Serialize};
 
-use crate::message::UsageMetadata;
+use crate::base::message::UsageMetadata;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamEvent {
