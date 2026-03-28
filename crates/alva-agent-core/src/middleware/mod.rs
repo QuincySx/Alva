@@ -1,8 +1,9 @@
 // INPUT:  alva_types (Message, ToolCall, ToolContext, ToolResult, AgentError), async_trait, thiserror, crate::types::AgentMessage
 // OUTPUT: Middleware (trait), MiddlewareStack, MiddlewareContext, MiddlewareError, Extensions,
-//         LlmCallFn, ToolCallFn, CompressionMiddleware, CompressionConfig
+//         LlmCallFn, ToolCallFn, CompressionMiddleware, CompressionConfig, LoopDetectionMiddleware
 // POS:    Async middleware subsystem — defines the Middleware trait (onion model), type-safe Extensions store, and the ordered MiddlewareStack.
 pub mod compression;
+pub mod loop_detection;
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -14,6 +15,7 @@ use async_trait::async_trait;
 use crate::types::AgentMessage;
 
 pub use compression::{CompressionConfig, CompressionMiddleware};
+pub use loop_detection::LoopDetectionMiddleware;
 
 // ---------------------------------------------------------------------------
 // MiddlewareError

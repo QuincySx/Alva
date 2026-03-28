@@ -18,6 +18,7 @@ pub use middleware::{
     Middleware, MiddlewareStack, MiddlewareContext, MiddlewareError, MiddlewarePriority, Extensions,
     LlmCallFn, ToolCallFn,
     CompressionMiddleware, CompressionConfig,
+    LoopDetectionMiddleware,
 };
 
 /// Re-export context types so downstream crates don't need a direct dependency on alva-types::context.
