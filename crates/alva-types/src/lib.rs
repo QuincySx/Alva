@@ -14,7 +14,8 @@ pub mod video;
 pub mod reranking;
 pub mod moderation;
 pub mod provider;
-pub mod provider_test;
+// provider_test is now at provider::tests; re-export for backward compatibility
+pub use provider::tests as provider_test;
 pub mod scope;
 // tool_guard is now at tool::guard
 
