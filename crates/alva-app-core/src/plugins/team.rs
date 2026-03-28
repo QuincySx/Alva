@@ -74,28 +74,25 @@ struct TeamState {
 
 /// A tool that lets the LLM dynamically create and run a multi-agent team.
 ///
-/// Has a built-in depth limiter: if a team is already running (depth >= max),
-/// the tool refuses to execute and tells the LLM it cannot nest further.
+/// Has a built-in [`ToolGuard`] depth limiter: if a team is already running
+/// (depth >= max), the tool refuses to execute and tells the LLM to handle
+/// the task itself.
 pub struct TeamTool {
     model: Arc<dyn LanguageModel>,
-    /// Current nesting depth (0 = idle, 1 = one team running, etc.)
-    depth: Arc<std::sync::atomic::AtomicU32>,
-    /// Maximum allowed nesting depth.
-    max_depth: u32,
+    guard: alva_types::tool_guard::ToolGuard,
 }
 
 impl TeamTool {
     pub fn new(model: Arc<dyn LanguageModel>) -> Self {
         Self {
             model,
-            depth: Arc::new(std::sync::atomic::AtomicU32::new(0)),
-            max_depth: 1,
+            guard: alva_types::tool_guard::ToolGuard::max_depth(1),
         }
     }
 
     /// Set the maximum nesting depth (default: 1, meaning no nesting).
     pub fn with_max_depth(mut self, max: u32) -> Self {
-        self.max_depth = max;
+        self.guard = alva_types::tool_guard::ToolGuard::max_depth(max);
         self
     }
 }
@@ -158,25 +155,17 @@ impl Tool for TeamTool {
         cancel: &CancellationToken,
         _ctx: &dyn ToolContext,
     ) -> Result<ToolResult, AgentError> {
-        use std::sync::atomic::Ordering;
-
         // Depth guard: refuse if already at max nesting
-        let current = self.depth.load(Ordering::SeqCst);
-        if current >= self.max_depth {
-            return Ok(ToolResult {
-                content: format!(
-                    "Cannot create a nested team: already at depth {}/{}. \
-                     Break down the task yourself instead of delegating to another team.",
-                    current, self.max_depth,
-                ),
-                is_error: true,
-                details: None,
-            });
-        }
-        self.depth.fetch_add(1, Ordering::SeqCst);
-
-        // Ensure depth is decremented when we're done (even on error)
-        let _guard = DepthGuard(self.depth.clone());
+        let _token = match self.guard.try_acquire("team") {
+            Ok(token) => token,
+            Err(e) => {
+                return Ok(ToolResult {
+                    content: e.message,
+                    is_error: true,
+                    details: None,
+                });
+            }
+        };
 
         let team_input: TeamInput = serde_json::from_value(input).map_err(|e| {
             AgentError::ToolError {
@@ -442,19 +431,6 @@ fn topological_sort(agents: &[AgentDef]) -> Result<Vec<String>, AgentError> {
 /// Create a `team` tool that the LLM can use to assemble agent teams on the fly.
 pub fn create_team_tool(model: Arc<dyn LanguageModel>) -> Box<dyn Tool> {
     Box::new(TeamTool::new(model))
-}
-
-// ---------------------------------------------------------------------------
-// Depth guard (RAII)
-// ---------------------------------------------------------------------------
-
-/// Decrements the atomic depth counter on drop, ensuring cleanup even on panic/error.
-struct DepthGuard(Arc<std::sync::atomic::AtomicU32>);
-
-impl Drop for DepthGuard {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-    }
 }
 
 // ---------------------------------------------------------------------------
