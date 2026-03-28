@@ -78,7 +78,10 @@ pub(crate) mod adapters;
 pub mod base_agent;
 pub mod error;
 pub mod plugins;
-pub mod scope;
+
+// Re-export alva-agent-scope (blackboard + scope infrastructure)
+pub use alva_agent_scope;
+pub use alva_agent_scope::scope_impl as scope;
 
 // ── Convenience re-exports — BaseAgent ──────────────────────────────
 

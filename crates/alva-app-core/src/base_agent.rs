@@ -388,7 +388,7 @@ impl BaseAgentBuilder {
 
         // 10. Optionally add the agent spawn tool (needs the tool list first)
         if self.enable_sub_agents {
-            let root_scope = Arc::new(crate::scope::SpawnScopeImpl::root(
+            let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
                 model_for_spawn,
                 alva_tools_list.clone(),
                 std::time::Duration::from_secs(300),

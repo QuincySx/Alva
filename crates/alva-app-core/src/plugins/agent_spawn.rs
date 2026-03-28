@@ -1,4 +1,4 @@
-// INPUT:  alva_types, alva_agent_core, crate::plugins::blackboard, crate::scope::SpawnScopeImpl
+// INPUT:  alva_types, alva_agent_core, alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool
 // POS:    Single primitive for spawning sub-agents. Uses SpawnScopeImpl for state management.
 
@@ -25,8 +25,8 @@ use alva_types::base::message::Message;
 use alva_types::scope::{ChildScopeConfig, ScopeError};
 use alva_types::tool::{Tool, ToolContext, ToolResult};
 
-use crate::plugins::blackboard::{AgentProfile, BoardMessage, MessageKind};
-use crate::scope::SpawnScopeImpl;
+use alva_agent_scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
+use alva_agent_scope::SpawnScopeImpl;
 
 // ---------------------------------------------------------------------------
 // Tool input
@@ -286,7 +286,7 @@ impl Tool for AgentSpawnTool {
 /// tools — so the tool itself becomes stateless (just a scope reference).
 ///
 /// ```rust,ignore
-/// use crate::scope::SpawnScopeImpl;
+/// use alva_agent_scope::SpawnScopeImpl;
 ///
 /// let root_scope = Arc::new(SpawnScopeImpl::root(model, tools, timeout, 50, 3));
 /// let tool = create_agent_spawn_tool(root_scope);

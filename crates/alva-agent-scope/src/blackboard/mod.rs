@@ -16,7 +16,7 @@
 //!
 //! ```rust,ignore
 //! use std::sync::Arc;
-//! use alva_app_core::blackboard::{Blackboard, BlackboardPlugin, AgentProfile};
+//! use alva_agent_scope::blackboard::{Blackboard, BlackboardPlugin, AgentProfile};
 //!
 //! // One shared board for the team
 //! let board = Arc::new(Blackboard::new());
@@ -46,5 +46,5 @@ mod profile;
 
 pub use board::Blackboard;
 pub use message::{BoardMessage, MessageKind, TaskPhase};
-pub use plugin::BlackboardPlugin;
+pub use plugin::{BlackboardPlugin, BlackboardPluginConfig};
 pub use profile::AgentProfile;

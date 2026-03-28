@@ -5,10 +5,12 @@
 //! Multiple plugins compose cleanly via `ContextHooksChain` and
 //! `MiddlewareStack`.
 //!
-//! - [`blackboard`] — shared multi-agent communication space
+//! - [`blackboard`] — shared multi-agent communication space (re-exported from `alva-agent-scope`)
 //! - [`evaluation`] — QA evaluation loop, sprint contracts, grading criteria
 
 pub mod agent_spawn;
-pub mod blackboard;
 pub mod evaluation;
 pub mod team;
+
+// Re-export blackboard from alva-agent-scope for backward compatibility
+pub use alva_agent_scope::blackboard;

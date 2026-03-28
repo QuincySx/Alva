@@ -9,9 +9,9 @@ use alva_types::model::LanguageModel;
 use alva_types::scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 use alva_types::tool::Tool;
 
-use super::board_registry::BoardRegistry;
-use super::session_tracker::SessionTracker;
-use crate::plugins::blackboard::Blackboard;
+use crate::board_registry::BoardRegistry;
+use crate::session_tracker::SessionTracker;
+use crate::blackboard::Blackboard;
 
 /// Concrete SpawnScope implementation.
 ///
@@ -331,7 +331,7 @@ mod tests {
         let board1 = c1.board("team").await;
         let board2 = c2.board("team").await;
 
-        use crate::plugins::blackboard::BoardMessage;
+        use crate::blackboard::BoardMessage;
         board1.post(BoardMessage::new("a", "hello")).await;
         assert_eq!(board2.message_count().await, 1);
     }

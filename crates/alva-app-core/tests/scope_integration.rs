@@ -6,8 +6,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alva_app_core::plugins::blackboard::BoardMessage;
-use alva_app_core::scope::SpawnScopeImpl;
+use alva_agent_scope::BoardMessage;
+use alva_agent_scope::SpawnScopeImpl;
 use alva_types::base::error::AgentError;
 use alva_types::base::message::Message;
 use alva_types::model::{LanguageModel, ModelConfig};

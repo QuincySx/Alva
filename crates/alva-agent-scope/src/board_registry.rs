@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use alva_types::scope::ScopeId;
-use crate::plugins::blackboard::Blackboard;
+use crate::blackboard::Blackboard;
 
 /// Manages Blackboard instances scoped to SpawnScope IDs.
 ///
@@ -75,7 +75,7 @@ impl Default for BoardRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugins::blackboard::BoardMessage;
+    use crate::blackboard::BoardMessage;
 
     #[tokio::test]
     async fn same_scope_shares_board() {

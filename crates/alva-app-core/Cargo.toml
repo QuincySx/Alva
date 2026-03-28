@@ -21,6 +21,7 @@ alva-agent-security = { path = "../alva-agent-security" }
 alva-agent-memory = { path = "../alva-agent-memory" }
 alva-agent-runtime = { path = "../alva-agent-runtime" }
 alva-agent-graph = { path = "../alva-agent-graph" }
+alva-agent-scope = { path = "../alva-agent-scope" }
 alva-protocol-acp = { path = "../alva-protocol-acp" }
 alva-protocol-skill = { path = "../alva-protocol-skill" }
 alva-protocol-mcp = { path = "../alva-protocol-mcp" }

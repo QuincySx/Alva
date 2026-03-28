@@ -1,4 +1,4 @@
-// INPUT:  alva_types, alva_agent_core, alva_agent_graph, crate::plugins::blackboard, std::sync::Arc
+// INPUT:  alva_types, alva_agent_core, alva_agent_graph, alva_agent_scope::blackboard, std::sync::Arc
 // OUTPUT: TeamTool, create_team_tool
 // POS:    A Tool that lets the LLM dynamically assemble and run a multi-agent team via Graph + Blackboard.
 
@@ -30,7 +30,7 @@ use alva_types::model::LanguageModel;
 use alva_types::base::cancel::CancellationToken;
 use alva_types::tool::{Tool, ToolContext, ToolResult};
 
-use crate::plugins::blackboard::{AgentProfile, Blackboard, BlackboardPlugin, BoardMessage, MessageKind};
+use alva_agent_scope::blackboard::{AgentProfile, Blackboard, BlackboardPlugin, BoardMessage, MessageKind};
 
 // ---------------------------------------------------------------------------
 // Tool input schema types
