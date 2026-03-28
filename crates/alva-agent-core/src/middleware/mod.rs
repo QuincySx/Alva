@@ -1,5 +1,6 @@
-// INPUT:  alva_types (Message, ToolCall, ToolContext, ToolResult), async_trait, thiserror, crate::types::AgentMessage
-// OUTPUT: Middleware (trait), MiddlewareStack, MiddlewareContext, MiddlewareError, Extensions, CompressionMiddleware, CompressionConfig
+// INPUT:  alva_types (Message, ToolCall, ToolContext, ToolResult, AgentError), async_trait, thiserror, crate::types::AgentMessage
+// OUTPUT: Middleware (trait), MiddlewareStack, MiddlewareContext, MiddlewareError, Extensions,
+//         LlmCallFn, ToolCallFn, CompressionMiddleware, CompressionConfig
 // POS:    Async middleware subsystem — defines the Middleware trait (onion model), type-safe Extensions store, and the ordered MiddlewareStack.
 pub mod compression;
 
@@ -77,6 +78,28 @@ pub struct MiddlewareContext {
 }
 
 // ---------------------------------------------------------------------------
+// Callback traits for wrap hooks
+// ---------------------------------------------------------------------------
+
+/// Callback for LLM calls within `wrap_llm_call`.
+///
+/// Represents the "next" step in the wrapping chain — either the next
+/// middleware's wrap or the actual LLM invocation.
+#[async_trait]
+pub trait LlmCallFn: Send + Sync {
+    async fn call(&self, messages: Vec<Message>) -> Result<Message, alva_types::AgentError>;
+}
+
+/// Callback for tool calls within `wrap_tool_call`.
+///
+/// Represents the "next" step in the wrapping chain — either the next
+/// middleware's wrap or the actual tool execution.
+#[async_trait]
+pub trait ToolCallFn: Send + Sync {
+    async fn call(&self, tool_call: &ToolCall) -> Result<ToolResult, alva_types::AgentError>;
+}
+
+// ---------------------------------------------------------------------------
 // Middleware trait
 // ---------------------------------------------------------------------------
 
@@ -141,6 +164,38 @@ pub trait Middleware: Send + Sync {
     ) -> Result<(), MiddlewareError> {
         let _ = (ctx, error);
         Ok(())
+    }
+
+    /// Wrap the entire LLM call — can modify request, response, retry, or skip.
+    /// Default: just calls `next`. Override to intercept.
+    ///
+    /// The `next` closure performs the actual LLM call. You can:
+    /// - Modify messages before calling next
+    /// - Modify the response after calling next
+    /// - Call next multiple times (retry)
+    /// - Not call next at all (skip/mock)
+    async fn wrap_llm_call(
+        &self,
+        _ctx: &mut MiddlewareContext,
+        messages: Vec<Message>,
+        next: &dyn LlmCallFn,
+    ) -> Result<Message, MiddlewareError> {
+        next.call(messages)
+            .await
+            .map_err(|e| MiddlewareError::Other(e.to_string()))
+    }
+
+    /// Wrap a single tool execution — can modify args, result, retry, or skip.
+    /// Default: just calls `next`. Override to intercept.
+    async fn wrap_tool_call(
+        &self,
+        _ctx: &mut MiddlewareContext,
+        tool_call: &ToolCall,
+        next: &dyn ToolCallFn,
+    ) -> Result<ToolResult, MiddlewareError> {
+        next.call(tool_call)
+            .await
+            .map_err(|e| MiddlewareError::Other(e.to_string()))
     }
 
     /// Human-readable name for this middleware (defaults to type name).

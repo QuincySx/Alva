@@ -14,7 +14,11 @@ pub use types::{
 };
 pub use event::AgentEvent;
 pub use agent::Agent;
-pub use middleware::{Middleware, MiddlewareStack, MiddlewareContext, MiddlewareError, MiddlewarePriority, Extensions, CompressionMiddleware, CompressionConfig};
+pub use middleware::{
+    Middleware, MiddlewareStack, MiddlewareContext, MiddlewareError, MiddlewarePriority, Extensions,
+    LlmCallFn, ToolCallFn,
+    CompressionMiddleware, CompressionConfig,
+};
 
 /// Re-export context types so downstream crates don't need a direct dependency on alva-types::context.
 pub use alva_types::context::{
