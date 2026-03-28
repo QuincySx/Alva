@@ -2,7 +2,8 @@
 // OUTPUT: CancellationToken, ContentBlock, AgentError, Message, MessageRole, UsageMetadata, LanguageModel, ModelConfig, StreamEvent, Tool, ToolCall, ToolContext, LocalToolContext, EmptyToolContext, ToolDefinition, ToolRegistry, ToolResult, EmbeddingModel, TranscriptionModel, SpeechModel, ImageModel, VideoModel, RerankingModel, ModerationModel, Provider, ProviderRegistry
 // POS:    Crate root — declares all type modules and re-exports their public items as the shared vocabulary for the agent ecosystem.
 pub mod base;
-pub mod context;
+// context is now at scope::context; re-export for backward compatibility
+pub use scope::context;
 pub mod model;
 pub mod tool;
 pub mod embedding;
