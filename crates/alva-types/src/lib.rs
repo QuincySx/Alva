@@ -18,6 +18,7 @@ pub mod reranking;
 pub mod moderation;
 pub mod provider;
 pub mod provider_test;
+pub mod scope;
 pub mod tool_guard;
 
 pub use cancel::CancellationToken;
@@ -37,3 +38,4 @@ pub use video::{VideoConfig, VideoData, VideoModel, VideoResult};
 pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
 pub use provider::{Provider, ProviderError, ProviderRegistry};
+pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
