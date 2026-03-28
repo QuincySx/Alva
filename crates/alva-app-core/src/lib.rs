@@ -78,6 +78,7 @@ pub(crate) mod adapters;
 pub mod base_agent;
 pub mod error;
 pub mod plugins;
+pub mod scope;
 
 // ── Convenience re-exports — BaseAgent ──────────────────────────────
 
