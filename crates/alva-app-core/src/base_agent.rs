@@ -402,7 +402,7 @@ impl BaseAgentBuilder {
         // 11. Set tools on the agent
         agent.set_tools(alva_tools_list).await;
 
-        // 11. Optionally create MemoryService
+        // 12. Optionally create MemoryService
         let memory = if self.enable_memory {
             let db_dir = workspace.join(".srow");
             tokio::fs::create_dir_all(&db_dir).await?;

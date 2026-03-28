@@ -30,7 +30,7 @@ use alva_types::model::LanguageModel;
 use alva_types::base::cancel::CancellationToken;
 use alva_types::tool::{Tool, ToolContext, ToolResult};
 
-use alva_agent_scope::blackboard::{AgentProfile, Blackboard, BlackboardPlugin, BoardMessage, MessageKind};
+use alva_agent_scope::blackboard::{AgentProfile, Blackboard, BoardMessage, MessageKind};
 
 // ---------------------------------------------------------------------------
 // Tool input schema types
@@ -152,7 +152,7 @@ impl Tool for TeamTool {
     async fn execute(
         &self,
         input: Value,
-        cancel: &CancellationToken,
+        _cancel: &CancellationToken,
         _ctx: &dyn ToolContext,
     ) -> Result<ToolResult, AgentError> {
         // Depth guard: refuse if already at max nesting
@@ -230,19 +230,6 @@ impl Tool for TeamTool {
                     state.outputs.insert(def.id.clone(), output.clone());
 
                     // Post result to blackboard
-                    let provides_to: Vec<String> = state
-                        .outputs
-                        .keys()
-                        .filter(|k| *k != &def.id)
-                        .cloned()
-                        .collect();
-
-                    let mut msg = BoardMessage::new(&def.id, &output)
-                        .with_kind(MessageKind::Artifact {
-                            name: format!("{}-output", def.id),
-                        });
-                    // Don't error on this — provides_to may not be accurate here
-                    let _ = msg;
                     board.post(
                         BoardMessage::new(&def.id, &output)
                             .with_kind(MessageKind::Artifact {
