@@ -1,6 +1,6 @@
-// INPUT:  alva_types, alva_agent_core, crate::plugins::blackboard, std::sync::Arc
+// INPUT:  alva_types, alva_agent_core, crate::plugins::blackboard, crate::scope::SpawnScopeImpl
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool
-// POS:    Single primitive for spawning sub-agents. Replaces Task Tool and Team Tool.
+// POS:    Single primitive for spawning sub-agents. Uses SpawnScopeImpl for state management.
 
 //! Agent spawn tool — the ONE primitive for creating sub-agents.
 //!
@@ -8,9 +8,9 @@
 //! a Blackboard. Orchestration lives in the LLM's reasoning, not in
 //! code-level graph definitions.
 //!
-//! Depth is controlled by a shared `ToolGuard` — the same instance is
-//! passed to children, so the atomic counter tracks depth across the
-//! entire agent tree. The specific limit is set at the app layer.
+//! Depth is controlled by the `SpawnScopeImpl` — the scope enforces
+//! depth limits when `spawn_child()` is called. Each child scope shares
+//! the same tree-wide BoardRegistry and SessionTracker.
 
 use std::sync::Arc;
 
@@ -22,11 +22,11 @@ use alva_agent_core::{Agent, AgentEvent, AgentHooks, AgentMessage, ConvertToLlmF
 use alva_types::cancel::CancellationToken;
 use alva_types::error::AgentError;
 use alva_types::message::Message;
-use alva_types::model::LanguageModel;
+use alva_types::scope::{ChildScopeConfig, ScopeError};
 use alva_types::tool::{Tool, ToolContext, ToolResult};
-use alva_types::tool_guard::ToolGuard;
 
-use crate::plugins::blackboard::{AgentProfile, Blackboard, BoardMessage, MessageKind};
+use crate::plugins::blackboard::{AgentProfile, BoardMessage, MessageKind};
+use crate::scope::SpawnScopeImpl;
 
 // ---------------------------------------------------------------------------
 // Tool input
@@ -56,61 +56,16 @@ struct SpawnInput {
 
 /// The single primitive for sub-agent creation.
 ///
-/// Shared across all levels of the agent tree. The `guard` ensures
-/// depth never exceeds the configured maximum.
+/// Holds a reference to the current scope. When a child is spawned,
+/// `scope.spawn_child()` enforces depth limits and creates a new scope
+/// that shares the tree-wide BoardRegistry and SessionTracker.
 pub struct AgentSpawnTool {
-    model: Arc<dyn LanguageModel>,
-    parent_tools: Arc<Vec<Arc<dyn Tool>>>,
-    guard: ToolGuard,
-    boards: Arc<tokio::sync::Mutex<std::collections::HashMap<String, Arc<Blackboard>>>>,
+    scope: Arc<SpawnScopeImpl>,
 }
 
 impl AgentSpawnTool {
-    pub fn new(
-        model: Arc<dyn LanguageModel>,
-        parent_tools: Vec<Arc<dyn Tool>>,
-        guard: ToolGuard,
-    ) -> Self {
-        Self {
-            model,
-            parent_tools: Arc::new(parent_tools),
-            guard,
-            boards: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-        }
-    }
-
-    /// Get or create a named Blackboard.
-    async fn get_or_create_board(&self, board_id: &str) -> Arc<Blackboard> {
-        let mut boards = self.boards.lock().await;
-        boards
-            .entry(board_id.to_string())
-            .or_insert_with(|| Arc::new(Blackboard::new()))
-            .clone()
-    }
-
-    /// Build a child's tool list — optionally including a new AgentSpawnTool
-    /// that shares the SAME guard (so depth is tracked globally).
-    fn child_tools(&self, inherit: bool) -> Vec<Arc<dyn Tool>> {
-        let mut tools = Vec::new();
-
-        if inherit {
-            // Copy parent tools, excluding the spawn tool itself to avoid duplication
-            for t in self.parent_tools.iter() {
-                if t.name() != "agent" {
-                    tools.push(t.clone());
-                }
-            }
-        }
-
-        // Always give the child its own spawn tool — sharing the same guard
-        tools.push(Arc::new(AgentSpawnTool {
-            model: self.model.clone(),
-            parent_tools: self.parent_tools.clone(),
-            guard: self.guard.clone(),
-            boards: self.boards.clone(),
-        }));
-
-        tools
+    pub fn new(scope: Arc<SpawnScopeImpl>) -> Self {
+        Self { scope }
     }
 }
 
@@ -162,18 +117,6 @@ impl Tool for AgentSpawnTool {
         _cancel: &CancellationToken,
         _ctx: &dyn ToolContext,
     ) -> Result<ToolResult, AgentError> {
-        // Depth check
-        let _token = match self.guard.try_acquire("agent") {
-            Ok(t) => t,
-            Err(e) => {
-                return Ok(ToolResult {
-                    content: e.message,
-                    is_error: true,
-                    details: None,
-                });
-            }
-        };
-
         let input: SpawnInput = serde_json::from_value(input).map_err(|e| {
             AgentError::ToolError {
                 tool_name: "agent".into(),
@@ -182,15 +125,47 @@ impl Tool for AgentSpawnTool {
         })?;
 
         let system_prompt = if input.system_prompt.is_empty() {
-            format!("You are a {} agent. Complete the task given to you.", input.role)
+            format!(
+                "You are a {} agent. Complete the task given to you.",
+                input.role
+            )
         } else {
             input.system_prompt
+        };
+
+        // Build child scope config — spawn_child() enforces the depth limit
+        let mut child_config = ChildScopeConfig::new(&input.role)
+            .with_system_prompt(&system_prompt)
+            .inherit_tools(input.inherit_tools);
+
+        if let Some(board_id) = &input.board {
+            child_config = child_config.with_board(board_id);
+        }
+
+        let child_scope = match self.scope.spawn_child(child_config).await {
+            Ok(s) => s,
+            Err(ScopeError::DepthExceeded { current, max }) => {
+                return Ok(ToolResult {
+                    content: format!(
+                        "Cannot spawn: depth {}/{} exceeded. Handle the task directly.",
+                        current, max
+                    ),
+                    is_error: true,
+                    details: None,
+                });
+            }
+            Err(e) => {
+                return Err(AgentError::ToolError {
+                    tool_name: "agent".into(),
+                    message: e.to_string(),
+                });
+            }
         };
 
         // Build context with board messages if applicable
         let mut task_context = input.task.clone();
         if let Some(board_id) = &input.board {
-            let board = self.get_or_create_board(board_id).await;
+            let board = child_scope.board(board_id).await;
 
             // Register on board
             board
@@ -207,8 +182,12 @@ impl Tool for AgentSpawnTool {
             }
         }
 
-        // Build child agent
-        let child_tools = self.child_tools(input.inherit_tools);
+        // Build child agent — tools come from the child scope
+        let mut child_tools = child_scope.tools(input.inherit_tools);
+        // Give the child its own spawn tool backed by the child scope
+        child_tools.push(Arc::new(AgentSpawnTool {
+            scope: child_scope.clone(),
+        }));
 
         let convert_fn: ConvertToLlmFn = Arc::new(|ctx| {
             ctx.messages
@@ -221,59 +200,54 @@ impl Tool for AgentSpawnTool {
         });
 
         let mut hooks = AgentHooks::new(convert_fn);
-        hooks.max_iterations = 50;
+        hooks.max_iterations = child_scope.max_iterations();
 
-        let session_id = format!(
-            "spawn-{}-{}",
-            input.role,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
+        let agent = Agent::new(
+            child_scope.model(),
+            child_scope.session_id().to_string(),
+            &system_prompt,
+            hooks,
         );
-
-        let agent = Agent::new(self.model.clone(), session_id, &system_prompt, hooks);
         agent.set_tools(child_tools).await;
 
-        // Run with timeout
+        // Run with timeout from the child scope
         let user_msg = AgentMessage::Standard(Message::user(&task_context));
         let mut rx = agent.prompt(vec![user_msg]);
         let mut output = String::new();
 
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(300),
-            async {
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        AgentEvent::MessageEnd { message } => {
-                            if let AgentMessage::Standard(msg) = &message {
-                                output.push_str(&msg.text_content());
-                            }
+        let result = tokio::time::timeout(child_scope.timeout(), async {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    AgentEvent::MessageEnd { message } => {
+                        if let AgentMessage::Standard(msg) = &message {
+                            output.push_str(&msg.text_content());
                         }
-                        AgentEvent::AgentEnd { error: Some(e) } => {
-                            return Err(e);
-                        }
-                        AgentEvent::AgentEnd { error: None } => break,
-                        _ => {}
                     }
+                    AgentEvent::AgentEnd { error: Some(e) } => {
+                        return Err(e);
+                    }
+                    AgentEvent::AgentEnd { error: None } => break,
+                    _ => {}
                 }
-                Ok(())
-            },
-        )
+            }
+            Ok(())
+        })
         .await;
 
         // Post result to board if applicable
         if let Some(board_id) = &input.board {
-            let board = self.get_or_create_board(board_id).await;
+            let board = child_scope.board(board_id).await;
             board
                 .post(
-                    BoardMessage::new(&input.role, &output)
-                        .with_kind(MessageKind::Artifact {
-                            name: format!("{}-output", input.role),
-                        }),
+                    BoardMessage::new(&input.role, &output).with_kind(MessageKind::Artifact {
+                        name: format!("{}-output", input.role),
+                    }),
                 )
                 .await;
         }
+
+        // Mark child scope as completed
+        child_scope.mark_completed(&output);
 
         match result {
             Ok(Ok(())) => Ok(ToolResult {
@@ -288,10 +262,11 @@ impl Tool for AgentSpawnTool {
             }),
             Err(_) => {
                 agent.cancel();
+                let timeout_secs = child_scope.timeout().as_secs();
                 Ok(ToolResult {
                     content: format!(
-                        "[Agent '{}' timed out after 5 minutes]\n{}",
-                        input.role, output
+                        "[Agent '{}' timed out after {} seconds]\n{}",
+                        input.role, timeout_secs, output
                     ),
                     is_error: true,
                     details: None,
@@ -305,22 +280,17 @@ impl Tool for AgentSpawnTool {
 // Factory
 // ---------------------------------------------------------------------------
 
-/// Create the `agent` spawn tool with the given depth guard.
+/// Create the `agent` spawn tool backed by a SpawnScope.
 ///
-/// The guard is shared across all spawned children, so depth is
-/// tracked globally across the entire agent tree.
+/// The scope manages depth limits, boards, session tracking, model, and
+/// tools — so the tool itself becomes stateless (just a scope reference).
 ///
 /// ```rust,ignore
-/// use alva_types::tool_guard::ToolGuard;
+/// use crate::scope::SpawnScopeImpl;
 ///
-/// // App layer decides the limit
-/// let guard = ToolGuard::max_depth(3);
-/// let tool = create_agent_spawn_tool(model, parent_tools, guard);
+/// let root_scope = Arc::new(SpawnScopeImpl::root(model, tools, timeout, 50, 3));
+/// let tool = create_agent_spawn_tool(root_scope);
 /// ```
-pub fn create_agent_spawn_tool(
-    model: Arc<dyn LanguageModel>,
-    parent_tools: Vec<Arc<dyn Tool>>,
-    guard: ToolGuard,
-) -> Box<dyn Tool> {
-    Box::new(AgentSpawnTool::new(model, parent_tools, guard))
+pub fn create_agent_spawn_tool(scope: Arc<SpawnScopeImpl>) -> Box<dyn Tool> {
+    Box::new(AgentSpawnTool::new(scope))
 }

@@ -388,12 +388,14 @@ impl BaseAgentBuilder {
 
         // 10. Optionally add the agent spawn tool (needs the tool list first)
         if self.enable_sub_agents {
-            let guard = alva_types::tool_guard::ToolGuard::max_depth(self.sub_agent_max_depth);
-            let spawn_tool = crate::plugins::agent_spawn::create_agent_spawn_tool(
+            let root_scope = Arc::new(crate::scope::SpawnScopeImpl::root(
                 model_for_spawn,
                 alva_tools_list.clone(),
-                guard,
-            );
+                std::time::Duration::from_secs(300),
+                self.max_iterations,
+                self.sub_agent_max_depth,
+            ));
+            let spawn_tool = crate::plugins::agent_spawn::create_agent_spawn_tool(root_scope);
             alva_tools_list.push(Arc::from(spawn_tool));
         }
 
