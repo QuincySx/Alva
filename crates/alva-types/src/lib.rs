@@ -6,13 +6,15 @@ pub mod base;
 pub use scope::context;
 pub mod model;
 pub mod tool;
-pub mod embedding;
-pub mod transcription;
-pub mod speech;
-pub mod image;
-pub mod video;
-pub mod reranking;
-pub mod moderation;
+pub mod multimodal;
+// backward-compatible re-exports for old module paths
+pub use multimodal::embedding;
+pub use multimodal::transcription;
+pub use multimodal::speech;
+pub use multimodal::image;
+pub use multimodal::video;
+pub use multimodal::reranking;
+pub use multimodal::moderation;
 pub mod provider;
 // provider_test is now at provider::tests; re-export for backward compatibility
 pub use provider::tests as provider_test;
