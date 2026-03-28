@@ -24,10 +24,10 @@ use serde_json::Value;
 
 use alva_agent_core::{Agent, AgentEvent, AgentHooks, AgentMessage, ConvertToLlmFn};
 use alva_agent_graph::{StateGraph, END};
-use alva_types::error::AgentError;
-use alva_types::message::Message;
+use alva_types::base::error::AgentError;
+use alva_types::base::message::Message;
 use alva_types::model::LanguageModel;
-use alva_types::cancel::CancellationToken;
+use alva_types::base::cancel::CancellationToken;
 use alva_types::tool::{Tool, ToolContext, ToolResult};
 
 use crate::plugins::blackboard::{AgentProfile, Blackboard, BlackboardPlugin, BoardMessage, MessageKind};
@@ -79,20 +79,20 @@ struct TeamState {
 /// the task itself.
 pub struct TeamTool {
     model: Arc<dyn LanguageModel>,
-    guard: alva_types::tool_guard::ToolGuard,
+    guard: alva_types::tool::guard::ToolGuard,
 }
 
 impl TeamTool {
     pub fn new(model: Arc<dyn LanguageModel>) -> Self {
         Self {
             model,
-            guard: alva_types::tool_guard::ToolGuard::max_depth(1),
+            guard: alva_types::tool::guard::ToolGuard::max_depth(1),
         }
     }
 
     /// Set the maximum nesting depth (default: 1, meaning no nesting).
     pub fn with_max_depth(mut self, max: u32) -> Self {
-        self.guard = alva_types::tool_guard::ToolGuard::max_depth(max);
+        self.guard = alva_types::tool::guard::ToolGuard::max_depth(max);
         self
     }
 }

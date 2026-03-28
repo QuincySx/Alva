@@ -230,10 +230,10 @@ impl SpawnScopeImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::error::AgentError;
-    use alva_types::message::Message;
+    use alva_types::base::error::AgentError;
+    use alva_types::base::message::Message;
     use alva_types::model::ModelConfig;
-    use alva_types::stream::StreamEvent;
+    use alva_types::base::stream::StreamEvent;
     use async_trait::async_trait;
     use futures::stream;
     use futures::Stream;

@@ -7,7 +7,7 @@
 //! # Examples
 //!
 //! ```rust,ignore
-//! use alva_types::tool_guard::ToolGuard;
+//! use alva_types::tool::guard::ToolGuard;
 //!
 //! // Max depth = 2 (one level of nesting allowed)
 //! let guard = ToolGuard::max_depth(2);

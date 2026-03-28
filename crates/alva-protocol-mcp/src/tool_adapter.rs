@@ -6,8 +6,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use alva_types::cancel::CancellationToken;
-use alva_types::error::AgentError;
+use alva_types::base::cancel::CancellationToken;
+use alva_types::base::error::AgentError;
 use alva_types::tool::{Tool, ToolContext, ToolResult};
 
 use crate::client::McpClient;

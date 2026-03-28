@@ -15,7 +15,7 @@ pub mod moderation;
 pub mod provider;
 pub mod provider_test;
 pub mod scope;
-pub mod tool_guard;
+// tool_guard is now at tool::guard
 
 pub use base::cancel::CancellationToken;
 pub use base::content::ContentBlock;

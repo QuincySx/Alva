@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use alva_agent_core::{Agent, AgentEvent, AgentHooks, AgentMessage, ConvertToLlmFn};
-use alva_types::cancel::CancellationToken;
-use alva_types::error::AgentError;
-use alva_types::message::Message;
+use alva_types::base::cancel::CancellationToken;
+use alva_types::base::error::AgentError;
+use alva_types::base::message::Message;
 use alva_types::scope::{ChildScopeConfig, ScopeError};
 use alva_types::tool::{Tool, ToolContext, ToolResult};
 

@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use alva_app_core::plugins::blackboard::BoardMessage;
 use alva_app_core::scope::SpawnScopeImpl;
-use alva_types::error::AgentError;
-use alva_types::message::Message;
+use alva_types::base::error::AgentError;
+use alva_types::base::message::Message;
 use alva_types::model::{LanguageModel, ModelConfig};
 use alva_types::scope::{ChildScopeConfig, ScopeError};
-use alva_types::stream::StreamEvent;
+use alva_types::base::stream::StreamEvent;
 use alva_types::tool::Tool;
 use async_trait::async_trait;
 use futures::Stream;

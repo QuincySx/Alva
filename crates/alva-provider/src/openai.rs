@@ -11,10 +11,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_types::error::AgentError;
-use alva_types::message::{Message, MessageRole, UsageMetadata};
+use alva_types::base::error::AgentError;
+use alva_types::base::message::{Message, MessageRole, UsageMetadata};
 use alva_types::model::{LanguageModel, ModelConfig};
-use alva_types::stream::StreamEvent;
+use alva_types::base::stream::StreamEvent;
 use alva_types::tool::Tool;
 use alva_types::ContentBlock;
 
