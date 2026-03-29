@@ -350,6 +350,7 @@ async fn run_single_agent(
         system_prompt: def.system_prompt.clone(),
         max_iterations: 100,
         model_config: alva_types::ModelConfig::default(),
+        context_window: 0,
     };
 
     let cancel = CancellationToken::new();

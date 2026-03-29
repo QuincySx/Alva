@@ -234,6 +234,7 @@ fn main() {
         system_prompt: "You are a demo assistant.".to_string(),
         max_iterations: 100,
         model_config: alva_types::ModelConfig::default(),
+        context_window: 0,
     };
 
     println!(

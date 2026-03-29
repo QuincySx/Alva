@@ -47,6 +47,16 @@ impl Extensions {
             .get_mut(&TypeId::of::<T>())
             .and_then(|b| b.downcast_mut())
     }
+
+    pub fn remove<T: Send + Sync + 'static>(&mut self) -> Option<T> {
+        self.map
+            .remove(&TypeId::of::<T>())
+            .and_then(|b| b.downcast().ok().map(|b| *b))
+    }
+
+    pub fn contains<T: Send + Sync + 'static>(&self) -> bool {
+        self.map.contains_key(&TypeId::of::<T>())
+    }
 }
 
 impl Default for Extensions {

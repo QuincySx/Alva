@@ -21,6 +21,20 @@ pub trait AgentSession: Send + Sync {
     fn messages(&self) -> Vec<AgentMessage>;
     /// Get the most recent N messages (for context assembly).
     fn recent(&self, n: usize) -> Vec<AgentMessage>;
+    /// Number of messages in the session. Avoids cloning just to count.
+    fn len(&self) -> usize;
+
+    /// Whether the session is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Remove messages that do not match the predicate (keep only matching).
+    fn retain(&self, _f: &dyn Fn(&AgentMessage) -> bool) {}
+
+    /// Truncate to the most recent N messages.
+    fn truncate(&self, _keep_recent: usize) {}
+
     /// Clear all messages from the session.
     fn clear(&self) {}
     /// Persist to storage backend.
@@ -77,6 +91,28 @@ impl AgentSession for InMemorySession {
             .write()
             .expect("session RwLock poisoned")
             .push(message);
+    }
+
+    fn len(&self) -> usize {
+        self.messages
+            .read()
+            .expect("session RwLock poisoned")
+            .len()
+    }
+
+    fn retain(&self, f: &dyn Fn(&AgentMessage) -> bool) {
+        self.messages
+            .write()
+            .expect("session RwLock poisoned")
+            .retain(|m| f(m));
+    }
+
+    fn truncate(&self, keep_recent: usize) {
+        let mut guard = self.messages.write().expect("session RwLock poisoned");
+        let len = guard.len();
+        if keep_recent < len {
+            guard.drain(..len - keep_recent);
+        }
     }
 
     fn clear(&self) {

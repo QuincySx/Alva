@@ -21,13 +21,13 @@ pub use crate::shared::{Extensions, MiddlewareError, MiddlewarePriority};
 /// Callback for the "next" step in the LLM wrapping chain.
 #[async_trait]
 pub trait LlmCallFn: Send + Sync {
-    async fn call(&self, messages: Vec<Message>) -> Result<Message, AgentError>;
+    async fn call(&self, state: &mut AgentState, messages: Vec<Message>) -> Result<Message, AgentError>;
 }
 
 /// Callback for the "next" step in the tool wrapping chain.
 #[async_trait]
 pub trait ToolCallFn: Send + Sync {
-    async fn call(&self, tool_call: &ToolCall) -> Result<ToolResult, AgentError>;
+    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolResult, AgentError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ pub trait ToolCallFn: Send + Sync {
 /// Key differences from v1:
 /// - `on_agent_start` / `on_agent_end` lifecycle hooks
 /// - `before_*` / `after_*` inspection hooks receive `&mut AgentState`
-/// - `wrap_*` interceptor hooks receive `&AgentState` (immutable, since the next callback owns the mutable flow)
+/// - `wrap_*` interceptor hooks receive `&mut AgentState` (mutable, state is threaded through the chain)
 /// - All methods have default no-op implementations
 #[async_trait]
 pub trait Middleware: Send + Sync {
@@ -79,11 +79,11 @@ pub trait Middleware: Send + Sync {
     /// Default: just calls `next`.
     async fn wrap_llm_call(
         &self,
-        _state: &AgentState,
+        state: &mut AgentState,
         messages: Vec<Message>,
         next: &dyn LlmCallFn,
     ) -> Result<Message, MiddlewareError> {
-        next.call(messages)
+        next.call(state, messages)
             .await
             .map_err(|e| MiddlewareError::Other(e.to_string()))
     }
@@ -111,11 +111,11 @@ pub trait Middleware: Send + Sync {
     /// Default: just calls `next`.
     async fn wrap_tool_call(
         &self,
-        _state: &AgentState,
+        state: &mut AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolResult, MiddlewareError> {
-        next.call(tool_call)
+        next.call(state, tool_call)
             .await
             .map_err(|e| MiddlewareError::Other(e.to_string()))
     }
@@ -281,7 +281,7 @@ impl MiddlewareStack {
     /// Each middleware's `next` is a closure that calls the remaining chain.
     pub async fn run_wrap_llm_call(
         &self,
-        state: &AgentState,
+        state: &mut AgentState,
         messages: Vec<Message>,
         actual_call: &dyn LlmCallFn,
     ) -> Result<Message, MiddlewareError> {
@@ -292,7 +292,7 @@ impl MiddlewareStack {
     /// Recursive helper for LLM wrap chain (using `Box::pin` for async recursion).
     fn call_wrap_llm_chain<'a>(
         &'a self,
-        state: &'a AgentState,
+        state: &'a mut AgentState,
         messages: Vec<Message>,
         actual_call: &'a dyn LlmCallFn,
         index: usize,
@@ -301,14 +301,13 @@ impl MiddlewareStack {
             if index >= self.layers.len() {
                 // No more middleware -- call actual LLM
                 actual_call
-                    .call(messages)
+                    .call(state, messages)
                     .await
                     .map_err(|e| MiddlewareError::Other(e.to_string()))
             } else {
                 // Create a "next" that calls the rest of the chain
                 let next = ChainedLlmCall {
                     stack: self,
-                    state,
                     actual_call,
                     next_index: index + 1,
                 };
@@ -324,7 +323,7 @@ impl MiddlewareStack {
     /// Builds a nested chain: `mw[0].wrap(mw[1].wrap(... mw[n].wrap(actual)))`.
     pub async fn run_wrap_tool_call(
         &self,
-        state: &AgentState,
+        state: &mut AgentState,
         tool_call: &ToolCall,
         actual_call: &dyn ToolCallFn,
     ) -> Result<ToolResult, MiddlewareError> {
@@ -335,7 +334,7 @@ impl MiddlewareStack {
     /// Recursive helper for tool wrap chain (using `Box::pin` for async recursion).
     fn call_wrap_tool_chain<'a>(
         &'a self,
-        state: &'a AgentState,
+        state: &'a mut AgentState,
         tool_call: &'a ToolCall,
         actual_call: &'a dyn ToolCallFn,
         index: usize,
@@ -344,14 +343,13 @@ impl MiddlewareStack {
             if index >= self.layers.len() {
                 // No more middleware -- call actual tool
                 actual_call
-                    .call(tool_call)
+                    .call(state, tool_call)
                     .await
                     .map_err(|e| MiddlewareError::Other(e.to_string()))
             } else {
                 // Create a "next" that calls the rest of the chain
                 let next = ChainedToolCall {
                     stack: self,
-                    state,
                     actual_call,
                     next_index: index + 1,
                 };
@@ -369,18 +367,20 @@ impl MiddlewareStack {
 
 /// Wraps the remaining LLM middleware chain as a `LlmCallFn` so each
 /// middleware layer receives a proper `next` callback.
+///
+/// State is NOT held here — it is passed through `call(state, messages)` at each level,
+/// allowing `&mut AgentState` to flow through the chain without borrow conflicts.
 struct ChainedLlmCall<'a> {
     stack: &'a MiddlewareStack,
-    state: &'a AgentState,
     actual_call: &'a dyn LlmCallFn,
     next_index: usize,
 }
 
 #[async_trait]
 impl<'a> LlmCallFn for ChainedLlmCall<'a> {
-    async fn call(&self, messages: Vec<Message>) -> Result<Message, AgentError> {
+    async fn call(&self, state: &mut AgentState, messages: Vec<Message>) -> Result<Message, AgentError> {
         self.stack
-            .call_wrap_llm_chain(self.state, messages, self.actual_call, self.next_index)
+            .call_wrap_llm_chain(state, messages, self.actual_call, self.next_index)
             .await
             .map_err(|e| AgentError::Other(e.to_string()))
     }
@@ -388,18 +388,19 @@ impl<'a> LlmCallFn for ChainedLlmCall<'a> {
 
 /// Wraps the remaining tool middleware chain as a `ToolCallFn` so each
 /// middleware layer receives a proper `next` callback.
+///
+/// State is NOT held here — it is passed through `call(state, tool_call)` at each level.
 struct ChainedToolCall<'a> {
     stack: &'a MiddlewareStack,
-    state: &'a AgentState,
     actual_call: &'a dyn ToolCallFn,
     next_index: usize,
 }
 
 #[async_trait]
 impl<'a> ToolCallFn for ChainedToolCall<'a> {
-    async fn call(&self, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
+    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
         self.stack
-            .call_wrap_tool_chain(self.state, tool_call, self.actual_call, self.next_index)
+            .call_wrap_tool_chain(state, tool_call, self.actual_call, self.next_index)
             .await
             .map_err(|e| AgentError::Other(e.to_string()))
     }

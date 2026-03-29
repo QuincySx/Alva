@@ -165,6 +165,7 @@ pub struct BaseAgentBuilder {
     pub(crate) enable_sub_agents: bool,
     pub(crate) sub_agent_max_depth: u32,
     pub(crate) max_iterations: u32,
+    pub(crate) context_window: usize,
 }
 
 impl BaseAgentBuilder {
@@ -182,6 +183,7 @@ impl BaseAgentBuilder {
             enable_sub_agents: false,
             sub_agent_max_depth: 3,
             max_iterations: 100,
+            context_window: 0,
         }
     }
 
@@ -258,6 +260,13 @@ impl BaseAgentBuilder {
     /// Set the max iterations for the agent loop (default: 100).
     pub fn max_iterations(mut self, n: u32) -> Self {
         self.max_iterations = n;
+        self
+    }
+
+    /// Set the context window size (default: 0 = no limit).
+    /// When > 0, only the most recent N messages are included in LLM context.
+    pub fn context_window(mut self, n: usize) -> Self {
+        self.context_window = n;
         self
     }
 
@@ -383,6 +392,7 @@ impl BaseAgentBuilder {
             system_prompt: self.system_prompt,
             max_iterations: self.max_iterations,
             model_config: alva_types::ModelConfig::default(),
+            context_window: self.context_window,
         };
 
         // 10. Optionally create MemoryService

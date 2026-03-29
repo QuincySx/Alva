@@ -33,7 +33,7 @@ struct ActualLlmCall {
 
 #[async_trait]
 impl LlmCallFn for ActualLlmCall {
-    async fn call(&self, messages: Vec<Message>) -> Result<Message, AgentError> {
+    async fn call(&self, _state: &mut AgentState, messages: Vec<Message>) -> Result<Message, AgentError> {
         let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
         self.model
             .complete(&messages, &tool_refs, &self.model_config)
@@ -50,7 +50,7 @@ struct ActualToolCall {
 
 #[async_trait]
 impl ToolCallFn for ActualToolCall {
-    async fn call(&self, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
+    async fn call(&self, _state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
         let timeout_duration = std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS);
         match tokio::time::timeout(
             timeout_duration,
@@ -136,8 +136,12 @@ async fn run_loop(
         // Emit TurnStart
         let _ = event_tx.send(AgentEvent::TurnStart);
 
-        // 3a. Get ALL messages from session
-        let session_messages = state.session.messages();
+        // 3a. Get messages from session (optionally windowed)
+        let session_messages = if config.context_window > 0 {
+            state.session.recent(config.context_window)
+        } else {
+            state.session.messages()
+        };
 
         // 3b. Build LLM messages: [system_prompt] + session messages (only Standard)
         let mut llm_messages = Vec::new();
@@ -376,6 +380,7 @@ mod tests {
             system_prompt: "Echo bot.".to_string(),
             max_iterations: 100,
             model_config: ModelConfig::default(),
+            context_window: 0,
         };
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -415,6 +420,7 @@ mod tests {
             system_prompt: "Test.".to_string(),
             max_iterations: 100,
             model_config: ModelConfig::default(),
+            context_window: 0,
         };
         let cancel = CancellationToken::new();
         cancel.cancel(); // Cancel immediately
@@ -439,6 +445,7 @@ mod tests {
             system_prompt: "Test.".to_string(),
             max_iterations: 100,
             model_config: ModelConfig::default(),
+            context_window: 0,
         };
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();

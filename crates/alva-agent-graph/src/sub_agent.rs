@@ -222,6 +222,7 @@ impl Tool for SubAgentTool {
             system_prompt: config.system_prompt.clone(),
             max_iterations: 100,
             model_config: alva_types::ModelConfig::default(),
+            context_window: 0,
         };
 
         let user_msg = AgentMessage::Standard(Message::user(task));

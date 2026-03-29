@@ -212,6 +212,7 @@ impl Tool for AgentSpawnTool {
             system_prompt: system_prompt.clone(),
             max_iterations: child_scope.max_iterations(),
             model_config: alva_types::ModelConfig::default(),
+            context_window: 0,
         };
 
         // Run with timeout from the child scope

@@ -39,6 +39,9 @@ pub struct AgentConfig {
     pub max_iterations: u32,
     /// Model configuration (temperature, max_tokens, etc.).
     pub model_config: ModelConfig,
+    /// Maximum number of recent messages to include in LLM context.
+    /// 0 means no limit (use all messages).
+    pub context_window: usize,
 }
 
 #[cfg(test)]
@@ -118,6 +121,7 @@ mod tests {
             system_prompt: "You are a helpful assistant.".to_string(),
             max_iterations: 100,
             model_config: ModelConfig::default(),
+            context_window: 0,
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");

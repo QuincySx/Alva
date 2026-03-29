@@ -88,6 +88,7 @@ impl EngineRuntime for AlvaAdapter {
             system_prompt,
             max_iterations: 100,
             model_config: alva_types::ModelConfig::default(),
+            context_window: 0,
         };
 
         // 5. Build the user message from request.prompt.
