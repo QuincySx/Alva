@@ -29,6 +29,7 @@ impl EventMapper {
     }
 
     /// Current session ID (set at construction, used by adapter for routing).
+    #[allow(dead_code)]
     pub fn session_id(&self) -> &str {
         &self.session_id
     }

@@ -2,8 +2,6 @@
 // OUTPUT: AcpSessionState, AcpSession
 // POS:    App-level ACP session — thin wrapper over protocol-level AcpSession with app error types.
 
-use std::sync::Arc;
-
 use crate::agent::agent_client::AcpError;
 
 /// Re-export protocol session state as the app-level type.

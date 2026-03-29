@@ -33,7 +33,31 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::criteria::GradingCriterion;
+// ---------------------------------------------------------------------------
+// GradingCriterion (moved from criteria.rs during V2 cleanup)
+// ---------------------------------------------------------------------------
+
+/// A single grading dimension with a name, description, and weight.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GradingCriterion {
+    /// Short identifier (e.g., "design_quality").
+    pub name: String,
+    /// What this criterion measures, in plain language. This text is
+    /// shown directly to the LLM so it should be clear and actionable.
+    pub description: String,
+    /// Weight for scoring (0.0–1.0). All weights should sum to ~1.0.
+    pub weight: f32,
+}
+
+impl GradingCriterion {
+    pub fn new(name: impl Into<String>, description: impl Into<String>, weight: f32) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            weight,
+        }
+    }
+}
 
 /// Graph termination sentinel — matches `alva_agent_graph::END`.
 const END: &str = "__end__";

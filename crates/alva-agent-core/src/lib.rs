@@ -3,7 +3,7 @@
 // POS:    Crate root — declares modules and re-exports the public API for the V2 agent engine.
 
 // V1 middleware module kept for shared types (Extensions, MiddlewareError, MiddlewarePriority,
-// CompressionMiddleware etc.) — v2 middleware re-uses these.
+// MiddlewareContext, LlmCallFn, ToolCallFn etc.) — v2 middleware re-uses these.
 pub mod middleware;
 
 pub mod event;
@@ -24,14 +24,4 @@ pub use middleware::{MiddlewareError, MiddlewarePriority, Extensions};
 // Re-export AgentMessage from alva-types
 pub use alva_types::AgentMessage;
 
-/// Re-export context types so downstream crates don't need a direct dependency on alva-types::context.
-pub use alva_types::context::{
-    ContextHooks, ContextHandle, ContextSystem, ContextError,
-    NoopContextHooks, NoopContextHandle,
-    SessionAccess, SessionEvent, IngestAction, EventQuery, EventMatch,
-    ContextEntry, ContextMetadata, ContextLayer, ContextSnapshot,
-    EntryOrigin, Priority, BudgetInfo,
-    Injection, InjectionContent, CompressAction,
-    MemoryFact, MemoryCategory, ToolPattern, MessageRange, MessageSelector,
-    PromptSection, RuntimeContext, EntrySnapshot, LayerStats,
-};
+// Context types are available directly from `alva_types::context` — no re-export needed.

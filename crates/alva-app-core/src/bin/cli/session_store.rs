@@ -143,6 +143,7 @@ impl SessionStore {
     }
 
     /// Delete a session.
+    #[allow(dead_code)]
     pub fn delete(&self, session_id: &str) {
         let path = self.sessions_dir.join(format!("{}.json", session_id));
         let _ = fs::remove_file(path);

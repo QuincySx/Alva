@@ -29,6 +29,7 @@ pub enum BridgeMessage {
 /// SDK message types we care about. Unknown types are silently ignored.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum SdkMessage {
     #[serde(rename = "system")]
     System {

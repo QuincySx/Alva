@@ -261,10 +261,6 @@ impl Middleware for SkillInjectionMiddleware {
 mod tests {
     use super::*;
     use alva_types::ContentBlock;
-    use crate::skills::loader::SkillLoader;
-    use crate::skills::skill_domain::skill::{SkillKind, SkillMeta};
-    use crate::skills::skill_fs::FsSkillRepository;
-    use alva_agent_core::middleware::Extensions;
 
     #[test]
     fn extract_keywords_filters_stop_words() {
