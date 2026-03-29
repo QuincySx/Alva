@@ -1,6 +1,6 @@
-// INPUT:  alva_agent_core::middleware, alva_types::Message
+// INPUT:  alva_agent_core::{middleware, state, shared}, alva_types::Message
 // OUTPUT: SprintContract, SprintContractMiddleware
-// POS:    Middleware that injects sprint completion contracts into the LLM context.
+// POS:    Middleware that injects sprint completion contracts into the LLM context (V2).
 
 //! Sprint Contract middleware — injects structured completion criteria into the
 //! agent's context so both generator and evaluator share an explicit "definition
@@ -24,7 +24,8 @@
 
 use std::fmt;
 
-use alva_agent_core::middleware::{Middleware, MiddlewareContext, MiddlewareError, MiddlewarePriority};
+use alva_agent_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
+use alva_agent_core::state::AgentState;
 use alva_types::Message;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -131,22 +132,26 @@ impl SprintContractMiddleware {
 impl Middleware for SprintContractMiddleware {
     async fn on_agent_start(
         &self,
-        ctx: &mut MiddlewareContext,
+        state: &mut AgentState,
     ) -> Result<(), MiddlewareError> {
         // Store contract in extensions for evaluator / other middleware to read.
-        ctx.extensions.insert(self.contract.clone());
+        state.extensions.insert(self.contract.clone());
         Ok(())
     }
 
     async fn before_llm_call(
         &self,
-        ctx: &mut MiddlewareContext,
-        _messages: &mut Vec<Message>,
+        _state: &mut AgentState,
+        messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
-        // Append contract to system prompt so the LLM sees the completion criteria.
+        // Inject contract as a system message so the LLM sees the completion criteria.
+        // Insert after existing system messages so it appears right before user content.
         let prompt_section = self.contract.to_prompt();
-        ctx.system_prompt.push_str("\n\n");
-        ctx.system_prompt.push_str(&prompt_section);
+        let insert_pos = messages
+            .iter()
+            .position(|m| m.role != alva_types::MessageRole::System)
+            .unwrap_or(messages.len());
+        messages.insert(insert_pos, Message::system(&prompt_section));
         Ok(())
     }
 
@@ -167,7 +172,49 @@ impl Middleware for SprintContractMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_agent_core::middleware::Extensions;
+    use alva_agent_core::shared::Extensions;
+    use alva_types::session::InMemorySession;
+    use std::sync::Arc;
+
+    fn make_state() -> AgentState {
+        use alva_types::base::error::AgentError;
+        use alva_types::base::message::Message;
+        use alva_types::base::stream::StreamEvent;
+        use alva_types::model::LanguageModel;
+        use alva_types::tool::Tool;
+        use alva_types::ModelConfig;
+
+        struct StubModel;
+        #[async_trait]
+        impl LanguageModel for StubModel {
+            async fn complete(
+                &self,
+                _: &[Message],
+                _: &[&dyn Tool],
+                _: &ModelConfig,
+            ) -> Result<Message, AgentError> {
+                unreachable!()
+            }
+            fn stream(
+                &self,
+                _: &[Message],
+                _: &[&dyn Tool],
+                _: &ModelConfig,
+            ) -> std::pin::Pin<Box<dyn futures::Stream<Item = StreamEvent> + Send>> {
+                Box::pin(tokio_stream::empty())
+            }
+            fn model_id(&self) -> &str {
+                "stub"
+            }
+        }
+
+        AgentState {
+            model: Arc::new(StubModel),
+            tools: vec![],
+            session: Arc::new(InMemorySession::new()),
+            extensions: Extensions::new(),
+        }
+    }
 
     #[test]
     fn contract_builder_works() {
@@ -198,27 +245,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn middleware_injects_contract_into_system_prompt() {
+    async fn middleware_injects_contract_into_messages() {
         let contract = SprintContract::new("Implement feature X")
             .with_deliverable("New endpoint")
             .with_verification("Returns 200");
 
         let mw = SprintContractMiddleware::new(contract);
 
-        let mut ctx = MiddlewareContext {
-            session_id: "test-session".into(),
-            system_prompt: "You are a helpful assistant.".into(),
-            messages: vec![],
-            extensions: Extensions::new(),
-        };
-        let mut messages = vec![];
+        let mut state = make_state();
+        let mut messages = vec![
+            Message::system("You are a helpful assistant."),
+            Message::user("Do something"),
+        ];
 
-        mw.on_agent_start(&mut ctx).await.unwrap();
-        mw.before_llm_call(&mut ctx, &mut messages).await.unwrap();
+        mw.on_agent_start(&mut state).await.unwrap();
+        mw.before_llm_call(&mut state, &mut messages).await.unwrap();
 
-        assert!(ctx.system_prompt.contains("Sprint Contract"));
-        assert!(ctx.system_prompt.contains("Implement feature X"));
-        assert!(ctx.system_prompt.contains("New endpoint"));
+        // Contract should be inserted as a system message after the first system message
+        assert_eq!(messages.len(), 3);
+        let injected = &messages[1]; // after first system, before user
+        let text = injected.text_content();
+        assert!(text.contains("Sprint Contract"));
+        assert!(text.contains("Implement feature X"));
+        assert!(text.contains("New endpoint"));
     }
 
     #[tokio::test]
@@ -228,16 +277,11 @@ mod tests {
 
         let mw = SprintContractMiddleware::new(contract);
 
-        let mut ctx = MiddlewareContext {
-            session_id: "test".into(),
-            system_prompt: String::new(),
-            messages: vec![],
-            extensions: Extensions::new(),
-        };
+        let mut state = make_state();
 
-        mw.on_agent_start(&mut ctx).await.unwrap();
+        mw.on_agent_start(&mut state).await.unwrap();
 
-        let stored = ctx.extensions.get::<SprintContract>();
+        let stored = state.extensions.get::<SprintContract>();
         assert!(stored.is_some());
         assert_eq!(stored.unwrap().goal, "Test");
     }

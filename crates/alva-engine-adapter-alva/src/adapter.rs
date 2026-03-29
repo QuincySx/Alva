@@ -12,10 +12,10 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::debug;
 
-use alva_agent_core::v2::middleware::MiddlewareStack;
-use alva_agent_core::v2::state::{AgentConfig, AgentState};
-use alva_agent_core::v2::run::run_agent;
-use alva_agent_core::middleware::Extensions;
+use alva_agent_core::middleware::MiddlewareStack;
+use alva_agent_core::state::{AgentConfig, AgentState};
+use alva_agent_core::run::run_agent;
+use alva_agent_core::shared::Extensions;
 use alva_agent_core::AgentMessage;
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,

@@ -199,11 +199,11 @@ impl Tool for SubAgentTool {
         let tools = self.resolve_tools(config);
 
         // Build V2 sub-agent state + config and run it.
-        use alva_agent_core::v2::middleware::MiddlewareStack;
-        use alva_agent_core::v2::state::{AgentConfig, AgentState};
-        use alva_agent_core::v2::run::run_agent;
+        use alva_agent_core::middleware::MiddlewareStack;
+        use alva_agent_core::state::{AgentConfig, AgentState};
+        use alva_agent_core::run::run_agent;
         use alva_agent_core::event::AgentEvent;
-        use alva_agent_core::middleware::Extensions;
+        use alva_agent_core::shared::Extensions;
         use alva_types::{AgentMessage, Message};
         use alva_types::session::InMemorySession;
 

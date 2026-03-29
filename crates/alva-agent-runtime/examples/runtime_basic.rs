@@ -15,9 +15,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use alva_agent_runtime::AgentRuntime;
-use alva_agent_core::v2::middleware::{Middleware, MiddlewareError};
-use alva_agent_core::v2::state::AgentState;
-use alva_agent_core::v2::run::run_agent;
+use alva_agent_core::middleware::{Middleware, MiddlewareError};
+use alva_agent_core::state::AgentState;
+use alva_agent_core::run::run_agent;
 use alva_types::{
     AgentError, CancellationToken, LanguageModel, Message, ModelConfig, Provider, ProviderError,
     ProviderRegistry, StreamEvent, Tool, AgentMessage,

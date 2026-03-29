@@ -6,11 +6,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_agent_core::v2::middleware::{Middleware, MiddlewareStack};
-use alva_agent_core::v2::state::{AgentConfig, AgentState};
-use alva_agent_core::v2::run::run_agent;
+use alva_agent_core::middleware::{Middleware, MiddlewareStack};
+use alva_agent_core::state::{AgentConfig, AgentState};
+use alva_agent_core::run::run_agent;
 use alva_agent_core::event::AgentEvent;
-use alva_agent_core::middleware::Extensions;
+use alva_agent_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
 use alva_agent_security::SandboxMode;
 use alva_types::{
@@ -325,12 +325,12 @@ impl BaseAgentBuilder {
 
         // a. Builtin: DanglingToolCallMiddleware
         middleware_stack.push(Arc::new(
-            alva_agent_core::v2::builtins::DanglingToolCallMiddleware::new(),
+            alva_agent_core::builtins::DanglingToolCallMiddleware::new(),
         ));
 
         // b. Builtin: LoopDetectionMiddleware
         middleware_stack.push(Arc::new(
-            alva_agent_core::v2::builtins::LoopDetectionMiddleware::new(),
+            alva_agent_core::builtins::LoopDetectionMiddleware::new(),
         ));
 
         // c. Extra middleware from user

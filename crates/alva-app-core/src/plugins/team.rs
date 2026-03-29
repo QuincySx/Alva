@@ -22,11 +22,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_agent_core::v2::middleware::MiddlewareStack;
-use alva_agent_core::v2::state::{AgentConfig, AgentState};
-use alva_agent_core::v2::run::run_agent;
+use alva_agent_core::middleware::MiddlewareStack;
+use alva_agent_core::state::{AgentConfig, AgentState};
+use alva_agent_core::run::run_agent;
 use alva_agent_core::event::AgentEvent;
-use alva_agent_core::middleware::Extensions;
+use alva_agent_core::shared::Extensions;
 use alva_agent_graph::{StateGraph, END};
 use alva_types::base::error::AgentError;
 use alva_types::base::message::Message;

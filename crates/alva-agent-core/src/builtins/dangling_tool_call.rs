@@ -1,16 +1,15 @@
 // INPUT:  alva_types (Message, MessageRole, ContentBlock), async_trait,
-//         super::super::middleware::{Middleware, MiddlewareError, MiddlewarePriority}, super::super::state::AgentState
+//         crate::middleware::{Middleware, MiddlewareError, MiddlewarePriority}, crate::state::AgentState
 // OUTPUT: DanglingToolCallMiddleware
-// POS:    V2 dangling tool call fixer — same logic as v1 but adapted for v2 Middleware trait
-//         that receives &mut AgentState instead of &mut MiddlewareContext.
+// POS:    Dangling tool call fixer — inserts synthetic ToolResult for interrupted tool calls.
 
 use std::collections::HashSet;
 
 use alva_types::{ContentBlock, Message, MessageRole};
 use async_trait::async_trait;
 
-use super::super::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
-use super::super::state::AgentState;
+use crate::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
+use crate::state::AgentState;
 
 /// V2 middleware that fixes dangling tool calls on conversation resume.
 ///
@@ -147,7 +146,7 @@ impl Middleware for DanglingToolCallMiddleware {
 mod tests {
     use super::*;
     use alva_types::session::InMemorySession;
-    use crate::middleware::Extensions;
+    use crate::shared::Extensions;
     use std::sync::Arc;
 
     // -- helpers --

@@ -11,9 +11,9 @@
 
 use std::sync::Arc;
 
-use alva_agent_core::v2::middleware::{Middleware, MiddlewareError, MiddlewareStack};
-use alva_agent_core::v2::state::{AgentConfig, AgentState};
-use alva_agent_core::middleware::Extensions;
+use alva_agent_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
+use alva_agent_core::state::{AgentConfig, AgentState};
+use alva_agent_core::shared::Extensions;
 use alva_types::{Message, ToolCall, ToolResult};
 use alva_types::session::InMemorySession;
 use async_trait::async_trait;

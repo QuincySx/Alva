@@ -4,9 +4,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_agent_core::v2::middleware::MiddlewareStack;
-use alva_agent_core::v2::state::{AgentConfig, AgentState};
-use alva_agent_core::middleware::Extensions;
+use alva_agent_core::middleware::MiddlewareStack;
+use alva_agent_core::state::{AgentConfig, AgentState};
+use alva_agent_core::shared::Extensions;
 use alva_types::{LanguageModel, ModelConfig, Tool, ToolRegistry};
 use alva_types::session::{AgentSession, InMemorySession};
 
@@ -60,7 +60,7 @@ impl AgentRuntimeBuilder {
     }
 
     /// Add a middleware layer to the stack.
-    pub fn middleware(mut self, mw: Arc<dyn alva_agent_core::v2::middleware::Middleware>) -> Self {
+    pub fn middleware(mut self, mw: Arc<dyn alva_agent_core::middleware::Middleware>) -> Self {
         self.middleware.push(mw);
         self
     }

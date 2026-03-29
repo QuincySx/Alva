@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use alva_agent_core::v2::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
-use alva_agent_core::v2::middleware::MiddlewareStack;
-use alva_agent_core::v2::run::run_agent;
-use alva_agent_core::v2::state::{AgentConfig, AgentState};
+use alva_agent_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
+use alva_agent_core::middleware::MiddlewareStack;
+use alva_agent_core::run::run_agent;
+use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::AgentEvent;
 use alva_types::base::content::ContentBlock;
 use alva_types::base::error::AgentError;
@@ -70,7 +70,7 @@ fn make_state() -> AgentState {
         model: Arc::new(EchoModel),
         tools: vec![],
         session: Arc::new(InMemorySession::new()),
-        extensions: alva_agent_core::middleware::Extensions::new(),
+        extensions: alva_agent_core::shared::Extensions::new(),
     }
 }
 

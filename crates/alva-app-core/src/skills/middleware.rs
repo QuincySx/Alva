@@ -1,6 +1,6 @@
-// INPUT:  alva_agent_core::middleware, alva_types::Message, crate::skills::{store, injector, skill_domain}
+// INPUT:  alva_agent_core::{middleware, state}, alva_types::Message, crate::skills::{store, injector, skill_domain}
 // OUTPUT: SkillInjectionMiddleware
-// POS:    Middleware that dynamically injects relevant skills into the LLM context based on conversation content.
+// POS:    Middleware that dynamically injects relevant skills into the LLM context based on conversation content (V2).
 
 //! Skill injection middleware — dynamically loads skill content into the
 //! system prompt based on conversation context.
@@ -14,7 +14,8 @@
 
 use std::sync::Arc;
 
-use alva_agent_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
+use alva_agent_core::middleware::{Middleware, MiddlewareError};
+use alva_agent_core::state::AgentState;
 use alva_types::{Message, MessageRole};
 use async_trait::async_trait;
 
@@ -144,10 +145,10 @@ impl SkillInjectionMiddleware {
 impl Middleware for SkillInjectionMiddleware {
     async fn on_agent_start(
         &self,
-        ctx: &mut MiddlewareContext,
+        state: &mut AgentState,
     ) -> Result<(), MiddlewareError> {
         // Initialize the injected-skills tracker in Extensions
-        ctx.extensions.insert(InjectedSkills {
+        state.extensions.insert(InjectedSkills {
             names: std::collections::HashSet::new(),
         });
         Ok(())
@@ -155,7 +156,7 @@ impl Middleware for SkillInjectionMiddleware {
 
     async fn before_llm_call(
         &self,
-        ctx: &mut MiddlewareContext,
+        state: &mut AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         // 1. Extract latest user message for intent detection
@@ -171,7 +172,7 @@ impl Middleware for SkillInjectionMiddleware {
         };
 
         // 2. Get already-injected skills to avoid duplicates
-        let already_injected = ctx
+        let already_injected = state
             .extensions
             .get::<InjectedSkills>()
             .map(|s| s.names.clone())
@@ -238,7 +239,7 @@ impl Middleware for SkillInjectionMiddleware {
         messages.insert(insert_pos, Message::system(&injection));
 
         // 6. Track injected skills in Extensions
-        if let Some(tracker) = ctx.extensions.get_mut::<InjectedSkills>() {
+        if let Some(tracker) = state.extensions.get_mut::<InjectedSkills>() {
             for sr in &skill_refs {
                 tracker.names.insert(sr.name.clone());
             }

@@ -1,4 +1,4 @@
-// INPUT:  std::sync::Arc, alva_types::{LanguageModel, AgentSession, Tool}, crate::middleware::Extensions
+// INPUT:  std::sync::Arc, alva_types::{LanguageModel, AgentSession, Tool}, crate::shared::Extensions
 // OUTPUT: AgentState, AgentConfig
 // POS:    V2 mutable state and immutable config — separated to avoid Rust borrow conflicts.
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use alva_types::model::LanguageModel;
 use alva_types::session::AgentSession;
 use alva_types::tool::Tool;
 
-use crate::middleware::Extensions;
+use crate::shared::Extensions;
 
 /// V2 mutable state — what the agent "has" at runtime.
 ///
@@ -30,7 +30,7 @@ pub struct AgentState {
 /// while config is borrowed immutably, avoiding Rust borrow conflicts.
 pub struct AgentConfig {
     /// The middleware stack for this agent run.
-    pub middleware: super::middleware::MiddlewareStack,
+    pub middleware: crate::middleware::MiddlewareStack,
     /// System prompt prepended to every LLM call.
     pub system_prompt: String,
 }
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn agent_config_with_system_prompt() {
         let config = AgentConfig {
-            middleware: super::super::middleware::MiddlewareStack::new(),
+            middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "You are a helpful assistant.".to_string(),
         };
 

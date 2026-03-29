@@ -9,7 +9,6 @@ members = [
     "crates/alva-agent-tools",
     "crates/alva-agent-security",
     "crates/alva-agent-memory",
-    "crates/alva-agent-context",
     "crates/alva-agent-scope",
     "crates/alva-agent-runtime",
     "crates/alva-protocol-skill",

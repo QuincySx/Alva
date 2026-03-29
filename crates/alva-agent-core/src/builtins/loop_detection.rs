@@ -1,7 +1,7 @@
 // INPUT:  alva_types (Message, ContentBlock), async_trait, std::sync::Mutex, std::collections::HashMap,
-//         std::collections::hash_map::DefaultHasher, super::super::middleware::{Middleware, MiddlewareError, MiddlewarePriority}
+//         std::collections::hash_map::DefaultHasher, crate::middleware::{Middleware, MiddlewareError, MiddlewarePriority}
 // OUTPUT: LoopDetectionMiddleware
-// POS:    V2 loop detection — same logic as v1 but adapted for v2 Middleware trait that receives &mut AgentState.
+// POS:    Loop detection middleware — detects and breaks repetitive tool-call loops.
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use alva_types::{ContentBlock, Message};
 use async_trait::async_trait;
 
-use super::super::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
-use super::super::state::AgentState;
+use crate::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
+use crate::state::AgentState;
 
 /// V2 middleware that detects and breaks repetitive tool-call loops.
 ///
@@ -158,7 +158,7 @@ mod tests {
     use super::*;
     use alva_types::session::InMemorySession;
     use alva_types::MessageRole;
-    use crate::middleware::Extensions;
+    use crate::shared::Extensions;
     use std::sync::Arc;
 
     // -- helpers --

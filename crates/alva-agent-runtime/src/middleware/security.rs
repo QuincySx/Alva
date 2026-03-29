@@ -1,12 +1,12 @@
-// INPUT:  alva_agent_core::v2::middleware, alva_agent_security, alva_types, async_trait, tokio::sync::Mutex
+// INPUT:  alva_agent_core::middleware, alva_agent_security, alva_types, async_trait, tokio::sync::Mutex
 // OUTPUT: SecurityMiddleware
 // POS:    Wraps SecurityGuard as V2 async Middleware — blocks tool calls on Deny/NeedHumanApproval.
 
 use std::sync::Arc;
 
-use alva_agent_core::v2::middleware::{Middleware, MiddlewareError};
-use alva_agent_core::v2::state::AgentState;
-use alva_agent_core::middleware::MiddlewarePriority;
+use alva_agent_core::middleware::{Middleware, MiddlewareError};
+use alva_agent_core::state::AgentState;
+use alva_agent_core::shared::MiddlewarePriority;
 use alva_agent_security::{SandboxMode, SecurityDecision, SecurityGuard};
 use alva_types::{EmptyToolContext, ToolCall};
 use async_trait::async_trait;
@@ -63,7 +63,7 @@ impl Middleware for SecurityMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_agent_core::middleware::Extensions;
+    use alva_agent_core::shared::Extensions;
     use alva_types::session::InMemorySession;
 
     fn make_state() -> AgentState {
