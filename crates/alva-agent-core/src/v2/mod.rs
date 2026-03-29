@@ -1,6 +1,7 @@
-// INPUT:  state, middleware modules
-// OUTPUT: AgentState, AgentConfig, Middleware, MiddlewareStack, LlmCallFn, ToolCallFn
-// POS:    V2 agent module root — re-exports state and middleware for the new agent architecture.
+// INPUT:  state, middleware, builtins modules
+// OUTPUT: AgentState, AgentConfig, Middleware, MiddlewareStack, LlmCallFn, ToolCallFn, builtins
+// POS:    V2 agent module root — re-exports state, middleware, and builtins for the new agent architecture.
+pub mod builtins;
 pub mod middleware;
 pub mod run;
 pub mod state;
