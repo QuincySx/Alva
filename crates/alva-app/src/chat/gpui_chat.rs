@@ -130,6 +130,7 @@ impl GpuiChat {
             middleware: alva_app_core::MiddlewareStack::new(),
             system_prompt: "You are a helpful assistant.".to_string(),
             max_iterations: 100,
+            model_config: alva_app_core::alva_types::ModelConfig::default(),
         };
 
         let cancel = alva_app_core::alva_types::CancellationToken::new();

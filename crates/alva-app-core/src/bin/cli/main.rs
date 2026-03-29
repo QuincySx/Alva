@@ -97,7 +97,8 @@ async fn run() {
             );
             eprintln!("Type /new for fresh session, /sessions to list all.");
 
-            // Restore messages
+            // Restore messages — clear first to avoid stale data
+            agent.new_session().await;
             let saved = store.load_messages(&id);
             if !saved.is_empty() {
                 restore_messages(&agent, saved).await;
@@ -174,6 +175,7 @@ async fn run() {
                                 let picked = &sessions[idx - 1];
                                 session_id = picked.id.clone();
 
+                                agent.new_session().await;
                                 let saved = store.load_messages(&session_id);
                                 restore_messages(&agent, saved).await;
 

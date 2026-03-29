@@ -7,6 +7,8 @@ use alva_types::model::LanguageModel;
 use alva_types::session::AgentSession;
 use alva_types::tool::Tool;
 
+use alva_types::ModelConfig;
+
 use crate::shared::Extensions;
 
 /// V2 mutable state — what the agent "has" at runtime.
@@ -35,6 +37,8 @@ pub struct AgentConfig {
     pub system_prompt: String,
     /// Maximum number of iterations (LLM call + tool execution rounds) before stopping.
     pub max_iterations: u32,
+    /// Model configuration (temperature, max_tokens, etc.).
+    pub model_config: ModelConfig,
 }
 
 #[cfg(test)]
@@ -113,6 +117,7 @@ mod tests {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "You are a helpful assistant.".to_string(),
             max_iterations: 100,
+            model_config: ModelConfig::default(),
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");

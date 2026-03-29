@@ -45,7 +45,9 @@ use tokio::sync::{mpsc, Mutex};
 pub struct BaseAgent {
     state: Arc<Mutex<AgentState>>,
     config: Arc<AgentConfig>,
-    cancel: CancellationToken,
+    /// Holds the CancellationToken for the currently running prompt() call.
+    /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
+    current_cancel: std::sync::Mutex<CancellationToken>,
     tool_registry: ToolRegistry,
     skill_store: Arc<SkillStore>,
     memory: Option<MemoryService>,
@@ -64,12 +66,20 @@ impl BaseAgent {
     }
 
     /// Send messages to the agent and receive events via an unbounded channel.
+    ///
+    /// A fresh `CancellationToken` is created for each call so that a
+    /// previously-cancelled token does not block future prompts.
     pub fn prompt(&self, messages: Vec<AgentMessage>) -> mpsc::UnboundedReceiver<AgentEvent> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
+        let cancel = CancellationToken::new();
+        {
+            let mut current = self.current_cancel.lock().unwrap_or_else(|e| e.into_inner());
+            *current = cancel.clone();
+        }
+
         let state = self.state.clone();
         let config = self.config.clone();
-        let cancel = self.cancel.clone();
 
         tokio::spawn(async move {
             let mut st = state.lock().await;
@@ -91,7 +101,8 @@ impl BaseAgent {
 
     /// Cancel the currently running agent loop.
     pub fn cancel(&self) {
-        self.cancel.cancel();
+        let current = self.current_cancel.lock().unwrap_or_else(|e| e.into_inner());
+        current.cancel();
     }
 
     /// Get a snapshot of the current message history.
@@ -107,11 +118,11 @@ impl BaseAgent {
     }
 
     /// Restore message history (e.g., when resuming a session).
+    ///
+    /// Clears any existing messages first, then appends the restored history.
     pub async fn restore_messages(&self, messages: Vec<AgentMessage>) {
         let st = self.state.lock().await;
-        // Clear existing messages by creating a fresh session is complex,
-        // so we append to the session. For full restore, we clear + re-add.
-        // InMemorySession doesn't have a clear method, so we work with what we have.
+        st.session.clear();
         for msg in messages {
             st.session.append(msg);
         }
@@ -330,18 +341,18 @@ impl BaseAgentBuilder {
         let mut middleware_stack = MiddlewareStack::new();
 
         // a. Builtin: DanglingToolCallMiddleware
-        middleware_stack.push(Arc::new(
+        middleware_stack.push_sorted(Arc::new(
             alva_agent_core::builtins::DanglingToolCallMiddleware::new(),
         ));
 
         // b. Builtin: LoopDetectionMiddleware
-        middleware_stack.push(Arc::new(
+        middleware_stack.push_sorted(Arc::new(
             alva_agent_core::builtins::LoopDetectionMiddleware::new(),
         ));
 
         // c. Extra middleware from user
         for mw in self.extra_middleware {
-            middleware_stack.push(mw);
+            middleware_stack.push_sorted(mw);
         }
 
         // 7. Optionally add the agent spawn tool
@@ -371,6 +382,7 @@ impl BaseAgentBuilder {
             middleware: middleware_stack,
             system_prompt: self.system_prompt,
             max_iterations: self.max_iterations,
+            model_config: alva_types::ModelConfig::default(),
         };
 
         // 10. Optionally create MemoryService
@@ -389,7 +401,7 @@ impl BaseAgentBuilder {
         Ok(BaseAgent {
             state: Arc::new(Mutex::new(state)),
             config: Arc::new(config),
-            cancel: CancellationToken::new(),
+            current_cancel: std::sync::Mutex::new(CancellationToken::new()),
             tool_registry,
             skill_store,
             memory,

@@ -28,6 +28,7 @@ const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 120;
 struct ActualLlmCall {
     model: Arc<dyn LanguageModel>,
     tools: Vec<Arc<dyn Tool>>,
+    model_config: ModelConfig,
 }
 
 #[async_trait]
@@ -35,7 +36,7 @@ impl LlmCallFn for ActualLlmCall {
     async fn call(&self, messages: Vec<Message>) -> Result<Message, AgentError> {
         let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
         self.model
-            .complete(&messages, &tool_refs, &ModelConfig::default())
+            .complete(&messages, &tool_refs, &self.model_config)
             .await
     }
 }
@@ -160,6 +161,7 @@ async fn run_loop(
         let actual_call = ActualLlmCall {
             model: state.model.clone(),
             tools: state.tools.clone(),
+            model_config: config.model_config.clone(),
         };
         let mut response = config
             .middleware
@@ -373,6 +375,7 @@ mod tests {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "Echo bot.".to_string(),
             max_iterations: 100,
+            model_config: ModelConfig::default(),
         };
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -411,6 +414,7 @@ mod tests {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "Test.".to_string(),
             max_iterations: 100,
+            model_config: ModelConfig::default(),
         };
         let cancel = CancellationToken::new();
         cancel.cancel(); // Cancel immediately
@@ -434,6 +438,7 @@ mod tests {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "Test.".to_string(),
             max_iterations: 100,
+            model_config: ModelConfig::default(),
         };
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();

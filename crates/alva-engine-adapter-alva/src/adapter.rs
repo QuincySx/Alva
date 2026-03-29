@@ -87,6 +87,7 @@ impl EngineRuntime for AlvaAdapter {
             middleware: MiddlewareStack::new(),
             system_prompt,
             max_iterations: 100,
+            model_config: alva_types::ModelConfig::default(),
         };
 
         // 5. Build the user message from request.prompt.

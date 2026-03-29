@@ -195,15 +195,29 @@ impl MiddlewareStack {
     }
 
     /// Run `on_agent_end` bottom-to-top.
+    ///
+    /// Unlike other hooks, this always runs **all** layers even if some fail,
+    /// so that every middleware gets a chance to clean up. The first error
+    /// encountered is returned after all layers have run.
     pub async fn run_on_agent_end(
         &self,
         state: &mut AgentState,
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
+        let mut first_error: Option<MiddlewareError> = None;
         for layer in self.layers.iter().rev() {
-            layer.on_agent_end(state, error).await?;
+            if let Err(e) = layer.on_agent_end(state, error).await {
+                tracing::warn!(
+                    error = %e,
+                    middleware = layer.name(),
+                    "on_agent_end failed"
+                );
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     // -- before hooks: top-to-bottom ---------------------------------------

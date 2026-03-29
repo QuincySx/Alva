@@ -135,6 +135,7 @@ impl AgentRuntimeBuilder {
             middleware: self.middleware,
             system_prompt: self.system_prompt,
             max_iterations: 100,
+            model_config: alva_types::ModelConfig::default(),
         };
 
         AgentRuntime {

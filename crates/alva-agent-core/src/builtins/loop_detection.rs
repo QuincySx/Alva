@@ -102,7 +102,7 @@ impl Middleware for LoopDetectionMiddleware {
         let session_id = state.session.id().to_string();
 
         let count = {
-            let mut history_map = self.history.lock().unwrap();
+            let mut history_map = self.history.lock().unwrap_or_else(|e| e.into_inner());
             let session_history = history_map.entry(session_id).or_default();
 
             // Append and trim to window size
@@ -137,6 +137,17 @@ impl Middleware for LoopDetectionMiddleware {
             );
         }
 
+        Ok(())
+    }
+
+    async fn on_agent_end(
+        &self,
+        state: &mut AgentState,
+        _error: Option<&str>,
+    ) -> Result<(), MiddlewareError> {
+        let session_id = state.session.id().to_string();
+        let mut history = self.history.lock().unwrap_or_else(|e| e.into_inner());
+        history.remove(&session_id);
         Ok(())
     }
 

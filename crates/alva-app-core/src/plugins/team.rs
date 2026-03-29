@@ -349,6 +349,7 @@ async fn run_single_agent(
         middleware: MiddlewareStack::new(),
         system_prompt: def.system_prompt.clone(),
         max_iterations: 100,
+        model_config: alva_types::ModelConfig::default(),
     };
 
     let cancel = CancellationToken::new();

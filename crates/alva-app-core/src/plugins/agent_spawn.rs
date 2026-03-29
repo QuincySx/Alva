@@ -195,9 +195,11 @@ impl Tool for AgentSpawnTool {
             scope: child_scope.clone(),
         }));
 
-        // Create V2 AgentState + AgentConfig for the child
+        // Create V2 AgentState + AgentConfig for the child.
+        // Link child session to parent via with_parent() for tree-wide tracking.
+        let parent_session_id = self.scope.session_id();
         let session: Arc<dyn alva_types::session::AgentSession> =
-            Arc::new(InMemorySession::new());
+            Arc::new(InMemorySession::with_parent(parent_session_id));
         let mut state = AgentState {
             model: child_scope.model(),
             tools: child_tools,
@@ -209,6 +211,7 @@ impl Tool for AgentSpawnTool {
             middleware: MiddlewareStack::new(),
             system_prompt: system_prompt.clone(),
             max_iterations: child_scope.max_iterations(),
+            model_config: alva_types::ModelConfig::default(),
         };
 
         // Run with timeout from the child scope
