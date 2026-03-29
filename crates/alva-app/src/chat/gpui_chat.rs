@@ -1,6 +1,6 @@
-// INPUT:  gpui, alva_app_core (Agent, AgentHooks, AgentMessage, AgentEvent, alva_types), tokio, std::sync::Arc, std::pin::Pin
+// INPUT:  gpui, alva_app_core (V2: AgentState, AgentConfig, run_agent), alva_types, tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
-// POS:    GPUI Entity wrapping alva-core's Agent that bridges async agent events to GPUI's sync UI thread.
+// POS:    GPUI Entity wrapping V2 agent engine that bridges async agent events to GPUI's sync UI thread.
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use alva_app_core::alva_types::{
     AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
-use alva_app_core::{AgentHooks, AgentContext, AgentEvent, AgentMessage};
+use alva_app_core::{AgentEvent, AgentMessage};
 
 /// GPUI Global holding a shared tokio runtime for all GpuiChat instances.
 pub struct SharedRuntime(pub Arc<tokio::runtime::Runtime>);
@@ -78,17 +78,19 @@ impl LanguageModel for PlaceholderModel {
 }
 
 // ---------------------------------------------------------------------------
-// GpuiChat — GPUI Entity wrapping alva-core's Agent
+// GpuiChat — GPUI Entity wrapping V2 agent engine
 // ---------------------------------------------------------------------------
 
-/// GPUI Entity wrapping alva-core's Agent.
+/// GPUI Entity wrapping V2 agent engine.
 ///
-/// Holds the agent, a local copy of messages (for synchronous UI reads),
-/// and the running state. The async agent loop runs on the shared tokio
-/// runtime and sends events back via an `mpsc` channel that is drained
-/// in a GPUI timer/callback.
+/// Holds a shared V2 AgentState + AgentConfig, a local copy of messages
+/// (for synchronous UI reads), and the running state. The async agent loop
+/// runs on the shared tokio runtime and sends events back via an `mpsc`
+/// channel that is drained in a GPUI timer/callback.
 pub struct GpuiChat {
-    agent: Arc<alva_app_core::Agent>,
+    state: Arc<tokio::sync::Mutex<alva_app_core::AgentState>>,
+    config: Arc<alva_app_core::AgentConfig>,
+    cancel: alva_app_core::alva_types::CancellationToken,
     /// Local snapshot of messages for synchronous UI reads.
     messages: Vec<AgentMessage>,
     is_running: bool,
@@ -112,20 +114,24 @@ impl GpuiChat {
                 )
             });
 
-        // Build the alva-core config with a minimal convert_to_llm hook.
-        let agent_config = AgentHooks::new(Arc::new(|ctx: &AgentContext<'_>| {
-            // Prepend the system prompt as a System message, then pass through Standard messages.
-            let mut result = vec![Message::system(ctx.system_prompt)];
-            for m in ctx.messages {
-                if let AgentMessage::Standard(msg) = m {
-                    result.push(msg.clone());
-                }
-            }
-            result
-        }));
-
+        // Build V2 AgentState
         let model: Arc<dyn LanguageModel> = Arc::new(PlaceholderModel);
-        let agent = alva_app_core::Agent::new(model, "", "You are a helpful assistant.", agent_config);
+        let session: Arc<dyn alva_app_core::alva_types::session::AgentSession> =
+            Arc::new(alva_app_core::alva_types::session::InMemorySession::new());
+        let state = alva_app_core::AgentState {
+            model,
+            tools: vec![],
+            session,
+            extensions: alva_app_core::Extensions::new(),
+        };
+
+        // Build V2 AgentConfig
+        let agent_config = alva_app_core::AgentConfig {
+            middleware: alva_app_core::MiddlewareStack::new(),
+            system_prompt: "You are a helpful assistant.".to_string(),
+        };
+
+        let cancel = alva_app_core::alva_types::CancellationToken::new();
 
         // Register this component in the debug ActionRegistry for HTTP inspection.
         #[cfg(debug_assertions)]
@@ -137,9 +143,6 @@ impl GpuiChat {
                     "chat_panel",
                     alva_app_debug::RegisteredView {
                         action_fn: Box::new(move |method, _args| {
-                            // Simplified: just acknowledge the method exists.
-                            // Full GPUI dispatch (HTTP → mpsc → GPUI thread) will be
-                            // added in a future iteration.
                             match method {
                                 "send_message" => {
                                     Ok(serde_json::json!({"status": "acknowledged"}))
@@ -148,8 +151,6 @@ impl GpuiChat {
                             }
                         }),
                         state_fn: Box::new(move || {
-                            // Simplified: return basic info.
-                            // Full state reading requires GPUI context on the main thread.
                             Some(serde_json::json!({
                                 "registered": true,
                                 "type": "GpuiChat"
@@ -162,7 +163,9 @@ impl GpuiChat {
         }
 
         Self {
-            agent: Arc::new(agent),
+            state: Arc::new(tokio::sync::Mutex::new(state)),
+            config: Arc::new(agent_config),
+            cancel,
             messages: Vec::new(),
             is_running: false,
             runtime,
@@ -171,11 +174,6 @@ impl GpuiChat {
     }
 
     /// Send a user message through the agent.
-    ///
-    /// The user message is immediately appended to the local message list so
-    /// the UI can display it. Then `agent.prompt()` is called on the tokio
-    /// runtime and a background task drains events, updating the local
-    /// message list and emitting `GpuiChatEvent::Updated` on the GPUI thread.
     pub fn send_message(&mut self, text: &str, cx: &mut Context<Self>) {
         let user_msg = AgentMessage::Standard(Message::user(text));
 
@@ -185,22 +183,38 @@ impl GpuiChat {
         cx.emit(GpuiChatEvent::Updated);
         cx.notify();
 
-        // Call agent.prompt() on the tokio runtime to get the event receiver.
-        let agent = self.agent.clone();
+        // Prepare for the V2 run_agent call
+        let state = self.state.clone();
+        let config = self.config.clone();
+        let cancel = self.cancel.clone();
         let runtime = self.runtime.clone();
 
-        // We use a notification channel to shuttle events from the tokio task
-        // back to the GPUI entity. The GPUI side drains this channel whenever
-        // it receives a notification.
         let (notify_tx, notify_rx) = mpsc::unbounded_channel::<AgentEvent>();
 
         // Spawn the agent loop on the tokio runtime.
         runtime.spawn(async move {
-            let mut event_rx = agent.prompt(vec![user_msg]);
+            let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
+            let state_clone = state.clone();
+            let config_clone = config.clone();
+            let cancel_clone = cancel.clone();
+
+            // Spawn the V2 run_agent
+            tokio::spawn(async move {
+                let mut st = state_clone.lock().await;
+                let _ = alva_app_core::run_agent(
+                    &mut st,
+                    &config_clone,
+                    cancel_clone,
+                    vec![user_msg],
+                    event_tx,
+                )
+                .await;
+            });
+
+            // Forward events to the notify channel
             while let Some(event) = event_rx.recv().await {
                 if notify_tx.send(event).is_err() {
-                    // GPUI side dropped — stop draining.
                     break;
                 }
             }
@@ -243,9 +257,6 @@ impl GpuiChat {
                 cx.emit(GpuiChatEvent::Updated);
                 cx.notify();
             }
-            // For other events (AgentStart, TurnStart, TurnEnd, MessageStart,
-            // MessageUpdate, ToolExecution*), we currently do nothing special.
-            // Streaming / tool UI updates will be added in a future pass.
             _ => {}
         }
     }
@@ -257,7 +268,7 @@ impl GpuiChat {
 
     /// Cancel the currently running agent loop.
     pub fn stop(&self) {
-        self.agent.cancel();
+        self.cancel.cancel();
     }
 
     /// Whether the agent is currently running.

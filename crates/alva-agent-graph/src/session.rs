@@ -1,55 +1,35 @@
-// INPUT:  alva_agent_core::Agent, crate::checkpoint::CheckpointSaver, crate::compaction::CompactionConfig, crate::pregel::CompiledGraph, crate::retry::RetryConfig
+// INPUT:  crate::checkpoint::CheckpointSaver, crate::compaction::CompactionConfig, crate::pregel::CompiledGraph, crate::retry::RetryConfig
 // OUTPUT: pub struct AgentSession
-// POS:    High-level session wrapper bundling a linear agent or compiled graph with retry, compaction, and checkpointing.
-use alva_agent_core::Agent;
+// POS:    High-level session wrapper bundling a compiled graph with retry, compaction, and checkpointing.
+//         Note: linear agent support removed — use V2 run_agent directly for single-agent flows.
 
 use crate::checkpoint::CheckpointSaver;
 use crate::compaction::CompactionConfig;
 use crate::pregel::CompiledGraph;
 use crate::retry::RetryConfig;
 
-/// The underlying execution backend for a session.
-#[allow(dead_code)]
-enum SessionKind {
-    /// A single-agent linear loop.
-    Linear(Agent),
-    /// A multi-node graph execution.
-    Graph(CompiledGraph<serde_json::Value>),
-}
-
-/// High-level session wrapper that bundles an execution backend (linear
-/// agent or compiled graph) with orchestration features: retry, compaction,
-/// and checkpointing.
+/// High-level session wrapper that bundles an execution backend (compiled
+/// graph) with orchestration features: retry, compaction, and checkpointing.
 ///
 /// # Example
 ///
 /// ```ignore
-/// let session = AgentSession::from_agent(agent)
+/// let session = AgentSession::from_graph(compiled_graph)
 ///     .with_retry(RetryConfig::default())
 ///     .with_checkpoint(Box::new(InMemoryCheckpointSaver::new()));
 /// ```
 pub struct AgentSession {
-    _kind: SessionKind,
+    _graph: CompiledGraph<serde_json::Value>,
     retry_config: Option<RetryConfig>,
     compaction_config: Option<CompactionConfig>,
     checkpoint_saver: Option<Box<dyn CheckpointSaver>>,
 }
 
 impl AgentSession {
-    /// Create a session backed by a single linear agent.
-    pub fn from_agent(agent: Agent) -> Self {
-        Self {
-            _kind: SessionKind::Linear(agent),
-            retry_config: None,
-            compaction_config: None,
-            checkpoint_saver: None,
-        }
-    }
-
     /// Create a session backed by a compiled graph.
     pub fn from_graph(graph: CompiledGraph<serde_json::Value>) -> Self {
         Self {
-            _kind: SessionKind::Graph(graph),
+            _graph: graph,
             retry_config: None,
             compaction_config: None,
             checkpoint_saver: None,

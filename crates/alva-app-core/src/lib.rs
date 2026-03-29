@@ -1,11 +1,11 @@
 // INPUT:  alva_types, alva_agent_core, alva_agent_tools, alva_agent_security, alva_agent_memory, alva_agent_runtime, agent/mcp/skills/gateway/base/system/environment/types/domain/ports/adapters/error
-// OUTPUT: Facade re-exports (Agent, AgentHooks, AgentEvent, AgentMessage, Tool, Message, SecurityGuard, MemoryService, etc.) + kept module public APIs (skills, mcp, environment, domain, ports)
+// OUTPUT: Facade re-exports (AgentState, AgentConfig, AgentEvent, AgentMessage, Tool, Message, SecurityGuard, MemoryService, etc.) + kept module public APIs (skills, mcp, environment, domain, ports)
 // POS:    Crate root — thin facade that re-exports from extracted crates and declares remaining kept modules.
 //! Alva App Core — thin facade over extracted agent crates, plus skill system, MCP, and environment management
 //!
 //! Extracted crates (re-exported here for backward compat):
 //!   alva-types         — shared type definitions (Tool, Message, LanguageModel, etc.)
-//!   alva-agent-core    — Agent engine (Agent, AgentEvent, AgentMessage, middleware)
+//!   alva-agent-core    — V2 Agent engine (AgentState, AgentConfig, run_agent, middleware)
 //!   alva-agent-tools   — Built-in tool implementations (shell, fs, browser, etc.)
 //!   alva-agent-security — Security subsystem (sandbox, permissions, path filtering)
 //!   alva-agent-memory  — Memory/embedding subsystem
@@ -29,9 +29,10 @@
 // Re-export alva-types as a module for qualified access (e.g. alva_app_core::alva_types::Message)
 pub use alva_types;
 
-// Re-export alva-agent-core types for UI layer consumption
-pub use alva_agent_core::{Agent, AgentEvent, AgentMessage};
-pub use alva_agent_core::{AgentHooks, AgentContext};
+// Re-export alva-agent-core V2 types for UI layer consumption
+pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage};
+pub use alva_agent_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
+pub use alva_agent_core::run_agent;
 
 // Re-export alva-agent-tools (tool registration + browser automation)
 pub use alva_agent_tools::{register_all_tools, register_builtin_tools};

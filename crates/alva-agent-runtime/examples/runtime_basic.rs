@@ -1,26 +1,26 @@
-// INPUT:  alva_agent_runtime, alva_agent_core, alva_types, async_trait, futures_core
+// INPUT:  alva_agent_runtime (V2), alva_agent_core (V2), alva_types, async_trait, futures_core
 // OUTPUT: (none — example binary)
-// POS:    Example demonstrating agent runtime builder API with a stub LLM provider, tools, and middleware
-//! Example: building an agent runtime with the builder API.
+// POS:    Example demonstrating V2 agent runtime builder API with a stub LLM provider
+//! Example: building an agent runtime with the V2 builder API.
 //!
 //! Demonstrates:
 //! - Setting up a `ProviderRegistry` (with a stub provider)
 //! - Resolving a model via `alva_agent_runtime::model("provider/model_id", &registry)`
-//! - Using the builder API to compose tools, middleware, and config
-//! - Prompting the agent and consuming events
+//! - Using the builder API to compose tools and middleware
+//! - Running the V2 agent loop and consuming events
 //!
 //! This example uses a mock model so it runs without any real API keys.
 
 use std::pin::Pin;
 use std::sync::Arc;
 
-use alva_agent_runtime::{
-    AgentRuntime, Middleware,
-};
-use alva_agent_core::middleware::{MiddlewareContext, MiddlewareError};
+use alva_agent_runtime::AgentRuntime;
+use alva_agent_core::v2::middleware::{Middleware, MiddlewareError};
+use alva_agent_core::v2::state::AgentState;
+use alva_agent_core::v2::run::run_agent;
 use alva_types::{
-    AgentError, LanguageModel, Message, ModelConfig, Provider, ProviderError,
-    ProviderRegistry, StreamEvent, Tool,
+    AgentError, CancellationToken, LanguageModel, Message, ModelConfig, Provider, ProviderError,
+    ProviderRegistry, StreamEvent, Tool, AgentMessage,
 };
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -61,7 +61,6 @@ impl LanguageModel for StubModel {
         _tools: &[&dyn Tool],
         _config: &ModelConfig,
     ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
-        // Return a stream that never yields — sufficient for a non-streaming stub.
         Box::pin(tokio_stream::pending::<StreamEvent>())
     }
 
@@ -98,7 +97,7 @@ struct PrintMiddleware;
 impl Middleware for PrintMiddleware {
     async fn before_llm_call(
         &self,
-        _ctx: &mut MiddlewareContext,
+        _state: &mut AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         println!("[PrintMiddleware] before_llm_call — {} message(s)", messages.len());
@@ -107,7 +106,7 @@ impl Middleware for PrintMiddleware {
 
     async fn after_llm_call(
         &self,
-        _ctx: &mut MiddlewareContext,
+        _state: &mut AgentState,
         response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         println!(
@@ -127,7 +126,7 @@ impl Middleware for PrintMiddleware {
 // ---------------------------------------------------------------------------
 
 fn main() {
-    println!("=== alva-agent-runtime Basic Example ===\n");
+    println!("=== alva-agent-runtime Basic Example (V2) ===\n");
 
     // 1. Set up a provider registry with the stub provider.
     let mut registry = ProviderRegistry::new();
@@ -153,18 +152,33 @@ fn main() {
         println!("  - {}", tool.name());
     }
 
-    // 4. Prompt the agent and consume events.
+    // 4. Run V2 agent loop and consume events.
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
 
     rt.block_on(async {
-        println!("\n--- Prompting agent ---");
-        let user_msg = alva_agent_core::AgentMessage::Standard(Message::user("Hello, agent!"));
-        let mut rx = runtime.agent.prompt(vec![user_msg]);
+        println!("\n--- Running V2 agent ---");
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        while let Some(event) = rx.recv().await {
+        let mut state = runtime.state;
+        let config = runtime.config;
+        let user_msg = AgentMessage::Standard(Message::user("Hello, agent!"));
+
+        // Run the agent loop
+        let run_result = run_agent(
+            &mut state,
+            &config,
+            cancel,
+            vec![user_msg],
+            event_tx,
+        )
+        .await;
+
+        // Drain events
+        while let Ok(event) = event_rx.try_recv() {
             match &event {
                 alva_agent_core::AgentEvent::AgentStart => {
                     println!("[event] AgentStart");
@@ -173,7 +187,7 @@ fn main() {
                     println!("[event] TurnStart");
                 }
                 alva_agent_core::AgentEvent::MessageEnd { message } => {
-                    if let alva_agent_core::AgentMessage::Standard(msg) = message {
+                    if let AgentMessage::Standard(msg) = message {
                         println!("[event] MessageEnd: {}", msg.text_content());
                     }
                 }
@@ -184,6 +198,10 @@ fn main() {
                     println!("[event] {:?}", event);
                 }
             }
+        }
+
+        if let Err(e) = run_result {
+            println!("Agent run error: {}", e);
         }
     });
 

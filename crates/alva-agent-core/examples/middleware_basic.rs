@@ -1,21 +1,21 @@
-// INPUT:  alva_agent_core, alva_types, async_trait
+// INPUT:  alva_agent_core (V2), alva_types, async_trait
 // OUTPUT: (none — example binary)
-// POS:    Example demonstrating middleware composition (logging, security, token counting) into an AgentHooks config
-//! Example: composing middleware into an agent config.
+// POS:    Example demonstrating V2 middleware composition (logging, security, token counting)
+//! Example: composing V2 middleware into an agent config.
 //!
 //! Demonstrates:
 //! - LoggingMiddleware  — logs before/after tool calls
 //! - SecurityMiddleware — blocks specific tools
 //! - TokenCountingMiddleware — uses Extensions for cross-middleware state
-//! - Composing them into a MiddlewareStack and attaching to AgentHooks
+//! - Composing them into a V2 MiddlewareStack and attaching to AgentConfig
 
 use std::sync::Arc;
 
-use alva_agent_core::{
-    AgentHooks, AgentMessage, Extensions, Middleware, MiddlewareContext, MiddlewareError,
-    MiddlewareStack,
-};
-use alva_types::{Message, ToolCall, ToolContext, ToolResult};
+use alva_agent_core::v2::middleware::{Middleware, MiddlewareError, MiddlewareStack};
+use alva_agent_core::v2::state::{AgentConfig, AgentState};
+use alva_agent_core::middleware::Extensions;
+use alva_types::{Message, ToolCall, ToolResult};
+use alva_types::session::InMemorySession;
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -28,9 +28,8 @@ struct LoggingMiddleware;
 impl Middleware for LoggingMiddleware {
     async fn before_tool_call(
         &self,
-        _ctx: &mut MiddlewareContext,
+        _state: &mut AgentState,
         tool_call: &ToolCall,
-        _tool_context: &dyn ToolContext,
     ) -> Result<(), MiddlewareError> {
         println!("[LoggingMiddleware] before_tool_call: {}", tool_call.name);
         Ok(())
@@ -38,7 +37,7 @@ impl Middleware for LoggingMiddleware {
 
     async fn after_tool_call(
         &self,
-        _ctx: &mut MiddlewareContext,
+        _state: &mut AgentState,
         tool_call: &ToolCall,
         result: &mut ToolResult,
     ) -> Result<(), MiddlewareError> {
@@ -66,9 +65,8 @@ struct SecurityMiddleware {
 impl Middleware for SecurityMiddleware {
     async fn before_tool_call(
         &self,
-        _ctx: &mut MiddlewareContext,
+        _state: &mut AgentState,
         tool_call: &ToolCall,
-        _tool_context: &dyn ToolContext,
     ) -> Result<(), MiddlewareError> {
         if self.blocked_tools.contains(&tool_call.name) {
             println!(
@@ -108,19 +106,19 @@ struct TokenCountingMiddleware;
 impl Middleware for TokenCountingMiddleware {
     async fn on_agent_start(
         &self,
-        ctx: &mut MiddlewareContext,
+        state: &mut AgentState,
     ) -> Result<(), MiddlewareError> {
-        ctx.extensions.insert(TokenStats::default());
+        state.extensions.insert(TokenStats::default());
         println!("[TokenCountingMiddleware] initialized stats in Extensions");
         Ok(())
     }
 
     async fn before_llm_call(
         &self,
-        ctx: &mut MiddlewareContext,
+        state: &mut AgentState,
         _messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
-        if let Some(stats) = ctx.extensions.get_mut::<TokenStats>() {
+        if let Some(stats) = state.extensions.get_mut::<TokenStats>() {
             stats.llm_calls += 1;
             println!(
                 "[TokenCountingMiddleware] LLM call #{}", stats.llm_calls
@@ -131,11 +129,10 @@ impl Middleware for TokenCountingMiddleware {
 
     async fn before_tool_call(
         &self,
-        ctx: &mut MiddlewareContext,
+        state: &mut AgentState,
         tool_call: &ToolCall,
-        _tool_context: &dyn ToolContext,
     ) -> Result<(), MiddlewareError> {
-        if let Some(stats) = ctx.extensions.get_mut::<TokenStats>() {
+        if let Some(stats) = state.extensions.get_mut::<TokenStats>() {
             stats.tool_calls += 1;
             println!(
                 "[TokenCountingMiddleware] tool call #{} ({})",
@@ -147,10 +144,10 @@ impl Middleware for TokenCountingMiddleware {
 
     async fn on_agent_end(
         &self,
-        ctx: &mut MiddlewareContext,
+        state: &mut AgentState,
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
-        if let Some(stats) = ctx.extensions.get::<TokenStats>() {
+        if let Some(stats) = state.extensions.get::<TokenStats>() {
             println!(
                 "[TokenCountingMiddleware] agent ended — LLM calls: {}, tool calls: {}, error: {:?}",
                 stats.llm_calls, stats.tool_calls, error
@@ -165,11 +162,49 @@ impl Middleware for TokenCountingMiddleware {
 }
 
 // ---------------------------------------------------------------------------
+// Stub model for the example
+// ---------------------------------------------------------------------------
+
+struct StubModel;
+
+#[async_trait]
+impl alva_types::LanguageModel for StubModel {
+    async fn complete(
+        &self,
+        _: &[Message],
+        _: &[&dyn alva_types::Tool],
+        _: &alva_types::ModelConfig,
+    ) -> Result<Message, alva_types::AgentError> {
+        Ok(Message {
+            id: "stub".to_string(),
+            role: alva_types::MessageRole::Assistant,
+            content: vec![alva_types::ContentBlock::Text {
+                text: "stub response".to_string(),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        })
+    }
+    fn stream(
+        &self,
+        _: &[Message],
+        _: &[&dyn alva_types::Tool],
+        _: &alva_types::ModelConfig,
+    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = alva_types::StreamEvent> + Send>> {
+        Box::pin(tokio_stream::empty())
+    }
+    fn model_id(&self) -> &str {
+        "stub"
+    }
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
 fn main() {
-    println!("=== Middleware Basic Example ===\n");
+    println!("=== Middleware Basic Example (V2) ===\n");
 
     // 1. Build the middleware stack (order matters — onion model).
     let mut stack = MiddlewareStack::new();
@@ -184,25 +219,26 @@ fn main() {
         stack.len()
     );
 
-    // 2. Attach to AgentHooks.
-    let convert_to_llm = Arc::new(|ctx: &alva_agent_core::AgentContext<'_>| -> Vec<Message> {
-        let mut result = vec![Message::system(ctx.system_prompt)];
-        for m in ctx.messages {
-            if let AgentMessage::Standard(msg) = m {
-                result.push(msg.clone());
-            }
-        }
-        result
-    });
+    // 2. Create V2 AgentState + AgentConfig
+    let session: Arc<dyn alva_types::session::AgentSession> =
+        Arc::new(InMemorySession::new());
+    let mut state = AgentState {
+        model: Arc::new(StubModel),
+        tools: vec![],
+        session,
+        extensions: Extensions::new(),
+    };
 
-    let mut config = AgentHooks::new(convert_to_llm);
-    config.middleware = stack;
+    let config = AgentConfig {
+        middleware: stack,
+        system_prompt: "You are a demo assistant.".to_string(),
+    };
 
     println!(
-        "AgentHooks.middleware has {} layer(s)",
+        "AgentConfig.middleware has {} layer(s)",
         config.middleware.len()
     );
-    println!("AgentHooks.middleware.is_empty() = {}", config.middleware.is_empty());
+    println!("AgentConfig.middleware.is_empty() = {}", config.middleware.is_empty());
 
     // 3. Demonstrate a quick round-trip through the stack.
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -212,17 +248,11 @@ fn main() {
 
     rt.block_on(async {
         println!("\n--- Running on_agent_start ---");
-        let mut ctx = MiddlewareContext {
-            session_id: "demo-session".to_string(),
-            system_prompt: "You are a demo assistant.".to_string(),
-            messages: Vec::new(),
-            extensions: Extensions::new(),
-        };
-        let _ = config.middleware.run_on_agent_start(&mut ctx).await;
+        let _ = config.middleware.run_on_agent_start(&mut state).await;
 
         println!("\n--- Running before_llm_call ---");
         let mut msgs = vec![Message::user("Hello!")];
-        let _ = config.middleware.run_before_llm_call(&mut ctx, &mut msgs).await;
+        let _ = config.middleware.run_before_llm_call(&mut state, &mut msgs).await;
 
         println!("\n--- Running after_llm_call ---");
         let mut response = Message {
@@ -235,7 +265,7 @@ fn main() {
             usage: None,
             timestamp: 0,
         };
-        let _ = config.middleware.run_after_llm_call(&mut ctx, &mut response).await;
+        let _ = config.middleware.run_after_llm_call(&mut state, &mut response).await;
 
         println!("\n--- Running before_tool_call (allowed tool) ---");
         let allowed_call = ToolCall {
@@ -243,10 +273,9 @@ fn main() {
             name: "read_file".to_string(),
             arguments: serde_json::json!({"path": "/tmp/test.txt"}),
         };
-        let tool_ctx = alva_types::EmptyToolContext;
-        let result = config
+        let result: Result<(), MiddlewareError> = config
             .middleware
-            .run_before_tool_call(&mut ctx, &allowed_call, &tool_ctx)
+            .run_before_tool_call(&mut state, &allowed_call)
             .await;
         println!("  result: {:?}", result.map(|_| "ok"));
 
@@ -256,14 +285,14 @@ fn main() {
             name: "dangerous_tool".to_string(),
             arguments: serde_json::json!({}),
         };
-        let result = config
+        let result: Result<(), MiddlewareError> = config
             .middleware
-            .run_before_tool_call(&mut ctx, &blocked_call, &tool_ctx)
+            .run_before_tool_call(&mut state, &blocked_call)
             .await;
         println!("  result: {:?}", result.map(|_| "ok"));
 
         println!("\n--- Running on_agent_end ---");
-        let _ = config.middleware.run_on_agent_end(&mut ctx, None).await;
+        let _ = config.middleware.run_on_agent_end(&mut state, None).await;
     });
 
     println!("\n=== Done ===");

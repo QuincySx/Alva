@@ -19,7 +19,6 @@ use std::sync::Arc;
 
 use alva_app_core::{AgentEvent, AgentMessage, BaseAgent, BaseAgentBuilder};
 use alva_provider::{OpenAIProvider, ProviderConfig};
-use alva_types::Message;
 
 use session_store::SessionStore;
 

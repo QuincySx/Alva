@@ -1,17 +1,19 @@
-// INPUT:  std::path, std::sync, alva_agent_core, alva_types, alva_agent_tools
+// INPUT:  std::path, std::sync, alva_agent_core (V2), alva_types, alva_agent_tools
 // OUTPUT: AgentRuntime, AgentRuntimeBuilder
-// POS:    Builder pattern for constructing a fully-configured AgentRuntime with tools, middleware, and model.
+// POS:    Builder pattern for constructing a fully-configured AgentRuntime with V2 state, config, tools, and middleware.
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_agent_core::middleware::MiddlewareStack;
-use alva_agent_core::{Agent, AgentHooks, AgentMessage};
-use alva_agent_core::types::AgentContext;
-use alva_types::{LanguageModel, Message, ModelConfig, Tool, ToolRegistry};
+use alva_agent_core::v2::middleware::MiddlewareStack;
+use alva_agent_core::v2::state::{AgentConfig, AgentState};
+use alva_agent_core::middleware::Extensions;
+use alva_types::{LanguageModel, ModelConfig, Tool, ToolRegistry};
+use alva_types::session::{AgentSession, InMemorySession};
 
-/// A fully-configured agent runtime combining the Agent and its ToolRegistry.
+/// A fully-configured agent runtime combining V2 AgentState, AgentConfig, and ToolRegistry.
 pub struct AgentRuntime {
-    pub agent: Agent,
+    pub state: AgentState,
+    pub config: AgentConfig,
     pub tool_registry: ToolRegistry,
 }
 
@@ -24,7 +26,6 @@ pub struct AgentRuntimeBuilder {
     register_builtin: bool,
     register_browser: bool,
     custom_tools: Vec<Box<dyn Tool>>,
-    convert_to_llm: Option<Arc<dyn Fn(&AgentContext<'_>) -> Vec<Message> + Send + Sync>>,
 }
 
 impl AgentRuntimeBuilder {
@@ -37,7 +38,6 @@ impl AgentRuntimeBuilder {
             register_builtin: false,
             register_browser: false,
             custom_tools: Vec::new(),
-            convert_to_llm: None,
         }
     }
 
@@ -60,7 +60,7 @@ impl AgentRuntimeBuilder {
     }
 
     /// Add a middleware layer to the stack.
-    pub fn middleware(mut self, mw: Arc<dyn alva_agent_core::middleware::Middleware>) -> Self {
+    pub fn middleware(mut self, mw: Arc<dyn alva_agent_core::v2::middleware::Middleware>) -> Self {
         self.middleware.push(mw);
         self
     }
@@ -83,15 +83,6 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    /// Override the default `convert_to_llm` function used by the agent core.
-    pub fn convert_to_llm(
-        mut self,
-        f: Arc<dyn Fn(&AgentContext<'_>) -> Vec<Message> + Send + Sync>,
-    ) -> Self {
-        self.convert_to_llm = Some(f);
-        self
-    }
-
     /// Consume the builder and produce a ready-to-use [`AgentRuntime`].
     ///
     /// `model` is the language model to use for LLM calls.
@@ -109,26 +100,46 @@ impl AgentRuntimeBuilder {
             registry.register(tool);
         }
 
-        let convert_fn = self.convert_to_llm.unwrap_or_else(|| {
-            Arc::new(|ctx: &AgentContext<'_>| {
-                let mut result = vec![Message::system(ctx.system_prompt)];
-                for m in ctx.messages {
-                    if let AgentMessage::Standard(msg) = m {
-                        result.push(msg.clone());
-                    }
+        // Build Arc<dyn Tool> list from registry
+        let tools: Vec<Arc<dyn Tool>> = {
+            let defs: Vec<String> = registry.definitions().iter().map(|d| d.name.clone()).collect();
+            let mut tools_list = Vec::new();
+            for name in &defs {
+                if let Some(tool) = registry.remove(name) {
+                    tools_list.push(Arc::from(tool));
                 }
-                result
-            })
-        });
+            }
+            tools_list
+        };
 
-        let mut config = AgentHooks::new(convert_fn);
-        config.middleware = self.middleware;
+        // Rebuild registry for lookup
+        let mut fresh_registry = ToolRegistry::new();
+        if self.register_builtin || self.register_browser {
+            if self.register_browser {
+                alva_agent_tools::register_all_tools(&mut fresh_registry);
+            } else {
+                alva_agent_tools::register_builtin_tools(&mut fresh_registry);
+            }
+        }
 
-        let agent = Agent::new(model, "", self.system_prompt, config);
+        let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
+
+        let state = AgentState {
+            model,
+            tools,
+            session,
+            extensions: Extensions::new(),
+        };
+
+        let config = AgentConfig {
+            middleware: self.middleware,
+            system_prompt: self.system_prompt,
+        };
 
         AgentRuntime {
-            agent,
-            tool_registry: registry,
+            state,
+            config,
+            tool_registry: fresh_registry,
         }
     }
 }

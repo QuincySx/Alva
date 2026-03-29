@@ -1,6 +1,6 @@
-// INPUT:  alva_types, alva_agent_core, alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
+// INPUT:  alva_types, alva_agent_core (V2), alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool
-// POS:    Single primitive for spawning sub-agents. Uses SpawnScopeImpl for state management.
+// POS:    Single primitive for spawning sub-agents. Uses V2 engine (run_agent + AgentState + AgentConfig).
 
 //! Agent spawn tool — the ONE primitive for creating sub-agents.
 //!
@@ -18,12 +18,18 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_agent_core::{Agent, AgentEvent, AgentHooks, AgentMessage, ConvertToLlmFn};
+use alva_agent_core::v2::middleware::MiddlewareStack;
+use alva_agent_core::v2::state::{AgentConfig, AgentState};
+use alva_agent_core::v2::run::run_agent;
+use alva_agent_core::event::AgentEvent;
+use alva_agent_core::middleware::Extensions;
 use alva_types::base::cancel::CancellationToken;
 use alva_types::base::error::AgentError;
 use alva_types::base::message::Message;
+use alva_types::session::InMemorySession;
 use alva_types::scope::{ChildScopeConfig, ScopeError};
 use alva_types::tool::{Tool, ToolContext, ToolResult};
+use alva_types::AgentMessage;
 
 use alva_agent_scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
 use alva_agent_scope::SpawnScopeImpl;
@@ -182,57 +188,89 @@ impl Tool for AgentSpawnTool {
             }
         }
 
-        // Build child agent — tools come from the child scope
+        // Build child agent tools — tools come from the child scope
         let mut child_tools = child_scope.tools(input.inherit_tools);
         // Give the child its own spawn tool backed by the child scope
         child_tools.push(Arc::new(AgentSpawnTool {
             scope: child_scope.clone(),
         }));
 
-        let convert_fn: ConvertToLlmFn = Arc::new(|ctx| {
-            ctx.messages
-                .iter()
-                .filter_map(|m| match m {
-                    AgentMessage::Standard(msg) => Some(msg.clone()),
-                    _ => None,
-                })
-                .collect()
-        });
+        // Create V2 AgentState + AgentConfig for the child
+        let session: Arc<dyn alva_types::session::AgentSession> =
+            Arc::new(InMemorySession::new());
+        let mut state = AgentState {
+            model: child_scope.model(),
+            tools: child_tools,
+            session,
+            extensions: Extensions::new(),
+        };
 
-        let mut hooks = AgentHooks::new(convert_fn);
-        hooks.max_iterations = child_scope.max_iterations();
-
-        let agent = Agent::new(
-            child_scope.model(),
-            child_scope.session_id().to_string(),
-            &system_prompt,
-            hooks,
-        );
-        agent.set_tools(child_tools).await;
+        let config = AgentConfig {
+            middleware: MiddlewareStack::new(),
+            system_prompt: system_prompt.clone(),
+        };
 
         // Run with timeout from the child scope
+        let cancel = CancellationToken::new();
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+
         let user_msg = AgentMessage::Standard(Message::user(&task_context));
-        let mut rx = agent.prompt(vec![user_msg]);
-        let mut output = String::new();
 
         let result = tokio::time::timeout(child_scope.timeout(), async {
-            while let Some(event) = rx.recv().await {
+            // Run the V2 agent loop directly (no spawn needed, we're already in a spawned context)
+            let run_result = run_agent(
+                &mut state,
+                &config,
+                cancel.clone(),
+                vec![user_msg],
+                event_tx,
+            )
+            .await;
+
+            // Collect output from events
+            let mut output = String::new();
+            while let Ok(event) = event_rx.try_recv() {
                 match event {
                     AgentEvent::MessageEnd { message } => {
                         if let AgentMessage::Standard(msg) = &message {
                             output.push_str(&msg.text_content());
                         }
                     }
-                    AgentEvent::AgentEnd { error: Some(e) } => {
-                        return Err(e);
-                    }
-                    AgentEvent::AgentEnd { error: None } => break,
                     _ => {}
                 }
             }
-            Ok(())
+
+            match run_result {
+                Ok(()) => Ok(output),
+                Err(e) => Err((e.to_string(), output)),
+            }
         })
         .await;
+
+        // Also collect output from session messages as a fallback
+        let session_output: String = state
+            .session
+            .messages()
+            .iter()
+            .filter_map(|m| {
+                if let AgentMessage::Standard(msg) = m {
+                    if msg.role == alva_types::MessageRole::Assistant {
+                        let text = msg.text_content();
+                        if !text.is_empty() {
+                            return Some(text);
+                        }
+                    }
+                }
+                None
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let output = match &result {
+            Ok(Ok(output)) if !output.is_empty() => output.clone(),
+            Ok(Err((_, output))) if !output.is_empty() => output.clone(),
+            _ => session_output,
+        };
 
         // Post result to board if applicable
         if let Some(board_id) = &input.board {
@@ -250,18 +288,18 @@ impl Tool for AgentSpawnTool {
         child_scope.mark_completed(&output);
 
         match result {
-            Ok(Ok(())) => Ok(ToolResult {
+            Ok(Ok(_)) => Ok(ToolResult {
                 content: output,
                 is_error: false,
                 details: None,
             }),
-            Ok(Err(e)) => Ok(ToolResult {
+            Ok(Err((e, _))) => Ok(ToolResult {
                 content: format!("[Agent '{}' error: {}]\n{}", input.role, e, output),
                 is_error: true,
                 details: None,
             }),
             Err(_) => {
-                agent.cancel();
+                cancel.cancel();
                 let timeout_secs = child_scope.timeout().as_secs();
                 Ok(ToolResult {
                     content: format!(

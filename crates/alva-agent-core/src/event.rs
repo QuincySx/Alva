@@ -3,7 +3,7 @@
 // POS:    Defines the event enum emitted by the agent loop for callers to observe progress, messages, and tool execution.
 use alva_types::{StreamEvent, ToolCall, ToolResult};
 
-use crate::types::AgentMessage;
+use alva_types::AgentMessage;
 
 /// Events emitted by the agent loop so callers can observe progress.
 #[derive(Debug, Clone)]

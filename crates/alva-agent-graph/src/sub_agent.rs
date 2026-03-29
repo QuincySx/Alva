@@ -1,6 +1,7 @@
 // INPUT:  std::sync::Arc, std::time::Duration, alva_types::{LanguageModel, Tool}
 // OUTPUT: pub struct SubAgentConfig, pub enum SubAgentModel, pub enum SubAgentTools, pub fn create_task_tool
 // POS:    Sub-agent configuration and task-tool factory for spawning child agents within a parent's tool-call cycle.
+//         Updated to use V2 engine (run_agent + AgentState + AgentConfig).
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -197,85 +198,96 @@ impl Tool for SubAgentTool {
         let model = self.resolve_model(config);
         let tools = self.resolve_tools(config);
 
-        // Build sub-agent with its own hooks and run it.
-        use alva_agent_core::{Agent, AgentEvent, AgentHooks};
+        // Build V2 sub-agent state + config and run it.
+        use alva_agent_core::v2::middleware::MiddlewareStack;
+        use alva_agent_core::v2::state::{AgentConfig, AgentState};
+        use alva_agent_core::v2::run::run_agent;
+        use alva_agent_core::event::AgentEvent;
+        use alva_agent_core::middleware::Extensions;
         use alva_types::{AgentMessage, Message};
+        use alva_types::session::InMemorySession;
 
-        // Default convert_to_llm: pass messages through as standard LLM messages
-        let convert_fn: alva_agent_core::ConvertToLlmFn = Arc::new(|ctx| {
-            ctx.messages
-                .iter()
-                .filter_map(|m| match m {
-                    AgentMessage::Standard(msg) => Some(msg.clone()),
-                    _ => None,
-                })
-                .collect()
-        });
+        let session: Arc<dyn alva_types::session::AgentSession> =
+            Arc::new(InMemorySession::new());
+
+        let mut state = AgentState {
+            model,
+            tools,
+            session,
+            extensions: Extensions::new(),
+        };
+
+        let agent_config = AgentConfig {
+            middleware: MiddlewareStack::new(),
+            system_prompt: config.system_prompt.clone(),
+        };
 
         let user_msg = AgentMessage::Standard(Message::user(task));
-
-        let mut hooks = AgentHooks::new(convert_fn);
-        hooks.max_iterations = config.max_turns;
-
-        let session_id = format!(
-            "sub-{}-{}",
-            agent_name,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-        );
-        let agent = Agent::new(
-            model,
-            session_id,
-            config.system_prompt.clone(),
-            hooks,
-        );
-
-        // Register resolved tools on the sub-agent
-        agent.set_tools(tools).await;
+        let child_cancel = cancel.clone();
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Run with timeout
         let timeout = config.timeout;
-        let cancel_clone = cancel.clone();
         let result = tokio::time::timeout(timeout, async {
-            let mut rx = agent.prompt(vec![user_msg]);
-            let mut output = String::new();
+            let run_result = run_agent(
+                &mut state,
+                &agent_config,
+                child_cancel,
+                vec![user_msg],
+                event_tx,
+            )
+            .await;
 
-            while let Some(event) = rx.recv().await {
-                if cancel_clone.is_cancelled() {
-                    agent.cancel();
-                    break;
-                }
+            // Collect output from events
+            let mut output = String::new();
+            while let Ok(event) = event_rx.try_recv() {
                 match event {
                     AgentEvent::MessageEnd { message } => {
                         if let AgentMessage::Standard(msg) = &message {
                             output.push_str(&msg.text_content());
                         }
                     }
-                    AgentEvent::AgentEnd { error: Some(e) } => {
-                        return Err(AgentError::ToolError {
-                            tool_name: "task".into(),
-                            message: e,
-                        });
-                    }
                     _ => {}
                 }
             }
 
-            Ok(output)
+            match run_result {
+                Ok(()) => Ok(output),
+                Err(e) => Err(AgentError::ToolError {
+                    tool_name: "task".into(),
+                    message: e.to_string(),
+                }),
+            }
         })
         .await;
 
+        // Fallback: get output from session messages
+        let session_output: String = state
+            .session
+            .messages()
+            .iter()
+            .filter_map(|m| {
+                if let AgentMessage::Standard(msg) = m {
+                    if msg.role == alva_types::MessageRole::Assistant {
+                        let text = msg.text_content();
+                        if !text.is_empty() {
+                            return Some(text);
+                        }
+                    }
+                }
+                None
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
         match result {
             Ok(Ok(output)) => Ok(ToolResult {
-                content: output,
+                content: if output.is_empty() { session_output } else { output },
                 is_error: false,
                 details: None,
             }),
             Ok(Err(e)) => Err(e),
             Err(_) => {
-                agent.cancel();
                 Ok(ToolResult {
                     content: format!(
                         "[Sub-agent '{}' timed out after {:?}]",

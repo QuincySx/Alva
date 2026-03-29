@@ -14,7 +14,7 @@ use std::sync::Arc;
 use alva_types::{Message, ToolCall, ToolContext, ToolResult};
 use async_trait::async_trait;
 
-use crate::types::AgentMessage;
+use alva_types::AgentMessage;
 
 pub use compression::{CompressionConfig, CompressionMiddleware};
 pub use dangling_tool_call::DanglingToolCallMiddleware;

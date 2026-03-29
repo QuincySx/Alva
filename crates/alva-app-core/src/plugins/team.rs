@@ -1,4 +1,4 @@
-// INPUT:  alva_types, alva_agent_core, alva_agent_graph, alva_agent_scope::blackboard, std::sync::Arc
+// INPUT:  alva_types, alva_agent_core (V2), alva_agent_graph, alva_agent_scope::blackboard, std::sync::Arc
 // OUTPUT: TeamTool, create_team_tool
 // POS:    A Tool that lets the LLM dynamically assemble and run a multi-agent team via Graph + Blackboard.
 
@@ -11,7 +11,7 @@
 //! # How it works
 //!
 //! 1. LLM calls `team` tool with a JSON describing agents + task
-//! 2. Tool creates a `Blackboard` + one `Agent` per role
+//! 2. Tool creates a `Blackboard` + one agent run per role
 //! 3. Wires them into a `StateGraph` based on `depends_on` edges
 //! 4. Runs the graph (Pregel BSP) — agents communicate via Blackboard
 //! 5. Returns final output to the parent agent
@@ -22,13 +22,19 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_agent_core::{Agent, AgentEvent, AgentHooks, AgentMessage, ConvertToLlmFn};
+use alva_agent_core::v2::middleware::MiddlewareStack;
+use alva_agent_core::v2::state::{AgentConfig, AgentState};
+use alva_agent_core::v2::run::run_agent;
+use alva_agent_core::event::AgentEvent;
+use alva_agent_core::middleware::Extensions;
 use alva_agent_graph::{StateGraph, END};
 use alva_types::base::error::AgentError;
 use alva_types::base::message::Message;
-use alva_types::model::LanguageModel;
 use alva_types::base::cancel::CancellationToken;
+use alva_types::model::LanguageModel;
+use alva_types::session::InMemorySession;
 use alva_types::tool::{Tool, ToolContext, ToolResult};
+use alva_types::AgentMessage;
 
 use alva_agent_scope::blackboard::{AgentProfile, Blackboard, BoardMessage, MessageKind};
 
@@ -329,34 +335,56 @@ async fn run_single_agent(
 
     context.push_str("Based on the above context, complete your part of the task.");
 
-    // Create a lightweight agent (no tools — team agents focus on reasoning)
-    let convert_fn: ConvertToLlmFn = Arc::new(|ctx| {
-        ctx.messages
-            .iter()
-            .filter_map(|m| match m {
-                AgentMessage::Standard(msg) => Some(msg.clone()),
-                _ => None,
-            })
-            .collect()
-    });
+    // Create a lightweight V2 agent (no tools — team agents focus on reasoning)
+    let session: Arc<dyn alva_types::session::AgentSession> =
+        Arc::new(InMemorySession::new());
+    let mut agent_state = AgentState {
+        model: model.clone(),
+        tools: vec![],
+        session,
+        extensions: Extensions::new(),
+    };
 
-    let hooks = AgentHooks::new(convert_fn);
-    let session_id = format!("team-{}-{}", def.id, uuid::Uuid::new_v4());
-    let agent = Agent::new(model.clone(), session_id, &def.system_prompt, hooks);
+    let config = AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: def.system_prompt.clone(),
+    };
+
+    let cancel = CancellationToken::new();
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let user_msg = AgentMessage::Standard(Message::user(&context));
-    let mut rx = agent.prompt(vec![user_msg]);
 
+    let _ = run_agent(
+        &mut agent_state,
+        &config,
+        cancel,
+        vec![user_msg],
+        event_tx,
+    )
+    .await;
+
+    // Collect output from events
     let mut output = String::new();
-    while let Some(event) = rx.recv().await {
-        match event {
-            AgentEvent::MessageEnd { message } => {
-                if let AgentMessage::Standard(msg) = &message {
-                    output.push_str(&msg.text_content());
+    while let Ok(event) = event_rx.try_recv() {
+        if let AgentEvent::MessageEnd { message } = event {
+            if let AgentMessage::Standard(msg) = &message {
+                output.push_str(&msg.text_content());
+            }
+        }
+    }
+
+    // Fallback: collect from session
+    if output.is_empty() {
+        for msg in agent_state.session.messages() {
+            if let AgentMessage::Standard(m) = &msg {
+                if m.role == alva_types::MessageRole::Assistant {
+                    let text = m.text_content();
+                    if !text.is_empty() {
+                        output.push_str(&text);
+                    }
                 }
             }
-            AgentEvent::AgentEnd { .. } => break,
-            _ => {}
         }
     }
 
