@@ -19,6 +19,7 @@ pub mod provider;
 // provider_test is now at provider::tests; re-export for backward compatibility
 pub use provider::tests as provider_test;
 pub mod scope;
+pub mod session;
 // tool_guard is now at tool::guard
 
 pub use base::cancel::CancellationToken;
@@ -39,3 +40,4 @@ pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
 pub use provider::{Provider, ProviderError, ProviderRegistry};
 pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
+pub use session::{AgentSession, InMemorySession};

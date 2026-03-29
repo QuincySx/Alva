@@ -13,3 +13,6 @@ tracing = "0.1"
 futures-core = "0.3"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
