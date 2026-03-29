@@ -208,6 +208,7 @@ impl Tool for AgentSpawnTool {
         let config = AgentConfig {
             middleware: MiddlewareStack::new(),
             system_prompt: system_prompt.clone(),
+            max_iterations: child_scope.max_iterations(),
         };
 
         // Run with timeout from the child scope

@@ -86,6 +86,7 @@ impl EngineRuntime for AlvaAdapter {
         let config = AgentConfig {
             middleware: MiddlewareStack::new(),
             system_prompt,
+            max_iterations: 100,
         };
 
         // 5. Build the user message from request.prompt.

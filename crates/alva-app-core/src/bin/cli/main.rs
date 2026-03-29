@@ -133,9 +133,8 @@ async fn run() {
                         let messages = agent.messages().await;
                         store.save_messages(&session_id, &messages);
 
+                        agent.new_session().await;
                         session_id = store.create("");
-                        // Clear agent messages by rebuilding? No — agent doesn't have clear.
-                        // For now, just note the new session; messages accumulate.
                         eprintln!("New session: {}", session_id);
                         eprintln!("---");
                     }

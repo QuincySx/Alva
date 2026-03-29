@@ -2,6 +2,8 @@
 // OUTPUT: LlmCallFn, ToolCallFn, Middleware (trait), MiddlewareStack
 // POS:    Middleware trait and stack — receives &mut AgentState directly, with wrap hooks for interceptor pattern.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use alva_types::{AgentError, Message, ToolCall, ToolResult};
@@ -259,44 +261,133 @@ impl MiddlewareStack {
 
     // -- wrap hooks -----------------------------------------------------------
 
-    /// Run `wrap_llm_call` — delegates to the first middleware layer's wrap,
-    /// which by default calls `next` (the actual LLM call).
+    /// Run `wrap_llm_call` through the full middleware chain.
     ///
-    /// TODO: proper nesting for multiple wrapping middleware (chain of `next` callbacks).
+    /// Builds a nested chain: `mw[0].wrap(mw[1].wrap(... mw[n].wrap(actual)))`.
+    /// Each middleware's `next` is a closure that calls the remaining chain.
     pub async fn run_wrap_llm_call(
         &self,
         state: &AgentState,
         messages: Vec<Message>,
         actual_call: &dyn LlmCallFn,
     ) -> Result<Message, MiddlewareError> {
-        if let Some(first) = self.layers.first() {
-            first.wrap_llm_call(state, messages, actual_call).await
-        } else {
-            actual_call
-                .call(messages)
-                .await
-                .map_err(|e| MiddlewareError::Other(e.to_string()))
-        }
+        self.call_wrap_llm_chain(state, messages, actual_call, 0)
+            .await
     }
 
-    /// Run `wrap_tool_call` — delegates to the first middleware layer's wrap,
-    /// which by default calls `next` (the actual tool execution).
+    /// Recursive helper for LLM wrap chain (using `Box::pin` for async recursion).
+    fn call_wrap_llm_chain<'a>(
+        &'a self,
+        state: &'a AgentState,
+        messages: Vec<Message>,
+        actual_call: &'a dyn LlmCallFn,
+        index: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<Message, MiddlewareError>> + Send + 'a>> {
+        Box::pin(async move {
+            if index >= self.layers.len() {
+                // No more middleware -- call actual LLM
+                actual_call
+                    .call(messages)
+                    .await
+                    .map_err(|e| MiddlewareError::Other(e.to_string()))
+            } else {
+                // Create a "next" that calls the rest of the chain
+                let next = ChainedLlmCall {
+                    stack: self,
+                    state,
+                    actual_call,
+                    next_index: index + 1,
+                };
+                self.layers[index]
+                    .wrap_llm_call(state, messages, &next)
+                    .await
+            }
+        })
+    }
+
+    /// Run `wrap_tool_call` through the full middleware chain.
     ///
-    /// TODO: proper nesting for multiple wrapping middleware (chain of `next` callbacks).
+    /// Builds a nested chain: `mw[0].wrap(mw[1].wrap(... mw[n].wrap(actual)))`.
     pub async fn run_wrap_tool_call(
         &self,
         state: &AgentState,
         tool_call: &ToolCall,
         actual_call: &dyn ToolCallFn,
     ) -> Result<ToolResult, MiddlewareError> {
-        if let Some(first) = self.layers.first() {
-            first.wrap_tool_call(state, tool_call, actual_call).await
-        } else {
-            actual_call
-                .call(tool_call)
-                .await
-                .map_err(|e| MiddlewareError::Other(e.to_string()))
-        }
+        self.call_wrap_tool_chain(state, tool_call, actual_call, 0)
+            .await
+    }
+
+    /// Recursive helper for tool wrap chain (using `Box::pin` for async recursion).
+    fn call_wrap_tool_chain<'a>(
+        &'a self,
+        state: &'a AgentState,
+        tool_call: &'a ToolCall,
+        actual_call: &'a dyn ToolCallFn,
+        index: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, MiddlewareError>> + Send + 'a>> {
+        Box::pin(async move {
+            if index >= self.layers.len() {
+                // No more middleware -- call actual tool
+                actual_call
+                    .call(tool_call)
+                    .await
+                    .map_err(|e| MiddlewareError::Other(e.to_string()))
+            } else {
+                // Create a "next" that calls the rest of the chain
+                let next = ChainedToolCall {
+                    stack: self,
+                    state,
+                    actual_call,
+                    next_index: index + 1,
+                };
+                self.layers[index]
+                    .wrap_tool_call(state, tool_call, &next)
+                    .await
+            }
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper structs for chained wrap calls
+// ---------------------------------------------------------------------------
+
+/// Wraps the remaining LLM middleware chain as a `LlmCallFn` so each
+/// middleware layer receives a proper `next` callback.
+struct ChainedLlmCall<'a> {
+    stack: &'a MiddlewareStack,
+    state: &'a AgentState,
+    actual_call: &'a dyn LlmCallFn,
+    next_index: usize,
+}
+
+#[async_trait]
+impl<'a> LlmCallFn for ChainedLlmCall<'a> {
+    async fn call(&self, messages: Vec<Message>) -> Result<Message, AgentError> {
+        self.stack
+            .call_wrap_llm_chain(self.state, messages, self.actual_call, self.next_index)
+            .await
+            .map_err(|e| AgentError::Other(e.to_string()))
+    }
+}
+
+/// Wraps the remaining tool middleware chain as a `ToolCallFn` so each
+/// middleware layer receives a proper `next` callback.
+struct ChainedToolCall<'a> {
+    stack: &'a MiddlewareStack,
+    state: &'a AgentState,
+    actual_call: &'a dyn ToolCallFn,
+    next_index: usize,
+}
+
+#[async_trait]
+impl<'a> ToolCallFn for ChainedToolCall<'a> {
+    async fn call(&self, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
+        self.stack
+            .call_wrap_tool_chain(self.state, tool_call, self.actual_call, self.next_index)
+            .await
+            .map_err(|e| AgentError::Other(e.to_string()))
     }
 }
 

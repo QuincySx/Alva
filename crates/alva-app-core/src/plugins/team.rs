@@ -348,6 +348,7 @@ async fn run_single_agent(
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: def.system_prompt.clone(),
+        max_iterations: 100,
     };
 
     let cancel = CancellationToken::new();

@@ -100,6 +100,12 @@ impl BaseAgent {
         st.session.messages()
     }
 
+    /// Clear the current session's message history, starting fresh.
+    pub async fn new_session(&self) {
+        let st = self.state.lock().await;
+        st.session.clear();
+    }
+
     /// Restore message history (e.g., when resuming a session).
     pub async fn restore_messages(&self, messages: Vec<AgentMessage>) {
         let st = self.state.lock().await;
@@ -364,6 +370,7 @@ impl BaseAgentBuilder {
         let config = AgentConfig {
             middleware: middleware_stack,
             system_prompt: self.system_prompt,
+            max_iterations: self.max_iterations,
         };
 
         // 10. Optionally create MemoryService

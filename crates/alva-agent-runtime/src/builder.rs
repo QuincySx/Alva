@@ -134,6 +134,7 @@ impl AgentRuntimeBuilder {
         let config = AgentConfig {
             middleware: self.middleware,
             system_prompt: self.system_prompt,
+            max_iterations: 100,
         };
 
         AgentRuntime {

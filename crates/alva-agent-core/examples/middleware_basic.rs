@@ -232,6 +232,7 @@ fn main() {
     let config = AgentConfig {
         middleware: stack,
         system_prompt: "You are a demo assistant.".to_string(),
+        max_iterations: 100,
     };
 
     println!(

@@ -16,8 +16,6 @@ use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
 use crate::state::{AgentConfig, AgentState};
 use crate::event::AgentEvent;
 
-const MAX_ITERATIONS: u32 = 100;
-
 /// Default timeout for tool execution (2 minutes).
 const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 120;
 
@@ -128,11 +126,14 @@ async fn run_loop(
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), AgentError> {
-    for _iteration in 0..MAX_ITERATIONS {
+    for _iteration in 0..config.max_iterations {
         // Check cancellation
         if cancel.is_cancelled() {
             return Err(AgentError::Cancelled);
         }
+
+        // Emit TurnStart
+        let _ = event_tx.send(AgentEvent::TurnStart);
 
         // 3a. Get ALL messages from session
         let session_messages = state.session.messages();
@@ -179,6 +180,11 @@ async fn run_loop(
             .append(AgentMessage::Standard(response.clone()));
 
         // 3h. Emit events
+        // NOTE: Currently uses model.complete() (non-streaming).
+        // MessageUpdate events with TextDelta are not emitted.
+        // To enable streaming, switch to model.stream() and emit
+        // MessageUpdate events for each chunk. The CLI's streaming
+        // handler code is ready for this.
         let agent_msg = AgentMessage::Standard(response.clone());
         let _ = event_tx.send(AgentEvent::MessageStart {
             message: agent_msg.clone(),
@@ -204,8 +210,9 @@ async fn run_loop(
             })
             .collect();
 
-        // 3j. If no tool_calls, break
+        // 3j. If no tool_calls, emit TurnEnd and break
         if tool_calls.is_empty() {
+            let _ = event_tx.send(AgentEvent::TurnEnd);
             break;
         }
 
@@ -296,7 +303,8 @@ async fn run_loop(
             });
         }
 
-        // 3l. Back to top of loop
+        // 3l. Emit TurnEnd, then back to top of loop
+        let _ = event_tx.send(AgentEvent::TurnEnd);
     }
 
     Ok(())
@@ -364,6 +372,7 @@ mod tests {
         let config = AgentConfig {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "Echo bot.".to_string(),
+            max_iterations: 100,
         };
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -401,6 +410,7 @@ mod tests {
         let config = AgentConfig {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "Test.".to_string(),
+            max_iterations: 100,
         };
         let cancel = CancellationToken::new();
         cancel.cancel(); // Cancel immediately
@@ -423,6 +433,7 @@ mod tests {
         let config = AgentConfig {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "Test.".to_string(),
+            max_iterations: 100,
         };
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();

@@ -33,6 +33,8 @@ pub struct AgentConfig {
     pub middleware: crate::middleware::MiddlewareStack,
     /// System prompt prepended to every LLM call.
     pub system_prompt: String,
+    /// Maximum number of iterations (LLM call + tool execution rounds) before stopping.
+    pub max_iterations: u32,
 }
 
 #[cfg(test)]
@@ -110,10 +112,12 @@ mod tests {
         let config = AgentConfig {
             middleware: crate::middleware::MiddlewareStack::new(),
             system_prompt: "You are a helpful assistant.".to_string(),
+            max_iterations: 100,
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");
         assert!(config.middleware.is_empty());
+        assert_eq!(config.max_iterations, 100);
     }
 
     #[test]

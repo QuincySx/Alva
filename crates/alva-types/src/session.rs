@@ -21,6 +21,8 @@ pub trait AgentSession: Send + Sync {
     fn messages(&self) -> Vec<AgentMessage>;
     /// Get the most recent N messages (for context assembly).
     fn recent(&self, n: usize) -> Vec<AgentMessage>;
+    /// Clear all messages from the session.
+    fn clear(&self) {}
     /// Persist to storage backend.
     async fn flush(&self);
     /// Restore from storage backend.
@@ -75,6 +77,13 @@ impl AgentSession for InMemorySession {
             .write()
             .expect("session RwLock poisoned")
             .push(message);
+    }
+
+    fn clear(&self) {
+        self.messages
+            .write()
+            .expect("session RwLock poisoned")
+            .clear();
     }
 
     fn messages(&self) -> Vec<AgentMessage> {

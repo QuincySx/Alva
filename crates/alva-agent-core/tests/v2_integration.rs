@@ -84,6 +84,7 @@ async fn simple_echo_run() {
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: "Echo bot.".to_string(),
+        max_iterations: 100,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -144,6 +145,7 @@ async fn run_with_middleware() {
     let config = AgentConfig {
         middleware: mw_stack,
         system_prompt: "Echo bot with middleware.".to_string(),
+        max_iterations: 100,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -173,6 +175,7 @@ async fn cancellation_mid_run() {
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: "Test.".to_string(),
+        max_iterations: 100,
     };
     let cancel = CancellationToken::new();
     cancel.cancel(); // Cancel immediately before run
@@ -210,6 +213,7 @@ async fn session_persists_across_check() {
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: "Persist test.".to_string(),
+        max_iterations: 100,
     };
 
     // First run

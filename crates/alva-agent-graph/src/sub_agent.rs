@@ -220,6 +220,7 @@ impl Tool for SubAgentTool {
         let agent_config = AgentConfig {
             middleware: MiddlewareStack::new(),
             system_prompt: config.system_prompt.clone(),
+            max_iterations: 100,
         };
 
         let user_msg = AgentMessage::Standard(Message::user(task));

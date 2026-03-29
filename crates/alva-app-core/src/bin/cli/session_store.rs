@@ -155,9 +155,10 @@ impl SessionStore {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
+    let truncated: String = s.chars().take(max).collect();
+    if truncated.len() < s.len() {
+        format!("{}...", truncated)
     } else {
-        format!("{}...", &s[..max])
+        truncated
     }
 }
