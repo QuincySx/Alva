@@ -18,6 +18,7 @@ tokio-stream = "0.1"
 
 [dev-dependencies]
 alva-test = { path = "../alva-test" }
+futures = "0.3"
 
 [[example]]
 name = "middleware_basic"

@@ -7,6 +7,7 @@ pub mod middleware;
 pub mod agent;
 mod agent_loop;
 mod tool_executor;
+pub mod v2;
 
 pub use types::{
     AgentMessage, AgentHooks, AgentState, AgentContext, ToolCallDecision,
