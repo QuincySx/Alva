@@ -53,21 +53,77 @@ impl SecurityMiddleware {
 impl Middleware for SecurityMiddleware {
     async fn before_tool_call(
         &self,
-        _state: &mut AgentState,
+        state: &mut AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        let mut guard = self.guard.lock().await;
         let tool_context = EmptyToolContext;
-        match guard.check_tool_call(&tool_call.name, &tool_call.arguments, &tool_context) {
+
+        // Lock guard, check, take receiver if needed, then drop lock BEFORE awaiting
+        let (decision, pending_rx) = {
+            let mut guard = self.guard.lock().await;
+            let decision =
+                guard.check_tool_call(&tool_call.name, &tool_call.arguments, &tool_context);
+            let rx = if let SecurityDecision::NeedHumanApproval { ref request_id } = decision {
+                guard.take_pending_receiver(request_id)
+            } else {
+                None
+            };
+            (decision, rx)
+        };
+        // Guard lock is dropped here — critical for avoiding deadlock during approval
+
+        match decision {
             SecurityDecision::Allow => Ok(()),
             SecurityDecision::Deny { reason } => Err(MiddlewareError::Blocked { reason }),
             SecurityDecision::NeedHumanApproval { request_id } => {
-                Err(MiddlewareError::Blocked {
-                    reason: format!(
-                        "tool '{}' requires human approval (request: {})",
-                        tool_call.name, request_id
-                    ),
-                })
+                // Try to get the approval notifier from Extensions
+                let notifier = state.extensions.get::<ApprovalNotifier>().cloned();
+
+                match (notifier, pending_rx) {
+                    (Some(notifier), Some(rx)) => {
+                        // Notify UI that approval is needed
+                        let _ = notifier.tx.send(ApprovalRequest {
+                            request_id: request_id.clone(),
+                            tool_name: tool_call.name.clone(),
+                            arguments: tool_call.arguments.clone(),
+                        });
+
+                        // Wait for human decision
+                        match rx.await {
+                            Ok(perm) => {
+                                use alva_agent_security::PermissionDecision;
+                                match perm {
+                                    PermissionDecision::AllowOnce
+                                    | PermissionDecision::AllowAlways => Ok(()),
+                                    PermissionDecision::RejectOnce
+                                    | PermissionDecision::RejectAlways => {
+                                        Err(MiddlewareError::Blocked {
+                                            reason: format!(
+                                                "tool '{}' denied by user",
+                                                tool_call.name
+                                            ),
+                                        })
+                                    }
+                                }
+                            }
+                            Err(_) => Err(MiddlewareError::Blocked {
+                                reason: format!(
+                                    "approval for '{}' timed out or cancelled",
+                                    tool_call.name
+                                ),
+                            }),
+                        }
+                    }
+                    _ => {
+                        // No approval handler configured — fall back to blocking
+                        Err(MiddlewareError::Blocked {
+                            reason: format!(
+                                "tool '{}' requires human approval (request: {}) but no approval handler is configured",
+                                tool_call.name, request_id
+                            ),
+                        })
+                    }
+                }
             }
         }
     }
@@ -161,5 +217,82 @@ mod tests {
         };
         let result = mw.before_tool_call(&mut state, &tc).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn middleware_waits_for_approval_and_allows() {
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen);
+        let guard = mw.guard();
+        let mut state = make_state();
+
+        // Set up approval channel in Extensions
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        state
+            .extensions
+            .insert(ApprovalNotifier { tx: approval_tx });
+
+        let tc = ToolCall {
+            id: "1".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "ls /projects/test" }),
+        };
+
+        // Spawn a task that will resolve the approval
+        let mw_guard = guard.clone();
+        let approval_handle = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            assert_eq!(req.tool_name, "execute_shell");
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "execute_shell",
+                alva_agent_security::PermissionDecision::AllowOnce,
+            );
+        });
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        approval_handle.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "should be allowed after approval: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn middleware_waits_for_approval_and_denies() {
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen);
+        let guard = mw.guard();
+        let mut state = make_state();
+
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        state
+            .extensions
+            .insert(ApprovalNotifier { tx: approval_tx });
+
+        let tc = ToolCall {
+            id: "2".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "rm -rf /projects/test" }),
+        };
+
+        let mw_guard = guard.clone();
+        let approval_handle = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "execute_shell",
+                alva_agent_security::PermissionDecision::RejectOnce,
+            );
+        });
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        approval_handle.await.unwrap();
+        assert!(result.is_err(), "should be denied after rejection");
     }
 }
