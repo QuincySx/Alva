@@ -13,7 +13,7 @@ use alva_agent_core::event::AgentEvent;
 use alva_agent_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
 use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest};
-use alva_agent_runtime::middleware::{PlanModeMiddleware, SecurityMiddleware};
+use alva_agent_runtime::middleware::{CheckpointMiddleware, PlanModeMiddleware, SecurityMiddleware};
 use alva_agent_security::SandboxMode;
 use alva_types::{
     AgentMessage, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
@@ -194,6 +194,16 @@ impl BaseAgent {
             let mut g = guard.lock().await;
             g.resolve_permission(request_id, tool_name, decision);
         }
+    }
+
+    /// Register a checkpoint callback for auto-checkpointing before file writes.
+    pub async fn set_checkpoint_callback(
+        &self,
+        callback: Arc<dyn alva_agent_runtime::middleware::CheckpointCallback>,
+    ) {
+        let mut st = self.state.lock().await;
+        st.extensions
+            .insert(alva_agent_runtime::middleware::CheckpointCallbackRef(callback));
     }
 }
 
@@ -421,6 +431,9 @@ impl BaseAgentBuilder {
         // f. Plan mode middleware (starts disabled)
         let plan_mw = Arc::new(PlanModeMiddleware::new(false));
         middleware_stack.push_sorted(plan_mw.clone());
+
+        // g. Checkpoint middleware (saves file backups before writes)
+        middleware_stack.push_sorted(Arc::new(CheckpointMiddleware::new()));
 
         // 7. Optionally add the agent spawn tool
         if self.enable_sub_agents {

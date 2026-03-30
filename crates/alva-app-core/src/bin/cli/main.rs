@@ -24,11 +24,30 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use alva_app_core::{AgentEvent, AgentMessage, BaseAgent, BaseAgentBuilder, PermissionDecision, PermissionMode};
+use alva_agent_runtime::middleware::checkpoint::CheckpointCallback;
 use alva_agent_runtime::middleware::security::ApprovalRequest;
 use alva_provider::{OpenAIProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
 use session_store::SessionStore;
+
+/// CLI checkpoint callback — bridges CheckpointMiddleware to CheckpointManager.
+struct CliCheckpointCallback {
+    manager: checkpoint::CheckpointManager,
+}
+
+impl CheckpointCallback for CliCheckpointCallback {
+    fn create_checkpoint(&self, description: &str, file_paths: &[std::path::PathBuf]) {
+        match self.manager.create(description, file_paths) {
+            Ok(id) => {
+                tracing::debug!(id = %id, "auto-checkpoint created");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "auto-checkpoint failed");
+            }
+        }
+    }
+}
 
 fn main() {
     tracing_subscriber::fmt()
@@ -102,6 +121,14 @@ async fn run() {
         .sub_agent_max_depth(3);
     let mut approval_rx = builder.with_approval_channel();
     let agent = builder.build(model).await.expect("failed to build agent");
+
+    // 3b. Register checkpoint callback
+    let checkpoint_mgr_for_rewind = checkpoint::CheckpointManager::new(&workspace);
+    agent
+        .set_checkpoint_callback(Arc::new(CliCheckpointCallback {
+            manager: checkpoint::CheckpointManager::new(&workspace),
+        }))
+        .await;
 
     // 4. Print banner
     output::print_banner(&config.model, &workspace.display().to_string());
@@ -187,6 +214,61 @@ async fn run() {
                             eprintln!("  Plan mode ON — read-only, no file changes or commands");
                         } else {
                             eprintln!("  Plan mode OFF — tools can modify files");
+                        }
+                    }
+                    "/rewind" => {
+                        let checkpoints = checkpoint_mgr_for_rewind.list();
+                        if checkpoints.is_empty() {
+                            eprintln!("  No checkpoints available.");
+                            continue;
+                        }
+                        eprintln!("  Checkpoints:");
+                        for (i, cp) in checkpoints.iter().enumerate().take(10) {
+                            let date = chrono::DateTime::from_timestamp_millis(cp.created_at)
+                                .map(|d| d.format("%H:%M:%S").to_string())
+                                .unwrap_or_default();
+                            eprintln!(
+                                "  [{}] {} | {} files | {}",
+                                i + 1,
+                                date,
+                                cp.files.len(),
+                                cp.description
+                            );
+                        }
+                        eprint!(
+                            "  Rewind to [1-{}] or Enter to cancel: ",
+                            checkpoints.len().min(10)
+                        );
+                        io::stderr().flush().ok();
+
+                        let mut choice = String::new();
+                        if io::stdin().lock().read_line(&mut choice).is_ok() {
+                            let trimmed = choice.trim();
+                            if !trimmed.is_empty() {
+                                if let Ok(idx) = trimmed.parse::<usize>() {
+                                    if idx >= 1 && idx <= checkpoints.len().min(10) {
+                                        let cp = &checkpoints[idx - 1];
+                                        match checkpoint_mgr_for_rewind.rewind(&cp.id) {
+                                            Ok(restored) => {
+                                                eprintln!(
+                                                    "  Restored {} files from checkpoint {}",
+                                                    restored.len(),
+                                                    cp.id
+                                                );
+                                                for f in &restored {
+                                                    eprintln!("    - {}", f);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                output::print_error(&format!(
+                                                    "rewind failed: {}",
+                                                    e
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     "/new" => {
