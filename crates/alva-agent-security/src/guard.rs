@@ -80,6 +80,8 @@ pub struct SecurityGuard {
     dangerous_tools: HashSet<String>,
     /// JSON keys to extract paths from — configurable at runtime.
     path_keys: HashSet<String>,
+    /// Pending approval receivers keyed by request ID.
+    pending_receivers: std::collections::HashMap<String, tokio::sync::oneshot::Receiver<crate::permission::PermissionDecision>>,
 }
 
 impl SecurityGuard {
@@ -91,6 +93,7 @@ impl SecurityGuard {
             sandbox_config: SandboxConfig::for_workspace(&workspace, sandbox_mode),
             dangerous_tools: DEFAULT_DANGEROUS_TOOLS.iter().map(|s| s.to_string()).collect(),
             path_keys: DEFAULT_PATH_KEYS.iter().map(|s| s.to_string()).collect(),
+            pending_receivers: std::collections::HashMap::new(),
         }
     }
 
@@ -169,9 +172,10 @@ impl SecurityGuard {
                 None => {
                     let request_id = uuid::Uuid::new_v4().to_string();
                     // Register pending approval — caller must await the receiver
-                    let _rx = self
+                    let rx = self
                         .permission_manager
                         .request_approval(request_id.clone());
+                    self.pending_receivers.insert(request_id.clone(), rx);
                     return SecurityDecision::NeedHumanApproval { request_id };
                 }
             }
@@ -194,6 +198,15 @@ impl SecurityGuard {
     /// Cancel a pending approval (e.g., on timeout).
     pub fn cancel_permission(&mut self, request_id: &str) {
         self.permission_manager.cancel(request_id);
+    }
+
+    /// Take the pending approval receiver for the given request.
+    /// Returns `None` if no pending request exists (already taken or never created).
+    pub fn take_pending_receiver(
+        &mut self,
+        request_id: &str,
+    ) -> Option<tokio::sync::oneshot::Receiver<crate::permission::PermissionDecision>> {
+        self.pending_receivers.remove(request_id)
     }
 
     /// Add an extra authorized root directory.
@@ -397,5 +410,29 @@ mod tests {
         let args = json!({ "path": "/projects/myapp/src/lib.rs" });
         let decision = guard.check_tool_call("read_file", &args, &test_ctx());
         assert!(matches!(decision, SecurityDecision::Allow));
+    }
+
+    #[tokio::test]
+    async fn approval_receiver_can_be_taken_after_check() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "command": "ls /projects/myapp" });
+        let decision = guard.check_tool_call("execute_shell", &args, &test_ctx());
+
+        let request_id = match decision {
+            SecurityDecision::NeedHumanApproval { request_id } => request_id,
+            other => panic!("expected NeedHumanApproval, got {:?}", other),
+        };
+
+        // Should be able to take the receiver
+        let rx = guard.take_pending_receiver(&request_id);
+        assert!(rx.is_some(), "receiver should exist after check_tool_call");
+
+        // Resolve and verify receiver gets the decision
+        guard.resolve_permission(&request_id, "execute_shell", crate::permission::PermissionDecision::AllowOnce);
+        let decision = rx.unwrap().await.unwrap();
+        assert_eq!(decision, crate::permission::PermissionDecision::AllowOnce);
     }
 }
