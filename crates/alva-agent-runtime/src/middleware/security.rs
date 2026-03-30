@@ -12,6 +12,21 @@ use alva_types::{EmptyToolContext, ToolCall};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
+/// Sent through the approval channel when a tool needs human approval.
+#[derive(Debug, Clone)]
+pub struct ApprovalRequest {
+    pub request_id: String,
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+}
+
+/// Wrapper type stored in Extensions — holds the sending half of the approval channel.
+/// The CLI/UI receives ApprovalRequest on the other end of the channel.
+#[derive(Clone)]
+pub struct ApprovalNotifier {
+    pub tx: tokio::sync::mpsc::UnboundedSender<ApprovalRequest>,
+}
+
 pub struct SecurityMiddleware {
     guard: Arc<Mutex<SecurityGuard>>,
 }
@@ -25,6 +40,12 @@ impl SecurityMiddleware {
 
     pub fn for_workspace(workspace: impl Into<std::path::PathBuf>, mode: SandboxMode) -> Self {
         Self::new(SecurityGuard::new(workspace.into(), mode))
+    }
+
+    /// Get a shared reference to the underlying SecurityGuard.
+    /// Used by BaseAgent to resolve approvals from the UI layer.
+    pub fn guard(&self) -> Arc<Mutex<SecurityGuard>> {
+        self.guard.clone()
     }
 }
 
@@ -117,6 +138,16 @@ mod tests {
         };
         let result = mw.before_tool_call(&mut state, &tc).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn middleware_exposes_guard() {
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen);
+        let guard = mw.guard();
+        // Verify we can lock and access
+        let _g = guard.lock().await;
+        // Smoke test passes — guard is accessible
     }
 
     #[tokio::test]
