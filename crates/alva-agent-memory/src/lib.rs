@@ -18,3 +18,4 @@ pub use service::MemoryService;
 pub use types::{MemoryEntry, MemoryChunk, MemoryFile, SyncReport};
 pub use embedding::{EmbeddingProvider, NoopEmbeddingProvider};
 pub use sqlite::MemorySqlite;
+pub use sync::SyncConfig;

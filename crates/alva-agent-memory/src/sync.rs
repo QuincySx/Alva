@@ -3,6 +3,7 @@
 // POS:    Scans workspace for MEMORY.md files, chunks content, computes embeddings, and indexes into MemorySqlite.
 //! Workspace file synchronization — scan MEMORY.md files, chunk, embed, store.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::error::MemoryError;
@@ -11,31 +12,64 @@ use crate::backend::MemoryBackend;
 use crate::embedding::EmbeddingProvider;
 use crate::types::{MemoryFile, SyncReport};
 
-/// Default chunk size in lines.
-const CHUNK_SIZE: usize = 50;
+/// Configuration for workspace synchronization.
+pub struct SyncConfig {
+    /// Lines per chunk (default: 50).
+    pub chunk_size: usize,
+    /// Maximum directory depth to walk (default: 10).
+    pub max_depth: usize,
+    /// Directory names to skip (default: hidden dirs, node_modules, target).
+    pub skip_dirs: HashSet<String>,
+    /// File name to index (default: "MEMORY.md").
+    pub index_filename: String,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            chunk_size: 50,
+            max_depth: 10,
+            skip_dirs: ["node_modules", "target"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            index_filename: "MEMORY.md".to_string(),
+        }
+    }
+}
 
 /// Synchronize a workspace directory into the memory store.
 ///
-/// Scans for `MEMORY.md` files, compares hashes, and re-indexes changed files.
+/// Scans for memory files, compares hashes, and re-indexes changed files.
+/// Use `SyncConfig::default()` for standard behavior.
 pub async fn sync_workspace(
     workspace: &Path,
     store: &dyn MemoryBackend,
     embedder: &dyn EmbeddingProvider,
 ) -> Result<SyncReport, MemoryError> {
+    sync_workspace_with_config(workspace, store, embedder, &SyncConfig::default()).await
+}
+
+/// Synchronize with custom configuration.
+pub async fn sync_workspace_with_config(
+    workspace: &Path,
+    store: &dyn MemoryBackend,
+    embedder: &dyn EmbeddingProvider,
+    config: &SyncConfig,
+) -> Result<SyncReport, MemoryError> {
     let mut report = SyncReport::default();
 
-    // Walk the workspace looking for MEMORY.md files.
+    let skip_dirs = config.skip_dirs.clone();
     let walker = walkdir::WalkDir::new(workspace)
         .follow_links(true)
-        .max_depth(10)
+        .max_depth(config.max_depth)
         .into_iter()
-        .filter_entry(|e| {
-            // Skip hidden directories and node_modules (but always allow the root).
+        .filter_entry(move |e| {
             if e.depth() == 0 {
                 return true;
             }
             let name = e.file_name().to_string_lossy();
-            !name.starts_with('.') && name != "node_modules" && name != "target"
+            !name.starts_with('.') && !skip_dirs.contains(name.as_ref())
         });
 
     for entry in walker.flatten() {
@@ -43,7 +77,7 @@ pub async fn sync_workspace(
             continue;
         }
         let file_name = entry.file_name().to_string_lossy();
-        if file_name != "MEMORY.md" {
+        if file_name != config.index_filename {
             continue;
         }
 
@@ -92,7 +126,7 @@ pub async fn sync_workspace(
         store.upsert_file(&mem_file).await?;
 
         // Chunk the content
-        let chunks = chunk_text(&content, CHUNK_SIZE);
+        let chunks = chunk_text(&content, config.chunk_size);
 
         // Compute embeddings in batch
         let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();

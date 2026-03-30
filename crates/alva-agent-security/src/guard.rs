@@ -1,6 +1,7 @@
 // INPUT:  serde_json, std::path, alva_types, crate::{authorized_roots, permission, sandbox, sensitive_paths}
 // OUTPUT: SecurityDecision, SecurityGuard
 // POS:    Unified security gate composing sensitive-path filtering, authorized-root checking, and HITL permission management.
+use std::collections::HashSet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -23,11 +24,8 @@ pub enum SecurityDecision {
     NeedHumanApproval { request_id: String },
 }
 
-/// Tools that are considered dangerous and always require HITL review
-/// (unless the user has opted into "always allow" for them).
-///
-/// Names must match the `Tool::name()` return values exactly.
-const DANGEROUS_TOOLS: &[&str] = &[
+/// Default tools that require HITL review.
+const DEFAULT_DANGEROUS_TOOLS: &[&str] = &[
     "execute_shell",
     "create_file",
     "file_edit",
@@ -35,8 +33,8 @@ const DANGEROUS_TOOLS: &[&str] = &[
     "browser_navigate",
 ];
 
-/// Well-known JSON keys that contain file paths in tool arguments.
-const PATH_KEYS: &[&str] = &[
+/// Default JSON keys that contain file paths in tool arguments.
+const DEFAULT_PATH_KEYS: &[&str] = &[
     "path",
     "file_path",
     "filepath",
@@ -78,6 +76,10 @@ pub struct SecurityGuard {
     permission_manager: PermissionManager,
     authorized_roots: AuthorizedRoots,
     sandbox_config: SandboxConfig,
+    /// Tools requiring HITL review — configurable at runtime.
+    dangerous_tools: HashSet<String>,
+    /// JSON keys to extract paths from — configurable at runtime.
+    path_keys: HashSet<String>,
 }
 
 impl SecurityGuard {
@@ -87,7 +89,29 @@ impl SecurityGuard {
             permission_manager: PermissionManager::new(),
             authorized_roots: AuthorizedRoots::new(workspace.clone()),
             sandbox_config: SandboxConfig::for_workspace(&workspace, sandbox_mode),
+            dangerous_tools: DEFAULT_DANGEROUS_TOOLS.iter().map(|s| s.to_string()).collect(),
+            path_keys: DEFAULT_PATH_KEYS.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    /// Add a tool name to the dangerous tools set (requires HITL review).
+    pub fn add_dangerous_tool(&mut self, name: impl Into<String>) {
+        self.dangerous_tools.insert(name.into());
+    }
+
+    /// Remove a tool from the dangerous tools set.
+    pub fn remove_dangerous_tool(&mut self, name: &str) {
+        self.dangerous_tools.remove(name);
+    }
+
+    /// Add a JSON key to the path extraction keys set.
+    pub fn add_path_key(&mut self, key: impl Into<String>) {
+        self.path_keys.insert(key.into());
+    }
+
+    /// Replace the sensitive path filter with a custom one.
+    pub fn set_sensitive_paths(&mut self, filter: SensitivePathFilter) {
+        self.sensitive_paths = filter;
     }
 
     /// Main security check — called before every tool execution.
@@ -104,7 +128,7 @@ impl SecurityGuard {
         _ctx: &dyn ToolContext,
     ) -> SecurityDecision {
         // 1. Extract all paths from tool arguments
-        let paths = Self::extract_paths(args);
+        let paths = self.extract_paths(args);
 
         // 2. Check sensitive paths
         for path in &paths {
@@ -131,7 +155,7 @@ impl SecurityGuard {
         }
 
         // 4. HITL check for dangerous tools
-        if Self::is_dangerous(tool_name) {
+        if self.is_dangerous(tool_name) {
             match self.permission_manager.check(tool_name) {
                 Some(true) => return SecurityDecision::Allow,
                 Some(false) => {
@@ -190,14 +214,14 @@ impl SecurityGuard {
     // ---- internal helpers ----
 
     /// Check if a tool is considered dangerous.
-    fn is_dangerous(tool_name: &str) -> bool {
-        DANGEROUS_TOOLS.contains(&tool_name)
+    fn is_dangerous(&self, tool_name: &str) -> bool {
+        self.dangerous_tools.contains(tool_name)
     }
 
     /// Extract file paths from JSON tool arguments by looking at well-known
     /// keys. Also handles the `command` key for shell tools (extracts paths
     /// from command strings).
-    fn extract_paths(args: &Value) -> Vec<PathBuf> {
+    fn extract_paths(&self, args: &Value) -> Vec<PathBuf> {
         let mut paths = Vec::new();
 
         if let Value::Object(map) = args {
@@ -205,7 +229,7 @@ impl SecurityGuard {
                 let key_lower = key.to_lowercase();
 
                 // Direct path keys
-                if PATH_KEYS.contains(&key_lower.as_str()) {
+                if self.path_keys.contains(&key_lower) {
                     if let Value::String(s) = value {
                         let p = Path::new(s);
                         if p.is_absolute() || s.starts_with("~/") || s.starts_with("./") || s.starts_with("../") {
@@ -353,7 +377,8 @@ mod tests {
             "path": "/projects/myapp/file.txt",
             "destination": "~/Documents/output.txt"
         });
-        let paths = SecurityGuard::extract_paths(&args);
+        let guard = SecurityGuard::new(PathBuf::from("/tmp"), SandboxMode::RestrictiveOpen);
+        let paths = guard.extract_paths(&args);
         assert_eq!(paths.len(), 2);
     }
 

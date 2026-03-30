@@ -14,14 +14,14 @@ use crate::sqlite::MemorySqlite;
 use crate::sync;
 use crate::types::{MemoryEntry, SyncReport};
 
-/// Weights for hybrid search scoring.
-const FTS_WEIGHT: f64 = 0.4;
-const VEC_WEIGHT: f64 = 0.6;
-
 /// High-level memory service combining FTS + vector search.
 pub struct MemoryService {
     store: Arc<dyn MemoryBackend>,
     embedder: Box<dyn EmbeddingProvider>,
+    /// FTS weight in hybrid scoring (default: 0.4).
+    fts_weight: f64,
+    /// Vector weight in hybrid scoring (default: 0.6).
+    vec_weight: f64,
 }
 
 impl MemoryService {
@@ -30,7 +30,7 @@ impl MemoryService {
         store: Arc<dyn MemoryBackend>,
         embedder: Box<dyn EmbeddingProvider>,
     ) -> Self {
-        Self { store, embedder }
+        Self { store, embedder, fts_weight: 0.4, vec_weight: 0.6 }
     }
 
     /// Create a new `MemoryService` with the default SQLite backend.
@@ -38,7 +38,16 @@ impl MemoryService {
         Self {
             store: Arc::new(store),
             embedder,
+            fts_weight: 0.4,
+            vec_weight: 0.6,
         }
+    }
+
+    /// Set custom weights for hybrid search scoring.
+    /// `fts` + `vec` should sum to 1.0 for normalized results.
+    pub fn set_search_weights(&mut self, fts: f64, vec: f64) {
+        self.fts_weight = fts;
+        self.vec_weight = vec;
     }
 
     /// Store a key-value memory entry.
@@ -111,7 +120,7 @@ impl MemoryService {
             .await?;
 
         // Step 3: Merge results with weighted fusion
-        let merged = merge_results(&fts_results, &vec_results, max_results);
+        let merged = merge_results(&fts_results, &vec_results, max_results, self.fts_weight, self.vec_weight);
 
         Ok(merged)
     }
@@ -135,6 +144,8 @@ fn merge_results(
     fts: &[MemoryEntry],
     vec: &[MemoryEntry],
     max_results: usize,
+    fts_weight: f64,
+    vec_weight: f64,
 ) -> Vec<MemoryEntry> {
     use std::collections::HashMap;
 
@@ -150,14 +161,14 @@ fn merge_results(
         combined
             .entry(entry.chunk_id)
             .or_insert_with(|| (entry.clone(), 0.0))
-            .1 += score * FTS_WEIGHT;
+            .1 += score * fts_weight;
     }
 
     for (entry, score) in vec.iter().zip(vec_scores.iter()) {
         combined
             .entry(entry.chunk_id)
-            .and_modify(|(_, s)| *s += score * VEC_WEIGHT)
-            .or_insert_with(|| (entry.clone(), score * VEC_WEIGHT));
+            .and_modify(|(_, s)| *s += score * vec_weight)
+            .or_insert_with(|| (entry.clone(), score * vec_weight));
     }
 
     let mut results: Vec<MemoryEntry> = combined
