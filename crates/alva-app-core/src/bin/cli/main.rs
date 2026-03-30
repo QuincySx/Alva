@@ -16,6 +16,7 @@
 //!
 //! Sessions are stored under `.alva/sessions/` in the working directory.
 
+mod checkpoint;
 mod output;
 mod session_store;
 
