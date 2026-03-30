@@ -12,6 +12,7 @@ use alva_agent_core::run::run_agent;
 use alva_agent_core::event::AgentEvent;
 use alva_agent_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
+use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest};
 use alva_agent_runtime::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
 use alva_types::{
@@ -52,6 +53,7 @@ pub struct BaseAgent {
     tool_registry: ToolRegistry,
     skill_store: Arc<SkillStore>,
     memory: Option<MemoryService>,
+    security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
 }
 
 impl BaseAgent {
@@ -143,6 +145,19 @@ impl BaseAgent {
     pub fn memory(&self) -> Option<&MemoryService> {
         self.memory.as_ref()
     }
+
+    /// Resolve a pending permission request. Called by the UI layer (CLI/GUI).
+    pub async fn resolve_permission(
+        &self,
+        request_id: &str,
+        tool_name: &str,
+        decision: alva_agent_security::PermissionDecision,
+    ) {
+        if let Some(guard) = &self.security_guard {
+            let mut g = guard.lock().await;
+            g.resolve_permission(request_id, tool_name, decision);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +182,7 @@ pub struct BaseAgentBuilder {
     pub(crate) sub_agent_max_depth: u32,
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
+    pub(crate) approval_notifier: Option<ApprovalNotifier>,
 }
 
 impl BaseAgentBuilder {
@@ -185,6 +201,7 @@ impl BaseAgentBuilder {
             sub_agent_max_depth: 3,
             max_iterations: 100,
             context_window: 0,
+            approval_notifier: None,
         }
     }
 
@@ -271,6 +288,14 @@ impl BaseAgentBuilder {
         self
     }
 
+    /// Set up an approval channel for interactive permission prompts.
+    /// Returns the receiving end; the CLI/UI should poll this for ApprovalRequest events.
+    pub fn with_approval_channel(&mut self) -> mpsc::UnboundedReceiver<ApprovalRequest> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.approval_notifier = Some(ApprovalNotifier { tx });
+        rx
+    }
+
     /// Consume the builder and produce a ready-to-use [`BaseAgent`].
     ///
     /// # Errors
@@ -332,9 +357,9 @@ impl BaseAgentBuilder {
         let mut middleware_stack = MiddlewareStack::new();
 
         // a. Security middleware (highest priority — runs before all others)
-        middleware_stack.push_sorted(Arc::new(
-            SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone()),
-        ));
+        let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone());
+        let security_guard = Some(security_mw.guard());
+        middleware_stack.push_sorted(Arc::new(security_mw));
 
         // b. Builtin: DanglingToolCallMiddleware
         middleware_stack.push_sorted(Arc::new(
@@ -371,11 +396,15 @@ impl BaseAgentBuilder {
 
         // 8. Create V2 AgentState
         let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
+        let mut extensions = Extensions::new();
+        if let Some(notifier) = self.approval_notifier {
+            extensions.insert(notifier);
+        }
         let state = AgentState {
             model,
             tools: alva_tools_list,
             session,
-            extensions: Extensions::new(),
+            extensions,
         };
 
         // 9. Create V2 AgentConfig
@@ -407,6 +436,7 @@ impl BaseAgentBuilder {
             tool_registry,
             skill_store,
             memory,
+            security_guard,
         })
     }
 }
