@@ -28,6 +28,21 @@ use crate::error::EngineError;
 use tokio::sync::{mpsc, Mutex};
 
 // ---------------------------------------------------------------------------
+// PermissionMode
+// ---------------------------------------------------------------------------
+
+/// Controls how the agent handles tool permissions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionMode {
+    /// All write/execute tools require human approval (default).
+    Ask,
+    /// All write tools auto-approved; shell commands still need approval.
+    AcceptEdits,
+    /// No tools execute — agent can only read and analyze.
+    Plan,
+}
+
+// ---------------------------------------------------------------------------
 // BaseAgent
 // ---------------------------------------------------------------------------
 
@@ -50,6 +65,7 @@ pub struct BaseAgent {
     /// Holds the CancellationToken for the currently running prompt() call.
     /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
     current_cancel: std::sync::Mutex<CancellationToken>,
+    permission_mode: std::sync::Mutex<PermissionMode>,
     tool_registry: ToolRegistry,
     skill_store: Arc<SkillStore>,
     memory: Option<MemoryService>,
@@ -139,6 +155,17 @@ impl BaseAgent {
     /// Access the tool registry (for name-based lookup of registered tools).
     pub fn tool_registry(&self) -> &ToolRegistry {
         &self.tool_registry
+    }
+
+    /// Get the current permission mode.
+    pub fn permission_mode(&self) -> PermissionMode {
+        *self.permission_mode.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Set the permission mode.
+    pub fn set_permission_mode(&self, mode: PermissionMode) {
+        let mut m = self.permission_mode.lock().unwrap_or_else(|e| e.into_inner());
+        *m = mode;
     }
 
     /// Access the memory service (if enabled).
@@ -433,6 +460,7 @@ impl BaseAgentBuilder {
             state: Arc::new(Mutex::new(state)),
             config: Arc::new(config),
             current_cancel: std::sync::Mutex::new(CancellationToken::new()),
+            permission_mode: std::sync::Mutex::new(PermissionMode::Ask),
             tool_registry,
             skill_store,
             memory,

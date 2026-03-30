@@ -86,5 +86,5 @@ pub use alva_agent_scope::scope_impl as scope;
 
 // ── Convenience re-exports — BaseAgent ──────────────────────────────
 
-pub use base_agent::{BaseAgent, BaseAgentBuilder};
+pub use base_agent::{BaseAgent, BaseAgentBuilder, PermissionMode};
 pub use error::EngineError;
