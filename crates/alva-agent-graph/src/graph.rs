@@ -1,7 +1,6 @@
 // INPUT:  std::collections::HashMap, std::future::Future, std::pin::Pin, alva_types::AgentError, crate::pregel::CompiledGraph
-// OUTPUT: pub const START, pub const END, pub struct StateGraph
-// POS:    StateGraph builder that defines nodes and edges, then compiles into an executable CompiledGraph.
-/// StateGraph builder — defines nodes and edges, then compiles into a `CompiledGraph`.
+// OUTPUT: pub const START, pub const END, pub struct StateGraph, pub enum NodeResult, pub struct Send
+// POS:    StateGraph builder with Send/Command-style dynamic routing support.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -15,7 +14,7 @@ pub const START: &str = "__start__";
 pub const END: &str = "__end__";
 
 pub(crate) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
-pub(crate) type NodeFn<S> = Box<dyn Fn(S) -> BoxFuture<S> + Send + Sync>;
+pub(crate) type NodeFn<S> = Box<dyn Fn(S) -> BoxFuture<NodeResult<S>> + Send + Sync>;
 pub(crate) type RouterFn<S> = Box<dyn Fn(&S) -> String + Send + Sync>;
 pub(crate) type MergeFn<S> = Box<dyn Fn(S, Vec<S>) -> S + Send + Sync>;
 
@@ -23,6 +22,50 @@ pub(crate) enum Edge<S> {
     Direct { from: String, to: String },
     Conditional { from: String, router: RouterFn<S> },
 }
+
+// ---------------------------------------------------------------------------
+// Send & NodeResult — dynamic routing primitives
+// ---------------------------------------------------------------------------
+
+/// Dynamic fan-out: route to a specific node with a specific state.
+///
+/// Returned by nodes via `NodeResult::Sends` to create parallel tasks
+/// at runtime. Unlike static edges, the number and targets of Sends are
+/// determined dynamically by the node's logic.
+///
+/// ```rust,ignore
+/// // Node decides at runtime to fan out to 3 workers
+/// NodeResult::Sends(items.into_iter().map(|item| {
+///     SendTo { node: "process".into(), state: item_state }
+/// }).collect())
+/// ```
+pub struct SendTo<S> {
+    pub node: String,
+    pub state: S,
+}
+
+/// What a node returns after execution.
+///
+/// - `Update(S)`: normal state update (backward compatible with simple nodes)
+/// - `Sends(Vec<Send<S>>)`: dynamic fan-out to specific nodes with specific states
+pub enum NodeResult<S> {
+    /// Normal: return the updated state, continue via edges.
+    Update(S),
+    /// Dynamic routing: fan out to specific nodes, bypassing edge definitions.
+    /// Each Send runs in parallel as a separate superstep task.
+    Sends(Vec<SendTo<S>>),
+}
+
+/// Convenience: convert a raw state into `NodeResult::Update`.
+impl<S> From<S> for NodeResult<S> {
+    fn from(state: S) -> Self {
+        NodeResult::Update(state)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StateGraph builder
+// ---------------------------------------------------------------------------
 
 /// Builder for constructing a state graph.
 ///
@@ -37,7 +80,6 @@ pub struct StateGraph<S> {
 }
 
 impl<S: Send + 'static> StateGraph<S> {
-    /// Create a new, empty graph.
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
@@ -47,14 +89,31 @@ impl<S: Send + 'static> StateGraph<S> {
         }
     }
 
-    /// Register a node.
+    /// Register a node with a simple `Fn(S) -> Future<S>` signature.
     ///
-    /// `node` is an async function that receives the current state and returns
-    /// the (possibly modified) state.
+    /// This is the backward-compatible API. The closure is internally wrapped
+    /// to return `NodeResult::Update(S)`.
     pub fn add_node(
         &mut self,
         name: &str,
         node: impl Fn(S) -> BoxFuture<S> + Send + Sync + 'static,
+    ) {
+        let wrapped = move |s: S| -> BoxFuture<NodeResult<S>> {
+            let fut = node(s);
+            Box::pin(async move { NodeResult::Update(fut.await) })
+        };
+        self.nodes.insert(name.to_string(), Box::new(wrapped));
+    }
+
+    /// Register a node that can return `NodeResult` for dynamic routing.
+    ///
+    /// Use this when the node needs to:
+    /// - Fan out to specific nodes with specific states (`NodeResult::Sends`)
+    /// - Choose its next target dynamically without pre-defined conditional edges
+    pub fn add_routing_node(
+        &mut self,
+        name: &str,
+        node: impl Fn(S) -> BoxFuture<NodeResult<S>> + Send + Sync + 'static,
     ) {
         self.nodes.insert(name.to_string(), Box::new(node));
     }
@@ -68,9 +127,6 @@ impl<S: Send + 'static> StateGraph<S> {
     }
 
     /// Add a conditional edge whose target is determined at runtime by `router`.
-    ///
-    /// `router` inspects the current state and returns the name of the next
-    /// node (or `END`).
     pub fn add_conditional_edge(
         &mut self,
         from: &str,
@@ -93,11 +149,6 @@ impl<S: Send + 'static> StateGraph<S> {
     /// clone of the current state. The merge function receives the original
     /// base state and a `Vec` of all node outputs, and must return a single
     /// combined state.
-    ///
-    /// If no merge function is set, "last result wins" (nondeterministic).
-    ///
-    /// Note: the ordering of elements in the `Vec` is determined by task
-    /// completion order and is NOT guaranteed to match the edge definition order.
     pub fn set_merge(
         &mut self,
         merge: impl Fn(S, Vec<S>) -> S + Send + Sync + 'static,
@@ -106,19 +157,11 @@ impl<S: Send + 'static> StateGraph<S> {
     }
 
     /// Validate the graph and produce a `CompiledGraph` ready for execution.
-    ///
-    /// Validation checks:
-    /// - Entry point must be set and must reference an existing node.
-    /// - All direct-edge targets must be existing nodes or `END`.
-    /// - All direct-edge sources must be existing nodes or `START`.
-    /// - Every registered node must be reachable (no orphans).
     pub fn compile(self) -> Result<CompiledGraph<S>, AgentError> {
-        // 1. Entry point must be set
         let entry_point = self.entry_point.ok_or_else(|| {
             AgentError::ConfigError("Entry point not set".to_string())
         })?;
 
-        // 2. Entry point must reference an existing node
         if !self.nodes.contains_key(&entry_point) {
             return Err(AgentError::ConfigError(format!(
                 "Entry point '{}' does not exist as a node",
@@ -126,18 +169,15 @@ impl<S: Send + 'static> StateGraph<S> {
             )));
         }
 
-        // 3. Validate edge targets and sources
         for edge in &self.edges {
             match edge {
                 Edge::Direct { from, to } => {
-                    // Source must be a known node or START
                     if from != START && !self.nodes.contains_key(from.as_str()) {
                         return Err(AgentError::ConfigError(format!(
                             "Edge source '{}' is not a registered node",
                             from
                         )));
                     }
-                    // Target must be a known node or END
                     if to != END && !self.nodes.contains_key(to.as_str()) {
                         return Err(AgentError::ConfigError(format!(
                             "Edge target '{}' is not a registered node",
@@ -156,32 +196,22 @@ impl<S: Send + 'static> StateGraph<S> {
             }
         }
 
-        // 4. Check for orphan nodes — every node must appear as either:
-        //    - the entry point, OR
-        //    - a direct-edge target, OR
-        //    - potentially reachable via a conditional edge (we can't statically
-        //      verify conditional targets, so we skip those).
-        //    We collect all statically-reachable node names.
         let mut referenced_nodes = std::collections::HashSet::new();
         referenced_nodes.insert(entry_point.clone());
         for edge in &self.edges {
-            match edge {
-                Edge::Direct { to, .. } if to != END => {
+            if let Edge::Direct { to, .. } = edge {
+                if to != END {
                     referenced_nodes.insert(to.clone());
                 }
-                _ => {}
             }
         }
 
         for node_name in self.nodes.keys() {
             if !referenced_nodes.contains(node_name) {
-                // The node may still be reachable via conditional edges, so
-                // only warn via tracing rather than erroring, to avoid false
-                // positives.
                 tracing::warn!(
                     node = %node_name,
                     "Node is not statically referenced by any direct edge or entry point; \
-                     it may only be reachable via conditional routing"
+                     it may only be reachable via conditional routing or Send"
                 );
             }
         }

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::base::cancel::CancellationToken;
 use crate::base::error::AgentError;
@@ -138,6 +139,9 @@ pub struct ToolFsDirEntry {
 }
 
 /// No-op context for tools that don't need runtime information.
+///
+/// Returns `None` for `local()` — tools that need filesystem access
+/// should use their own fallback (e.g., `LocalToolFs`).
 pub struct EmptyToolContext;
 
 impl ToolContext for EmptyToolContext {
@@ -150,18 +154,7 @@ impl ToolContext for EmptyToolContext {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn local(&self) -> Option<&dyn LocalToolContext> {
-        Some(self)
-    }
-}
-
-impl LocalToolContext for EmptyToolContext {
-    fn workspace(&self) -> &std::path::Path {
-        std::path::Path::new(".")
-    }
-    fn allow_dangerous(&self) -> bool {
-        false
-    }
+    // local() uses the default: None
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +199,7 @@ pub trait Tool: Send + Sync {
 // ---------------------------------------------------------------------------
 
 pub struct ToolRegistry {
-    tools: HashMap<String, Box<dyn Tool>>,
+    tools: HashMap<String, Arc<dyn Tool>>,
 }
 
 impl ToolRegistry {
@@ -218,6 +211,12 @@ impl ToolRegistry {
 
     pub fn register(&mut self, tool: Box<dyn Tool>) {
         let name = tool.name().to_string();
+        self.tools.insert(name, Arc::from(tool));
+    }
+
+    /// Register a tool that is already wrapped in an Arc.
+    pub fn register_arc(&mut self, tool: Arc<dyn Tool>) {
+        let name = tool.name().to_string();
         self.tools.insert(name, tool);
     }
 
@@ -225,15 +224,25 @@ impl ToolRegistry {
         self.tools.get(name).map(|t| t.as_ref())
     }
 
+    /// Get a cloned Arc reference to a tool by name.
+    pub fn get_arc(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.tools.get(name).cloned()
+    }
+
     pub fn list(&self) -> Vec<&dyn Tool> {
         self.tools.values().map(|t| t.as_ref()).collect()
+    }
+
+    /// Get all tools as Arc references.
+    pub fn list_arc(&self) -> Vec<Arc<dyn Tool>> {
+        self.tools.values().cloned().collect()
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools.values().map(|t| t.definition()).collect()
     }
 
-    pub fn remove(&mut self, name: &str) -> Option<Box<dyn Tool>> {
+    pub fn remove(&mut self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.remove(name)
     }
 }

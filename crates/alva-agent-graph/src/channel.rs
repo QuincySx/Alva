@@ -1,6 +1,6 @@
 // INPUT:  (none - no external dependencies)
 // OUTPUT: pub trait Channel, pub struct LastValue, pub struct BinaryOperatorAggregate, pub struct EphemeralValue
-// POS:    Typed state channels (last-value, reducer, ephemeral) for graph step communication.
+// POS:    Typed state channels with version tracking for graph step communication.
 /// Channel types for typed state management in graph execution.
 ///
 /// Three channel implementations modeled after LangGraph:
@@ -9,6 +9,10 @@
 /// - `EphemeralValue<T>`: like LastValue but `reset()` clears it
 
 /// Base trait for typed state channels.
+///
+/// Each channel tracks a monotonic `version` that increments on every
+/// successful update. The execution engine uses version numbers to detect
+/// which channels have fresh data and decide which nodes to trigger.
 pub trait Channel: Send + Sync {
     type Value: Clone + Send + Sync;
     type Update: Clone + Send + Sync;
@@ -22,6 +26,10 @@ pub trait Channel: Send + Sync {
 
     /// Called between steps. Ephemeral channels clear here; persistent ones are no-ops.
     fn reset(&mut self);
+
+    /// Monotonically increasing version — incremented on every successful update.
+    /// Used by the execution engine to detect fresh data.
+    fn version(&self) -> u64;
 }
 
 // ---------------------------------------------------------------------------
@@ -32,16 +40,21 @@ pub trait Channel: Send + Sync {
 /// the last one wins.
 pub struct LastValue<T> {
     value: Option<T>,
+    version: u64,
 }
 
 impl<T> LastValue<T> {
     pub fn new() -> Self {
-        Self { value: None }
+        Self {
+            value: None,
+            version: 0,
+        }
     }
 
     pub fn with_initial(value: T) -> Self {
         Self {
             value: Some(value),
+            version: 0,
         }
     }
 }
@@ -64,6 +77,9 @@ impl<T: Clone + Send + Sync + PartialEq> Channel for LastValue<T> {
         if let Some(last) = values.into_iter().last() {
             let changed = self.value.as_ref() != Some(&last);
             self.value = Some(last);
+            if changed {
+                self.version += 1;
+            }
             changed
         } else {
             false
@@ -72,6 +88,10 @@ impl<T: Clone + Send + Sync + PartialEq> Channel for LastValue<T> {
 
     fn reset(&mut self) {
         // Persistent — do nothing
+    }
+
+    fn version(&self) -> u64 {
+        self.version
     }
 }
 
@@ -85,6 +105,7 @@ impl<T: Clone + Send + Sync + PartialEq> Channel for LastValue<T> {
 pub struct BinaryOperatorAggregate<T> {
     value: Option<T>,
     operator: Box<dyn Fn(T, T) -> T + Send + Sync>,
+    version: u64,
 }
 
 impl<T> BinaryOperatorAggregate<T> {
@@ -92,6 +113,7 @@ impl<T> BinaryOperatorAggregate<T> {
         Self {
             value: None,
             operator: Box::new(operator),
+            version: 0,
         }
     }
 
@@ -102,6 +124,7 @@ impl<T> BinaryOperatorAggregate<T> {
         Self {
             value: Some(value),
             operator: Box::new(operator),
+            version: 0,
         }
     }
 }
@@ -130,11 +153,18 @@ impl<T: Clone + Send + Sync + PartialEq> Channel for BinaryOperatorAggregate<T> 
 
         let changed = self.value.as_ref() != Some(&folded);
         self.value = Some(folded);
+        if changed {
+            self.version += 1;
+        }
         changed
     }
 
     fn reset(&mut self) {
         // Persistent — do nothing
+    }
+
+    fn version(&self) -> u64 {
+        self.version
     }
 }
 
@@ -146,11 +176,15 @@ impl<T: Clone + Send + Sync + PartialEq> Channel for BinaryOperatorAggregate<T> 
 /// Useful for input/output channels that should not carry state across steps.
 pub struct EphemeralValue<T> {
     value: Option<T>,
+    version: u64,
 }
 
 impl<T> EphemeralValue<T> {
     pub fn new() -> Self {
-        Self { value: None }
+        Self {
+            value: None,
+            version: 0,
+        }
     }
 }
 
@@ -172,6 +206,9 @@ impl<T: Clone + Send + Sync + PartialEq> Channel for EphemeralValue<T> {
         if let Some(last) = values.into_iter().last() {
             let changed = self.value.as_ref() != Some(&last);
             self.value = Some(last);
+            if changed {
+                self.version += 1;
+            }
             changed
         } else {
             false
@@ -180,6 +217,10 @@ impl<T: Clone + Send + Sync + PartialEq> Channel for EphemeralValue<T> {
 
     fn reset(&mut self) {
         self.value = None;
+    }
+
+    fn version(&self) -> u64 {
+        self.version
     }
 }
 
@@ -197,6 +238,7 @@ mod tests {
     fn last_value_empty_initially() {
         let ch: LastValue<i32> = LastValue::new();
         assert_eq!(ch.get(), None);
+        assert_eq!(ch.version(), 0);
     }
 
     #[test]
@@ -205,6 +247,7 @@ mod tests {
         let changed = ch.update(vec![42]);
         assert!(changed);
         assert_eq!(ch.get(), Some(42));
+        assert_eq!(ch.version(), 1);
     }
 
     #[test]
@@ -213,6 +256,7 @@ mod tests {
         let changed = ch.update(vec![1, 2, 3]);
         assert!(changed);
         assert_eq!(ch.get(), Some(3));
+        assert_eq!(ch.version(), 1);
     }
 
     #[test]
@@ -222,6 +266,7 @@ mod tests {
         let changed = ch.update(vec![5]);
         assert!(!changed);
         assert_eq!(ch.get(), Some(5));
+        assert_eq!(ch.version(), 1); // no increment on same value
     }
 
     #[test]
@@ -240,6 +285,18 @@ mod tests {
         assert_eq!(ch.get(), None);
     }
 
+    #[test]
+    fn last_value_version_increments() {
+        let mut ch: LastValue<i32> = LastValue::new();
+        assert_eq!(ch.version(), 0);
+        ch.update(vec![1]);
+        assert_eq!(ch.version(), 1);
+        ch.update(vec![2]);
+        assert_eq!(ch.version(), 2);
+        ch.update(vec![2]); // same value — no increment
+        assert_eq!(ch.version(), 2);
+    }
+
     // -- BinaryOperatorAggregate tests --
 
     #[test]
@@ -247,7 +304,8 @@ mod tests {
         let mut ch = BinaryOperatorAggregate::new(|a: i32, b: i32| a + b);
         let changed = ch.update(vec![1, 2, 3]);
         assert!(changed);
-        assert_eq!(ch.get(), Some(6)); // 1 + 2 + 3
+        assert_eq!(ch.get(), Some(6));
+        assert_eq!(ch.version(), 1);
     }
 
     #[test]
@@ -255,10 +313,13 @@ mod tests {
         let mut ch = BinaryOperatorAggregate::new(|a: i32, b: i32| a + b);
         ch.update(vec![10]);
         assert_eq!(ch.get(), Some(10));
+        assert_eq!(ch.version(), 1);
         ch.update(vec![5]);
-        assert_eq!(ch.get(), Some(15)); // 10 + 5
+        assert_eq!(ch.get(), Some(15));
+        assert_eq!(ch.version(), 2);
         ch.update(vec![3, 2]);
-        assert_eq!(ch.get(), Some(20)); // 15 + 3 + 2
+        assert_eq!(ch.get(), Some(20));
+        assert_eq!(ch.version(), 3);
     }
 
     #[test]
@@ -302,6 +363,7 @@ mod tests {
     fn ephemeral_empty_initially() {
         let ch: EphemeralValue<i32> = EphemeralValue::new();
         assert_eq!(ch.get(), None);
+        assert_eq!(ch.version(), 0);
     }
 
     #[test]
@@ -310,6 +372,7 @@ mod tests {
         let changed = ch.update(vec!["hello".to_string()]);
         assert!(changed);
         assert_eq!(ch.get(), Some("hello".to_string()));
+        assert_eq!(ch.version(), 1);
     }
 
     #[test]

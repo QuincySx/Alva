@@ -167,14 +167,18 @@ impl FsSkillRepository {
         map
     }
 
-    /// Load enabled skill names from state file
+    /// Load enabled skill names from state file.
+    ///
+    /// When the state file does not exist (first run or fresh install),
+    /// defaults to all bundled skills enabled — scans bundled_dir for SKILL.md
+    /// frontmatter names.
     async fn load_enabled_names(&self) -> HashSet<String> {
         let Ok(content) = tokio::fs::read_to_string(&self.state_file).await else {
-            // If state file doesn't exist, default: all bundled skills are enabled
-            return HashSet::new();
+            // No state file → default: all bundled skills enabled
+            return self.scan_bundled_names().await;
         };
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
-            return HashSet::new();
+            return self.scan_bundled_names().await;
         };
         value["enabled"]
             .as_array()
@@ -183,7 +187,27 @@ impl FsSkillRepository {
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_else(|| {
+                // "enabled" key missing or not an array → treat as first run
+                HashSet::new()
+            })
+    }
+
+    /// Scan bundled_dir for skill names (used as default when no state file exists).
+    async fn scan_bundled_names(&self) -> HashSet<String> {
+        let mut names = HashSet::new();
+        let Ok(mut entries) = tokio::fs::read_dir(&self.bundled_dir).await else {
+            return names;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let skill_md = entry.path().join("SKILL.md");
+            if let Ok(content) = tokio::fs::read_to_string(&skill_md).await {
+                if let Ok(meta) = Self::parse_frontmatter(&content) {
+                    names.insert(meta.name);
+                }
+            }
+        }
+        names
     }
 
     /// Save enabled skill names to state file

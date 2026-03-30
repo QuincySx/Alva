@@ -16,9 +16,6 @@ use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
 use crate::state::{AgentConfig, AgentState};
 use crate::event::AgentEvent;
 
-/// Default timeout for tool execution (2 minutes).
-const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 120;
-
 // ---------------------------------------------------------------------------
 // LlmCallFn / ToolCallFn adapters for wrap hooks
 // ---------------------------------------------------------------------------
@@ -51,24 +48,10 @@ struct ActualToolCall {
 #[async_trait]
 impl ToolCallFn for ActualToolCall {
     async fn call(&self, _state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
-        let timeout_duration = std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS);
-        match tokio::time::timeout(
-            timeout_duration,
-            self.tool
-                .execute(tool_call.arguments.clone(), &self.cancel, &EmptyToolContext),
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Ok(ToolResult {
-                content: format!(
-                    "Tool '{}' timed out after {:?}",
-                    tool_call.name, timeout_duration
-                ),
-                is_error: true,
-                details: None,
-            }),
-        }
+        // No timeout in the kernel — use ToolTimeoutMiddleware (wrap_tool_call) to add one.
+        self.tool
+            .execute(tool_call.arguments.clone(), &self.cancel, &EmptyToolContext)
+            .await
     }
 }
 
@@ -107,10 +90,13 @@ pub async fn run_agent(
     }
 
     // 4. Lifecycle: on_agent_end
-    let _ = config
+    if let Err(e) = config
         .middleware
         .run_on_agent_end(state, error.as_deref())
-        .await;
+        .await
+    {
+        tracing::warn!(error = %e, "on_agent_end middleware failed");
+    }
 
     // 5. Emit AgentEnd
     let _ = event_tx.send(AgentEvent::AgentEnd {
@@ -127,6 +113,7 @@ async fn run_loop(
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), AgentError> {
+    let mut naturally_finished = false;
     for _iteration in 0..config.max_iterations {
         // Check cancellation
         if cancel.is_cancelled() {
@@ -216,9 +203,10 @@ async fn run_loop(
             })
             .collect();
 
-        // 3j. If no tool_calls, emit TurnEnd and break
+        // 3j. If no tool_calls, emit TurnEnd and break (natural finish)
         if tool_calls.is_empty() {
             let _ = event_tx.send(AgentEvent::TurnEnd);
+            naturally_finished = true;
             break;
         }
 
@@ -311,6 +299,14 @@ async fn run_loop(
 
         // 3l. Emit TurnEnd, then back to top of loop
         let _ = event_tx.send(AgentEvent::TurnEnd);
+    }
+
+    if !naturally_finished && !cancel.is_cancelled() {
+        tracing::warn!(
+            max_iterations = config.max_iterations,
+            "agent loop exhausted max_iterations without finishing"
+        );
+        return Err(AgentError::MaxIterations(config.max_iterations));
     }
 
     Ok(())

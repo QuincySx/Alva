@@ -9,6 +9,7 @@
 //! - [`evaluation`] — QA evaluation loop, sprint contracts, grading criteria
 
 pub mod agent_spawn;
+pub mod task_spawn;
 pub mod evaluation;
 pub mod team;
 

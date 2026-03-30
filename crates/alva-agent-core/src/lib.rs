@@ -6,6 +6,7 @@ pub mod shared;
 pub mod state;
 pub mod middleware;
 pub mod run;
+pub mod run_child;
 pub mod builtins;
 pub mod event;
 
@@ -20,6 +21,7 @@ pub use middleware::{Middleware, MiddlewareStack, LlmCallFn, ToolCallFn};
 
 // Re-exports — run
 pub use run::run_agent;
+pub use run_child::{run_child_agent, ChildAgentParams, ChildAgentOutput};
 
 // Re-exports — event
 pub use event::AgentEvent;

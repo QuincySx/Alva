@@ -22,19 +22,12 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_agent_core::middleware::MiddlewareStack;
-use alva_agent_core::state::{AgentConfig, AgentState};
-use alva_agent_core::run::run_agent;
-use alva_agent_core::event::AgentEvent;
-use alva_agent_core::shared::Extensions;
+use alva_agent_core::run_child::{run_child_agent, ChildAgentParams};
 use alva_agent_graph::{StateGraph, END};
 use alva_types::base::error::AgentError;
-use alva_types::base::message::Message;
 use alva_types::base::cancel::CancellationToken;
 use alva_types::model::LanguageModel;
-use alva_types::session::InMemorySession;
 use alva_types::tool::{Tool, ToolContext, ToolResult};
-use alva_types::AgentMessage;
 
 use alva_agent_scope::blackboard::{AgentProfile, Blackboard, BoardMessage, MessageKind};
 
@@ -327,7 +320,6 @@ async fn run_single_agent(
         }
     }
 
-    // Include recent board messages
     let (board_log, _) = board.render_chat_log(20).await;
     if !board_log.is_empty() {
         context.push_str(&format!("## Team Chat\n{}\n\n", board_log));
@@ -335,63 +327,23 @@ async fn run_single_agent(
 
     context.push_str("Based on the above context, complete your part of the task.");
 
-    // Create a lightweight V2 agent (no tools — team agents focus on reasoning)
-    let session: Arc<dyn alva_types::session::AgentSession> =
-        Arc::new(InMemorySession::new());
-    let mut agent_state = AgentState {
+    // Run using shared helper (no tools — team agents focus on reasoning)
+    let result = run_child_agent(ChildAgentParams {
         model: model.clone(),
         tools: vec![],
-        session,
-        extensions: Extensions::new(),
-    };
-
-    let config = AgentConfig {
-        middleware: MiddlewareStack::new(),
         system_prompt: def.system_prompt.clone(),
+        task: context,
         max_iterations: 100,
-        model_config: alva_types::ModelConfig::default(),
+        timeout: std::time::Duration::from_secs(300),
+        parent_session_id: None,
+        cancel: CancellationToken::new(),
+        middleware: None,
+        model_config: None,
         context_window: 0,
-    };
-
-    let cancel = CancellationToken::new();
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let user_msg = AgentMessage::Standard(Message::user(&context));
-
-    let _ = run_agent(
-        &mut agent_state,
-        &config,
-        cancel,
-        vec![user_msg],
-        event_tx,
-    )
+    })
     .await;
 
-    // Collect output from events
-    let mut output = String::new();
-    while let Ok(event) = event_rx.try_recv() {
-        if let AgentEvent::MessageEnd { message } = event {
-            if let AgentMessage::Standard(msg) = &message {
-                output.push_str(&msg.text_content());
-            }
-        }
-    }
-
-    // Fallback: collect from session
-    if output.is_empty() {
-        for msg in agent_state.session.messages() {
-            if let AgentMessage::Standard(m) = &msg {
-                if m.role == alva_types::MessageRole::Assistant {
-                    let text = m.text_content();
-                    if !text.is_empty() {
-                        output.push_str(&text);
-                    }
-                }
-            }
-        }
-    }
-
-    output
+    result.text
 }
 
 // ---------------------------------------------------------------------------

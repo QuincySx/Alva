@@ -51,12 +51,7 @@ impl MemoryService {
         content: &str,
         category: &str,
     ) -> Result<(), MemoryError> {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        content.hash(&mut hasher);
-        let hash = format!("{:016x}", hasher.finish());
+        let hash = crate::hash::compute_hash(content);
 
         let file = crate::types::MemoryFile {
             path: key.to_string(),

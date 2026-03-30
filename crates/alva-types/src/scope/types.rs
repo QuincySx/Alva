@@ -32,7 +32,6 @@ pub struct ChildScopeConfig {
     pub role: String,
     pub system_prompt: String,
     pub inherit_tools: bool,
-    pub board_id: Option<String>,
     #[serde(with = "optional_duration_millis")]
     pub timeout: Option<Duration>,
     pub max_iterations: Option<u32>,
@@ -44,7 +43,6 @@ impl ChildScopeConfig {
             role: role.into(),
             system_prompt: String::new(),
             inherit_tools: false,
-            board_id: None,
             timeout: None,
             max_iterations: None,
         }
@@ -57,11 +55,6 @@ impl ChildScopeConfig {
 
     pub fn inherit_tools(mut self, inherit: bool) -> Self {
         self.inherit_tools = inherit;
-        self
-    }
-
-    pub fn with_board(mut self, board_id: impl Into<String>) -> Self {
-        self.board_id = Some(board_id.into());
         self
     }
 
@@ -120,7 +113,6 @@ pub struct ScopeSnapshot {
     pub parent_id: Option<String>,
     pub depth: u32,
     pub role: String,
-    pub board_id: Option<String>,
     pub session_id: String,
     pub children_count: usize,
     pub completed: bool,
@@ -150,11 +142,9 @@ mod tests {
             .with_system_prompt("You plan.")
             .with_timeout(std::time::Duration::from_secs(120))
             .inherit_tools(true)
-            .with_board("team-1")
             .with_max_iterations(30);
         assert_eq!(config.role, "planner");
         assert!(config.inherit_tools);
-        assert_eq!(config.board_id, Some("team-1".to_string()));
         assert_eq!(config.max_iterations, Some(30));
     }
 
@@ -162,7 +152,6 @@ mod tests {
     fn child_config_defaults() {
         let config = ChildScopeConfig::new("worker");
         assert!(!config.inherit_tools);
-        assert!(config.board_id.is_none());
         assert!(config.timeout.is_none());
     }
 
@@ -184,7 +173,6 @@ mod tests {
             parent_id: None,
             depth: 0,
             role: "root".into(),
-            board_id: None,
             session_id: "sess-1".into(),
             children_count: 2,
             completed: false,

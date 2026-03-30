@@ -8,6 +8,7 @@ pub mod error;
 pub mod types;
 pub mod sqlite;
 pub mod embedding;
+pub mod hash;
 pub mod sync;
 pub mod service;
 

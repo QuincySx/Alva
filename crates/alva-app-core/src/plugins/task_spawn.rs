@@ -1,61 +1,58 @@
-// INPUT:  std::sync::Arc, std::time::Duration, alva_types::{LanguageModel, Tool}
-// OUTPUT: pub struct SubAgentConfig, pub enum SubAgentModel, pub enum SubAgentTools, pub fn create_task_tool
-// POS:    Sub-agent configuration and task-tool factory for spawning child agents within a parent's tool-call cycle.
-//         Updated to use V2 engine (run_agent + AgentState + AgentConfig).
+// INPUT:  alva_types, alva_agent_core::run_child, std::sync::Arc, std::time::Duration
+// OUTPUT: SubAgentConfig, SubAgentModel, SubAgentTools, create_task_tool
+// POS:    Developer-constrained sub-agent spawning — pre-defined agent configs, enum selection.
+//         Moved from alva-agent-graph (not a graph concept) to plugins where it belongs.
+
+//! Task tool — developer-constrained sub-agent spawning.
+//!
+//! The developer pre-defines a set of `SubAgentConfig`s (roles, prompts,
+//! tool access). The LLM chooses which config to use by name, but cannot
+//! create new agents or change their configuration.
+//!
+//! This is the **developer API** for controlled delegation.
+//! For the **AI API** (dynamic roles), see [`super::agent_spawn`].
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use alva_types::{
-    AgentError, CancellationToken, LanguageModel, Tool, ToolContext, ToolResult,
-};
 use async_trait::async_trait;
 use serde_json::Value;
 
+use alva_agent_core::run_child::{run_child_agent, ChildAgentParams};
+use alva_types::base::cancel::CancellationToken;
+use alva_types::base::error::AgentError;
+use alva_types::model::LanguageModel;
+use alva_types::tool::{Tool, ToolContext, ToolResult};
+
 /// Configuration for a sub-agent that can be spawned as a child task.
-///
-/// Sub-agents run within a parent agent's tool-call cycle. They inherit
-/// (or override) the parent's model and tool set and execute with their
-/// own system prompt, turn limit, and timeout.
 pub struct SubAgentConfig {
     /// Human-readable name for routing and logging.
     pub name: String,
-
-    /// Description surfaced to the parent model so it can choose the right
-    /// sub-agent.
+    /// Description surfaced to the parent model so it can choose the right sub-agent.
     pub description: String,
-
     /// System prompt prepended to the sub-agent's context.
     pub system_prompt: String,
-
     /// Which model the sub-agent should use.
     pub model: SubAgentModel,
-
     /// Which tools the sub-agent has access to.
     pub tools: SubAgentTools,
-
     /// Tool names the sub-agent is explicitly forbidden from using.
     pub disallowed_tools: Vec<String>,
-
     /// Maximum number of LLM turns before the sub-agent is stopped.
     pub max_turns: u32,
-
     /// Wall-clock timeout for the entire sub-agent execution.
     pub timeout: Duration,
 }
 
 /// Whether the sub-agent inherits the parent's model or uses its own.
 pub enum SubAgentModel {
-    /// Use the same model as the parent agent.
     Inherit,
-    /// Use a specific model instance.
     Specific(Arc<dyn LanguageModel>),
 }
 
 /// Whether the sub-agent inherits the parent's tools or uses a subset.
 pub enum SubAgentTools {
-    /// Inherit all tools from the parent (minus `disallowed_tools`).
     Inherit,
-    /// Only allow tools whose names appear in the whitelist.
     Whitelist(Vec<String>),
 }
 
@@ -74,18 +71,7 @@ impl Default for SubAgentConfig {
     }
 }
 
-/// Creates a "task" tool that spawns sub-agents.
-///
-/// The returned tool, when invoked by a parent agent, selects the matching
-/// sub-agent config by name, spawns a child `Agent`, and returns its output.
-///
-/// Input schema:
-/// ```json
-/// {
-///   "agent": "agent-name",      // must match a SubAgentConfig.name
-///   "task": "description..."     // injected as user message
-/// }
-/// ```
+/// Creates a "task" tool that spawns developer-constrained sub-agents.
 pub fn create_task_tool(
     configs: Vec<SubAgentConfig>,
     parent_model: Arc<dyn LanguageModel>,
@@ -98,7 +84,6 @@ pub fn create_task_tool(
     })
 }
 
-/// Tool implementation that spawns sub-agents from configuration.
 struct SubAgentTool {
     configs: Arc<Vec<SubAgentConfig>>,
     parent_model: Arc<dyn LanguageModel>,
@@ -124,7 +109,6 @@ impl SubAgentTool {
                 .collect(),
         };
 
-        // Filter out disallowed tools (including "task" to prevent recursion)
         base_tools
             .into_iter()
             .filter(|t| !config.disallowed_tools.contains(&t.name().to_string()))
@@ -195,111 +179,38 @@ impl Tool for SubAgentTool {
                 message: format!("unknown sub-agent: {}", agent_name),
             })?;
 
-        let model = self.resolve_model(config);
-        let tools = self.resolve_tools(config);
-
-        // Build V2 sub-agent state + config and run it.
-        use alva_agent_core::middleware::MiddlewareStack;
-        use alva_agent_core::state::{AgentConfig, AgentState};
-        use alva_agent_core::run::run_agent;
-        use alva_agent_core::event::AgentEvent;
-        use alva_agent_core::shared::Extensions;
-        use alva_types::{AgentMessage, Message};
-        use alva_types::session::InMemorySession;
-
-        let session: Arc<dyn alva_types::session::AgentSession> =
-            Arc::new(InMemorySession::new());
-
-        let mut state = AgentState {
-            model,
-            tools,
-            session,
-            extensions: Extensions::new(),
-        };
-
-        let agent_config = AgentConfig {
-            middleware: MiddlewareStack::new(),
+        let result = run_child_agent(ChildAgentParams {
+            model: self.resolve_model(config),
+            tools: self.resolve_tools(config),
             system_prompt: config.system_prompt.clone(),
-            max_iterations: 100,
-            model_config: alva_types::ModelConfig::default(),
+            task: task.to_string(),
+            max_iterations: config.max_turns,
+            timeout: config.timeout,
+            parent_session_id: None,
+            cancel: cancel.clone(),
+            middleware: None,
+            model_config: None,
             context_window: 0,
-        };
-
-        let user_msg = AgentMessage::Standard(Message::user(task));
-        let child_cancel = cancel.clone();
-        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        // Run with timeout
-        let timeout = config.timeout;
-        let result = tokio::time::timeout(timeout, async {
-            let run_result = run_agent(
-                &mut state,
-                &agent_config,
-                child_cancel,
-                vec![user_msg],
-                event_tx,
-            )
-            .await;
-
-            // Collect output from events
-            let mut output = String::new();
-            while let Ok(event) = event_rx.try_recv() {
-                match event {
-                    AgentEvent::MessageEnd { message } => {
-                        if let AgentMessage::Standard(msg) = &message {
-                            output.push_str(&msg.text_content());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            match run_result {
-                Ok(()) => Ok(output),
-                Err(e) => Err(AgentError::ToolError {
-                    tool_name: "task".into(),
-                    message: e.to_string(),
-                }),
-            }
         })
         .await;
 
-        // Fallback: get output from session messages
-        let session_output: String = state
-            .session
-            .messages()
-            .iter()
-            .filter_map(|m| {
-                if let AgentMessage::Standard(msg) = m {
-                    if msg.role == alva_types::MessageRole::Assistant {
-                        let text = msg.text_content();
-                        if !text.is_empty() {
-                            return Some(text);
-                        }
-                    }
-                }
-                None
+        if result.is_error {
+            Ok(ToolResult {
+                content: format!(
+                    "[Sub-agent '{}' error: {}]\n{}",
+                    agent_name,
+                    result.error.unwrap_or_default(),
+                    result.text
+                ),
+                is_error: true,
+                details: None,
             })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        match result {
-            Ok(Ok(output)) => Ok(ToolResult {
-                content: if output.is_empty() { session_output } else { output },
+        } else {
+            Ok(ToolResult {
+                content: result.text,
                 is_error: false,
                 details: None,
-            }),
-            Ok(Err(e)) => Err(e),
-            Err(_) => {
-                Ok(ToolResult {
-                    content: format!(
-                        "[Sub-agent '{}' timed out after {:?}]",
-                        agent_name, config.timeout
-                    ),
-                    is_error: true,
-                    details: None,
-                })
-            }
+            })
         }
     }
 }

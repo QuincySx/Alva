@@ -12,6 +12,7 @@ use alva_agent_core::run::run_agent;
 use alva_agent_core::event::AgentEvent;
 use alva_agent_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
+use alva_agent_runtime::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
 use alva_types::{
     AgentMessage, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
@@ -281,7 +282,7 @@ impl BaseAgentBuilder {
             .workspace
             .ok_or_else(|| EngineError::ToolExecution("workspace is required".into()))?;
 
-        // 2. Create ToolRegistry (for name-based lookup) and populate with builtin/browser tools
+        // 2. Create ToolRegistry and populate with builtin/browser tools
         let mut tool_registry = ToolRegistry::new();
         if self.enable_browser {
             alva_agent_tools::register_all_tools(&mut tool_registry);
@@ -294,27 +295,8 @@ impl BaseAgentBuilder {
             tool_registry.register(tool);
         }
 
-        // 4. Build Arc<dyn Tool> list for the agent by draining the registry.
-        let mut alva_tools_list: Vec<Arc<dyn Tool>> = Vec::new();
-        {
-            let defs: Vec<String> = tool_registry.definitions().iter().map(|d| d.name.clone()).collect();
-            for name in &defs {
-                if let Some(tool) = tool_registry.remove(name) {
-                    alva_tools_list.push(Arc::from(tool));
-                }
-            }
-        }
-        // Rebuild the registry so BaseAgent.tool_registry remains usable for
-        // name-based lookup (definitions only — these are separate instances).
-        {
-            let mut fresh_registry = ToolRegistry::new();
-            if self.enable_browser {
-                alva_agent_tools::register_all_tools(&mut fresh_registry);
-            } else {
-                alva_agent_tools::register_builtin_tools(&mut fresh_registry);
-            }
-            tool_registry = fresh_registry;
-        }
+        // 4. Build Arc<dyn Tool> list — shares Arc instances with the registry.
+        let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
 
         // 5. Create SkillStore
         let skill_store = if !self.skill_dirs.is_empty() {
@@ -349,17 +331,27 @@ impl BaseAgentBuilder {
         // 6. Build V2 MiddlewareStack
         let mut middleware_stack = MiddlewareStack::new();
 
-        // a. Builtin: DanglingToolCallMiddleware
+        // a. Security middleware (highest priority — runs before all others)
+        middleware_stack.push_sorted(Arc::new(
+            SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone()),
+        ));
+
+        // b. Builtin: DanglingToolCallMiddleware
         middleware_stack.push_sorted(Arc::new(
             alva_agent_core::builtins::DanglingToolCallMiddleware::new(),
         ));
 
-        // b. Builtin: LoopDetectionMiddleware
+        // c. Builtin: LoopDetectionMiddleware
         middleware_stack.push_sorted(Arc::new(
             alva_agent_core::builtins::LoopDetectionMiddleware::new(),
         ));
 
-        // c. Extra middleware from user
+        // d. Builtin: ToolTimeoutMiddleware (120s default)
+        middleware_stack.push_sorted(Arc::new(
+            alva_agent_core::builtins::ToolTimeoutMiddleware::default(),
+        ));
+
+        // e. Extra middleware from user
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }

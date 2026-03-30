@@ -96,29 +96,32 @@ impl ToolGuard {
     /// The returned `GuardToken` decrements the counter on drop,
     /// so hold it for the duration of the tool execution.
     pub fn try_acquire(&self, tool_name: &str) -> Result<GuardToken, GuardError> {
-        let current = self.active.load(Ordering::SeqCst);
-        if current >= self.max {
+        // Atomically increment first, then check — avoids TOCTOU race where
+        // two threads could both pass the check before either increments.
+        let prev = self.active.fetch_add(1, Ordering::SeqCst);
+        if prev >= self.max {
+            // Over limit — rollback the increment.
+            self.active.fetch_sub(1, Ordering::SeqCst);
             let reason = match self.kind {
                 GuardKind::Depth => format!(
                     "Cannot nest {} — already at depth {}/{}. \
                      Handle the task directly instead of delegating further.",
-                    tool_name, current, self.max,
+                    tool_name, prev, self.max,
                 ),
                 GuardKind::Concurrency => format!(
                     "Cannot run {} — {}/{} concurrent invocations already active. \
                      Wait for one to complete before starting another.",
-                    tool_name, current, self.max,
+                    tool_name, prev, self.max,
                 ),
             };
             return Err(GuardError {
                 tool_name: tool_name.to_string(),
-                current,
+                current: prev,
                 max: self.max,
                 message: reason,
             });
         }
 
-        self.active.fetch_add(1, Ordering::SeqCst);
         Ok(GuardToken {
             active: self.active.clone(),
         })

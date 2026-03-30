@@ -3,8 +3,6 @@
 // POS:    Scans workspace for MEMORY.md files, chunks content, computes embeddings, and indexes into MemorySqlite.
 //! Workspace file synchronization — scan MEMORY.md files, chunk, embed, store.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 use crate::error::MemoryError;
@@ -154,9 +152,7 @@ fn chunk_text(content: &str, chunk_size: usize) -> Vec<TextChunk> {
 }
 
 fn compute_hash(content: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    content.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    crate::hash::compute_hash(content)
 }
 
 // ---------------------------------------------------------------------------

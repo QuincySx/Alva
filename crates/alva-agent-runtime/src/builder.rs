@@ -26,6 +26,8 @@ pub struct AgentRuntimeBuilder {
     register_builtin: bool,
     register_browser: bool,
     custom_tools: Vec<Box<dyn Tool>>,
+    max_iterations: u32,
+    context_window: usize,
 }
 
 impl AgentRuntimeBuilder {
@@ -38,6 +40,8 @@ impl AgentRuntimeBuilder {
             register_builtin: false,
             register_browser: false,
             custom_tools: Vec::new(),
+            max_iterations: 100,
+            context_window: 0,
         }
     }
 
@@ -77,6 +81,19 @@ impl AgentRuntimeBuilder {
         self
     }
 
+    /// Set the max iterations for the agent loop (default: 100).
+    pub fn max_iterations(mut self, n: u32) -> Self {
+        self.max_iterations = n;
+        self
+    }
+
+    /// Set the context window size (default: 0 = no limit).
+    /// When > 0, only the most recent N messages are included in LLM context.
+    pub fn context_window(mut self, n: usize) -> Self {
+        self.context_window = n;
+        self
+    }
+
     /// Register a single custom tool.
     pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
         self.custom_tools.push(tool);
@@ -100,27 +117,8 @@ impl AgentRuntimeBuilder {
             registry.register(tool);
         }
 
-        // Build Arc<dyn Tool> list from registry
-        let tools: Vec<Arc<dyn Tool>> = {
-            let defs: Vec<String> = registry.definitions().iter().map(|d| d.name.clone()).collect();
-            let mut tools_list = Vec::new();
-            for name in &defs {
-                if let Some(tool) = registry.remove(name) {
-                    tools_list.push(Arc::from(tool));
-                }
-            }
-            tools_list
-        };
-
-        // Rebuild registry for lookup
-        let mut fresh_registry = ToolRegistry::new();
-        if self.register_builtin || self.register_browser {
-            if self.register_browser {
-                alva_agent_tools::register_all_tools(&mut fresh_registry);
-            } else {
-                alva_agent_tools::register_builtin_tools(&mut fresh_registry);
-            }
-        }
+        // Extract tools as Arc references — registry and state share the same instances.
+        let tools: Vec<Arc<dyn Tool>> = registry.list_arc();
 
         let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
 
@@ -134,15 +132,15 @@ impl AgentRuntimeBuilder {
         let config = AgentConfig {
             middleware: self.middleware,
             system_prompt: self.system_prompt,
-            max_iterations: 100,
-            model_config: alva_types::ModelConfig::default(),
-            context_window: 0,
+            max_iterations: self.max_iterations,
+            model_config: self.model_config,
+            context_window: self.context_window,
         };
 
         AgentRuntime {
             state,
             config,
-            tool_registry: fresh_registry,
+            tool_registry: registry,
         }
     }
 }

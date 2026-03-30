@@ -1,6 +1,6 @@
-// INPUT:  channel, checkpoint, compaction, context_transform, graph, pregel, retry, session, sub_agent
-// OUTPUT: pub mod channel/checkpoint/compaction/context_transform/graph/pregel/retry/session/sub_agent, re-exports of key types
-// POS:    Crate root that declares submodules and re-exports all public types for the agent graph library.
+// INPUT:  channel, checkpoint, compaction, context_transform, graph, pregel, retry, session
+// OUTPUT: pub mod/use for all graph types including Send, NodeResult, GraphEvent, InvokeConfig
+// POS:    Crate root — declares modules and re-exports the public API.
 pub mod channel;
 pub mod checkpoint;
 pub mod compaction;
@@ -9,14 +9,30 @@ pub mod graph;
 pub mod pregel;
 pub mod retry;
 pub mod session;
-pub mod sub_agent;
 
+// Channel types
 pub use channel::{BinaryOperatorAggregate, Channel, EphemeralValue, LastValue};
+
+// Checkpoint
 pub use checkpoint::{CheckpointSaver, InMemoryCheckpointSaver};
+
+// Compaction
 pub use compaction::{compact_messages, estimate_tokens, should_compact, CompactionConfig};
+
+// Context transforms
 pub use context_transform::{ContextTransform, TransformPipeline};
+
+// Graph builder + constants
 pub use graph::{StateGraph, END, START};
-pub use pregel::CompiledGraph;
+
+// Dynamic routing
+pub use graph::{NodeResult, SendTo};
+
+// Execution engine
+pub use pregel::{CompiledGraph, GraphEvent, InvokeConfig};
+
+// Retry
 pub use retry::RetryConfig;
+
+// Session
 pub use session::AgentSession;
-pub use sub_agent::{SubAgentConfig, SubAgentModel, SubAgentTools};

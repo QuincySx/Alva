@@ -13,8 +13,10 @@ use crate::types::{McpServerConfig, McpServerState, McpToolInfo};
 struct McpServerInstance {
     config: McpServerConfig,
     state: McpServerState,
-    /// Transport layer instance (held after connection established)
-    transport: Option<Box<dyn McpTransport>>,
+    /// Transport layer instance (held after connection established).
+    /// Wrapped in Arc<tokio::sync::Mutex> so tool calls can execute without
+    /// holding the outer RwLock on the servers map.
+    transport: Option<Arc<tokio::sync::Mutex<Box<dyn McpTransport>>>>,
     /// Tool list for this Server (populated after connected)
     tools: Vec<McpToolInfo>,
 }
@@ -85,7 +87,7 @@ impl McpClient {
                 let tool_count = tools.len();
                 instance.tools = tools;
                 instance.state = McpServerState::Connected { tool_count };
-                instance.transport = Some(transport);
+                instance.transport = Some(Arc::new(tokio::sync::Mutex::new(transport)));
                 Ok(())
             }
             Err(e) => {
@@ -101,10 +103,10 @@ impl McpClient {
     pub async fn disconnect(&self, server_id: &str) -> Result<(), McpError> {
         let mut servers = self.servers.write().await;
         if let Some(instance) = servers.get_mut(server_id) {
-            if let Some(transport) = instance.transport.as_mut() {
-                let _ = transport.disconnect().await;
+            if let Some(transport) = instance.transport.take() {
+                let mut t = transport.lock().await;
+                let _ = t.disconnect().await;
             }
-            instance.transport = None;
             instance.state = McpServerState::Disconnected;
             instance.tools.clear();
         }
@@ -122,6 +124,9 @@ impl McpClient {
     }
 
     /// Call MCP tool.
+    ///
+    /// Clones the Arc<Mutex<transport>> under a brief read lock, then releases
+    /// the servers map lock before executing the (potentially slow) tool call.
     #[tracing::instrument(name = "mcp_call_tool", skip(self, arguments), fields(server_id = %server_id, tool_name = %tool_name))]
     pub async fn call_tool(
         &self,
@@ -129,17 +134,23 @@ impl McpClient {
         tool_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, McpError> {
-        let servers = self.servers.read().await;
-        let instance = servers
-            .get(server_id)
-            .ok_or_else(|| McpError::ServerNotFound(server_id.to_string()))?;
+        // Brief read lock: clone the Arc, then release the servers map.
+        let transport = {
+            let servers = self.servers.read().await;
+            let instance = servers
+                .get(server_id)
+                .ok_or_else(|| McpError::ServerNotFound(server_id.to_string()))?;
 
-        let transport = instance
-            .transport
-            .as_ref()
-            .ok_or_else(|| McpError::NotConnected(server_id.to_string()))?;
+            instance
+                .transport
+                .as_ref()
+                .ok_or_else(|| McpError::NotConnected(server_id.to_string()))?
+                .clone()
+        };
+        // servers read lock released here.
 
-        transport.call_tool(tool_name, arguments).await
+        let t = transport.lock().await;
+        t.call_tool(tool_name, arguments).await
     }
 
     /// Get state snapshot of all Servers.
