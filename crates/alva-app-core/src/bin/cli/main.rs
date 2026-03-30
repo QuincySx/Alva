@@ -12,6 +12,7 @@
 //!
 //! Sessions are stored under `.alva/sessions/` in the working directory.
 
+mod output;
 mod session_store;
 
 use std::io::{self, BufRead, Write};
