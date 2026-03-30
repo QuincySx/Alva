@@ -13,7 +13,7 @@ use alva_agent_core::event::AgentEvent;
 use alva_agent_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
 use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest};
-use alva_agent_runtime::middleware::SecurityMiddleware;
+use alva_agent_runtime::middleware::{PlanModeMiddleware, SecurityMiddleware};
 use alva_agent_security::SandboxMode;
 use alva_types::{
     AgentMessage, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
@@ -70,6 +70,7 @@ pub struct BaseAgent {
     skill_store: Arc<SkillStore>,
     memory: Option<MemoryService>,
     security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
+    plan_mode_middleware: Option<Arc<PlanModeMiddleware>>,
 }
 
 impl BaseAgent {
@@ -163,9 +164,18 @@ impl BaseAgent {
     }
 
     /// Set the permission mode.
+    ///
+    /// When switching to [`PermissionMode::Plan`], the `PlanModeMiddleware` is
+    /// enabled so that write/execute tools are blocked.  Switching to any other
+    /// mode disables it.
     pub fn set_permission_mode(&self, mode: PermissionMode) {
         let mut m = self.permission_mode.lock().unwrap_or_else(|e| e.into_inner());
         *m = mode;
+
+        // Toggle plan mode middleware
+        if let Some(ref plan_mw) = self.plan_mode_middleware {
+            plan_mw.set_enabled(mode == PermissionMode::Plan);
+        }
     }
 
     /// Access the memory service (if enabled).
@@ -408,6 +418,10 @@ impl BaseAgentBuilder {
             middleware_stack.push_sorted(mw);
         }
 
+        // f. Plan mode middleware (starts disabled)
+        let plan_mw = Arc::new(PlanModeMiddleware::new(false));
+        middleware_stack.push_sorted(plan_mw.clone());
+
         // 7. Optionally add the agent spawn tool
         if self.enable_sub_agents {
             let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
@@ -465,6 +479,7 @@ impl BaseAgentBuilder {
             skill_store,
             memory,
             security_guard,
+            plan_mode_middleware: Some(plan_mw),
         })
     }
 }

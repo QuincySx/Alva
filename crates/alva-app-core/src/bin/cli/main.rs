@@ -22,7 +22,7 @@ mod session_store;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use alva_app_core::{AgentEvent, AgentMessage, BaseAgent, BaseAgentBuilder, PermissionDecision};
+use alva_app_core::{AgentEvent, AgentMessage, BaseAgent, BaseAgentBuilder, PermissionDecision, PermissionMode};
 use alva_agent_runtime::middleware::security::ApprovalRequest;
 use alva_provider::{OpenAIProvider, ProviderConfig};
 use tokio::sync::mpsc;
@@ -173,6 +173,20 @@ async fn run() {
                         eprintln!("  Base URL:  {}", config.base_url);
                         eprintln!("  Workspace: {}", workspace.display());
                         eprintln!("  Session:   {}", session_id);
+                    }
+                    "/plan" => {
+                        let current = agent.permission_mode();
+                        let new_mode = if current == PermissionMode::Plan {
+                            PermissionMode::Ask
+                        } else {
+                            PermissionMode::Plan
+                        };
+                        agent.set_permission_mode(new_mode);
+                        if new_mode == PermissionMode::Plan {
+                            eprintln!("  Plan mode ON — read-only, no file changes or commands");
+                        } else {
+                            eprintln!("  Plan mode OFF — tools can modify files");
+                        }
                     }
                     "/new" => {
                         // Save current, start fresh
