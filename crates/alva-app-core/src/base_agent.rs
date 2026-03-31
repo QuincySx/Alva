@@ -437,7 +437,12 @@ impl BaseAgentBuilder {
             alva_agent_core::builtins::ToolTimeoutMiddleware::default(),
         ));
 
-        // e. Extra middleware from user
+        // e. Compaction middleware (auto-summarizes old messages when context is full)
+        middleware_stack.push_sorted(Arc::new(
+            alva_agent_runtime::middleware::CompactionMiddleware::default(),
+        ));
+
+        // f. Extra middleware from user
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
