@@ -23,6 +23,7 @@ pub mod grep_search;
 pub mod list_files;
 pub mod mock_fs;
 pub mod read_file;
+pub mod truncate;
 pub mod view_image;
 
 #[cfg(not(target_family = "wasm"))]

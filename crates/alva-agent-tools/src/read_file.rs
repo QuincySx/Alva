@@ -10,11 +10,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 use crate::local_fs::LocalToolFs;
-
-/// Maximum lines returned in a single read (prevents context overflow).
-const MAX_LINES: usize = 2000;
-/// Maximum bytes returned in a single read.
-const MAX_BYTES: usize = 50 * 1024; // 50KB
+use crate::truncate::{truncate_head, MAX_BYTES, MAX_LINES};
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -161,33 +157,23 @@ impl Tool for ReadFileTool {
         }
         let start_idx = offset - 1;
 
-        // Apply limit + truncation
+        // Apply user limit, then delegate to shared truncation
         let user_limit = params.limit.unwrap_or(usize::MAX);
         let effective_limit = user_limit.min(MAX_LINES);
         let end_idx = (start_idx + effective_limit).min(total_lines);
+        let slice_text = all_lines[start_idx..end_idx].join("\n");
 
-        // Check byte limit
-        let mut byte_count = 0;
-        let mut byte_limited_end = end_idx;
-        for i in start_idx..end_idx {
-            byte_count += all_lines[i].len() + 1; // +1 for newline
-            if byte_count > MAX_BYTES {
-                byte_limited_end = i + 1; // include current line
-                break;
-            }
-        }
-        let final_end = byte_limited_end.min(end_idx);
+        let tr = truncate_head(&slice_text, effective_limit, MAX_BYTES);
+        let lines_shown = tr.shown_lines;
 
         // Build output
-        let selected: Vec<&str> = all_lines[start_idx..final_end].to_vec();
-        let numbered = add_line_numbers(&selected.join("\n"), offset);
-        let lines_shown = final_end - start_idx;
-        let remaining = total_lines - final_end;
+        let numbered = add_line_numbers(&tr.text, offset);
+        let remaining = total_lines - (start_idx + lines_shown);
 
         // Build continuation hint
         let mut content = numbered;
         if remaining > 0 {
-            let truncation_reason = if final_end < end_idx {
+            let truncation_reason = if tr.truncated {
                 "byte limit"
             } else if effective_limit < user_limit {
                 "line limit"
