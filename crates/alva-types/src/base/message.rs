@@ -74,14 +74,30 @@ impl Message {
 // AgentMessage
 // ---------------------------------------------------------------------------
 
-/// Wraps either a standard LLM message or a custom application-level message
-/// that can flow through the agent event stream.
+/// Wraps either a standard LLM message or application-level messages
+/// that flow through the agent event stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum AgentMessage {
+    /// Standard LLM message (user, assistant, system, tool).
     Standard(Message),
-    Custom {
+    /// User mid-turn intervention — injected after current tool execution completes.
+    Steering(Message),
+    /// System/middleware follow-up — appended when agent would otherwise stop.
+    FollowUp(Message),
+    /// State marker (checkpoint, phase change) — never sent to LLM.
+    Marker(Marker),
+    /// Generic extension point for application-specific messages.
+    Extension {
         type_name: String,
         data: Value,
     },
+}
+
+/// Markers for state transitions and checkpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "marker_type")]
+pub enum Marker {
+    CheckpointCreated { id: String },
+    PhaseChange { from: String, to: String },
 }

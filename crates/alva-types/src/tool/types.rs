@@ -1,13 +1,11 @@
-// INPUT:  async_trait, serde, serde_json, crate::base::cancel::CancellationToken, crate::base::error::AgentError
-// OUTPUT: ToolDefinition, ToolCall, ToolResult, ToolContext (trait), LocalToolContext (trait), EmptyToolContext, Tool (trait), ToolRegistry
-// POS:    Canonical tool abstractions — defines the Tool trait, split ToolContext/LocalToolContext hierarchy, wire types, and a name-based registry.
+// INPUT:  async_trait, serde, serde_json, crate::base::error::AgentError
+// OUTPUT: ToolDefinition, ToolCall, Tool (trait), ToolRegistry, ToolFs, ToolFsExecResult, ToolFsDirEntry
+// POS:    Canonical tool abstractions — defines the Tool trait (using ToolExecutionContext), wire types, and a name-based registry.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::base::cancel::CancellationToken;
 use crate::base::error::AgentError;
 
 // ---------------------------------------------------------------------------
@@ -23,7 +21,7 @@ pub struct ToolDefinition {
 }
 
 // ---------------------------------------------------------------------------
-// ToolCall / ToolResult — wire types flowing through the agent loop
+// ToolCall — wire type flowing through the agent loop
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,57 +31,8 @@ pub struct ToolCall {
     pub arguments: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolResult {
-    pub content: String,
-    pub is_error: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
-
-// ---------------------------------------------------------------------------
-// ToolContext — base runtime context for tools (generic, no filesystem assumptions)
-// ---------------------------------------------------------------------------
-
-/// Base runtime context for tools — generic, no filesystem assumptions.
-///
-/// This is a trait (not a concrete struct) so that alva-types stays generic.
-/// Each application layer provides its own implementation.
-/// Tools that don't need context can ignore the parameter.
-pub trait ToolContext: Send + Sync {
-    /// Current session identifier.
-    fn session_id(&self) -> &str;
-
-    /// Read a configuration value by key.
-    fn get_config(&self, key: &str) -> Option<String>;
-
-    /// Downcast support.
-    fn as_any(&self) -> &dyn Any;
-
-    /// Try to get local filesystem context. Returns None for remote contexts.
-    fn local(&self) -> Option<&dyn LocalToolContext> {
-        None
-    }
-
-    /// Returns an abstract FS interface (sandbox, remote, or mock).
-    /// When None, tools fall back to direct local operations.
-    fn tool_fs(&self) -> Option<&dyn ToolFs> {
-        None
-    }
-}
-
-// ---------------------------------------------------------------------------
-// LocalToolContext — extension for tools that operate on a local filesystem
-// ---------------------------------------------------------------------------
-
-/// Extension trait for tools that operate on a local filesystem.
-pub trait LocalToolContext: ToolContext {
-    /// Current workspace / project root path.
-    fn workspace(&self) -> &std::path::Path;
-
-    /// Whether the tool is allowed to perform dangerous operations.
-    fn allow_dangerous(&self) -> bool;
-}
+// NOTE: ToolContext and LocalToolContext have been removed.
+// Use tool::execution::ToolExecutionContext instead.
 
 // ---------------------------------------------------------------------------
 // ToolFs — abstract filesystem + command execution interface
@@ -138,24 +87,8 @@ pub struct ToolFsDirEntry {
     pub size: u64,
 }
 
-/// No-op context for tools that don't need runtime information.
-///
-/// Returns `None` for `local()` — tools that need filesystem access
-/// should use their own fallback (e.g., `LocalToolFs`).
-pub struct EmptyToolContext;
-
-impl ToolContext for EmptyToolContext {
-    fn session_id(&self) -> &str {
-        ""
-    }
-    fn get_config(&self, _key: &str) -> Option<String> {
-        None
-    }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    // local() uses the default: None
-}
+// NOTE: EmptyToolContext has been removed.
+// Use tool::execution::MinimalExecutionContext instead.
 
 // ---------------------------------------------------------------------------
 // Tool trait — the single canonical tool abstraction
@@ -183,15 +116,14 @@ pub trait Tool: Send + Sync {
 
     /// Execute the tool.
     ///
-    /// Both `cancel` and `ctx` are provided. Tools that don't need runtime
-    /// context can ignore `ctx`. Tools that don't need cancellation can
-    /// ignore `cancel`.
+    /// The `ctx` provides cancellation, progress reporting, configuration,
+    /// filesystem access, and session information — everything the tool
+    /// needs from its execution environment.
     async fn execute(
         &self,
         input: serde_json::Value,
-        cancel: &CancellationToken,
-        ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError>;
+        ctx: &dyn super::execution::ToolExecutionContext,
+    ) -> Result<super::execution::ToolOutput, AgentError>;
 }
 
 // ---------------------------------------------------------------------------

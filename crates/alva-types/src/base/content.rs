@@ -23,7 +23,7 @@ pub enum ContentBlock {
     ToolResult {
         #[serde(alias = "tool_use_id")]
         id: String,
-        content: String,
+        content: Vec<crate::tool::execution::ToolContent>,
         is_error: bool,
     },
 }
@@ -56,7 +56,7 @@ impl ContentBlock {
     }
 
     /// Returns `(id, content, is_error)` if this is a ToolResult block.
-    pub fn as_tool_result(&self) -> Option<(&str, &str, bool)> {
+    pub fn as_tool_result(&self) -> Option<(&str, &[crate::tool::execution::ToolContent], bool)> {
         match self {
             ContentBlock::ToolResult {
                 id,
@@ -105,7 +105,9 @@ impl ContentBlock {
         let char_len = match self {
             ContentBlock::Text { text } => text.len(),
             ContentBlock::Reasoning { text } => text.len(),
-            ContentBlock::ToolResult { content, .. } => content.len(),
+            ContentBlock::ToolResult { content, .. } => {
+                content.iter().map(|c| c.to_model_string().len()).sum()
+            }
             ContentBlock::ToolUse { input, .. } => input.to_string().len(),
             ContentBlock::Image { data, .. } => data.len(),
         };
@@ -135,7 +137,7 @@ mod tests {
     fn tool_result_block() -> ContentBlock {
         ContentBlock::ToolResult {
             id: "tu_1".into(),
-            content: "found foo".into(),
+            content: vec![crate::tool::execution::ToolContent::text("found foo")],
             is_error: false,
         }
     }
@@ -205,7 +207,8 @@ mod tests {
         let block = tool_result_block();
         let (id, content, is_error) = block.as_tool_result().unwrap();
         assert_eq!(id, "tu_1");
-        assert_eq!(content, "found foo");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0].as_text(), Some("found foo"));
         assert!(!is_error);
     }
 
@@ -278,7 +281,7 @@ mod tests {
 
     #[test]
     fn estimated_tokens_tool_result() {
-        // "found foo" = 9 chars => (9+3)/4 = 3
+        // "found foo" = 9 chars via to_model_string => (9+3)/4 = 3
         assert_eq!(tool_result_block().estimated_tokens(), 3);
     }
 
