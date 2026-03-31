@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, glob, serde, serde_json, crate::local_fs::{LocalToolFs, walk_dir}
+// INPUT:  alva_types, async_trait, glob, serde, serde_json, crate::local_fs::walk_dir_filtered
 // OUTPUT: FindFilesTool
 // POS:    Search for files by glob pattern across the workspace, respecting .gitignore-like rules.
 //! find_files — search file paths by glob pattern
@@ -8,10 +8,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::local_fs::{walk_dir, LocalToolFs};
-
 /// Maximum results returned to prevent context overflow.
-const MAX_RESULTS: usize = 200;
+const MAX_RESULTS: usize = 1000;
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -85,11 +83,8 @@ impl Tool for FindFilesTool {
             message: format!("Invalid glob pattern '{}': {}", params.pattern, e),
         })?;
 
-        let fallback = LocalToolFs::new(workspace);
-        let fs = ctx.tool_fs().unwrap_or(&fallback);
-
-        // Walk directory tree (hidden files excluded by default)
-        let all_paths = walk_dir(fs, search_root_str, None, false).await?;
+        // Walk directory tree (hidden files excluded by default, .gitignore respected)
+        let all_paths = crate::local_fs::walk_dir_filtered(search_root_str, None, false)?;
 
         // Match glob against relative path and file name
         let workspace_str = workspace.to_str().unwrap_or_default();
