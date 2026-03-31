@@ -49,11 +49,20 @@ impl LanguageModel for EchoModel {
 
     fn stream(
         &self,
-        _: &[Message],
+        messages: &[Message],
         _: &[&dyn Tool],
         _: &ModelConfig,
     ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
-        Box::pin(futures::stream::empty())
+        let last = messages
+            .last()
+            .map(|m| m.text_content())
+            .unwrap_or_default();
+        let text = format!("Echo: {}", last);
+        Box::pin(futures::stream::iter(vec![
+            StreamEvent::Start,
+            StreamEvent::TextDelta { text },
+            StreamEvent::Done,
+        ]))
     }
 
     fn model_id(&self) -> &str {

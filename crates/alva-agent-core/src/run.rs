@@ -5,12 +5,14 @@ use std::sync::Arc;
 
 use alva_types::{
     AgentError, AgentMessage, CancellationToken, ContentBlock, Message,
-    MessageRole, ModelConfig, ToolCall, ToolOutput,
+    MessageRole, ModelConfig, StreamEvent, ToolCall, ToolOutput,
 };
 use alva_types::model::LanguageModel;
 use alva_types::tool::Tool;
 use async_trait::async_trait;
+use serde_json::Value;
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 
 use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
 use crate::runtime_context::RuntimeExecutionContext;
@@ -23,19 +25,102 @@ use crate::event::AgentEvent;
 
 /// Wraps the actual LLM model call as a `LlmCallFn` so it can be passed
 /// into middleware `wrap_llm_call` as the `next` callback.
+///
+/// Internally uses `model.stream()` to emit `MessageUpdate` events in
+/// real-time, then assembles the final `Message` from accumulated chunks
+/// so the middleware chain still receives a complete `Message`.
 struct ActualLlmCall {
     model: Arc<dyn LanguageModel>,
     tools: Vec<Arc<dyn Tool>>,
     model_config: ModelConfig,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
 }
 
 #[async_trait]
 impl LlmCallFn for ActualLlmCall {
     async fn call(&self, _state: &mut AgentState, messages: Vec<Message>) -> Result<Message, AgentError> {
         let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
-        self.model
-            .complete(&messages, &tool_refs, &self.model_config)
-            .await
+        let mut stream = self.model.stream(&messages, &tool_refs, &self.model_config);
+
+        let msg_id = uuid::Uuid::new_v4().to_string();
+        let mut text_content = String::new();
+        let mut usage = None;
+
+        // Track in-progress tool calls by index (order of appearance).
+        let mut tool_call_builders: std::collections::HashMap<usize, (String, String, String)> =
+            std::collections::HashMap::new();
+
+        while let Some(event) = stream.next().await {
+            // Build a placeholder message for the MessageUpdate envelope.
+            let agent_msg = AgentMessage::Standard(Message {
+                id: msg_id.clone(),
+                role: MessageRole::Assistant,
+                content: vec![],
+                tool_call_id: None,
+                usage: None,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            });
+            let _ = self.event_tx.send(AgentEvent::MessageUpdate {
+                message: agent_msg,
+                delta: event.clone(),
+            });
+
+            match event {
+                StreamEvent::TextDelta { text } => {
+                    text_content.push_str(&text);
+                }
+                StreamEvent::ToolCallDelta { id, name, arguments_delta } => {
+                    if !id.is_empty() {
+                        // New tool call starting — assign the next index.
+                        let idx = tool_call_builders.len();
+                        tool_call_builders.insert(idx, (
+                            id,
+                            name.unwrap_or_default(),
+                            arguments_delta,
+                        ));
+                    } else {
+                        // Continuing the most recent tool call.
+                        let idx = tool_call_builders.len().saturating_sub(1);
+                        if let Some(tc) = tool_call_builders.get_mut(&idx) {
+                            tc.2.push_str(&arguments_delta);
+                        }
+                    }
+                }
+                StreamEvent::Usage(u) => {
+                    usage = Some(u);
+                }
+                StreamEvent::Error(e) => {
+                    return Err(AgentError::LlmError(e));
+                }
+                StreamEvent::Start | StreamEvent::Done | StreamEvent::ReasoningDelta { .. } => {}
+            }
+        }
+
+        // Assemble the final Message from accumulated chunks.
+        let mut content_blocks = Vec::new();
+        if !text_content.is_empty() {
+            content_blocks.push(ContentBlock::Text { text: text_content });
+        }
+
+        // Convert accumulated tool calls to ContentBlocks (sorted by index).
+        let mut indices: Vec<usize> = tool_call_builders.keys().cloned().collect();
+        indices.sort();
+        for idx in indices {
+            if let Some((id, name, args_str)) = tool_call_builders.remove(&idx) {
+                let input: Value = serde_json::from_str(&args_str)
+                    .unwrap_or(Value::Object(serde_json::Map::new()));
+                content_blocks.push(ContentBlock::ToolUse { id, name, input });
+            }
+        }
+
+        Ok(Message {
+            id: msg_id,
+            role: MessageRole::Assistant,
+            content: content_blocks,
+            tool_call_id: None,
+            usage,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        })
     }
 }
 
@@ -173,11 +258,23 @@ async fn run_loop(
                 .await
                 .map_err(|e| AgentError::Other(e.to_string()))?;
 
-            // 3d. Call LLM through wrap_llm_call middleware chain
+            // 3d. Emit MessageStart before the LLM call
+            let placeholder_msg = AgentMessage::Standard(Message {
+                id: uuid::Uuid::new_v4().to_string(),
+                role: MessageRole::Assistant,
+                content: vec![],
+                tool_call_id: None,
+                usage: None,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            });
+            let _ = event_tx.send(AgentEvent::MessageStart { message: placeholder_msg });
+
+            // 3e. Call LLM through wrap_llm_call middleware chain
             let actual_call = ActualLlmCall {
                 model: state.model.clone(),
                 tools: state.tools.clone(),
                 model_config: config.model_config.clone(),
+                event_tx: event_tx.clone(),
             };
             let mut response = config
                 .middleware
@@ -185,7 +282,7 @@ async fn run_loop(
                 .await
                 .map_err(|e| AgentError::Other(e.to_string()))?;
 
-            // 3e. Middleware: after_llm_call
+            // 3f. Middleware: after_llm_call
             config
                 .middleware
                 .run_after_llm_call(state, &mut response)
@@ -197,16 +294,10 @@ async fn run_loop(
                 .session
                 .append(AgentMessage::Standard(response.clone()));
 
-            // 3h. Emit events
-            // NOTE: Currently uses model.complete() (non-streaming).
-            // MessageUpdate events with TextDelta are not emitted.
-            // To enable streaming, switch to model.stream() and emit
-            // MessageUpdate events for each chunk. The CLI's streaming
-            // handler code is ready for this.
+            // 3h. Emit MessageEnd with the complete response
+            // (MessageStart was emitted before the LLM call; MessageUpdate
+            // events were emitted during streaming inside ActualLlmCall.)
             let agent_msg = AgentMessage::Standard(response.clone());
-            let _ = event_tx.send(AgentEvent::MessageStart {
-                message: agent_msg.clone(),
-            });
             let _ = event_tx.send(AgentEvent::MessageEnd {
                 message: agent_msg,
             });
@@ -393,11 +484,20 @@ mod tests {
         }
         fn stream(
             &self,
-            _: &[Message],
+            messages: &[Message],
             _: &[&dyn Tool],
             _: &ModelConfig,
         ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
-            Box::pin(futures::stream::empty())
+            let last = messages
+                .last()
+                .map(|m| m.text_content())
+                .unwrap_or_default();
+            let text = format!("Echo: {}", last);
+            Box::pin(tokio_stream::iter(vec![
+                StreamEvent::Start,
+                StreamEvent::TextDelta { text },
+                StreamEvent::Done,
+            ]))
         }
         fn model_id(&self) -> &str {
             "echo"

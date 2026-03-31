@@ -192,7 +192,11 @@ impl alva_types::LanguageModel for StubModel {
         _: &[&dyn alva_types::Tool],
         _: &alva_types::ModelConfig,
     ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = alva_types::StreamEvent> + Send>> {
-        Box::pin(tokio_stream::empty())
+        Box::pin(tokio_stream::iter(vec![
+            alva_types::StreamEvent::Start,
+            alva_types::StreamEvent::TextDelta { text: "stub response".to_string() },
+            alva_types::StreamEvent::Done,
+        ]))
     }
     fn model_id(&self) -> &str {
         "stub"
