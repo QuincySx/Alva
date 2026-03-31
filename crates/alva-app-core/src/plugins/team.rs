@@ -27,7 +27,8 @@ use alva_agent_graph::{StateGraph, END};
 use alva_types::base::error::AgentError;
 use alva_types::base::cancel::CancellationToken;
 use alva_types::model::LanguageModel;
-use alva_types::tool::{Tool, ToolContext, ToolResult};
+use alva_types::tool::Tool;
+use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
 
 use alva_agent_scope::blackboard::{AgentProfile, Blackboard, BoardMessage, MessageKind};
 
@@ -151,18 +152,13 @@ impl Tool for TeamTool {
     async fn execute(
         &self,
         input: Value,
-        _cancel: &CancellationToken,
-        _ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError> {
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         // Depth guard: refuse if already at max nesting
         let _token = match self.guard.try_acquire("team") {
             Ok(token) => token,
             Err(e) => {
-                return Ok(ToolResult {
-                    content: e.message,
-                    is_error: true,
-                    details: None,
-                });
+                return Ok(ToolOutput::error(e.message));
             }
         };
 
@@ -284,18 +280,10 @@ impl Tool for TeamTool {
                         output.push_str("\n\n");
                     }
                 }
-                Ok(ToolResult {
-                    content: output,
-                    is_error: false,
-                    details: None,
-                })
+                Ok(ToolOutput::text(output))
             }
             Ok(Err(e)) => Err(e),
-            Err(_) => Ok(ToolResult {
-                content: "Team execution timed out after 10 minutes.".into(),
-                is_error: true,
-                details: None,
-            }),
+            Err(_) => Ok(ToolOutput::error("Team execution timed out after 10 minutes.")),
         }
     }
 }

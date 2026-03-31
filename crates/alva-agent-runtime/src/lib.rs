@@ -17,7 +17,7 @@ pub use init::model;
 // Re-export V2 key types for convenience
 pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, run_agent};
 pub use alva_agent_core::{Middleware, MiddlewareStack};
-pub use alva_types::{Tool, ToolContext, ToolRegistry, LanguageModel, Provider, ProviderRegistry};
+pub use alva_types::{Tool, ToolExecutionContext, ToolRegistry, LanguageModel, Provider, ProviderRegistry};
 pub use alva_agent_tools::{register_builtin_tools, register_all_tools};
 pub use alva_agent_security::{SecurityGuard, SandboxMode};
 pub use middleware::SecurityMiddleware;

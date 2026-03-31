@@ -8,7 +8,7 @@ use alva_agent_core::middleware::{Middleware, MiddlewareError};
 use alva_agent_core::state::AgentState;
 use alva_agent_core::shared::MiddlewarePriority;
 use alva_agent_security::{SandboxMode, SecurityDecision, SecurityGuard};
-use alva_types::{EmptyToolContext, ToolCall};
+use alva_types::{MinimalExecutionContext, ToolCall};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -56,7 +56,7 @@ impl Middleware for SecurityMiddleware {
         state: &mut AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        let tool_context = EmptyToolContext;
+        let tool_context = MinimalExecutionContext::new();
 
         // Lock guard, check, take receiver if needed, then drop lock BEFORE awaiting
         let (decision, pending_rx) = {

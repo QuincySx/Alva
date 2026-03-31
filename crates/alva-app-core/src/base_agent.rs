@@ -71,6 +71,9 @@ pub struct BaseAgent {
     memory: Option<MemoryService>,
     security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
     plan_mode_middleware: Option<Arc<PlanModeMiddleware>>,
+    /// Pending messages queue — bridges external steer/follow_up calls
+    /// to the agent loop via AgentLoopHook.
+    pending_messages: Arc<alva_agent_core::pending_queue::PendingMessageQueue>,
 }
 
 impl BaseAgent {
@@ -123,6 +126,24 @@ impl BaseAgent {
     pub fn cancel(&self) {
         let current = self.current_cancel.lock().unwrap_or_else(|e| e.into_inner());
         current.cancel();
+    }
+
+    /// Inject a steering message mid-turn.
+    ///
+    /// The message is delivered after the current tool execution completes,
+    /// before the next LLM call. Replaces any previously queued steering message.
+    pub fn steer(&self, text: &str) {
+        self.pending_messages
+            .steer(AgentMessage::Steering(Message::user(text)));
+    }
+
+    /// Queue a follow-up message.
+    ///
+    /// Delivered after the agent finishes its current turn naturally (no more tool calls).
+    /// Multiple follow-ups accumulate and are processed in order.
+    pub fn follow_up(&self, text: &str) {
+        self.pending_messages
+            .follow_up(AgentMessage::FollowUp(Message::user(text)));
     }
 
     /// Get a snapshot of the current message history.
@@ -370,32 +391,25 @@ impl BaseAgentBuilder {
         // 4. Build Arc<dyn Tool> list — shares Arc instances with the registry.
         let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
 
-        // 5. Create SkillStore
-        let skill_store = if !self.skill_dirs.is_empty() {
-            let first_dir = &self.skill_dirs[0];
-            let bundled_dir = first_dir.join("bundled");
-            let mbb_dir = first_dir.join("mbb");
-            let user_dir = first_dir.join("user");
-            let state_file = first_dir.join("state.json");
+        // 5. Create SkillStore — scans the primary skill directory.
+        //    By default uses project skills (<workspace>/.alva/skills/).
+        //    Callers can override via skill_dir().
+        let skill_store = {
+            let primary_dir = if !self.skill_dirs.is_empty() {
+                self.skill_dirs[0].clone()
+            } else {
+                workspace.join(".alva").join("skills")
+            };
 
             let repo = Arc::new(FsSkillRepository::new(
-                bundled_dir,
-                mbb_dir,
-                user_dir,
-                state_file,
+                primary_dir.join("bundled"),
+                primary_dir.join("mbb"),
+                primary_dir.join("user"),
+                primary_dir.join("state.json"),
             ));
             let store = SkillStore::new(repo.clone() as Arc<dyn SkillRepository>);
             let _ = store.scan().await;
             store
-        } else {
-            let empty_dir = workspace.join(".srow").join("skills");
-            let repo = Arc::new(FsSkillRepository::new(
-                empty_dir.join("bundled"),
-                empty_dir.join("mbb"),
-                empty_dir.join("user"),
-                empty_dir.join("state.json"),
-            ));
-            SkillStore::new(repo.clone() as Arc<dyn SkillRepository>)
         };
 
         let skill_store = Arc::new(skill_store);
@@ -461,13 +475,15 @@ impl BaseAgentBuilder {
             extensions,
         };
 
-        // 9. Create V2 AgentConfig
+        // 9. Create PendingMessageQueue + V2 AgentConfig
+        let pending_messages = Arc::new(alva_agent_core::pending_queue::PendingMessageQueue::new());
         let config = AgentConfig {
             middleware: middleware_stack,
             system_prompt: self.system_prompt,
             max_iterations: self.max_iterations,
             model_config: alva_types::ModelConfig::default(),
             context_window: self.context_window,
+            loop_hook: Some(pending_messages.clone()),
         };
 
         // 10. Optionally create MemoryService
@@ -493,6 +509,7 @@ impl BaseAgentBuilder {
             memory,
             security_guard,
             plan_mode_middleware: Some(plan_mw),
+            pending_messages,
         })
     }
 }
@@ -686,7 +703,7 @@ mod tests {
     async fn test_base_agent_with_custom_tool() {
         use alva_test::mock_tool::MockTool;
         use alva_test::fixtures::make_tool_call_message;
-        use alva_types::tool::ToolResult;
+        use alva_types::ToolOutput;
 
         // The model will first return a tool call, then a final text response.
         let tool_call_resp = make_tool_call_message(
@@ -701,11 +718,7 @@ mod tests {
         let model = Arc::new(mock_model);
 
         let mock_tool = MockTool::new("my_test_tool")
-            .with_result(ToolResult {
-                content: "tool executed".into(),
-                is_error: false,
-                details: None,
-            });
+            .with_result(ToolOutput::text("tool executed"));
         let mock_tool_clone = mock_tool.clone();
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -732,7 +745,7 @@ mod tests {
                 }
                 AgentEvent::ToolExecutionEnd { tool_call, result } => {
                     assert_eq!(tool_call.name, "my_test_tool");
-                    assert_eq!(result.content, "tool executed");
+                    assert_eq!(result.model_text(), "tool executed");
                     assert!(!result.is_error);
                     got_tool_exec_end = true;
                 }

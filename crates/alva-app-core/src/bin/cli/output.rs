@@ -103,6 +103,7 @@ pub fn print_help() {
     eprintln!("  {}     Show current config", "/config".cyan());
     eprintln!("  {}     Rewind to checkpoint", "/rewind".cyan());
     eprintln!("  {}       Show this help", "/help".cyan());
+    eprintln!("  {}      Reconfigure provider/model", "/setup".cyan());
     eprintln!("  {} {}    Exit", "/quit".cyan(), "/exit".cyan());
     eprintln!();
     eprintln!("  {}       Run shell command directly", "!cmd".yellow());

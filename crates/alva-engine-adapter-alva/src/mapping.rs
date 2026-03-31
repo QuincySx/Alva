@@ -120,7 +120,10 @@ impl EventMapper {
     fn map_message_end(&mut self, message: AgentMessage) -> Vec<RuntimeEvent> {
         let msg = match &message {
             AgentMessage::Standard(m) => m,
-            AgentMessage::Custom { .. } => return vec![],
+            AgentMessage::Steering(_)
+            | AgentMessage::FollowUp(_)
+            | AgentMessage::Marker(_)
+            | AgentMessage::Extension { .. } => return vec![],
         };
 
         let msg_id = msg.id.clone();
@@ -165,7 +168,9 @@ impl EventMapper {
 fn message_id(message: &AgentMessage) -> String {
     match message {
         AgentMessage::Standard(m) => m.id.clone(),
-        AgentMessage::Custom { type_name, .. } => type_name.clone(),
+        AgentMessage::Steering(m) | AgentMessage::FollowUp(m) => m.id.clone(),
+        AgentMessage::Marker(_) => "marker".to_string(),
+        AgentMessage::Extension { type_name, .. } => type_name.clone(),
     }
 }
 
@@ -174,7 +179,7 @@ fn message_id(message: &AgentMessage) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::{Message, MessageRole, StreamEvent, ToolCall, ToolResult};
+    use alva_types::{Message, MessageRole, StreamEvent, ToolCall, ToolOutput};
 
     fn make_session_id() -> String {
         "test-session".to_string()
@@ -294,11 +299,7 @@ mod tests {
             name: "Grep".to_string(),
             arguments: serde_json::json!({}),
         };
-        let result = ToolResult {
-            content: "found 3 matches".to_string(),
-            is_error: false,
-            details: None,
-        };
+        let result = ToolOutput::text("found 3 matches");
         let events = mapper.map(AgentEvent::ToolExecutionEnd { tool_call, result });
 
         assert_eq!(events.len(), 1);

@@ -68,9 +68,24 @@ impl McpConfig {
             .map_err(|e| SkillError::Io(format!("Failed to read {}: {}", path.display(), e)))?;
 
         let config: McpConfig = serde_json::from_str(&content)
-            .map_err(|e| SkillError::Serialization(format!("Invalid mcpServerConfig.json: {}", e)))?;
+            .map_err(|e| SkillError::Serialization(format!("Invalid MCP config: {}", e)))?;
 
         Ok(config)
+    }
+
+    /// Load and merge MCP configs from global + project paths.
+    ///
+    /// Project servers override global servers with the same ID.
+    pub async fn load_merged(paths: &crate::paths::AlvaPaths) -> Result<Self, SkillError> {
+        let mut merged = Self::load(&paths.global_mcp_config()).await?;
+        let project = Self::load(&paths.project_mcp_config()).await?;
+
+        // Project entries override global entries with the same server_id
+        for (id, entry) in project.servers {
+            merged.servers.insert(id, entry);
+        }
+
+        Ok(merged)
     }
 
     /// Save config to a specific path (creates parent directories if needed).

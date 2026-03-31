@@ -29,7 +29,10 @@ pub fn estimate_tokens(messages: &[AgentMessage]) -> usize {
         .iter()
         .map(|m| match m {
             AgentMessage::Standard(msg) => msg.text_content().len() / 4,
-            AgentMessage::Custom { data, .. } => data.to_string().len() / 4,
+            AgentMessage::Steering(msg) => msg.text_content().len() / 4,
+            AgentMessage::FollowUp(msg) => msg.text_content().len() / 4,
+            AgentMessage::Marker(_) => 0,
+            AgentMessage::Extension { data, .. } => data.to_string().len() / 4,
         })
         .sum()
 }
@@ -82,8 +85,8 @@ mod tests {
     }
 
     #[test]
-    fn estimate_tokens_custom_message() {
-        let messages = vec![AgentMessage::Custom {
+    fn estimate_tokens_extension_message() {
+        let messages = vec![AgentMessage::Extension {
             type_name: "test".into(),
             data: serde_json::json!({"key": "value"}),
         }];

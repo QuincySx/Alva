@@ -128,8 +128,11 @@ impl Render for MessageList {
                         // System / Tool messages are not rendered for now.
                     }
                 },
-                AgentMessage::Custom { .. } => {
-                    // Custom messages are not rendered for now.
+                AgentMessage::Steering(_)
+                | AgentMessage::FollowUp(_)
+                | AgentMessage::Marker(_)
+                | AgentMessage::Extension { .. } => {
+                    // Non-standard messages are not rendered for now.
                 }
             }
         }

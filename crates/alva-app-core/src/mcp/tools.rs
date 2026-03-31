@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use crate::mcp::runtime::McpManager;
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -65,7 +65,7 @@ impl Tool for McpRuntimeTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: McpRuntimeInput =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "mcp_runtime".into(), message: e.to_string() })?;
 
@@ -131,10 +131,6 @@ impl Tool for McpRuntimeTool {
             }
         };
 
-        Ok(ToolResult {
-            content: output,
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(output))
     }
 }

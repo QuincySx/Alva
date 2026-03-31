@@ -30,7 +30,7 @@
 pub use alva_types;
 
 // Re-export alva-agent-core V2 types for UI layer consumption
-pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage};
+pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, PendingMessageQueue};
 pub use alva_agent_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
 pub use alva_agent_core::run_agent;
 
@@ -78,6 +78,7 @@ pub(crate) mod ports;
 pub(crate) mod adapters;
 pub mod base_agent;
 pub mod error;
+pub mod paths;
 pub mod plugins;
 
 // Re-export alva-agent-scope (blackboard + scope infrastructure)
@@ -88,3 +89,4 @@ pub use alva_agent_scope::scope_impl as scope;
 
 pub use base_agent::{BaseAgent, BaseAgentBuilder, PermissionMode};
 pub use error::EngineError;
+pub use paths::AlvaPaths;

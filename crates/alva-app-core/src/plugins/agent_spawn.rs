@@ -21,7 +21,8 @@ use alva_agent_core::run_child::{run_child_agent, ChildAgentParams};
 use alva_types::base::cancel::CancellationToken;
 use alva_types::base::error::AgentError;
 use alva_types::scope::{ChildScopeConfig, ScopeError};
-use alva_types::tool::{Tool, ToolContext, ToolResult};
+use alva_types::tool::Tool;
+use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
 
 use alva_agent_scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
 use alva_agent_scope::board_registry::BoardRegistry;
@@ -112,9 +113,8 @@ impl Tool for AgentSpawnTool {
     async fn execute(
         &self,
         input: Value,
-        _cancel: &CancellationToken,
-        _ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError> {
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let input: SpawnInput = serde_json::from_value(input).map_err(|e| {
             AgentError::ToolError {
                 tool_name: "agent".into(),
@@ -139,14 +139,10 @@ impl Tool for AgentSpawnTool {
         let child_scope = match self.scope.spawn_child(child_config).await {
             Ok(s) => s,
             Err(ScopeError::DepthExceeded { current, max }) => {
-                return Ok(ToolResult {
-                    content: format!(
-                        "Cannot spawn: depth {}/{} exceeded. Handle the task directly.",
-                        current, max
-                    ),
-                    is_error: true,
-                    details: None,
-                });
+                return Ok(ToolOutput::error(format!(
+                    "Cannot spawn: depth {}/{} exceeded. Handle the task directly.",
+                    current, max
+                )));
             }
             Err(e) => {
                 return Err(AgentError::ToolError {
@@ -215,22 +211,14 @@ impl Tool for AgentSpawnTool {
         child_scope.mark_completed(&result.text);
 
         if result.is_error {
-            Ok(ToolResult {
-                content: format!(
-                    "[Agent '{}' error: {}]\n{}",
-                    input.role,
-                    result.error.unwrap_or_default(),
-                    result.text
-                ),
-                is_error: true,
-                details: None,
-            })
+            Ok(ToolOutput::error(format!(
+                "[Agent '{}' error: {}]\n{}",
+                input.role,
+                result.error.unwrap_or_default(),
+                result.text
+            )))
         } else {
-            Ok(ToolResult {
-                content: result.text,
-                is_error: false,
-                details: None,
-            })
+            Ok(ToolOutput::text(result.text))
         }
     }
 }

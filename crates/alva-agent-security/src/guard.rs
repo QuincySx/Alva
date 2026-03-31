@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-use alva_types::ToolContext;
+use alva_types::ToolExecutionContext;
 
 use crate::authorized_roots::AuthorizedRoots;
 use crate::permission::PermissionManager;
@@ -128,7 +128,7 @@ impl SecurityGuard {
         &mut self,
         tool_name: &str,
         args: &Value,
-        _ctx: &dyn ToolContext,
+        _ctx: &dyn ToolExecutionContext,
     ) -> SecurityDecision {
         // 1. Extract all paths from tool arguments
         let paths = self.extract_paths(args);
@@ -299,23 +299,20 @@ mod tests {
 
     struct TestToolContext {
         workspace: PathBuf,
+        cancel: alva_types::CancellationToken,
     }
 
-    impl alva_types::ToolContext for TestToolContext {
+    impl alva_types::ToolExecutionContext for TestToolContext {
+        fn cancel_token(&self) -> &alva_types::CancellationToken { &self.cancel }
         fn session_id(&self) -> &str { "test-session" }
-        fn get_config(&self, _key: &str) -> Option<String> { None }
+        fn workspace(&self) -> Option<&std::path::Path> { Some(&self.workspace) }
         fn as_any(&self) -> &dyn std::any::Any { self }
-        fn local(&self) -> Option<&dyn alva_types::LocalToolContext> { Some(self) }
-    }
-
-    impl alva_types::LocalToolContext for TestToolContext {
-        fn workspace(&self) -> &std::path::Path { &self.workspace }
-        fn allow_dangerous(&self) -> bool { false }
     }
 
     fn test_ctx() -> TestToolContext {
         TestToolContext {
             workspace: PathBuf::from("/projects/myapp"),
+            cancel: alva_types::CancellationToken::new(),
         }
     }
 

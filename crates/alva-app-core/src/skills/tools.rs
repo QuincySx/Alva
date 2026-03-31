@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use crate::skills::loader::SkillLoader;
 use crate::skills::store::SkillStore;
 use async_trait::async_trait;
@@ -51,7 +51,7 @@ impl Tool for SearchSkillsTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: SearchSkillsInput =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "search_skills".into(), message: e.to_string() })?;
 
@@ -69,12 +69,8 @@ impl Tool for SearchSkillsTool {
             })
             .collect();
 
-        Ok(ToolResult {
-            content: serde_json::to_string_pretty(&output)
-                .unwrap_or_else(|_| "[]".to_string()),
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
+            .unwrap_or_else(|_| "[]".to_string())))
     }
 }
 
@@ -128,7 +124,7 @@ impl Tool for UseSkillTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: UseSkillInput =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "use_skill".into(), message: e.to_string() })?;
 
@@ -168,11 +164,7 @@ impl Tool for UseSkillTool {
             output["resources"] = json!(resources);
         }
 
-        Ok(ToolResult {
-            content: serde_json::to_string_pretty(&output)
-                .unwrap_or_else(|_| "{}".to_string()),
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
+            .unwrap_or_else(|_| "{}".to_string())))
     }
 }

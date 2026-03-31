@@ -4,6 +4,7 @@
 //! tool definitions. Works with OpenAI, DeepSeek, Ollama, vLLM, etc.
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -15,6 +16,7 @@ use alva_types::base::error::AgentError;
 use alva_types::base::message::{Message, MessageRole, UsageMetadata};
 use alva_types::model::{LanguageModel, ModelConfig};
 use alva_types::base::stream::StreamEvent;
+use alva_types::provider::credential::{CredentialSource, StaticCredential};
 use alva_types::tool::Tool;
 use alva_types::ContentBlock;
 
@@ -22,14 +24,32 @@ use crate::config::ProviderConfig;
 
 /// OpenAI-compatible LLM provider.
 pub struct OpenAIProvider {
-    config: ProviderConfig,
+    credential: Arc<dyn CredentialSource>,
+    model: String,
+    base_url: String,
+    max_tokens: u32,
     client: Client,
 }
 
 impl OpenAIProvider {
+    /// Create from config (backward compatible — wraps api_key in StaticCredential).
     pub fn new(config: ProviderConfig) -> Self {
         Self {
-            config,
+            credential: Arc::new(StaticCredential::new(&config.api_key)),
+            model: config.model,
+            base_url: config.base_url,
+            max_tokens: config.max_tokens,
+            client: Client::new(),
+        }
+    }
+
+    /// Create with a custom credential source (for OAuth, vault, etc.).
+    pub fn with_credential(credential: Arc<dyn CredentialSource>, config: ProviderConfig) -> Self {
+        Self {
+            credential,
+            model: config.model,
+            base_url: config.base_url,
+            max_tokens: config.max_tokens,
             client: Client::new(),
         }
     }
@@ -47,17 +67,20 @@ impl LanguageModel for OpenAIProvider {
         tools: &[&dyn Tool],
         config: &ModelConfig,
     ) -> Result<Message, AgentError> {
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+
+        let api_key = self.credential.get_api_key().await
+            .map_err(|e| AgentError::LlmError(format!("credential error: {}", e)))?;
 
         let oai_messages = to_oai_messages(messages);
         let oai_tools = to_oai_tools(tools);
 
         let max_tokens = config
             .max_tokens
-            .unwrap_or(self.config.max_tokens);
+            .unwrap_or(self.max_tokens);
 
         let mut body = serde_json::json!({
-            "model": self.config.model,
+            "model": self.model,
             "messages": oai_messages,
             "max_tokens": max_tokens,
         });
@@ -76,7 +99,7 @@ impl LanguageModel for OpenAIProvider {
         }
 
         tracing::debug!(
-            model = self.config.model,
+            model = %self.model,
             messages = oai_messages.len(),
             tools = oai_tools.len(),
             "calling chat completions"
@@ -85,7 +108,7 @@ impl LanguageModel for OpenAIProvider {
         let resp = self
             .client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -122,7 +145,7 @@ impl LanguageModel for OpenAIProvider {
     }
 
     fn model_id(&self) -> &str {
-        &self.config.model
+        &self.model
     }
 }
 
@@ -209,7 +232,21 @@ fn to_oai_messages(messages: &[Message]) -> Vec<OaiMessage> {
         match m.role {
             MessageRole::Tool => {
                 // Tool result → send as role=tool with tool_call_id
-                let content = m.text_content();
+                // Extract text from ToolResult content blocks (Vec<ToolContent>),
+                // falling back to text_content() for any plain Text blocks.
+                let content = {
+                    let mut parts: Vec<String> = Vec::new();
+                    for block in &m.content {
+                        if let ContentBlock::ToolResult { content, .. } = block {
+                            for tc in content {
+                                parts.push(tc.to_model_string());
+                            }
+                        } else if let Some(text) = block.as_text() {
+                            parts.push(text.to_string());
+                        }
+                    }
+                    parts.join("\n")
+                };
                 OaiMessage {
                     role: "tool".to_string(),
                     content: Some(Value::String(content)),

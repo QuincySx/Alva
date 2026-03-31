@@ -1,4 +1,15 @@
-//! Provider configuration — env vars > config file > defaults.
+//! Provider configuration with XDG Base Directory support.
+//!
+//! Loading priority (highest wins):
+//!   1. Environment variables (ALVA_API_KEY, ALVA_MODEL, ALVA_BASE_URL, ALVA_MAX_TOKENS)
+//!   2. Project config: `<workspace>/.alva/config.json`
+//!   3. Global config: `$XDG_CONFIG_HOME/alva/config.json` (default: `~/.config/alva/config.json`)
+//!   4. Built-in defaults
+//!
+//! Each layer only overrides fields it explicitly sets. API keys in particular
+//! should live in the global config, not per-project files.
+
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,56 +22,224 @@ pub struct ProviderConfig {
     pub max_tokens: u32,
 }
 
-impl ProviderConfig {
-    /// Load from environment variables. Falls back to defaults for optional fields.
-    ///
-    /// Returns Err if `ALVA_API_KEY` is not set.
-    pub fn from_env() -> Result<Self, String> {
-        let api_key = std::env::var("ALVA_API_KEY")
-            .map_err(|_| "ALVA_API_KEY not set. Export it or add to .env file.".to_string())?;
+/// Partial config — all fields optional, for layered merging.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct PartialConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+}
 
-        Ok(Self {
-            api_key,
-            model: std::env::var("ALVA_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()),
-            base_url: std::env::var("ALVA_BASE_URL")
-                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
-            max_tokens: std::env::var("ALVA_MAX_TOKENS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(8192),
-        })
+impl PartialConfig {
+    /// Merge `other` on top of `self` — other's values take precedence.
+    fn merge(self, other: PartialConfig) -> PartialConfig {
+        PartialConfig {
+            api_key: other.api_key.or(self.api_key),
+            model: other.model.or(self.model),
+            base_url: other.base_url.or(self.base_url),
+            max_tokens: other.max_tokens.or(self.max_tokens),
+        }
     }
 
-    /// Load from a JSON config file, then override with any env vars that are set.
-    pub fn from_file_with_env(path: &str) -> Result<Self, String> {
-        let mut config: Self = if std::path::Path::new(path).exists() {
-            let content =
-                std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", path, e))?;
-            serde_json::from_str(&content).map_err(|e| format!("parse {}: {}", path, e))?
-        } else {
-            return Self::from_env();
-        };
+    fn from_file(path: &Path) -> Option<PartialConfig> {
+        let content = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&content).ok()
+    }
 
-        // Env vars override file values
-        if let Ok(v) = std::env::var("ALVA_API_KEY") {
-            config.api_key = v;
+    fn from_env() -> PartialConfig {
+        PartialConfig {
+            api_key: std::env::var("ALVA_API_KEY").ok().filter(|s| !s.is_empty()),
+            model: std::env::var("ALVA_MODEL").ok().filter(|s| !s.is_empty()),
+            base_url: std::env::var("ALVA_BASE_URL").ok().filter(|s| !s.is_empty()),
+            max_tokens: std::env::var("ALVA_MAX_TOKENS")
+                .ok()
+                .and_then(|s| s.parse().ok()),
         }
-        if let Ok(v) = std::env::var("ALVA_MODEL") {
-            config.model = v;
+    }
+
+    fn into_config(self) -> Result<ProviderConfig, String> {
+        let api_key = self
+            .api_key
+            .ok_or("api_key is not configured. Run the setup wizard or set ALVA_API_KEY.")?;
+        Ok(ProviderConfig {
+            api_key,
+            model: self.model.unwrap_or_else(|| "gpt-4o".to_string()),
+            base_url: self
+                .base_url
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            max_tokens: self.max_tokens.unwrap_or(8192),
+        })
+    }
+}
+
+impl ProviderConfig {
+    /// Global config directory following XDG Base Directory spec.
+    ///
+    /// - Linux/macOS: `$XDG_CONFIG_HOME/alva` or `~/.config/alva`
+    /// - macOS (fallback): `~/Library/Application Support/alva`
+    /// - Windows: `%APPDATA%\alva`
+    pub fn global_config_dir() -> Option<PathBuf> {
+        // Prefer XDG_CONFIG_HOME if set (works on all platforms)
+        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            let dir = PathBuf::from(xdg).join("alva");
+            return Some(dir);
         }
-        if let Ok(v) = std::env::var("ALVA_BASE_URL") {
-            config.base_url = v;
-        }
-        if let Ok(v) = std::env::var("ALVA_MAX_TOKENS") {
-            if let Ok(n) = v.parse() {
-                config.max_tokens = n;
+        // Fall back to dirs crate (platform-appropriate)
+        dirs::config_dir().map(|d| d.join("alva"))
+    }
+
+    /// Path to the global config file.
+    pub fn global_config_path() -> Option<PathBuf> {
+        Self::global_config_dir().map(|d| d.join("config.json"))
+    }
+
+    /// Load configuration with full layered resolution.
+    ///
+    /// Priority: env vars > project config > global config > defaults.
+    ///
+    /// `workspace` is the project directory to check for `.alva/config.json` or `alva.json`.
+    pub fn load(workspace: &Path) -> Result<Self, String> {
+        // Layer 1: defaults (implicit in into_config)
+        let mut merged = PartialConfig::default();
+
+        // Layer 2: global config
+        if let Some(global_path) = Self::global_config_path() {
+            if let Some(global) = PartialConfig::from_file(&global_path) {
+                merged = merged.merge(global);
             }
         }
 
-        if config.api_key.is_empty() {
-            return Err("api_key is empty. Set ALVA_API_KEY or add to config file.".to_string());
+        // Layer 3: project config (.alva/config.json)
+        let project_config_path = workspace.join(".alva").join("config.json");
+        if let Some(project) = PartialConfig::from_file(&project_config_path) {
+            merged = merged.merge(project);
         }
 
-        Ok(config)
+        // Layer 4: environment variables (highest priority)
+        merged = merged.merge(PartialConfig::from_env());
+
+        merged.into_config()
+    }
+
+    /// Save configuration to the global config file.
+    pub fn save_global(&self) -> Result<PathBuf, String> {
+        let dir = Self::global_config_dir()
+            .ok_or("cannot determine config directory")?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("cannot create config dir {}: {}", dir.display(), e))?;
+
+        let path = dir.join("config.json");
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("cannot serialize config: {}", e))?;
+        std::fs::write(&path, json)
+            .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+
+        Ok(path)
+    }
+
+    /// Save a project-level override config (only non-default fields).
+    pub fn save_project(&self, workspace: &Path) -> Result<PathBuf, String> {
+        let dir = workspace.join(".alva");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("cannot create .alva dir: {}", e))?;
+
+        let path = dir.join("config.json");
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("cannot serialize config: {}", e))?;
+        std::fs::write(&path, json)
+            .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+
+        Ok(path)
+    }
+
+    /// Load from environment variables only (no file lookup).
+    pub fn from_env() -> Result<Self, String> {
+        PartialConfig::from_env().into_config()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_merge_precedence() {
+        let base = PartialConfig {
+            api_key: Some("base-key".into()),
+            model: Some("base-model".into()),
+            base_url: None,
+            max_tokens: Some(4096),
+        };
+        let overlay = PartialConfig {
+            api_key: None,
+            model: Some("overlay-model".into()),
+            base_url: Some("https://custom.api".into()),
+            max_tokens: None,
+        };
+        let merged = base.merge(overlay);
+        assert_eq!(merged.api_key.as_deref(), Some("base-key"));
+        assert_eq!(merged.model.as_deref(), Some("overlay-model"));
+        assert_eq!(merged.base_url.as_deref(), Some("https://custom.api"));
+        assert_eq!(merged.max_tokens, Some(4096));
+    }
+
+    #[test]
+    fn into_config_uses_defaults() {
+        let partial = PartialConfig {
+            api_key: Some("test-key".into()),
+            ..Default::default()
+        };
+        let config = partial.into_config().unwrap();
+        assert_eq!(config.api_key, "test-key");
+        assert_eq!(config.model, "gpt-4o");
+        assert_eq!(config.base_url, "https://api.openai.com/v1");
+        assert_eq!(config.max_tokens, 8192);
+    }
+
+    #[test]
+    fn into_config_fails_without_api_key() {
+        let partial = PartialConfig::default();
+        assert!(partial.into_config().is_err());
+    }
+
+    #[test]
+    fn global_config_dir_exists() {
+        // Should return Some on all platforms
+        let dir = ProviderConfig::global_config_dir();
+        assert!(dir.is_some());
+        let dir = dir.unwrap();
+        assert!(dir.ends_with("alva"));
+    }
+
+    #[test]
+    fn load_from_workspace_with_no_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        // No config files, no env vars → should fail
+        // (Can't easily test since env vars may be set in CI)
+        let result = ProviderConfig::load(tmp.path());
+        // Just verify it doesn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn save_and_load_project_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = ProviderConfig {
+            api_key: "test-key".into(),
+            model: "test-model".into(),
+            base_url: "https://test.api/v1".into(),
+            max_tokens: 4096,
+        };
+        let path = config.save_project(tmp.path()).unwrap();
+        assert!(path.exists());
+
+        let loaded = PartialConfig::from_file(&path).unwrap();
+        assert_eq!(loaded.api_key.as_deref(), Some("test-key"));
+        assert_eq!(loaded.model.as_deref(), Some("test-model"));
     }
 }

@@ -2,7 +2,7 @@
 // OUTPUT: pub enum RuntimeEvent, pub struct RuntimeUsage, pub struct RuntimeCapabilities, pub enum PermissionDecision
 // POS:    Defines the unified event, usage, capability, and permission types emitted by all engine adapters.
 
-use alva_types::{ContentBlock, MessageRole, StreamEvent, ToolResult};
+use alva_types::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
 use serde::{Deserialize, Serialize};
 
 /// Unified event type emitted by all engine adapters.
@@ -51,7 +51,7 @@ pub enum RuntimeEvent {
     ToolEnd {
         id: String,
         name: String,
-        result: ToolResult,
+        result: ToolOutput,
         duration_ms: Option<u64>,
     },
 

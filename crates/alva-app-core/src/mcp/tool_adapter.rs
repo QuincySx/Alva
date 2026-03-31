@@ -3,7 +3,7 @@
 // POS:    Wraps individual MCP tools as standard Tool trait implementations with namespaced names (mcp:server:tool).
 use std::sync::Arc;
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde_json::Value;
 
@@ -59,9 +59,8 @@ impl Tool for McpToolAdapter {
     async fn execute(
         &self,
         input: Value,
-        _cancel: &CancellationToken,
-        _ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError> {
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let result = self
             .manager
             .call_tool(&self.info.server_id, &self.info.tool_name, input)
@@ -71,11 +70,7 @@ impl Tool for McpToolAdapter {
         let output =
             serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
-        Ok(ToolResult {
-            content: output,
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(output))
     }
 }
 

@@ -135,6 +135,7 @@ impl AgentRuntimeBuilder {
             max_iterations: self.max_iterations,
             model_config: self.model_config,
             context_window: self.context_window,
+            loop_hook: None,
         };
 
         AgentRuntime {

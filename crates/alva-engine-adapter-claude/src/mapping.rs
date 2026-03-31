@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use alva_engine_runtime::{RuntimeEvent, RuntimeUsage};
-use alva_types::{ContentBlock, MessageRole, StreamEvent, ToolResult};
+use alva_types::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
 
 use crate::protocol::{BridgeMessage, SdkContentBlock, SdkMessage};
 
@@ -120,13 +120,15 @@ impl EventMapper {
                                 .get(&tool_use_id)
                                 .cloned()
                                 .unwrap_or_default();
+                            let is_err = is_error.unwrap_or(false);
+                            let text = content.unwrap_or_default();
                             events.push(RuntimeEvent::ToolEnd {
                                 id: tool_use_id,
                                 name,
-                                result: ToolResult {
-                                    content: content.unwrap_or_default(),
-                                    is_error: is_error.unwrap_or(false),
-                                    details: None,
+                                result: if is_err {
+                                    ToolOutput::error(text)
+                                } else {
+                                    ToolOutput::text(text)
                                 },
                                 duration_ms: None,
                             });

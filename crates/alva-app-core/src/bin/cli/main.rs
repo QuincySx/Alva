@@ -19,11 +19,12 @@
 mod checkpoint;
 mod output;
 mod session_store;
+mod setup;
 
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use alva_app_core::{AgentEvent, AgentMessage, BaseAgent, BaseAgentBuilder, PermissionDecision, PermissionMode};
+use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, BaseAgentBuilder, PermissionDecision, PermissionMode};
 use alva_agent_runtime::middleware::checkpoint::CheckpointCallback;
 use alva_agent_runtime::middleware::security::ApprovalRequest;
 use alva_provider::{OpenAIProvider, ProviderConfig};
@@ -84,21 +85,26 @@ fn load_project_context(workspace: &std::path::Path) -> String {
 }
 
 async fn run() {
-    // 1. Config
-    let config = match ProviderConfig::from_file_with_env("alva.json") {
+    let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let paths = AlvaPaths::new(&workspace);
+
+    // 1. Config — layered: env > project (.alva/config.json) > global (~/.config/alva/config.json)
+    let config = match ProviderConfig::load(&workspace) {
         Ok(c) => c,
-        Err(e) => {
-            output::print_error(&format!("Config error: {}", e));
-            eprintln!();
-            eprintln!("Quick start:");
-            eprintln!("  export ALVA_API_KEY=sk-...");
-            eprintln!("  export ALVA_MODEL=gpt-4o");
-            eprintln!("  cargo run -p alva-app-core --bin alva-cli");
-            std::process::exit(1);
+        Err(_) => {
+            match setup::run_setup_wizard(&workspace) {
+                Some(c) => c,
+                None => {
+                    eprintln!();
+                    output::print_error("Setup incomplete. You can also configure manually:");
+                    eprintln!("  export ALVA_API_KEY=sk-...");
+                    eprintln!("  export ALVA_MODEL=gpt-4o");
+                    return;
+                }
+            }
         }
     };
 
-    let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let store = SessionStore::for_workspace(&workspace);
 
     // 2. Build system prompt with project context
@@ -112,10 +118,13 @@ async fn run() {
     );
 
     // 3. Provider + Agent (with approval channel)
+    //    Skills: project dir first, global dir as fallback
     let model = Arc::new(OpenAIProvider::new(config.clone()));
     let mut builder = BaseAgentBuilder::new()
         .workspace(&workspace)
         .system_prompt(&system_prompt)
+        .skill_dir(paths.project_skills_dir())
+        .skill_dir(paths.global_skills_dir())
         .without_browser()
         .with_sub_agents()
         .sub_agent_max_depth(3);
@@ -201,6 +210,29 @@ async fn run() {
                         eprintln!("  Base URL:  {}", config.base_url);
                         eprintln!("  Workspace: {}", workspace.display());
                         eprintln!("  Session:   {}", session_id);
+                        eprintln!();
+                        eprintln!("  Paths:");
+                        let mark = |p: &std::path::Path| if p.exists() { "" } else { " (not found)" };
+                        eprintln!("    Global config:  {}{}", paths.global_config().display(), mark(&paths.global_config()));
+                        eprintln!("    Global MCP:     {}{}", paths.global_mcp_config().display(), mark(&paths.global_mcp_config()));
+                        eprintln!("    Global skills:  {}{}", paths.global_skills_dir().display(), mark(&paths.global_skills_dir()));
+                        if paths.project_config().exists() {
+                            eprintln!("    Project config: {}", paths.project_config().display());
+                        }
+                        if paths.project_mcp_config().exists() {
+                            eprintln!("    Project MCP:    {}", paths.project_mcp_config().display());
+                        }
+                        if paths.project_skills_dir().exists() {
+                            eprintln!("    Project skills: {}", paths.project_skills_dir().display());
+                        }
+                    }
+                    "/setup" => {
+                        eprintln!("  Reconfiguring requires restart.");
+                        if let Some(new_config) = setup::run_setup_wizard(&workspace) {
+                            eprintln!();
+                            eprintln!("  Configuration saved. Please restart alva-cli to use the new settings.");
+                            let _ = new_config; // config saved to alva.json by wizard
+                        }
                     }
                     "/plan" => {
                         let current = agent.permission_mode();
@@ -436,7 +468,7 @@ async fn run_prompt(
                         output::print_tool_start(&tool_call.name);
                     }
                     Some(AgentEvent::ToolExecutionEnd { tool_call, result }) => {
-                        output::print_tool_end(&tool_call.name, result.is_error, &result.content);
+                        output::print_tool_end(&tool_call.name, result.is_error, &result.model_text());
                     }
                     Some(AgentEvent::AgentEnd { error }) => {
                         if let Some(e) = error {

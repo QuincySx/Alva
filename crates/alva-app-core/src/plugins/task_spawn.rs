@@ -19,10 +19,10 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use alva_agent_core::run_child::{run_child_agent, ChildAgentParams};
-use alva_types::base::cancel::CancellationToken;
 use alva_types::base::error::AgentError;
 use alva_types::model::LanguageModel;
-use alva_types::tool::{Tool, ToolContext, ToolResult};
+use alva_types::tool::Tool;
+use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
 
 /// Configuration for a sub-agent that can be spawned as a child task.
 pub struct SubAgentConfig {
@@ -157,9 +157,8 @@ impl Tool for SubAgentTool {
     async fn execute(
         &self,
         input: Value,
-        cancel: &CancellationToken,
-        _ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError> {
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let agent_name = input["agent"].as_str().ok_or_else(|| AgentError::ToolError {
             tool_name: "task".into(),
             message: "missing 'agent' field".into(),
@@ -187,7 +186,7 @@ impl Tool for SubAgentTool {
             max_iterations: config.max_turns,
             timeout: config.timeout,
             parent_session_id: None,
-            cancel: cancel.clone(),
+            cancel: ctx.cancel_token().clone(),
             middleware: None,
             model_config: None,
             context_window: 0,
@@ -195,22 +194,14 @@ impl Tool for SubAgentTool {
         .await;
 
         if result.is_error {
-            Ok(ToolResult {
-                content: format!(
-                    "[Sub-agent '{}' error: {}]\n{}",
-                    agent_name,
-                    result.error.unwrap_or_default(),
-                    result.text
-                ),
-                is_error: true,
-                details: None,
-            })
+            Ok(ToolOutput::error(format!(
+                "[Sub-agent '{}' error: {}]\n{}",
+                agent_name,
+                result.error.unwrap_or_default(),
+                result.text
+            )))
         } else {
-            Ok(ToolResult {
-                content: result.text,
-                is_error: false,
-                details: None,
-            })
+            Ok(ToolOutput::text(result.text))
         }
     }
 }

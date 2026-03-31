@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use crate::error::EngineError;
 
 /// Delegate execution result
@@ -231,17 +231,17 @@ impl Tool for AcpDelegateTool {
     async fn execute(
         &self,
         input: serde_json::Value,
-        _cancel: &CancellationToken,
-        ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError> {
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let task = input["task"]
             .as_str()
             .ok_or_else(|| AgentError::ToolError { tool_name: self.tool_name.clone(), message: "missing 'task' field".to_string() })?
             .to_string();
 
+        let workspace_path = ctx.workspace().map(|w| w.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
         let result = self
             .delegate
-            .delegate(task, ctx.local().map(|l| l.workspace().to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from(".")))
+            .delegate(task, workspace_path)
             .await
             .map_err(|e| AgentError::ToolError { tool_name: self.tool_name.clone(), message: e.to_string() })?;
 
@@ -258,10 +258,10 @@ impl Tool for AcpDelegateTool {
 
         let is_error = !matches!(result.finish_reason, DelegateFinishReason::Complete);
 
-        Ok(ToolResult {
-            content: output,
-            is_error,
-            details: None,
-        })
+        if is_error {
+            Ok(ToolOutput::error(output))
+        } else {
+            Ok(ToolOutput::text(output))
+        }
     }
 }

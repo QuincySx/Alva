@@ -26,6 +26,7 @@ resolver = "2"
 
 [profile.dev]
 incremental = true
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"

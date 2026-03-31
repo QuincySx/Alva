@@ -79,7 +79,7 @@ mod tests {
         fn transform(&self, messages: &[AgentMessage]) -> Vec<AgentMessage> {
             messages
                 .iter()
-                .filter(|m| matches!(m, AgentMessage::Custom { .. }))
+                .filter(|m| matches!(m, AgentMessage::Extension { .. }))
                 .cloned()
                 .collect()
         }
@@ -145,7 +145,7 @@ mod tests {
 
         let messages = vec![
             AgentMessage::Standard(Message::user("standard")),
-            AgentMessage::Custom {
+            AgentMessage::Extension {
                 type_name: "custom".into(),
                 data: serde_json::json!({}),
             },
@@ -154,6 +154,6 @@ mod tests {
 
         let result = pipeline.apply(&messages);
         assert_eq!(result.len(), 1);
-        assert!(matches!(result[0], AgentMessage::Custom { .. }));
+        assert!(matches!(result[0], AgentMessage::Extension { .. }));
     }
 }
