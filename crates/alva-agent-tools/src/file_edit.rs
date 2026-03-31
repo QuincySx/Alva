@@ -3,7 +3,7 @@
 // POS:    Performs string-replace-based file editing requiring unique match of old_str.
 //! file_edit — string-replace based file editing (like Claude Code's Edit tool)
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -81,10 +81,42 @@ impl Tool for FileEditTool {
         }
 
         let new_content = content.replacen(&params.old_str, &params.new_str, 1);
+
+        // Find line number of first change
+        let line_num = content[..content.find(&params.old_str).unwrap()]
+            .lines()
+            .count() + 1;
+
+        // Generate unified diff
+        let old_lines: Vec<&str> = params.old_str.lines().collect();
+        let new_lines: Vec<&str> = params.new_str.lines().collect();
+        let mut diff = format!("--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
+            params.path, params.path,
+            line_num, old_lines.len(),
+            line_num, new_lines.len(),
+        );
+        for line in &old_lines {
+            diff.push_str(&format!("-{}\n", line));
+        }
+        for line in &new_lines {
+            diff.push_str(&format!("+{}\n", line));
+        }
+
         fs.write_file(file_path.to_str().unwrap_or_default(), new_content.as_bytes())
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot write file: {}", e) })?;
 
-        Ok(ToolOutput::text(format!("File edited: {}", file_path.display())))
+        Ok(ToolOutput {
+            content: vec![ToolContent::text(format!(
+                "File edited: {} (line {})\n\n{}", params.path, line_num, diff
+            ))],
+            is_error: false,
+            details: Some(json!({
+                "path": params.path,
+                "first_changed_line": line_num,
+                "old_lines": old_lines.len(),
+                "new_lines": new_lines.len(),
+            })),
+        })
     }
 }
