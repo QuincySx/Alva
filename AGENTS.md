@@ -41,6 +41,28 @@
 Use when building GPUI components, custom elements, managing state/entities, working with contexts, handling events/subscriptions, async tasks, global state, actions/keybindings, focus management, layout/styling, code style conventions, or writing GPUI tests.
 `docs/gpui/index.md`
 
+## Git Commit 规范
+
+1. **小步提交**：每个逻辑改动单独一个 commit，不要攒多个改动一起提交。方便后续 bisect、revert 和 review。
+2. **说清楚改了什么**：commit message 第一行写改动内容，用 `feat:` / `fix:` / `refactor:` / `chore:` 前缀区分类型。
+3. **写清楚为什么改**：如果改动原因不是显而易见的，在 commit message body 里补充原因。格式：第一行摘要，空一行，然后写原因。
+
+示例：
+
+```
+refactor: rename MessageInjector → PendingMessageQueue
+
+"Injector" 是依赖注入框架术语，在 agent 消息队列场景下不直观。
+PendingMessageQueue（待处理消息队列）一读就懂。
+```
+
+```
+fix: remove dead Steering branch from LLM filter
+
+Steering 消息在注入 session 前已转成 Standard，
+session 里不会出现 Steering 变体，这个 match 分支永远不会命中。
+```
+
 ## Compact Instructions 如何保留关键信息
 保留优先级：
 1. 架构决策，不得摘要
