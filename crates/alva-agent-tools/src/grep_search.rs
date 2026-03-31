@@ -3,7 +3,7 @@
 // POS:    Searches for regex patterns across workspace files with glob filtering and line-level results.
 //! grep_search — regex search across files
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use regex::Regex;
 use serde::Deserialize;
@@ -68,18 +68,18 @@ impl Tool for GrepSearchTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: e.to_string() })?;
 
-        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+        let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "grep_search".into(),
             message: "local filesystem context required".into(),
         })?;
         let search_root = params
             .path
-            .map(|p| local.workspace().join(p))
-            .unwrap_or_else(|| local.workspace().to_path_buf());
+            .map(|p| workspace.join(p))
+            .unwrap_or_else(|| workspace.to_path_buf());
 
         let max_results = params.max_results.unwrap_or(100);
 
@@ -98,7 +98,7 @@ impl Tool for GrepSearchTool {
             glob::Pattern::new(p).unwrap_or_else(|_| glob::Pattern::new("*").unwrap())
         });
 
-        let fallback = LocalToolFs::new(local.workspace());
+        let fallback = LocalToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         // Walk directory to get all file paths (hidden files excluded)
@@ -142,11 +142,7 @@ impl Tool for GrepSearchTool {
             }
         }
 
-        Ok(ToolResult {
-            content: serde_json::to_string_pretty(&results)
-                .unwrap_or_else(|_| "[]".to_string()),
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(serde_json::to_string_pretty(&results)
+            .unwrap_or_else(|_| "[]".to_string())))
     }
 }

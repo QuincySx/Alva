@@ -3,7 +3,7 @@
 // POS:    Performs page interactions (click/type/press/scroll) via CSS selectors or coordinates.
 //! browser_action — page interaction: click, type, press, scroll
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
@@ -96,7 +96,7 @@ impl Tool for BrowserActionTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_action".into(), message: e.to_string() })?;
 
@@ -117,21 +117,13 @@ impl Tool for BrowserActionTool {
         };
 
         match result {
-            Ok(msg) => Ok(ToolResult {
-                content: json!({
-                    "status": "ok",
-                    "action": params.action,
-                    "detail": msg,
-                })
-                .to_string(),
-                is_error: false,
-                details: None,
-            }),
-            Err(e) => Ok(ToolResult {
-                content: json!({ "error": e }).to_string(),
-                is_error: true,
-                details: None,
-            }),
+            Ok(msg) => Ok(ToolOutput::text(json!({
+                "status": "ok",
+                "action": params.action,
+                "detail": msg,
+            })
+            .to_string())),
+            Err(e) => Ok(ToolOutput::error(json!({ "error": e }).to_string())),
         }
     }
 }

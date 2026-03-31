@@ -3,7 +3,7 @@
 // POS:    Executes shell commands via ToolFs with configurable timeout and working directory.
 //! execute_shell — run shell commands via ToolFs
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, ProgressEvent, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -50,15 +50,15 @@ impl Tool for ExecuteShellTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: self.name().into(), message: e.to_string() })?;
 
-        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+        let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: self.name().into(),
-            message: "local context required".into(),
+            message: "workspace context required".into(),
         })?;
-        let fallback = LocalToolFs::new(local.workspace());
+        let fallback = LocalToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         let timeout_ms = params.timeout_secs.unwrap_or(30) * 1000;
@@ -66,31 +66,42 @@ impl Tool for ExecuteShellTool {
 
         match fs.exec(&params.command, cwd, timeout_ms).await {
             Ok(result) => {
-                let output_text = json!({
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "exit_code": result.exit_code,
-                    "timed_out": false,
-                })
-                .to_string();
+                // Report stdout/stderr lines as progress events
+                for line in result.stdout.lines() {
+                    ctx.report_progress(ProgressEvent::StdoutLine {
+                        line: line.to_string(),
+                    });
+                }
+                for line in result.stderr.lines() {
+                    ctx.report_progress(ProgressEvent::StderrLine {
+                        line: line.to_string(),
+                    });
+                }
 
-                Ok(ToolResult {
-                    content: output_text,
+                // Content for model: concise summary (saves tokens)
+                let summary = format!(
+                    "exit_code: {}, {} stdout lines, {} stderr lines",
+                    result.exit_code,
+                    result.stdout.lines().count(),
+                    result.stderr.lines().count(),
+                );
+
+                Ok(ToolOutput {
+                    content: vec![ToolContent::text(summary)],
                     is_error: result.exit_code != 0,
-                    details: None,
+                    // Details for UI: full output
+                    details: Some(json!({
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "exit_code": result.exit_code,
+                    })),
                 })
             }
             Err(AgentError::ToolError { message, .. }) if message.contains("timed out") => {
-                Ok(ToolResult {
-                    content: json!({
-                        "stdout": "",
-                        "stderr": "Command timed out",
-                        "exit_code": -1,
-                        "timed_out": true,
-                    })
-                    .to_string(),
+                Ok(ToolOutput {
+                    content: vec![ToolContent::text("Command timed out")],
                     is_error: true,
-                    details: None,
+                    details: Some(json!({ "timed_out": true })),
                 })
             }
             Err(e) => Err(AgentError::ToolError {

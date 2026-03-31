@@ -1,4 +1,4 @@
-// INPUT:  alva_types::{Tool, ToolResult, ToolContext, EmptyToolContext, CancellationToken, AgentError}, Arc, Mutex, serde_json::Value
+// INPUT:  alva_types::{Tool, ToolOutput, ToolExecutionContext, MinimalExecutionContext, AgentError}, Arc, Mutex, serde_json::Value
 // OUTPUT: MockTool — configurable mock for Tool with preset result/error and call recording
 // POS:    alva-test crate — provides a test double for Tool used in unit and integration tests
 
@@ -7,9 +7,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::Value;
 
-use alva_types::base::cancel::CancellationToken;
 use alva_types::base::error::AgentError;
-use alva_types::tool::{Tool, ToolContext, ToolResult};
+use alva_types::tool::Tool;
+use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
 
 // ---------------------------------------------------------------------------
 // MockTool
@@ -18,7 +18,7 @@ use alva_types::tool::{Tool, ToolContext, ToolResult};
 /// A mock implementation of [`Tool`] for use in tests.
 ///
 /// Supports:
-/// - Returning a preset [`ToolResult`] via [`with_result`].
+/// - Returning a preset [`ToolOutput`] via [`with_result`].
 /// - Returning a preset error via [`with_error`].
 /// - Recording every `execute` call's input via [`calls`].
 ///
@@ -27,7 +27,7 @@ use alva_types::tool::{Tool, ToolContext, ToolResult};
 #[derive(Clone)]
 pub struct MockTool {
     name: String,
-    preset: Arc<Mutex<Option<Result<ToolResult, AgentError>>>>,
+    preset: Arc<Mutex<Option<Result<ToolOutput, AgentError>>>>,
     recorded_calls: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -42,8 +42,8 @@ impl MockTool {
         }
     }
 
-    /// Configure the mock to return a successful [`ToolResult`] (builder pattern).
-    pub fn with_result(self, result: ToolResult) -> Self {
+    /// Configure the mock to return a successful [`ToolOutput`] (builder pattern).
+    pub fn with_result(self, result: ToolOutput) -> Self {
         *self.preset.lock().unwrap() = Some(Ok(result));
         self
     }
@@ -82,9 +82,8 @@ impl Tool for MockTool {
     async fn execute(
         &self,
         input: serde_json::Value,
-        _cancel: &CancellationToken,
-        _ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError> {
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         // Record the call.
         self.recorded_calls.lock().unwrap().push(input);
 
@@ -110,29 +109,27 @@ impl Tool for MockTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::tool::EmptyToolContext;
+    use alva_types::tool::execution::MinimalExecutionContext;
 
     #[tokio::test]
     async fn test_mock_tool_returns_preset() {
         let tool = MockTool::new("test_tool")
-            .with_result(ToolResult { content: "done".into(), is_error: false, details: None });
+            .with_result(ToolOutput::text("done"));
 
-        let ctx = EmptyToolContext;
-        let cancel = CancellationToken::new();
-        let result = tool.execute(serde_json::json!({}), &cancel, &ctx).await.unwrap();
-        assert_eq!(result.content, "done");
+        let ctx = MinimalExecutionContext::new();
+        let result = tool.execute(serde_json::json!({}), &ctx).await.unwrap();
+        assert_eq!(result.model_text(), "done");
         assert!(!result.is_error);
     }
 
     #[tokio::test]
     async fn test_mock_tool_records_calls() {
         let tool = MockTool::new("recorder")
-            .with_result(ToolResult { content: "ok".into(), is_error: false, details: None });
+            .with_result(ToolOutput::text("ok"));
 
-        let ctx = EmptyToolContext;
-        let cancel = CancellationToken::new();
+        let ctx = MinimalExecutionContext::new();
         let input = serde_json::json!({"path": "/tmp/test"});
-        let _ = tool.execute(input.clone(), &cancel, &ctx).await;
+        let _ = tool.execute(input.clone(), &ctx).await;
         let calls = tool.calls();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0], input);
@@ -143,30 +140,27 @@ mod tests {
         let tool = MockTool::new("failing")
             .with_error("tool exploded");
 
-        let ctx = EmptyToolContext;
-        let cancel = CancellationToken::new();
-        let result = tool.execute(serde_json::json!({}), &cancel, &ctx).await;
+        let ctx = MinimalExecutionContext::new();
+        let result = tool.execute(serde_json::json!({}), &ctx).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_mock_tool_no_preset_returns_error() {
         let tool = MockTool::new("unconfigured");
-        let ctx = EmptyToolContext;
-        let cancel = CancellationToken::new();
-        let result = tool.execute(serde_json::json!({}), &cancel, &ctx).await;
+        let ctx = MinimalExecutionContext::new();
+        let result = tool.execute(serde_json::json!({}), &ctx).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_mock_tool_records_multiple_calls() {
         let tool = MockTool::new("multi")
-            .with_result(ToolResult { content: "ok".into(), is_error: false, details: None });
+            .with_result(ToolOutput::text("ok"));
 
-        let ctx = EmptyToolContext;
-        let cancel = CancellationToken::new();
-        let _ = tool.execute(serde_json::json!({"n": 1}), &cancel, &ctx).await;
-        let _ = tool.execute(serde_json::json!({"n": 2}), &cancel, &ctx).await;
+        let ctx = MinimalExecutionContext::new();
+        let _ = tool.execute(serde_json::json!({"n": 1}), &ctx).await;
+        let _ = tool.execute(serde_json::json!({"n": 2}), &ctx).await;
         let calls = tool.calls();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0], serde_json::json!({"n": 1}));

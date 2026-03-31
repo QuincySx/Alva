@@ -3,7 +3,7 @@
 // POS:    Fetches a web page and returns plain-text content with HTML tags stripped.
 //! read_url — fetch a web page and return its plain-text content (HTML tags stripped)
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -44,7 +44,7 @@ impl Tool for ReadUrlTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: e.to_string() })?;
 
@@ -112,12 +112,8 @@ impl Tool for ReadUrlTool {
             "truncated": truncated,
         });
 
-        Ok(ToolResult {
-            content: serde_json::to_string_pretty(&output)
-                .unwrap_or_else(|_| "{}".to_string()),
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
+            .unwrap_or_else(|_| "{}".to_string())))
     }
 }
 

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use alva_types::base::cancel::CancellationToken;
 use alva_types::base::error::AgentError;
-use alva_types::tool::{Tool, ToolContext, ToolResult};
+use alva_types::tool::Tool;
+use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
 
 use crate::client::McpClient;
 use crate::types::McpToolInfo;
@@ -62,9 +62,8 @@ impl Tool for McpToolAdapter {
     async fn execute(
         &self,
         input: Value,
-        _cancel: &CancellationToken,
-        _ctx: &dyn ToolContext,
-    ) -> Result<ToolResult, AgentError> {
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let result = self
             .client
             .call_tool(&self.info.server_id, &self.info.tool_name, input)
@@ -77,11 +76,7 @@ impl Tool for McpToolAdapter {
         let output =
             serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
-        Ok(ToolResult {
-            content: output,
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(output))
     }
 }
 

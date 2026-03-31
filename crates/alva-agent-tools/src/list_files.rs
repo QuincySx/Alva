@@ -3,7 +3,7 @@
 // POS:    Lists directory contents with recursive traversal and hidden file filtering via ToolFs.
 //! list_files — list directory contents
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -93,18 +93,18 @@ impl Tool for ListFilesTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "list_files".into(), message: e.to_string() })?;
 
-        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+        let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "list_files".into(),
             message: "local filesystem context required".into(),
         })?;
         let target = params
             .path
-            .map(|p| local.workspace().join(p))
-            .unwrap_or_else(|| local.workspace().to_path_buf());
+            .map(|p| workspace.join(p))
+            .unwrap_or_else(|| workspace.to_path_buf());
 
         let recursive = params.recursive.unwrap_or(false);
         let max_depth = if recursive {
@@ -114,17 +114,13 @@ impl Tool for ListFilesTool {
         };
         let show_hidden = params.show_hidden.unwrap_or(false);
 
-        let fallback = LocalToolFs::new(local.workspace());
+        let fallback = LocalToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         let target_str = target.to_str().unwrap_or_default();
         let mut entries = list_entries(fs, target_str, "", 1, max_depth, show_hidden).await?;
         entries.sort();
 
-        Ok(ToolResult {
-            content: entries.join("\n"),
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(entries.join("\n")))
     }
 }

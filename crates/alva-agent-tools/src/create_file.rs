@@ -3,7 +3,7 @@
 // POS:    Creates or overwrites a file with auto-creation of parent directories.
 //! create_file — create or overwrite a file
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -50,16 +50,16 @@ impl Tool for CreateFileTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "create_file".into(), message: e.to_string() })?;
 
-        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+        let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "create_file".into(),
             message: "local filesystem context required".into(),
         })?;
-        let file_path = local.workspace().join(&params.path);
-        let fallback = LocalToolFs::new(local.workspace());
+        let file_path = workspace.join(&params.path);
+        let fallback = LocalToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         // write_file handles parent directory creation internally
@@ -68,14 +68,10 @@ impl Tool for CreateFileTool {
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "create_file".into(), message: e.to_string() })?;
 
-        Ok(ToolResult {
-            content: format!(
-                "File created: {} ({} bytes)",
-                file_path.display(),
-                params.content.len()
-            ),
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(format!(
+            "File created: {} ({} bytes)",
+            file_path.display(),
+            params.content.len()
+        )))
     }
 }

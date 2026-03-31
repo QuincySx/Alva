@@ -3,7 +3,7 @@
 // POS:    Navigates the browser to a URL, waits for load, and returns the final URL and title.
 //! browser_navigate — navigate to a URL
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -49,7 +49,7 @@ impl Tool for BrowserNavigateTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_navigate".into(), message: e.to_string() })?;
 
@@ -75,24 +75,16 @@ impl Tool for BrowserNavigateTool {
                     .flatten()
                     .unwrap_or_default();
 
-                Ok(ToolResult {
-                    content: json!({
-                        "status": "navigated",
-                        "url": final_url,
-                        "title": title,
-                        "instance_id": id,
-                    })
-                    .to_string(),
-                    is_error: false,
-                    details: None,
+                Ok(ToolOutput::text(json!({
+                    "status": "navigated",
+                    "url": final_url,
+                    "title": title,
+                    "instance_id": id,
                 })
+                .to_string()))
             }
             Err(e) => {
-                Ok(ToolResult {
-                    content: json!({ "error": e }).to_string(),
-                    is_error: true,
-                    details: None,
-                })
+                Ok(ToolOutput::error(json!({ "error": e }).to_string()))
             }
         }
     }

@@ -3,7 +3,7 @@
 // POS:    Launches a Chrome browser instance with configurable headless mode, profile, and proxy.
 //! browser_start — launch a Chrome instance
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -61,7 +61,7 @@ impl Tool for BrowserStartTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, _ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_start".into(), message: e.to_string() })?;
 
@@ -74,23 +74,15 @@ impl Tool for BrowserStartTool {
 
         match manager.start(&id, headless, profile_dir, proxy).await {
             Ok(()) => {
-                Ok(ToolResult {
-                    content: json!({
-                        "status": "started",
-                        "id": id,
-                        "headless": headless,
-                    })
-                    .to_string(),
-                    is_error: false,
-                    details: None,
+                Ok(ToolOutput::text(json!({
+                    "status": "started",
+                    "id": id,
+                    "headless": headless,
                 })
+                .to_string()))
             }
             Err(e) => {
-                Ok(ToolResult {
-                    content: json!({ "error": e }).to_string(),
-                    is_error: true,
-                    details: None,
-                })
+                Ok(ToolOutput::error(json!({ "error": e }).to_string()))
             }
         }
     }

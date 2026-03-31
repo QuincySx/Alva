@@ -3,7 +3,7 @@
 // POS:    Captures page screenshots (viewport, full-page, or element) and saves to file.
 //! browser_screenshot — capture page screenshot
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams,
@@ -76,7 +76,7 @@ impl Tool for BrowserScreenshotTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_screenshot".into(), message: e.to_string() })?;
 
@@ -87,14 +87,14 @@ impl Tool for BrowserScreenshotTool {
             .clone()
             .unwrap_or_else(|| format!("screenshot.{}", format_str));
 
-        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+        let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "browser_screenshot".into(),
             message: "local filesystem context required".into(),
         })?;
         let full_path = if std::path::Path::new(&output_path).is_absolute() {
             std::path::PathBuf::from(&output_path)
         } else {
-            local.workspace().join(&output_path)
+            workspace.join(&output_path)
         };
 
         let manager = self.manager.lock().await;
@@ -190,16 +190,12 @@ impl Tool for BrowserScreenshotTool {
                 }
             })?;
 
-        Ok(ToolResult {
-            content: json!({
-                "status": "captured",
-                "path": full_path.display().to_string(),
-                "format": format_str,
-                "size_bytes": result.len(),
-            })
-            .to_string(),
-            is_error: false,
-            details: None,
+        Ok(ToolOutput::text(json!({
+            "status": "captured",
+            "path": full_path.display().to_string(),
+            "format": format_str,
+            "size_bytes": result.len(),
         })
+        .to_string()))
     }
 }

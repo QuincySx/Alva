@@ -3,7 +3,7 @@
 // POS:    Performs string-replace-based file editing requiring unique match of old_str.
 //! file_edit — string-replace based file editing (like Claude Code's Edit tool)
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -50,16 +50,16 @@ impl Tool for FileEditTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: e.to_string() })?;
 
-        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+        let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "file_edit".into(),
             message: "local filesystem context required".into(),
         })?;
-        let file_path = local.workspace().join(&params.path);
-        let fallback = LocalToolFs::new(local.workspace());
+        let file_path = workspace.join(&params.path);
+        let fallback = LocalToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         let raw = fs
@@ -71,21 +71,13 @@ impl Tool for FileEditTool {
         // Verify old_str is unique
         let count = content.matches(&params.old_str).count();
         if count == 0 {
-            return Ok(ToolResult {
-                content: "Error: old_str not found in file".to_string(),
-                is_error: true,
-                details: None,
-            });
+            return Ok(ToolOutput::error("Error: old_str not found in file"));
         }
         if count > 1 {
-            return Ok(ToolResult {
-                content: format!(
-                    "Error: old_str found {} times in file (must be unique)",
-                    count
-                ),
-                is_error: true,
-                details: None,
-            });
+            return Ok(ToolOutput::error(format!(
+                "Error: old_str found {} times in file (must be unique)",
+                count
+            )));
         }
 
         let new_content = content.replacen(&params.old_str, &params.new_str, 1);
@@ -93,10 +85,6 @@ impl Tool for FileEditTool {
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot write file: {}", e) })?;
 
-        Ok(ToolResult {
-            content: format!("File edited: {}", file_path.display()),
-            is_error: false,
-            details: None,
-        })
+        Ok(ToolOutput::text(format!("File edited: {}", file_path.display())))
     }
 }

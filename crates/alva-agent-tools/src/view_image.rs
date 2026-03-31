@@ -3,7 +3,7 @@
 // POS:    Reads image files and returns base64-encoded content with MIME type detection.
 //! view_image — read an image file and return its base64-encoded content
 
-use alva_types::{AgentError, CancellationToken, Tool, ToolContext, ToolResult};
+use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -41,11 +41,11 @@ impl Tool for ViewImageTool {
         })
     }
 
-    async fn execute(&self, input: Value, _cancel: &CancellationToken, ctx: &dyn ToolContext) -> Result<ToolResult, AgentError> {
+    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "view_image".into(), message: e.to_string() })?;
 
-        let local = ctx.local().ok_or_else(|| AgentError::ToolError {
+        let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "view_image".into(),
             message: "local filesystem context required".into(),
         })?;
@@ -54,10 +54,10 @@ impl Tool for ViewImageTool {
         let file_path = if Path::new(&params.path).is_absolute() {
             std::path::PathBuf::from(&params.path)
         } else {
-            local.workspace().join(&params.path)
+            workspace.join(&params.path)
         };
 
-        let fallback = LocalToolFs::new(local.workspace());
+        let fallback = LocalToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         // Verify file exists
@@ -112,16 +112,17 @@ impl Tool for ViewImageTool {
         use base64::Engine;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
 
-        let output = json!({
-            "path": file_path.display().to_string(),
-            "mime_type": mime_type,
-            "base64": b64,
-            "file_size_bytes": file_size,
-        });
-
-        Ok(ToolResult {
-            content: serde_json::to_string_pretty(&output)
-                .unwrap_or_else(|_| "{}".to_string()),
+        // Return multi-modal: text description + image content block
+        Ok(ToolOutput {
+            content: vec![
+                ToolContent::text(format!(
+                    "Image: {} ({}, {} bytes)",
+                    file_path.display(),
+                    mime_type,
+                    file_size
+                )),
+                ToolContent::image(b64, mime_type),
+            ],
             is_error: false,
             details: None,
         })
