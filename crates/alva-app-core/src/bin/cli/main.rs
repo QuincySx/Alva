@@ -21,7 +21,7 @@ mod output;
 mod session_store;
 mod setup;
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read as _, Write};
 use std::sync::Arc;
 
 use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, BaseAgentBuilder, PermissionDecision, PermissionMode};
@@ -139,12 +139,41 @@ async fn run() {
         }))
         .await;
 
-    // 4. Print banner
+    // 4. Check for -p/--print mode (non-interactive, single prompt, stdout-only)
+    let args: Vec<String> = std::env::args().collect();
+    let print_mode = args.iter().any(|a| a == "-p" || a == "--print");
+
+    if print_mode {
+        let prompt_args: Vec<String> = args
+            .iter()
+            .skip(1) // skip binary name
+            .filter(|a| *a != "-p" && *a != "--print")
+            .cloned()
+            .collect();
+
+        let prompt = if prompt_args.is_empty() {
+            let mut buf = String::new();
+            io::stdin().read_to_string(&mut buf).ok();
+            buf.trim().to_string()
+        } else {
+            prompt_args.join(" ")
+        };
+
+        if prompt.is_empty() {
+            eprintln!("Error: no prompt provided. Usage: alva -p \"your prompt\"");
+            std::process::exit(1);
+        }
+
+        let exit_code = run_print_mode(&agent, &prompt).await;
+        std::process::exit(exit_code);
+    }
+
+    // 5. Print banner (interactive modes only)
     output::print_banner(&config.model, &workspace.display().to_string());
     output::print_git_status(&workspace);
     output::print_banner_end();
 
-    // 5. Check for single-shot mode
+    // 6. Check for single-shot mode (positional arg without -p)
     if let Some(prompt) = std::env::args().nth(1) {
         let session_id = store.create(&prompt);
         run_prompt(&agent, &prompt, &mut approval_rx).await;
@@ -153,7 +182,7 @@ async fn run() {
         return;
     }
 
-    // 6. Interactive REPL — auto-resume latest or start new
+    // 7. Interactive REPL — auto-resume latest or start new
     let mut session_id = match store.latest() {
         Some(id) => {
             let sessions = store.list();
@@ -246,6 +275,24 @@ async fn run() {
                             eprintln!("  Plan mode ON — read-only, no file changes or commands");
                         } else {
                             eprintln!("  Plan mode OFF — tools can modify files");
+                        }
+                    }
+                    "/model" => {
+                        let current = agent.model_id().await;
+                        eprintln!("  Current model: {}", current);
+                        eprintln!("  Usage: /model <model_id>");
+                    }
+                    cmd if cmd.starts_with("/model ") => {
+                        let model_id = cmd.strip_prefix("/model ").unwrap().trim();
+                        if model_id.is_empty() {
+                            let current = agent.model_id().await;
+                            eprintln!("  Current model: {}", current);
+                        } else {
+                            let mut new_config = config.clone();
+                            new_config.model = model_id.to_string();
+                            let new_model = Arc::new(OpenAIProvider::new(new_config));
+                            agent.set_model(new_model).await;
+                            eprintln!("  Switched to model: {}", model_id);
                         }
                     }
                     "/rewind" => {
@@ -442,6 +489,37 @@ async fn restore_messages(agent: &BaseAgent, messages: Vec<AgentMessage>) {
     }
 }
 
+/// Run a single prompt in non-interactive print mode.
+/// Streams only the assistant's text to stdout, then exits.
+async fn run_print_mode(agent: &BaseAgent, prompt: &str) -> i32 {
+    let mut rx = agent.prompt_text(prompt);
+    let mut exit_code = 0;
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            AgentEvent::MessageUpdate { delta, .. } => {
+                if let alva_types::StreamEvent::TextDelta { text } = &delta {
+                    print!("{}", text);
+                    io::stdout().flush().ok();
+                }
+            }
+            AgentEvent::MessageEnd { .. } => {
+                println!(); // final newline
+            }
+            AgentEvent::AgentEnd { error } => {
+                if let Some(e) = &error {
+                    eprintln!("Error: {}", e);
+                    exit_code = 1;
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    exit_code
+}
+
 /// Run a single prompt, handling both agent events and approval requests concurrently.
 async fn run_prompt(
     agent: &BaseAgent,
@@ -449,6 +527,9 @@ async fn run_prompt(
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
 ) {
     let mut event_rx = agent.prompt_text(prompt);
+
+    let mut total_input_tokens: u32 = 0;
+    let mut total_output_tokens: u32 = 0;
 
     loop {
         tokio::select! {
@@ -460,9 +541,14 @@ async fn run_prompt(
                             output::print_assistant_text(text);
                         }
                     }
-                    Some(AgentEvent::MessageEnd { .. }) => {
-                        // Text already streamed via MessageUpdate deltas; just print newline.
+                    Some(AgentEvent::MessageEnd { message }) => {
                         println!();
+                        if let AgentMessage::Standard(msg) = &message {
+                            if let Some(usage) = &msg.usage {
+                                total_input_tokens += usage.input_tokens;
+                                total_output_tokens += usage.output_tokens;
+                            }
+                        }
                     }
                     Some(AgentEvent::ToolExecutionStart { tool_call }) => {
                         output::print_tool_start(&tool_call.name);
@@ -473,6 +559,9 @@ async fn run_prompt(
                     Some(AgentEvent::AgentEnd { error }) => {
                         if let Some(e) = error {
                             output::print_error(&e);
+                        }
+                        if total_input_tokens > 0 || total_output_tokens > 0 {
+                            output::print_usage(total_input_tokens, total_output_tokens);
                         }
                         break;
                     }
