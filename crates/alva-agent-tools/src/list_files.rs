@@ -3,12 +3,15 @@
 // POS:    Lists directory contents with recursive traversal and hidden file filtering via ToolFs.
 //! list_files — list directory contents
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::local_fs::LocalToolFs;
+
+/// Maximum entries returned to prevent context overflow.
+const MAX_ENTRIES: usize = 500;
 
 #[derive(Debug, Deserialize)]
 struct Input {
@@ -121,6 +124,26 @@ impl Tool for ListFilesTool {
         let mut entries = list_entries(fs, target_str, "", 1, max_depth, show_hidden).await?;
         entries.sort();
 
-        Ok(ToolOutput::text(entries.join("\n")))
+        let total = entries.len();
+        let truncated = total > MAX_ENTRIES;
+        if truncated {
+            entries.truncate(MAX_ENTRIES);
+        }
+        let mut content = entries.join("\n");
+        if truncated {
+            content.push_str(&format!(
+                "\n\n[Showing {} of {} entries. Use a more specific path.]",
+                MAX_ENTRIES, total
+            ));
+        }
+        Ok(ToolOutput {
+            content: vec![ToolContent::text(content)],
+            is_error: false,
+            details: Some(json!({
+                "total_entries": total,
+                "shown": total.min(MAX_ENTRIES),
+                "truncated": truncated,
+            })),
+        })
     }
 }
