@@ -126,12 +126,62 @@ impl LanguageModel for MockLanguageModel {
 
     fn stream(
         &self,
-        _messages: &[Message],
+        messages: &[Message],
         _tools: &[&dyn Tool],
         _config: &ModelConfig,
     ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
-        let events = self.state.lock().unwrap().stream_events.clone();
-        Box::pin(stream::iter(events))
+        let state_events = self.state.lock().unwrap().stream_events.clone();
+        if !state_events.is_empty() {
+            // Use explicitly configured stream events
+            return Box::pin(stream::iter(state_events));
+        }
+
+        // Auto-convert queued complete() response into stream events
+        // so tests using with_response() work with the streaming run loop.
+        let mut state = self.state.lock().unwrap();
+        state.calls.push(messages.to_vec());
+        let index = state.call_index;
+        if index >= state.response_queue.len() {
+            return Box::pin(stream::iter(vec![
+                StreamEvent::Start,
+                StreamEvent::Error(format!(
+                    "MockLanguageModel: no response queued for call index {index}"
+                )),
+            ]));
+        }
+        state.call_index += 1;
+
+        match &state.response_queue[index] {
+            QueuedResponse::Err(err) => {
+                Box::pin(stream::iter(vec![
+                    StreamEvent::Start,
+                    StreamEvent::Error(err.to_string()),
+                ]))
+            }
+            QueuedResponse::Ok(msg) => {
+                let mut events = vec![StreamEvent::Start];
+                for block in &msg.content {
+                    match block {
+                        alva_types::ContentBlock::Text { text } => {
+                            events.push(StreamEvent::TextDelta { text: text.clone() });
+                        }
+                        alva_types::ContentBlock::ToolUse { id, name, input } => {
+                            events.push(StreamEvent::ToolCallDelta {
+                                id: id.clone(),
+                                name: Some(name.clone()),
+                                arguments_delta: input.to_string(),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(usage) = &msg.usage {
+                    events.push(StreamEvent::Usage(usage.clone()));
+                }
+                events.push(StreamEvent::Done);
+                Box::pin(stream::iter(events))
+            }
+        }
     }
 
     fn model_id(&self) -> &str {

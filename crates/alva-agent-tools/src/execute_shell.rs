@@ -66,7 +66,7 @@ impl Tool for ExecuteShellTool {
 
         match fs.exec(&params.command, cwd, timeout_ms).await {
             Ok(result) => {
-                // Report stdout/stderr lines as progress events
+                // Report progress events (for real-time UI streaming)
                 for line in result.stdout.lines() {
                     ctx.report_progress(ProgressEvent::StdoutLine {
                         line: line.to_string(),
@@ -78,22 +78,42 @@ impl Tool for ExecuteShellTool {
                     });
                 }
 
-                // Content for model: concise summary (saves tokens)
-                let summary = format!(
-                    "exit_code: {}, {} stdout lines, {} stderr lines",
-                    result.exit_code,
-                    result.stdout.lines().count(),
-                    result.stderr.lines().count(),
+                // Combine stdout + stderr for the model
+                let mut combined = String::new();
+                if !result.stdout.is_empty() {
+                    combined.push_str(&result.stdout);
+                }
+                if !result.stderr.is_empty() {
+                    if !combined.is_empty() {
+                        combined.push_str("\n--- stderr ---\n");
+                    }
+                    combined.push_str(&result.stderr);
+                }
+
+                // Use TAIL truncation — errors are usually at the end
+                let tr = crate::truncate::truncate_tail(
+                    &combined,
+                    crate::truncate::MAX_LINES,
+                    crate::truncate::MAX_BYTES,
                 );
 
+                let mut content = tr.text;
+                if tr.truncated {
+                    content = format!(
+                        "[Output truncated: showing last {} of {} lines]\n{}",
+                        tr.shown_lines, tr.total_lines, content
+                    );
+                }
+                content.push_str(&format!("\n\nexit_code: {}", result.exit_code));
+
                 Ok(ToolOutput {
-                    content: vec![ToolContent::text(summary)],
+                    content: vec![ToolContent::text(content)],
                     is_error: result.exit_code != 0,
-                    // Details for UI: full output
                     details: Some(json!({
                         "stdout": result.stdout,
                         "stderr": result.stderr,
                         "exit_code": result.exit_code,
+                        "truncated": tr.truncated,
                     })),
                 })
             }
