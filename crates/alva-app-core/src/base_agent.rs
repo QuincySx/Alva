@@ -199,6 +199,18 @@ impl BaseAgent {
         }
     }
 
+    /// Switch the language model. Takes effect on the next prompt.
+    pub async fn set_model(&self, model: Arc<dyn LanguageModel>) {
+        let mut st = self.state.lock().await;
+        st.model = model;
+    }
+
+    /// Get the current model ID.
+    pub async fn model_id(&self) -> String {
+        let st = self.state.lock().await;
+        st.model.model_id().to_string()
+    }
+
     /// Access the memory service (if enabled).
     pub fn memory(&self) -> Option<&MemoryService> {
         self.memory.as_ref()
