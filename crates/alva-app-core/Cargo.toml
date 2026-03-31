@@ -8,10 +8,6 @@ description = "Alva App core — application orchestration layer: agent lifecycl
 name = "alva_app_core"
 path = "src/lib.rs"
 
-[[bin]]
-name = "alva-cli"
-path = "src/bin/cli/main.rs"
-
 [dependencies]
 # Extracted agent crates
 alva-types = { path = "../alva-types" }
@@ -52,13 +48,9 @@ tokio-rusqlite = "0.5"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Cross-platform app data directory
 dirs = "5"
-
-# Terminal output formatting
-crossterm = "0.28"
 
 [dev-dependencies]
 tokio-test = "0.4"

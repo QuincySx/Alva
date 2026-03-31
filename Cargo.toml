@@ -2,6 +2,7 @@
 members = [
     "crates/alva-app",
     "crates/alva-app-core",
+    "crates/alva-app-cli",
     "crates/alva-app-debug",
     "crates/alva-types",
     "crates/alva-agent-core",
