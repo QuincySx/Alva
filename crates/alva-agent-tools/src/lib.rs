@@ -4,8 +4,8 @@
 //! Built-in tool implementations for the agent framework.
 //!
 //! Standard tools (always available):
-//!   ask_human, create_file, execute_shell, file_edit, grep_search,
-//!   list_files, read_file, view_image
+//!   ask_human, create_file, execute_shell, file_edit, find_files,
+//!   grep_search, list_files, read_file, view_image
 //!
 //! Native-only tools (feature = "native", disabled on wasm):
 //!   internet_search, read_url
@@ -18,6 +18,7 @@ pub mod ask_human;
 pub mod create_file;
 pub mod execute_shell;
 pub mod file_edit;
+pub mod find_files;
 pub mod grep_search;
 pub mod list_files;
 pub mod mock_fs;
@@ -57,6 +58,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
         create_file::CreateFileTool,
         file_edit::FileEditTool,
         read_file::ReadFileTool,
+        find_files::FindFilesTool,
         grep_search::GrepSearchTool,
         list_files::ListFilesTool,
         ask_human::AskHumanTool,
