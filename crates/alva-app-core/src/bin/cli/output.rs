@@ -99,6 +99,7 @@ pub fn print_help() {
     eprintln!("  {}     Resume a saved session", "/resume".cyan());
     eprintln!("  {}   List all sessions", "/sessions".cyan());
     eprintln!("  {}       Toggle plan mode (read-only)", "/plan".cyan());
+    eprintln!("  {} Switch model (e.g. /model gpt-4o)", "/model [id]".cyan());
     eprintln!("  {}      Clear the terminal", "/clear".cyan());
     eprintln!("  {}     Show current config", "/config".cyan());
     eprintln!("  {}     Rewind to checkpoint", "/rewind".cyan());
@@ -131,6 +132,14 @@ pub fn print_session_resumed(id: &str, count: usize, summary: &str) {
 
 pub fn print_session_new(id: &str) {
     eprintln!("{}", format!("New session: {}", id).dark_grey());
+}
+
+pub fn print_usage(input_tokens: u32, output_tokens: u32) {
+    let total = input_tokens + output_tokens;
+    eprintln!(
+        "\x1b[90m  tokens: {} in / {} out / {} total\x1b[0m",
+        input_tokens, output_tokens, total
+    );
 }
 
 pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
