@@ -19,6 +19,7 @@ base64 = "0.22"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
+ignore = "0.4"
 
 [dependencies.chromiumoxide]
 version = "0.9"

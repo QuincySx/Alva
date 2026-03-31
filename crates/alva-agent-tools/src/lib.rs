@@ -29,7 +29,7 @@ pub mod view_image;
 #[cfg(not(target_family = "wasm"))]
 pub mod local_fs;
 #[cfg(not(target_family = "wasm"))]
-pub use local_fs::{walk_dir, LocalToolFs};
+pub use local_fs::{walk_dir, walk_dir_filtered, LocalToolFs};
 
 pub use mock_fs::MockToolFs;
 
