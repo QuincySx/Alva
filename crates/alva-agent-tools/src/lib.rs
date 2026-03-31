@@ -5,7 +5,7 @@
 //!
 //! Standard tools (always available):
 //!   ask_human, create_file, execute_shell, file_edit, grep_search,
-//!   list_files, view_image
+//!   list_files, read_file, view_image
 //!
 //! Native-only tools (feature = "native", disabled on wasm):
 //!   internet_search, read_url
@@ -21,6 +21,7 @@ pub mod file_edit;
 pub mod grep_search;
 pub mod list_files;
 pub mod mock_fs;
+pub mod read_file;
 pub mod view_image;
 
 #[cfg(not(target_family = "wasm"))]
@@ -55,6 +56,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
         execute_shell::ExecuteShellTool,
         create_file::CreateFileTool,
         file_edit::FileEditTool,
+        read_file::ReadFileTool,
         grep_search::GrepSearchTool,
         list_files::ListFilesTool,
         ask_human::AskHumanTool,
