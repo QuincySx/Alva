@@ -136,12 +136,136 @@ impl LanguageModel for OpenAIProvider {
 
     fn stream(
         &self,
-        _messages: &[Message],
-        _tools: &[&dyn Tool],
-        _config: &ModelConfig,
+        messages: &[Message],
+        tools: &[&dyn Tool],
+        config: &ModelConfig,
     ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
-        // Streaming not implemented yet — return an empty stream.
-        Box::pin(futures::stream::empty())
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let credential = self.credential.clone();
+        let client = self.client.clone();
+        let model = self.model.clone();
+        let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
+
+        let oai_messages = to_oai_messages(messages);
+        let oai_tools = to_oai_tools(tools);
+
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": oai_messages,
+            "max_tokens": max_tokens,
+            "stream": true,
+            "stream_options": { "include_usage": true },
+        });
+
+        if let Some(t) = config.temperature {
+            body["temperature"] = serde_json::json!(t);
+        }
+        if let Some(p) = config.top_p {
+            body["top_p"] = serde_json::json!(p);
+        }
+        if !config.stop_sequences.is_empty() {
+            body["stop"] = serde_json::json!(config.stop_sequences);
+        }
+        if !oai_tools.is_empty() {
+            body["tools"] = serde_json::json!(oai_tools);
+        }
+
+        Box::pin(async_stream::stream! {
+            yield StreamEvent::Start;
+
+            let api_key = match credential.get_api_key().await {
+                Ok(k) => k,
+                Err(e) => {
+                    yield StreamEvent::Error(format!("credential error: {}", e));
+                    return;
+                }
+            };
+
+            let resp = match client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    yield StreamEvent::Error(format!("HTTP request failed: {}", e));
+                    return;
+                }
+            };
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                yield StreamEvent::Error(format!("API returned {}: {}", status, body));
+                return;
+            }
+
+            // Read SSE lines from the byte stream
+            let mut byte_stream = resp.bytes_stream();
+            let mut buffer = String::new();
+
+            while let Some(chunk) = futures::StreamExt::next(&mut byte_stream).await {
+                let chunk = match chunk {
+                    Ok(c) => c,
+                    Err(e) => {
+                        yield StreamEvent::Error(format!("stream read error: {}", e));
+                        return;
+                    }
+                };
+
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                // Process complete lines
+                while let Some(newline_pos) = buffer.find('\n') {
+                    let line = buffer[..newline_pos].trim().to_string();
+                    buffer = buffer[newline_pos + 1..].to_string();
+
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
+                    }
+
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data == "[DONE]" {
+                            yield StreamEvent::Done;
+                            return;
+                        }
+
+                        if let Ok(chunk) = serde_json::from_str::<OaiStreamChunk>(data) {
+                            for choice in &chunk.choices {
+                                if let Some(ref content) = choice.delta.content {
+                                    if !content.is_empty() {
+                                        yield StreamEvent::TextDelta { text: content.clone() };
+                                    }
+                                }
+                                if let Some(ref tool_calls) = choice.delta.tool_calls {
+                                    for tc in tool_calls {
+                                        yield StreamEvent::ToolCallDelta {
+                                            id: tc.id.clone().unwrap_or_default(),
+                                            name: tc.function.as_ref().and_then(|f| f.name.clone()),
+                                            arguments_delta: tc.function.as_ref()
+                                                .map(|f| f.arguments.clone().unwrap_or_default())
+                                                .unwrap_or_default(),
+                                        };
+                                    }
+                                }
+                            }
+                            if let Some(ref usage) = chunk.usage {
+                                yield StreamEvent::Usage(UsageMetadata {
+                                    input_tokens: usage.prompt_tokens,
+                                    output_tokens: usage.completion_tokens,
+                                    total_tokens: usage.total_tokens,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            yield StreamEvent::Done;
+        })
     }
 
     fn model_id(&self) -> &str {
@@ -221,6 +345,50 @@ struct OaiUsage {
     prompt_tokens: u32,
     completion_tokens: u32,
     total_tokens: u32,
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI API types (streaming response)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct OaiStreamChunk {
+    #[serde(default)]
+    choices: Vec<OaiStreamChoice>,
+    #[serde(default)]
+    usage: Option<OaiUsage>,
+}
+
+#[derive(Deserialize)]
+struct OaiStreamChoice {
+    delta: OaiStreamDelta,
+}
+
+#[derive(Deserialize)]
+struct OaiStreamDelta {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<OaiStreamToolCall>>,
+}
+
+#[derive(Deserialize)]
+struct OaiStreamToolCall {
+    #[serde(default)]
+    #[allow(dead_code)]
+    index: usize,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<OaiStreamFunction>,
+}
+
+#[derive(Deserialize)]
+struct OaiStreamFunction {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
