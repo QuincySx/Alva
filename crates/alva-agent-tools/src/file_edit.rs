@@ -11,10 +11,20 @@ use serde_json::{json, Value};
 use crate::local_fs::LocalToolFs;
 
 #[derive(Debug, Deserialize)]
-struct Input {
-    path: String,
+struct SingleEdit {
     old_str: String,
     new_str: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Input {
+    path: String,
+    #[serde(default)]
+    old_str: Option<String>,
+    #[serde(default)]
+    new_str: Option<String>,
+    #[serde(default)]
+    edits: Option<Vec<SingleEdit>>,
 }
 
 pub struct FileEditTool;
@@ -26,13 +36,13 @@ impl Tool for FileEditTool {
     }
 
     fn description(&self) -> &str {
-        "Edit a file by replacing an exact string match (old_str) with a new string (new_str). The old_str must be unique in the file. Path is relative to workspace root."
+        "Edit a file by replacing exact string matches. Supports single edit (old_str+new_str) or batch edits (edits[] array). Each old_str must be unique in the file. Path is relative to workspace root."
     }
 
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
-            "required": ["path", "old_str", "new_str"],
+            "required": ["path"],
             "properties": {
                 "path": {
                     "type": "string",
@@ -40,11 +50,23 @@ impl Tool for FileEditTool {
                 },
                 "old_str": {
                     "type": "string",
-                    "description": "Exact string to find and replace (must be unique in file)"
+                    "description": "Exact string to find (single edit mode)"
                 },
                 "new_str": {
                     "type": "string",
-                    "description": "Replacement string"
+                    "description": "Replacement string (single edit mode)"
+                },
+                "edits": {
+                    "type": "array",
+                    "description": "Array of {old_str, new_str} for batch editing (alternative to single edit)",
+                    "items": {
+                        "type": "object",
+                        "required": ["old_str", "new_str"],
+                        "properties": {
+                            "old_str": { "type": "string" },
+                            "new_str": { "type": "string" }
+                        }
+                    }
                 }
             }
         })
@@ -53,6 +75,18 @@ impl Tool for FileEditTool {
     async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: e.to_string() })?;
+
+        // Normalize to Vec<SingleEdit>
+        let edits = if let Some(edits) = params.edits {
+            if edits.is_empty() {
+                return Ok(ToolOutput::error("edits array is empty"));
+            }
+            edits
+        } else if let (Some(old_str), Some(new_str)) = (params.old_str, params.new_str) {
+            vec![SingleEdit { old_str, new_str }]
+        } else {
+            return Ok(ToolOutput::error("Provide either old_str+new_str or edits[]"));
+        };
 
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "file_edit".into(),
@@ -68,54 +102,72 @@ impl Tool for FileEditTool {
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot read file: {}", e) })?;
         let content = String::from_utf8_lossy(&raw).into_owned();
 
-        // Verify old_str is unique
-        let count = content.matches(&params.old_str).count();
-        if count == 0 {
-            return Ok(ToolOutput::error("Error: old_str not found in file"));
-        }
-        if count > 1 {
-            return Ok(ToolOutput::error(format!(
-                "Error: old_str found {} times in file (must be unique)",
-                count
-            )));
-        }
-
-        let new_content = content.replacen(&params.old_str, &params.new_str, 1);
-
-        // Find line number of first change
-        let line_num = content[..content.find(&params.old_str).unwrap()]
-            .lines()
-            .count() + 1;
-
-        // Generate unified diff
-        let old_lines: Vec<&str> = params.old_str.lines().collect();
-        let new_lines: Vec<&str> = params.new_str.lines().collect();
-        let mut diff = format!("--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
-            params.path, params.path,
-            line_num, old_lines.len(),
-            line_num, new_lines.len(),
-        );
-        for line in &old_lines {
-            diff.push_str(&format!("-{}\n", line));
-        }
-        for line in &new_lines {
-            diff.push_str(&format!("+{}\n", line));
+        // Validate ALL edits against the ORIGINAL content before applying
+        for edit in &edits {
+            let count = content.matches(&edit.old_str).count();
+            if count == 0 {
+                return Ok(ToolOutput::error(format!("old_str not found: {:?}",
+                    &edit.old_str[..edit.old_str.len().min(50)])));
+            }
+            if count > 1 {
+                return Ok(ToolOutput::error(format!("old_str found {} times (must be unique): {:?}",
+                    count, &edit.old_str[..edit.old_str.len().min(50)])));
+            }
         }
 
-        fs.write_file(file_path.to_str().unwrap_or_default(), new_content.as_bytes())
-            .await
-            .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot write file: {}", e) })?;
+        // Apply all edits and generate combined diff
+        let mut current = content.clone();
+        let mut combined_diff = String::new();
+        let mut details_edits = Vec::new();
 
-        Ok(ToolOutput {
-            content: vec![ToolContent::text(format!(
-                "File edited: {} (line {})\n\n{}", params.path, line_num, diff
-            ))],
-            is_error: false,
-            details: Some(json!({
-                "path": params.path,
+        for edit in &edits {
+            // Find line number of change in current content
+            let line_num = current[..current.find(&edit.old_str).unwrap()]
+                .lines()
+                .count() + 1;
+
+            // Generate unified diff for this edit
+            let old_lines: Vec<&str> = edit.old_str.lines().collect();
+            let new_lines: Vec<&str> = edit.new_str.lines().collect();
+            combined_diff.push_str(&format!("--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
+                params.path, params.path,
+                line_num, old_lines.len(),
+                line_num, new_lines.len(),
+            ));
+            for line in &old_lines {
+                combined_diff.push_str(&format!("-{}\n", line));
+            }
+            for line in &new_lines {
+                combined_diff.push_str(&format!("+{}\n", line));
+            }
+
+            details_edits.push(json!({
                 "first_changed_line": line_num,
                 "old_lines": old_lines.len(),
                 "new_lines": new_lines.len(),
+            }));
+
+            current = current.replacen(&edit.old_str, &edit.new_str, 1);
+        }
+
+        fs.write_file(file_path.to_str().unwrap_or_default(), current.as_bytes())
+            .await
+            .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot write file: {}", e) })?;
+
+        let edit_count = details_edits.len();
+        let summary = if edit_count == 1 {
+            let line = details_edits[0]["first_changed_line"].as_u64().unwrap_or(0);
+            format!("File edited: {} (line {})", params.path, line)
+        } else {
+            format!("File edited: {} ({} edits applied)", params.path, edit_count)
+        };
+
+        Ok(ToolOutput {
+            content: vec![ToolContent::text(format!("{}\n\n{}", summary, combined_diff))],
+            is_error: false,
+            details: Some(json!({
+                "path": params.path,
+                "edits": details_edits,
             })),
         })
     }
