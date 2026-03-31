@@ -96,6 +96,7 @@ pub fn print_divider() {
 pub fn print_help() {
     eprintln!("{}", "Commands:".bold());
     eprintln!("  {}        Start a fresh session", "/new".cyan());
+    eprintln!("  {}       Fork current session (branch off)", "/fork".cyan());
     eprintln!("  {}     Resume a saved session", "/resume".cyan());
     eprintln!("  {}   List all sessions", "/sessions".cyan());
     eprintln!("  {}       Toggle plan mode (read-only)", "/plan".cyan());

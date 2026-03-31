@@ -360,6 +360,18 @@ async fn run() {
                         output::print_session_new(&session_id);
                         output::print_divider();
                     }
+                    "/fork" => {
+                        // Fork: save current, create new session with same messages
+                        let messages = agent.messages().await;
+                        store.save_messages(&session_id, &messages);
+
+                        let old_id = session_id.clone();
+                        session_id = store.create("");
+                        store.save_messages(&session_id, &messages);
+                        eprintln!("  Forked from {} → {}", &old_id[..8.min(old_id.len())], &session_id[..8.min(session_id.len())]);
+                        eprintln!("  {} messages carried over. Try a different approach.", messages.len());
+                        output::print_divider();
+                    }
                     "/resume" => {
                         // Save current first
                         let messages = agent.messages().await;
