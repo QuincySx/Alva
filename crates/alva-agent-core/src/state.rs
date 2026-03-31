@@ -42,6 +42,8 @@ pub struct AgentConfig {
     /// Maximum number of recent messages to include in LLM context.
     /// 0 means no limit (use all messages).
     pub context_window: usize,
+    /// Optional loop hook for runtime message injection (steering, follow-up).
+    pub loop_hook: Option<Arc<dyn crate::pending_queue::AgentLoopHook>>,
 }
 
 #[cfg(test)]
@@ -108,6 +110,7 @@ mod tests {
             tools: vec![],
             session: Arc::new(InMemorySession::new()),
             extensions: Extensions::new(),
+
         };
 
         assert!(state.tools.is_empty());
@@ -122,6 +125,7 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
+            loop_hook: None,
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");
@@ -139,6 +143,7 @@ mod tests {
             tools: vec![],
             session: Arc::new(InMemorySession::new()),
             extensions: Extensions::new(),
+
         };
 
         state.extensions.insert(TokenBudget(5000));

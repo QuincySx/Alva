@@ -14,7 +14,7 @@ use std::sync::Arc;
 use alva_agent_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
 use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::shared::Extensions;
-use alva_types::{Message, ToolCall, ToolResult};
+use alva_types::{Message, ToolCall, ToolOutput};
 use alva_types::session::InMemorySession;
 use async_trait::async_trait;
 
@@ -39,7 +39,7 @@ impl Middleware for LoggingMiddleware {
         &self,
         _state: &mut AgentState,
         tool_call: &ToolCall,
-        result: &mut ToolResult,
+        result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
         println!(
             "[LoggingMiddleware] after_tool_call: {} -> is_error={}",
@@ -235,6 +235,7 @@ fn main() {
         max_iterations: 100,
         model_config: alva_types::ModelConfig::default(),
         context_window: 0,
+        loop_hook: None,
     };
 
     println!(

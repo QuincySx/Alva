@@ -5,10 +5,12 @@
 pub mod shared;
 pub mod state;
 pub mod middleware;
+pub mod runtime_context;
 pub mod run;
 pub mod run_child;
 pub mod builtins;
 pub mod event;
+pub mod pending_queue;
 
 // Re-exports — shared types
 pub use shared::{Extensions, MiddlewareError, MiddlewarePriority};
@@ -25,6 +27,12 @@ pub use run_child::{run_child_agent, ChildAgentParams, ChildAgentOutput};
 
 // Re-exports — event
 pub use event::AgentEvent;
+
+// Re-exports — pending_queue
+pub use pending_queue::{AgentLoopHook, PendingMessageQueue};
+
+// Re-exports — runtime context
+pub use runtime_context::RuntimeExecutionContext;
 
 // Re-exports — builtins
 pub use builtins::{LoopDetectionMiddleware, DanglingToolCallMiddleware};

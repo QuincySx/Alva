@@ -1,8 +1,8 @@
-// INPUT:  alva_types (StreamEvent, ToolCall, ToolResult), crate::types::AgentMessage
+// INPUT:  alva_types (StreamEvent, ToolCall, ToolOutput, ProgressEvent, AgentMessage)
 // OUTPUT: AgentEvent
 // POS:    Defines the event enum emitted by the agent loop for callers to observe progress, messages, and tool execution.
-use alva_types::{StreamEvent, ToolCall, ToolResult};
-
+use alva_types::{StreamEvent, ToolCall, ToolOutput};
+use alva_types::ProgressEvent;
 use alva_types::AgentMessage;
 
 /// Events emitted by the agent loop so callers can observe progress.
@@ -33,11 +33,11 @@ pub enum AgentEvent {
     /// An intermediate update from a running tool.
     ToolExecutionUpdate {
         tool_call_id: String,
-        update: serde_json::Value,
+        event: ProgressEvent,
     },
     /// A tool execution has finished.
     ToolExecutionEnd {
         tool_call: ToolCall,
-        result: ToolResult,
+        result: ToolOutput,
     },
 }

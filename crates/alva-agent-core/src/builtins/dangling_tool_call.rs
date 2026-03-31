@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use alva_types::{ContentBlock, Message, MessageRole};
+use alva_types::{ContentBlock, Message, MessageRole, ToolContent};
 use async_trait::async_trait;
 
 use crate::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
@@ -104,9 +104,9 @@ impl Middleware for DanglingToolCallMiddleware {
                             role: MessageRole::Tool,
                             content: vec![ContentBlock::ToolResult {
                                 id: id.clone(),
-                                content:
-                                    "[Tool call was interrupted and did not return a result.]"
-                                        .to_string(),
+                                content: vec![ToolContent::text(
+                                    "[Tool call was interrupted and did not return a result.]",
+                                )],
                                 is_error: true,
                             }],
                             tool_call_id: Some(id.clone()),
@@ -217,7 +217,7 @@ mod tests {
             role: MessageRole::Tool,
             content: vec![ContentBlock::ToolResult {
                 id: tool_id.to_string(),
-                content: content.to_string(),
+                content: vec![ToolContent::text(content)],
                 is_error: false,
             }],
             tool_call_id: Some(tool_id.to_string()),
@@ -268,7 +268,7 @@ mod tests {
         // Check the content
         let (id, content, is_error) = synthetic.content[0].as_tool_result().unwrap();
         assert_eq!(id, "tc_1");
-        assert!(content.contains("interrupted"));
+        assert!(content[0].as_text().unwrap().contains("interrupted"));
         assert!(is_error);
     }
 

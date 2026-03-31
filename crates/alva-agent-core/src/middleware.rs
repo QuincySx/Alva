@@ -1,4 +1,4 @@
-// INPUT:  std::sync::Arc, async_trait, alva_types::{AgentError, Message, ToolCall, ToolResult}, crate::state::AgentState
+// INPUT:  std::sync::Arc, async_trait, alva_types::{AgentError, Message, ToolCall, ToolOutput}, crate::state::AgentState
 // OUTPUT: LlmCallFn, ToolCallFn, Middleware (trait), MiddlewareStack
 // POS:    Middleware trait and stack — receives &mut AgentState directly, with wrap hooks for interceptor pattern.
 
@@ -6,7 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use alva_types::{AgentError, Message, ToolCall, ToolResult};
+use alva_types::{AgentError, Message, ToolCall, ToolOutput};
 use async_trait::async_trait;
 
 use crate::state::AgentState;
@@ -27,7 +27,7 @@ pub trait LlmCallFn: Send + Sync {
 /// Callback for the "next" step in the tool wrapping chain.
 #[async_trait]
 pub trait ToolCallFn: Send + Sync {
-    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolResult, AgentError>;
+    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolOutput, AgentError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ pub trait Middleware: Send + Sync {
         &self,
         _state: &mut AgentState,
         _tool_call: &ToolCall,
-        _result: &mut ToolResult,
+        _result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
         Ok(())
     }
@@ -114,7 +114,7 @@ pub trait Middleware: Send + Sync {
         state: &mut AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
-    ) -> Result<ToolResult, MiddlewareError> {
+    ) -> Result<ToolOutput, MiddlewareError> {
         next.call(state, tool_call)
             .await
             .map_err(|e| MiddlewareError::Other(e.to_string()))
@@ -265,7 +265,7 @@ impl MiddlewareStack {
         &self,
         state: &mut AgentState,
         tool_call: &ToolCall,
-        result: &mut ToolResult,
+        result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
         for layer in self.layers.iter().rev() {
             layer.after_tool_call(state, tool_call, result).await?;
@@ -326,7 +326,7 @@ impl MiddlewareStack {
         state: &mut AgentState,
         tool_call: &ToolCall,
         actual_call: &dyn ToolCallFn,
-    ) -> Result<ToolResult, MiddlewareError> {
+    ) -> Result<ToolOutput, MiddlewareError> {
         self.call_wrap_tool_chain(state, tool_call, actual_call, 0)
             .await
     }
@@ -338,7 +338,7 @@ impl MiddlewareStack {
         tool_call: &'a ToolCall,
         actual_call: &'a dyn ToolCallFn,
         index: usize,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, MiddlewareError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, MiddlewareError>> + Send + 'a>> {
         Box::pin(async move {
             if index >= self.layers.len() {
                 // No more middleware -- call actual tool
@@ -398,7 +398,7 @@ struct ChainedToolCall<'a> {
 
 #[async_trait]
 impl<'a> ToolCallFn for ChainedToolCall<'a> {
-    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
+    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolOutput, AgentError> {
         self.stack
             .call_wrap_tool_chain(state, tool_call, self.actual_call, self.next_index)
             .await

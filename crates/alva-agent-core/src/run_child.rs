@@ -72,6 +72,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
         max_iterations: params.max_iterations,
         model_config: params.model_config.unwrap_or_default(),
         context_window: params.context_window,
+        loop_hook: None,
     };
 
     let user_msg = AgentMessage::Standard(Message::user(&params.task));

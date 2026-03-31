@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use alva_types::{ToolCall, ToolResult};
+use alva_types::{ToolCall, ToolOutput};
 use async_trait::async_trait;
 
 use crate::middleware::{Middleware, MiddlewareError, ToolCallFn};
@@ -45,17 +45,13 @@ impl Middleware for ToolTimeoutMiddleware {
         state: &mut AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
-    ) -> Result<ToolResult, MiddlewareError> {
+    ) -> Result<ToolOutput, MiddlewareError> {
         match tokio::time::timeout(self.timeout, next.call(state, tool_call)).await {
             Ok(result) => result.map_err(|e| MiddlewareError::Other(e.to_string())),
-            Err(_) => Ok(ToolResult {
-                content: format!(
-                    "Tool '{}' timed out after {:?}. Consider breaking the task into smaller steps.",
-                    tool_call.name, self.timeout
-                ),
-                is_error: true,
-                details: None,
-            }),
+            Err(_) => Ok(ToolOutput::error(format!(
+                "Tool '{}' timed out after {:?}. Consider breaking the task into smaller steps.",
+                tool_call.name, self.timeout
+            ))),
         }
     }
 

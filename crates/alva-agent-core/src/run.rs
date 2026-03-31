@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use alva_types::{
-    AgentError, AgentMessage, CancellationToken, ContentBlock, EmptyToolContext, Message,
-    MessageRole, ModelConfig, ToolCall, ToolResult,
+    AgentError, AgentMessage, CancellationToken, ContentBlock, Message,
+    MessageRole, ModelConfig, ToolCall, ToolOutput,
 };
 use alva_types::model::LanguageModel;
 use alva_types::tool::Tool;
@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
+use crate::runtime_context::RuntimeExecutionContext;
 use crate::state::{AgentConfig, AgentState};
 use crate::event::AgentEvent;
 
@@ -43,15 +44,21 @@ impl LlmCallFn for ActualLlmCall {
 struct ActualToolCall {
     tool: Arc<dyn Tool>,
     cancel: CancellationToken,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+    session_id: String,
 }
 
 #[async_trait]
 impl ToolCallFn for ActualToolCall {
-    async fn call(&self, _state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolResult, AgentError> {
+    async fn call(&self, _state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolOutput, AgentError> {
         // No timeout in the kernel — use ToolTimeoutMiddleware (wrap_tool_call) to add one.
-        self.tool
-            .execute(tool_call.arguments.clone(), &self.cancel, &EmptyToolContext)
-            .await
+        let ctx = RuntimeExecutionContext::new(
+            self.cancel.clone(),
+            tool_call.id.clone(),
+            self.event_tx.clone(),
+            self.session_id.clone(),
+        );
+        self.tool.execute(tool_call.arguments.clone(), &ctx).await
     }
 }
 
@@ -107,206 +114,244 @@ pub async fn run_agent(
 }
 
 /// Inner loop extracted so we can capture the error cleanly for lifecycle hooks.
+///
+/// Double-loop structure:
+/// - **Outer loop**: processes follow-up messages after the inner loop finishes naturally.
+/// - **Inner loop**: LLM calls + tool execution + steering injection.
 async fn run_loop(
     state: &mut AgentState,
     config: &AgentConfig,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), AgentError> {
-    let mut naturally_finished = false;
-    for _iteration in 0..config.max_iterations {
-        // Check cancellation
-        if cancel.is_cancelled() {
-            return Err(AgentError::Cancelled);
-        }
+    let mut total_iterations: u32 = 0;
 
-        // Emit TurnStart
-        let _ = event_tx.send(AgentEvent::TurnStart);
-
-        // 3a. Get messages from session (optionally windowed)
-        let session_messages = if config.context_window > 0 {
-            state.session.recent(config.context_window)
-        } else {
-            state.session.messages()
-        };
-
-        // 3b. Build LLM messages: [system_prompt] + session messages (only Standard)
-        let mut llm_messages = Vec::new();
-        if !config.system_prompt.is_empty() {
-            llm_messages.push(Message::system(&config.system_prompt));
-        }
-        for msg in &session_messages {
-            if let AgentMessage::Standard(m) = msg {
-                llm_messages.push(m.clone());
+    // Outer loop: processes follow-up messages
+    'outer: loop {
+        // Inner loop: LLM calls + tool execution + steering checks
+        'inner: loop {
+            if cancel.is_cancelled() {
+                return Err(AgentError::Cancelled);
             }
-        }
+            if total_iterations >= config.max_iterations {
+                tracing::warn!(
+                    max_iterations = config.max_iterations,
+                    "agent loop exhausted max_iterations without finishing"
+                );
+                return Err(AgentError::MaxIterations(config.max_iterations));
+            }
+            total_iterations += 1;
 
-        // 3c. Middleware: before_llm_call
-        config
-            .middleware
-            .run_before_llm_call(state, &mut llm_messages)
-            .await
-            .map_err(|e| AgentError::Other(e.to_string()))?;
+            // Emit TurnStart
+            let _ = event_tx.send(AgentEvent::TurnStart);
 
-        // 3d. Call LLM through wrap_llm_call middleware chain
-        let actual_call = ActualLlmCall {
-            model: state.model.clone(),
-            tools: state.tools.clone(),
-            model_config: config.model_config.clone(),
-        };
-        let mut response = config
-            .middleware
-            .run_wrap_llm_call(state, llm_messages, &actual_call)
-            .await
-            .map_err(|e| AgentError::Other(e.to_string()))?;
-
-        // 3e. Middleware: after_llm_call
-        config
-            .middleware
-            .run_after_llm_call(state, &mut response)
-            .await
-            .map_err(|e| AgentError::Other(e.to_string()))?;
-
-        // 3g. Store response in session
-        state
-            .session
-            .append(AgentMessage::Standard(response.clone()));
-
-        // 3h. Emit events
-        // NOTE: Currently uses model.complete() (non-streaming).
-        // MessageUpdate events with TextDelta are not emitted.
-        // To enable streaming, switch to model.stream() and emit
-        // MessageUpdate events for each chunk. The CLI's streaming
-        // handler code is ready for this.
-        let agent_msg = AgentMessage::Standard(response.clone());
-        let _ = event_tx.send(AgentEvent::MessageStart {
-            message: agent_msg.clone(),
-        });
-        let _ = event_tx.send(AgentEvent::MessageEnd {
-            message: agent_msg,
-        });
-
-        // 3i. Extract tool_calls from response
-        let tool_calls: Vec<ToolCall> = response
-            .content
-            .iter()
-            .filter_map(|block| {
-                if let ContentBlock::ToolUse { id, name, input } = block {
-                    Some(ToolCall {
-                        id: id.clone(),
-                        name: name.clone(),
-                        arguments: input.clone(),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // 3j. If no tool_calls, emit TurnEnd and break (natural finish)
-        if tool_calls.is_empty() {
-            let _ = event_tx.send(AgentEvent::TurnEnd);
-            naturally_finished = true;
-            break;
-        }
-
-        // 3k. Execute each tool_call
-        for tool_call in &tool_calls {
-            // Emit ToolExecutionStart
-            let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-                tool_call: tool_call.clone(),
-            });
-
-            // Find tool by name — clone the Arc so we don't hold an immutable
-            // borrow on state.tools across the mutable middleware calls.
-            let tool = state
-                .tools
-                .iter()
-                .find(|t| t.name() == tool_call.name)
-                .cloned();
-
-            // Middleware: before_tool_call
-            let before_result = config
-                .middleware
-                .run_before_tool_call(state, tool_call)
-                .await;
-
-            let mut result = match before_result {
-                Err(MiddlewareError::Blocked { reason }) => {
-                    // If blocked, make an error result
-                    ToolResult {
-                        content: format!("Tool call blocked: {}", reason),
-                        is_error: true,
-                        details: None,
-                    }
-                }
-                Err(e) => {
-                    return Err(AgentError::Other(e.to_string()));
-                }
-                Ok(()) => {
-                    // Execute the tool through wrap_tool_call middleware chain (with timeout)
-                    match tool {
-                        Some(ref t) => {
-                            let actual_tool_call = ActualToolCall {
-                                tool: t.clone(),
-                                cancel: cancel.clone(),
-                            };
-                            config
-                                .middleware
-                                .run_wrap_tool_call(state, tool_call, &actual_tool_call)
-                                .await
-                                .map_err(|e| AgentError::Other(e.to_string()))?
-                        }
-                        None => ToolResult {
-                            content: format!("Tool not found: {}", tool_call.name),
-                            is_error: true,
-                            details: None,
-                        },
-                    }
-                }
+            // 3a. Get messages from session (optionally windowed)
+            let session_messages = if config.context_window > 0 {
+                state.session.recent(config.context_window)
+            } else {
+                state.session.messages()
             };
 
-            // Middleware: after_tool_call
+            // 3b. Build LLM messages: [system_prompt] + session messages (only Standard)
+            let mut llm_messages = Vec::new();
+            if !config.system_prompt.is_empty() {
+                llm_messages.push(Message::system(&config.system_prompt));
+            }
+            for msg in &session_messages {
+                // Only Standard messages are sent to the LLM.
+                // Steering and FollowUp are normalized to Standard before
+                // entering the session (see delegate injection below).
+                if let AgentMessage::Standard(m) = msg {
+                    llm_messages.push(m.clone());
+                }
+            }
+
+            // 3c. Middleware: before_llm_call
             config
                 .middleware
-                .run_after_tool_call(state, tool_call, &mut result)
+                .run_before_llm_call(state, &mut llm_messages)
                 .await
                 .map_err(|e| AgentError::Other(e.to_string()))?;
 
-            // Build Tool message and append to session
-            let tool_message = Message {
-                id: uuid::Uuid::new_v4().to_string(),
-                role: MessageRole::Tool,
-                content: vec![ContentBlock::ToolResult {
-                    id: tool_call.id.clone(),
-                    content: result.content.clone(),
-                    is_error: result.is_error,
-                }],
-                tool_call_id: Some(tool_call.id.clone()),
-                usage: None,
-                timestamp: chrono::Utc::now().timestamp_millis(),
+            // 3d. Call LLM through wrap_llm_call middleware chain
+            let actual_call = ActualLlmCall {
+                model: state.model.clone(),
+                tools: state.tools.clone(),
+                model_config: config.model_config.clone(),
             };
+            let mut response = config
+                .middleware
+                .run_wrap_llm_call(state, llm_messages, &actual_call)
+                .await
+                .map_err(|e| AgentError::Other(e.to_string()))?;
+
+            // 3e. Middleware: after_llm_call
+            config
+                .middleware
+                .run_after_llm_call(state, &mut response)
+                .await
+                .map_err(|e| AgentError::Other(e.to_string()))?;
+
+            // 3g. Store response in session
             state
                 .session
-                .append(AgentMessage::Standard(tool_message));
+                .append(AgentMessage::Standard(response.clone()));
 
-            // Emit ToolExecutionEnd
-            let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-                tool_call: tool_call.clone(),
-                result,
+            // 3h. Emit events
+            // NOTE: Currently uses model.complete() (non-streaming).
+            // MessageUpdate events with TextDelta are not emitted.
+            // To enable streaming, switch to model.stream() and emit
+            // MessageUpdate events for each chunk. The CLI's streaming
+            // handler code is ready for this.
+            let agent_msg = AgentMessage::Standard(response.clone());
+            let _ = event_tx.send(AgentEvent::MessageStart {
+                message: agent_msg.clone(),
             });
+            let _ = event_tx.send(AgentEvent::MessageEnd {
+                message: agent_msg,
+            });
+
+            // 3i. Extract tool_calls from response
+            let tool_calls: Vec<ToolCall> = response
+                .content
+                .iter()
+                .filter_map(|block| {
+                    if let ContentBlock::ToolUse { id, name, input } = block {
+                        Some(ToolCall {
+                            id: id.clone(),
+                            name: name.clone(),
+                            arguments: input.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // 3j. If no tool_calls, emit TurnEnd and break inner (natural finish — check follow-ups)
+            if tool_calls.is_empty() {
+                let _ = event_tx.send(AgentEvent::TurnEnd);
+                break 'inner;
+            }
+
+            // 3k. Execute each tool_call
+            for tool_call in &tool_calls {
+                // Emit ToolExecutionStart
+                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
+                    tool_call: tool_call.clone(),
+                });
+
+                // Find tool by name — clone the Arc so we don't hold an immutable
+                // borrow on state.tools across the mutable middleware calls.
+                let tool = state
+                    .tools
+                    .iter()
+                    .find(|t| t.name() == tool_call.name)
+                    .cloned();
+
+                // Middleware: before_tool_call
+                let before_result = config
+                    .middleware
+                    .run_before_tool_call(state, tool_call)
+                    .await;
+
+                let mut result = match before_result {
+                    Err(MiddlewareError::Blocked { reason }) => {
+                        // If blocked, make an error result
+                        ToolOutput::error(format!("Tool call blocked: {}", reason))
+                    }
+                    Err(e) => {
+                        return Err(AgentError::Other(e.to_string()));
+                    }
+                    Ok(()) => {
+                        // Execute the tool through wrap_tool_call middleware chain (with timeout)
+                        match tool {
+                            Some(ref t) => {
+                                let actual_tool_call = ActualToolCall {
+                                    tool: t.clone(),
+                                    cancel: cancel.clone(),
+                                    event_tx: event_tx.clone(),
+                                    session_id: state.session.id().to_string(),
+                                };
+                                config
+                                    .middleware
+                                    .run_wrap_tool_call(state, tool_call, &actual_tool_call)
+                                    .await
+                                    .map_err(|e| AgentError::Other(e.to_string()))?
+                            }
+                            None => ToolOutput::error(format!("Tool not found: {}", tool_call.name)),
+                        }
+                    }
+                };
+
+                // Middleware: after_tool_call
+                config
+                    .middleware
+                    .run_after_tool_call(state, tool_call, &mut result)
+                    .await
+                    .map_err(|e| AgentError::Other(e.to_string()))?;
+
+                // Build Tool message and append to session
+                let tool_message = Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    role: MessageRole::Tool,
+                    content: vec![ContentBlock::ToolResult {
+                        id: tool_call.id.clone(),
+                        content: result.content.clone(),
+                        is_error: result.is_error,
+                    }],
+                    tool_call_id: Some(tool_call.id.clone()),
+                    usage: None,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                };
+                state
+                    .session
+                    .append(AgentMessage::Standard(tool_message));
+
+                // Emit ToolExecutionEnd
+                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
+                    tool_call: tool_call.clone(),
+                    result,
+                });
+            }
+
+            // 3l. Emit TurnEnd
+            let _ = event_tx.send(AgentEvent::TurnEnd);
+
+            // Steering check: after tool execution, before next LLM call
+            if let Some(hook) = &config.loop_hook {
+                if let Some(steering_msg) = hook.take_steering() {
+                    // Convert to Standard — steering is an injection method, not a message type.
+                    // The session should only contain Standard messages for persistence.
+                    let msg = match steering_msg {
+                        AgentMessage::Steering(m) => AgentMessage::Standard(m),
+                        other => other,
+                    };
+                    state.session.append(msg);
+                    continue 'inner;
+                }
+            }
         }
 
-        // 3l. Emit TurnEnd, then back to top of loop
-        let _ = event_tx.send(AgentEvent::TurnEnd);
-    }
-
-    if !naturally_finished && !cancel.is_cancelled() {
-        tracing::warn!(
-            max_iterations = config.max_iterations,
-            "agent loop exhausted max_iterations without finishing"
-        );
-        return Err(AgentError::MaxIterations(config.max_iterations));
+        // Follow-up check: when inner loop ends naturally
+        let follow_ups = config
+            .loop_hook
+            .as_ref()
+            .map(|d| d.take_follow_ups())
+            .unwrap_or_default();
+        if follow_ups.is_empty() {
+            break 'outer; // Truly done
+        }
+        for msg in follow_ups {
+            // Convert to Standard — follow-up is an injection method, not a message type.
+            // The session should only contain Standard messages for persistence.
+            let msg = match msg {
+                AgentMessage::FollowUp(m) => AgentMessage::Standard(m),
+                other => other,
+            };
+            state.session.append(msg);
+        }
+        // Continue outer loop — process follow-ups
     }
 
     Ok(())
@@ -377,6 +422,7 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
+            loop_hook: None,
         };
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -417,6 +463,7 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
+            loop_hook: None,
         };
         let cancel = CancellationToken::new();
         cancel.cancel(); // Cancel immediately
@@ -442,6 +489,7 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
+            loop_hook: None,
         };
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
