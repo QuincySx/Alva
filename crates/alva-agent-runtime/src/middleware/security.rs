@@ -8,7 +8,7 @@ use alva_agent_core::middleware::{Middleware, MiddlewareError};
 use alva_agent_core::state::AgentState;
 use alva_agent_core::shared::MiddlewarePriority;
 use alva_agent_security::{SandboxMode, SecurityDecision, SecurityGuard};
-use alva_types::{MinimalExecutionContext, ToolCall};
+use alva_types::{BusHandle, MinimalExecutionContext, ToolCall};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -29,17 +29,25 @@ pub struct ApprovalNotifier {
 
 pub struct SecurityMiddleware {
     guard: Arc<Mutex<SecurityGuard>>,
+    bus: Option<BusHandle>,
 }
 
 impl SecurityMiddleware {
     pub fn new(guard: SecurityGuard) -> Self {
         Self {
             guard: Arc::new(Mutex::new(guard)),
+            bus: None,
         }
     }
 
     pub fn for_workspace(workspace: impl Into<std::path::PathBuf>, mode: SandboxMode) -> Self {
         Self::new(SecurityGuard::new(workspace.into(), mode))
+    }
+
+    /// Attach a bus handle so the middleware can look up capabilities (e.g. ApprovalNotifier).
+    pub fn with_bus(mut self, bus: BusHandle) -> Self {
+        self.bus = Some(bus);
+        self
     }
 
     /// Get a shared reference to the underlying SecurityGuard.
@@ -76,8 +84,10 @@ impl Middleware for SecurityMiddleware {
             SecurityDecision::Allow => Ok(()),
             SecurityDecision::Deny { reason } => Err(MiddlewareError::Blocked { reason }),
             SecurityDecision::NeedHumanApproval { request_id } => {
-                // Try to get the approval notifier from Extensions
-                let notifier = state.extensions.get::<ApprovalNotifier>().cloned();
+                // Try to get the approval notifier from the bus
+                let notifier = self.bus.as_ref()
+                    .and_then(|b| b.get::<ApprovalNotifier>())
+                    .map(|arc| (*arc).clone());
 
                 match (notifier, pending_rx) {
                     (Some(notifier), Some(rx)) => {
@@ -142,6 +152,7 @@ mod tests {
     use super::*;
     use alva_agent_core::shared::Extensions;
     use alva_types::session::InMemorySession;
+    use alva_types::Bus;
 
     fn make_state() -> AgentState {
         use alva_types::base::error::AgentError;
@@ -221,17 +232,18 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_waits_for_approval_and_allows() {
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen);
-        let guard = mw.guard();
-        let mut state = make_state();
-
-        // Set up approval channel in Extensions
+        // Set up approval channel on the bus
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
-        state
-            .extensions
-            .insert(ApprovalNotifier { tx: approval_tx });
+        let bus = Bus::new();
+        let bus_handle = bus.handle();
+        bus_handle.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus_handle);
+        let guard = mw.guard();
+        let mut state = make_state();
 
         let tc = ToolCall {
             id: "1".into(),
@@ -263,16 +275,17 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_waits_for_approval_and_denies() {
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen);
-        let guard = mw.guard();
-        let mut state = make_state();
-
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
-        state
-            .extensions
-            .insert(ApprovalNotifier { tx: approval_tx });
+        let bus = Bus::new();
+        let bus_handle = bus.handle();
+        bus_handle.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus_handle);
+        let guard = mw.guard();
+        let mut state = make_state();
 
         let tc = ToolCall {
             id: "2".into(),

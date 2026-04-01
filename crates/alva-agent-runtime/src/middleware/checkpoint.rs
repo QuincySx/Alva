@@ -6,7 +6,7 @@ use std::sync::Arc;
 use alva_agent_core::middleware::{Middleware, MiddlewareError};
 use alva_agent_core::shared::MiddlewarePriority;
 use alva_agent_core::state::AgentState;
-use alva_types::ToolCall;
+use alva_types::{BusHandle, ToolCall};
 use async_trait::async_trait;
 
 /// Callback trait for checkpoint creation — implemented by CLI or app.
@@ -22,11 +22,19 @@ pub struct CheckpointCallbackRef(pub Arc<dyn CheckpointCallback>);
 const WRITE_TOOLS: &[&str] = &["create_file", "file_edit"];
 
 /// Middleware that auto-checkpoints files before write tools modify them.
-pub struct CheckpointMiddleware;
+pub struct CheckpointMiddleware {
+    bus: Option<BusHandle>,
+}
 
 impl CheckpointMiddleware {
     pub fn new() -> Self {
-        Self
+        Self { bus: None }
+    }
+
+    /// Attach a bus handle so the middleware can look up capabilities (e.g. CheckpointCallbackRef).
+    pub fn with_bus(mut self, bus: BusHandle) -> Self {
+        self.bus = Some(bus);
+        self
     }
 }
 
@@ -47,7 +55,7 @@ impl Middleware for CheckpointMiddleware {
             return Ok(());
         }
 
-        if let Some(cb) = state.extensions.get::<CheckpointCallbackRef>() {
+        if let Some(cb) = self.bus.as_ref().and_then(|b| b.get::<CheckpointCallbackRef>()) {
             let mut paths = Vec::new();
 
             // Extract file path from tool arguments
@@ -92,6 +100,7 @@ mod tests {
     use super::*;
     use alva_agent_core::shared::Extensions;
     use alva_types::session::InMemorySession;
+    use alva_types::Bus;
     use std::sync::{Arc, Mutex as StdMutex};
 
     fn make_state() -> AgentState {
@@ -162,13 +171,13 @@ mod tests {
 
     #[tokio::test]
     async fn checkpoint_triggers_on_write_tool() {
-        let mw = CheckpointMiddleware::new();
-        let mut state = make_state();
-
         let mock_cb = MockCheckpointCallback::new();
-        state
-            .extensions
-            .insert(CheckpointCallbackRef(Arc::new(mock_cb.clone())));
+        let bus = Bus::new();
+        let bus_handle = bus.handle();
+        bus_handle.provide(Arc::new(CheckpointCallbackRef(Arc::new(mock_cb.clone()))));
+
+        let mw = CheckpointMiddleware::new().with_bus(bus_handle);
+        let mut state = make_state();
 
         let tc = ToolCall {
             id: "1".into(),
@@ -183,13 +192,13 @@ mod tests {
 
     #[tokio::test]
     async fn checkpoint_skips_read_tools() {
-        let mw = CheckpointMiddleware::new();
-        let mut state = make_state();
-
         let mock_cb = MockCheckpointCallback::new();
-        state
-            .extensions
-            .insert(CheckpointCallbackRef(Arc::new(mock_cb.clone())));
+        let bus = Bus::new();
+        let bus_handle = bus.handle();
+        bus_handle.provide(Arc::new(CheckpointCallbackRef(Arc::new(mock_cb.clone()))));
+
+        let mw = CheckpointMiddleware::new().with_bus(bus_handle);
+        let mut state = make_state();
 
         let tc = ToolCall {
             id: "2".into(),

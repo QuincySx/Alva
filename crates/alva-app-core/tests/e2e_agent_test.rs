@@ -1090,8 +1090,7 @@ async fn e2e_checkpoint_created_on_file_edit() {
     // Register the checkpoint callback
     let checkpoint_cb = TestCheckpointCallback::new();
     agent
-        .set_checkpoint_callback(Arc::new(checkpoint_cb.clone()))
-        .await;
+        .set_checkpoint_callback(Arc::new(checkpoint_cb.clone()));
 
     let rx = agent.prompt_text("Edit the file.");
     let events = collect_events(rx).await;

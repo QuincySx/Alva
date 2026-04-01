@@ -136,8 +136,7 @@ async fn run() {
     agent
         .set_checkpoint_callback(Arc::new(CliCheckpointCallback {
             manager: checkpoint::CheckpointManager::new(&workspace),
-        }))
-        .await;
+        }));
 
     // 4. Check for -p/--print mode (non-interactive, single prompt, stdout-only)
     let args: Vec<String> = std::env::args().collect();

@@ -237,13 +237,13 @@ impl BaseAgent {
     }
 
     /// Register a checkpoint callback for auto-checkpointing before file writes.
-    pub async fn set_checkpoint_callback(
+    pub fn set_checkpoint_callback(
         &self,
         callback: Arc<dyn alva_agent_runtime::middleware::CheckpointCallback>,
     ) {
-        let mut st = self.state.lock().await;
-        st.extensions
-            .insert(alva_agent_runtime::middleware::CheckpointCallbackRef(callback));
+        self.bus.provide(Arc::new(
+            alva_agent_runtime::middleware::CheckpointCallbackRef(callback),
+        ));
     }
 }
 
@@ -441,7 +441,8 @@ impl BaseAgentBuilder {
         let mut middleware_stack = MiddlewareStack::new();
 
         // a. Security middleware (highest priority — runs before all others)
-        let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone());
+        let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
+            .with_bus(bus_handle.clone());
         let security_guard = Some(security_mw.guard());
         middleware_stack.push_sorted(Arc::new(security_mw));
 
@@ -475,7 +476,7 @@ impl BaseAgentBuilder {
         middleware_stack.push_sorted(plan_mw.clone());
 
         // g. Checkpoint middleware (saves file backups before writes)
-        middleware_stack.push_sorted(Arc::new(CheckpointMiddleware::new()));
+        middleware_stack.push_sorted(Arc::new(CheckpointMiddleware::new().with_bus(bus_handle.clone())));
 
         // 7. Optionally add the agent spawn tool
         if self.enable_sub_agents {
@@ -492,10 +493,10 @@ impl BaseAgentBuilder {
 
         // 8. Create V2 AgentState
         let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
-        let mut extensions = Extensions::new();
         if let Some(notifier) = self.approval_notifier {
-            extensions.insert(notifier);
+            bus_handle.provide(Arc::new(notifier));
         }
+        let extensions = Extensions::new();
         let state = AgentState {
             model,
             tools: alva_tools_list,
