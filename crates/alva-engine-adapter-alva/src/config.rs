@@ -1,9 +1,9 @@
-// INPUT:  std::sync::Arc, alva_types::{LanguageModel, Tool}
+// INPUT:  std::sync::Arc, alva_types::{LanguageModel, Tool, BusHandle}
 // OUTPUT: pub struct AlvaAdapterConfig
 // POS:    Configuration for the Alva native engine adapter using V2 types.
 
 use std::sync::Arc;
-use alva_types::{LanguageModel, Tool};
+use alva_types::{BusHandle, LanguageModel, Tool};
 
 /// Configuration for the Alva engine adapter (V2).
 pub struct AlvaAdapterConfig {
@@ -17,4 +17,6 @@ pub struct AlvaAdapterConfig {
     pub max_iterations: u32,
     /// Enable streaming deltas.
     pub streaming: bool,
+    /// Optional event bus handle passed down to tool execution contexts.
+    pub bus: Option<BusHandle>,
 }

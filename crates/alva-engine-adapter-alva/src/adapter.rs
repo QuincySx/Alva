@@ -91,6 +91,7 @@ impl EngineRuntime for AlvaAdapter {
             context_window: 0,
             loop_hook: None,
             workspace: None,
+            bus: self.config.bus.clone(),
         };
 
         // 5. Build the user message from request.prompt.
@@ -232,6 +233,7 @@ mod tests {
             system_prompt: "You are a helpful assistant.".to_string(),
             max_iterations: 1,
             streaming: false,
+            bus: None,
         }
     }
 
