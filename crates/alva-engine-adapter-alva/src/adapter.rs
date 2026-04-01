@@ -64,6 +64,17 @@ impl EngineRuntime for AlvaAdapter {
         &self,
         request: RuntimeRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+        if request.resume_session.is_some() {
+            return Err(RuntimeError::Unsupported(
+                "resume_session is not supported by AlvaAdapter".to_string(),
+            ));
+        }
+
+        let max_iterations = request
+            .options
+            .max_turns
+            .unwrap_or(self.config.max_iterations);
+
         // 1. Generate a unique session ID.
         let session_id = uuid::Uuid::new_v4().to_string();
 
@@ -86,10 +97,10 @@ impl EngineRuntime for AlvaAdapter {
         let config = AgentConfig {
             middleware: MiddlewareStack::new(),
             system_prompt,
-            max_iterations: 100,
+            max_iterations,
             model_config: alva_types::ModelConfig::default(),
             context_window: 0,
-            workspace: None,
+            workspace: request.working_directory,
             bus: self.config.bus.clone(),
         };
 
@@ -221,8 +232,12 @@ impl EngineRuntime for AlvaAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alva_types::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::path::Path;
     use tokio_stream::StreamExt;
 
     fn make_config(model: MockLanguageModel) -> AlvaAdapterConfig {
@@ -233,6 +248,66 @@ mod tests {
             max_iterations: 1,
             streaming: false,
             bus: None,
+        }
+    }
+
+    struct WorkspaceEchoTool;
+
+    #[async_trait]
+    impl Tool for WorkspaceEchoTool {
+        fn name(&self) -> &str {
+            "workspace_echo"
+        }
+
+        fn description(&self) -> &str {
+            "Echoes the current workspace path"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "properties": {},
+            })
+        }
+
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            ctx: &dyn ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
+            let workspace = ctx
+                .workspace()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "<none>".to_string());
+            Ok(ToolOutput::text(workspace))
+        }
+    }
+
+    struct NoopTool;
+
+    #[async_trait]
+    impl Tool for NoopTool {
+        fn name(&self) -> &str {
+            "noop"
+        }
+
+        fn description(&self) -> &str {
+            "Returns ok"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "properties": {},
+            })
+        }
+
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _ctx: &dyn ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
+            Ok(ToolOutput::text("ok"))
         }
     }
 
@@ -311,5 +386,92 @@ mod tests {
             )
             .await;
         assert!(matches!(result, Err(RuntimeError::SessionNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_execute_propagates_working_directory_to_tool_context() {
+        let first = Message {
+            id: "tool-call".into(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "tool-1".into(),
+                name: "workspace_echo".into(),
+                input: json!({}),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let second = make_assistant_message("done");
+        let model = MockLanguageModel::new()
+            .with_response(first)
+            .with_response(second);
+        let mut config = make_config(model);
+        config.tools = vec![Arc::new(WorkspaceEchoTool)];
+        config.max_iterations = 4;
+        let adapter = AlvaAdapter::new(config);
+
+        let workspace = Path::new("/tmp/alva-adapter-workspace");
+        let request = RuntimeRequest::new("inspect workspace").with_cwd(workspace);
+        let stream = adapter.execute(request).expect("execute should succeed");
+        let events: Vec<RuntimeEvent> = stream.collect().await;
+
+        let tool_result_text = events.iter().find_map(|event| match event {
+            RuntimeEvent::ToolEnd { result, .. } => Some(result.model_text()),
+            _ => None,
+        });
+
+        assert_eq!(
+            tool_result_text.as_deref(),
+            Some("/tmp/alva-adapter-workspace")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_execute_honors_request_max_turns() {
+        let first = Message {
+            id: "tool-call".into(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "tool-1".into(),
+                name: "noop".into(),
+                input: json!({}),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let second = make_assistant_message("this should never be reached");
+        let model = MockLanguageModel::new()
+            .with_response(first)
+            .with_response(second);
+        let mut config = make_config(model);
+        config.tools = vec![Arc::new(NoopTool)];
+        config.max_iterations = 5;
+        let adapter = AlvaAdapter::new(config);
+
+        let mut request = RuntimeRequest::new("loop once");
+        request.options.max_turns = Some(1);
+        let stream = adapter.execute(request).expect("execute should succeed");
+        let events: Vec<RuntimeEvent> = stream.collect().await;
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            RuntimeEvent::Error { message, .. } if message.contains("Max iterations reached: 1")
+        )));
+    }
+
+    #[tokio::test]
+    async fn test_execute_rejects_resume_session_for_unsupported_adapter() {
+        let response = make_assistant_message("Hello, world!");
+        let model = MockLanguageModel::new().with_response(response);
+        let config = make_config(model);
+        let adapter = AlvaAdapter::new(config);
+
+        let mut request = RuntimeRequest::new("Say hello");
+        request.resume_session = Some("existing-session".into());
+
+        let result = adapter.execute(request);
+        assert!(matches!(result, Err(RuntimeError::Unsupported(_))));
     }
 }

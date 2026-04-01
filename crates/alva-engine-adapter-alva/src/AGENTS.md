@@ -6,16 +6,16 @@
 
 ## 逻辑
 1. `AlvaAdapter::new()` 接收 `AlvaAdapterConfig`（含 LLM model、工具集、执行模式等），构建适配器实例并初始化空的 session map。
-2. `execute()` 每次调用生成唯一 session_id，创建 `Agent` 实例并启动 agent loop，通过 `mpsc` channel 将 `AgentEvent` 流转发到输出端。
+2. `execute()` 每次调用生成唯一 session_id，读取 `RuntimeRequest` 中的 `system_prompt` / `working_directory` / `max_turns`，创建 `Agent` 实例并启动 agent loop，通过 `mpsc` channel 将 `AgentEvent` 流转发到输出端。
 3. `EventMapper` 是有状态映射器，维护 session_id、turn_count、tool_names（tool_use_id -> name 查找表），将 `AgentEvent` 逐个转换为 `Vec<RuntimeEvent>`。
-4. `cancel()` 通过 session map 查找并终止对应 Agent；`respond_permission()` 当前未实现（本地引擎不涉及外部权限回调）。
+4. `cancel()` 通过 session map 查找并终止对应 Agent；`respond_permission()` 当前未实现（本地引擎不涉及外部权限回调）；`resume_session` 明确返回 `RuntimeError::Unsupported`。
 5. 事件流终止语义：`Completed` 为唯一终端事件，错误时先发 `Error { recoverable: false }` 再发 `Completed { result: None }`。
 
 ## 约束
-- `AlvaAdapterConfig` 中 `model`、`convert_to_llm`、`tools`、`tool_context` 为必填项。
+- `AlvaAdapterConfig` 中 `model` 和 `tools` 为必填项；`max_iterations` 是默认值，可被 `RuntimeRequest.options.max_turns` 覆盖。
 - `EventMapper` 在 `MessageEnd` 时拆分 ToolUse/ToolResult 为独立的 `ToolStart`/`ToolEnd` 事件，`Message.content` 中不含工具块。
 - 返回的 Stream 为 `'static`，不借用 `&self`。
-- `max_iterations` 为 0 时使用 AgentHooks 默认值（100）。
+- `working_directory` 会写入 `AgentConfig.workspace` 并透传给 tool context。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

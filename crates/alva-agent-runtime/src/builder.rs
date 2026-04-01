@@ -7,7 +7,7 @@ use std::sync::Arc;
 use alva_agent_core::middleware::MiddlewareStack;
 use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::shared::Extensions;
-use alva_types::{LanguageModel, ModelConfig, Tool, ToolRegistry};
+use alva_types::{Bus, BusHandle, LanguageModel, ModelConfig, Tool, ToolRegistry};
 use alva_types::session::{AgentSession, InMemorySession};
 
 /// A fully-configured agent runtime combining V2 AgentState, AgentConfig, and ToolRegistry.
@@ -28,6 +28,7 @@ pub struct AgentRuntimeBuilder {
     custom_tools: Vec<Box<dyn Tool>>,
     max_iterations: u32,
     context_window: usize,
+    bus: Option<BusHandle>,
 }
 
 impl AgentRuntimeBuilder {
@@ -42,6 +43,7 @@ impl AgentRuntimeBuilder {
             custom_tools: Vec::new(),
             max_iterations: 100,
             context_window: 0,
+            bus: None,
         }
     }
 
@@ -94,6 +96,12 @@ impl AgentRuntimeBuilder {
         self
     }
 
+    /// Reuse an externally created bus handle instead of creating a fresh bus.
+    pub fn with_bus(mut self, bus: BusHandle) -> Self {
+        self.bus = Some(bus);
+        self
+    }
+
     /// Register a single custom tool.
     pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
         self.custom_tools.push(tool);
@@ -104,6 +112,7 @@ impl AgentRuntimeBuilder {
     ///
     /// `model` is the language model to use for LLM calls.
     pub fn build(self, model: Arc<dyn LanguageModel>) -> AgentRuntime {
+        let bus = self.bus.unwrap_or_else(|| Bus::new().handle());
         let mut registry = ToolRegistry::new();
 
         if self.register_builtin || self.register_browser {
@@ -136,7 +145,7 @@ impl AgentRuntimeBuilder {
             model_config: self.model_config,
             context_window: self.context_window,
             workspace: self.workspace,
-            bus: None,
+            bus: Some(bus),
         };
 
         AgentRuntime {
@@ -157,5 +166,65 @@ impl AgentRuntime {
 impl Default for AgentRuntimeBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_types::{AgentError, Message, ModelConfig, StreamEvent};
+    use async_trait::async_trait;
+    use futures_core::Stream;
+    use std::pin::Pin;
+    use tokio_stream::empty;
+
+    struct DummyModel;
+
+    #[async_trait]
+    impl LanguageModel for DummyModel {
+        async fn complete(
+            &self,
+            _messages: &[Message],
+            _tools: &[&dyn Tool],
+            _config: &ModelConfig,
+        ) -> Result<Message, AgentError> {
+            Err(AgentError::Other("not used in builder tests".into()))
+        }
+
+        fn stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[&dyn Tool],
+            _config: &ModelConfig,
+        ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
+            Box::pin(empty())
+        }
+
+        fn model_id(&self) -> &str {
+            "dummy-model"
+        }
+    }
+
+    #[test]
+    fn build_wires_a_default_bus_handle() {
+        let runtime = AgentRuntime::builder().build(Arc::new(DummyModel));
+        assert!(runtime.config.bus.is_some());
+    }
+
+    #[test]
+    fn builder_accepts_an_external_bus_handle() {
+        let bus = Bus::new();
+        let bus_handle = bus.handle();
+
+        let runtime = AgentRuntime::builder()
+            .with_bus(bus_handle.clone())
+            .build(Arc::new(DummyModel));
+
+        assert!(runtime.config.bus.is_some());
+        let configured = runtime.config.bus.expect("bus should be configured");
+        assert!(!configured.has::<u32>());
+
+        bus.writer().provide(Arc::new(7_u32));
+        assert_eq!(*configured.require::<u32>(), 7);
     }
 }

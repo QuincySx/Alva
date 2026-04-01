@@ -6,9 +6,9 @@
 
 ## 逻辑
 1. `EngineRuntime` trait 定义四个方法：`execute()` 返回事件流、`cancel()` 取消会话、`respond_permission()` 响应权限请求、`capabilities()` 查询引擎能力。
-2. `RuntimeRequest` + `RuntimeOptions` 封装引擎无关的请求参数：prompt、resume_session、system_prompt、working_directory、streaming、max_turns 及 extra 透传字段。
+2. `RuntimeRequest` + `RuntimeOptions` 封装引擎无关的请求参数：prompt、resume_session、system_prompt、working_directory、streaming、max_turns 及 extra 透传字段；适配器必须消费自己支持的字段，对不支持的能力显式返回 `RuntimeError::Unsupported`，而不是静默忽略。
 3. `RuntimeEvent` 是带 `serde(tag = "event_type")` 的枚举，定义完整的事件生命周期：SessionStarted -> Message/MessageDelta/ToolStart/ToolEnd/PermissionRequest -> Completed。`Completed` 是唯一终端事件。
-4. `RuntimeError` 用 thiserror 派生，覆盖 NotReady、SessionNotFound、PermissionNotFound、ProcessError、ProtocolError、Cancelled、Other 七种错误，并实现 `From<io::Error>` 和 `From<serde_json::Error>` 自动转换。
+4. `RuntimeError` 用 thiserror 派生，覆盖 NotReady、Unsupported、SessionNotFound、PermissionNotFound、ProcessError、ProtocolError、Cancelled、Other 八种错误，并实现 `From<io::Error>` 和 `From<serde_json::Error>` 自动转换。
 5. `RuntimeCapabilities` 声明引擎支持的特性集（streaming、tool_control、permission_callback、resume、cancel），供上层按能力分发。
 
 ## 约束
@@ -28,5 +28,5 @@
 | PermissionDecision | event.rs | 权限决策类型，用于 respond_permission 回传 |
 | RuntimeRequest | request.rs | 引擎无关的请求参数：prompt、session 恢复、system prompt、工作目录、运行选项 |
 | RuntimeOptions | request.rs | 运行选项：streaming、max_turns、extra 透传 |
-| RuntimeError | error.rs | 统一错误类型：七种错误变体，含 io::Error 和 serde_json::Error 自动转换 |
+| RuntimeError | error.rs | 统一错误类型：八种错误变体，含 Unsupported 显式能力拒绝，以及 io::Error / serde_json::Error 自动转换 |
 | lib.rs | lib.rs | 模块入口，重导出所有公开类型 |

@@ -9,6 +9,9 @@ pub enum RuntimeError {
     #[error("Engine not ready: {0}")]
     NotReady(String),
 
+    #[error("Unsupported: {0}")]
+    Unsupported(String),
+
     #[error("Session not found: {0}")]
     SessionNotFound(String),
 
