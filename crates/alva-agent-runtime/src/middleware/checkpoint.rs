@@ -173,8 +173,9 @@ mod tests {
     async fn checkpoint_triggers_on_write_tool() {
         let mock_cb = MockCheckpointCallback::new();
         let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(CheckpointCallbackRef(Arc::new(mock_cb.clone()))));
         let bus_handle = bus.handle();
-        bus_handle.provide(Arc::new(CheckpointCallbackRef(Arc::new(mock_cb.clone()))));
 
         let mw = CheckpointMiddleware::new().with_bus(bus_handle);
         let mut state = make_state();
@@ -194,8 +195,9 @@ mod tests {
     async fn checkpoint_skips_read_tools() {
         let mock_cb = MockCheckpointCallback::new();
         let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(CheckpointCallbackRef(Arc::new(mock_cb.clone()))));
         let bus_handle = bus.handle();
-        bus_handle.provide(Arc::new(CheckpointCallbackRef(Arc::new(mock_cb.clone()))));
 
         let mw = CheckpointMiddleware::new().with_bus(bus_handle);
         let mut state = make_state();

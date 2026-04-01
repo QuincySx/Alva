@@ -236,8 +236,9 @@ mod tests {
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
-        bus_handle.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
 
         let mw =
             SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
@@ -278,8 +279,9 @@ mod tests {
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
-        bus_handle.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
 
         let mw =
             SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)

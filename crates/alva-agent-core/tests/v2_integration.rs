@@ -317,10 +317,11 @@ async fn follow_up_continues_after_natural_stop() {
 
     // Register the mailbox on a bus as dyn AgentLoopHook
     let bus = Bus::new();
-    let bus_handle = bus.handle();
-    bus_handle.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
+    let bus_writer = bus.writer();
+    bus_writer.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
         mailbox as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
     );
+    let bus_handle = bus.handle();
 
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),

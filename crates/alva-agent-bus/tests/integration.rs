@@ -1,6 +1,6 @@
 //! Integration test — verifies the full bus round-trip across simulated layers.
 
-use alva_agent_bus::{Bus, BusEvent, BusHandle, StateCell};
+use alva_agent_bus::{Bus, BusEvent, BusHandle, BusWriter, StateCell};
 use std::sync::Arc;
 
 // -- Shared event definitions --
@@ -34,7 +34,7 @@ impl TokenAccounting for MockTokenAccounting {
 
 // -- Simulated layers --
 
-fn init_engine_layer(bus: &BusHandle) {
+fn init_engine_layer(bus: &BusWriter) {
     bus.provide::<dyn TokenAccounting>(Arc::new(MockTokenAccounting));
 }
 
@@ -54,11 +54,11 @@ async fn context_layer_subscribe(bus: &BusHandle) -> ToolExecuted {
 async fn full_bus_round_trip() {
     let bus = Bus::new();
 
-    let engine_handle = bus.handle();
+    let engine_writer = bus.writer();
     let tool_handle = bus.handle();
     let context_handle = bus.handle();
 
-    init_engine_layer(&engine_handle);
+    init_engine_layer(&engine_writer);
 
     let context_task = {
         let h = context_handle.clone();
@@ -80,11 +80,11 @@ async fn full_bus_round_trip() {
 #[tokio::test]
 async fn state_cell_cross_handle() {
     let bus = Bus::new();
-    let h1 = bus.handle();
+    let w = bus.writer();
     let h2 = bus.handle();
 
     let cell = StateCell::new(0u32);
-    h1.provide(Arc::new(cell.clone()));
+    w.provide(Arc::new(cell.clone()));
 
     let cell_ref = h2.require::<StateCell<u32>>();
     let mut rx = cell_ref.watch();
@@ -99,16 +99,16 @@ fn concurrent_provide_and_get() {
     use std::thread;
 
     let bus = Bus::new();
-    let handles: Vec<_> = (0..10).map(|_| bus.handle()).collect();
+    let writers: Vec<_> = (0..10).map(|_| bus.writer()).collect();
 
-    let threads: Vec<_> = handles
+    let threads: Vec<_> = writers
         .into_iter()
         .enumerate()
-        .map(|(i, h)| {
+        .map(|(i, w)| {
             thread::spawn(move || {
                 #[derive(Debug)]
                 struct Val(usize);
-                h.provide(Arc::new(Val(i)));
+                w.provide(Arc::new(Val(i)));
             })
         })
         .collect();

@@ -12,9 +12,11 @@ pub mod caps;
 pub mod cell;
 pub mod event;
 pub mod handle;
+pub mod writer;
 
 pub use bus::Bus;
 pub use caps::Caps;
 pub use cell::StateCell;
 pub use event::{BusEvent, EventBus};
 pub use handle::BusHandle;
+pub use writer::BusWriter;

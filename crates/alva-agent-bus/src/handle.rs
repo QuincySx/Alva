@@ -6,9 +6,14 @@ use tokio::sync::broadcast;
 use crate::caps::Caps;
 use crate::event::{BusEvent, EventBus};
 
-/// Clone-friendly facade that provides access to [`Caps`] and [`EventBus`].
+/// Runtime bus handle — read-only capabilities + events.
 ///
-/// Distributed to each layer from a [`Bus`](crate::bus::Bus).
+/// Distributed to all downstream layers (middleware, tools, context).
+/// Does NOT have `provide()` — capability registration is only possible
+/// via [`BusWriter`](crate::writer::BusWriter) during initialization.
+///
+/// This is a compile-time guarantee: if your code receives a `BusHandle`,
+/// you cannot register capabilities, only discover and use them.
 #[derive(Clone)]
 pub struct BusHandle {
     pub(crate) caps: Caps,
@@ -16,11 +21,6 @@ pub struct BusHandle {
 }
 
 impl BusHandle {
-    /// Register a capability.
-    pub fn provide<T: Send + Sync + ?Sized + 'static>(&self, value: Arc<T>) {
-        self.caps.provide(value);
-    }
-
     /// Look up a capability by type.
     pub fn get<T: Send + Sync + ?Sized + 'static>(&self) -> Option<Arc<T>> {
         self.caps.get()

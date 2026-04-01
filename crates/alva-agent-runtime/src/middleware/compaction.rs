@@ -397,14 +397,15 @@ mod tests {
     fn bus_token_counter_used_for_estimation() {
         // Register a TokenCounter on the bus that always returns 10 per call.
         let bus = alva_types::Bus::new();
-        let handle = bus.handle();
 
         struct FixedCounter;
         impl alva_types::TokenCounter for FixedCounter {
             fn count_tokens(&self, _text: &str) -> usize { 10 }
             fn context_window(&self) -> usize { 100_000 }
         }
-        handle.provide::<dyn alva_types::TokenCounter>(Arc::new(FixedCounter));
+        let writer = bus.writer();
+        writer.provide::<dyn alva_types::TokenCounter>(Arc::new(FixedCounter));
+        let handle = bus.handle();
 
         let mw = CompactionMiddleware::new(CompactionConfig {
             trigger_tokens: 50,

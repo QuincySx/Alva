@@ -16,7 +16,7 @@ use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest
 use alva_agent_runtime::middleware::{CheckpointMiddleware, PlanModeMiddleware, SecurityMiddleware};
 use alva_agent_security::SandboxMode;
 use alva_types::{
-    AgentMessage, Bus, BusHandle, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
+    AgentMessage, Bus, BusHandle, BusWriter, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
 };
 use alva_types::session::{AgentSession, InMemorySession};
 
@@ -74,7 +74,9 @@ pub struct BaseAgent {
     /// Pending messages queue — bridges external steer/follow_up calls
     /// to the agent loop via AgentLoopHook.
     pending_messages: Arc<alva_agent_core::pending_queue::PendingMessageQueue>,
-    /// Cross-layer coordination bus handle.
+    /// Init-phase bus writer — retained for post-init registration (e.g., checkpoint callback).
+    bus_writer: BusWriter,
+    /// Cross-layer coordination bus handle (read-only).
     bus: BusHandle,
 }
 
@@ -241,7 +243,7 @@ impl BaseAgent {
         &self,
         callback: Arc<dyn alva_agent_runtime::middleware::CheckpointCallback>,
     ) {
-        self.bus.provide(Arc::new(
+        self.bus_writer.provide(Arc::new(
             alva_agent_runtime::middleware::CheckpointCallbackRef(callback),
         ));
     }
@@ -396,10 +398,11 @@ impl BaseAgentBuilder {
 
         // 1b. Create the coordination bus
         let bus = Bus::new();
-        let bus_handle = bus.handle();
+        let bus_writer = bus.writer();   // For provide() calls during init
+        let bus_handle = bus.handle();   // Read-only, distributed to middleware + config
 
         // Register token counter on bus (fallback heuristic — providers can override)
-        bus_handle.provide::<dyn alva_types::TokenCounter>(
+        bus_writer.provide::<dyn alva_types::TokenCounter>(
             Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
         );
 
@@ -500,7 +503,7 @@ impl BaseAgentBuilder {
         // 8. Create V2 AgentState
         let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
         if let Some(notifier) = self.approval_notifier {
-            bus_handle.provide(Arc::new(notifier));
+            bus_writer.provide(Arc::new(notifier));
         }
         let extensions = Extensions::new();
         let state = AgentState {
@@ -513,7 +516,7 @@ impl BaseAgentBuilder {
         // 9. Create PendingMessageQueue + V2 AgentConfig
         let pending_messages = Arc::new(alva_agent_core::pending_queue::PendingMessageQueue::new());
         // Register PendingMessageQueue as AgentLoopHook capability on the bus
-        bus_handle.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
+        bus_writer.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
             pending_messages.clone() as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
         );
         let config = AgentConfig {
@@ -550,6 +553,7 @@ impl BaseAgentBuilder {
             security_guard,
             plan_mode_middleware: Some(plan_mw),
             pending_messages,
+            bus_writer,
             bus: bus_handle,
         })
     }

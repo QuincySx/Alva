@@ -44,7 +44,7 @@ pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 pub use session::{AgentSession, InMemorySession};
 
 // Bus — cross-layer coordination
-pub use alva_agent_bus::{Bus, BusHandle, BusEvent, StateCell};
+pub use alva_agent_bus::{Bus, BusHandle, BusWriter, BusEvent, StateCell};
 
 // Context bus events
 pub use scope::context::{TokenBudgetExceeded, ContextCompacted, MemoryExtracted};
