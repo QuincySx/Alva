@@ -713,13 +713,11 @@ async fn e2e_real_file_edit_tool_blocked_without_approval() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: Real grep_search tool — tool is found, attempted, and the error from
-// missing workspace context is correctly surfaced as an AgentEnd error.
+// Test: Real grep_search tool — tool is found and invoked through the pipeline
 //
-// NOTE: The agent-core run loop does not inject workspace into the
-// RuntimeExecutionContext. Tools that call ctx.workspace() return
-// Err(AgentError::ToolError) which propagates as a fatal agent error.
-// This test verifies that behavior.
+// The grep_search tool is registered as a builtin. When the mock LLM returns
+// a tool call for grep_search, the agent resolves the tool from the registry
+// and executes it with the workspace context propagated via AgentConfig.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -758,24 +756,22 @@ async fn e2e_real_grep_search_tool() {
     });
     assert!(got_tool_start, "should see ToolExecutionStart for grep_search");
 
-    // The tool fails with AgentError::ToolError because workspace context is
-    // not set in RuntimeExecutionContext. This propagates as a fatal error
-    // — no ToolExecutionEnd is emitted, and AgentEnd carries the error.
-    let has_workspace_error = events.iter().any(|e| {
-        matches!(e, AgentEvent::AgentEnd { error: Some(msg) }
-            if msg.contains("local filesystem context required") || msg.contains("workspace"))
+    // Workspace is now propagated via AgentConfig, so the tool succeeds.
+    // AgentEnd should have no error.
+    let has_clean_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::AgentEnd { error: None })
     });
     assert!(
-        has_workspace_error,
-        "AgentEnd should report workspace context error from grep_search"
+        has_clean_end,
+        "AgentEnd should have no error — workspace is now propagated to tools"
     );
 }
 
 // ---------------------------------------------------------------------------
 // Test: Real find_files tool — invoked through the pipeline
 //
-// Same as grep_search: the tool is found and attempted, but fails because
-// workspace context is not set in the RuntimeExecutionContext.
+// The find_files tool is registered as a builtin. Workspace context is now
+// propagated via AgentConfig, so the tool executes successfully.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -813,26 +809,24 @@ async fn e2e_real_find_files_tool() {
     });
     assert!(got_tool_start, "should see ToolExecutionStart for find_files");
 
-    // Tool fails with workspace error, propagated as AgentEnd error
-    let has_workspace_error = events.iter().any(|e| {
-        matches!(e, AgentEvent::AgentEnd { error: Some(msg) }
-            if msg.contains("workspace") || msg.contains("required"))
+    // Workspace is now propagated via AgentConfig, so the tool succeeds.
+    // AgentEnd should have no error.
+    let has_clean_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::AgentEnd { error: None })
     });
     assert!(
-        has_workspace_error,
-        "AgentEnd should report workspace context error from find_files"
+        has_clean_end,
+        "AgentEnd should have no error — workspace is now propagated to tools"
     );
 }
 
 // ---------------------------------------------------------------------------
 // Test: find_files with .gitignore — exercises the tool registration and
-// invocation pipeline. The tool itself currently fails at runtime because
-// workspace context is not propagated to the execution context, so we
-// verify the tool is attempted and the error is surfaced.
+// invocation pipeline. Workspace context is propagated via AgentConfig.
 //
 // The underlying walk_dir_filtered() function respects .gitignore; this is
 // tested at the unit level in alva-agent-tools. Here we verify the full
-// agent pipeline: tool resolution -> security -> execution attempt.
+// agent pipeline: tool resolution -> security -> execution.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -874,10 +868,8 @@ async fn e2e_find_files_respects_gitignore() {
     });
     assert!(got_tool_start, "should see ToolExecutionStart for find_files");
 
-    // Tool fails with workspace error (propagated as AgentEnd error)
-    // If the tool eventually succeeds (after workspace context plumbing is fixed),
-    // the result should contain keep.rs but NOT skip.rs (gitignore filtering).
-    // For now, verify the error path works correctly.
+    // Workspace is now propagated, so find_files should succeed.
+    // The result should contain keep.rs but NOT skip.rs (gitignore filtering).
     let has_end = events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. }));
     assert!(has_end, "agent should end (either with or without error)");
 }

@@ -97,6 +97,7 @@ async fn simple_echo_run() {
         model_config: ModelConfig::default(),
         context_window: 0,
         loop_hook: None,
+        workspace: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -161,6 +162,7 @@ async fn run_with_middleware() {
         model_config: ModelConfig::default(),
         context_window: 0,
         loop_hook: None,
+        workspace: None,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -194,6 +196,7 @@ async fn cancellation_mid_run() {
         model_config: ModelConfig::default(),
         context_window: 0,
         loop_hook: None,
+        workspace: None,
     };
     let cancel = CancellationToken::new();
     cancel.cancel(); // Cancel immediately before run
@@ -235,6 +238,7 @@ async fn session_persists_across_check() {
         model_config: ModelConfig::default(),
         context_window: 0,
         loop_hook: None,
+        workspace: None,
     };
 
     // First run
@@ -318,6 +322,7 @@ async fn follow_up_continues_after_natural_stop() {
         model_config: ModelConfig::default(),
         context_window: 0,
         loop_hook: Some(mailbox),
+        workspace: None,
     };
 
     let cancel = CancellationToken::new();
@@ -395,6 +400,7 @@ async fn no_follow_up_means_single_pass() {
         model_config: ModelConfig::default(),
         context_window: 0,
         loop_hook: None,
+        workspace: None,
     };
 
     let cancel = CancellationToken::new();

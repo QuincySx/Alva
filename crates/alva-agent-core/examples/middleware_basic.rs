@@ -240,6 +240,7 @@ fn main() {
         model_config: alva_types::ModelConfig::default(),
         context_window: 0,
         loop_hook: None,
+        workspace: None,
     };
 
     println!(

@@ -44,6 +44,9 @@ pub struct AgentConfig {
     pub context_window: usize,
     /// Optional loop hook for runtime message injection (steering, follow-up).
     pub loop_hook: Option<Arc<dyn crate::pending_queue::AgentLoopHook>>,
+    /// Workspace root path — passed to tools via ToolExecutionContext.
+    /// None means tools that require a workspace will fail.
+    pub workspace: Option<std::path::PathBuf>,
 }
 
 #[cfg(test)]
@@ -126,6 +129,7 @@ mod tests {
             model_config: ModelConfig::default(),
             context_window: 0,
             loop_hook: None,
+            workspace: None,
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");

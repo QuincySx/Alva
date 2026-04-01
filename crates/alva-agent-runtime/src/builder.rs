@@ -136,6 +136,7 @@ impl AgentRuntimeBuilder {
             model_config: self.model_config,
             context_window: self.context_window,
             loop_hook: None,
+            workspace: self.workspace,
         };
 
         AgentRuntime {

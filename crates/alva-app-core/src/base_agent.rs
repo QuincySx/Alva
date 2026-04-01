@@ -501,6 +501,7 @@ impl BaseAgentBuilder {
             model_config: alva_types::ModelConfig::default(),
             context_window: self.context_window,
             loop_hook: Some(pending_messages.clone()),
+            workspace: Some(workspace.clone()),
         };
 
         // 10. Optionally create MemoryService
