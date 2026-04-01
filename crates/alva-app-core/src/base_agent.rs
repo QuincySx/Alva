@@ -16,7 +16,8 @@ use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest
 use alva_agent_runtime::middleware::{CheckpointMiddleware, PlanModeMiddleware, SecurityMiddleware};
 use alva_agent_security::SandboxMode;
 use alva_types::{
-    AgentMessage, Bus, BusHandle, BusWriter, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
+    AgentMessage, Bus, BusHandle, BusPlugin, BusWriter, CancellationToken, LanguageModel, Message,
+    PluginRegistrar, Tool, ToolRegistry,
 };
 use alva_types::session::{AgentSession, InMemorySession};
 
@@ -272,6 +273,7 @@ pub struct BaseAgentBuilder {
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
+    pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
 }
 
 impl BaseAgentBuilder {
@@ -291,6 +293,7 @@ impl BaseAgentBuilder {
             max_iterations: 100,
             context_window: 0,
             approval_notifier: None,
+            bus_plugins: Vec::new(),
         }
     }
 
@@ -383,6 +386,12 @@ impl BaseAgentBuilder {
         let (tx, rx) = mpsc::unbounded_channel();
         self.approval_notifier = Some(ApprovalNotifier { tx });
         rx
+    }
+
+    /// Add a bus plugin that will register capabilities during build.
+    pub fn bus_plugin(mut self, plugin: Box<dyn BusPlugin>) -> Self {
+        self.bus_plugins.push(plugin);
+        self
     }
 
     /// Consume the builder and produce a ready-to-use [`BaseAgent`].
@@ -519,6 +528,23 @@ impl BaseAgentBuilder {
         bus_writer.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
             pending_messages.clone() as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
         );
+
+        // Register bus plugins
+        for plugin in &self.bus_plugins {
+            let mut registrar = PluginRegistrar::new(&bus_writer, plugin.name());
+            plugin.register(&mut registrar);
+            tracing::info!(
+                plugin = plugin.name(),
+                capabilities = ?registrar.registered_capabilities(),
+                "bus plugin registered"
+            );
+        }
+
+        // Start bus plugins (event subscriptions, background tasks)
+        for plugin in &self.bus_plugins {
+            plugin.start(&bus_handle);
+        }
+
         let config = AgentConfig {
             middleware: middleware_stack,
             system_prompt: self.system_prompt,
