@@ -29,8 +29,11 @@ check_no_workspace_deps() {
     fi
 }
 
-# Rule 1: alva-types has ZERO workspace deps
-check_no_workspace_deps "alva-types"
+# Rule 0: alva-agent-bus has ZERO workspace deps
+check_no_workspace_deps "alva-agent-bus"
+
+# Rule 1: alva-types only depends on alva-agent-bus
+check_no_workspace_deps "alva-types" "alva-agent-bus"
 
 # Rule 2: alva-agent-core only depends on alva-types
 check_no_workspace_deps "alva-agent-core" "alva-types"
