@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use alva_types::{
-    AgentError, AgentMessage, CancellationToken, ContentBlock, Message,
+    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message,
     MessageRole, ModelConfig, StreamEvent, ToolCall, ToolOutput,
 };
 use alva_types::model::LanguageModel;
@@ -132,6 +132,7 @@ struct ActualToolCall {
     event_tx: mpsc::UnboundedSender<AgentEvent>,
     session_id: String,
     workspace: Option<std::path::PathBuf>,
+    bus: Option<BusHandle>,
 }
 
 #[async_trait]
@@ -146,6 +147,9 @@ impl ToolCallFn for ActualToolCall {
         );
         if let Some(ref ws) = self.workspace {
             ctx = ctx.with_workspace(ws.clone());
+        }
+        if let Some(ref bus) = self.bus {
+            ctx = ctx.with_bus(bus.clone());
         }
         self.tool.execute(tool_call.arguments.clone(), &ctx).await
     }
@@ -368,6 +372,7 @@ async fn run_loop(
                                     event_tx: event_tx.clone(),
                                     session_id: state.session.id().to_string(),
                                     workspace: config.workspace.clone(),
+                                    bus: config.bus.clone(),
                                 };
                                 config
                                     .middleware
@@ -529,6 +534,7 @@ mod tests {
             context_window: 0,
             loop_hook: None,
             workspace: None,
+            bus: None,
         };
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -571,6 +577,7 @@ mod tests {
             context_window: 0,
             loop_hook: None,
             workspace: None,
+            bus: None,
         };
         let cancel = CancellationToken::new();
         cancel.cancel(); // Cancel immediately
@@ -598,6 +605,7 @@ mod tests {
             context_window: 0,
             loop_hook: None,
             workspace: None,
+            bus: None,
         };
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();

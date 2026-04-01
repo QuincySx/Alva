@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use alva_types::base::cancel::CancellationToken;
 use alva_types::tool::execution::{ProgressEvent, ToolExecutionContext};
+use alva_types::BusHandle;
 use alva_types::ToolFs;
 use tokio::sync::mpsc;
 
@@ -27,6 +28,7 @@ pub struct RuntimeExecutionContext {
     workspace: Option<PathBuf>,
     allow_dangerous: bool,
     tool_fs: Option<Arc<dyn ToolFs>>,
+    bus: Option<BusHandle>,
 }
 
 impl RuntimeExecutionContext {
@@ -44,6 +46,7 @@ impl RuntimeExecutionContext {
             workspace: None,
             allow_dangerous: false,
             tool_fs: None,
+            bus: None,
         }
     }
 
@@ -59,6 +62,11 @@ impl RuntimeExecutionContext {
 
     pub fn with_tool_fs(mut self, fs: Arc<dyn ToolFs>) -> Self {
         self.tool_fs = Some(fs);
+        self
+    }
+
+    pub fn with_bus(mut self, bus: BusHandle) -> Self {
+        self.bus = Some(bus);
         self
     }
 }
@@ -89,6 +97,10 @@ impl ToolExecutionContext for RuntimeExecutionContext {
 
     fn tool_fs(&self) -> Option<&dyn ToolFs> {
         self.tool_fs.as_deref()
+    }
+
+    fn bus(&self) -> Option<&BusHandle> {
+        self.bus.as_ref()
     }
 
     fn as_any(&self) -> &dyn Any {

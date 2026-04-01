@@ -241,6 +241,7 @@ fn main() {
         context_window: 0,
         loop_hook: None,
         workspace: None,
+        bus: None,
     };
 
     println!(

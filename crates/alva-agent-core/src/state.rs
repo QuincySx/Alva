@@ -7,6 +7,7 @@ use alva_types::model::LanguageModel;
 use alva_types::session::AgentSession;
 use alva_types::tool::Tool;
 
+use alva_types::BusHandle;
 use alva_types::ModelConfig;
 
 use crate::shared::Extensions;
@@ -47,6 +48,8 @@ pub struct AgentConfig {
     /// Workspace root path — passed to tools via ToolExecutionContext.
     /// None means tools that require a workspace will fail.
     pub workspace: Option<std::path::PathBuf>,
+    /// Cross-layer coordination bus. None when bus is not wired.
+    pub bus: Option<BusHandle>,
 }
 
 #[cfg(test)]
@@ -130,6 +133,7 @@ mod tests {
             context_window: 0,
             loop_hook: None,
             workspace: None,
+            bus: None,
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");
