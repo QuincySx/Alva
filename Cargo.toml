@@ -11,6 +11,7 @@ members = [
     "crates/alva-agent-security",
     "crates/alva-agent-memory",
     "crates/alva-agent-scope",
+    "crates/alva-agent-context",
     "crates/alva-agent-runtime",
     "crates/alva-agent-bus",
     "crates/alva-protocol-skill",

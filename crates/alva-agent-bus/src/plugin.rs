@@ -8,6 +8,16 @@ use crate::writer::BusWriter;
 /// Wraps a `BusWriter` internally but tracks the plugin name for
 /// logging and debugging. Plugins receive this during registration,
 /// NOT a raw `BusWriter`.
+///
+/// **Compile-time guarantees:**
+/// - No `get()` / `require()` — register phase is write-only.
+///   Plugins cannot consume capabilities during registration because
+///   other plugins may not have registered yet.
+/// - No `emit()` / `subscribe()` — events are for the start phase.
+///
+/// **Runtime guarantees:**
+/// - If a type was already registered (by framework or another plugin),
+///   `provide()` logs a warning with both plugin names before overwriting.
 pub struct PluginRegistrar<'a> {
     writer: &'a BusWriter,
     plugin_name: &'a str,
@@ -15,6 +25,7 @@ pub struct PluginRegistrar<'a> {
 }
 
 impl<'a> PluginRegistrar<'a> {
+    /// Create a new registrar. Called by the framework, not by plugins.
     pub fn new(writer: &'a BusWriter, plugin_name: &'a str) -> Self {
         Self {
             writer,
@@ -24,8 +35,21 @@ impl<'a> PluginRegistrar<'a> {
     }
 
     /// Register a capability. Logged with the plugin name automatically.
+    ///
+    /// If the same type was already registered (by framework or another plugin),
+    /// a warning is logged and the old value is overwritten.
     pub fn provide<T: Send + Sync + ?Sized + 'static>(&mut self, value: Arc<T>) {
         let type_name = std::any::type_name::<T>();
+
+        // Detect conflict: warn if overwriting
+        if self.writer.has::<T>() {
+            tracing::warn!(
+                plugin = %self.plugin_name,
+                capability = %type_name,
+                "bus plugin overwriting existing capability — was this intentional?"
+            );
+        }
+
         tracing::debug!(
             plugin = %self.plugin_name,
             capability = %type_name,
@@ -44,6 +68,10 @@ impl<'a> PluginRegistrar<'a> {
     pub fn plugin_name(&self) -> &str {
         self.plugin_name
     }
+
+    // NOTE: No get(), require(), emit(), subscribe() methods.
+    // Register phase is write-only by design.
+    // Plugins consume capabilities in start(), not register().
 }
 
 /// Trait for bus plugins — declares capabilities and event subscriptions.

@@ -63,6 +63,10 @@ Steering 消息在注入 session 前已转成 Standard，
 session 里不会出现 Steering 变体，这个 match 分支永远不会命中。
 ```
 
+# alva-agent-bus 防破坏规则
+> Bus 是跨层协调总线，不是万能通道。本文档定义它的边界，防止退化为 God Object。
+./docs/BUS-RULES.md
+
 ## Compact Instructions 如何保留关键信息
 保留优先级：
 1. 架构决策，不得摘要
