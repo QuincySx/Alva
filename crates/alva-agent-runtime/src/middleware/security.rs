@@ -1,6 +1,6 @@
-// INPUT:  alva_agent_core::middleware, alva_agent_security, alva_types, async_trait, tokio::sync::Mutex
-// OUTPUT: SecurityMiddleware
-// POS:    Wraps SecurityGuard as V2 async Middleware — blocks tool calls on Deny/NeedHumanApproval.
+// INPUT:  alva_agent_core::middleware, alva_agent_security, alva_types::{BusHandle, ToolCall}, async_trait, tokio::sync::Mutex
+// OUTPUT: SecurityMiddleware, ApprovalRequest, ApprovalNotifier
+// POS:    Wraps SecurityGuard as V2 async Middleware — reads ApprovalNotifier from bus to route interactive permission prompts.
 
 use std::sync::Arc;
 

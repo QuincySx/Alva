@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_core::middleware, alva_types::BusHandle, std::sync::Arc
+// OUTPUT: CheckpointMiddleware, CheckpointCallback (trait), CheckpointCallbackRef
+// POS:    Auto-checkpoints files before write tools execute — reads CheckpointCallbackRef from bus for callback discovery.
 //! Auto-checkpoint middleware — saves file backups before write tools execute.
 
 use std::path::PathBuf;

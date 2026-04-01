@@ -1,3 +1,6 @@
+// INPUT:  crate::handle::BusHandle, crate::writer::BusWriter, std::sync::Arc
+// OUTPUT: PluginRegistrar, BusPlugin (trait)
+// POS:    Plugin system for bus capability registration — controlled write-only registrar + two-phase plugin lifecycle.
 use std::sync::Arc;
 
 use crate::handle::BusHandle;

@@ -1,6 +1,6 @@
-// INPUT:  alva_agent_core, alva_types, alva_agent_graph::compaction
-// OUTPUT: CompactionMiddleware
-// POS:    Auto-compacts conversation history when token count approaches model context limit.
+// INPUT:  alva_agent_core, alva_types::{BusHandle, Message, ModelConfig, TokenCounter, TokenBudgetExceeded, ContextCompacted}
+// OUTPUT: CompactionMiddleware, CompactionConfig
+// POS:    Auto-compacts conversation history using bus TokenCounter for estimation and emitting bus events for observability.
 //! Compaction middleware — summarizes old messages to stay within context window.
 //!
 //! When the estimated token count of messages exceeds `trigger_tokens`,

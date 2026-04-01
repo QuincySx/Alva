@@ -1,6 +1,6 @@
-// INPUT:  async_trait, serde, serde_json, CancellationToken, ToolFs
+// INPUT:  async_trait, serde, serde_json, CancellationToken, ToolFs, alva_agent_bus::BusHandle
 // OUTPUT: ProgressEvent, ToolContent, ToolOutput, ToolExecutionContext (trait), MinimalExecutionContext
-// POS:    Unified execution context and multi-modal output types — replaces the split CancellationToken + ToolContext params and string-only ToolResult.
+// POS:    Unified execution context and multi-modal output types — ToolExecutionContext exposes bus() for tool-level capability discovery.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::any::Any;

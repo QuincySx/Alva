@@ -1,6 +1,6 @@
-// INPUT:  std::collections::HashMap, std::path::PathBuf, alva_types::AgentMessage, crate::types (ContextEntry, ContextLayer, ContextMetadata, Priority, ContextSnapshot, EntrySnapshot, BudgetInfo, ToolPattern, LayerStats)
-// OUTPUT: pub struct ContextStore, pub fn estimate_tokens
-// POS:    Per-agent context container providing four-layer CRUD, token tracking, compression shortcuts, and LLM message assembly.
+// INPUT:  std::collections::HashMap, alva_types::{AgentMessage, TokenCounter}, crate::types (ContextEntry, ContextLayer, ContextMetadata, Priority, ContextSnapshot, EntrySnapshot, BudgetInfo, ToolPattern, LayerStats)
+// OUTPUT: ContextStore, estimate_tokens(), count_tokens_via()
+// POS:    Per-agent context container providing four-layer CRUD, token tracking, and count_tokens_via() for bus-based token counting.
 //! ContextStore — per-agent context container with four-layer management.
 
 use std::collections::HashMap;

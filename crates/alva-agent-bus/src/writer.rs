@@ -1,3 +1,6 @@
+// INPUT:  crate::caps::Caps, crate::event::{BusEvent, EventBus}, crate::handle::BusHandle, std::sync::Arc, tokio::sync::broadcast
+// OUTPUT: BusWriter
+// POS:    Init-phase bus handle with write access — can register capabilities, emit events, and create read-only BusHandle snapshots.
 use std::fmt;
 use std::sync::Arc;
 

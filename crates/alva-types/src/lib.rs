@@ -1,6 +1,6 @@
-// INPUT:  async_trait, serde, serde_json, thiserror, chrono, tokio_util
-// OUTPUT: CancellationToken, ContentBlock, AgentError, Message, MessageRole, UsageMetadata, LanguageModel, ModelConfig, StreamEvent, Tool, ToolCall, ToolDefinition, ToolRegistry, ToolExecutionContext, ToolOutput, ToolContent, ProgressEvent, MinimalExecutionContext, EmbeddingModel, TranscriptionModel, SpeechModel, ImageModel, VideoModel, RerankingModel, ModerationModel, Provider, ProviderRegistry
-// POS:    Crate root — declares all type modules and re-exports their public items as the shared vocabulary for the agent ecosystem.
+// INPUT:  async_trait, serde, serde_json, thiserror, chrono, tokio_util, alva_agent_bus
+// OUTPUT: CancellationToken, ContentBlock, AgentError, Message, LanguageModel, ModelConfig, TokenCounter, StreamEvent, Tool, ToolCall, ToolExecutionContext, ToolOutput, Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, ...
+// POS:    Crate root — re-exports all shared types including bus coordination primitives and context bus events.
 pub mod base;
 // context is now at scope::context; re-export for backward compatibility
 pub use scope::context;

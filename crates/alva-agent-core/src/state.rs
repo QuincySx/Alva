@@ -1,6 +1,6 @@
-// INPUT:  std::sync::Arc, alva_types::{LanguageModel, AgentSession, Tool}, crate::shared::Extensions
+// INPUT:  std::sync::Arc, alva_types::{LanguageModel, AgentSession, Tool, BusHandle, ModelConfig}, crate::shared::Extensions
 // OUTPUT: AgentState, AgentConfig
-// POS:    V2 mutable state and immutable config — separated to avoid Rust borrow conflicts.
+// POS:    V2 mutable state and immutable config — AgentConfig carries optional BusHandle for cross-layer coordination.
 use std::sync::Arc;
 
 use alva_types::model::LanguageModel;

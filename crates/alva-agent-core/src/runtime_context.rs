@@ -1,8 +1,8 @@
 // INPUT:  std::any::Any, std::path::{Path, PathBuf}, std::sync::Arc,
-//         alva_types::{CancellationToken, ProgressEvent, ToolExecutionContext, ToolFs},
+//         alva_types::{BusHandle, CancellationToken, ProgressEvent, ToolExecutionContext, ToolFs},
 //         tokio::sync::mpsc, crate::event::AgentEvent
 // OUTPUT: RuntimeExecutionContext
-// POS:    Concrete ToolExecutionContext used by the agent run loop — bridges tool progress to agent events.
+// POS:    Concrete ToolExecutionContext used by the agent run loop — bridges tool progress to agent events and exposes bus to tools.
 use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

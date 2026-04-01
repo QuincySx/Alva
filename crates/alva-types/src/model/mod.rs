@@ -1,6 +1,6 @@
 // INPUT:  async_trait, futures_core::Stream, std::pin::Pin, crate::base::error::AgentError, crate::base::message::Message, crate::base::stream::StreamEvent, crate::tool::Tool
-// OUTPUT: pub struct ModelConfig, pub trait LanguageModel
-// POS:    Language model trait providing synchronous completion and streaming interfaces over messages and tools.
+// OUTPUT: ModelConfig, LanguageModel (trait), TokenCounter (trait), HeuristicTokenCounter
+// POS:    Language model trait + TokenCounter capability for accurate token budgeting via bus registration.
 use async_trait::async_trait;
 use futures_core::Stream;
 use std::pin::Pin;

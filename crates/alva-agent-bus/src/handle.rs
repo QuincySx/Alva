@@ -1,3 +1,6 @@
+// INPUT:  crate::caps::Caps, crate::event::{BusEvent, EventBus}, std::sync::Arc, tokio::sync::broadcast
+// OUTPUT: BusHandle
+// POS:    Runtime read-only bus handle — discovers capabilities and pub/sub events, no registration allowed.
 use std::fmt;
 use std::sync::Arc;
 

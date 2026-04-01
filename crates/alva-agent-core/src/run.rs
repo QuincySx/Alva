@@ -1,6 +1,6 @@
-// INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_types::*
+// INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_types::*, crate::pending_queue::AgentLoopHook
 // OUTPUT: pub async fn run_agent()
-// POS:    V2 session-centric agent loop — reads from session each iteration, never stores messages locally.
+// POS:    V2 session-centric agent loop — uses bus-based AgentLoopHook for steering/follow-up injection.
 use std::sync::Arc;
 
 use alva_types::{

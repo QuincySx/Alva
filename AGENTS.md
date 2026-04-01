@@ -11,6 +11,7 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | 基础层 | `crates/alva-types/` | 基础类型和 trait：ToolContext（泛化）+ LocalToolContext、Tool、LanguageModel、Provider、Message、StreamEvent |
+| 协调总线 | `crates/alva-agent-bus/` | 跨层协调总线：Caps（typed 能力注册/发现）+ EventBus（typed pub/sub）+ StateCell（可观察状态）+ BusPlugin 插件体系 |
 | 引擎层 | `crates/alva-agent-core/` | Agent 循环引擎：双层 Loop + AgentHooks + 异步 MiddlewareStack（洋葱模型）+ CompressionMiddleware + AgentEvent |
 | 工具层 | `crates/alva-agent-tools/` | 16 个内置 Tool 实现：9 标准工具 + 7 浏览器工具（feature-gated），实现 alva_types::Tool trait |
 | 安全层 | `crates/alva-agent-security/` | 安全子系统：SecurityGuard、PermissionManager、SensitivePathFilter、AuthorizedRoots、SandboxConfig |

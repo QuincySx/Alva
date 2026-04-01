@@ -1,7 +1,7 @@
-// INPUT:  alva_agent_core (V2: AgentState, AgentConfig, run_agent, Middleware, MiddlewareStack, Extensions),
-//         alva_types, alva_agent_tools, alva_agent_security, alva_agent_memory, alva_agent_runtime
-// OUTPUT: BaseAgent, BaseAgentBuilder
-// POS:    Pre-wired batteries-included agent using V2 engine — auto-composes tools, security, skill injection.
+// INPUT:  alva_agent_core, alva_types::{Bus, BusHandle, BusWriter, BusPlugin, PluginRegistrar, TokenCounter},
+//         alva_agent_tools, alva_agent_security, alva_agent_memory, alva_agent_runtime
+// OUTPUT: BaseAgent, BaseAgentBuilder, PermissionMode
+// POS:    Pre-wired batteries-included agent — owns Bus lifecycle, registers plugins, exposes bus_writer/bus for post-init capability wiring.
 
 use std::path::PathBuf;
 use std::sync::Arc;

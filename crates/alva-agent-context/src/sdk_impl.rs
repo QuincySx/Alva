@@ -1,6 +1,6 @@
-// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::AgentMessage, uuid, crate::message_store::MessageStore, crate::sdk::ContextHandle, crate::store::{ContextStore, estimate_tokens}, crate::types
-// OUTPUT: pub struct ContextHandleImpl
-// POS:    Concrete ContextHandle implementation backed by a shared ContextStore with Mutex-based synchronization.
+// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::{AgentMessage, BusHandle, TokenCounter}, crate::sdk::ContextHandle, crate::store::{ContextStore, estimate_tokens}, crate::types
+// OUTPUT: ContextHandleImpl, MemoryBackend (trait), Summarizer (trait), SummarizeFn
+// POS:    Concrete ContextHandle backed by ContextStore — uses bus TokenCounter/MemoryBackend/Summarizer for bus-driven capability discovery.
 //! Concrete implementation of ContextHandle backed by ContextStore.
 
 use std::sync::{Arc, Mutex};

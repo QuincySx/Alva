@@ -1,3 +1,6 @@
+// INPUT:  bus, caps, cell, event, handle, plugin, writer modules
+// OUTPUT: Bus, Caps, StateCell, BusEvent, EventBus, BusHandle, BusPlugin, PluginRegistrar, BusWriter
+// POS:    Crate root — re-exports the coordination bus (capabilities, events, state cells, plugin system).
 //! alva-agent-bus — cross-layer coordination bus.
 //!
 //! Provides three mechanisms for inter-crate communication:

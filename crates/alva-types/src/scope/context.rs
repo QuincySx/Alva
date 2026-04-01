@@ -1,6 +1,6 @@
-// INPUT:  alva_types types (AgentMessage, ContentBlock, Message, MessageRole), async_trait, serde, serde_json, thiserror, chrono, tokio, tracing, uuid, std
-// OUTPUT: ContextHooks, ContextHandle, SessionAccess, ContextSystem, value types, apply helpers
-// POS:    Shared context management vocabulary — traits, value types, container, and pure-transform helpers.
+// INPUT:  alva_types types (AgentMessage, ContentBlock, Message, MessageRole), alva_agent_bus::BusEvent, async_trait, serde, serde_json, thiserror, chrono, uuid, std
+// OUTPUT: ContextHooks, ContextHandle, SessionAccess, ContextSystem, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, value types
+// POS:    Shared context management vocabulary — traits, value types, container, and bus events for context observability.
 //! Context management shared vocabulary.
 //!
 //! This module provides the **trait definitions**, **value types**, the **ContextSystem**

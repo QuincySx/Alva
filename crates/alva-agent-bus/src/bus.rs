@@ -1,3 +1,6 @@
+// INPUT:  crate::caps::Caps, crate::event::EventBus, crate::handle::BusHandle, crate::writer::BusWriter
+// OUTPUT: Bus
+// POS:    Top-level coordination bus owner — creates BusWriter (init-phase) and BusHandle (runtime read-only) from shared Caps + EventBus.
 use crate::caps::Caps;
 use crate::event::EventBus;
 use crate::handle::BusHandle;

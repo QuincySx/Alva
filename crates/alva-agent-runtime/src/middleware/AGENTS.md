@@ -19,5 +19,7 @@
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| Module Root | mod.rs | 声明 security 模块并 re-export SecurityMiddleware |
-| SecurityMiddleware | security.rs | 将 SecurityGuard 适配为 Middleware trait：工具调用前执行 Deny/NeedHumanApproval/Allow 安全检查 |
+| Module Root | mod.rs | 声明子模块并 re-export SecurityMiddleware, CheckpointMiddleware, CompactionMiddleware, PlanModeMiddleware |
+| SecurityMiddleware | security.rs | 将 SecurityGuard 适配为 Middleware trait：读取 bus ApprovalNotifier 实现交互式权限审批 |
+| CheckpointMiddleware | checkpoint.rs | 写入工具执行前自动备份文件：从 bus 读取 CheckpointCallbackRef |
+| CompactionMiddleware | compaction.rs | 上下文压缩：使用 bus TokenCounter 估算 token、超限时 LLM 摘要、发送 bus 事件 |
