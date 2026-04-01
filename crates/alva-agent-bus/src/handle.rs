@@ -17,22 +17,22 @@ pub struct BusHandle {
 
 impl BusHandle {
     /// Register a capability.
-    pub fn provide<T: Send + Sync + 'static>(&self, value: Arc<T>) {
+    pub fn provide<T: Send + Sync + ?Sized + 'static>(&self, value: Arc<T>) {
         self.caps.provide(value);
     }
 
     /// Look up a capability by type.
-    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+    pub fn get<T: Send + Sync + ?Sized + 'static>(&self) -> Option<Arc<T>> {
         self.caps.get()
     }
 
     /// Look up a capability by type, panicking if missing.
-    pub fn require<T: Send + Sync + 'static>(&self) -> Arc<T> {
+    pub fn require<T: Send + Sync + ?Sized + 'static>(&self) -> Arc<T> {
         self.caps.require()
     }
 
     /// Check whether a capability is registered.
-    pub fn has<T: Send + Sync + 'static>(&self) -> bool {
+    pub fn has<T: Send + Sync + ?Sized + 'static>(&self) -> bool {
         self.caps.has::<T>()
     }
 

@@ -22,13 +22,13 @@ impl Caps {
     }
 
     /// Register a capability. Overwrites any previous value of the same type.
-    pub fn provide<T: Send + Sync + 'static>(&self, value: Arc<T>) {
+    pub fn provide<T: Send + Sync + ?Sized + 'static>(&self, value: Arc<T>) {
         let mut map = self.inner.write();
         map.insert(TypeId::of::<T>(), Box::new(value));
     }
 
     /// Look up a capability by type. Returns `None` if not registered.
-    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+    pub fn get<T: Send + Sync + ?Sized + 'static>(&self) -> Option<Arc<T>> {
         let map = self.inner.read();
         map.get(&TypeId::of::<T>())
             .and_then(|boxed| boxed.downcast_ref::<Arc<T>>())
@@ -36,7 +36,7 @@ impl Caps {
     }
 
     /// Look up a capability by type, panicking if it is missing.
-    pub fn require<T: Send + Sync + 'static>(&self) -> Arc<T> {
+    pub fn require<T: Send + Sync + ?Sized + 'static>(&self) -> Arc<T> {
         self.get::<T>().unwrap_or_else(|| {
             panic!(
                 "Caps: required capability `{}` not found",
@@ -46,7 +46,7 @@ impl Caps {
     }
 
     /// Check whether a capability of the given type is registered.
-    pub fn has<T: Send + Sync + 'static>(&self) -> bool {
+    pub fn has<T: Send + Sync + ?Sized + 'static>(&self) -> bool {
         let map = self.inner.read();
         map.contains_key(&TypeId::of::<T>())
     }
