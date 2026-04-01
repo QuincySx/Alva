@@ -30,6 +30,16 @@ pub trait MemoryBackend: Send + Sync {
 pub type SummarizeFn =
     Arc<dyn Fn(&[AgentMessage], &[String]) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>> + Send + Sync>;
 
+/// Summarization capability — registered on bus by the LLM/provider layer.
+///
+/// This trait-based interface allows bus-driven discovery of summarizers,
+/// complementing the closure-based `SummarizeFn` for direct injection.
+#[async_trait]
+pub trait Summarizer: Send + Sync {
+    /// Summarize the given text, guided by optional hints (e.g., "preserve file paths").
+    async fn summarize(&self, text: &str, hints: &[String]) -> Result<String, String>;
+}
+
 /// Concrete SDK implementation wrapping a shared ContextStore.
 ///
 /// Uses `std::sync::Mutex` (not `tokio::sync::Mutex`) because all ContextStore
@@ -77,6 +87,32 @@ impl ContextHandleImpl {
         &self.store
     }
 
+    /// Convert a slice of AgentMessages into concatenated text for summarization.
+    fn messages_to_text(messages: &[AgentMessage]) -> String {
+        let mut text = String::new();
+        for msg in messages {
+            match msg {
+                AgentMessage::Standard(m) => {
+                    let content = m.text_content();
+                    if content.len() > 200 {
+                        text.push_str(&content[..200]);
+                        text.push_str("...");
+                    } else {
+                        text.push_str(&content);
+                    }
+                    text.push('\n');
+                }
+                AgentMessage::Extension { type_name, .. } => {
+                    text.push_str(&format!("[extension: {}]\n", type_name));
+                }
+                _ => {
+                    // Steering, FollowUp, Marker — skip in summary text
+                }
+            }
+        }
+        text
+    }
+
     /// Count tokens using bus TokenCounter if available, fallback to chars/4.
     fn count_tokens(&self, text: &str) -> usize {
         if let Some(ref bus) = self.bus {
@@ -122,7 +158,8 @@ impl ContextHandle for ContextHandleImpl {
         let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         let tokens = match &message {
             AgentMessage::Standard(m) => self.count_tokens(&m.text_content()),
-            AgentMessage::Custom { data, .. } => self.count_tokens(&data.to_string()),
+            AgentMessage::Extension { data, .. } => self.count_tokens(&data.to_string()),
+            _ => 0, // Steering, FollowUp, Marker — negligible or zero tokens
         };
         let entry = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
@@ -333,36 +370,35 @@ impl ContextHandle for ContextHandleImpl {
                 .collect()
         }; // MutexGuard dropped here, before any .await
 
-        // Use plugged-in summarizer if available
+        // Try bus Summarizer first
+        if let Some(ref bus) = self.bus {
+            if let Some(summarizer) = bus.get::<dyn Summarizer>() {
+                let text = Self::messages_to_text(&messages);
+                if let Ok(summary) = summarizer.summarize(&text, hints).await {
+                    return summary;
+                }
+                // If bus summarizer fails, fall through to other strategies
+            }
+        }
+
+        // Fallback to injected summarizer fn
         if let Some(summarizer) = &self.summarizer {
             return summarizer(&messages, hints).await;
         }
 
-        // Fallback: truncated concatenation (no LLM)
-        let mut text = String::new();
-        for msg in &messages {
-            match msg {
-                AgentMessage::Standard(m) => {
-                    let content = m.text_content();
-                    if content.len() > 200 {
-                        text.push_str(&content[..200]);
-                        text.push_str("...");
-                    } else {
-                        text.push_str(&content);
-                    }
-                    text.push('\n');
-                }
-                AgentMessage::Custom { type_name, .. } => {
-                    text.push_str(&format!("[custom: {}]\n", type_name));
-                }
-            }
-        }
+        // Final fallback: truncated concatenation (no LLM)
+        let text = Self::messages_to_text(&messages);
 
         if !hints.is_empty() {
-            text.push_str(&format!("\nHints: {}", hints.join(", ")));
+            format!(
+                "[Summary of {} messages]\n{}\nHints: {}",
+                messages.len(),
+                if text.len() > 4000 { &text[..4000] } else { &text },
+                hints.join(", ")
+            )
+        } else {
+            format!("[Summary of {} messages]\n{}", messages.len(), text.trim())
         }
-
-        format!("[Summary of {} messages]\n{}", messages.len(), text.trim())
     }
 
     // =====================================================================
@@ -384,15 +420,23 @@ impl ContextHandle for ContextHandleImpl {
     // =====================================================================
 
     fn query_memory(&self, query: &str, max_results: usize) -> Vec<MemoryFact> {
-        match &self.memory {
-            Some(backend) => backend.query(query, max_results),
+        // Try bus first, then fallback to injected memory
+        let backend = self.bus.as_ref()
+            .and_then(|b| b.get::<dyn MemoryBackend>())
+            .or_else(|| self.memory.clone());
+        match backend {
+            Some(m) => m.query(query, max_results),
             None => vec![],
         }
     }
 
     fn store_memory(&self, fact: MemoryFact) {
-        match &self.memory {
-            Some(backend) => backend.store(fact),
+        // Try bus first, then fallback to injected memory
+        let backend = self.bus.as_ref()
+            .and_then(|b| b.get::<dyn MemoryBackend>())
+            .or_else(|| self.memory.clone());
+        match backend {
+            Some(m) => m.store(fact),
             None => {
                 tracing::debug!(fact_id = fact.id, "store_memory: no memory backend configured");
             }
@@ -400,8 +444,12 @@ impl ContextHandle for ContextHandleImpl {
     }
 
     fn delete_memory(&self, fact_id: &str) {
-        match &self.memory {
-            Some(backend) => backend.delete(fact_id),
+        // Try bus first, then fallback to injected memory
+        let backend = self.bus.as_ref()
+            .and_then(|b| b.get::<dyn MemoryBackend>())
+            .or_else(|| self.memory.clone());
+        match backend {
+            Some(m) => m.delete(fact_id),
             None => {
                 tracing::debug!(fact_id, "delete_memory: no memory backend configured");
             }

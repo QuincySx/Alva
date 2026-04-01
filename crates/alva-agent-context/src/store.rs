@@ -343,9 +343,10 @@ fn preview_message(msg: &AgentMessage, max_chars: usize) -> String {
                 text
             }
         }
-        AgentMessage::Custom { type_name, .. } => {
-            format!("[custom: {}]", type_name)
+        AgentMessage::Extension { type_name, .. } => {
+            format!("[extension: {}]", type_name)
         }
+        _ => "[marker/steering/followup]".to_string(),
     }
 }
 
@@ -596,7 +597,7 @@ mod tests {
             .iter()
             .map(|m| match m {
                 AgentMessage::Standard(msg) => msg.id.clone(),
-                AgentMessage::Custom { .. } => "custom".to_string(),
+                _ => "other".to_string(),
             })
             .collect();
 

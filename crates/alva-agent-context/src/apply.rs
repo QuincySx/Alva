@@ -173,11 +173,13 @@ fn serialize_range(messages: &[AgentMessage], base_idx: usize) -> String {
         .map(|(i, m)| {
             let role = match m {
                 AgentMessage::Standard(msg) => format!("{:?}", msg.role),
-                AgentMessage::Custom { .. } => "Custom".to_string(),
+                AgentMessage::Extension { .. } => "Extension".to_string(),
+                _ => "Other".to_string(),
             };
             let text = match m {
                 AgentMessage::Standard(msg) => msg.text_content(),
-                AgentMessage::Custom { data, .. } => data.to_string(),
+                AgentMessage::Extension { data, .. } => data.to_string(),
+                _ => String::new(),
             };
             let truncated = if text.len() > 2000 {
                 format!("{}...[truncated]", &text[..2000])

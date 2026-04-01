@@ -45,3 +45,6 @@ pub use session::{AgentSession, InMemorySession};
 
 // Bus — cross-layer coordination
 pub use alva_agent_bus::{Bus, BusHandle, BusEvent, StateCell};
+
+// Context bus events
+pub use scope::context::{TokenBudgetExceeded, ContextCompacted, MemoryExtracted};

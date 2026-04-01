@@ -183,7 +183,8 @@ impl DefaultContextHooks {
     fn estimate_message_tokens(msg: &AgentMessage) -> usize {
         match msg {
             AgentMessage::Standard(m) => estimate_tokens(&m.text_content()),
-            AgentMessage::Custom { data, .. } => estimate_tokens(&data.to_string()),
+            AgentMessage::Extension { data, .. } => estimate_tokens(&data.to_string()),
+            _ => 0, // Steering, FollowUp, Marker — negligible
         }
     }
 
@@ -304,7 +305,8 @@ impl ContextHooks for DefaultContextHooks {
                 if !is_tool_result && msg_tokens > 2000 && llm_summary_candidates.len() < 3 {
                     let text = match &entry.message {
                         AgentMessage::Standard(m) => m.text_content(),
-                        AgentMessage::Custom { data, .. } => data.to_string(),
+                        AgentMessage::Extension { data, .. } => data.to_string(),
+                        _ => continue, // skip non-content messages
                     };
                     llm_summary_candidates.push((
                         i,
@@ -583,7 +585,8 @@ impl ContextHooks for DefaultContextHooks {
         // Record LLM output text into the recent messages buffer for memory extraction.
         let text = match &entry.message {
             AgentMessage::Standard(m) => m.text_content(),
-            AgentMessage::Custom { data, .. } => data.to_string(),
+            AgentMessage::Extension { data, .. } => data.to_string(),
+            _ => String::new(),
         };
         if !text.is_empty() {
             let role = match &entry.message {
@@ -593,7 +596,7 @@ impl ContextHooks for DefaultContextHooks {
                     alva_types::MessageRole::Tool => "Tool",
                     _ => "System",
                 },
-                _ => "Custom",
+                _ => "Extension",
             };
             self.record_recent_message(role, text).await;
         }
@@ -705,7 +708,8 @@ mod tests {
     fn wrap_entry(msg: AgentMessage) -> ContextEntry {
         let id = match &msg {
             AgentMessage::Standard(m) => m.id.clone(),
-            AgentMessage::Custom { data, .. } => data.to_string(),
+            AgentMessage::Extension { data, .. } => data.to_string(),
+            _ => uuid::Uuid::new_v4().to_string(),
         };
         ContextEntry {
             id,
