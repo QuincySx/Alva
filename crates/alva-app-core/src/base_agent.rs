@@ -398,6 +398,11 @@ impl BaseAgentBuilder {
         let bus = Bus::new();
         let bus_handle = bus.handle();
 
+        // Register token counter on bus (fallback heuristic — providers can override)
+        bus_handle.provide::<dyn alva_types::TokenCounter>(
+            Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
+        );
+
         // 2. Create ToolRegistry and populate with builtin/browser tools
         let mut tool_registry = ToolRegistry::new();
         if self.enable_browser {

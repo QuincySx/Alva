@@ -36,3 +36,38 @@ pub trait LanguageModel: Send + Sync {
 
     fn model_id(&self) -> &str;
 }
+
+/// Token counting capability.
+///
+/// Registered on the bus by the provider layer. Context management
+/// and compression systems use this for accurate token budgeting
+/// instead of heuristic estimation (chars/4).
+pub trait TokenCounter: Send + Sync {
+    /// Count tokens in a text string using the model's actual tokenizer.
+    fn count_tokens(&self, text: &str) -> usize;
+
+    /// Estimate the context window size (max tokens) for this model.
+    fn context_window(&self) -> usize;
+}
+
+/// Fallback token counter using chars/4 heuristic.
+/// Used when no model-specific tokenizer is available.
+pub struct HeuristicTokenCounter {
+    pub context_window_size: usize,
+}
+
+impl HeuristicTokenCounter {
+    pub fn new(context_window_size: usize) -> Self {
+        Self { context_window_size }
+    }
+}
+
+impl TokenCounter for HeuristicTokenCounter {
+    fn count_tokens(&self, text: &str) -> usize {
+        text.len() / 4
+    }
+
+    fn context_window(&self) -> usize {
+        self.context_window_size
+    }
+}

@@ -322,8 +322,14 @@ impl ContextStore {
 // ---------------------------------------------------------------------------
 
 /// Rough token estimation (chars / 4).
+/// Default heuristic -- callers with bus access should use `count_tokens_via()` instead.
 pub fn estimate_tokens(text: &str) -> usize {
     text.len() / 4
+}
+
+/// Count tokens using a real TokenCounter (from bus capability).
+pub fn count_tokens_via(text: &str, counter: &dyn alva_types::TokenCounter) -> usize {
+    counter.count_tokens(text)
 }
 
 /// Extract a preview of a message (first N chars).

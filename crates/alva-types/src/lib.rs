@@ -26,7 +26,7 @@ pub use base::cancel::CancellationToken;
 pub use base::content::ContentBlock;
 pub use base::error::AgentError;
 pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadata};
-pub use model::{LanguageModel, ModelConfig};
+pub use model::{LanguageModel, ModelConfig, TokenCounter};
 pub use base::stream::StreamEvent;
 pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry};
 pub use tool::execution::{MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput};

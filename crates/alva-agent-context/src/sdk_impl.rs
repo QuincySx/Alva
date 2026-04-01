@@ -41,6 +41,7 @@ pub struct ContextHandleImpl {
     store: Arc<Mutex<ContextStore>>,
     memory: Option<Arc<dyn MemoryBackend>>,
     summarizer: Option<SummarizeFn>,
+    bus: Option<alva_types::BusHandle>,
 }
 
 impl ContextHandleImpl {
@@ -49,6 +50,7 @@ impl ContextHandleImpl {
             store,
             memory: None,
             summarizer: None,
+            bus: None,
         }
     }
 
@@ -64,9 +66,25 @@ impl ContextHandleImpl {
         self
     }
 
+    /// Attach a bus handle for bus-aware token counting.
+    pub fn with_bus(mut self, bus: alva_types::BusHandle) -> Self {
+        self.bus = Some(bus);
+        self
+    }
+
     /// Access the underlying store directly (for middleware adapter).
     pub fn store(&self) -> &Arc<Mutex<ContextStore>> {
         &self.store
+    }
+
+    /// Count tokens using bus TokenCounter if available, fallback to chars/4.
+    fn count_tokens(&self, text: &str) -> usize {
+        if let Some(ref bus) = self.bus {
+            if let Some(counter) = bus.get::<dyn alva_types::TokenCounter>() {
+                return counter.count_tokens(text);
+            }
+        }
+        estimate_tokens(text)
     }
 }
 
@@ -103,8 +121,8 @@ impl ContextHandle for ContextHandleImpl {
     fn inject_message(&self, _agent_id: &str, layer: ContextLayer, message: AgentMessage) {
         let mut store = self.store.lock().expect("ContextStore mutex poisoned");
         let tokens = match &message {
-            AgentMessage::Standard(m) => estimate_tokens(&m.text_content()),
-            AgentMessage::Custom { data, .. } => estimate_tokens(&data.to_string()),
+            AgentMessage::Standard(m) => self.count_tokens(&m.text_content()),
+            AgentMessage::Custom { data, .. } => self.count_tokens(&data.to_string()),
         };
         let entry = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
@@ -126,7 +144,7 @@ impl ContextHandle for ContextHandleImpl {
                 let mut result = Vec::new();
                 let mut tokens_used = 0usize;
                 for fact in facts {
-                    let fact_tokens = estimate_tokens(&fact.text);
+                    let fact_tokens = self.count_tokens(&fact.text);
                     if tokens_used + fact_tokens > max_tokens {
                         break;
                     }
@@ -159,7 +177,7 @@ impl ContextHandle for ContextHandleImpl {
             None => content,
         };
 
-        let tokens = estimate_tokens(&text);
+        let tokens = self.count_tokens(&text);
         let entry = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
             message: AgentMessage::Standard(alva_types::Message {
