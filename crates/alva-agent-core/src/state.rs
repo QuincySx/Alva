@@ -43,8 +43,6 @@ pub struct AgentConfig {
     /// Maximum number of recent messages to include in LLM context.
     /// 0 means no limit (use all messages).
     pub context_window: usize,
-    /// Optional loop hook for runtime message injection (steering, follow-up).
-    pub loop_hook: Option<Arc<dyn crate::pending_queue::AgentLoopHook>>,
     /// Workspace root path — passed to tools via ToolExecutionContext.
     /// None means tools that require a workspace will fail.
     pub workspace: Option<std::path::PathBuf>,
@@ -131,7 +129,6 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
-            loop_hook: None,
             workspace: None,
             bus: None,
         };

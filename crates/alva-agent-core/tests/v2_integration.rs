@@ -14,7 +14,7 @@ use alva_types::base::stream::StreamEvent;
 use alva_types::model::LanguageModel;
 use alva_types::session::InMemorySession;
 use alva_types::tool::Tool;
-use alva_types::{AgentMessage, CancellationToken, ModelConfig};
+use alva_types::{AgentMessage, Bus, CancellationToken, ModelConfig};
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -96,7 +96,6 @@ async fn simple_echo_run() {
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
-        loop_hook: None,
         workspace: None,
         bus: None,
     };
@@ -162,7 +161,6 @@ async fn run_with_middleware() {
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
-        loop_hook: None,
         workspace: None,
         bus: None,
     };
@@ -197,7 +195,6 @@ async fn cancellation_mid_run() {
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
-        loop_hook: None,
         workspace: None,
         bus: None,
     };
@@ -240,7 +237,6 @@ async fn session_persists_across_check() {
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
-        loop_hook: None,
         workspace: None,
         bus: None,
     };
@@ -319,15 +315,21 @@ async fn follow_up_continues_after_natural_stop() {
     let mailbox = Arc::new(alva_agent_core::PendingMessageQueue::new());
     mailbox.follow_up(AgentMessage::Standard(Message::user("follow-up question")));
 
+    // Register the mailbox on a bus as dyn AgentLoopHook
+    let bus = Bus::new();
+    let bus_handle = bus.handle();
+    bus_handle.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
+        mailbox as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
+    );
+
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: "Echo bot.".to_string(),
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
-        loop_hook: Some(mailbox),
         workspace: None,
-        bus: None,
+        bus: Some(bus_handle),
     };
 
     let cancel = CancellationToken::new();
@@ -404,7 +406,6 @@ async fn no_follow_up_means_single_pass() {
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
-        loop_hook: None,
         workspace: None,
         bus: None,
     };

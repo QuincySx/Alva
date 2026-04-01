@@ -506,13 +506,16 @@ impl BaseAgentBuilder {
 
         // 9. Create PendingMessageQueue + V2 AgentConfig
         let pending_messages = Arc::new(alva_agent_core::pending_queue::PendingMessageQueue::new());
+        // Register PendingMessageQueue as AgentLoopHook capability on the bus
+        bus_handle.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
+            pending_messages.clone() as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
+        );
         let config = AgentConfig {
             middleware: middleware_stack,
             system_prompt: self.system_prompt,
             max_iterations: self.max_iterations,
             model_config: alva_types::ModelConfig::default(),
             context_window: self.context_window,
-            loop_hook: Some(pending_messages.clone()),
             workspace: Some(workspace.clone()),
             bus: Some(bus_handle.clone()),
         };

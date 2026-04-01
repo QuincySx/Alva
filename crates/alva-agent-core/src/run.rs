@@ -420,25 +420,27 @@ async fn run_loop(
             let _ = event_tx.send(AgentEvent::TurnEnd);
 
             // Steering check: after tool execution, before next LLM call
-            if let Some(hook) = &config.loop_hook {
-                if let Some(steering_msg) = hook.take_steering() {
-                    // Convert to Standard — steering is an injection method, not a message type.
-                    // The session should only contain Standard messages for persistence.
-                    let msg = match steering_msg {
-                        AgentMessage::Steering(m) => AgentMessage::Standard(m),
-                        other => other,
-                    };
-                    state.session.append(msg);
-                    continue 'inner;
+            if let Some(bus) = &config.bus {
+                if let Some(hook) = bus.get::<dyn crate::pending_queue::AgentLoopHook>() {
+                    if let Some(steering_msg) = hook.take_steering() {
+                        // Convert to Standard — steering is an injection method, not a message type.
+                        // The session should only contain Standard messages for persistence.
+                        let msg = match steering_msg {
+                            AgentMessage::Steering(m) => AgentMessage::Standard(m),
+                            other => other,
+                        };
+                        state.session.append(msg);
+                        continue 'inner;
+                    }
                 }
             }
         }
 
         // Follow-up check: when inner loop ends naturally
-        let follow_ups = config
-            .loop_hook
+        let follow_ups = config.bus
             .as_ref()
-            .map(|d| d.take_follow_ups())
+            .and_then(|b| b.get::<dyn crate::pending_queue::AgentLoopHook>())
+            .map(|h| h.take_follow_ups())
             .unwrap_or_default();
         if follow_ups.is_empty() {
             break 'outer; // Truly done
@@ -532,7 +534,6 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
-            loop_hook: None,
             workspace: None,
             bus: None,
         };
@@ -575,7 +576,6 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
-            loop_hook: None,
             workspace: None,
             bus: None,
         };
@@ -603,7 +603,6 @@ mod tests {
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
-            loop_hook: None,
             workspace: None,
             bus: None,
         };

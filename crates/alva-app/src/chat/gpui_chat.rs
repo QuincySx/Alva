@@ -132,7 +132,6 @@ impl GpuiChat {
             max_iterations: 100,
             model_config: alva_app_core::alva_types::ModelConfig::default(),
             context_window: 0,
-            loop_hook: None,
             workspace: None,
             bus: None,
         };

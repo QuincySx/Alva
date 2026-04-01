@@ -239,7 +239,6 @@ fn main() {
         max_iterations: 100,
         model_config: alva_types::ModelConfig::default(),
         context_window: 0,
-        loop_hook: None,
         workspace: None,
         bus: None,
     };
