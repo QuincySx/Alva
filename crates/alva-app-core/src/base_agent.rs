@@ -16,7 +16,7 @@ use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest
 use alva_agent_runtime::middleware::{CheckpointMiddleware, PlanModeMiddleware, SecurityMiddleware};
 use alva_agent_security::SandboxMode;
 use alva_types::{
-    AgentMessage, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
+    AgentMessage, Bus, BusHandle, CancellationToken, LanguageModel, Message, Tool, ToolRegistry,
 };
 use alva_types::session::{AgentSession, InMemorySession};
 
@@ -74,6 +74,8 @@ pub struct BaseAgent {
     /// Pending messages queue — bridges external steer/follow_up calls
     /// to the agent loop via AgentLoopHook.
     pending_messages: Arc<alva_agent_core::pending_queue::PendingMessageQueue>,
+    /// Cross-layer coordination bus handle.
+    bus: BusHandle,
 }
 
 impl BaseAgent {
@@ -214,6 +216,11 @@ impl BaseAgent {
     /// Access the memory service (if enabled).
     pub fn memory(&self) -> Option<&MemoryService> {
         self.memory.as_ref()
+    }
+
+    /// Access the cross-layer coordination bus.
+    pub fn bus(&self) -> &BusHandle {
+        &self.bus
     }
 
     /// Resolve a pending permission request. Called by the UI layer (CLI/GUI).
@@ -387,6 +394,10 @@ impl BaseAgentBuilder {
             .workspace
             .ok_or_else(|| EngineError::ToolExecution("workspace is required".into()))?;
 
+        // 1b. Create the coordination bus
+        let bus = Bus::new();
+        let bus_handle = bus.handle();
+
         // 2. Create ToolRegistry and populate with builtin/browser tools
         let mut tool_registry = ToolRegistry::new();
         if self.enable_browser {
@@ -502,6 +513,7 @@ impl BaseAgentBuilder {
             context_window: self.context_window,
             loop_hook: Some(pending_messages.clone()),
             workspace: Some(workspace.clone()),
+            bus: Some(bus_handle.clone()),
         };
 
         // 10. Optionally create MemoryService
@@ -528,6 +540,7 @@ impl BaseAgentBuilder {
             security_guard,
             plan_mode_middleware: Some(plan_mw),
             pending_messages,
+            bus: bus_handle,
         })
     }
 }

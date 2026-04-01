@@ -137,6 +137,7 @@ impl AgentRuntimeBuilder {
             context_window: self.context_window,
             loop_hook: None,
             workspace: self.workspace,
+            bus: None,
         };
 
         AgentRuntime {
