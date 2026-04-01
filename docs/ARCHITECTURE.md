@@ -44,7 +44,13 @@ Alva 是一个**分层解耦的 AI Agent 平台**，三大组件完全独立：
 ┌─ alva-types ─────────────────────────────────────────────────────┐
 │  Message, ContentBlock, Tool, LanguageModel, ToolContext, ToolFs  │
 │  AgentMessage, StreamEvent, ToolCall, ToolResult                  │
-│  （所有 crate 的共享词汇表，零外部依赖）                            │
+│  Bus, BusHandle, BusEvent, StateCell（re-export from alva-agent-bus）│
+│  （所有 crate 的共享词汇表，依赖 alva-agent-bus）                   │
+└──────────────────────────────────────────────────────────────────┘
+              ↑ 依赖
+┌─ alva-agent-bus ─────────────────────────────────────────────────┐
+│  Bus, BusHandle, BusEvent, Caps, EventBus, StateCell             │
+│  （跨层协调总线，零 workspace 依赖）                                │
 └──────────────────────────────────────────────────────────────────┘
               ↑ 依赖
 ┌─ 功能层（并行，互不依赖）─────────────────────────────────────────┐
@@ -174,7 +180,8 @@ Secrets 管理 — 独立 CLI 工具：
 `scripts/ci-check-deps.sh` 自动检查 12 条边界规则：
 
 ```
-Rule 1:  alva-types 零 workspace 依赖
+Rule 0:  alva-agent-bus 零 workspace 依赖
+Rule 1:  alva-types → alva-agent-bus only
 Rule 2:  alva-agent-context → alva-types only
 Rule 3:  alva-agent-core → alva-types + alva-agent-context
 Rule 4:  alva-agent-tools → alva-types only
