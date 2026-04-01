@@ -134,6 +134,7 @@ impl GpuiChat {
             context_window: 0,
             loop_hook: None,
             workspace: None,
+            bus: None,
         };
 
         let cancel = alva_app_core::alva_types::CancellationToken::new();
