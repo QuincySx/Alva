@@ -42,3 +42,6 @@ pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, Moder
 pub use provider::{CredentialSource, StaticCredential, Provider, ProviderError, ProviderRegistry};
 pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 pub use session::{AgentSession, InMemorySession};
+
+// Bus — cross-layer coordination
+pub use alva_agent_bus::{Bus, BusHandle, BusEvent, StateCell};

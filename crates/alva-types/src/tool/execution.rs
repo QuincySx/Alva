@@ -8,6 +8,7 @@ use std::path::Path;
 
 use crate::base::cancel::CancellationToken;
 use super::types::ToolFs;
+use alva_agent_bus::BusHandle;
 
 // ---------------------------------------------------------------------------
 // ProgressEvent — intermediate progress from tool execution
@@ -181,6 +182,12 @@ pub trait ToolExecutionContext: Send + Sync {
     /// Abstract filesystem interface (sandbox, remote, or mock).
     /// When None, tools fall back to direct local operations.
     fn tool_fs(&self) -> Option<&dyn ToolFs> {
+        None
+    }
+
+    /// Cross-layer coordination bus handle.
+    /// Returns None when bus is not wired (e.g., in tests using MinimalExecutionContext).
+    fn bus(&self) -> Option<&BusHandle> {
         None
     }
 
