@@ -468,7 +468,8 @@ impl BaseAgentBuilder {
 
         // e. Compaction middleware (auto-summarizes old messages when context is full)
         middleware_stack.push_sorted(Arc::new(
-            alva_agent_runtime::middleware::CompactionMiddleware::default(),
+            alva_agent_runtime::middleware::CompactionMiddleware::default()
+                .with_bus(bus_handle.clone()),
         ));
 
         // f. Extra middleware from user

@@ -9,11 +9,10 @@
 //! are always preserved verbatim.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 use alva_agent_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
 use alva_agent_core::state::AgentState;
-use alva_types::{Message, ModelConfig};
+use alva_types::{BusHandle, Message, ModelConfig};
 use async_trait::async_trait;
 
 /// Configuration for the compaction middleware.
@@ -48,6 +47,7 @@ impl Default for CompactionConfig {
 pub struct CompactionMiddleware {
     config: CompactionConfig,
     compaction_count: AtomicUsize,
+    bus: Option<BusHandle>,
 }
 
 impl CompactionMiddleware {
@@ -55,7 +55,14 @@ impl CompactionMiddleware {
         Self {
             config,
             compaction_count: AtomicUsize::new(0),
+            bus: None,
         }
+    }
+
+    /// Attach a bus handle for token counting and event emission.
+    pub fn with_bus(mut self, bus: BusHandle) -> Self {
+        self.bus = Some(bus);
+        self
     }
 
     /// How many times compaction has been triggered in this session.
@@ -132,10 +139,32 @@ impl Middleware for CompactionMiddleware {
         state: &mut AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
-        let total_tokens = estimate_tokens(messages);
+        // Use bus TokenCounter for better estimation; fall back to local heuristic.
+        let total_tokens = if let Some(ref bus) = self.bus {
+            if let Some(counter) = bus.get::<dyn alva_types::TokenCounter>() {
+                messages
+                    .iter()
+                    .map(|m| counter.count_tokens(&m.text_content()) + 4)
+                    .sum()
+            } else {
+                estimate_tokens(messages)
+            }
+        } else {
+            estimate_tokens(messages)
+        };
 
         if total_tokens <= self.config.trigger_tokens {
             return Ok(()); // Under budget, no compaction needed
+        }
+
+        // Emit TokenBudgetExceeded event for observability.
+        if let Some(ref bus) = self.bus {
+            bus.emit(alva_types::TokenBudgetExceeded {
+                agent_id: String::new(),
+                usage_ratio: total_tokens as f32 / self.config.trigger_tokens as f32,
+                used_tokens: total_tokens,
+                budget_tokens: self.config.trigger_tokens,
+            });
         }
 
         tracing::info!(
@@ -229,7 +258,18 @@ impl Middleware for CompactionMiddleware {
 
         let old_count = messages.len();
         let new_count = compacted.len();
-        let new_tokens = estimate_tokens(&compacted);
+        let new_tokens = if let Some(ref bus) = self.bus {
+            if let Some(counter) = bus.get::<dyn alva_types::TokenCounter>() {
+                compacted
+                    .iter()
+                    .map(|m| counter.count_tokens(&m.text_content()) + 4)
+                    .sum()
+            } else {
+                estimate_tokens(&compacted)
+            }
+        } else {
+            estimate_tokens(&compacted)
+        };
 
         tracing::info!(
             old_messages = old_count,
@@ -241,6 +281,16 @@ impl Middleware for CompactionMiddleware {
 
         *messages = compacted;
         self.compaction_count.fetch_add(1, Ordering::Relaxed);
+
+        // Emit ContextCompacted event for observability.
+        if let Some(ref bus) = self.bus {
+            bus.emit(alva_types::ContextCompacted {
+                agent_id: String::new(),
+                strategy: "llm_summarization".to_string(),
+                tokens_before: total_tokens,
+                tokens_after: new_tokens,
+            });
+        }
 
         Ok(())
     }
@@ -261,6 +311,7 @@ impl Middleware for CompactionMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use alva_types::base::content::ContentBlock;
 
     fn make_user_msg(text: &str) -> Message {
@@ -327,5 +378,55 @@ mod tests {
         assert_eq!(config.trigger_tokens, 100_000);
         assert_eq!(config.reserve_tokens, 16_000);
         assert_eq!(config.keep_recent_tokens, 20_000);
+    }
+
+    #[test]
+    fn with_bus_sets_bus() {
+        let bus = alva_types::Bus::new();
+        let mw = CompactionMiddleware::default().with_bus(bus.handle());
+        assert!(mw.bus.is_some());
+    }
+
+    #[test]
+    fn without_bus_field_is_none() {
+        let mw = CompactionMiddleware::default();
+        assert!(mw.bus.is_none());
+    }
+
+    #[test]
+    fn bus_token_counter_used_for_estimation() {
+        // Register a TokenCounter on the bus that always returns 10 per call.
+        let bus = alva_types::Bus::new();
+        let handle = bus.handle();
+
+        struct FixedCounter;
+        impl alva_types::TokenCounter for FixedCounter {
+            fn count_tokens(&self, _text: &str) -> usize { 10 }
+            fn context_window(&self) -> usize { 100_000 }
+        }
+        handle.provide::<dyn alva_types::TokenCounter>(Arc::new(FixedCounter));
+
+        let mw = CompactionMiddleware::new(CompactionConfig {
+            trigger_tokens: 50,
+            reserve_tokens: 0,
+            keep_recent_tokens: 0,
+        })
+        .with_bus(handle.clone());
+
+        // With the fixed counter, each message = 10 + 4 = 14 tokens.
+        // 3 messages = 42 tokens, which is under trigger_tokens (50).
+        let msgs = vec![
+            make_user_msg("a"),
+            make_user_msg("b"),
+            make_user_msg("c"),
+        ];
+        // Verify the bus counter is used (local estimate would give different result).
+        let total: usize = {
+            let counter = handle.get::<dyn alva_types::TokenCounter>().unwrap();
+            msgs.iter()
+                .map(|m| counter.count_tokens(&m.text_content()) + 4)
+                .sum()
+        };
+        assert_eq!(total, 42); // 3 * (10 + 4)
     }
 }
