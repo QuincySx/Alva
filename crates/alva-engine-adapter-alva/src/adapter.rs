@@ -8,21 +8,22 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures_core::Stream;
-use tokio::sync::{mpsc, Mutex};
+use std::sync::Mutex;
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::debug;
 
 use alva_agent_core::middleware::MiddlewareStack;
-use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::run::run_agent;
 use alva_agent_core::shared::Extensions;
+use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::AgentMessage;
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
     RuntimeRequest,
 };
-use alva_types::{CancellationToken, ContentBlock, Message, MessageRole};
 use alva_types::session::InMemorySession;
+use alva_types::{CancellationToken, ContentBlock, Message, MessageRole};
 
 use crate::config::AlvaAdapterConfig;
 use crate::mapping::EventMapper;
@@ -84,8 +85,7 @@ impl EngineRuntime for AlvaAdapter {
             .unwrap_or_else(|| self.config.system_prompt.clone());
 
         // 3. Build V2 AgentState.
-        let session: Arc<dyn alva_types::session::AgentSession> =
-            Arc::new(InMemorySession::new());
+        let session: Arc<dyn alva_types::session::AgentSession> = Arc::new(InMemorySession::new());
         let state = AgentState {
             model: self.config.model.clone(),
             tools: self.config.tools.clone(),
@@ -127,15 +127,16 @@ impl EngineRuntime for AlvaAdapter {
         let sid = session_id.clone();
         let cancel_clone = cancel.clone();
 
-        // 9. Register the session handle.
+        // 9. Register the session handle synchronously to avoid a race where
+        //    cancel() is called before the spawned task inserts the entry.
         {
-            let sessions_clone = sessions.clone();
-            let sid_clone = sid.clone();
-            let cancel_for_handle = cancel.clone();
-            tokio::spawn(async move {
-                let mut map = sessions_clone.lock().await;
-                map.insert(sid_clone, SessionHandle { cancel: cancel_for_handle });
-            });
+            let mut map = self.sessions.lock().unwrap();
+            map.insert(
+                sid.clone(),
+                SessionHandle {
+                    cancel: cancel.clone(),
+                },
+            );
         }
 
         // 10. Spawn the background task.
@@ -176,7 +177,7 @@ impl EngineRuntime for AlvaAdapter {
 
             // Clean up the session.
             {
-                let mut map = sessions.lock().await;
+                let mut map = sessions.lock().unwrap();
                 map.remove(&sid);
             }
 
@@ -188,7 +189,7 @@ impl EngineRuntime for AlvaAdapter {
     }
 
     async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
-        let map = self.sessions.lock().await;
+        let map = self.sessions.lock().unwrap();
         match map.get(session_id) {
             Some(handle) => {
                 handle.cancel.cancel();
@@ -204,7 +205,7 @@ impl EngineRuntime for AlvaAdapter {
         _request_id: &str,
         _decision: PermissionDecision,
     ) -> Result<(), RuntimeError> {
-        let map = self.sessions.lock().await;
+        let map = self.sessions.lock().unwrap();
         if map.contains_key(session_id) {
             Err(RuntimeError::PermissionNotFound(
                 "permission callback not implemented in v2".to_string(),
@@ -232,9 +233,9 @@ impl EngineRuntime for AlvaAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
+    use alva_types::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
     use async_trait::async_trait;
     use serde_json::json;
     use std::path::Path;
@@ -342,7 +343,9 @@ mod tests {
             last
         );
 
-        let has_message = events.iter().any(|e| matches!(e, RuntimeEvent::Message { .. }));
+        let has_message = events
+            .iter()
+            .any(|e| matches!(e, RuntimeEvent::Message { .. }));
         assert!(has_message, "expected at least one Message event");
     }
 

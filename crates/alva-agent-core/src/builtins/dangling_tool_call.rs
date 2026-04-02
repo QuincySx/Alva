@@ -130,7 +130,7 @@ impl Middleware for DanglingToolCallMiddleware {
     }
 
     fn name(&self) -> &str {
-        "dangling_tool_call"
+        "builtins_dangling_tool_call"
     }
 
     fn priority(&self) -> i32 {
@@ -145,51 +145,9 @@ impl Middleware for DanglingToolCallMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::session::InMemorySession;
-    use crate::shared::Extensions;
-    use std::sync::Arc;
+    use crate::builtins::test_helpers::helpers::make_state;
 
     // -- helpers --
-
-    fn make_state() -> AgentState {
-        use alva_types::base::error::AgentError;
-        use alva_types::base::message::Message;
-        use alva_types::base::stream::StreamEvent;
-        use alva_types::model::LanguageModel;
-        use alva_types::tool::Tool;
-        use alva_types::ModelConfig;
-
-        struct StubModel;
-        #[async_trait]
-        impl LanguageModel for StubModel {
-            async fn complete(
-                &self,
-                _: &[Message],
-                _: &[&dyn Tool],
-                _: &ModelConfig,
-            ) -> Result<Message, AgentError> {
-                unreachable!()
-            }
-            fn stream(
-                &self,
-                _: &[Message],
-                _: &[&dyn Tool],
-                _: &ModelConfig,
-            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
-                Box::pin(futures::stream::empty())
-            }
-            fn model_id(&self) -> &str {
-                "stub"
-            }
-        }
-
-        AgentState {
-            model: Arc::new(StubModel),
-            tools: vec![],
-            session: Arc::new(InMemorySession::new()),
-            extensions: Extensions::new(),
-        }
-    }
 
     fn assistant_msg_with_tool_use(tool_id: &str, tool_name: &str) -> Message {
         Message {
@@ -315,10 +273,7 @@ mod tests {
             .filter(|m| m.id.starts_with("synthetic-"))
             .collect();
         assert_eq!(synthetic_msgs.len(), 1);
-        assert_eq!(
-            synthetic_msgs[0].tool_call_id,
-            Some("tc_2".to_string())
-        );
+        assert_eq!(synthetic_msgs[0].tool_call_id, Some("tc_2".to_string()));
     }
 
     #[tokio::test]
@@ -326,10 +281,7 @@ mod tests {
         let mw = DanglingToolCallMiddleware::new();
         let mut state = make_state();
 
-        let mut messages = vec![
-            Message::system("system"),
-            Message::user("hello"),
-        ];
+        let mut messages = vec![Message::system("system"), Message::user("hello")];
         let original_len = messages.len();
 
         mw.before_llm_call(&mut state, &mut messages).await.unwrap();
@@ -375,6 +327,6 @@ mod tests {
     #[tokio::test]
     async fn test_name() {
         let mw = DanglingToolCallMiddleware::new();
-        assert_eq!(mw.name(), "dangling_tool_call");
+        assert_eq!(mw.name(), "builtins_dangling_tool_call");
     }
 }

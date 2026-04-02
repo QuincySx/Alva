@@ -152,7 +152,7 @@ impl Middleware for LoopDetectionMiddleware {
     }
 
     fn name(&self) -> &str {
-        "loop_detection"
+        "builtins_loop_detection"
     }
 
     fn priority(&self) -> i32 {
@@ -167,52 +167,10 @@ impl Middleware for LoopDetectionMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::session::InMemorySession;
+    use crate::builtins::test_helpers::helpers::make_state;
     use alva_types::MessageRole;
-    use crate::shared::Extensions;
-    use std::sync::Arc;
 
     // -- helpers --
-
-    fn make_state() -> AgentState {
-        use alva_types::base::error::AgentError;
-        use alva_types::base::message::Message;
-        use alva_types::base::stream::StreamEvent;
-        use alva_types::model::LanguageModel;
-        use alva_types::tool::Tool;
-        use alva_types::ModelConfig;
-
-        struct StubModel;
-        #[async_trait]
-        impl LanguageModel for StubModel {
-            async fn complete(
-                &self,
-                _: &[Message],
-                _: &[&dyn Tool],
-                _: &ModelConfig,
-            ) -> Result<Message, AgentError> {
-                unreachable!()
-            }
-            fn stream(
-                &self,
-                _: &[Message],
-                _: &[&dyn Tool],
-                _: &ModelConfig,
-            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
-                Box::pin(futures::stream::empty())
-            }
-            fn model_id(&self) -> &str {
-                "stub"
-            }
-        }
-
-        AgentState {
-            model: Arc::new(StubModel),
-            tools: vec![],
-            session: Arc::new(InMemorySession::new()),
-            extensions: Extensions::new(),
-        }
-    }
 
     fn assistant_with_tool_calls(tool_calls: Vec<(&str, serde_json::Value)>) -> Message {
         let mut content: Vec<ContentBlock> = tool_calls
@@ -276,11 +234,13 @@ mod tests {
 
         // First two identical calls: no action
         for _ in 0..2 {
-            let mut response = assistant_with_tool_calls(vec![
-                ("grep", serde_json::json!({"pattern": "foo"})),
-            ]);
+            let mut response =
+                assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
             mw.after_llm_call(&mut state, &mut response).await.unwrap();
-            assert!(response.has_tool_calls(), "tool_calls should still be present");
+            assert!(
+                response.has_tool_calls(),
+                "tool_calls should still be present"
+            );
         }
     }
 
@@ -291,15 +251,13 @@ mod tests {
 
         // Reach warn threshold (3 identical calls)
         for _ in 0..3 {
-            let mut response = assistant_with_tool_calls(vec![
-                ("grep", serde_json::json!({"pattern": "foo"})),
-            ]);
+            let mut response =
+                assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
             mw.after_llm_call(&mut state, &mut response).await.unwrap();
         }
         // At warn threshold, tool_calls are still present (only a log warning)
-        let mut response = assistant_with_tool_calls(vec![
-            ("grep", serde_json::json!({"pattern": "foo"})),
-        ]);
+        let mut response =
+            assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
         mw.after_llm_call(&mut state, &mut response).await.unwrap();
         // 4th call: above warn but below hard limit
         assert!(response.has_tool_calls());
@@ -312,21 +270,22 @@ mod tests {
 
         // First 4 identical calls
         for _ in 0..4 {
-            let mut response = assistant_with_tool_calls(vec![
-                ("grep", serde_json::json!({"pattern": "foo"})),
-            ]);
+            let mut response =
+                assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
             mw.after_llm_call(&mut state, &mut response).await.unwrap();
         }
 
         // 5th identical call: hard limit reached
-        let mut response = assistant_with_tool_calls(vec![
-            ("grep", serde_json::json!({"pattern": "foo"})),
-        ]);
+        let mut response =
+            assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
         mw.after_llm_call(&mut state, &mut response).await.unwrap();
 
         assert!(!response.has_tool_calls(), "tool_calls should be stripped");
         let text = response.text_content();
-        assert!(text.contains("Loop detected"), "should contain loop warning, got: {text}");
+        assert!(
+            text.contains("Loop detected"),
+            "should contain loop warning, got: {text}"
+        );
     }
 
     #[tokio::test]
@@ -336,11 +295,15 @@ mod tests {
 
         // Different tool calls each time
         for i in 0..10 {
-            let mut response = assistant_with_tool_calls(vec![
-                ("grep", serde_json::json!({"pattern": format!("query_{i}")})),
-            ]);
+            let mut response = assistant_with_tool_calls(vec![(
+                "grep",
+                serde_json::json!({"pattern": format!("query_{i}")}),
+            )]);
             mw.after_llm_call(&mut state, &mut response).await.unwrap();
-            assert!(response.has_tool_calls(), "tool_calls should remain for unique calls");
+            assert!(
+                response.has_tool_calls(),
+                "tool_calls should remain for unique calls"
+            );
         }
     }
 
@@ -354,13 +317,17 @@ mod tests {
         let mut state_a = make_state();
         for _ in 0..2 {
             let mut response = assistant_with_tool_calls(tool_calls.clone());
-            mw.after_llm_call(&mut state_a, &mut response).await.unwrap();
+            mw.after_llm_call(&mut state_a, &mut response)
+                .await
+                .unwrap();
         }
 
         // Session B: 1 call (below warn) — different session since make_state() creates unique IDs
         let mut state_b = make_state();
         let mut response_b = assistant_with_tool_calls(tool_calls.clone());
-        mw.after_llm_call(&mut state_b, &mut response_b).await.unwrap();
+        mw.after_llm_call(&mut state_b, &mut response_b)
+            .await
+            .unwrap();
 
         // Session B should not be affected by session A's history
         assert!(response_b.has_tool_calls());
@@ -381,16 +348,20 @@ mod tests {
 
         // Add 5 different calls to push the old ones out of the window
         for i in 0..5 {
-            let mut response = assistant_with_tool_calls(vec![
-                ("read", serde_json::json!({"file": format!("file_{i}")})),
-            ]);
+            let mut response = assistant_with_tool_calls(vec![(
+                "read",
+                serde_json::json!({"file": format!("file_{i}")}),
+            )]);
             mw.after_llm_call(&mut state, &mut response).await.unwrap();
         }
 
         // Now add the same repeated call again — should only count 1 in window
         let mut response = assistant_with_tool_calls(repeated.clone());
         mw.after_llm_call(&mut state, &mut response).await.unwrap();
-        assert!(response.has_tool_calls(), "old hashes should have been evicted");
+        assert!(
+            response.has_tool_calls(),
+            "old hashes should have been evicted"
+        );
     }
 
     #[tokio::test]
@@ -402,7 +373,7 @@ mod tests {
     #[tokio::test]
     async fn test_name() {
         let mw = LoopDetectionMiddleware::new();
-        assert_eq!(mw.name(), "loop_detection");
+        assert_eq!(mw.name(), "builtins_loop_detection");
     }
 
     #[tokio::test]
