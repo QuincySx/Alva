@@ -42,6 +42,6 @@ pub use store::ContextStore;
 pub use chain::ContextHooksChain;
 pub use context_system::{ContextSystem, default_context_system};
 pub use rules_plugin::RulesContextHooks;
-pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig};
+pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig, DefaultSummarizeFn};
 pub use session::{SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession};
 pub use types::*;

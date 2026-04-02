@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use alva_types::ToolExecutionContext;
 
 use crate::authorized_roots::AuthorizedRoots;
+use crate::path_utils::normalize_path;
 use crate::permission::PermissionManager;
 use crate::sandbox::{SandboxConfig, SandboxMode};
 use crate::sensitive_paths::SensitivePathFilter;
@@ -62,6 +63,7 @@ fn expand_home(path: &str) -> PathBuf {
         PathBuf::from("/home/agent").join(path)
     }
 }
+
 
 /// Unified security gate — the single entry point checked before every tool
 /// execution.
@@ -159,7 +161,7 @@ impl SecurityGuard {
 
         // 4. HITL check for dangerous tools
         if self.is_dangerous(tool_name) {
-            match self.permission_manager.check(tool_name) {
+            match self.permission_manager.check(tool_name, args) {
                 Some(true) => return SecurityDecision::Allow,
                 Some(false) => {
                     return SecurityDecision::Deny {
@@ -174,7 +176,7 @@ impl SecurityGuard {
                     // Register pending approval — caller must await the receiver
                     let rx = self
                         .permission_manager
-                        .request_approval(request_id.clone());
+                        .request_approval(request_id.clone(), tool_name, args);
                     self.pending_receivers.insert(request_id.clone(), rx);
                     return SecurityDecision::NeedHumanApproval { request_id };
                 }
@@ -244,14 +246,8 @@ impl SecurityGuard {
                 // Direct path keys
                 if self.path_keys.contains(&key_lower) {
                     if let Value::String(s) = value {
-                        let p = Path::new(s);
-                        if p.is_absolute() || s.starts_with("~/") || s.starts_with("./") || s.starts_with("../") {
-                            let expanded = if let Some(rest) = s.strip_prefix("~/") {
-                                expand_home(rest)
-                            } else {
-                                PathBuf::from(s)
-                            };
-                            paths.push(expanded);
+                        if !s.is_empty() {
+                            paths.push(self.resolve_path_argument(s));
                         }
                     }
                 }
@@ -266,6 +262,16 @@ impl SecurityGuard {
         }
 
         paths
+    }
+
+    fn resolve_path_argument(&self, raw: &str) -> PathBuf {
+        if let Some(rest) = raw.strip_prefix("~/") {
+            expand_home(rest)
+        } else if Path::new(raw).is_absolute() {
+            PathBuf::from(raw)
+        } else {
+            normalize_path(&self.authorized_roots.workspace().join(raw))
+        }
     }
 
     /// Best-effort extraction of file paths from a shell command string.
@@ -379,6 +385,43 @@ mod tests {
         // Second call — should be auto-allowed
         let decision2 = guard.check_tool_call("execute_shell", &args, &test_ctx());
         assert!(matches!(decision2, SecurityDecision::Allow));
+    }
+
+    #[test]
+    fn relative_sensitive_path_is_denied() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "path": ".env" });
+        let decision = guard.check_tool_call("read_file", &args, &test_ctx());
+        assert!(matches!(decision, SecurityDecision::Deny { .. }));
+    }
+
+    #[test]
+    fn always_allow_does_not_cover_different_arguments() {
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let approved_args = json!({ "command": "ls /projects/myapp" });
+        let approved = guard.check_tool_call("execute_shell", &approved_args, &test_ctx());
+        if let SecurityDecision::NeedHumanApproval { request_id } = approved {
+            guard.resolve_permission(
+                &request_id,
+                "execute_shell",
+                crate::permission::PermissionDecision::AllowAlways,
+            );
+        } else {
+            panic!("expected approval request");
+        }
+
+        let different_args = json!({ "command": "ls /projects/myapp/src" });
+        let decision = guard.check_tool_call("execute_shell", &different_args, &test_ctx());
+        assert!(
+            matches!(decision, SecurityDecision::NeedHumanApproval { .. }),
+            "different arguments should require a fresh approval"
+        );
     }
 
     #[test]

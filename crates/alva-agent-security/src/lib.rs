@@ -7,6 +7,7 @@ pub mod permission;
 pub mod sensitive_paths;
 pub mod authorized_roots;
 pub mod sandbox;
+pub(crate) mod path_utils;
 
 pub use guard::{SecurityGuard, SecurityDecision};
 pub use permission::{PermissionManager, PermissionDecision};

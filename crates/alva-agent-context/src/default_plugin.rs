@@ -1,5 +1,5 @@
 // INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextHandle, crate::store::estimate_tokens, crate::types
-// OUTPUT: pub type SummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultHooksConfig, pub struct DefaultContextHooks
+// OUTPUT: pub type DefaultSummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultHooksConfig, pub struct DefaultContextHooks
 // POS:    Built-in production context plugin combining deterministic rules with optional LLM callbacks for summarization and memory extraction.
 //! DefaultContextHooks — the built-in production plugin.
 //!
@@ -30,7 +30,12 @@ use crate::types::*;
 // ---------------------------------------------------------------------------
 
 /// Callback to generate an LLM summary of conversation text.
-pub type SummarizeFn = Arc<
+///
+/// NOTE: This is distinct from `crate::sdk_impl::SummarizeFn` which takes
+/// `&[AgentMessage]` and returns a plain `String`. This variant takes
+/// pre-extracted `String` text and returns `Result<String, String>`,
+/// matching the LLM callback pattern used by `DefaultContextHooks`.
+pub type DefaultSummarizeFn = Arc<
     dyn Fn(String, Vec<String>) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
         + Send
         + Sync,
@@ -66,7 +71,7 @@ pub struct DefaultHooksConfig {
     /// Max tokens for memory injection. Default: 1500.
     pub max_memory_tokens: usize,
     /// LLM summarization callback (optional — falls back to truncation if None).
-    pub summarize_fn: Option<SummarizeFn>,
+    pub summarize_fn: Option<DefaultSummarizeFn>,
     /// LLM memory extraction callback (optional — skips extraction if None).
     pub extract_memory_fn: Option<ExtractMemoryFn>,
 }

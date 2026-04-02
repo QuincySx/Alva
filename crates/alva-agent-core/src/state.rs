@@ -53,69 +53,13 @@ pub struct AgentConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtins::test_helpers::helpers::{make_state, StubModel};
     use alva_types::session::InMemorySession;
     use alva_types::ModelConfig;
 
-    // -----------------------------------------------------------------------
-    // MockModel — minimal LanguageModel for testing
-    // -----------------------------------------------------------------------
-    use alva_types::base::content::ContentBlock;
-    use alva_types::base::error::AgentError;
-    use alva_types::base::message::{Message, MessageRole};
-    use alva_types::base::stream::StreamEvent;
-    use async_trait::async_trait;
-    use futures_core::Stream;
-    use std::pin::Pin;
-
-    fn assistant_msg(text: &str) -> Message {
-        Message {
-            id: "mock-id".to_string(),
-            role: MessageRole::Assistant,
-            content: vec![ContentBlock::Text {
-                text: text.to_string(),
-            }],
-            tool_call_id: None,
-            usage: None,
-            timestamp: 0,
-        }
-    }
-
-    struct MockModel;
-
-    #[async_trait]
-    impl LanguageModel for MockModel {
-        async fn complete(
-            &self,
-            _messages: &[Message],
-            _tools: &[&dyn Tool],
-            _config: &ModelConfig,
-        ) -> Result<Message, AgentError> {
-            Ok(assistant_msg("mock response"))
-        }
-
-        fn stream(
-            &self,
-            _messages: &[Message],
-            _tools: &[&dyn Tool],
-            _config: &ModelConfig,
-        ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
-            Box::pin(futures::stream::empty())
-        }
-
-        fn model_id(&self) -> &str {
-            "mock-model"
-        }
-    }
-
     #[test]
     fn agent_state_creation() {
-        let state = AgentState {
-            model: Arc::new(MockModel),
-            tools: vec![],
-            session: Arc::new(InMemorySession::new()),
-            extensions: Extensions::new(),
-
-        };
+        let state = make_state();
 
         assert!(state.tools.is_empty());
         assert!(!state.session.id().is_empty());
@@ -144,11 +88,10 @@ mod tests {
         struct TokenBudget(u32);
 
         let mut state = AgentState {
-            model: Arc::new(MockModel),
+            model: Arc::new(StubModel),
             tools: vec![],
             session: Arc::new(InMemorySession::new()),
             extensions: Extensions::new(),
-
         };
 
         state.extensions.insert(TokenBudget(5000));
