@@ -190,6 +190,8 @@ impl Tool for SubAgentTool {
             middleware: None,
             model_config: None,
             context_window: 0,
+            workspace: ctx.workspace().map(|p| p.to_path_buf()),
+            bus: ctx.bus().cloned(),
         })
         .await;
 

@@ -5,6 +5,10 @@ pub mod checkpoint;
 pub mod compaction;
 pub mod plan_mode;
 pub mod security;
+
+/// Tools that perform write/execute operations.
+/// Used by CheckpointMiddleware and PlanModeMiddleware.
+pub const WRITE_TOOL_NAMES: &[&str] = &["create_file", "file_edit", "execute_shell"];
 pub use checkpoint::{CheckpointCallback, CheckpointCallbackRef, CheckpointMiddleware};
 pub use compaction::{CompactionConfig, CompactionMiddleware};
 pub use plan_mode::PlanModeMiddleware;

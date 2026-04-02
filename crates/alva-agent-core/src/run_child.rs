@@ -3,6 +3,7 @@
 // POS:    Shared helper for running a child agent to completion and collecting its text output.
 //         Used by agent_spawn (AI-driven), task_spawn (developer-constrained), and team (graph-based).
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +12,7 @@ use alva_types::base::message::Message;
 use alva_types::model::LanguageModel;
 use alva_types::session::{AgentSession, InMemorySession};
 use alva_types::tool::Tool;
-use alva_types::{AgentMessage, ModelConfig};
+use alva_types::{AgentMessage, BusHandle, ModelConfig};
 
 use crate::event::AgentEvent;
 use crate::middleware::MiddlewareStack;
@@ -37,6 +38,10 @@ pub struct ChildAgentParams {
     pub model_config: Option<ModelConfig>,
     /// Context window size. 0 = no limit.
     pub context_window: usize,
+    /// Workspace root path — inherited from parent so child tools can access the filesystem.
+    pub workspace: Option<PathBuf>,
+    /// Cross-layer coordination bus — inherited from parent so child middleware/tools can use it.
+    pub bus: Option<BusHandle>,
 }
 
 /// Output from a completed child agent run.
@@ -72,8 +77,8 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
         max_iterations: params.max_iterations,
         model_config: params.model_config.unwrap_or_default(),
         context_window: params.context_window,
-        workspace: None,
-        bus: None,
+        workspace: params.workspace,
+        bus: params.bus,
     };
 
     let user_msg = AgentMessage::Standard(Message::user(&params.task));

@@ -328,6 +328,8 @@ async fn run_single_agent(
         middleware: None,
         model_config: None,
         context_window: 0,
+        workspace: None,
+        bus: None,
     })
     .await;
 

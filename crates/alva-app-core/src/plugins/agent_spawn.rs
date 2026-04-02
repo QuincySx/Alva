@@ -113,7 +113,7 @@ impl Tool for AgentSpawnTool {
     async fn execute(
         &self,
         input: Value,
-        _ctx: &dyn ToolExecutionContext,
+        ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
         let input: SpawnInput = serde_json::from_value(input).map_err(|e| {
             AgentError::ToolError {
@@ -192,6 +192,8 @@ impl Tool for AgentSpawnTool {
             middleware: None, // TODO: accept parent middleware for security/timeout propagation
             model_config: None,
             context_window: 0,
+            workspace: ctx.workspace().map(|p| p.to_path_buf()),
+            bus: ctx.bus().cloned(),
         })
         .await;
 

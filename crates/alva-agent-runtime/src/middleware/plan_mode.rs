@@ -11,6 +11,8 @@ use alva_agent_core::state::AgentState;
 use alva_types::ToolCall;
 use async_trait::async_trait;
 
+use super::WRITE_TOOL_NAMES;
+
 /// Middleware that blocks write/execute tools when plan mode is active.
 /// When enabled, the agent can only read and analyze — no modifications.
 pub struct PlanModeMiddleware {
@@ -19,19 +21,18 @@ pub struct PlanModeMiddleware {
 }
 
 impl PlanModeMiddleware {
+    /// Additional plan-mode-only blocked tools (beyond the shared WRITE_TOOL_NAMES).
+    const EXTRA_BLOCKED: &[&str] = &["browser_action", "browser_navigate", "browser_start"];
+
     pub fn new(enabled: bool) -> Self {
+        let write_tools: HashSet<&'static str> = WRITE_TOOL_NAMES
+            .iter()
+            .chain(Self::EXTRA_BLOCKED.iter())
+            .copied()
+            .collect();
         Self {
             enabled: AtomicBool::new(enabled),
-            write_tools: [
-                "execute_shell",
-                "create_file",
-                "file_edit",
-                "browser_action",
-                "browser_navigate",
-                "browser_start",
-            ]
-            .into_iter()
-            .collect(),
+            write_tools,
         }
     }
 

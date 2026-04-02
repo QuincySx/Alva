@@ -21,8 +21,7 @@ pub trait CheckpointCallback: Send + Sync {
 /// Wrapper type stored in Extensions so the middleware can find the callback.
 pub struct CheckpointCallbackRef(pub Arc<dyn CheckpointCallback>);
 
-/// Tools that modify files — checkpoint before they run.
-const WRITE_TOOLS: &[&str] = &["create_file", "file_edit"];
+use super::WRITE_TOOL_NAMES;
 
 /// Middleware that auto-checkpoints files before write tools modify them.
 pub struct CheckpointMiddleware {
@@ -54,7 +53,7 @@ impl Middleware for CheckpointMiddleware {
         state: &mut AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        if !WRITE_TOOLS.contains(&tool_call.name.as_str()) {
+        if !WRITE_TOOL_NAMES.contains(&tool_call.name.as_str()) {
             return Ok(());
         }
 
