@@ -107,3 +107,196 @@ impl ToolExecutionContext for RuntimeExecutionContext {
         self
     }
 }
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_types::tool::execution::ToolExecutionContext;
+
+    /// Helper: create channel and return (sender, receiver).
+    fn channel() -> (
+        mpsc::UnboundedSender<AgentEvent>,
+        mpsc::UnboundedReceiver<AgentEvent>,
+    ) {
+        mpsc::unbounded_channel()
+    }
+
+    #[test]
+    fn new_defaults() {
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-1".into(),
+            tx,
+            "sess-1".into(),
+        );
+        assert!(ctx.workspace().is_none());
+        assert!(!ctx.allow_dangerous());
+        assert!(ctx.tool_fs().is_none());
+        assert!(ctx.bus().is_none());
+    }
+
+    #[test]
+    fn with_workspace_sets_workspace() {
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-1".into(),
+            tx,
+            "sess-1".into(),
+        )
+        .with_workspace(PathBuf::from("/tmp/project"));
+
+        assert_eq!(ctx.workspace().unwrap(), Path::new("/tmp/project"));
+    }
+
+    #[test]
+    fn with_bus_sets_and_returns_bus() {
+        let bus = alva_types::Bus::new();
+        let handle = bus.handle();
+
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-1".into(),
+            tx,
+            "sess-1".into(),
+        )
+        .with_bus(handle);
+
+        assert!(ctx.bus().is_some());
+    }
+
+    #[test]
+    fn with_allow_dangerous_true() {
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-1".into(),
+            tx,
+            "sess-1".into(),
+        )
+        .with_allow_dangerous(true);
+
+        assert!(ctx.allow_dangerous());
+    }
+
+    #[test]
+    fn with_tool_fs_works() {
+        use alva_types::base::error::AgentError;
+        use alva_types::tool::{ToolFsDirEntry, ToolFsExecResult};
+        use async_trait::async_trait;
+
+        struct DummyFs;
+
+        #[async_trait]
+        impl ToolFs for DummyFs {
+            async fn exec(
+                &self,
+                _cmd: &str,
+                _cwd: Option<&str>,
+                _timeout: u64,
+            ) -> Result<ToolFsExecResult, AgentError> {
+                unimplemented!()
+            }
+            async fn read_file(&self, _path: &str) -> Result<Vec<u8>, AgentError> {
+                unimplemented!()
+            }
+            async fn write_file(&self, _path: &str, _content: &[u8]) -> Result<(), AgentError> {
+                unimplemented!()
+            }
+            async fn list_dir(&self, _path: &str) -> Result<Vec<ToolFsDirEntry>, AgentError> {
+                unimplemented!()
+            }
+            async fn exists(&self, _path: &str) -> Result<bool, AgentError> {
+                unimplemented!()
+            }
+        }
+
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-1".into(),
+            tx,
+            "sess-1".into(),
+        )
+        .with_tool_fs(Arc::new(DummyFs));
+
+        assert!(ctx.tool_fs().is_some());
+    }
+
+    #[test]
+    fn cancel_token_returns_provided_token() {
+        let token = CancellationToken::new();
+        assert!(!token.is_cancelled());
+        token.cancel();
+
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(token, "call-1".into(), tx, "sess-1".into());
+
+        assert!(ctx.cancel_token().is_cancelled());
+    }
+
+    #[test]
+    fn session_id_returns_provided_string() {
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-1".into(),
+            tx,
+            "my-session-42".into(),
+        );
+
+        assert_eq!(ctx.session_id(), "my-session-42");
+    }
+
+    #[test]
+    fn report_progress_sends_event() {
+        let (tx, mut rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-99".into(),
+            tx,
+            "sess-1".into(),
+        );
+
+        ctx.report_progress(ProgressEvent::Status {
+            message: "compiling...".into(),
+        });
+
+        let event = rx.try_recv().expect("should receive an event");
+        match event {
+            AgentEvent::ToolExecutionUpdate {
+                tool_call_id,
+                event,
+            } => {
+                assert_eq!(tool_call_id, "call-99");
+                match event {
+                    ProgressEvent::Status { message } => {
+                        assert_eq!(message, "compiling...");
+                    }
+                    other => panic!("unexpected progress event variant: {:?}", other),
+                }
+            }
+            other => panic!("unexpected agent event variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn as_any_returns_self() {
+        let (tx, _rx) = channel();
+        let ctx = RuntimeExecutionContext::new(
+            CancellationToken::new(),
+            "call-1".into(),
+            tx,
+            "sess-1".into(),
+        );
+
+        let any = ctx.as_any();
+        assert!(any.downcast_ref::<RuntimeExecutionContext>().is_some());
+    }
+}

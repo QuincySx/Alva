@@ -430,4 +430,221 @@ mod tests {
         };
         assert_eq!(total, 42); // 3 * (10 + 4)
     }
+
+    // -----------------------------------------------------------------------
+    // Bus integration tests
+    // -----------------------------------------------------------------------
+
+    /// A mock TokenCounter that always returns a fixed value per call.
+    struct MockCounter(usize);
+    impl alva_types::TokenCounter for MockCounter {
+        fn count_tokens(&self, _text: &str) -> usize {
+            self.0
+        }
+        fn context_window(&self) -> usize {
+            200_000
+        }
+    }
+
+    /// A model stub that returns a canned summary message for compaction.
+    struct SummaryModel;
+
+    #[async_trait]
+    impl alva_types::model::LanguageModel for SummaryModel {
+        async fn complete(
+            &self,
+            _messages: &[Message],
+            _tools: &[&dyn alva_types::tool::Tool],
+            _config: &ModelConfig,
+        ) -> Result<Message, alva_types::base::error::AgentError> {
+            Ok(make_assistant_msg("Summary of prior conversation."))
+        }
+
+        fn stream(
+            &self,
+            _: &[Message],
+            _: &[&dyn alva_types::tool::Tool],
+            _: &ModelConfig,
+        ) -> std::pin::Pin<
+            Box<dyn futures_core::Stream<Item = alva_types::base::stream::StreamEvent> + Send>,
+        > {
+            Box::pin(tokio_stream::empty())
+        }
+
+        fn model_id(&self) -> &str {
+            "summary-stub"
+        }
+    }
+
+    fn make_state_with_summary_model() -> AgentState {
+        use alva_agent_core::shared::Extensions;
+        use alva_types::session::InMemorySession;
+
+        AgentState {
+            model: Arc::new(SummaryModel),
+            tools: vec![],
+            session: Arc::new(InMemorySession::new()),
+            extensions: Extensions::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn before_llm_call_uses_bus_counter_not_heuristic() {
+        // MockCounter returns 500 per message -> each msg = 500 + 4 = 504.
+        // With 7 messages that's 3528 tokens > trigger 200.
+        //
+        // The split-point logic uses the heuristic (estimated_tokens on ContentBlock),
+        // so we make messages long enough (~400 chars each ≈ 100 heuristic tokens)
+        // to ensure the heuristic-based split finds enough old messages to compact.
+        // keep_recent_tokens=250 means the last ~2 messages stay recent.
+        let bus = alva_types::Bus::new();
+        let writer = bus.writer();
+        writer.provide::<dyn alva_types::TokenCounter>(Arc::new(MockCounter(500)));
+        let handle = bus.handle();
+
+        let mw = CompactionMiddleware::new(CompactionConfig {
+            trigger_tokens: 200,
+            reserve_tokens: 0,
+            keep_recent_tokens: 250,
+        })
+        .with_bus(handle);
+
+        let mut state = make_state_with_summary_model();
+        let long_text = "x".repeat(400); // ~100 heuristic tokens each
+        let mut msgs = vec![
+            Message::system("You are a helper."),
+            make_user_msg(&format!("msg1 {}", long_text)),
+            make_assistant_msg(&format!("msg2 {}", long_text)),
+            make_user_msg(&format!("msg3 {}", long_text)),
+            make_assistant_msg(&format!("msg4 {}", long_text)),
+            make_user_msg(&format!("msg5 {}", long_text)),
+            make_assistant_msg(&format!("msg6 {}", long_text)),
+        ];
+
+        let result = mw.before_llm_call(&mut state, &mut msgs).await;
+        assert!(result.is_ok());
+
+        // Compaction should have fired because the bus counter estimated well above threshold.
+        assert!(
+            mw.compaction_count() > 0,
+            "compaction should trigger when bus counter estimates above threshold"
+        );
+    }
+
+    #[tokio::test]
+    async fn before_llm_call_falls_back_to_heuristic_without_counter() {
+        // No TokenCounter on the bus -> falls back to chars/4 heuristic.
+        // "short" is 5 chars -> ~1 token + 4 overhead = 5 per msg.
+        // 5 messages * 5 = 25 tokens total, well under trigger of 200.
+        let bus = alva_types::Bus::new();
+        let handle = bus.handle();
+
+        let mw = CompactionMiddleware::new(CompactionConfig {
+            trigger_tokens: 200,
+            reserve_tokens: 0,
+            keep_recent_tokens: 50,
+        })
+        .with_bus(handle);
+
+        let mut state = make_state_with_summary_model();
+        let mut msgs = vec![
+            Message::system("sys"),
+            make_user_msg("short"),
+            make_assistant_msg("short"),
+            make_user_msg("short"),
+            make_assistant_msg("short"),
+        ];
+
+        let result = mw.before_llm_call(&mut state, &mut msgs).await;
+        assert!(result.is_ok());
+
+        // Heuristic gives a small count, so compaction should NOT fire.
+        assert_eq!(
+            mw.compaction_count(),
+            0,
+            "compaction should not trigger with heuristic on short messages"
+        );
+    }
+
+    #[tokio::test]
+    async fn token_budget_exceeded_event_emitted() {
+        let bus = alva_types::Bus::new();
+        let writer = bus.writer();
+        writer.provide::<dyn alva_types::TokenCounter>(Arc::new(MockCounter(500)));
+        let handle = bus.handle();
+
+        // Subscribe BEFORE the middleware runs.
+        let mut rx = handle.subscribe::<alva_types::TokenBudgetExceeded>();
+
+        let mw = CompactionMiddleware::new(CompactionConfig {
+            trigger_tokens: 200,
+            reserve_tokens: 0,
+            keep_recent_tokens: 250,
+        })
+        .with_bus(handle);
+
+        let mut state = make_state_with_summary_model();
+        let long_text = "x".repeat(400);
+        let mut msgs = vec![
+            Message::system("sys"),
+            make_user_msg(&format!("aaa {}", long_text)),
+            make_assistant_msg(&format!("bbb {}", long_text)),
+            make_user_msg(&format!("ccc {}", long_text)),
+            make_assistant_msg(&format!("ddd {}", long_text)),
+            make_user_msg(&format!("eee {}", long_text)),
+            make_assistant_msg(&format!("fff {}", long_text)),
+        ];
+
+        let _ = mw.before_llm_call(&mut state, &mut msgs).await;
+
+        // The middleware should have emitted a TokenBudgetExceeded event.
+        let event = rx.try_recv().expect("should receive TokenBudgetExceeded event");
+        assert!(event.used_tokens > event.budget_tokens);
+        assert_eq!(event.budget_tokens, 200);
+        assert!(event.usage_ratio > 1.0);
+    }
+
+    #[tokio::test]
+    async fn context_compacted_event_emitted() {
+        let bus = alva_types::Bus::new();
+        let writer = bus.writer();
+        writer.provide::<dyn alva_types::TokenCounter>(Arc::new(MockCounter(500)));
+        let handle = bus.handle();
+
+        // Subscribe BEFORE the middleware runs.
+        let mut rx = handle.subscribe::<alva_types::ContextCompacted>();
+
+        let mw = CompactionMiddleware::new(CompactionConfig {
+            trigger_tokens: 200,
+            reserve_tokens: 0,
+            keep_recent_tokens: 250,
+        })
+        .with_bus(handle);
+
+        let mut state = make_state_with_summary_model();
+        let long_text = "x".repeat(400);
+        let mut msgs = vec![
+            Message::system("sys"),
+            make_user_msg(&format!("aaa {}", long_text)),
+            make_assistant_msg(&format!("bbb {}", long_text)),
+            make_user_msg(&format!("ccc {}", long_text)),
+            make_assistant_msg(&format!("ddd {}", long_text)),
+            make_user_msg(&format!("eee {}", long_text)),
+            make_assistant_msg(&format!("fff {}", long_text)),
+        ];
+
+        let _ = mw.before_llm_call(&mut state, &mut msgs).await;
+
+        // Compaction should have fired and emitted a ContextCompacted event.
+        assert!(mw.compaction_count() > 0, "compaction should have triggered");
+
+        let event = rx.try_recv().expect("should receive ContextCompacted event");
+        assert_eq!(event.strategy, "llm_summarization");
+        assert!(
+            event.tokens_before > event.tokens_after,
+            "tokens_after ({}) should be less than tokens_before ({})",
+            event.tokens_after,
+            event.tokens_before,
+        );
+    }
 }
