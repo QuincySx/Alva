@@ -10,3 +10,6 @@ pub use error::RuntimeError;
 pub use event::{PermissionDecision, RuntimeCapabilities, RuntimeEvent, RuntimeUsage};
 pub use request::{RuntimeOptions, RuntimeRequest};
 pub use runtime::EngineRuntime;
+
+#[cfg(test)]
+mod tests;

@@ -73,3 +73,128 @@ impl fmt::Debug for BusWriter {
         f.debug_struct("BusWriter").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bus::Bus;
+    use crate::event::BusEvent;
+
+    struct DatabasePool;
+    struct HttpClient;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct TestEvent(String);
+    impl BusEvent for TestEvent {}
+
+    /// Helper: create a fresh BusWriter via Bus.
+    fn make_writer() -> BusWriter {
+        Bus::new().writer()
+    }
+
+    // ---- provide() + get() round-trip ----
+
+    #[test]
+    fn provide_and_get_round_trip() {
+        let w = make_writer();
+        w.provide(Arc::new(42_u32));
+        let val = w.get::<u32>();
+        assert!(val.is_some());
+        assert_eq!(*val.unwrap(), 42);
+    }
+
+    #[test]
+    fn get_missing_returns_none() {
+        let w = make_writer();
+        assert!(w.get::<DatabasePool>().is_none());
+    }
+
+    // ---- require() panics when missing ----
+
+    #[test]
+    #[should_panic(expected = "required capability")]
+    fn require_panics_when_missing() {
+        let w = make_writer();
+        let _: Arc<DatabasePool> = w.require::<DatabasePool>();
+    }
+
+    #[test]
+    fn require_returns_value_when_present() {
+        let w = make_writer();
+        w.provide(Arc::new(HttpClient));
+        let _: Arc<HttpClient> = w.require::<HttpClient>();
+    }
+
+    // ---- has() returns correct bool ----
+
+    #[test]
+    fn has_returns_false_when_missing() {
+        let w = make_writer();
+        assert!(!w.has::<DatabasePool>());
+    }
+
+    #[test]
+    fn has_returns_true_after_provide() {
+        let w = make_writer();
+        w.provide(Arc::new(DatabasePool));
+        assert!(w.has::<DatabasePool>());
+    }
+
+    // ---- emit() + subscribe() ----
+
+    #[tokio::test]
+    async fn emit_and_subscribe_works() {
+        let w = make_writer();
+        let mut rx = w.subscribe::<TestEvent>();
+        w.emit(TestEvent("hello".into()));
+        let msg = rx.recv().await.unwrap();
+        assert_eq!(msg, TestEvent("hello".into()));
+    }
+
+    #[tokio::test]
+    async fn emit_multiple_events() {
+        let w = make_writer();
+        let mut rx = w.subscribe::<TestEvent>();
+        w.emit(TestEvent("first".into()));
+        w.emit(TestEvent("second".into()));
+        assert_eq!(rx.recv().await.unwrap(), TestEvent("first".into()));
+        assert_eq!(rx.recv().await.unwrap(), TestEvent("second".into()));
+    }
+
+    // ---- handle() returns read-only BusHandle ----
+
+    #[test]
+    fn handle_can_read_what_writer_wrote() {
+        let w = make_writer();
+        w.provide(Arc::new(99_u32));
+        let h = w.handle();
+        let val = h.get::<u32>();
+        assert!(val.is_some());
+        assert_eq!(*val.unwrap(), 99);
+    }
+
+    #[test]
+    fn handle_has_reflects_writer_state() {
+        let w = make_writer();
+        let h = w.handle();
+        assert!(!h.has::<DatabasePool>());
+        w.provide(Arc::new(DatabasePool));
+        assert!(h.has::<DatabasePool>());
+    }
+
+    #[tokio::test]
+    async fn handle_receives_events_from_writer() {
+        let w = make_writer();
+        let h = w.handle();
+        let mut rx = h.subscribe::<TestEvent>();
+        w.emit(TestEvent("via writer".into()));
+        assert_eq!(rx.recv().await.unwrap(), TestEvent("via writer".into()));
+    }
+
+    #[test]
+    fn writer_is_debug() {
+        let w = make_writer();
+        let debug = format!("{:?}", w);
+        assert!(debug.contains("BusWriter"));
+    }
+}
