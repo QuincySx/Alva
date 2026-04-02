@@ -92,3 +92,116 @@ pub fn build_mcp_tools(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::McpTransportFactory;
+    use crate::transport::McpTransport;
+    use crate::types::McpServerConfig;
+
+    // Dummy factory that is never actually used to connect
+    struct DummyFactory;
+    impl McpTransportFactory for DummyFactory {
+        fn create(&self, _config: &McpServerConfig) -> Box<dyn McpTransport> {
+            unimplemented!("not needed for adapter tests")
+        }
+    }
+
+    fn sample_info() -> McpToolInfo {
+        McpToolInfo {
+            server_id: "my-server".into(),
+            tool_name: "do-stuff".into(),
+            description: "Does stuff".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "input": { "type": "string" }
+                }
+            }),
+        }
+    }
+
+    fn make_client() -> Arc<McpClient> {
+        Arc::new(McpClient::new(Arc::new(DummyFactory)))
+    }
+
+    // ── McpToolAdapter name prefixing ───────────────────────────────────
+
+    #[test]
+    fn adapter_name_is_prefixed() {
+        let adapter = McpToolAdapter::new(sample_info(), make_client());
+        assert_eq!(adapter.name(), "mcp:my-server:do-stuff");
+    }
+
+    #[test]
+    fn adapter_description_is_prefixed() {
+        let adapter = McpToolAdapter::new(sample_info(), make_client());
+        assert_eq!(adapter.description(), "[MCP:my-server] Does stuff");
+    }
+
+    #[test]
+    fn adapter_parameters_schema_returns_input_schema() {
+        let info = sample_info();
+        let expected = info.input_schema.clone();
+        let adapter = McpToolAdapter::new(info, make_client());
+        assert_eq!(adapter.parameters_schema(), expected);
+    }
+
+    // ── tool_name static helper ─────────────────────────────────────────
+
+    #[test]
+    fn tool_name_helper_format() {
+        let name = McpToolAdapter::tool_name("srv", "my-tool");
+        assert_eq!(name, "mcp:srv:my-tool");
+    }
+
+    // ── build_mcp_tools ─────────────────────────────────────────────────
+
+    #[test]
+    fn build_mcp_tools_creates_correct_count() {
+        let client = make_client();
+        let infos = vec![
+            McpToolInfo {
+                server_id: "s1".into(),
+                tool_name: "t1".into(),
+                description: "d1".into(),
+                input_schema: serde_json::json!({}),
+            },
+            McpToolInfo {
+                server_id: "s1".into(),
+                tool_name: "t2".into(),
+                description: "d2".into(),
+                input_schema: serde_json::json!({}),
+            },
+            McpToolInfo {
+                server_id: "s2".into(),
+                tool_name: "t3".into(),
+                description: "d3".into(),
+                input_schema: serde_json::json!({}),
+            },
+        ];
+
+        let tools = build_mcp_tools(client, infos);
+        assert_eq!(tools.len(), 3);
+        assert_eq!(tools[0].name(), "mcp:s1:t1");
+        assert_eq!(tools[1].name(), "mcp:s1:t2");
+        assert_eq!(tools[2].name(), "mcp:s2:t3");
+    }
+
+    #[test]
+    fn build_mcp_tools_empty_input() {
+        let tools = build_mcp_tools(make_client(), vec![]);
+        assert!(tools.is_empty());
+    }
+
+    // ── Tool trait impl ─────────────────────────────────────────────────
+
+    #[test]
+    fn adapter_implements_tool_definition() {
+        let adapter = McpToolAdapter::new(sample_info(), make_client());
+        let def = adapter.definition();
+        assert_eq!(def.name, "mcp:my-server:do-stuff");
+        assert_eq!(def.description, "[MCP:my-server] Does stuff");
+    }
+}

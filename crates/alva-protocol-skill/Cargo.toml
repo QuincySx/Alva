@@ -22,4 +22,5 @@ tracing = "0.1"
 tokio = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs"] }
+tempfile = "3"

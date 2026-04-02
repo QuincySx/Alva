@@ -475,6 +475,358 @@ impl SkillRepository for FsSkillRepository {
     }
 }
 
+// ── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::SkillRepository;
+
+    const SKILL_MD_ALPHA: &str = r#"---
+name: alpha
+description: Alpha skill for testing
+---
+
+# Alpha Instructions
+
+Do alpha things.
+"#;
+
+    const SKILL_MD_BETA: &str = r#"---
+name: beta
+description: Beta skill for testing
+license: MIT
+allowed_tools:
+  - read_file
+  - bash
+---
+
+# Beta Instructions
+
+Do beta things.
+"#;
+
+    /// Create a temporary directory tree with bundled, mbb, user dirs and state file.
+    /// Returns (FsSkillRepository, TempDir).
+    fn setup_repo() -> (tempfile::TempDir, FsSkillRepository) {
+        let dir = tempfile::tempdir().unwrap();
+        let bundled = dir.path().join("bundled");
+        let mbb = dir.path().join("mbb");
+        let user = dir.path().join("user");
+        let state = dir.path().join("state.json");
+
+        std::fs::create_dir_all(&bundled).unwrap();
+        std::fs::create_dir_all(&mbb).unwrap();
+        std::fs::create_dir_all(&user).unwrap();
+
+        let repo = FsSkillRepository::new(&bundled, &mbb, &user, &state);
+        (dir, repo)
+    }
+
+    fn write_skill(base_dir: &Path, name: &str, content: &str) {
+        let skill_dir = base_dir.join(name);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+    }
+
+    fn write_skill_with_resources(base_dir: &Path, name: &str, content: &str, resources: &[(&str, &[u8])]) {
+        let skill_dir = base_dir.join(name);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+        for (path, data) in resources {
+            let full = skill_dir.join(path);
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(full, data).unwrap();
+        }
+    }
+
+    // ── parse_frontmatter ───────────────────────────────────────────────
+
+    #[test]
+    fn parse_frontmatter_valid() {
+        let meta = FsSkillRepository::parse_frontmatter(SKILL_MD_ALPHA).unwrap();
+        assert_eq!(meta.name, "alpha");
+        assert_eq!(meta.description, "Alpha skill for testing");
+        assert!(meta.license.is_none());
+        assert!(meta.allowed_tools.is_none());
+    }
+
+    #[test]
+    fn parse_frontmatter_with_optional_fields() {
+        let meta = FsSkillRepository::parse_frontmatter(SKILL_MD_BETA).unwrap();
+        assert_eq!(meta.name, "beta");
+        assert_eq!(meta.license, Some("MIT".into()));
+        assert_eq!(
+            meta.allowed_tools,
+            Some(vec!["read_file".into(), "bash".into()])
+        );
+    }
+
+    #[test]
+    fn parse_frontmatter_missing_opening_delimiter() {
+        let err = FsSkillRepository::parse_frontmatter("no frontmatter here").unwrap_err();
+        assert!(matches!(err, SkillError::InvalidSkillMd(_)));
+    }
+
+    #[test]
+    fn parse_frontmatter_missing_closing_delimiter() {
+        let content = "---\nname: broken\n";
+        let err = FsSkillRepository::parse_frontmatter(content).unwrap_err();
+        assert!(matches!(err, SkillError::InvalidSkillMd(_)));
+    }
+
+    // ── parse_body ──────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_body_extracts_after_frontmatter() {
+        let body = FsSkillRepository::parse_body(SKILL_MD_ALPHA);
+        assert!(body.markdown.starts_with("# Alpha Instructions"));
+        assert!(body.markdown.contains("Do alpha things."));
+        assert!(body.estimated_tokens > 0);
+    }
+
+    #[test]
+    fn parse_body_no_frontmatter_returns_full_content() {
+        let content = "Just some markdown content.";
+        let body = FsSkillRepository::parse_body(content);
+        assert_eq!(body.markdown, "Just some markdown content.");
+    }
+
+    // ── list_skills ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_skills_scans_bundled_dir() {
+        let (dir, repo) = setup_repo();
+        let bundled = dir.path().join("bundled");
+        write_skill(&bundled, "alpha", SKILL_MD_ALPHA);
+        write_skill(&bundled, "beta", SKILL_MD_BETA);
+
+        // No state file => all bundled skills enabled by default
+        let skills = repo.list_skills().await.unwrap();
+        assert_eq!(skills.len(), 2);
+
+        let names: Vec<_> = skills.iter().map(|s| s.meta.name.as_str()).collect();
+        assert!(names.contains(&"alpha"));
+        assert!(names.contains(&"beta"));
+
+        // Bundled skills should be enabled (default behavior)
+        for skill in &skills {
+            assert!(skill.enabled);
+            assert_eq!(skill.kind, SkillKind::Bundled);
+        }
+    }
+
+    #[tokio::test]
+    async fn list_skills_empty_dirs() {
+        let (_dir, repo) = setup_repo();
+        let skills = repo.list_skills().await.unwrap();
+        assert!(skills.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_skills_includes_user_installed() {
+        let (dir, repo) = setup_repo();
+        let user = dir.path().join("user");
+        write_skill(&user, "custom", SKILL_MD_ALPHA);
+
+        // Write state file to enable the skill
+        let state = dir.path().join("state.json");
+        std::fs::write(&state, r#"{"enabled": ["alpha"]}"#).unwrap();
+
+        let skills = repo.list_skills().await.unwrap();
+        let user_skills: Vec<_> = skills
+            .iter()
+            .filter(|s| matches!(s.kind, SkillKind::UserInstalled))
+            .collect();
+        assert_eq!(user_skills.len(), 1);
+    }
+
+    // ── find_skill ──────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn find_skill_found() {
+        let (dir, repo) = setup_repo();
+        write_skill(&dir.path().join("bundled"), "alpha", SKILL_MD_ALPHA);
+
+        let found = repo.find_skill("alpha").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().meta.name, "alpha");
+    }
+
+    #[tokio::test]
+    async fn find_skill_not_found() {
+        let (_dir, repo) = setup_repo();
+        let found = repo.find_skill("missing").await.unwrap();
+        assert!(found.is_none());
+    }
+
+    // ── load_body ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn load_body_returns_markdown() {
+        let (dir, repo) = setup_repo();
+        write_skill(&dir.path().join("bundled"), "alpha", SKILL_MD_ALPHA);
+
+        let body = repo.load_body("alpha").await.unwrap();
+        assert!(body.markdown.contains("Alpha Instructions"));
+    }
+
+    #[tokio::test]
+    async fn load_body_not_found() {
+        let (_dir, repo) = setup_repo();
+        let err = repo.load_body("missing").await.unwrap_err();
+        assert!(matches!(err, SkillError::SkillNotFound(_)));
+    }
+
+    // ── load_resource / list_resources ───────────────────────────────────
+
+    #[tokio::test]
+    async fn load_resource_returns_file_content() {
+        let (dir, repo) = setup_repo();
+        write_skill_with_resources(
+            &dir.path().join("bundled"),
+            "alpha",
+            SKILL_MD_ALPHA,
+            &[("refs/api.md", b"# API Reference")],
+        );
+
+        let resource = repo.load_resource("alpha", "refs/api.md").await.unwrap();
+        assert_eq!(resource.relative_path, "refs/api.md");
+        assert_eq!(resource.content, b"# API Reference");
+        assert_eq!(resource.content_type, ResourceContentType::Markdown);
+    }
+
+    #[tokio::test]
+    async fn list_resources_excludes_skill_md() {
+        let (dir, repo) = setup_repo();
+        write_skill_with_resources(
+            &dir.path().join("bundled"),
+            "alpha",
+            SKILL_MD_ALPHA,
+            &[
+                ("scripts/run.sh", b"#!/bin/sh\necho hi"),
+                ("refs/notes.md", b"# Notes"),
+            ],
+        );
+
+        let paths = repo.list_resources("alpha").await.unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().any(|p| p.contains("run.sh")));
+        assert!(paths.iter().any(|p| p.contains("notes.md")));
+        // SKILL.md should be excluded
+        assert!(!paths.iter().any(|p| p.contains("SKILL.md")));
+    }
+
+    // ── set_enabled ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn set_enabled_persists_to_state_file() {
+        let (dir, repo) = setup_repo();
+        write_skill(&dir.path().join("bundled"), "alpha", SKILL_MD_ALPHA);
+
+        repo.set_enabled("alpha", true).await.unwrap();
+
+        let state_file = dir.path().join("state.json");
+        let content = tokio::fs::read_to_string(&state_file).await.unwrap();
+        let value: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let enabled = value["enabled"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(enabled.contains(&"alpha".to_string()));
+    }
+
+    // ── install from local dir ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn install_from_local_dir() {
+        let (dir, repo) = setup_repo();
+
+        // Create a source directory
+        let source = dir.path().join("source-skill");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("SKILL.md"), SKILL_MD_ALPHA).unwrap();
+        std::fs::write(source.join("extra.txt"), "extra file").unwrap();
+
+        let meta = repo
+            .install(SkillInstallSource::LocalDir(source))
+            .await
+            .unwrap();
+        assert_eq!(meta.name, "alpha");
+
+        // Verify copied to user dir
+        let installed = dir.path().join("user").join("alpha");
+        assert!(installed.join("SKILL.md").exists());
+        assert!(installed.join("extra.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn install_from_local_dir_missing_skill_md() {
+        let (dir, repo) = setup_repo();
+        let source = dir.path().join("empty-source");
+        std::fs::create_dir_all(&source).unwrap();
+
+        let err = repo
+            .install(SkillInstallSource::LocalDir(source))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SkillError::InvalidSkillMd(_)));
+    }
+
+    // ── remove ──────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn remove_deletes_user_skill_dir() {
+        let (dir, repo) = setup_repo();
+        let user = dir.path().join("user");
+        write_skill(&user, "custom", SKILL_MD_ALPHA);
+        assert!(user.join("custom").exists());
+
+        repo.remove("custom").await.unwrap();
+        assert!(!user.join("custom").exists());
+    }
+
+    // ── MBB skills ──────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_skills_includes_mbb_with_domains() {
+        let (dir, repo) = setup_repo();
+        let mbb = dir.path().join("mbb");
+        write_skill(&mbb, "train-helper", SKILL_MD_ALPHA);
+
+        // Write manifest.json
+        let manifest = serde_json::json!({
+            "skills": [
+                { "id": "train-helper", "domains": ["12306.cn", "railway.com"] }
+            ]
+        });
+        std::fs::write(mbb.join("manifest.json"), manifest.to_string()).unwrap();
+
+        // Enable train-helper (renamed to "alpha" in SKILL.md)
+        let state = dir.path().join("state.json");
+        std::fs::write(&state, r#"{"enabled": ["alpha"]}"#).unwrap();
+
+        let skills = repo.list_skills().await.unwrap();
+        let mbb_skills: Vec<_> = skills
+            .iter()
+            .filter(|s| matches!(&s.kind, SkillKind::Mbb { .. }))
+            .collect();
+        assert_eq!(mbb_skills.len(), 1);
+
+        match &mbb_skills[0].kind {
+            SkillKind::Mbb { domains } => {
+                assert!(domains.contains(&"12306.cn".to_string()));
+                assert!(domains.contains(&"railway.com".to_string()));
+            }
+            _ => panic!("expected Mbb kind"),
+        }
+    }
+}
+
 /// Recursively copy a directory
 async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
     tokio::fs::create_dir_all(dst).await?;

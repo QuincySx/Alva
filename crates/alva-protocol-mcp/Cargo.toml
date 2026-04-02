@@ -16,6 +16,10 @@ tracing = "0.1"
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", features = ["process", "io-util", "fs"] }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tempfile = "3"
+
 [features]
 default = ["native"]
 native = []
