@@ -15,9 +15,7 @@
 //!   agent/        — ACP client, session, persistence
 //!   mcp/          — MCP protocol layer
 //!   skills/       — Skill system (loader, store, injector)
-//!   gateway/      — API gateway (placeholder)
 //!   base/         — Infrastructure (process manager)
-//!   system/       — System capabilities (placeholder)
 //!   types/        — Shared type definitions (legacy, prefer alva-types)
 //!   domain/       — Domain models (DDD)
 //!   ports/        — Port/interface definitions (DDD)
@@ -68,9 +66,7 @@ pub use alva_environment;
 pub mod agent;
 pub mod mcp;
 pub mod skills;
-pub mod gateway;
 pub(crate) mod base;
-pub mod system;
 pub use alva_environment::environment;
 pub(crate) mod types;
 pub(crate) mod domain;

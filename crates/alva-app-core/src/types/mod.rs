@@ -1,5 +1,4 @@
 // INPUT:  (none)
-// OUTPUT: pub mod acp_message, pub mod llm
+// OUTPUT: (none)
 // POS:    Module declaration for the shared types re-export layer.
-pub mod acp_message;
-pub mod llm;
+// All types have been migrated to alva-types. This module is kept for the module tree.

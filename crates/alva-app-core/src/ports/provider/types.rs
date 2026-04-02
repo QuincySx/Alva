@@ -1,7 +1,0 @@
-// INPUT:  (none)
-// OUTPUT: (none)
-// POS:    Placeholder module reserved for future provider-level shared types.
-// V4 provider types (ProviderOptions, ProviderMetadata, ProviderHeaders,
-// ProviderWarning) have been removed. Model capability traits are now
-// defined in alva-types. This module is kept as a placeholder in case
-// provider-level shared types are needed in the future.
