@@ -58,6 +58,17 @@ fn event_matches(event: &SessionEvent, filter: &EventQuery) -> bool {
     true
 }
 
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 fn make_preview(event: &SessionEvent) -> String {
     let text = match &event.message {
         Some(msg) => match &msg.content {
@@ -70,7 +81,7 @@ fn make_preview(event: &SessionEvent) -> String {
         },
     };
     if text.len() > 160 {
-        format!("{}...", &text[..160])
+        format!("{}...", safe_truncate(&text, 160))
     } else {
         text
     }
@@ -278,6 +289,35 @@ mod tests {
 
         let loaded = session.load_snapshot().await.unwrap();
         assert_eq!(loaded, data);
+    }
+
+    #[test]
+    fn test_make_preview_multibyte_no_panic() {
+        // 60 CJK chars * 3 bytes = 180 bytes, exceeds the 160-byte limit.
+        let long_chinese = "你好世界".repeat(15); // 60 chars = 180 bytes
+        let event = SessionEvent::user_message(serde_json::json!(long_chinese));
+        let preview = make_preview(&event);
+        // Must not panic and must end with "..."
+        assert!(preview.ends_with("..."));
+        // The truncated portion (before "...") must be valid UTF-8 and at most 160 bytes.
+        let without_dots = &preview[..preview.len() - 3];
+        assert!(without_dots.len() <= 160);
+    }
+
+    #[test]
+    fn test_make_preview_short_multibyte() {
+        let short = "你好世界";
+        let event = SessionEvent::user_message(serde_json::json!(short));
+        let preview = make_preview(&event);
+        assert_eq!(preview, "你好世界");
+    }
+
+    #[test]
+    fn test_safe_truncate_char_boundary() {
+        // "你好" = 6 bytes. Truncating at 4 should yield "你" (3 bytes), not panic.
+        assert_eq!(safe_truncate("你好", 4), "你");
+        assert_eq!(safe_truncate("你好", 6), "你好");
+        assert_eq!(safe_truncate("你好", 100), "你好");
     }
 
     #[tokio::test]

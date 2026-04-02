@@ -9,6 +9,15 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::local_fs::LocalToolFs;
+use crate::truncate::safe_truncate;
+
+fn truncated_preview(text: &str) -> &str {
+    safe_truncate(text, 50)
+}
+
+fn unique_match_count(content: &str, needle: &str) -> usize {
+    content.matches(needle).count()
+}
 
 #[derive(Debug, Deserialize)]
 struct SingleEdit {
@@ -104,14 +113,23 @@ impl Tool for FileEditTool {
 
         // Validate ALL edits against the ORIGINAL content before applying
         for edit in &edits {
-            let count = content.matches(&edit.old_str).count();
+            if edit.old_str.is_empty() {
+                return Ok(ToolOutput::error("old_str must not be empty"));
+            }
+
+            let count = unique_match_count(&content, &edit.old_str);
             if count == 0 {
-                return Ok(ToolOutput::error(format!("old_str not found: {:?}",
-                    &edit.old_str[..edit.old_str.len().min(50)])));
+                return Ok(ToolOutput::error(format!(
+                    "old_str not found: {:?}",
+                    truncated_preview(&edit.old_str)
+                )));
             }
             if count > 1 {
-                return Ok(ToolOutput::error(format!("old_str found {} times (must be unique): {:?}",
-                    count, &edit.old_str[..edit.old_str.len().min(50)])));
+                return Ok(ToolOutput::error(format!(
+                    "old_str found {} times (must be unique): {:?}",
+                    count,
+                    truncated_preview(&edit.old_str)
+                )));
             }
         }
 
@@ -120,9 +138,27 @@ impl Tool for FileEditTool {
         let mut combined_diff = String::new();
         let mut details_edits = Vec::new();
 
-        for edit in &edits {
+        for (index, edit) in edits.iter().enumerate() {
+            let current_count = unique_match_count(&current, &edit.old_str);
+            if current_count == 0 {
+                return Ok(ToolOutput::error(format!(
+                    "edit {} was invalidated by an earlier edit: old_str not found: {:?}",
+                    index + 1,
+                    truncated_preview(&edit.old_str)
+                )));
+            }
+            if current_count > 1 {
+                return Ok(ToolOutput::error(format!(
+                    "edit {} was invalidated by an earlier edit: old_str found {} times (must be unique): {:?}",
+                    index + 1,
+                    current_count,
+                    truncated_preview(&edit.old_str)
+                )));
+            }
+
             // Find line number of change in current content
-            let line_num = current[..current.find(&edit.old_str).unwrap()]
+            let match_index = current.find(&edit.old_str).expect("validated unique match");
+            let line_num = current[..match_index]
                 .lines()
                 .count() + 1;
 
@@ -170,5 +206,101 @@ impl Tool for FileEditTool {
                 "edits": details_edits,
             })),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use crate::MockToolFs;
+    use alva_types::{CancellationToken, ToolExecutionContext, ToolFs};
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+        fs: MockToolFs,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+
+        fn tool_fs(&self) -> Option<&dyn alva_types::ToolFs> {
+            Some(&self.fs)
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn batch_edits_fail_when_earlier_edit_invalidates_later_match() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/test.txt", b"alpha\nbeta\n"),
+        };
+        let tool = FileEditTool;
+
+        let output = tool
+            .execute(
+                json!({
+                    "path": "test.txt",
+                    "edits": [
+                        { "old_str": "alpha", "new_str": "beta" },
+                        { "old_str": "beta", "new_str": "gamma" }
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .expect("tool execution should succeed with an error output");
+
+        assert!(output.is_error, "batch edit should be rejected");
+        assert!(
+            output.model_text().contains("earlier edit"),
+            "unexpected output: {}",
+            output.model_text()
+        );
+
+        let current = String::from_utf8(
+            ctx.fs
+                .read_file("/workspace/test.txt")
+                .await
+                .expect("file should still exist"),
+        )
+        .expect("mock file should be utf-8");
+        assert_eq!(current, "alpha\nbeta\n");
+    }
+
+    #[test]
+    fn truncated_preview_multibyte_no_panic() {
+        // 20 CJK chars = 60 bytes in UTF-8, exceeds the 50-byte limit.
+        let text = "你好世界你好世界你好世界你好世界你好世界";
+        let preview = truncated_preview(text);
+        // Must not panic and must be valid UTF-8 with len <= 50.
+        assert!(preview.len() <= 50);
+        assert!(preview.is_char_boundary(preview.len()));
+        // 50 / 3 = 16 full chars = 48 bytes.
+        assert_eq!(preview, "你好世界你好世界你好世界你好世界");
+    }
+
+    #[test]
+    fn truncated_preview_short_string() {
+        let text = "hello";
+        assert_eq!(truncated_preview(text), "hello");
     }
 }

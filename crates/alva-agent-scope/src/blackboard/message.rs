@@ -81,12 +81,12 @@ impl BoardMessage {
         };
 
         let kind_tag = match &self.kind {
-            MessageKind::Introduction => " [intro]",
-            MessageKind::Chat => "",
-            MessageKind::Artifact { name } => &format!(" [artifact: {}]", name),
-            MessageKind::Question { .. } => " [question]",
-            MessageKind::Answer { .. } => " [answer]",
-            MessageKind::Status { phase } => &format!(" [{}]", phase.label()),
+            MessageKind::Introduction => " [intro]".to_string(),
+            MessageKind::Chat => String::new(),
+            MessageKind::Artifact { name } => format!(" [artifact: {}]", name),
+            MessageKind::Question { .. } => " [question]".to_string(),
+            MessageKind::Answer { .. } => " [answer]".to_string(),
+            MessageKind::Status { phase } => format!(" [{}]", phase.label()),
         };
 
         format!("[{}]{}: {}{}", self.from, kind_tag, self.content, mention_str)
@@ -177,6 +177,30 @@ mod tests {
 
         let line = msg.to_chat_line();
         assert!(line.contains("[intro]"));
+    }
+
+    #[test]
+    fn chat_line_artifact_no_dangling_ref() {
+        // Artifact and Status variants previously used `&format!(...)` which
+        // created a temporary String whose reference dangled.
+        let msg = BoardMessage::new("gen", "提交代码")
+            .with_kind(MessageKind::Artifact {
+                name: "你好世界".into(),
+            });
+        let line = msg.to_chat_line();
+        assert!(line.contains("[artifact: 你好世界]"));
+        assert!(line.contains("提交代码"));
+    }
+
+    #[test]
+    fn chat_line_status_no_dangling_ref() {
+        let msg = BoardMessage::new("worker", "任务完成了")
+            .with_kind(MessageKind::Status {
+                phase: TaskPhase::Completed,
+            });
+        let line = msg.to_chat_line();
+        assert!(line.contains("[completed]"));
+        assert!(line.contains("任务完成了"));
     }
 
     #[test]

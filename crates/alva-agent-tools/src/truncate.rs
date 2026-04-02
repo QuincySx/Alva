@@ -118,6 +118,20 @@ pub fn truncate_tail(text: &str, max_lines: usize, max_bytes: usize) -> Truncate
     }
 }
 
+/// Truncate a `&str` at up to `max_bytes` bytes without splitting a multi-byte
+/// character. Returns the longest prefix whose byte length is ≤ `max_bytes`
+/// and that ends on a valid UTF-8 char boundary.
+pub fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Truncate a single line if it exceeds `max_len` characters.
 ///
 /// Appends `"... [truncated]"` to indicate the line was shortened.
@@ -125,7 +139,7 @@ pub fn truncate_line(line: &str, max_len: usize) -> String {
     if line.len() <= max_len {
         line.to_string()
     } else {
-        let mut result = line[..max_len].to_string();
+        let mut result = safe_truncate(line, max_len).to_string();
         result.push_str("... [truncated]");
         result
     }
@@ -290,6 +304,49 @@ mod tests {
     fn line_one_over_boundary() {
         let line = "a".repeat(501);
         let result = truncate_line(&line, 500);
+        assert!(result.ends_with("... [truncated]"));
+    }
+
+    // ── safe_truncate ──────────────────────────────────────────
+
+    #[test]
+    fn safe_truncate_ascii() {
+        assert_eq!(safe_truncate("hello", 3), "hel");
+        assert_eq!(safe_truncate("hello", 10), "hello");
+        assert_eq!(safe_truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn safe_truncate_multibyte_chinese() {
+        // "你好世界" — each CJK char is 3 bytes in UTF-8, total 12 bytes.
+        let s = "你好世界";
+        // Truncate at 4 bytes: can't split '好' (bytes 3..6), so we get "你" (3 bytes).
+        assert_eq!(safe_truncate(s, 4), "你");
+        // Truncate at 6 bytes: exactly "你好".
+        assert_eq!(safe_truncate(s, 6), "你好");
+        // Truncate at 7 bytes: can't split '世' (bytes 6..9), so we get "你好".
+        assert_eq!(safe_truncate(s, 7), "你好");
+    }
+
+    #[test]
+    fn safe_truncate_empty() {
+        assert_eq!(safe_truncate("", 10), "");
+        assert_eq!(safe_truncate("", 0), "");
+    }
+
+    #[test]
+    fn safe_truncate_zero_max() {
+        assert_eq!(safe_truncate("hello", 0), "");
+        assert_eq!(safe_truncate("你好", 0), "");
+    }
+
+    #[test]
+    fn line_truncate_multibyte_no_panic() {
+        // "你好世界test" — 12 + 4 = 16 bytes. Truncate at max_len=7.
+        let s = "你好世界test";
+        let result = truncate_line(s, 7);
+        // safe_truncate(s, 7) => "你好" (6 bytes), then append suffix.
+        assert!(result.starts_with("你好"));
         assert!(result.ends_with("... [truncated]"));
     }
 
