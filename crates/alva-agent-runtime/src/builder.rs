@@ -4,17 +4,34 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use alva_agent_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware, ToolTimeoutMiddleware};
 use alva_agent_core::middleware::MiddlewareStack;
+use alva_agent_core::pending_queue::{AgentLoopHook, PendingMessageQueue};
 use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::shared::Extensions;
-use alva_types::{Bus, BusHandle, LanguageModel, ModelConfig, Tool, ToolRegistry};
+use alva_agent_security::{SandboxMode, SecurityGuard};
+use alva_types::{
+    model::HeuristicTokenCounter, Bus, BusHandle, BusPlugin, BusWriter, LanguageModel, ModelConfig,
+    PluginRegistrar, Tool, ToolRegistry, TokenCounter,
+};
 use alva_types::session::{AgentSession, InMemorySession};
+use tokio::sync::Mutex;
+
+use crate::middleware::{
+    ApprovalNotifier, CheckpointMiddleware, CompactionMiddleware, PlanModeMiddleware,
+    SecurityMiddleware,
+};
 
 /// A fully-configured agent runtime combining V2 AgentState, AgentConfig, and ToolRegistry.
 pub struct AgentRuntime {
     pub state: AgentState,
     pub config: AgentConfig,
     pub tool_registry: ToolRegistry,
+    pub bus: BusHandle,
+    pub bus_writer: Option<BusWriter>,
+    pub pending_messages: Option<Arc<PendingMessageQueue>>,
+    pub plan_mode_middleware: Option<Arc<PlanModeMiddleware>>,
+    pub security_guard: Option<Arc<Mutex<SecurityGuard>>>,
 }
 
 /// Builder for constructing an [`AgentRuntime`] step by step.
@@ -29,6 +46,10 @@ pub struct AgentRuntimeBuilder {
     max_iterations: u32,
     context_window: usize,
     bus: Option<BusHandle>,
+    bus_writer: Option<BusWriter>,
+    approval_notifier: Option<ApprovalNotifier>,
+    bus_plugins: Vec<Box<dyn BusPlugin>>,
+    standard_agent_stack: Option<SandboxMode>,
 }
 
 impl AgentRuntimeBuilder {
@@ -44,6 +65,10 @@ impl AgentRuntimeBuilder {
             max_iterations: 100,
             context_window: 0,
             bus: None,
+            bus_writer: None,
+            approval_notifier: None,
+            bus_plugins: Vec::new(),
+            standard_agent_stack: None,
         }
     }
 
@@ -102,6 +127,37 @@ impl AgentRuntimeBuilder {
         self
     }
 
+    /// Reuse an externally created bus writer so runtime assembly can register capabilities.
+    pub fn with_bus_writer(mut self, bus_writer: BusWriter) -> Self {
+        self.bus = Some(bus_writer.handle());
+        self.bus_writer = Some(bus_writer);
+        self
+    }
+
+    /// Register a notifier used by SecurityMiddleware when human approval is required.
+    pub fn with_approval_notifier(mut self, notifier: ApprovalNotifier) -> Self {
+        self.approval_notifier = Some(notifier);
+        self
+    }
+
+    /// Register a bus plugin to run during standard agent stack initialization.
+    pub fn bus_plugin(mut self, plugin: Box<dyn BusPlugin>) -> Self {
+        self.bus_plugins.push(plugin);
+        self
+    }
+
+    /// Enable the standard batteries-included agent stack on top of core runtime pieces.
+    ///
+    /// This wires:
+    /// - a default heuristic token counter
+    /// - PendingMessageQueue as AgentLoopHook
+    /// - Security / loop detection / timeout / compaction / plan / checkpoint middleware
+    /// - optional approval notifier and bus plugins
+    pub fn with_standard_agent_stack(mut self, sandbox_mode: SandboxMode) -> Self {
+        self.standard_agent_stack = Some(sandbox_mode);
+        self
+    }
+
     /// Register a single custom tool.
     pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
         self.custom_tools.push(tool);
@@ -112,7 +168,72 @@ impl AgentRuntimeBuilder {
     ///
     /// `model` is the language model to use for LLM calls.
     pub fn build(self, model: Arc<dyn LanguageModel>) -> AgentRuntime {
-        let bus = self.bus.unwrap_or_else(|| Bus::new().handle());
+        let (bus, bus_writer) = if let Some(writer) = self.bus_writer.clone() {
+            (writer.handle(), Some(writer))
+        } else if let Some(bus) = self.bus.clone() {
+            (bus, None)
+        } else {
+            let bus = Bus::new();
+            (bus.handle(), Some(bus.writer()))
+        };
+
+        let mut middleware = self.middleware;
+        let mut pending_messages: Option<Arc<PendingMessageQueue>> = None;
+        let mut plan_mode_middleware: Option<Arc<PlanModeMiddleware>> = None;
+        let mut security_guard: Option<Arc<Mutex<SecurityGuard>>> = None;
+
+        if let Some(sandbox_mode) = self.standard_agent_stack.clone() {
+            let workspace = self
+                .workspace
+                .clone()
+                .expect("standard agent stack requires workspace() to be set");
+            let writer = bus_writer
+                .clone()
+                .expect("standard agent stack requires BusWriter; use default bus or with_bus_writer()");
+
+            if !bus.has::<dyn TokenCounter>() {
+                writer.provide::<dyn TokenCounter>(Arc::new(HeuristicTokenCounter::new(200_000)));
+            }
+
+            if let Some(notifier) = self.approval_notifier.clone() {
+                writer.provide(Arc::new(notifier));
+            }
+
+            let queue = Arc::new(PendingMessageQueue::new());
+            writer.provide::<dyn AgentLoopHook>(queue.clone() as Arc<dyn AgentLoopHook>);
+            pending_messages = Some(queue);
+
+            for plugin in &self.bus_plugins {
+                let mut registrar = PluginRegistrar::new(&writer, plugin.name());
+                plugin.register(&mut registrar);
+                tracing::info!(
+                    plugin = plugin.name(),
+                    capabilities = ?registrar.registered_capabilities(),
+                    "bus plugin registered"
+                );
+            }
+
+            for plugin in &self.bus_plugins {
+                plugin.start(&bus);
+            }
+
+            let security_mw = SecurityMiddleware::for_workspace(&workspace, sandbox_mode)
+                .with_bus(bus.clone());
+            security_guard = Some(security_mw.guard());
+            middleware.push_sorted(Arc::new(security_mw));
+            middleware.push_sorted(Arc::new(DanglingToolCallMiddleware::new()));
+            middleware.push_sorted(Arc::new(LoopDetectionMiddleware::new()));
+            middleware.push_sorted(Arc::new(ToolTimeoutMiddleware::default()));
+            middleware.push_sorted(Arc::new(
+                CompactionMiddleware::default().with_bus(bus.clone()),
+            ));
+
+            let plan_mw = Arc::new(PlanModeMiddleware::new(false));
+            middleware.push_sorted(plan_mw.clone());
+            middleware.push_sorted(Arc::new(CheckpointMiddleware::new().with_bus(bus.clone())));
+            plan_mode_middleware = Some(plan_mw);
+        }
+
         let mut registry = ToolRegistry::new();
 
         if self.register_builtin || self.register_browser {
@@ -139,19 +260,24 @@ impl AgentRuntimeBuilder {
         };
 
         let config = AgentConfig {
-            middleware: self.middleware,
+            middleware,
             system_prompt: self.system_prompt,
             max_iterations: self.max_iterations,
             model_config: self.model_config,
             context_window: self.context_window,
             workspace: self.workspace,
-            bus: Some(bus),
+            bus: Some(bus.clone()),
         };
 
         AgentRuntime {
             state,
             config,
             tool_registry: registry,
+            bus,
+            bus_writer,
+            pending_messages,
+            plan_mode_middleware,
+            security_guard,
         }
     }
 }
@@ -172,10 +298,11 @@ impl Default for AgentRuntimeBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::{AgentError, Message, ModelConfig, StreamEvent};
+    use alva_types::{AgentError, BusPlugin, Message, ModelConfig, StreamEvent};
     use async_trait::async_trait;
     use futures_core::Stream;
     use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tokio_stream::empty;
 
     struct DummyModel;
@@ -226,5 +353,60 @@ mod tests {
 
         bus.writer().provide(Arc::new(7_u32));
         assert_eq!(*configured.require::<u32>(), 7);
+    }
+
+    #[test]
+    fn standard_stack_wires_core_agent_capabilities() {
+        let runtime = AgentRuntime::builder()
+            .workspace("/tmp/runtime-standard")
+            .with_standard_agent_stack(SandboxMode::RestrictiveOpen)
+            .build(Arc::new(DummyModel));
+
+        assert!(runtime.bus_writer.is_some());
+        assert!(runtime.pending_messages.is_some());
+        assert!(runtime.plan_mode_middleware.is_some());
+        assert!(runtime.security_guard.is_some());
+        assert!(runtime.bus.has::<dyn TokenCounter>());
+        assert!(runtime.bus.has::<dyn AgentLoopHook>());
+        assert!(runtime.config.middleware.len() >= 7);
+    }
+
+    #[test]
+    fn standard_stack_registers_approval_notifier() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let runtime = AgentRuntime::builder()
+            .workspace("/tmp/runtime-approval")
+            .with_approval_notifier(ApprovalNotifier { tx })
+            .with_standard_agent_stack(SandboxMode::RestrictiveOpen)
+            .build(Arc::new(DummyModel));
+
+        assert!(runtime.bus.has::<ApprovalNotifier>());
+    }
+
+    #[test]
+    fn standard_stack_starts_bus_plugins() {
+        static STARTED: AtomicBool = AtomicBool::new(false);
+
+        struct TestPlugin;
+        impl BusPlugin for TestPlugin {
+            fn name(&self) -> &str {
+                "test-plugin"
+            }
+
+            fn register(&self, _registrar: &mut PluginRegistrar) {}
+
+            fn start(&self, _bus: &BusHandle) {
+                STARTED.store(true, Ordering::SeqCst);
+            }
+        }
+
+        STARTED.store(false, Ordering::SeqCst);
+        let _runtime = AgentRuntime::builder()
+            .workspace("/tmp/runtime-plugin")
+            .bus_plugin(Box::new(TestPlugin))
+            .with_standard_agent_stack(SandboxMode::RestrictiveOpen)
+            .build(Arc::new(DummyModel));
+
+        assert!(STARTED.load(Ordering::SeqCst));
     }
 }

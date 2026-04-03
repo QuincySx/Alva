@@ -40,17 +40,8 @@ impl ClaudeAdapter {
             sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-}
 
-#[async_trait]
-impl EngineRuntime for ClaudeAdapter {
-    fn execute(
-        &self,
-        request: RuntimeRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
-        // Write bridge script (sync I/O — acceptable here since it's a one-time idempotent write)
-        let script_path = ensure_bridge_script()?;
-
+    fn build_bridge_config(&self, request: RuntimeRequest) -> BridgeConfig {
         // Build env with cloud provider flags
         let mut env = self.config.env.clone();
         if self.config.use_bedrock {
@@ -63,13 +54,15 @@ impl EngineRuntime for ClaudeAdapter {
             env.insert("CLAUDE_CODE_USE_FOUNDRY".into(), "1".into());
         }
 
-        let bridge_config = BridgeConfig {
+        BridgeConfig {
             prompt: request.prompt,
             cwd: request
                 .working_directory
                 .map(|p| p.to_string_lossy().into_owned()),
             system_prompt: request.system_prompt,
             streaming: request.options.streaming,
+            max_turns: request.options.max_turns,
+            resume_session: request.resume_session,
             api_key: self.config.api_key.clone(),
             api_base_url: self.config.api_base_url.clone(),
             model: self.config.model.clone(),
@@ -85,7 +78,19 @@ impl EngineRuntime for ClaudeAdapter {
             persist_session: self.config.persist_session,
             sdk_executable_path: self.config.sdk_package_path.clone(),
             env,
-        };
+        }
+    }
+}
+
+#[async_trait]
+impl EngineRuntime for ClaudeAdapter {
+    fn execute(
+        &self,
+        request: RuntimeRequest,
+    ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+        // Write bridge script (sync I/O — acceptable here since it's a one-time idempotent write)
+        let script_path = ensure_bridge_script()?;
+        let bridge_config = self.build_bridge_config(request);
 
         let config_json = serde_json::to_string(&bridge_config)?;
         let node_path = self
@@ -247,8 +252,73 @@ impl EngineRuntime for ClaudeAdapter {
             streaming: true,
             tool_control: false,
             permission_callback: true,
-            resume: false, // v1: not implemented
+            resume: true,
             cancel: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn make_config() -> ClaudeAdapterConfig {
+        ClaudeAdapterConfig {
+            model: Some("claude-sonnet-4-6".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn build_bridge_config_maps_runtime_request_fields() {
+        let adapter = ClaudeAdapter::new(make_config());
+        let mut request = RuntimeRequest::new("Say hello");
+        request.resume_session = Some("session-123".into());
+        request.system_prompt = Some("Be terse".into());
+        request.working_directory = Some(PathBuf::from("/tmp/alva-claude"));
+        request.options.streaming = true;
+        request.options.max_turns = Some(3);
+
+        let bridge = adapter.build_bridge_config(request);
+
+        assert_eq!(bridge.prompt, "Say hello");
+        assert_eq!(bridge.resume_session.as_deref(), Some("session-123"));
+        assert_eq!(bridge.system_prompt.as_deref(), Some("Be terse"));
+        assert_eq!(bridge.cwd.as_deref(), Some("/tmp/alva-claude"));
+        assert!(bridge.streaming);
+        assert_eq!(bridge.max_turns, Some(3));
+    }
+
+    #[test]
+    fn build_bridge_config_includes_cloud_provider_flags() {
+        let config = ClaudeAdapterConfig {
+            use_bedrock: true,
+            use_vertex: true,
+            use_azure: true,
+            ..make_config()
+        };
+        let adapter = ClaudeAdapter::new(config);
+
+        let bridge = adapter.build_bridge_config(RuntimeRequest::new("hello"));
+
+        assert_eq!(
+            bridge.env.get("CLAUDE_CODE_USE_BEDROCK").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            bridge.env.get("CLAUDE_CODE_USE_VERTEX").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            bridge.env.get("CLAUDE_CODE_USE_FOUNDRY").map(String::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn capabilities_report_resume_support() {
+        let adapter = ClaudeAdapter::new(make_config());
+        assert!(adapter.capabilities().resume);
     }
 }

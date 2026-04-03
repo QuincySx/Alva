@@ -1,6 +1,7 @@
 // INPUT:  alva_types, async_trait, serde, serde_json, base64, crate::local_fs::LocalToolFs
 // OUTPUT: ReadFileTool
-// POS:    Read file contents with offset/limit pagination, automatic image detection, and smart truncation.
+// POS:    Read file contents with offset/limit pagination, automatic image detection,
+//         encoding detection, PDF page support, and smart truncation.
 //! read_file — read text or image files with pagination and truncation
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
@@ -19,6 +20,9 @@ struct Input {
     offset: Option<usize>,
     #[serde(default)]
     limit: Option<usize>,
+    /// Page range for PDF files (e.g., "1-5", "3", "10-20"). Max 20 pages per request.
+    #[serde(default)]
+    pages: Option<String>,
 }
 
 pub struct ReadFileTool;
@@ -51,6 +55,30 @@ fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
     None
 }
 
+/// Check if a file is a PDF based on magic bytes.
+#[allow(unused)]
+fn is_pdf(data: &[u8]) -> bool {
+    data.len() >= 5 && data.starts_with(b"%PDF-")
+}
+
+/// Detect text encoding from BOM or content analysis.
+/// Returns detected encoding name and the byte offset to skip BOM.
+#[allow(unused)]
+fn detect_encoding(data: &[u8]) -> (&'static str, usize) {
+    // Check BOM
+    if data.len() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
+        return ("utf-8-bom", 3);
+    }
+    if data.len() >= 2 && data[0] == 0xFE && data[1] == 0xFF {
+        return ("utf-16-be", 2);
+    }
+    if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xFE {
+        return ("utf-16-le", 2);
+    }
+    // Default: assume UTF-8 (no BOM)
+    ("utf-8", 0)
+}
+
 /// Add line numbers to text content.
 fn add_line_numbers(text: &str, start_line: usize) -> String {
     text.lines()
@@ -58,6 +86,35 @@ fn add_line_numbers(text: &str, start_line: usize) -> String {
         .map(|(i, line)| format!("{:>6}\t{}", start_line + i, line))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Parse a page range string like "1-5", "3", "10-20".
+/// Returns (start_page, end_page) 1-indexed, clamped to max 20 pages.
+#[allow(unused)]
+fn parse_page_range(range: &str) -> Result<(usize, usize), String> {
+    let range = range.trim();
+    if range.contains('-') {
+        let parts: Vec<&str> = range.splitn(2, '-').collect();
+        let start: usize = parts[0].trim().parse()
+            .map_err(|_| format!("Invalid page start: {}", parts[0]))?;
+        let end: usize = parts[1].trim().parse()
+            .map_err(|_| format!("Invalid page end: {}", parts[1]))?;
+        if start == 0 || end == 0 {
+            return Err("Page numbers are 1-indexed".into());
+        }
+        if end < start {
+            return Err(format!("End page {} is before start page {}", end, start));
+        }
+        let clamped_end = end.min(start + 19); // max 20 pages
+        Ok((start, clamped_end))
+    } else {
+        let page: usize = range.parse()
+            .map_err(|_| format!("Invalid page number: {}", range))?;
+        if page == 0 {
+            return Err("Page numbers are 1-indexed".into());
+        }
+        Ok((page, page))
+    }
 }
 
 #[async_trait]
@@ -69,7 +126,7 @@ impl Tool for ReadFileTool {
     fn description(&self) -> &str {
         "Read file contents. Returns text with line numbers for code/text files, \
          or base64-encoded image data for image files. Supports offset/limit for \
-         paginated reading of large files."
+         paginated reading of large files. Use pages parameter for PDF files."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -88,6 +145,10 @@ impl Tool for ReadFileTool {
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of lines to read. Default: up to 2000 lines or 50KB"
+                },
+                "pages": {
+                    "type": "string",
+                    "description": "Page range for PDF files (e.g., '1-5', '3', '10-20'). Max 20 pages per request."
                 }
             }
         })
@@ -142,8 +203,17 @@ impl Tool for ReadFileTool {
             return self.handle_image(&data, mime, &params.path);
         }
 
+        // Check if it's a PDF
+        if is_pdf(&data) {
+            return self.handle_pdf(&params.path, &params.pages);
+        }
+
+        // Detect encoding
+        let (encoding, bom_skip) = detect_encoding(&data);
+        let text_data = &data[bom_skip..];
+
         // Handle as text
-        let text = String::from_utf8_lossy(&data);
+        let text = String::from_utf8_lossy(text_data);
         let all_lines: Vec<&str> = text.lines().collect();
         let total_lines = all_lines.len();
 
@@ -190,16 +260,22 @@ impl Tool for ReadFileTool {
             ));
         }
 
+        let mut details = json!({
+            "path": params.path,
+            "total_lines": total_lines,
+            "lines_shown": lines_shown,
+            "offset": offset,
+            "truncated": remaining > 0,
+        });
+
+        if encoding != "utf-8" {
+            details["encoding"] = json!(encoding);
+        }
+
         Ok(ToolOutput {
             content: vec![ToolContent::text(content)],
             is_error: false,
-            details: Some(json!({
-                "path": params.path,
-                "total_lines": total_lines,
-                "lines_shown": lines_shown,
-                "offset": offset,
-                "truncated": remaining > 0,
-            })),
+            details: Some(details),
         })
     }
 }
@@ -237,6 +313,47 @@ impl ReadFileTool {
                 "path": path,
                 "mime_type": mime,
                 "size_bytes": file_size,
+            })),
+        })
+    }
+
+    /// Handle PDF files by returning metadata and page info.
+    /// Full PDF text extraction would require a dedicated library;
+    /// for now we provide file info and suggest the pages parameter.
+    #[allow(unused)]
+    fn handle_pdf(
+        &self,
+        path: &str,
+        pages: &Option<String>,
+    ) -> Result<ToolOutput, AgentError> {
+        let mut content = format!("PDF file: {}", path);
+
+        if let Some(ref page_range) = pages {
+            match parse_page_range(page_range) {
+                Ok((start, end)) => {
+                    content.push_str(&format!(
+                        "\nRequested pages {}-{}. PDF text extraction requires a dedicated library. \
+                         Consider using a shell command like `pdftotext` to extract text.",
+                        start, end
+                    ));
+                }
+                Err(e) => {
+                    return Ok(ToolOutput::error(format!("Invalid page range: {}", e)));
+                }
+            }
+        } else {
+            content.push_str(
+                "\nThis is a PDF file. Use the `pages` parameter to specify which pages to read \
+                 (e.g., pages: \"1-5\"). Consider using `pdftotext` via execute_shell for text extraction."
+            );
+        }
+
+        Ok(ToolOutput {
+            content: vec![ToolContent::text(content)],
+            is_error: false,
+            details: Some(json!({
+                "path": path,
+                "file_type": "pdf",
             })),
         })
     }

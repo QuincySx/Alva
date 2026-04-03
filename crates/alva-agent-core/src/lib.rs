@@ -2,28 +2,28 @@
 // OUTPUT: AgentState, AgentConfig, AgentEvent, AgentMessage, Middleware, MiddlewareStack, Extensions, run_agent, builtins
 // POS:    Crate root — declares modules and re-exports the public API for the agent engine.
 
-pub mod shared;
-pub mod state;
-pub mod middleware;
-pub mod runtime_context;
-pub mod run;
-pub mod run_child;
 pub mod builtins;
 pub mod event;
+pub mod middleware;
 pub mod pending_queue;
+pub mod run;
+pub mod run_child;
+pub mod runtime_context;
+pub mod shared;
+pub mod state;
 
 // Re-exports — shared types
 pub use shared::{Extensions, MiddlewareError, MiddlewarePriority};
 
 // Re-exports — state
-pub use state::{AgentState, AgentConfig};
+pub use state::{AgentConfig, AgentState};
 
 // Re-exports — middleware
-pub use middleware::{Middleware, MiddlewareStack, LlmCallFn, ToolCallFn};
+pub use middleware::{LlmCallFn, Middleware, MiddlewareStack, ToolCallFn};
 
 // Re-exports — run
 pub use run::run_agent;
-pub use run_child::{run_child_agent, ChildAgentParams, ChildAgentOutput};
+pub use run_child::{run_child_agent, ChildAgentOutput, ChildAgentParams};
 
 // Re-exports — event
 pub use event::AgentEvent;
@@ -35,7 +35,7 @@ pub use pending_queue::{AgentLoopHook, PendingMessageQueue};
 pub use runtime_context::RuntimeExecutionContext;
 
 // Re-exports — builtins
-pub use builtins::{LoopDetectionMiddleware, DanglingToolCallMiddleware};
+pub use builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
 
 // Re-export AgentMessage from alva-types
 pub use alva_types::AgentMessage;

@@ -12,10 +12,10 @@
 use std::sync::Arc;
 
 use alva_agent_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
-use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::shared::Extensions;
-use alva_types::{Message, ToolCall, ToolOutput};
+use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_types::session::InMemorySession;
+use alva_types::{Message, ToolCall, ToolOutput};
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -69,18 +69,12 @@ impl Middleware for SecurityMiddleware {
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if self.blocked_tools.contains(&tool_call.name) {
-            println!(
-                "[SecurityMiddleware] BLOCKED tool: {}",
-                tool_call.name
-            );
+            println!("[SecurityMiddleware] BLOCKED tool: {}", tool_call.name);
             return Err(MiddlewareError::Blocked {
                 reason: format!("tool '{}' is not allowed", tool_call.name),
             });
         }
-        println!(
-            "[SecurityMiddleware] ALLOWED tool: {}",
-            tool_call.name
-        );
+        println!("[SecurityMiddleware] ALLOWED tool: {}", tool_call.name);
         Ok(())
     }
 
@@ -104,10 +98,7 @@ struct TokenCountingMiddleware;
 
 #[async_trait]
 impl Middleware for TokenCountingMiddleware {
-    async fn on_agent_start(
-        &self,
-        state: &mut AgentState,
-    ) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
         state.extensions.insert(TokenStats::default());
         println!("[TokenCountingMiddleware] initialized stats in Extensions");
         Ok(())
@@ -120,9 +111,7 @@ impl Middleware for TokenCountingMiddleware {
     ) -> Result<(), MiddlewareError> {
         if let Some(stats) = state.extensions.get_mut::<TokenStats>() {
             stats.llm_calls += 1;
-            println!(
-                "[TokenCountingMiddleware] LLM call #{}", stats.llm_calls
-            );
+            println!("[TokenCountingMiddleware] LLM call #{}", stats.llm_calls);
         }
         Ok(())
     }
@@ -194,7 +183,9 @@ impl alva_types::LanguageModel for StubModel {
     ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = alva_types::StreamEvent> + Send>> {
         Box::pin(tokio_stream::iter(vec![
             alva_types::StreamEvent::Start,
-            alva_types::StreamEvent::TextDelta { text: "stub response".to_string() },
+            alva_types::StreamEvent::TextDelta {
+                text: "stub response".to_string(),
+            },
             alva_types::StreamEvent::Done,
         ]))
     }
@@ -224,8 +215,7 @@ fn main() {
     );
 
     // 2. Create V2 AgentState + AgentConfig
-    let session: Arc<dyn alva_types::session::AgentSession> =
-        Arc::new(InMemorySession::new());
+    let session: Arc<dyn alva_types::session::AgentSession> = Arc::new(InMemorySession::new());
     let mut state = AgentState {
         model: Arc::new(StubModel),
         tools: vec![],
@@ -247,7 +237,10 @@ fn main() {
         "AgentConfig.middleware has {} layer(s)",
         config.middleware.len()
     );
-    println!("AgentConfig.middleware.is_empty() = {}", config.middleware.is_empty());
+    println!(
+        "AgentConfig.middleware.is_empty() = {}",
+        config.middleware.is_empty()
+    );
 
     // 3. Demonstrate a quick round-trip through the stack.
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -261,7 +254,10 @@ fn main() {
 
         println!("\n--- Running before_llm_call ---");
         let mut msgs = vec![Message::user("Hello!")];
-        let _ = config.middleware.run_before_llm_call(&mut state, &mut msgs).await;
+        let _ = config
+            .middleware
+            .run_before_llm_call(&mut state, &mut msgs)
+            .await;
 
         println!("\n--- Running after_llm_call ---");
         let mut response = Message {
@@ -274,7 +270,10 @@ fn main() {
             usage: None,
             timestamp: 0,
         };
-        let _ = config.middleware.run_after_llm_call(&mut state, &mut response).await;
+        let _ = config
+            .middleware
+            .run_after_llm_call(&mut state, &mut response)
+            .await;
 
         println!("\n--- Running before_tool_call (allowed tool) ---");
         let allowed_call = ToolCall {

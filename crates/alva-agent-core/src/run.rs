@@ -3,21 +3,32 @@
 // POS:    V2 session-centric agent loop — uses bus-based AgentLoopHook for steering/follow-up injection.
 use std::sync::Arc;
 
-use alva_types::{
-    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message,
-    MessageRole, ModelConfig, StreamEvent, ToolCall, ToolOutput,
-};
 use alva_types::model::LanguageModel;
 use alva_types::tool::Tool;
+use alva_types::{
+    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
+    ModelConfig, StreamEvent, ToolCall, ToolOutput,
+};
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
+use crate::event::AgentEvent;
 use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
 use crate::runtime_context::RuntimeExecutionContext;
 use crate::state::{AgentConfig, AgentState};
-use crate::event::AgentEvent;
+
+fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
+    AgentMessage::Standard(Message {
+        id: message_id.to_string(),
+        role: MessageRole::Assistant,
+        content: vec![],
+        tool_call_id: None,
+        usage: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+    })
+}
 
 // ---------------------------------------------------------------------------
 // LlmCallFn / ToolCallFn adapters for wrap hooks
@@ -34,26 +45,33 @@ struct ActualLlmCall {
     tools: Vec<Arc<dyn Tool>>,
     model_config: ModelConfig,
     event_tx: mpsc::UnboundedSender<AgentEvent>,
+    message_id: String,
 }
 
 #[async_trait]
 impl LlmCallFn for ActualLlmCall {
-    async fn call(&self, _state: &mut AgentState, messages: Vec<Message>) -> Result<Message, AgentError> {
+    async fn call(
+        &self,
+        _state: &mut AgentState,
+        messages: Vec<Message>,
+    ) -> Result<Message, AgentError> {
         let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
         let mut stream = self.model.stream(&messages, &tool_refs, &self.model_config);
 
-        let msg_id = uuid::Uuid::new_v4().to_string();
         let mut text_content = String::new();
         let mut usage = None;
+        let mut last_tool_call_index = None;
 
-        // Track in-progress tool calls by index (order of appearance).
-        let mut tool_call_builders: std::collections::HashMap<usize, (String, String, String)> =
+        // Track in-progress tool calls in appearance order while allowing
+        // providers to repeat the same tool-call id across multiple deltas.
+        let mut tool_call_builders: Vec<(String, String, String)> = Vec::new();
+        let mut tool_call_indices: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
 
         while let Some(event) = stream.next().await {
             // Build a placeholder message for the MessageUpdate envelope.
             let agent_msg = AgentMessage::Standard(Message {
-                id: msg_id.clone(),
+                id: self.message_id.clone(),
                 role: MessageRole::Assistant,
                 content: vec![],
                 tool_call_id: None,
@@ -69,21 +87,37 @@ impl LlmCallFn for ActualLlmCall {
                 StreamEvent::TextDelta { text } => {
                     text_content.push_str(&text);
                 }
-                StreamEvent::ToolCallDelta { id, name, arguments_delta } => {
-                    if !id.is_empty() {
-                        // New tool call starting — assign the next index.
-                        let idx = tool_call_builders.len();
-                        tool_call_builders.insert(idx, (
-                            id,
-                            name.unwrap_or_default(),
-                            arguments_delta,
-                        ));
-                    } else {
-                        // Continuing the most recent tool call.
-                        let idx = tool_call_builders.len().saturating_sub(1);
-                        if let Some(tc) = tool_call_builders.get_mut(&idx) {
-                            tc.2.push_str(&arguments_delta);
+                StreamEvent::ToolCallDelta {
+                    id,
+                    name,
+                    arguments_delta,
+                } => {
+                    let target_index = if !id.is_empty() {
+                        if let Some(existing_index) = tool_call_indices.get(&id).copied() {
+                            existing_index
+                        } else {
+                            let next_index = tool_call_builders.len();
+                            tool_call_builders.push((id.clone(), String::new(), String::new()));
+                            tool_call_indices.insert(id, next_index);
+                            next_index
                         }
+                    } else if let Some(last_index) = last_tool_call_index {
+                        last_index
+                    } else {
+                        continue;
+                    };
+
+                    last_tool_call_index = Some(target_index);
+
+                    if let Some((_, existing_name, existing_arguments)) =
+                        tool_call_builders.get_mut(target_index)
+                    {
+                        if let Some(name) = name {
+                            if !name.is_empty() {
+                                *existing_name = name;
+                            }
+                        }
+                        existing_arguments.push_str(&arguments_delta);
                     }
                 }
                 StreamEvent::Usage(u) => {
@@ -103,18 +137,17 @@ impl LlmCallFn for ActualLlmCall {
         }
 
         // Convert accumulated tool calls to ContentBlocks (sorted by index).
-        let mut indices: Vec<usize> = tool_call_builders.keys().cloned().collect();
-        indices.sort();
-        for idx in indices {
-            if let Some((id, name, args_str)) = tool_call_builders.remove(&idx) {
-                let input: Value = serde_json::from_str(&args_str)
-                    .unwrap_or(Value::Object(serde_json::Map::new()));
-                content_blocks.push(ContentBlock::ToolUse { id, name, input });
-            }
+        for (id, name, args_str) in tool_call_builders {
+            let input: Value = serde_json::from_str(&args_str).map_err(|error| {
+                AgentError::LlmError(format!(
+                    "invalid tool arguments for tool call '{id}' ({name}): {error}"
+                ))
+            })?;
+            content_blocks.push(ContentBlock::ToolUse { id, name, input });
         }
 
         Ok(Message {
-            id: msg_id,
+            id: self.message_id.clone(),
             role: MessageRole::Assistant,
             content: content_blocks,
             tool_call_id: None,
@@ -137,7 +170,11 @@ struct ActualToolCall {
 
 #[async_trait]
 impl ToolCallFn for ActualToolCall {
-    async fn call(&self, _state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolOutput, AgentError> {
+    async fn call(
+        &self,
+        _state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<ToolOutput, AgentError> {
         // No timeout in the kernel — use ToolTimeoutMiddleware (wrap_tool_call) to add one.
         let mut ctx = RuntimeExecutionContext::new(
             self.cancel.clone(),
@@ -166,12 +203,14 @@ pub async fn run_agent(
     input: Vec<AgentMessage>,
     event_tx: mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), AgentError> {
+    state.extensions.insert(cancel.clone());
+
     // 1. Lifecycle: on_agent_start
     config
         .middleware
         .run_on_agent_start(state)
         .await
-        .map_err(|e| AgentError::Other(e.to_string()))?;
+        .map_err(MiddlewareError::into_agent_error)?;
 
     // Emit AgentStart
     let _ = event_tx.send(AgentEvent::AgentStart);
@@ -264,18 +303,14 @@ async fn run_loop(
                 .middleware
                 .run_before_llm_call(state, &mut llm_messages)
                 .await
-                .map_err(|e| AgentError::Other(e.to_string()))?;
+                .map_err(MiddlewareError::into_agent_error)?;
 
             // 3d. Emit MessageStart before the LLM call
-            let placeholder_msg = AgentMessage::Standard(Message {
-                id: uuid::Uuid::new_v4().to_string(),
-                role: MessageRole::Assistant,
-                content: vec![],
-                tool_call_id: None,
-                usage: None,
-                timestamp: chrono::Utc::now().timestamp_millis(),
+            let message_id = uuid::Uuid::new_v4().to_string();
+            let placeholder_msg = placeholder_assistant_message(&message_id);
+            let _ = event_tx.send(AgentEvent::MessageStart {
+                message: placeholder_msg.clone(),
             });
-            let _ = event_tx.send(AgentEvent::MessageStart { message: placeholder_msg });
 
             // 3e. Call LLM through wrap_llm_call middleware chain
             let actual_call = ActualLlmCall {
@@ -283,19 +318,37 @@ async fn run_loop(
                 tools: state.tools.clone(),
                 model_config: config.model_config.clone(),
                 event_tx: event_tx.clone(),
+                message_id,
             };
-            let mut response = config
+            let mut response = match config
                 .middleware
                 .run_wrap_llm_call(state, llm_messages, &actual_call)
                 .await
-                .map_err(|e| AgentError::Other(e.to_string()))?;
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    let agent_error = error.into_agent_error();
+                    let _ = event_tx.send(AgentEvent::MessageError {
+                        message: placeholder_msg.clone(),
+                        error: agent_error.to_string(),
+                    });
+                    return Err(agent_error);
+                }
+            };
 
             // 3f. Middleware: after_llm_call
-            config
+            if let Err(error) = config
                 .middleware
                 .run_after_llm_call(state, &mut response)
                 .await
-                .map_err(|e| AgentError::Other(e.to_string()))?;
+            {
+                let agent_error = error.into_agent_error();
+                let _ = event_tx.send(AgentEvent::MessageError {
+                    message: AgentMessage::Standard(response.clone()),
+                    error: agent_error.to_string(),
+                });
+                return Err(agent_error);
+            }
 
             // 3g. Store response in session
             state
@@ -306,9 +359,7 @@ async fn run_loop(
             // (MessageStart was emitted before the LLM call; MessageUpdate
             // events were emitted during streaming inside ActualLlmCall.)
             let agent_msg = AgentMessage::Standard(response.clone());
-            let _ = event_tx.send(AgentEvent::MessageEnd {
-                message: agent_msg,
-            });
+            let _ = event_tx.send(AgentEvent::MessageEnd { message: agent_msg });
 
             // 3i. Extract tool_calls from response
             let tool_calls: Vec<ToolCall> = response
@@ -335,6 +386,10 @@ async fn run_loop(
 
             // 3k. Execute each tool_call
             for tool_call in &tool_calls {
+                if cancel.is_cancelled() {
+                    return Err(AgentError::Cancelled);
+                }
+
                 // Emit ToolExecutionStart
                 let _ = event_tx.send(AgentEvent::ToolExecutionStart {
                     tool_call: tool_call.clone(),
@@ -360,7 +415,7 @@ async fn run_loop(
                         ToolOutput::error(format!("Tool call blocked: {}", reason))
                     }
                     Err(e) => {
-                        return Err(AgentError::Other(e.to_string()));
+                        return Err(e.into_agent_error());
                     }
                     Ok(()) => {
                         // Execute the tool through wrap_tool_call middleware chain (with timeout)
@@ -378,9 +433,11 @@ async fn run_loop(
                                     .middleware
                                     .run_wrap_tool_call(state, tool_call, &actual_tool_call)
                                     .await
-                                    .map_err(|e| AgentError::Other(e.to_string()))?
+                                    .map_err(MiddlewareError::into_agent_error)?
                             }
-                            None => ToolOutput::error(format!("Tool not found: {}", tool_call.name)),
+                            None => {
+                                ToolOutput::error(format!("Tool not found: {}", tool_call.name))
+                            }
                         }
                     }
                 };
@@ -390,7 +447,7 @@ async fn run_loop(
                     .middleware
                     .run_after_tool_call(state, tool_call, &mut result)
                     .await
-                    .map_err(|e| AgentError::Other(e.to_string()))?;
+                    .map_err(MiddlewareError::into_agent_error)?;
 
                 // Build Tool message and append to session
                 let tool_message = Message {
@@ -405,9 +462,7 @@ async fn run_loop(
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
-                state
-                    .session
-                    .append(AgentMessage::Standard(tool_message));
+                state.session.append(AgentMessage::Standard(tool_message));
 
                 // Emit ToolExecutionEnd
                 let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
@@ -437,7 +492,8 @@ async fn run_loop(
         }
 
         // Follow-up check: when inner loop ends naturally
-        let follow_ups = config.bus
+        let follow_ups = config
+            .bus
             .as_ref()
             .and_then(|b| b.get::<dyn crate::pending_queue::AgentLoopHook>())
             .map(|h| h.take_follow_ups())

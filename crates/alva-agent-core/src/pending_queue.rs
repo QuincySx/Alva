@@ -70,8 +70,7 @@ impl AgentLoopHook for PendingMessageQueue {
     }
 
     fn has_pending(&self) -> bool {
-        self.steering.lock().unwrap().is_some()
-            || !self.follow_up.lock().unwrap().is_empty()
+        self.steering.lock().unwrap().is_some() || !self.follow_up.lock().unwrap().is_empty()
     }
 }
 

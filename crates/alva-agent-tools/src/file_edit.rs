@@ -1,6 +1,7 @@
 // INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: FileEditTool
-// POS:    Performs string-replace-based file editing requiring unique match of old_str.
+// POS:    Performs string-replace-based file editing with unique match enforcement,
+//         replace_all mode, quote normalization, and staleness detection.
 //! file_edit — string-replace based file editing (like Claude Code's Edit tool)
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
@@ -19,6 +20,22 @@ fn unique_match_count(content: &str, needle: &str) -> usize {
     content.matches(needle).count()
 }
 
+/// Normalize smart quotes / curly quotes to their ASCII equivalents.
+///
+/// This handles common smart quote characters that editors or copy-paste may introduce:
+/// - \u{2018}, \u{2019} (left/right single quote) -> '
+/// - \u{201C}, \u{201D} (left/right double quote) -> "
+/// - \u{2013} (en dash) -> -
+/// - \u{2014} (em dash) -> --
+fn normalize_quotes(text: &str) -> String {
+    text.replace('\u{2018}', "'")
+        .replace('\u{2019}', "'")
+        .replace('\u{201C}', "\"")
+        .replace('\u{201D}', "\"")
+        .replace('\u{2013}', "-")
+        .replace('\u{2014}', "--")
+}
+
 #[derive(Debug, Deserialize)]
 struct SingleEdit {
     old_str: String,
@@ -34,6 +51,10 @@ struct Input {
     new_str: Option<String>,
     #[serde(default)]
     edits: Option<Vec<SingleEdit>>,
+    /// Replace all occurrences of old_str (default false).
+    /// When true, old_str does not need to be unique.
+    #[serde(default)]
+    replace_all: Option<bool>,
 }
 
 pub struct FileEditTool;
@@ -45,7 +66,9 @@ impl Tool for FileEditTool {
     }
 
     fn description(&self) -> &str {
-        "Edit a file by replacing exact string matches. Supports single edit (old_str+new_str) or batch edits (edits[] array). Each old_str must be unique in the file. Path is relative to workspace root."
+        "Edit a file by replacing exact string matches. Supports single edit (old_str+new_str), \
+         batch edits (edits[] array), and replace_all mode. Each old_str must be unique unless \
+         replace_all is true. Smart quotes are automatically normalized. Path is relative to workspace root."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -76,6 +99,10 @@ impl Tool for FileEditTool {
                             "new_str": { "type": "string" }
                         }
                     }
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace all occurrences of old_str (default false). When true, old_str does not need to be unique."
                 }
             }
         })
@@ -84,6 +111,8 @@ impl Tool for FileEditTool {
     async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: e.to_string() })?;
+
+        let replace_all = params.replace_all.unwrap_or(false);
 
         // Normalize to Vec<SingleEdit>
         let edits = if let Some(edits) = params.edits {
@@ -111,6 +140,9 @@ impl Tool for FileEditTool {
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot read file: {}", e) })?;
         let content = String::from_utf8_lossy(&raw).into_owned();
 
+        // Try matching with quote normalization if direct match fails
+        let normalized_content = normalize_quotes(&content);
+
         // Validate ALL edits against the ORIGINAL content before applying
         for edit in &edits {
             if edit.old_str.is_empty() {
@@ -118,15 +150,23 @@ impl Tool for FileEditTool {
             }
 
             let count = unique_match_count(&content, &edit.old_str);
+
+            // If not found directly, try with normalized quotes
             if count == 0 {
-                return Ok(ToolOutput::error(format!(
-                    "old_str not found: {:?}",
-                    truncated_preview(&edit.old_str)
-                )));
+                let normalized_old = normalize_quotes(&edit.old_str);
+                let norm_count = unique_match_count(&normalized_content, &normalized_old);
+                if norm_count == 0 {
+                    return Ok(ToolOutput::error(format!(
+                        "old_str not found: {:?}",
+                        truncated_preview(&edit.old_str)
+                    )));
+                }
+                // Found via normalization — will handle below
             }
-            if count > 1 {
+
+            if !replace_all && count > 1 {
                 return Ok(ToolOutput::error(format!(
-                    "old_str found {} times (must be unique): {:?}",
+                    "old_str found {} times (must be unique, or use replace_all): {:?}",
                     count,
                     truncated_preview(&edit.old_str)
                 )));
@@ -139,51 +179,122 @@ impl Tool for FileEditTool {
         let mut details_edits = Vec::new();
 
         for (index, edit) in edits.iter().enumerate() {
-            let current_count = unique_match_count(&current, &edit.old_str);
-            if current_count == 0 {
-                return Ok(ToolOutput::error(format!(
-                    "edit {} was invalidated by an earlier edit: old_str not found: {:?}",
-                    index + 1,
-                    truncated_preview(&edit.old_str)
-                )));
-            }
-            if current_count > 1 {
-                return Ok(ToolOutput::error(format!(
-                    "edit {} was invalidated by an earlier edit: old_str found {} times (must be unique): {:?}",
-                    index + 1,
-                    current_count,
-                    truncated_preview(&edit.old_str)
-                )));
-            }
+            let direct_count = unique_match_count(&current, &edit.old_str);
 
-            // Find line number of change in current content
-            let match_index = current.find(&edit.old_str).expect("validated unique match");
-            let line_num = current[..match_index]
-                .lines()
-                .count() + 1;
+            // Determine the actual search string to use
+            let (search_in, search_for) = if direct_count > 0 {
+                (current.clone(), edit.old_str.clone())
+            } else {
+                // Try normalized matching
+                let normalized_old = normalize_quotes(&edit.old_str);
+                let normalized_current = normalize_quotes(&current);
+                if unique_match_count(&normalized_current, &normalized_old) == 0 {
+                    return Ok(ToolOutput::error(format!(
+                        "edit {} was invalidated by an earlier edit: old_str not found: {:?}",
+                        index + 1,
+                        truncated_preview(&edit.old_str)
+                    )));
+                }
+                (normalized_current, normalized_old)
+            };
 
-            // Generate unified diff for this edit
-            let old_lines: Vec<&str> = edit.old_str.lines().collect();
-            let new_lines: Vec<&str> = edit.new_str.lines().collect();
-            combined_diff.push_str(&format!("--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
-                params.path, params.path,
-                line_num, old_lines.len(),
-                line_num, new_lines.len(),
-            ));
-            for line in &old_lines {
-                combined_diff.push_str(&format!("-{}\n", line));
+            if replace_all {
+                // Replace all occurrences
+                let count = unique_match_count(&search_in, &search_for);
+                if count == 0 {
+                    return Ok(ToolOutput::error(format!(
+                        "edit {} was invalidated by an earlier edit: old_str not found: {:?}",
+                        index + 1,
+                        truncated_preview(&edit.old_str)
+                    )));
+                }
+
+                // Find line number of first change
+                let match_index = search_in.find(&search_for).expect("validated match");
+                let line_num = search_in[..match_index].lines().count() + 1;
+
+                let old_lines: Vec<&str> = edit.old_str.lines().collect();
+                let new_lines: Vec<&str> = edit.new_str.lines().collect();
+                combined_diff.push_str(&format!("--- {}\n+++ {}\n@@ -{} ({} occurrences replaced) @@\n",
+                    params.path, params.path,
+                    line_num, count,
+                ));
+                for line in &old_lines {
+                    combined_diff.push_str(&format!("-{}\n", line));
+                }
+                for line in &new_lines {
+                    combined_diff.push_str(&format!("+{}\n", line));
+                }
+
+                details_edits.push(json!({
+                    "first_changed_line": line_num,
+                    "occurrences_replaced": count,
+                    "old_lines": old_lines.len(),
+                    "new_lines": new_lines.len(),
+                }));
+
+                // If we had to use normalized matching, we need to replace in normalized space
+                // but actually write back the proper replacements
+                if direct_count > 0 {
+                    current = current.replace(&edit.old_str, &edit.new_str);
+                } else {
+                    // Replace in normalized content, then that becomes our new current
+                    let normalized_current = normalize_quotes(&current);
+                    let normalized_old = normalize_quotes(&edit.old_str);
+                    current = normalized_current.replace(&normalized_old, &edit.new_str);
+                }
+            } else {
+                // Single replacement (existing behavior)
+                let current_count = unique_match_count(&search_in, &search_for);
+                if current_count == 0 {
+                    return Ok(ToolOutput::error(format!(
+                        "edit {} was invalidated by an earlier edit: old_str not found: {:?}",
+                        index + 1,
+                        truncated_preview(&edit.old_str)
+                    )));
+                }
+                if current_count > 1 {
+                    return Ok(ToolOutput::error(format!(
+                        "edit {} was invalidated by an earlier edit: old_str found {} times (must be unique): {:?}",
+                        index + 1,
+                        current_count,
+                        truncated_preview(&edit.old_str)
+                    )));
+                }
+
+                // Find line number of change in current content
+                let match_index = search_in.find(&search_for).expect("validated unique match");
+                let line_num = search_in[..match_index].lines().count() + 1;
+
+                // Generate unified diff for this edit
+                let old_lines: Vec<&str> = edit.old_str.lines().collect();
+                let new_lines: Vec<&str> = edit.new_str.lines().collect();
+                combined_diff.push_str(&format!("--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
+                    params.path, params.path,
+                    line_num, old_lines.len(),
+                    line_num, new_lines.len(),
+                ));
+                for line in &old_lines {
+                    combined_diff.push_str(&format!("-{}\n", line));
+                }
+                for line in &new_lines {
+                    combined_diff.push_str(&format!("+{}\n", line));
+                }
+
+                details_edits.push(json!({
+                    "first_changed_line": line_num,
+                    "old_lines": old_lines.len(),
+                    "new_lines": new_lines.len(),
+                }));
+
+                if direct_count > 0 {
+                    current = current.replacen(&edit.old_str, &edit.new_str, 1);
+                } else {
+                    let normalized_current = normalize_quotes(&current);
+                    let normalized_old = normalize_quotes(&edit.old_str);
+                    current = normalized_current.replacen(&normalized_old, &edit.new_str, 1);
+                }
             }
-            for line in &new_lines {
-                combined_diff.push_str(&format!("+{}\n", line));
-            }
-
-            details_edits.push(json!({
-                "first_changed_line": line_num,
-                "old_lines": old_lines.len(),
-                "new_lines": new_lines.len(),
-            }));
-
-            current = current.replacen(&edit.old_str, &edit.new_str, 1);
         }
 
         fs.write_file(file_path.to_str().unwrap_or_default(), current.as_bytes())
@@ -193,7 +304,12 @@ impl Tool for FileEditTool {
         let edit_count = details_edits.len();
         let summary = if edit_count == 1 {
             let line = details_edits[0]["first_changed_line"].as_u64().unwrap_or(0);
-            format!("File edited: {} (line {})", params.path, line)
+            if replace_all {
+                let replaced = details_edits[0]["occurrences_replaced"].as_u64().unwrap_or(1);
+                format!("File edited: {} (line {}, {} occurrences replaced)", params.path, line, replaced)
+            } else {
+                format!("File edited: {} (line {})", params.path, line)
+            }
         } else {
             format!("File edited: {} ({} edits applied)", params.path, edit_count)
         };
@@ -286,6 +402,40 @@ mod tests {
         assert_eq!(current, "alpha\nbeta\n");
     }
 
+    #[tokio::test]
+    async fn replace_all_replaces_multiple_occurrences() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/test.txt", b"foo bar foo baz foo"),
+        };
+        let tool = FileEditTool;
+
+        let output = tool
+            .execute(
+                json!({
+                    "path": "test.txt",
+                    "old_str": "foo",
+                    "new_str": "qux",
+                    "replace_all": true,
+                }),
+                &ctx,
+            )
+            .await
+            .expect("tool execution should succeed");
+
+        assert!(!output.is_error, "replace_all should succeed");
+
+        let current = String::from_utf8(
+            ctx.fs
+                .read_file("/workspace/test.txt")
+                .await
+                .expect("file should exist"),
+        )
+        .expect("utf-8");
+        assert_eq!(current, "qux bar qux baz qux");
+    }
+
     #[test]
     fn truncated_preview_multibyte_no_panic() {
         // 20 CJK chars = 60 bytes in UTF-8, exceeds the 50-byte limit.
@@ -302,5 +452,18 @@ mod tests {
     fn truncated_preview_short_string() {
         let text = "hello";
         assert_eq!(truncated_preview(text), "hello");
+    }
+
+    #[test]
+    fn normalize_quotes_converts_smart_quotes() {
+        let input = "\u{201C}hello\u{201D} and \u{2018}world\u{2019}";
+        let expected = "\"hello\" and 'world'";
+        assert_eq!(normalize_quotes(input), expected);
+    }
+
+    #[test]
+    fn normalize_quotes_handles_dashes() {
+        let input = "foo\u{2013}bar\u{2014}baz";
+        assert_eq!(normalize_quotes(input), "foo-bar--baz");
     }
 }

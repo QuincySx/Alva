@@ -106,7 +106,9 @@ async function main() {
   if (config.model) options.model = config.model;
   if (config.effort) options.effort = config.effort;
   if (config.max_budget_usd != null) options.maxBudgetUsd = config.max_budget_usd;
+  if (config.max_turns != null) options.maxTurns = config.max_turns;
   if (config.system_prompt) options.systemPrompt = config.system_prompt;
+  if (config.resume_session) options.resume = config.resume_session;
 
   // --- Authentication ---
   if (config.api_key) options.env.ANTHROPIC_API_KEY = config.api_key;

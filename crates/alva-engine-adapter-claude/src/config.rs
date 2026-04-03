@@ -136,6 +136,10 @@ pub(crate) struct BridgeConfig {
     pub cwd: Option<String>,
     pub system_prompt: Option<String>,
     pub streaming: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_turns: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_session: Option<String>,
 
     // API
     pub api_key: Option<String>,

@@ -26,6 +26,30 @@ pub mod read_file;
 pub mod truncate;
 pub mod view_image;
 
+// --- Phase 3: Additional tools ---
+pub mod agent_tool;
+pub mod config_tool;
+pub mod enter_plan_mode;
+pub mod enter_worktree;
+pub mod exit_plan_mode;
+pub mod exit_worktree;
+pub mod notebook_edit;
+pub mod remote_trigger;
+pub mod schedule_cron;
+pub mod send_message;
+pub mod skill_tool;
+pub mod sleep_tool;
+pub mod task_create;
+pub mod task_get;
+pub mod task_list;
+pub mod task_output;
+pub mod task_stop;
+pub mod task_update;
+pub mod team_create;
+pub mod team_delete;
+pub mod todo_write;
+pub mod tool_search;
+
 #[cfg(not(target_family = "wasm"))]
 pub mod local_fs;
 #[cfg(not(target_family = "wasm"))]
@@ -64,6 +88,29 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
         list_files::ListFilesTool,
         ask_human::AskHumanTool,
         view_image::ViewImageTool,
+        // Phase 3 tools
+        task_create::TaskCreateTool,
+        task_update::TaskUpdateTool,
+        task_get::TaskGetTool,
+        task_list::TaskListTool,
+        task_output::TaskOutputTool,
+        task_stop::TaskStopTool,
+        team_create::TeamCreateTool,
+        team_delete::TeamDeleteTool,
+        agent_tool::AgentTool,
+        send_message::SendMessageTool,
+        skill_tool::SkillTool,
+        tool_search::ToolSearchTool,
+        sleep_tool::SleepTool,
+        enter_plan_mode::EnterPlanModeTool,
+        exit_plan_mode::ExitPlanModeTool,
+        notebook_edit::NotebookEditTool,
+        config_tool::ConfigTool,
+        todo_write::TodoWriteTool,
+        schedule_cron::ScheduleCronTool,
+        remote_trigger::RemoteTriggerTool,
+        enter_worktree::EnterWorktreeTool,
+        exit_worktree::ExitWorktreeTool,
     );
 
     #[cfg(feature = "native")]

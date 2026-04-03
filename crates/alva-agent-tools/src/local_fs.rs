@@ -50,6 +50,7 @@ impl ToolFs for LocalToolFs {
         timeout_ms: u64,
     ) -> Result<ToolFsExecResult, AgentError> {
         let mut cmd = Command::new("sh");
+        cmd.kill_on_drop(true);
         cmd.arg("-c").arg(command);
 
         if let Some(dir) = cwd {
@@ -283,6 +284,26 @@ mod tests {
             msg.contains("timed out") || msg.contains("timeout"),
             "unexpected error: {}",
             msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_exec_timeout_kills_child_process() {
+        let (fs, dir) = make_fs();
+        let marker = dir.path().join("timeout-marker.txt");
+        let command = format!("sleep 1; touch '{}'", marker.display());
+
+        let err = fs
+            .exec(&command, None, 100)
+            .await
+            .expect_err("should time out");
+        assert!(err.to_string().contains("timed out"));
+
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert!(
+            !marker.exists(),
+            "timed out child process continued running and created {}",
+            marker.display()
         );
     }
 

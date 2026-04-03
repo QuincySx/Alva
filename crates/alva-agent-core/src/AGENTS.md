@@ -1,37 +1,34 @@
-# alva-agent-core
-> Agent 执行引擎，实现双层循环（inner loop + outer loop）驱动 LLM 与工具交互
+# alva-agent-core/src
+> Agent 内核源码：session-centric run loop、middleware orchestration、runtime context 与 pending message injection。
 
 ## 地位
-agent 体系的运行时引擎。接收 alva-types 定义的抽象类型，通过 AgentConfig 的 6 个 hook 函数实现可定制的 agent 执行流程。被 alva-agent-graph 编排层调用，也可独立使用。
+此目录是 `alva-agent-core` 的全部核心实现。它直接消费 `alva-types` 提供的 model/tool/session 抽象，向上提供 `run_agent()`、`AgentState`、`AgentConfig`、`AgentEvent`、`MiddlewareStack` 等核心 API。
 
 ## 逻辑
-```
-Agent::run(user_message)
-  └─→ AgentLoop (outer loop)
-        ├─→ inner loop: LLM.generate() → 解析 tool_use → ToolExecutor 执行
-        │     ├─→ before_tool_call hook → 决策 Allow/Block
-        │     ├─→ Tool::execute() (parallel 或 sequential)
-        │     ├─→ after_tool_call hook → 后处理 ToolResult
-        │     └─→ get_steering_messages hook → 注入引导消息
-        └─→ get_follow_up_messages hook → 注入后续消息 → 决定是否继续 outer loop
-```
-- `AgentConfig` 定义 6 个 hook：convert_to_llm（必选）、transform_context、before/after_tool_call、get_steering/follow_up_messages
-- `AgentConfig.tool_context` 持有 `Arc<dyn ToolContext>`，在工具执行时传递给每个 `Tool::execute()` 调用
-- `ToolExecutionMode` 支持 Parallel 和 Sequential 两种工具执行模式
-- `AgentEvent` 提供事件流供外部观察执行过程
-- `max_iterations` 防护无限循环
+1. `run.rs` 实现主循环。每轮从 `session` 读取上下文，经过 middleware，调用 model，解析 `ToolUse`，执行 tool，再把结果写回 `session`。
+2. `run_child.rs` 提供 child-agent 执行辅助逻辑，用于在受限上下文中运行子 agent 并回收结构化输出。
+3. `state.rs` 定义 `AgentState` 与 `AgentConfig`：state 放运行态能力，config 放 middleware、system prompt、workspace、bus 等稳定配置。
+4. `middleware.rs` 和 `shared.rs` 组成 onion-style middleware 子系统，负责 hook 分发、优先级、错误传播与扩展存储。
+5. `runtime_context.rs` 为 tool 提供统一 `ToolExecutionContext` 实现，把 cancellation、workspace、progress event、bus 能力桥接到工具层。
+6. `pending_queue.rs` 定义 `AgentLoopHook` 与 `PendingMessageQueue`，供外部在 tool 执行后插入 steering/follow-up。
+7. `builtins/` 放内核默认 middleware：`DanglingToolCallMiddleware`、`LoopDetectionMiddleware`、`ToolTimeoutMiddleware`。
 
 ## 约束
-- 不直接依赖具体 LLM 或 Tool 实现，仅依赖 alva-types trait
-- `convert_to_llm` 是唯一必选 hook，其余均可选
-- 所有 hook 函数签名为 `Arc<dyn Fn(...) + Send + Sync>`
+- 消息历史只存在于 `session`，避免 `state` 与 `session` 双写。
+- `run.rs` 只把 `AgentMessage::Standard` 送进 LLM；`Steering` / `FollowUp` 在进入 session 前会标准化。
+- runtime-specific 组装逻辑不应回流到 core；需要 bus、security、checkpoint 等能力时，通过 `AgentConfig.bus` 和 middleware 协作。
+- `src/` 中的模块图必须与真实文件一致，不保留已删除的 `agent.rs` / `agent_loop.rs` / `tool_executor.rs` 等旧名词。
 
 ## 业务域清单
-| 名称 | 文件 | 职责 |
-|------|------|------|
-| Agent 入口 | `agent.rs` | Agent 结构体，对外暴露 run/run_with_cancel 方法 |
-| 执行循环 | `agent_loop.rs` | AgentLoop 双层循环实现 |
-| 工具执行器 | `tool_executor.rs` | 并行/串行执行 ToolCall，调用 before/after hook |
-| 类型定义 | `types.rs` | AgentConfig、AgentState、AgentContext、AgentMessage、ToolCallDecision |
-| 事件 | `event.rs` | AgentEvent 枚举（流式输出、工具调用、完成等事件） |
-| 中间件 | `middleware/` | 异步 Middleware trait + MiddlewareStack 洋葱模型 + CompressionMiddleware 上下文压缩 |
+| 名称 | 文件/子目录 | 职责 |
+|------|------------|------|
+| Crate 入口 | `lib.rs` | 声明子模块并 re-export public API |
+| 主运行循环 | `run.rs` | `run_agent()`，session-centric 双层循环与 tool execution 主链路 |
+| Child Agent | `run_child.rs` | 子 agent 执行辅助与输出收敛 |
+| 状态与配置 | `state.rs` | `AgentState`、`AgentConfig` |
+| 事件定义 | `event.rs` | `AgentEvent` 可观测事件流 |
+| Middleware 系统 | `middleware.rs` | `Middleware`、`MiddlewareStack`、`LlmCallFn`、`ToolCallFn` |
+| 共享基础 | `shared.rs` | `Extensions`、`MiddlewareError`、`MiddlewarePriority` |
+| Tool Context | `runtime_context.rs` | `RuntimeExecutionContext` |
+| 注入队列 | `pending_queue.rs` | `AgentLoopHook`、`PendingMessageQueue` |
+| Builtin Middleware | `builtins/` | loop detection、dangling tool call、tool timeout |

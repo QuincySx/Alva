@@ -34,6 +34,9 @@ pub mod context_system;
 pub mod apply;
 pub mod rules_plugin;
 pub mod default_plugin;
+pub mod compact;
+pub mod auto_compact;
+pub mod system_context;
 
 pub use plugin::{ContextError, ContextHooks};
 pub use sdk::ContextHandle;
@@ -44,4 +47,6 @@ pub use context_system::{ContextSystem, default_context_system};
 pub use rules_plugin::RulesContextHooks;
 pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig, DefaultSummarizeFn};
 pub use session::{SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession};
+pub use compact::{CompactionConfig, CompactionResult, compact_messages, should_compact};
+pub use auto_compact::AutoCompactState;
 pub use types::*;

@@ -61,9 +61,9 @@ impl EventMapper {
                 vec![RuntimeEvent::MessageDelta { id, delta }]
             }
 
-            AgentEvent::MessageEnd { message } => {
-                self.map_message_end(message)
-            }
+            AgentEvent::MessageError { .. } => vec![],
+
+            AgentEvent::MessageEnd { message } => self.map_message_end(message),
 
             // ── Tool execution ─────────────────────────────────────────────
             AgentEvent::ToolExecutionStart { .. } => vec![],
@@ -227,7 +227,9 @@ mod tests {
     fn test_message_update_emits_message_delta() {
         let mut mapper = EventMapper::new(make_session_id());
         let msg = AgentMessage::Standard(assistant_message("msg1", vec![]));
-        let delta = StreamEvent::TextDelta { text: "hello".to_string() };
+        let delta = StreamEvent::TextDelta {
+            text: "hello".to_string(),
+        };
         let events = mapper.map(AgentEvent::MessageUpdate {
             message: msg,
             delta: delta.clone(),
@@ -245,7 +247,9 @@ mod tests {
     fn test_message_end_splits_tool_use_blocks() {
         let mut mapper = EventMapper::new(make_session_id());
         let content = vec![
-            ContentBlock::Text { text: "I'll read the file.".to_string() },
+            ContentBlock::Text {
+                text: "I'll read the file.".to_string(),
+            },
             ContentBlock::ToolUse {
                 id: "tu1".to_string(),
                 name: "Read".to_string(),
@@ -267,7 +271,10 @@ mod tests {
         );
 
         // Also verify the tool name is registered for future ToolEnd lookup.
-        assert_eq!(mapper.tool_names.get("tu1").map(|s| s.as_str()), Some("Read"));
+        assert_eq!(
+            mapper.tool_names.get("tu1").map(|s| s.as_str()),
+            Some("Read")
+        );
     }
 
     // ── Test 5: MessageEnd with only ToolUse — no Message event ──────────
@@ -292,7 +299,9 @@ mod tests {
     #[test]
     fn test_tool_execution_end_resolves_name() {
         let mut mapper = EventMapper::new(make_session_id());
-        mapper.tool_names.insert("tu3".to_string(), "Grep".to_string());
+        mapper
+            .tool_names
+            .insert("tu3".to_string(), "Grep".to_string());
 
         let tool_call = ToolCall {
             id: "tu3".to_string(),
@@ -318,13 +327,11 @@ mod tests {
         let events = mapper.map(AgentEvent::AgentEnd { error: None });
 
         assert_eq!(events.len(), 1);
-        assert!(
-            matches!(&events[0], RuntimeEvent::Completed {
+        assert!(matches!(&events[0], RuntimeEvent::Completed {
                 session_id,
                 result: Some(r),
                 usage: Some(u),
-            } if session_id == "test-session" && r == "completed" && u.num_turns == 3)
-        );
+            } if session_id == "test-session" && r == "completed" && u.num_turns == 3));
     }
 
     // ── Test 7b: AgentEnd (with error) → Error + Completed ───────────────
@@ -342,12 +349,10 @@ mod tests {
             matches!(&events[0], RuntimeEvent::Error { message, recoverable: false }
                 if message == "max turns exceeded")
         );
-        assert!(
-            matches!(&events[1], RuntimeEvent::Completed {
+        assert!(matches!(&events[1], RuntimeEvent::Completed {
                 result: None,
                 usage: Some(u),
                 ..
-            } if u.num_turns == 2)
-        );
+            } if u.num_turns == 2));
     }
 }

@@ -47,7 +47,7 @@ impl Middleware for ToolTimeoutMiddleware {
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
         match tokio::time::timeout(self.timeout, next.call(state, tool_call)).await {
-            Ok(result) => result.map_err(|e| MiddlewareError::Other(e.to_string())),
+            Ok(result) => result.map_err(MiddlewareError::from),
             Err(_) => Ok(ToolOutput::error(format!(
                 "Tool '{}' timed out after {:?}. Consider breaking the task into smaller steps.",
                 tool_call.name, self.timeout
@@ -56,7 +56,7 @@ impl Middleware for ToolTimeoutMiddleware {
     }
 
     fn name(&self) -> &str {
-        "tool_timeout"
+        "builtins_tool_timeout"
     }
 
     fn priority(&self) -> i32 {

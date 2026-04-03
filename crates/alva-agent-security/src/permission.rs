@@ -2,6 +2,8 @@
 // OUTPUT: PermissionDecision, PermissionManager
 // POS:    Session-level HITL permission manager with cached always-allow/deny decisions and async approval flow.
 use std::collections::HashSet;
+
+use serde_json::Value;
 use tokio::sync::oneshot;
 
 /// Decision from the human operator in an HITL (Human-In-The-Loop) review.
@@ -27,7 +29,12 @@ pub struct PermissionManager {
     always_allowed: HashSet<String>,
     always_denied: HashSet<String>,
     /// Pending approval channels keyed by request_id.
-    pending: std::collections::HashMap<String, oneshot::Sender<PermissionDecision>>,
+    pending: std::collections::HashMap<String, PendingApproval>,
+}
+
+struct PendingApproval {
+    scope_key: String,
+    tx: oneshot::Sender<PermissionDecision>,
 }
 
 impl PermissionManager {
@@ -45,11 +52,13 @@ impl PermissionManager {
     ///   - `Some(true)`  — always allowed (skip HITL)
     ///   - `Some(false)` — always denied  (block immediately)
     ///   - `None`        — no cached decision, need human approval
-    pub fn check(&self, tool_name: &str) -> Option<bool> {
-        if self.always_allowed.contains(tool_name) {
+    pub fn check(&self, tool_name: &str, args: &Value) -> Option<bool> {
+        let scope_key = Self::scope_key(tool_name, args);
+
+        if self.always_allowed.contains(&scope_key) {
             return Some(true);
         }
-        if self.always_denied.contains(tool_name) {
+        if self.always_denied.contains(&scope_key) {
             return Some(false);
         }
         None
@@ -61,9 +70,17 @@ impl PermissionManager {
     pub fn request_approval(
         &mut self,
         request_id: String,
+        tool_name: &str,
+        args: &Value,
     ) -> oneshot::Receiver<PermissionDecision> {
         let (tx, rx) = oneshot::channel();
-        self.pending.insert(request_id, tx);
+        self.pending.insert(
+            request_id,
+            PendingApproval {
+                scope_key: Self::scope_key(tool_name, args),
+                tx,
+            },
+        );
         rx
     }
 
@@ -75,25 +92,23 @@ impl PermissionManager {
     pub fn resolve(
         &mut self,
         request_id: &str,
-        tool_name: &str,
+        _tool_name: &str,
         decision: PermissionDecision,
     ) -> bool {
-        // Cache always decisions
-        match decision {
-            PermissionDecision::AllowAlways => {
-                self.always_allowed.insert(tool_name.to_string());
-                self.always_denied.remove(tool_name);
+        if let Some(pending) = self.pending.remove(request_id) {
+            match decision {
+                PermissionDecision::AllowAlways => {
+                    self.always_allowed.insert(pending.scope_key.clone());
+                    self.always_denied.remove(&pending.scope_key);
+                }
+                PermissionDecision::RejectAlways => {
+                    self.always_denied.insert(pending.scope_key.clone());
+                    self.always_allowed.remove(&pending.scope_key);
+                }
+                _ => {}
             }
-            PermissionDecision::RejectAlways => {
-                self.always_denied.insert(tool_name.to_string());
-                self.always_allowed.remove(tool_name);
-            }
-            _ => {}
-        }
 
-        // Forward to pending channel
-        if let Some(tx) = self.pending.remove(request_id) {
-            let _ = tx.send(decision);
+            let _ = pending.tx.send(decision);
             true
         } else {
             false
@@ -123,6 +138,34 @@ impl PermissionManager {
     pub fn is_always_denied(&self, tool_name: &str) -> bool {
         self.always_denied.contains(tool_name)
     }
+
+    fn scope_key(tool_name: &str, args: &Value) -> String {
+        format!("{tool_name}:{}", Self::canonicalize_json(args))
+    }
+
+    fn canonicalize_json(value: &Value) -> Value {
+        match value {
+            Value::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .map(Self::canonicalize_json)
+                    .collect(),
+            ),
+            Value::Object(map) => {
+                let mut keys: Vec<_> = map.keys().cloned().collect();
+                keys.sort();
+
+                let mut normalized = serde_json::Map::new();
+                for key in keys {
+                    if let Some(value) = map.get(&key) {
+                        normalized.insert(key, Self::canonicalize_json(value));
+                    }
+                }
+                Value::Object(normalized)
+            }
+            _ => value.clone(),
+        }
+    }
 }
 
 impl Default for PermissionManager {
@@ -134,49 +177,54 @@ impl Default for PermissionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn no_cached_decision_by_default() {
         let pm = PermissionManager::new();
-        assert_eq!(pm.check("shell"), None);
+        assert_eq!(pm.check("shell", &json!({"command": "ls"})), None);
     }
 
     #[test]
     fn always_allow_caches() {
         let mut pm = PermissionManager::new();
-        let _rx = pm.request_approval("req-1".into());
+        let args = json!({"command": "ls"});
+        let _rx = pm.request_approval("req-1".into(), "shell", &args);
         pm.resolve("req-1", "shell", PermissionDecision::AllowAlways);
-        assert_eq!(pm.check("shell"), Some(true));
+        assert_eq!(pm.check("shell", &args), Some(true));
     }
 
     #[test]
     fn always_deny_caches() {
         let mut pm = PermissionManager::new();
-        let _rx = pm.request_approval("req-1".into());
+        let args = json!({"command": "ls"});
+        let _rx = pm.request_approval("req-1".into(), "shell", &args);
         pm.resolve("req-1", "shell", PermissionDecision::RejectAlways);
-        assert_eq!(pm.check("shell"), Some(false));
+        assert_eq!(pm.check("shell", &args), Some(false));
     }
 
     #[test]
     fn allow_once_does_not_cache() {
         let mut pm = PermissionManager::new();
-        let _rx = pm.request_approval("req-1".into());
+        let args = json!({"command": "ls"});
+        let _rx = pm.request_approval("req-1".into(), "shell", &args);
         pm.resolve("req-1", "shell", PermissionDecision::AllowOnce);
-        assert_eq!(pm.check("shell"), None);
+        assert_eq!(pm.check("shell", &args), None);
     }
 
     #[test]
     fn reject_once_does_not_cache() {
         let mut pm = PermissionManager::new();
-        let _rx = pm.request_approval("req-1".into());
+        let args = json!({"command": "ls"});
+        let _rx = pm.request_approval("req-1".into(), "shell", &args);
         pm.resolve("req-1", "shell", PermissionDecision::RejectOnce);
-        assert_eq!(pm.check("shell"), None);
+        assert_eq!(pm.check("shell", &args), None);
     }
 
     #[tokio::test]
     async fn approval_flow_end_to_end() {
         let mut pm = PermissionManager::new();
-        let rx = pm.request_approval("req-1".into());
+        let rx = pm.request_approval("req-1".into(), "shell", &json!({"command": "ls"}));
         pm.resolve("req-1", "shell", PermissionDecision::AllowOnce);
         let decision = rx.await.unwrap();
         assert_eq!(decision, PermissionDecision::AllowOnce);
@@ -185,18 +233,32 @@ mod tests {
     #[test]
     fn reset_clears_everything() {
         let mut pm = PermissionManager::new();
-        let _rx = pm.request_approval("req-1".into());
+        let args = json!({"command": "ls"});
+        let _rx = pm.request_approval("req-1".into(), "shell", &args);
         pm.resolve("req-1", "shell", PermissionDecision::AllowAlways);
         pm.reset();
-        assert_eq!(pm.check("shell"), None);
+        assert_eq!(pm.check("shell", &args), None);
     }
 
     #[test]
     fn cancel_drops_pending() {
         let mut pm = PermissionManager::new();
-        let mut rx = pm.request_approval("req-1".into());
+        let mut rx = pm.request_approval("req-1".into(), "shell", &json!({"command": "ls"}));
         pm.cancel("req-1");
         // Receiver should get an error since sender was dropped
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn always_allow_is_scoped_to_arguments() {
+        let mut pm = PermissionManager::new();
+        let args_a = json!({"command": "ls /workspace"});
+        let args_b = json!({"command": "ls /workspace/src"});
+
+        let _rx = pm.request_approval("req-1".into(), "shell", &args_a);
+        pm.resolve("req-1", "shell", PermissionDecision::AllowAlways);
+
+        assert_eq!(pm.check("shell", &args_a), Some(true));
+        assert_eq!(pm.check("shell", &args_b), None);
     }
 }

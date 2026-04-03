@@ -4,7 +4,10 @@
 pub mod base;
 // context is now at scope::context; re-export for backward compatibility
 pub use scope::context;
+pub mod constants;
 pub mod model;
+pub mod task;
+pub mod token_estimation;
 pub mod tool;
 pub mod multimodal;
 // backward-compatible re-exports for old module paths
@@ -28,8 +31,10 @@ pub use base::error::AgentError;
 pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadata};
 pub use model::{LanguageModel, ModelConfig, TokenCounter};
 pub use base::stream::StreamEvent;
-pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry};
+pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, SearchReadInfo};
 pub use tool::execution::{MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput};
+pub use task::{TaskType, TaskStatus, TaskState, generate_task_id, create_task_state};
+pub use token_estimation::{TokenEstimator, SimpleTokenEstimator};
 pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
 pub use transcription::{
     TranscriptionConfig, TranscriptionModel, TranscriptionResult, TranscriptionSegment,

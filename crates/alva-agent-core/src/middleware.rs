@@ -21,13 +21,21 @@ pub use crate::shared::{Extensions, MiddlewareError, MiddlewarePriority};
 /// Callback for the "next" step in the LLM wrapping chain.
 #[async_trait]
 pub trait LlmCallFn: Send + Sync {
-    async fn call(&self, state: &mut AgentState, messages: Vec<Message>) -> Result<Message, AgentError>;
+    async fn call(
+        &self,
+        state: &mut AgentState,
+        messages: Vec<Message>,
+    ) -> Result<Message, AgentError>;
 }
 
 /// Callback for the "next" step in the tool wrapping chain.
 #[async_trait]
 pub trait ToolCallFn: Send + Sync {
-    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolOutput, AgentError>;
+    async fn call(
+        &self,
+        state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<ToolOutput, AgentError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +93,7 @@ pub trait Middleware: Send + Sync {
     ) -> Result<Message, MiddlewareError> {
         next.call(state, messages)
             .await
-            .map_err(|e| MiddlewareError::Other(e.to_string()))
+            .map_err(MiddlewareError::from)
     }
 
     /// Called before a tool is executed.
@@ -117,7 +125,7 @@ pub trait Middleware: Send + Sync {
     ) -> Result<ToolOutput, MiddlewareError> {
         next.call(state, tool_call)
             .await
-            .map_err(|e| MiddlewareError::Other(e.to_string()))
+            .map_err(MiddlewareError::from)
     }
 
     /// Execution priority (lower values run first in before-hooks).
@@ -146,9 +154,7 @@ pub struct MiddlewareStack {
 
 impl MiddlewareStack {
     pub fn new() -> Self {
-        Self {
-            layers: Vec::new(),
-        }
+        Self { layers: Vec::new() }
     }
 
     /// Append a middleware layer to the stack (insertion order).
@@ -184,10 +190,7 @@ impl MiddlewareStack {
     // -- lifecycle hooks ---------------------------------------------------
 
     /// Run `on_agent_start` top-to-bottom.
-    pub async fn run_on_agent_start(
-        &self,
-        state: &mut AgentState,
-    ) -> Result<(), MiddlewareError> {
+    pub async fn run_on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
         for layer in &self.layers {
             layer.on_agent_start(state).await?;
         }
@@ -303,7 +306,7 @@ impl MiddlewareStack {
                 actual_call
                     .call(state, messages)
                     .await
-                    .map_err(|e| MiddlewareError::Other(e.to_string()))
+                    .map_err(MiddlewareError::from)
             } else {
                 // Create a "next" that calls the rest of the chain
                 let next = ChainedLlmCall {
@@ -345,7 +348,7 @@ impl MiddlewareStack {
                 actual_call
                     .call(state, tool_call)
                     .await
-                    .map_err(|e| MiddlewareError::Other(e.to_string()))
+                    .map_err(MiddlewareError::from)
             } else {
                 // Create a "next" that calls the rest of the chain
                 let next = ChainedToolCall {
@@ -378,11 +381,15 @@ struct ChainedLlmCall<'a> {
 
 #[async_trait]
 impl<'a> LlmCallFn for ChainedLlmCall<'a> {
-    async fn call(&self, state: &mut AgentState, messages: Vec<Message>) -> Result<Message, AgentError> {
+    async fn call(
+        &self,
+        state: &mut AgentState,
+        messages: Vec<Message>,
+    ) -> Result<Message, AgentError> {
         self.stack
             .call_wrap_llm_chain(state, messages, self.actual_call, self.next_index)
             .await
-            .map_err(|e| AgentError::Other(e.to_string()))
+            .map_err(MiddlewareError::into_agent_error)
     }
 }
 
@@ -398,11 +405,15 @@ struct ChainedToolCall<'a> {
 
 #[async_trait]
 impl<'a> ToolCallFn for ChainedToolCall<'a> {
-    async fn call(&self, state: &mut AgentState, tool_call: &ToolCall) -> Result<ToolOutput, AgentError> {
+    async fn call(
+        &self,
+        state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<ToolOutput, AgentError> {
         self.stack
             .call_wrap_tool_chain(state, tool_call, self.actual_call, self.next_index)
             .await
-            .map_err(|e| AgentError::Other(e.to_string()))
+            .map_err(MiddlewareError::into_agent_error)
     }
 }
 

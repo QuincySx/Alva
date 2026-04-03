@@ -1,32 +1,36 @@
 # alva-agent-context/src
-> Agent 上下文管理的三层实现：Plugin 策略层、SDK 操作层、Store 数据层。
+> Agent 上下文管理源码：hooks、handle、store、session access 与运行时 apply helper。
 
 ## 地位
-此目录是 `alva-agent-context` crate 的全部源码。Agent Loop 在每个 turn 直接调用 ContextPlugin hooks，plugin 通过 ContextManagementSDK 操作 ContextStore/MessageStore，无需中间件适配层。
+此目录是 `alva-agent-context` 的全部实现层。它围绕 `alva-types::context` 的 trait 和 value types，提供可直接接入 agent/runtime 的默认实现。
 
 ## 逻辑
-三层自顶向下调用：
-
-1. **Plugin Layer（策略）** — `ContextPlugin` trait 定义 21 个 hooks，覆盖上下文全生命周期。`DefaultContextPlugin` 是生产默认实现（确定性规则 + LLM 回调兜底）；`RulesContextPlugin` 是零 LLM 开销的纯规则实现，用于开发/回退。
-2. **SDK Layer（操作）** — `ContextManagementSDK` trait 是 plugin 可调用的特权接口，提供 context store 和 message store 的读写能力。`ContextSDKImpl` 是其唯一具体实现，内部用 `std::sync::Mutex` 保护共享状态。
-3. **Store Layer（数据）** — `ContextStore` 维护每个 Agent 的五层上下文条目（L0 AlwaysPresent / L1 OnDemand / L2 RuntimeInject / L3 Memory），按 token budget 管理；`MessageStore` trait 抽象会话历史的 turn-based 持久化。
+1. `plugin.rs` re-export `ContextHooks` 与 `ContextError`；具体策略实现位于 `rules_plugin.rs` 和 `default_plugin.rs`。
+2. `sdk.rs` / `sdk_impl.rs` 定义并实现 `ContextHandle`，负责 snapshot、budget、inject、summarize、memory query 等操作能力。
+3. `store.rs` 维护四层上下文条目、token 预算、tool pattern 统计与压缩快捷操作。
+4. `session.rs` re-export `SessionAccess` 相关 trait/type，并提供 `InMemorySession` 作为默认 append-only 会话存储。
+5. `chain.rs` 把多个 `ContextHooks` 组合成顺序执行的 pipeline；`apply.rs` 把 `Injection` / `CompressAction` 应用到运行时 system prompt 与 message 列表。
+6. `context_system.rs` 提供 `ContextSystem` re-export 与 `default_context_system()` 默认装配入口。
+7. `types.rs` re-export context 相关共享类型，保证外部 crate 通过本 crate 也能拿到完整上下文值对象。
 
 ## 约束
-- Plugin hooks 均有默认空实现，只覆盖需要的 hook。
-- `DefaultContextPlugin` 在 LLM 回调失败时必须 fallback 到 truncation，保证 fail-safe。
-- L0/L1 层的条目顺序不可随意变动，以保证 prompt-cache 命中率。
-- `ContextSDKImpl` 使用 `std::sync::Mutex`（非 tokio Mutex），因为 ContextStore 操作全是 CPU-bound。
-- 所有 types 均 derive `Serialize`/`Deserialize`，支持持久化。
+- `ContextHooks` / `ContextHandle` / `ContextSystem` 的 trait 或结构定义不在本目录声明，而是来自 `alva-types::context`。
+- 文档中不再使用已删除的 `message_store.rs` 名称；会话持久化当前位于 `session.rs`。
+- `ContextStore` 当前是四层模型，不写成“五层”。
+- `DefaultContextHooks` 允许通过回调接入 LLM 能力，但必须保留 deterministic fallback。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| 模块入口 | lib.rs | 声明子模块、re-export 公共 API |
-| 类型定义 | types.rs | ContextLayer（四层枚举）、Priority、ContextEntry、action/decision 枚举 |
-| Plugin trait | plugin.rs | ContextPlugin trait — 21 hooks + ContextError 错误类型 |
-| 默认 Plugin | default_plugin.rs | DefaultContextPlugin — 确定性规则 + LLM 回调，生产默认策略 |
-| 规则 Plugin | rules_plugin.rs | RulesContextPlugin — 纯规则、零 LLM 调用、滑动窗口策略 |
-| SDK trait | sdk.rs | ContextManagementSDK trait — plugin 调用的特权读写接口 |
-| SDK 实现 | sdk_impl.rs | ContextSDKImpl — 基于 Mutex 包装 ContextStore + MessageStore |
-| 上下文存储 | store.rs | ContextStore — per-agent 五层上下文容器、token budget CRUD |
-| 消息存储 | message_store.rs | MessageStore trait + InMemoryMessageStore — turn-based 会话历史 |
+| 模块入口 | `lib.rs` | 声明子模块并 re-export public API |
+| Trait Re-export | `plugin.rs` | `ContextHooks`、`ContextError` |
+| Handle Trait | `sdk.rs` | `ContextHandle` trait re-export |
+| Handle 实现 | `sdk_impl.rs` | `ContextHandleImpl`、`MemoryBackend`、`Summarizer` |
+| 上下文存储 | `store.rs` | `ContextStore`、token budget、tool pattern 统计 |
+| 会话存储 | `session.rs` | `SessionAccess` re-export 与 `InMemorySession` |
+| Hooks 组合 | `chain.rs` | `ContextHooksChain` |
+| 默认系统 | `context_system.rs` | `ContextSystem` re-export 与 `default_context_system()` |
+| 运行时应用 | `apply.rs` | `apply_injections()`、`apply_compressions()` |
+| 规则策略 | `rules_plugin.rs` | `RulesContextHooks` |
+| 默认策略 | `default_plugin.rs` | `DefaultContextHooks`、`DefaultHooksConfig` |
+| 类型导出 | `types.rs` | context 相关共享值对象 re-export |

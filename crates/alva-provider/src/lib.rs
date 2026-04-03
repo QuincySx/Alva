@@ -1,7 +1,12 @@
-//! OpenAI-compatible LLM provider.
+//! LLM provider implementations for alva agent framework.
 //!
-//! Supports any service with an OpenAI Chat Completions API:
-//! OpenAI, Anthropic (via proxy), Ollama, vLLM, DeepSeek, etc.
+//! Supports multiple provider backends:
+//! - **OpenAI-compatible**: Any service with an OpenAI Chat Completions API
+//!   (OpenAI, Ollama, vLLM, DeepSeek, etc.)
+//! - **Anthropic**: Direct Anthropic Messages API with native tool use,
+//!   thinking blocks, and streaming support.
+//!
+//! Includes rate limiting support for tracking API usage and overage state.
 //!
 //! Configuration priority: environment variables > config file > defaults.
 //!
@@ -17,15 +22,21 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use alva_provider::{OpenAIProvider, ProviderConfig};
+//! use alva_provider::{OpenAIProvider, AnthropicProvider, ProviderConfig};
 //!
 //! let config = ProviderConfig::from_env()?;
-//! let provider = OpenAIProvider::new(config);
-//! // provider implements LanguageModel
+//! // OpenAI-compatible provider
+//! let oai = OpenAIProvider::new(config.clone());
+//! // Direct Anthropic API provider
+//! let anthropic = AnthropicProvider::new(config);
 //! ```
 
+mod anthropic;
 mod config;
 mod openai;
+pub mod rate_limit;
 
+pub use anthropic::AnthropicProvider;
 pub use config::ProviderConfig;
 pub use openai::OpenAIProvider;
+pub use rate_limit::{RateLimitCheck, RateLimitState, RateLimitType};

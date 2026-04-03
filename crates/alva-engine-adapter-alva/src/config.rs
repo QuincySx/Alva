@@ -2,8 +2,8 @@
 // OUTPUT: pub struct AlvaAdapterConfig
 // POS:    Configuration for the Alva native engine adapter using V2 types.
 
-use std::sync::Arc;
 use alva_types::{BusHandle, LanguageModel, Tool};
+use std::sync::Arc;
 
 /// Configuration for the Alva engine adapter (V2).
 pub struct AlvaAdapterConfig {

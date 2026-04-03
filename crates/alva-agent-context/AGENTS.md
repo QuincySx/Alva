@@ -1,24 +1,24 @@
 # alva-agent-context
-> Agent 上下文生命周期管理 crate：三层架构（Plugin / SDK / Store）驱动上下文的组装、压缩与持久化。
+> Context management crate: concrete implementations for context hooks, handle, store, session access, and composition helpers.
 
 ## 地位
-此 crate 是 Agent 上下文管理的唯一实现。它作为组件被注入 Agent，由 agent loop 在每个 turn 直接调用 plugin hooks。不依赖中间件或 adapter 层，与 `alva-agent-core` 解耦——core 只声明接口，本 crate 提供全部具体实现。
+`alva-agent-context` 为 `alva-types::context` 提供默认实现，不直接依赖 `alva-agent-core`。它负责上下文条目的存储、插件式决策、压缩/注入动作应用，以及 append-only session access。
 
 ## 逻辑
-采用三层架构，职责自顶向下分离：
-
-- **Plugin 层**（策略决策）— `ContextPlugin` trait 暴露 21 个 hooks，由 Agent loop 在 turn 开始/结束、budget 超限、记忆提取等时机调用。`DefaultContextPlugin`（生产默认）和 `RulesContextPlugin`（开发/回退）是两个内置实现。
-- **SDK 层**（操作能力）— `ContextManagementSDK` trait 是 plugin 的"特权 API"，提供对 ContextStore 和 MessageStore 的读写操作。`ContextSDKImpl` 是唯一实现。
-- **Store 层**（数据持有）— `ContextStore` 按四层（L0 AlwaysPresent / L1 OnDemand / L2 RuntimeInject / L3 Memory）管理上下文条目，维护 token budget；`MessageStore` 按 turn 粒度持久化会话历史。
+- **Hooks 层**：`RulesContextHooks` 和 `DefaultContextHooks` 实现 `ContextHooks`，负责 on-message、assemble、budget exceed、after-turn 等策略。
+- **Handle 层**：`ContextHandleImpl` 实现 `ContextHandle`，把 store、memory backend、summarizer、bus token counter 组合起来。
+- **Store 层**：`ContextStore` 管理四层上下文条目和 token budget。
+- **Session 层**：`session.rs` re-export `SessionAccess` 相关类型，并提供 `InMemorySession`。
+- **组合层**：`ContextHooksChain`、`apply.rs`、`context_system.rs` 负责多 plugin 组合、将 hook 结果应用到运行时消息，以及快速构造默认 `ContextSystem`。
 
 ## 约束
-- 本 crate 不包含任何 LLM 调用逻辑——LLM 能力通过回调注入 `DefaultContextPlugin`，保持 crate 纯粹。
-- 所有公共类型均 re-export 自 `lib.rs`，外部 crate 只需 `use alva_agent_context::*`。
-- 依赖 `alva-types` 获取 `AgentMessage` 等共享类型，不直接依赖 agent-core。
-- `std::sync::Mutex` 而非 async Mutex，因 store 操作全为 CPU-bound。
+- trait 定义来自 `alva-types::context`；本 crate 主要提供 concrete implementation。
+- 本 crate 不直接绑定具体 LLM/provider；需要 summarization 或 memory extraction 时通过 callback/backend 注入。
+- `ContextStore` 当前管理四层上下文：`AlwaysPresent / OnDemand / RuntimeInject / Memory`。
+- `std::sync::Mutex` 用于 in-memory store，避免把纯 CPU 数据结构强制 async 化。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| 源码实现 | src/ | 三层架构全部源码，详见 [src/AGENTS.md](src/AGENTS.md) |
-| Crate 配置 | Cargo.toml | 依赖声明：alva-types、async-trait、serde、thiserror、uuid、chrono、tokio |
+| 源码实现 | `src/` | hooks、handle、store、session、组合辅助，详见 `src/AGENTS.md` |
+| Crate 配置 | `Cargo.toml` | 依赖声明：alva-types、async-trait、serde、uuid、chrono、tokio 等 |

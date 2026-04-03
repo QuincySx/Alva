@@ -1,9 +1,9 @@
 // INPUT:  alva_types (StreamEvent, ToolCall, ToolOutput, ProgressEvent, AgentMessage)
 // OUTPUT: AgentEvent
 // POS:    Defines the event enum emitted by the agent loop for callers to observe progress, messages, and tool execution.
-use alva_types::{StreamEvent, ToolCall, ToolOutput};
-use alva_types::ProgressEvent;
 use alva_types::AgentMessage;
+use alva_types::ProgressEvent;
+use alva_types::{StreamEvent, ToolCall, ToolOutput};
 
 /// Events emitted by the agent loop so callers can observe progress.
 #[derive(Debug, Clone)]
@@ -24,6 +24,11 @@ pub enum AgentEvent {
     MessageUpdate {
         message: AgentMessage,
         delta: StreamEvent,
+    },
+    /// The assistant message failed before completion.
+    MessageError {
+        message: AgentMessage,
+        error: String,
     },
     /// The assistant message is complete.
     MessageEnd { message: AgentMessage },

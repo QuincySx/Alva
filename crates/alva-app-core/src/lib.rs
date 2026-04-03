@@ -72,10 +72,14 @@ pub(crate) mod types;
 pub(crate) mod domain;
 pub(crate) mod ports;
 pub(crate) mod adapters;
+pub mod auth;
 pub mod base_agent;
 pub mod error;
+pub mod lsp;
 pub mod paths;
 pub mod plugins;
+pub mod analytics;
+pub mod settings;
 
 // Re-export alva-agent-scope (blackboard + scope infrastructure)
 pub use alva_agent_scope;
@@ -86,3 +90,4 @@ pub use alva_agent_scope::scope_impl as scope;
 pub use base_agent::{BaseAgent, BaseAgentBuilder, PermissionMode};
 pub use error::EngineError;
 pub use paths::AlvaPaths;
+pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};

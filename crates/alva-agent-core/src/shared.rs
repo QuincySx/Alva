@@ -5,16 +5,32 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
+use alva_types::AgentError;
+
 // ---------------------------------------------------------------------------
 // MiddlewareError
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum MiddlewareError {
     #[error("blocked: {reason}")]
     Blocked { reason: String },
     #[error("middleware error: {0}")]
     Other(String),
+    #[error(transparent)]
+    Agent(#[from] AgentError),
+}
+
+impl MiddlewareError {
+    pub fn into_agent_error(self) -> AgentError {
+        match self {
+            MiddlewareError::Blocked { reason } => AgentError::Other(format!("blocked: {reason}")),
+            MiddlewareError::Other(message) => {
+                AgentError::Other(format!("middleware error: {message}"))
+            }
+            MiddlewareError::Agent(error) => error,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

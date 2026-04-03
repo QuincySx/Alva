@@ -1,6 +1,7 @@
-// INPUT:  serde_json, std::path, alva_types, crate::{authorized_roots, permission, sandbox, sensitive_paths}
+// INPUT:  serde_json, std::path, alva_types, crate::{authorized_roots, cache, classifier, modes, permission, rules, sandbox, sensitive_paths}
 // OUTPUT: SecurityDecision, SecurityGuard
-// POS:    Unified security gate composing sensitive-path filtering, authorized-root checking, and HITL permission management.
+// POS:    Unified security gate composing sensitive-path filtering, authorized-root checking,
+//         HITL permission management, permission rules, caching, modes, and bash classification.
 use std::collections::HashSet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -8,8 +9,12 @@ use std::path::{Path, PathBuf};
 use alva_types::ToolExecutionContext;
 
 use crate::authorized_roots::AuthorizedRoots;
+use crate::cache::{CachedDecision, PermissionCache};
+use crate::classifier::{BashClassifier, CommandClassification};
+use crate::modes::PermissionMode;
 use crate::path_utils::normalize_path;
 use crate::permission::PermissionManager;
+use crate::rules::{PermissionRules, RuleDecision};
 use crate::sandbox::{SandboxConfig, SandboxMode};
 use crate::sensitive_paths::SensitivePathFilter;
 
@@ -71,13 +76,23 @@ fn expand_home(path: &str) -> PathBuf {
 /// Composes all security subsystems:
 ///   1. Sensitive path filtering
 ///   2. Authorized root checking
-///   3. HITL permission management
-///   4. Sandbox configuration (for command wrapping)
+///   3. Permission rules (pattern-based allow/deny/ask)
+///   4. Permission cache (memoize repeated decisions)
+///   5. Permission mode (interactive/auto/plan/bypass)
+///   6. Bash command classification (read-only/destructive/unknown)
+///   7. HITL permission management
+///   8. Sandbox configuration (for command wrapping)
 pub struct SecurityGuard {
     sensitive_paths: SensitivePathFilter,
     permission_manager: PermissionManager,
     authorized_roots: AuthorizedRoots,
     sandbox_config: SandboxConfig,
+    /// Permission rules for pattern-based decisions.
+    permission_rules: PermissionRules,
+    /// Cache for repeated permission decisions.
+    permission_cache: PermissionCache,
+    /// Current permission mode.
+    permission_mode: PermissionMode,
     /// Tools requiring HITL review — configurable at runtime.
     dangerous_tools: HashSet<String>,
     /// JSON keys to extract paths from — configurable at runtime.
@@ -93,6 +108,9 @@ impl SecurityGuard {
             permission_manager: PermissionManager::new(),
             authorized_roots: AuthorizedRoots::new(workspace.clone()),
             sandbox_config: SandboxConfig::for_workspace(&workspace, sandbox_mode),
+            permission_rules: PermissionRules::default(),
+            permission_cache: PermissionCache::new(),
+            permission_mode: PermissionMode::default(),
             dangerous_tools: DEFAULT_DANGEROUS_TOOLS.iter().map(|s| s.to_string()).collect(),
             path_keys: DEFAULT_PATH_KEYS.iter().map(|s| s.to_string()).collect(),
             pending_receivers: std::collections::HashMap::new(),
@@ -119,25 +137,77 @@ impl SecurityGuard {
         self.sensitive_paths = filter;
     }
 
+    /// Set permission rules for pattern-based decisions.
+    pub fn set_permission_rules(&mut self, rules: PermissionRules) {
+        self.permission_rules = rules;
+    }
+
+    /// Get a reference to the current permission rules.
+    pub fn permission_rules(&self) -> &PermissionRules {
+        &self.permission_rules
+    }
+
+    /// Set the permission mode.
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) {
+        self.permission_mode = mode;
+    }
+
+    /// Get the current permission mode.
+    pub fn permission_mode(&self) -> PermissionMode {
+        self.permission_mode
+    }
+
+    /// Get a reference to the permission cache.
+    pub fn permission_cache(&self) -> &PermissionCache {
+        &self.permission_cache
+    }
+
+    /// Classify a bash command for safety.
+    pub fn classify_command(&self, command: &str) -> CommandClassification {
+        BashClassifier::classify(command)
+    }
+
     /// Main security check — called before every tool execution.
     ///
     /// Checks in order:
-    ///   1. Extract paths from tool args and check against sensitive path filter
-    ///   2. Check extracted paths against authorized roots
-    ///   3. Check HITL permission cache for dangerous tools
-    ///   4. Return Allow / Deny / NeedHumanApproval
+    ///   1. Permission mode enforcement (plan mode blocks writes)
+    ///   2. Extract paths from tool args and check against sensitive path filter
+    ///   3. Check extracted paths against authorized roots
+    ///   4. Permission cache lookup
+    ///   5. Permission rules check (pattern-based allow/deny/ask)
+    ///   6. Bash command classification (in auto mode)
+    ///   7. HITL permission manager for dangerous tools
+    ///   8. Return Allow / Deny / NeedHumanApproval
     pub fn check_tool_call(
         &mut self,
         tool_name: &str,
         args: &Value,
         _ctx: &dyn ToolExecutionContext,
     ) -> SecurityDecision {
-        // 1. Extract all paths from tool arguments
+        // 1. Permission mode enforcement
+        if !self.permission_mode.allows_writes() && self.is_dangerous(tool_name) {
+            tracing::info!(tool = tool_name, mode = %self.permission_mode, "denied by plan mode");
+            return SecurityDecision::Deny {
+                reason: format!(
+                    "tool '{}' blocked: write operations not allowed in {} mode",
+                    tool_name, self.permission_mode
+                ),
+            };
+        }
+
+        // Bypass mode: allow everything (assumes sandbox is active)
+        if self.permission_mode == PermissionMode::Bypass {
+            tracing::debug!(tool = tool_name, "allowed by bypass mode");
+            return SecurityDecision::Allow;
+        }
+
+        // 2. Extract all paths from tool arguments
         let paths = self.extract_paths(args);
 
-        // 2. Check sensitive paths
+        // 3. Check sensitive paths
         for path in &paths {
             if let Some(reason) = self.sensitive_paths.check(path) {
+                tracing::info!(tool = tool_name, path = %path.display(), "denied: sensitive path");
                 return SecurityDecision::Deny {
                     reason: format!(
                         "tool '{}' blocked: {}",
@@ -147,9 +217,10 @@ impl SecurityGuard {
             }
         }
 
-        // 3. Check authorized roots
+        // 4. Check authorized roots
         for path in &paths {
             if let Err(reason) = self.authorized_roots.check(path) {
+                tracing::info!(tool = tool_name, path = %path.display(), "denied: outside roots");
                 return SecurityDecision::Deny {
                     reason: format!(
                         "tool '{}' blocked: {}",
@@ -159,7 +230,75 @@ impl SecurityGuard {
             }
         }
 
-        // 4. HITL check for dangerous tools
+        // 5. Permission cache lookup
+        if let Some(cached) = self.permission_cache.get(tool_name, args) {
+            match cached {
+                CachedDecision::AllowAlways => {
+                    tracing::debug!(tool = tool_name, "allowed by cache");
+                    return SecurityDecision::Allow;
+                }
+                CachedDecision::DenyAlways => {
+                    tracing::debug!(tool = tool_name, "denied by cache");
+                    return SecurityDecision::Deny {
+                        reason: format!(
+                            "tool '{}' is cached as denied",
+                            tool_name
+                        ),
+                    };
+                }
+            }
+        }
+
+        // 6. Permission rules check (pattern-based)
+        if !self.permission_rules.is_empty() {
+            let input_summary = Self::summarize_input(tool_name, args);
+            match self.permission_rules.check(tool_name, &input_summary) {
+                RuleDecision::Allow => {
+                    tracing::debug!(tool = tool_name, "allowed by rule");
+                    return SecurityDecision::Allow;
+                }
+                RuleDecision::Deny => {
+                    tracing::info!(tool = tool_name, "denied by rule");
+                    return SecurityDecision::Deny {
+                        reason: format!(
+                            "tool '{}' blocked by permission rule",
+                            tool_name
+                        ),
+                    };
+                }
+                RuleDecision::Ask => {
+                    // Fall through to HITL check below
+                }
+            }
+        }
+
+        // 7. Auto mode: use bash classifier for auto-approval
+        if self.permission_mode.auto_approves() && self.is_dangerous(tool_name) {
+            if let Some(command) = Self::extract_command(args) {
+                match BashClassifier::classify(&command) {
+                    CommandClassification::ReadOnly => {
+                        tracing::debug!(tool = tool_name, "auto-approved: read-only command");
+                        return SecurityDecision::Allow;
+                    }
+                    CommandClassification::Destructive => {
+                        tracing::info!(tool = tool_name, "denied: destructive command in auto mode");
+                        return SecurityDecision::Deny {
+                            reason: format!(
+                                "tool '{}' blocked: destructive command '{}' not allowed in auto mode",
+                                tool_name, command
+                            ),
+                        };
+                    }
+                    CommandClassification::Unknown => {
+                        // Auto mode auto-approves unknown commands too (trusts sandbox)
+                        tracing::debug!(tool = tool_name, "auto-approved: unknown command in auto mode");
+                        return SecurityDecision::Allow;
+                    }
+                }
+            }
+        }
+
+        // 8. HITL check for dangerous tools
         if self.is_dangerous(tool_name) {
             match self.permission_manager.check(tool_name, args) {
                 Some(true) => return SecurityDecision::Allow,
@@ -221,9 +360,10 @@ impl SecurityGuard {
         &self.sandbox_config
     }
 
-    /// Reset session-level permission caches.
+    /// Reset session-level permission caches (both HITL manager and permission cache).
     pub fn reset_permissions(&mut self) {
         self.permission_manager.reset();
+        self.permission_cache.clear();
     }
 
     // ---- internal helpers ----
@@ -231,6 +371,28 @@ impl SecurityGuard {
     /// Check if a tool is considered dangerous.
     fn is_dangerous(&self, tool_name: &str) -> bool {
         self.dangerous_tools.contains(tool_name)
+    }
+
+    /// Build a summary string from tool input for rule matching.
+    fn summarize_input(tool_name: &str, args: &Value) -> String {
+        // For Bash-like tools, use the command string
+        if let Some(cmd) = Self::extract_command(args) {
+            return cmd;
+        }
+        // For file tools, use the path
+        if let Some(path) = args.get("path").or(args.get("file_path")).and_then(|v| v.as_str()) {
+            return path.to_string();
+        }
+        // Fallback: serialize the args
+        let _ = tool_name; // used in format context by callers
+        serde_json::to_string(args).unwrap_or_default()
+    }
+
+    /// Extract command string from bash-like tool arguments.
+    fn extract_command(args: &Value) -> Option<String> {
+        args.get("command")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
 
     /// Extract file paths from JSON tool arguments by looking at well-known

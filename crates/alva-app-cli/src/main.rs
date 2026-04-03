@@ -18,11 +18,15 @@
 
 mod agent_setup;
 mod checkpoint;
+mod commands;
 mod event_handler;
+mod history;
 mod output;
 mod repl;
+pub mod services;
 mod session_store;
 mod setup;
+pub mod ui;
 
 use std::io::{self, Read as _};
 

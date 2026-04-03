@@ -11,6 +11,7 @@ pub mod embedding;
 pub mod hash;
 pub mod sync;
 pub mod service;
+pub mod extract;
 
 pub use backend::MemoryBackend;
 pub use error::MemoryError;
@@ -19,3 +20,4 @@ pub use types::{MemoryEntry, MemoryChunk, MemoryFile, SyncReport};
 pub use embedding::{EmbeddingProvider, NoopEmbeddingProvider};
 pub use sqlite::MemorySqlite;
 pub use sync::SyncConfig;
+pub use extract::{ExtractionConfig, ExtractedMemory, MemoryType};
