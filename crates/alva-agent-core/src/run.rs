@@ -257,6 +257,8 @@ async fn run_loop(
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     let mut total_iterations: u32 = 0;
+    let mut session_input_tokens: u64 = 0;
+    let mut session_output_tokens: u64 = 0;
 
     // Outer loop: processes follow-up messages
     'outer: loop {
@@ -355,7 +357,13 @@ async fn run_loop(
                 .session
                 .append(AgentMessage::Standard(response.clone()));
 
-            // 3h. Emit MessageEnd with the complete response
+            // 3h. Track token usage from this turn
+            if let Some(ref usage) = response.usage {
+                session_input_tokens += usage.input_tokens as u64;
+                session_output_tokens += usage.output_tokens as u64;
+            }
+
+            // 3i. Emit MessageEnd with the complete response
             // (MessageStart was emitted before the LLM call; MessageUpdate
             // events were emitted during streaming inside ActualLlmCall.)
             let agent_msg = AgentMessage::Standard(response.clone());
@@ -384,7 +392,10 @@ async fn run_loop(
                 break 'inner;
             }
 
-            // 3k. Execute each tool_call
+            // 3k. Execute each tool_call sequentially.
+            // NOTE: concurrent execution for is_concurrency_safe() tools is
+            // deferred — it requires refactoring tool execution to not hold
+            // &mut AgentState across the await boundary.
             for tool_call in &tool_calls {
                 if cancel.is_cancelled() {
                     return Err(AgentError::Cancelled);

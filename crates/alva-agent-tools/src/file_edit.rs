@@ -8,6 +8,8 @@ use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::local_fs::LocalToolFs;
 use crate::truncate::safe_truncate;
@@ -55,6 +57,54 @@ struct Input {
     /// When true, old_str does not need to be unique.
     #[serde(default)]
     replace_all: Option<bool>,
+}
+
+// ---------------------------------------------------------------------------
+// File read-state tracker (staleness detection)
+// ---------------------------------------------------------------------------
+
+/// Simple hash of file contents for staleness detection.
+pub fn content_hash(data: &[u8]) -> u64 {
+    // FNV-1a hash — fast, good enough for change detection
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &byte in data {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// Global file-read state: maps absolute path → content hash at last read.
+///
+/// Updated by `ReadFileTool` (via `record_file_read`) and checked by `FileEditTool`.
+fn read_state() -> &'static Mutex<HashMap<String, u64>> {
+    static STATE: std::sync::OnceLock<Mutex<HashMap<String, u64>>> = std::sync::OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Record that a file was read with the given content hash.
+/// Called by ReadFileTool after reading a file.
+pub fn record_file_read(path: &str, hash: u64) {
+    if let Ok(mut state) = read_state().lock() {
+        state.insert(path.to_string(), hash);
+    }
+}
+
+/// Check if a file has been modified since the last recorded read.
+/// Returns `Some(warning_message)` if stale, `None` if fresh or never read.
+fn check_staleness(path: &str, current_content: &[u8]) -> Option<String> {
+    let state = read_state().lock().ok()?;
+    let recorded_hash = state.get(path)?;
+    let current_hash = content_hash(current_content);
+    if current_hash != *recorded_hash {
+        Some(format!(
+            "Warning: file '{}' has been modified since it was last read. \
+             The edit may be based on stale content. Consider reading the file again first.",
+            path
+        ))
+    } else {
+        None
+    }
 }
 
 pub struct FileEditTool;
@@ -139,6 +189,12 @@ impl Tool for FileEditTool {
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot read file: {}", e) })?;
         let content = String::from_utf8_lossy(&raw).into_owned();
+
+        // Staleness detection: warn if file changed since last read
+        let staleness_warning = check_staleness(
+            file_path.to_str().unwrap_or_default(),
+            &raw,
+        );
 
         // Try matching with quote normalization if direct match fails
         let normalized_content = normalize_quotes(&content);
@@ -301,6 +357,12 @@ impl Tool for FileEditTool {
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot write file: {}", e) })?;
 
+        // Update read state with new content hash
+        record_file_read(
+            file_path.to_str().unwrap_or_default(),
+            content_hash(current.as_bytes()),
+        );
+
         let edit_count = details_edits.len();
         let summary = if edit_count == 1 {
             let line = details_edits[0]["first_changed_line"].as_u64().unwrap_or(0);
@@ -314,12 +376,23 @@ impl Tool for FileEditTool {
             format!("File edited: {} ({} edits applied)", params.path, edit_count)
         };
 
+        // Prepend staleness warning if detected
+        let mut output_text = String::new();
+        if let Some(ref warning) = staleness_warning {
+            output_text.push_str(&warning);
+            output_text.push_str("\n\n");
+        }
+        output_text.push_str(&summary);
+        output_text.push_str("\n\n");
+        output_text.push_str(&combined_diff);
+
         Ok(ToolOutput {
-            content: vec![ToolContent::text(format!("{}\n\n{}", summary, combined_diff))],
+            content: vec![ToolContent::text(output_text)],
             is_error: false,
             details: Some(json!({
                 "path": params.path,
                 "edits": details_edits,
+                "stale": staleness_warning.is_some(),
             })),
         })
     }
@@ -465,5 +538,77 @@ mod tests {
     fn normalize_quotes_handles_dashes() {
         let input = "foo\u{2013}bar\u{2014}baz";
         assert_eq!(normalize_quotes(input), "foo-bar--baz");
+    }
+
+    #[test]
+    fn content_hash_deterministic() {
+        let data = b"hello world";
+        let h1 = content_hash(data);
+        let h2 = content_hash(data);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn content_hash_different_for_different_content() {
+        let h1 = content_hash(b"hello");
+        let h2 = content_hash(b"world");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn staleness_detection_no_prior_read() {
+        // No prior read → should return None (not stale)
+        let result = check_staleness("/nonexistent/file.txt", b"content");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn staleness_detection_fresh() {
+        let path = "/tmp/test-staleness-fresh.txt";
+        let content = b"hello world";
+        record_file_read(path, content_hash(content));
+        let result = check_staleness(path, content);
+        assert!(result.is_none(), "file should not be stale");
+    }
+
+    #[test]
+    fn staleness_detection_stale() {
+        let path = "/tmp/test-staleness-stale.txt";
+        let original = b"hello world";
+        let modified = b"hello world modified";
+        record_file_read(path, content_hash(original));
+        let result = check_staleness(path, modified);
+        assert!(result.is_some(), "file should be detected as stale");
+        assert!(result.unwrap().contains("modified since"));
+    }
+
+    #[tokio::test]
+    async fn edit_with_staleness_warning() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/stale.txt", b"original content"),
+        };
+
+        // Record a read with different content (simulating external modification)
+        record_file_read("/workspace/stale.txt", content_hash(b"different content"));
+
+        let tool = FileEditTool;
+        let output = tool
+            .execute(
+                json!({
+                    "path": "stale.txt",
+                    "old_str": "original",
+                    "new_str": "updated",
+                }),
+                &ctx,
+            )
+            .await
+            .expect("should succeed with warning");
+
+        assert!(!output.is_error);
+        let text = output.model_text();
+        assert!(text.contains("Warning"), "should contain staleness warning: {}", text);
+        assert!(text.contains("modified since"), "should mention modification: {}", text);
     }
 }

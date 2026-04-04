@@ -1,9 +1,13 @@
 pub mod app;
+pub mod diff_display;
 pub mod event;
-pub mod theme;
+pub mod history_search;
+pub mod markdown;
 pub mod message_list;
 pub mod permission_dialog;
 pub mod prompt_input;
-pub mod tool_display;
 pub mod spinner;
-pub mod markdown;
+pub mod theme;
+pub mod tool_display;
+pub mod typeahead;
+pub mod vim_mode;

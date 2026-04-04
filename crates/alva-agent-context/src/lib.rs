@@ -47,6 +47,6 @@ pub use context_system::{ContextSystem, default_context_system};
 pub use rules_plugin::RulesContextHooks;
 pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig, DefaultSummarizeFn};
 pub use session::{SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession};
-pub use compact::{CompactionConfig, CompactionResult, compact_messages, should_compact};
+pub use compact::{CompactionConfig, CompactionResult, MicroCompactResult, compact_messages, micro_compact_messages, should_compact};
 pub use auto_compact::AutoCompactState;
 pub use types::*;

@@ -733,7 +733,7 @@ impl TuiApp {
             detail.push_str(&format!("\nPath: {}", path));
         }
 
-        let widget = PermissionDialogWidget::new(perm_type, &detail, &self.theme);
+        let widget = PermissionDialogWidget::from_detail(perm_type, &detail, &self.theme);
         frame.render_widget(widget, area);
     }
 }

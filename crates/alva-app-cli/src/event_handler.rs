@@ -42,15 +42,16 @@ pub(crate) async fn run_print_mode(agent: &BaseAgent, prompt: &str) -> i32 {
 }
 
 /// Run a single prompt, handling both agent events and approval requests concurrently.
+/// Returns (input_tokens, output_tokens) accumulated during this prompt.
 pub(crate) async fn run_prompt(
     agent: &BaseAgent,
     prompt: &str,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
-) {
+) -> (u64, u64) {
     let mut event_rx = agent.prompt_text(prompt);
 
-    let mut total_input_tokens: u32 = 0;
-    let mut total_output_tokens: u32 = 0;
+    let mut total_input_tokens: u64 = 0;
+    let mut total_output_tokens: u64 = 0;
 
     loop {
         tokio::select! {
@@ -66,8 +67,8 @@ pub(crate) async fn run_prompt(
                         println!();
                         if let AgentMessage::Standard(msg) = &message {
                             if let Some(usage) = &msg.usage {
-                                total_input_tokens += usage.input_tokens;
-                                total_output_tokens += usage.output_tokens;
+                                total_input_tokens += usage.input_tokens as u64;
+                                total_output_tokens += usage.output_tokens as u64;
                             }
                         }
                     }
@@ -97,6 +98,8 @@ pub(crate) async fn run_prompt(
             }
         }
     }
+
+    (total_input_tokens, total_output_tokens)
 }
 
 /// Handle a single approval request: prompt the user and resolve the permission.

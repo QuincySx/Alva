@@ -93,24 +93,6 @@ pub fn print_divider() {
     );
 }
 
-pub fn print_help() {
-    eprintln!("{}", "Commands:".bold());
-    eprintln!("  {}        Start a fresh session", "/new".cyan());
-    eprintln!("  {}       Fork current session (branch off)", "/fork".cyan());
-    eprintln!("  {}     Resume a saved session", "/resume".cyan());
-    eprintln!("  {}   List all sessions", "/sessions".cyan());
-    eprintln!("  {}       Toggle plan mode (read-only)", "/plan".cyan());
-    eprintln!("  {} Switch model (e.g. /model gpt-4o)", "/model [id]".cyan());
-    eprintln!("  {}      Clear the terminal", "/clear".cyan());
-    eprintln!("  {}     Show current config", "/config".cyan());
-    eprintln!("  {}     Rewind to checkpoint", "/rewind".cyan());
-    eprintln!("  {}       Show this help", "/help".cyan());
-    eprintln!("  {}      Reconfigure provider/model", "/setup".cyan());
-    eprintln!("  {} {}    Exit", "/quit".cyan(), "/exit".cyan());
-    eprintln!();
-    eprintln!("  {}       Run shell command directly", "!cmd".yellow());
-}
-
 pub fn print_prompt() {
     eprint!("{} ", ">".bold().cyan());
     io::stderr().flush().ok();
@@ -135,7 +117,7 @@ pub fn print_session_new(id: &str) {
     eprintln!("{}", format!("New session: {}", id).dark_grey());
 }
 
-pub fn print_usage(input_tokens: u32, output_tokens: u32) {
+pub fn print_usage(input_tokens: u64, output_tokens: u64) {
     let total = input_tokens + output_tokens;
     eprintln!(
         "\x1b[90m  tokens: {} in / {} out / {} total\x1b[0m",
@@ -144,11 +126,29 @@ pub fn print_usage(input_tokens: u32, output_tokens: u32) {
 }
 
 pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
+    use crate::ui::permission_dialog::is_dangerous_command;
+
     eprintln!();
-    eprintln!(
-        "  {}",
-        "╭─ Permission Required ──────────────────────────".dark_yellow()
-    );
+
+    // Detect dangerous commands
+    let is_dangerous = if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
+        is_dangerous_command(cmd)
+    } else {
+        false
+    };
+
+    if is_dangerous {
+        eprintln!(
+            "  {}",
+            "╭─ ⚠ DANGEROUS — Permission Required ──────────".red().bold()
+        );
+    } else {
+        eprintln!(
+            "  {}",
+            "╭─ Permission Required ──────────────────────────".dark_yellow()
+        );
+    }
+
     eprintln!(
         "  {}  Tool: {}",
         "│".dark_yellow(),
@@ -157,7 +157,11 @@ pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
 
     // Show relevant arguments
     if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
-        eprintln!("  {}  Command: {}", "│".dark_yellow(), cmd.white());
+        if is_dangerous {
+            eprintln!("  {}  Command: {}", "│".dark_yellow(), cmd.red().bold());
+        } else {
+            eprintln!("  {}  Command: {}", "│".dark_yellow(), cmd.white());
+        }
     }
     if let Some(path) = args
         .get("path")
@@ -166,6 +170,30 @@ pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
     {
         eprintln!("  {}  Path: {}", "│".dark_yellow(), path.white());
     }
+
+    // Show old_str/new_str diff for file_edit
+    if let Some(old_str) = args.get("old_string").or_else(|| args.get("old_str")).and_then(|v| v.as_str()) {
+        let preview = if old_str.len() > 120 {
+            format!("{}...", &old_str[..120])
+        } else {
+            old_str.to_string()
+        };
+        eprintln!("  {}  {}: {}", "│".dark_yellow(), "Old".red(), preview.red());
+    }
+    if let Some(new_str) = args.get("new_string").or_else(|| args.get("new_str")).and_then(|v| v.as_str()) {
+        let preview = if new_str.len() > 120 {
+            format!("{}...", &new_str[..120])
+        } else {
+            new_str.to_string()
+        };
+        eprintln!("  {}  {}: {}", "│".dark_yellow(), "New".green(), preview.green());
+    }
+
+    // Show URL for web fetch
+    if let Some(url) = args.get("url").and_then(|v| v.as_str()) {
+        eprintln!("  {}  URL: {}", "│".dark_yellow(), url.white());
+    }
+
     if let Some(content) = args.get("content").and_then(|v| v.as_str()) {
         let preview = if content.len() > 80 {
             format!("{}...", &content[..80])

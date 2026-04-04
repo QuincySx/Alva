@@ -153,6 +153,11 @@ impl BaseAgent {
         &self.tool_registry
     }
 
+    /// Get the names of all registered tools.
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tool_registry.list().iter().map(|t| t.name().to_string()).collect()
+    }
+
     /// Get the current permission mode.
     pub fn permission_mode(&self) -> PermissionMode {
         *self.permission_mode.lock().unwrap_or_else(|e| e.into_inner())

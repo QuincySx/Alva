@@ -198,6 +198,9 @@ impl Tool for ReadFileTool {
             message: format!("Failed to read file: {e}"),
         })?;
 
+        // Record the read for staleness detection by FileEditTool
+        crate::file_edit::record_file_read(path_str, crate::file_edit::content_hash(&data));
+
         // Check if it's an image (magic bytes)
         if let Some(mime) = detect_image_mime(&data) {
             return self.handle_image(&data, mime, &params.path);

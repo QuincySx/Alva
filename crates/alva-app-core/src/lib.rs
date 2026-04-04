@@ -79,7 +79,9 @@ pub mod lsp;
 pub mod paths;
 pub mod plugins;
 pub mod analytics;
+pub mod hooks;
 pub mod settings;
+pub mod state;
 
 // Re-export alva-agent-scope (blackboard + scope infrastructure)
 pub use alva_agent_scope;
@@ -90,4 +92,6 @@ pub use alva_agent_scope::scope_impl as scope;
 pub use base_agent::{BaseAgent, BaseAgentBuilder, PermissionMode};
 pub use error::EngineError;
 pub use paths::AlvaPaths;
+pub use hooks::{HookEvent, HookExecutor, HookInput, HookOutcome, HookOutput, HookResult};
 pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};
+pub use state::{AppState, AppStateStore, Selectors};

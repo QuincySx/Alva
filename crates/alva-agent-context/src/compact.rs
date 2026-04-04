@@ -167,6 +167,108 @@ fn estimate_agent_message_tokens(msg: &AgentMessage) -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// Micro-compaction — truncate individual large content blocks inline
+// ---------------------------------------------------------------------------
+
+/// Maximum characters for a single tool-result content block before truncation.
+const MICRO_COMPACT_CHAR_LIMIT: usize = 30_000;
+
+/// Result of micro-compaction.
+#[derive(Debug, Clone)]
+pub struct MicroCompactResult {
+    /// The messages with large content blocks truncated.
+    pub messages: Vec<AgentMessage>,
+    /// Number of content blocks that were truncated.
+    pub blocks_truncated: usize,
+    /// Total characters removed.
+    pub chars_saved: usize,
+}
+
+/// Micro-compact messages by truncating oversized tool-result content blocks.
+///
+/// Unlike full compaction (which summarizes old messages), micro-compaction
+/// merely truncates individual large blocks in-place. This is a quick first
+/// pass before deciding whether full compaction is needed.
+pub fn micro_compact_messages(
+    messages: &[AgentMessage],
+    char_limit: Option<usize>,
+) -> MicroCompactResult {
+    let limit = char_limit.unwrap_or(MICRO_COMPACT_CHAR_LIMIT);
+    let mut result_messages = Vec::with_capacity(messages.len());
+    let mut blocks_truncated = 0usize;
+    let mut chars_saved = 0usize;
+
+    for msg in messages {
+        match msg {
+            AgentMessage::Standard(m) => {
+                let mut new_content = Vec::with_capacity(m.content.len());
+                let mut changed = false;
+
+                for block in &m.content {
+                    match block {
+                        ContentBlock::Text { text } if text.len() > limit => {
+                            // Truncate from the middle, keeping head and tail
+                            let head_len = limit * 2 / 3;
+                            let tail_len = limit / 3;
+                            let head = safe_truncate_str(text, head_len);
+                            let tail_start = text.len().saturating_sub(tail_len);
+                            let tail = &text[safe_char_boundary(text, tail_start)..];
+                            let truncated = format!(
+                                "{}\n\n[... {} characters truncated ...]\n\n{}",
+                                head,
+                                text.len() - head.len() - tail.len(),
+                                tail
+                            );
+                            chars_saved += text.len() - truncated.len();
+                            blocks_truncated += 1;
+                            changed = true;
+                            new_content.push(ContentBlock::Text { text: truncated });
+                        }
+                        other => new_content.push(other.clone()),
+                    }
+                }
+
+                if changed {
+                    let mut new_msg = m.clone();
+                    new_msg.content = new_content;
+                    result_messages.push(AgentMessage::Standard(new_msg));
+                } else {
+                    result_messages.push(msg.clone());
+                }
+            }
+            other => result_messages.push(other.clone()),
+        }
+    }
+
+    MicroCompactResult {
+        messages: result_messages,
+        blocks_truncated,
+        chars_saved,
+    }
+}
+
+/// Truncate a string to at most `max_bytes` bytes at a valid UTF-8 boundary.
+fn safe_truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// Find the nearest valid char boundary at or after `pos`.
+fn safe_char_boundary(s: &str, pos: usize) -> usize {
+    let mut p = pos;
+    while p < s.len() && !s.is_char_boundary(p) {
+        p += 1;
+    }
+    p
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -319,5 +421,77 @@ mod tests {
 
         let result = compact_messages(&msgs, &config, "brief summary");
         assert!(result.tokens_saved > 0);
+    }
+
+    // -- Micro-compaction tests --
+
+    #[test]
+    fn micro_compact_noop_on_short_messages() {
+        let msgs = vec![user_msg("short text"), user_msg("also short")];
+        let result = micro_compact_messages(&msgs, Some(100));
+        assert_eq!(result.blocks_truncated, 0);
+        assert_eq!(result.chars_saved, 0);
+        assert_eq!(result.messages.len(), 2);
+    }
+
+    #[test]
+    fn micro_compact_truncates_large_block() {
+        let long_text = "x".repeat(50_000);
+        let msgs = vec![user_msg(&long_text)];
+        let result = micro_compact_messages(&msgs, Some(10_000));
+
+        assert_eq!(result.blocks_truncated, 1);
+        assert!(result.chars_saved > 0, "should save characters");
+
+        // Check the truncated message contains the marker
+        if let AgentMessage::Standard(m) = &result.messages[0] {
+            let text = m.text_content();
+            assert!(text.contains("characters truncated"), "should contain truncation marker: len={}", text.len());
+            assert!(text.len() < 50_000, "should be shorter than original");
+        }
+    }
+
+    #[test]
+    fn micro_compact_preserves_head_and_tail() {
+        let text = format!("HEAD{}{}", "m".repeat(50_000), "TAIL");
+        let msgs = vec![user_msg(&text)];
+        let result = micro_compact_messages(&msgs, Some(1_000));
+
+        if let AgentMessage::Standard(m) = &result.messages[0] {
+            let content = m.text_content();
+            assert!(content.starts_with("HEAD"), "should preserve head");
+            assert!(content.ends_with("TAIL"), "should preserve tail");
+        }
+    }
+
+    #[test]
+    fn micro_compact_leaves_reasoning_blocks_alone() {
+        let msgs = vec![assistant_msg_with_reasoning(
+            &"x".repeat(50_000), // large text block
+            "reasoning text",     // small reasoning block
+        )];
+        let result = micro_compact_messages(&msgs, Some(10_000));
+
+        // Only the Text block should be truncated, not the Reasoning block
+        assert_eq!(result.blocks_truncated, 1);
+        if let AgentMessage::Standard(m) = &result.messages[0] {
+            let has_reasoning = m.content.iter().any(|b| matches!(b, ContentBlock::Reasoning { .. }));
+            assert!(has_reasoning, "reasoning block should be preserved");
+        }
+    }
+
+    #[test]
+    fn micro_compact_multibyte_safe() {
+        // CJK characters: 3 bytes each
+        let text = "你好".repeat(20_000); // 120KB
+        let msgs = vec![user_msg(&text)];
+        let result = micro_compact_messages(&msgs, Some(1_000));
+
+        assert_eq!(result.blocks_truncated, 1);
+        // Should not panic on multibyte boundaries
+        if let AgentMessage::Standard(m) = &result.messages[0] {
+            let content = m.text_content();
+            assert!(content.is_char_boundary(content.len()));
+        }
     }
 }
