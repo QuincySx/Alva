@@ -8,7 +8,15 @@ pub mod security;
 
 /// Tools that perform write/execute operations.
 /// Used by CheckpointMiddleware and PlanModeMiddleware.
-pub const WRITE_TOOL_NAMES: &[&str] = &["create_file", "file_edit", "execute_shell"];
+pub const WRITE_TOOL_NAMES: &[&str] = &[
+    "create_file",
+    "file_edit",
+    "execute_shell",
+    "notebook_edit",
+    "todo_write",
+    "enter_worktree",
+    "exit_worktree",
+];
 pub use checkpoint::{CheckpointCallback, CheckpointCallbackRef, CheckpointMiddleware};
 pub use compaction::{CompactionConfig, CompactionMiddleware};
 pub use plan_mode::PlanModeMiddleware;

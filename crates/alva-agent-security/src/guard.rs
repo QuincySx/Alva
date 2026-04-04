@@ -44,6 +44,7 @@ const DEFAULT_PATH_KEYS: &[&str] = &[
     "path",
     "file_path",
     "filepath",
+    "notebook_path",
     "directory",
     "dir",
     "target",

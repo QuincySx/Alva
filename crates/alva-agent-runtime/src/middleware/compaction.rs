@@ -279,8 +279,18 @@ impl Middleware for CompactionMiddleware {
             "compaction complete"
         );
 
-        *messages = compacted;
+        *messages = compacted.clone();
         self.compaction_count.fetch_add(1, Ordering::Relaxed);
+
+        // Write compacted messages back to the session so the history
+        // actually shrinks. Without this, every subsequent turn would
+        // re-read the full uncompacted history and repeat summarization.
+        state.session.clear();
+        for msg in &compacted {
+            state
+                .session
+                .append(alva_types::AgentMessage::Standard(msg.clone()));
+        }
 
         // Emit ContextCompacted event for observability.
         if let Some(ref bus) = self.bus {
