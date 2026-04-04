@@ -1,7 +1,10 @@
 // INPUT:  alva_agent_core::middleware, alva_types::BusHandle, std::sync::Arc
 // OUTPUT: CheckpointMiddleware, CheckpointCallback (trait), CheckpointCallbackRef
-// POS:    Auto-checkpoints files before write tools execute — reads CheckpointCallbackRef from bus for callback discovery.
+// POS:    Auto-checkpoints files before non-read-only tools execute — reads CheckpointCallbackRef from bus.
 //! Auto-checkpoint middleware — saves file backups before write tools execute.
+//!
+//! Uses `tool.is_read_only(input)` from the Tool trait to determine whether
+//! a checkpoint is needed. No hardcoded tool name list.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,9 +24,7 @@ pub trait CheckpointCallback: Send + Sync {
 /// Wrapper type stored in Extensions so the middleware can find the callback.
 pub struct CheckpointCallbackRef(pub Arc<dyn CheckpointCallback>);
 
-use super::WRITE_TOOL_NAMES;
-
-/// Middleware that auto-checkpoints files before write tools modify them.
+/// Middleware that auto-checkpoints files before non-read-only tools modify them.
 pub struct CheckpointMiddleware {
     bus: Option<BusHandle>,
 }
@@ -53,7 +54,15 @@ impl Middleware for CheckpointMiddleware {
         state: &mut AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        if !WRITE_TOOL_NAMES.contains(&tool_call.name.as_str()) {
+        // Check if the tool is read-only — if so, no checkpoint needed
+        let is_read_only = state
+            .tools
+            .iter()
+            .find(|t| t.name() == tool_call.name)
+            .map(|t| t.is_read_only(&tool_call.arguments))
+            .unwrap_or(false);
+
+        if is_read_only {
             return Ok(());
         }
 
@@ -65,6 +74,7 @@ impl Middleware for CheckpointMiddleware {
                 .arguments
                 .get("path")
                 .or_else(|| tool_call.arguments.get("file_path"))
+                .or_else(|| tool_call.arguments.get("notebook_path"))
                 .and_then(|v| v.as_str())
             {
                 paths.push(PathBuf::from(path_str));
@@ -102,15 +112,14 @@ mod tests {
     use super::*;
     use alva_agent_core::shared::Extensions;
     use alva_types::session::InMemorySession;
-    use alva_types::Bus;
+    use alva_types::tool::Tool;
+    use alva_types::{AgentError, Bus, ToolOutput};
     use std::sync::{Arc, Mutex as StdMutex};
 
-    fn make_state() -> AgentState {
-        use alva_types::base::error::AgentError;
+    fn make_state_with_tools(tools: Vec<Arc<dyn Tool>>) -> AgentState {
         use alva_types::base::message::Message;
         use alva_types::base::stream::StreamEvent;
         use alva_types::model::LanguageModel;
-        use alva_types::tool::Tool;
         use alva_types::ModelConfig;
 
         struct StubModel;
@@ -139,13 +148,42 @@ mod tests {
 
         AgentState {
             model: Arc::new(StubModel),
-            tools: vec![],
+            tools,
             session: Arc::new(InMemorySession::new()),
             extensions: Extensions::new(),
         }
     }
 
-    /// Mock checkpoint callback for testing.
+    struct ReadOnlyTool(&'static str);
+    #[async_trait]
+    impl Tool for ReadOnlyTool {
+        fn name(&self) -> &str { self.0 }
+        fn description(&self) -> &str { "read-only" }
+        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
+        fn is_read_only(&self, _: &serde_json::Value) -> bool { true }
+        async fn execute(&self, _: serde_json::Value, _: &dyn alva_types::ToolExecutionContext) -> Result<ToolOutput, AgentError> {
+            Ok(ToolOutput::text("ok"))
+        }
+    }
+
+    struct WriteTool(&'static str);
+    #[async_trait]
+    impl Tool for WriteTool {
+        fn name(&self) -> &str { self.0 }
+        fn description(&self) -> &str { "write" }
+        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
+        async fn execute(&self, _: serde_json::Value, _: &dyn alva_types::ToolExecutionContext) -> Result<ToolOutput, AgentError> {
+            Ok(ToolOutput::text("ok"))
+        }
+    }
+
+    fn test_tools() -> Vec<Arc<dyn Tool>> {
+        vec![
+            Arc::new(ReadOnlyTool("grep_search")),
+            Arc::new(WriteTool("create_file")),
+        ]
+    }
+
     #[derive(Clone)]
     struct MockCheckpointCallback {
         calls: Arc<StdMutex<Vec<(String, Vec<PathBuf>)>>>,
@@ -180,7 +218,7 @@ mod tests {
         let bus_handle = bus.handle();
 
         let mw = CheckpointMiddleware::new().with_bus(bus_handle);
-        let mut state = make_state();
+        let mut state = make_state_with_tools(test_tools());
 
         let tc = ToolCall {
             id: "1".into(),
@@ -202,7 +240,7 @@ mod tests {
         let bus_handle = bus.handle();
 
         let mw = CheckpointMiddleware::new().with_bus(bus_handle);
-        let mut state = make_state();
+        let mut state = make_state_with_tools(test_tools());
 
         let tc = ToolCall {
             id: "2".into(),
@@ -218,8 +256,7 @@ mod tests {
     #[tokio::test]
     async fn checkpoint_works_without_callback() {
         let mw = CheckpointMiddleware::new();
-        let mut state = make_state();
-        // No callback registered — should still succeed (best-effort)
+        let mut state = make_state_with_tools(test_tools());
 
         let tc = ToolCall {
             id: "3".into(),

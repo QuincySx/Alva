@@ -203,6 +203,10 @@ impl Tool for GrepSearchTool {
         })
     }
 
+    fn is_read_only(&self, _input: &Value) -> bool {
+        true
+    }
+
     async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
         let params: Input =
             serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: e.to_string() })?;

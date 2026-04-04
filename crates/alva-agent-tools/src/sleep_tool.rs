@@ -42,6 +42,10 @@ impl Tool for SleepTool {
         })
     }
 
+    fn is_read_only(&self, _input: &Value) -> bool {
+        true
+    }
+
     fn is_concurrency_safe(&self, _input: &Value) -> bool {
         true
     }

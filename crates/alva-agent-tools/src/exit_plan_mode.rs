@@ -27,6 +27,10 @@ impl Tool for ExitPlanModeTool {
         })
     }
 
+    fn is_read_only(&self, _input: &Value) -> bool {
+        true
+    }
+
     async fn execute(
         &self,
         _input: Value,

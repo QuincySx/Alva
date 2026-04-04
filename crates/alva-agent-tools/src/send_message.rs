@@ -50,6 +50,10 @@ impl Tool for SendMessageTool {
         })
     }
 
+    fn is_read_only(&self, _input: &Value) -> bool {
+        true
+    }
+
     async fn execute(
         &self,
         input: Value,
