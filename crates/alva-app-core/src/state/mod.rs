@@ -8,4 +8,4 @@ mod app_state;
 mod selectors;
 
 pub use app_state::{AppState, AppStateStore, StateSubscriber};
-pub use selectors::Selectors;
+pub use selectors::{Selectors, estimate_cost_usd, format_token_count};
