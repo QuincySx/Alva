@@ -727,13 +727,7 @@ impl Command for TasksCommand {
 // === Helpers ===
 
 fn format_number(n: u64) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
+    super::types::format_token_count(n)
 }
 
 fn run_cmd(cwd: &std::path::Path, cmd: &str, args: &[&str]) -> Option<String> {

@@ -173,19 +173,11 @@ pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
 
     // Show old_str/new_str diff for file_edit
     if let Some(old_str) = args.get("old_string").or_else(|| args.get("old_str")).and_then(|v| v.as_str()) {
-        let preview = if old_str.len() > 120 {
-            format!("{}...", &old_str[..120])
-        } else {
-            old_str.to_string()
-        };
+        let preview = safe_preview(old_str, 120);
         eprintln!("  {}  {}: {}", "│".dark_yellow(), "Old".red(), preview.red());
     }
     if let Some(new_str) = args.get("new_string").or_else(|| args.get("new_str")).and_then(|v| v.as_str()) {
-        let preview = if new_str.len() > 120 {
-            format!("{}...", &new_str[..120])
-        } else {
-            new_str.to_string()
-        };
+        let preview = safe_preview(new_str, 120);
         eprintln!("  {}  {}: {}", "│".dark_yellow(), "New".green(), preview.green());
     }
 
@@ -215,4 +207,16 @@ pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
         "d".red().bold(),
     );
     io::stderr().flush().ok();
+}
+
+/// Truncate a string at a UTF-8 safe boundary for display previews.
+fn safe_preview(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &s[..end])
 }

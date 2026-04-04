@@ -23,27 +23,7 @@ pub(crate) async fn restore_messages(agent: &BaseAgent, messages: Vec<AgentMessa
     }
 }
 
-/// Session-level accumulated token usage, shared with event_handler.
-pub(crate) struct SessionTokens {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-}
-
-impl SessionTokens {
-    fn new() -> Self {
-        Self {
-            input_tokens: 0,
-            output_tokens: 0,
-        }
-    }
-
-    fn to_usage(&self) -> TokenUsage {
-        TokenUsage {
-            input_tokens: self.input_tokens,
-            output_tokens: self.output_tokens,
-        }
-    }
-}
+// Session-level token accumulation uses TokenUsage directly.
 
 /// Build a CommandContext from current REPL state.
 fn build_command_context<'a>(
@@ -51,7 +31,7 @@ fn build_command_context<'a>(
     config: &'a ProviderConfig,
     session_id: &'a str,
     message_count: usize,
-    tokens: &SessionTokens,
+    tokens: &TokenUsage,
     tool_names: Vec<String>,
     plan_mode: bool,
     home_dir: &std::path::Path,
@@ -62,7 +42,7 @@ fn build_command_context<'a>(
         model: &config.model,
         session_id,
         message_count,
-        token_usage: tokens.to_usage(),
+        token_usage: tokens.clone(),
         tool_names,
         plan_mode,
         extra: std::collections::HashMap::new(),
@@ -80,7 +60,7 @@ pub(crate) async fn run_repl(
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
 ) {
     let registry = CommandRegistry::new();
-    let mut tokens = SessionTokens::new();
+    let mut tokens = TokenUsage::default();
     let home_dir = dirs::home_dir().unwrap_or_default();
 
     // Auto-resume latest or start new
@@ -172,7 +152,7 @@ pub(crate) async fn run_repl(
                         store.save_messages(&session_id, &messages);
                         agent.new_session().await;
                         session_id = store.create("");
-                        tokens = SessionTokens::new();
+                        tokens = TokenUsage::default();
                         output::print_session_new(&session_id);
                         output::print_divider();
                         continue;

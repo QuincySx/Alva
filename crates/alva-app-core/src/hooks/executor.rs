@@ -91,7 +91,7 @@ impl HookExecutor {
         // Set environment variables
         cmd.env("CLAUDE_PROJECT_DIR", &self.workspace);
         cmd.env("CLAUDE_SESSION_ID", &self.session_id);
-        cmd.env("HOOK_EVENT", input.hook_event.as_str());
+        cmd.env("HOOK_EVENT", input.hook_event.to_string());
         if let Some(ref tool) = input.tool_name {
             cmd.env("TOOL_NAME", tool);
         }
@@ -177,7 +177,7 @@ impl HookInput {
         cwd: &Path,
     ) -> Self {
         Self {
-            hook_event: "PreToolUse".to_string(),
+            hook_event: HookEvent::PreToolUse,
             tool_name: Some(tool_name.to_string()),
             tool_input: Some(tool_input),
             tool_response: None,
@@ -196,7 +196,7 @@ impl HookInput {
         cwd: &Path,
     ) -> Self {
         Self {
-            hook_event: "PostToolUse".to_string(),
+            hook_event: HookEvent::PostToolUse,
             tool_name: Some(tool_name.to_string()),
             tool_input: Some(tool_input),
             tool_response: Some(tool_response.to_string()),
@@ -215,7 +215,7 @@ impl HookInput {
         cwd: &Path,
     ) -> Self {
         Self {
-            hook_event: "PostToolUseFailure".to_string(),
+            hook_event: HookEvent::PostToolUseFailure,
             tool_name: Some(tool_name.to_string()),
             tool_input: Some(tool_input),
             tool_response: None,
@@ -228,7 +228,7 @@ impl HookInput {
     /// Build input for a lifecycle event (SessionStart, Stop, etc.).
     pub fn lifecycle(event: HookEvent, session_id: &str, cwd: &Path) -> Self {
         Self {
-            hook_event: event.to_string(),
+            hook_event: event,
             tool_name: None,
             tool_input: None,
             tool_response: None,
@@ -241,7 +241,7 @@ impl HookInput {
     /// Build input for a UserPromptSubmit event.
     pub fn user_prompt_submit(prompt: &str, session_id: &str, cwd: &Path) -> Self {
         Self {
-            hook_event: "UserPromptSubmit".to_string(),
+            hook_event: HookEvent::UserPromptSubmit,
             tool_name: None,
             tool_input: Some(serde_json::json!({ "prompt": prompt })),
             tool_response: None,
@@ -388,8 +388,6 @@ mod tests {
 
     #[tokio::test]
     async fn env_vars_passed_to_hook() {
-        // Hook script that echoes env vars as JSON
-        let cmd = r#"echo "{\"project\": \"$CLAUDE_PROJECT_DIR\", \"event\": \"$HOOK_EVENT\", \"tool\": \"$TOOL_NAME\"}"" "#;
         let settings = make_settings(HookEvent::PreToolUse, "printenv HOOK_EVENT", None);
         let input = HookInput::pre_tool_use(
             "Bash",
@@ -468,7 +466,7 @@ mod tests {
             "sess-123",
             Path::new("/workspace"),
         );
-        assert_eq!(input.hook_event, "PreToolUse");
+        assert_eq!(input.hook_event, HookEvent::PreToolUse);
         assert_eq!(input.tool_name.as_deref(), Some("Bash"));
         assert_eq!(input.session_id.as_deref(), Some("sess-123"));
     }
@@ -482,7 +480,7 @@ mod tests {
             "sess-123",
             Path::new("/workspace"),
         );
-        assert_eq!(input.hook_event, "PostToolUse");
+        assert_eq!(input.hook_event, HookEvent::PostToolUse);
         assert_eq!(input.tool_response.as_deref(), Some("file contents here"));
     }
 }

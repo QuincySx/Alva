@@ -70,7 +70,7 @@ impl PermissionType {
 // Dangerous command detection
 // ---------------------------------------------------------------------------
 
-/// Known dangerous command patterns that warrant extra warning.
+/// Known dangerous command patterns (all lowercase) that warrant extra warning.
 const DANGEROUS_PATTERNS: &[&str] = &[
     "rm -rf",
     "rm -r",
@@ -88,10 +88,10 @@ const DANGEROUS_PATTERNS: &[&str] = &[
     ":(){ :|:& };:",
     "| sh",
     "| bash",
-    "DROP TABLE",
-    "DROP DATABASE",
-    "TRUNCATE",
-    "DELETE FROM",
+    "drop table",
+    "drop database",
+    "truncate",
+    "delete from",
     "shutdown",
     "reboot",
     "halt",
@@ -108,9 +108,7 @@ const DANGEROUS_PATTERNS: &[&str] = &[
 /// The real protection is the approval prompt itself.
 pub fn is_dangerous_command(command: &str) -> bool {
     let lower = command.to_lowercase();
-    DANGEROUS_PATTERNS
-        .iter()
-        .any(|p| lower.contains(&p.to_lowercase()))
+    DANGEROUS_PATTERNS.iter().any(|p| lower.contains(p))
 }
 
 // ---------------------------------------------------------------------------
@@ -168,41 +166,39 @@ pub fn file_edit_detail_lines<'a>(
     lines.push(Line::default());
 
     if let (Some(old), Some(new)) = (old_str, new_str) {
-        // Show diff preview
+        let old_lines_vec: Vec<&str> = old.lines().collect();
+        let new_lines_vec: Vec<&str> = new.lines().collect();
+
         lines.push(Line::styled(
             "── old ──".to_owned(),
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::DIM),
+            Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
         ));
-        for line in old.lines().take(15) {
+        for line in old_lines_vec.iter().take(15) {
             lines.push(Line::from(vec![
                 Span::styled("- ", Style::default().fg(Color::Red)),
-                Span::styled(line.to_owned(), Style::default().fg(Color::Red)),
+                Span::styled(line.to_string(), Style::default().fg(Color::Red)),
             ]));
         }
-        if old.lines().count() > 15 {
+        if old_lines_vec.len() > 15 {
             lines.push(Line::styled(
-                format!("  ... ({} more lines)", old.lines().count() - 15),
+                format!("  ... ({} more lines)", old_lines_vec.len() - 15),
                 theme.text_dim,
             ));
         }
 
         lines.push(Line::styled(
             "── new ──".to_owned(),
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::DIM),
+            Style::default().fg(Color::Green).add_modifier(Modifier::DIM),
         ));
-        for line in new.lines().take(15) {
+        for line in new_lines_vec.iter().take(15) {
             lines.push(Line::from(vec![
                 Span::styled("+ ", Style::default().fg(Color::Green)),
-                Span::styled(line.to_owned(), Style::default().fg(Color::Green)),
+                Span::styled(line.to_string(), Style::default().fg(Color::Green)),
             ]));
         }
-        if new.lines().count() > 15 {
+        if new_lines_vec.len() > 15 {
             lines.push(Line::styled(
-                format!("  ... ({} more lines)", new.lines().count() - 15),
+                format!("  ... ({} more lines)", new_lines_vec.len() - 15),
                 theme.text_dim,
             ));
         }

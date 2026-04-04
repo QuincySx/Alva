@@ -194,6 +194,23 @@ pub fn micro_compact_messages(
     char_limit: Option<usize>,
 ) -> MicroCompactResult {
     let limit = char_limit.unwrap_or(MICRO_COMPACT_CHAR_LIMIT);
+
+    // Quick check: if no blocks exceed the limit, return early without cloning.
+    let needs_compaction = messages.iter().any(|msg| {
+        if let AgentMessage::Standard(m) = msg {
+            m.content.iter().any(|b| matches!(b, ContentBlock::Text { text } if text.len() > limit))
+        } else {
+            false
+        }
+    });
+    if !needs_compaction {
+        return MicroCompactResult {
+            messages: messages.to_vec(),
+            blocks_truncated: 0,
+            chars_saved: 0,
+        };
+    }
+
     let mut result_messages = Vec::with_capacity(messages.len());
     let mut blocks_truncated = 0usize;
     let mut chars_saved = 0usize;

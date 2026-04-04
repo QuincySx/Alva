@@ -63,7 +63,7 @@ impl std::fmt::Display for HookEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookInput {
     /// Which event triggered this hook.
-    pub hook_event: String,
+    pub hook_event: HookEvent,
     /// Tool name (for tool-related events).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_name: Option<String>,
@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn hook_input_serializes() {
         let input = HookInput {
-            hook_event: "PreToolUse".to_string(),
+            hook_event: HookEvent::PreToolUse,
             tool_name: Some("Bash".to_string()),
             tool_input: Some(serde_json::json!({"command": "rm -rf /"})),
             tool_response: None,
