@@ -43,6 +43,11 @@ pub struct PermissionSettings {
     pub deny: Vec<String>,
     /// Tool patterns that always require asking
     pub ask: Vec<String>,
+    /// Tool patterns classified as read-only (for plan mode / checkpoint skip).
+    /// Use for dynamic tools (MCP, Plugin) that can't declare via Rust trait.
+    /// e.g. `["mcp:context7:*", "mcp:docs-server:*"]`
+    #[serde(default)]
+    pub read_only: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

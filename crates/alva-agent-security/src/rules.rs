@@ -41,6 +41,13 @@ pub struct PermissionRules {
     /// Rules that require asking (override allow).
     #[serde(default)]
     pub ask: Vec<String>,
+    /// Tool patterns that are considered read-only (for plan mode / checkpoint).
+    ///
+    /// Dynamic tools (MCP, Plugin, Skill) default to non-read-only.
+    /// This list lets users override that for specific tools, e.g.:
+    /// `["mcp:context7:*", "mcp:docs-server:*"]`
+    #[serde(default)]
+    pub read_only: Vec<String>,
 }
 
 impl PermissionRules {
@@ -75,9 +82,37 @@ impl PermissionRules {
         RuleDecision::Ask
     }
 
+    /// Check if a tool is classified as read-only by the settings.
+    ///
+    /// Returns `Some(true)` if a read_only pattern matches,
+    /// `None` if no pattern matches (fall through to Tool trait).
+    pub fn is_read_only(&self, tool_name: &str) -> Option<bool> {
+        if self.read_only.is_empty() {
+            return None;
+        }
+        for pattern in &self.read_only {
+            // Simple pattern: just tool name or wildcard
+            if pattern == tool_name {
+                return Some(true);
+            }
+            // Wildcard: "mcp:context7:*"
+            if pattern.ends_with('*') {
+                let prefix = &pattern[..pattern.len() - 1];
+                if tool_name.starts_with(prefix) {
+                    return Some(true);
+                }
+            }
+            // Star matches all
+            if pattern == "*" {
+                return Some(true);
+            }
+        }
+        None
+    }
+
     /// Returns true if no rules have been configured.
     pub fn is_empty(&self) -> bool {
-        self.allow.is_empty() && self.deny.is_empty() && self.ask.is_empty()
+        self.allow.is_empty() && self.deny.is_empty() && self.ask.is_empty() && self.read_only.is_empty()
     }
 }
 
@@ -253,6 +288,7 @@ mod tests {
             allow: vec!["Read".to_string()],
             deny: vec![],
             ask: vec![],
+            ..Default::default()
         };
         assert_eq!(rules.check("Read", "file.txt"), RuleDecision::Allow);
     }
@@ -262,7 +298,7 @@ mod tests {
         let rules = PermissionRules {
             allow: vec!["Bash".to_string()],
             deny: vec!["Bash".to_string()],
-            ask: vec![],
+            ..Default::default()
         };
         assert_eq!(rules.check("Bash", "rm -rf /"), RuleDecision::Deny);
     }
@@ -271,8 +307,8 @@ mod tests {
     fn ask_overrides_allow() {
         let rules = PermissionRules {
             allow: vec!["Bash".to_string()],
-            deny: vec![],
             ask: vec!["Bash(rm *)".to_string()],
+            ..Default::default()
         };
         assert_eq!(rules.check("Bash", "rm -rf /"), RuleDecision::Ask);
         assert_eq!(rules.check("Bash", "ls"), RuleDecision::Allow);
@@ -281,9 +317,9 @@ mod tests {
     #[test]
     fn deny_overrides_ask() {
         let rules = PermissionRules {
-            allow: vec![],
             deny: vec!["Bash(rm *)".to_string()],
             ask: vec!["Bash".to_string()],
+            ..Default::default()
         };
         assert_eq!(rules.check("Bash", "rm -rf /"), RuleDecision::Deny);
         assert_eq!(rules.check("Bash", "ls"), RuleDecision::Ask);
@@ -295,6 +331,7 @@ mod tests {
             allow: vec!["Bash(git *)".to_string()],
             deny: vec![],
             ask: vec![],
+            ..Default::default()
         };
         assert_eq!(rules.check("Bash", "git status"), RuleDecision::Allow);
         assert_eq!(rules.check("Bash", "npm install"), RuleDecision::Ask);
@@ -312,8 +349,47 @@ mod tests {
             allow: vec!["Read".to_string()],
             deny: vec![],
             ask: vec![],
+            ..Default::default()
         };
         assert!(!rules.is_empty());
+    }
+
+    // ---- is_read_only tests ----
+
+    #[test]
+    fn read_only_no_patterns_returns_none() {
+        let rules = PermissionRules::default();
+        assert_eq!(rules.is_read_only("mcp:server:tool"), None);
+    }
+
+    #[test]
+    fn read_only_exact_match() {
+        let rules = PermissionRules {
+            read_only: vec!["mcp:context7:query-docs".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(rules.is_read_only("mcp:context7:query-docs"), Some(true));
+        assert_eq!(rules.is_read_only("mcp:context7:other"), None);
+    }
+
+    #[test]
+    fn read_only_wildcard_prefix() {
+        let rules = PermissionRules {
+            read_only: vec!["mcp:context7:*".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(rules.is_read_only("mcp:context7:query-docs"), Some(true));
+        assert_eq!(rules.is_read_only("mcp:context7:resolve-lib"), Some(true));
+        assert_eq!(rules.is_read_only("mcp:evil-server:run"), None);
+    }
+
+    #[test]
+    fn read_only_star_matches_all() {
+        let rules = PermissionRules {
+            read_only: vec!["*".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(rules.is_read_only("anything"), Some(true));
     }
 
     #[test]
@@ -322,6 +398,7 @@ mod tests {
             allow: vec!["Read".to_string(), "Bash(git *)".to_string()],
             deny: vec!["Bash(rm *)".to_string()],
             ask: vec!["Edit".to_string()],
+            ..Default::default()
         };
         let json = serde_json::to_string(&rules).unwrap();
         let deserialized: PermissionRules = serde_json::from_str(&json).unwrap();

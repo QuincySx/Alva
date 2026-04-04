@@ -27,17 +27,43 @@ pub struct CheckpointCallbackRef(pub Arc<dyn CheckpointCallback>);
 /// Middleware that auto-checkpoints files before non-read-only tools modify them.
 pub struct CheckpointMiddleware {
     bus: Option<BusHandle>,
+    /// Settings-based read_only patterns for dynamic tools.
+    read_only_patterns: Vec<String>,
 }
 
 impl CheckpointMiddleware {
     pub fn new() -> Self {
-        Self { bus: None }
+        Self {
+            bus: None,
+            read_only_patterns: Vec::new(),
+        }
     }
 
     /// Attach a bus handle so the middleware can look up capabilities (e.g. CheckpointCallbackRef).
     pub fn with_bus(mut self, bus: BusHandle) -> Self {
         self.bus = Some(bus);
         self
+    }
+
+    /// Set read_only patterns from settings.
+    pub fn with_read_only_patterns(mut self, patterns: Vec<String>) -> Self {
+        self.read_only_patterns = patterns;
+        self
+    }
+
+    fn matches_read_only_pattern(&self, tool_name: &str) -> bool {
+        for pattern in &self.read_only_patterns {
+            if pattern == tool_name || pattern == "*" {
+                return true;
+            }
+            if pattern.ends_with('*') {
+                let prefix = &pattern[..pattern.len() - 1];
+                if tool_name.starts_with(prefix) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -54,14 +80,16 @@ impl Middleware for CheckpointMiddleware {
         state: &mut AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        // Check if the tool is read-only — if so, no checkpoint needed
+        // Check read-only: settings patterns first, then Tool trait
+        if self.matches_read_only_pattern(&tool_call.name) {
+            return Ok(());
+        }
         let is_read_only = state
             .tools
             .iter()
             .find(|t| t.name() == tool_call.name)
             .map(|t| t.is_read_only(&tool_call.arguments))
             .unwrap_or(false);
-
         if is_read_only {
             return Ok(());
         }

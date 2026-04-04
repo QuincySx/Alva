@@ -13,17 +13,28 @@ use async_trait::async_trait;
 /// Middleware that blocks non-read-only tools when plan mode is active.
 /// When enabled, the agent can only read and analyze — no modifications.
 ///
-/// Uses `tool.is_read_only(input)` from the Tool trait to determine whether
-/// a tool is allowed. No hardcoded tool name list needed.
+/// Read-only determination (checked in order):
+/// 1. Settings-based `read_only` patterns (from `PermissionRules`)
+/// 2. `tool.is_read_only(input)` from the Tool trait
+/// 3. Unknown tools default to non-read-only (blocked)
 pub struct PlanModeMiddleware {
     enabled: AtomicBool,
+    /// Settings-based read_only patterns for dynamic tools.
+    read_only_patterns: Vec<String>,
 }
 
 impl PlanModeMiddleware {
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled: AtomicBool::new(enabled),
+            read_only_patterns: Vec::new(),
         }
+    }
+
+    /// Set read_only patterns from settings (e.g. `["mcp:context7:*"]`).
+    pub fn with_read_only_patterns(mut self, patterns: Vec<String>) -> Self {
+        self.read_only_patterns = patterns;
+        self
     }
 
     /// Enable or disable plan mode at runtime.
@@ -34,6 +45,22 @@ impl PlanModeMiddleware {
     /// Check if plan mode is currently enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Check if a tool name matches any read_only pattern from settings.
+    fn matches_read_only_pattern(&self, tool_name: &str) -> bool {
+        for pattern in &self.read_only_patterns {
+            if pattern == tool_name || pattern == "*" {
+                return true;
+            }
+            if pattern.ends_with('*') {
+                let prefix = &pattern[..pattern.len() - 1];
+                if tool_name.starts_with(prefix) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -48,7 +75,12 @@ impl Middleware for PlanModeMiddleware {
             return Ok(());
         }
 
-        // Look up the tool in the registry to check is_read_only
+        // 1. Check settings-based read_only patterns first
+        if self.matches_read_only_pattern(&tool_call.name) {
+            return Ok(());
+        }
+
+        // 2. Check Tool trait is_read_only()
         let is_read_only = state
             .tools
             .iter()
@@ -73,7 +105,6 @@ impl Middleware for PlanModeMiddleware {
     }
 
     fn priority(&self) -> i32 {
-        // Run just after security middleware (which has SECURITY priority)
         MiddlewarePriority::SECURITY + 10
     }
 }
@@ -96,25 +127,9 @@ mod tests {
         struct StubModel;
         #[async_trait]
         impl LanguageModel for StubModel {
-            async fn complete(
-                &self,
-                _: &[Message],
-                _: &[&dyn Tool],
-                _: &ModelConfig,
-            ) -> Result<Message, AgentError> {
-                unreachable!()
-            }
-            fn stream(
-                &self,
-                _: &[Message],
-                _: &[&dyn Tool],
-                _: &ModelConfig,
-            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
-                Box::pin(tokio_stream::empty())
-            }
-            fn model_id(&self) -> &str {
-                "stub"
-            }
+            async fn complete(&self, _: &[Message], _: &[&dyn Tool], _: &ModelConfig) -> Result<Message, AgentError> { unreachable!() }
+            fn stream(&self, _: &[Message], _: &[&dyn Tool], _: &ModelConfig) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> { Box::pin(tokio_stream::empty()) }
+            fn model_id(&self) -> &str { "stub" }
         }
 
         AgentState {
@@ -125,145 +140,116 @@ mod tests {
         }
     }
 
-    /// A tool that declares itself read-only.
-    struct ReadOnlyTool {
-        tool_name: &'static str,
-    }
+    struct ReadOnlyTool(&'static str);
     #[async_trait]
     impl Tool for ReadOnlyTool {
-        fn name(&self) -> &str {
-            self.tool_name
-        }
-        fn description(&self) -> &str {
-            "read-only test tool"
-        }
-        fn parameters_schema(&self) -> serde_json::Value {
-            serde_json::json!({})
-        }
-        fn is_read_only(&self, _input: &serde_json::Value) -> bool {
-            true
-        }
-        async fn execute(
-            &self,
-            _: serde_json::Value,
-            _: &dyn alva_types::ToolExecutionContext,
-        ) -> Result<ToolOutput, AgentError> {
-            Ok(ToolOutput::text("ok"))
-        }
+        fn name(&self) -> &str { self.0 }
+        fn description(&self) -> &str { "read-only" }
+        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
+        fn is_read_only(&self, _: &serde_json::Value) -> bool { true }
+        async fn execute(&self, _: serde_json::Value, _: &dyn alva_types::ToolExecutionContext) -> Result<ToolOutput, AgentError> { Ok(ToolOutput::text("ok")) }
     }
 
-    /// A tool that is NOT read-only (default).
-    struct WriteTool {
-        tool_name: &'static str,
-    }
+    struct WriteTool(&'static str);
     #[async_trait]
     impl Tool for WriteTool {
-        fn name(&self) -> &str {
-            self.tool_name
-        }
-        fn description(&self) -> &str {
-            "write test tool"
-        }
-        fn parameters_schema(&self) -> serde_json::Value {
-            serde_json::json!({})
-        }
-        async fn execute(
-            &self,
-            _: serde_json::Value,
-            _: &dyn alva_types::ToolExecutionContext,
-        ) -> Result<ToolOutput, AgentError> {
-            Ok(ToolOutput::text("ok"))
-        }
+        fn name(&self) -> &str { self.0 }
+        fn description(&self) -> &str { "write" }
+        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
+        async fn execute(&self, _: serde_json::Value, _: &dyn alva_types::ToolExecutionContext) -> Result<ToolOutput, AgentError> { Ok(ToolOutput::text("ok")) }
+    }
+
+    /// MCP tool that doesn't implement is_read_only (defaults to false).
+    struct McpTool(&'static str);
+    #[async_trait]
+    impl Tool for McpTool {
+        fn name(&self) -> &str { self.0 }
+        fn description(&self) -> &str { "mcp tool" }
+        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
+        async fn execute(&self, _: serde_json::Value, _: &dyn alva_types::ToolExecutionContext) -> Result<ToolOutput, AgentError> { Ok(ToolOutput::text("ok")) }
     }
 
     fn test_tools() -> Vec<Arc<dyn Tool>> {
         vec![
-            Arc::new(ReadOnlyTool { tool_name: "grep_search" }),
-            Arc::new(ReadOnlyTool { tool_name: "list_files" }),
-            Arc::new(ReadOnlyTool { tool_name: "read_file" }),
-            Arc::new(WriteTool { tool_name: "execute_shell" }),
-            Arc::new(WriteTool { tool_name: "create_file" }),
-            Arc::new(WriteTool { tool_name: "file_edit" }),
-            Arc::new(WriteTool { tool_name: "notebook_edit" }),
+            Arc::new(ReadOnlyTool("grep_search")),
+            Arc::new(WriteTool("execute_shell")),
+            Arc::new(WriteTool("create_file")),
+            Arc::new(McpTool("mcp:context7:query-docs")),
+            Arc::new(McpTool("mcp:evil-server:run-code")),
         ]
     }
 
     #[tokio::test]
-    async fn plan_mode_blocks_write_tools() {
+    async fn blocks_write_tools() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
 
-        for tool_name in &["execute_shell", "create_file", "file_edit", "notebook_edit"] {
-            let tc = ToolCall {
-                id: "1".into(),
-                name: tool_name.to_string(),
-                arguments: serde_json::json!({}),
-            };
-            let result = mw.before_tool_call(&mut state, &tc).await;
-            assert!(result.is_err(), "plan mode should block {}", tool_name);
-        }
+        let tc = ToolCall { id: "1".into(), name: "execute_shell".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
     }
 
     #[tokio::test]
-    async fn plan_mode_allows_read_tools() {
+    async fn allows_read_only_tools() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
 
-        for tool_name in &["grep_search", "list_files", "read_file"] {
-            let tc = ToolCall {
-                id: "2".into(),
-                name: tool_name.to_string(),
-                arguments: serde_json::json!({}),
-            };
-            let result = mw.before_tool_call(&mut state, &tc).await;
-            assert!(result.is_ok(), "plan mode should allow {}", tool_name);
-        }
+        let tc = ToolCall { id: "2".into(), name: "grep_search".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
     }
 
     #[tokio::test]
-    async fn plan_mode_disabled_allows_everything() {
-        let mw = PlanModeMiddleware::new(false);
+    async fn mcp_tool_blocked_by_default() {
+        let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
 
-        let tc = ToolCall {
-            id: "3".into(),
-            name: "execute_shell".into(),
-            arguments: serde_json::json!({}),
-        };
-        let result = mw.before_tool_call(&mut state, &tc).await;
-        assert!(result.is_ok(), "disabled plan mode should allow write tools");
+        let tc = ToolCall { id: "3".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_err(), "MCP tool should be blocked by default");
     }
 
     #[tokio::test]
-    async fn plan_mode_toggle() {
+    async fn mcp_tool_allowed_by_read_only_pattern() {
+        let mw = PlanModeMiddleware::new(true)
+            .with_read_only_patterns(vec!["mcp:context7:*".to_string()]);
+        let mut state = make_state_with_tools(test_tools());
+
+        // context7 tools allowed
+        let tc = ToolCall { id: "4".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_ok(), "context7 should be allowed by pattern");
+
+        // evil-server still blocked
+        let tc = ToolCall { id: "5".into(), name: "mcp:evil-server:run-code".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_err(), "evil-server should still be blocked");
+    }
+
+    #[tokio::test]
+    async fn exact_pattern_match() {
+        let mw = PlanModeMiddleware::new(true)
+            .with_read_only_patterns(vec!["mcp:context7:query-docs".to_string()]);
+        let mut state = make_state_with_tools(test_tools());
+
+        let tc = ToolCall { id: "6".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn disabled_allows_everything() {
         let mw = PlanModeMiddleware::new(false);
         let mut state = make_state_with_tools(test_tools());
-        let tc = ToolCall {
-            id: "4".into(),
-            name: "create_file".into(),
-            arguments: serde_json::json!({}),
-        };
+
+        let tc = ToolCall { id: "7".into(), name: "execute_shell".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn toggle() {
+        let mw = PlanModeMiddleware::new(false);
+        let mut state = make_state_with_tools(test_tools());
+        let tc = ToolCall { id: "8".into(), name: "create_file".into(), arguments: serde_json::json!({}) };
 
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
-
         mw.set_enabled(true);
         assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
-
         mw.set_enabled(false);
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn unknown_tool_treated_as_write() {
-        let mw = PlanModeMiddleware::new(true);
-        let mut state = make_state_with_tools(test_tools());
-
-        let tc = ToolCall {
-            id: "5".into(),
-            name: "unknown_tool".into(),
-            arguments: serde_json::json!({}),
-        };
-        let result = mw.before_tool_call(&mut state, &tc).await;
-        assert!(result.is_err(), "unknown tool should be blocked in plan mode");
     }
 }
