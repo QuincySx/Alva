@@ -7,3 +7,5 @@ Cargo.lock
 .vscode/
 .claude/hud-cache.json
 .claude/hud-last-scan
+.claude/projects/
+.playwright-cli/
