@@ -241,7 +241,6 @@ mod tests {
         BaseAgent::builder()
             .workspace(tmp.path())
             .system_prompt("You are a test agent.")
-            .without_browser()
             .build(model)
             .await
             .expect("build should succeed")
@@ -355,7 +354,6 @@ mod tests {
         let agent = BaseAgent::builder()
             .workspace(tmp.path())
             .system_prompt("You are a test agent.")
-            .without_browser()
             .tool(Box::new(mock_tool))
             .build(model)
             .await
@@ -399,7 +397,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_base_agent_tool_registry_has_builtin_tools() {
+    async fn test_base_agent_no_tools_by_default() {
         let model = Arc::new(
             MockLanguageModel::new()
                 .with_response(make_assistant_message("unused")),
@@ -408,21 +406,34 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let agent = BaseAgent::builder()
             .workspace(tmp.path())
-            .without_browser()
             .build(model)
             .await
             .expect("build should succeed");
 
-        // Without browser, we should still have builtin tools registered.
+        // Builder registers zero tools by default — caller must use .tools()
         let defs = agent.tool_registry().definitions();
-        assert!(
-            !defs.is_empty(),
-            "tool registry should contain builtin tools"
+        assert!(defs.is_empty(), "no tools should be registered by default, got: {:?}",
+            defs.iter().map(|d| d.name.clone()).collect::<Vec<_>>());
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_with_tool_presets() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("unused")),
         );
 
-        // Verify some expected builtins exist
-        let names: Vec<String> = defs.iter().map(|d| d.name.clone()).collect();
-        assert!(names.iter().any(|n| n == "execute_shell" || n == "shell" || n.contains("shell")),
-            "should have a shell tool in builtins, got: {:?}", names);
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let agent = BaseAgent::builder()
+            .workspace(tmp.path())
+            .tools(alva_agent_tools::tool_presets::file_io())
+            .tools(alva_agent_tools::tool_presets::shell())
+            .build(model)
+            .await
+            .expect("build should succeed");
+
+        let names: Vec<String> = agent.tool_registry().definitions().iter().map(|d| d.name.clone()).collect();
+        assert!(names.contains(&"read_file".to_string()), "should have read_file");
+        assert!(names.contains(&"execute_shell".to_string()), "should have execute_shell");
     }
 }

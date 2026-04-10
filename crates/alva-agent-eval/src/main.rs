@@ -244,18 +244,20 @@ async fn create_run(
     let rec = Arc::new(rec);
     rec.set_config(system_prompt.clone(), max_iterations, vec![]);
 
+    // Tools: start with all standard, optionally add browser
     let mut builder = alva_app_core::BaseAgent::builder()
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
         .max_iterations(max_iterations)
+        .tools(alva_agent_tools::tool_presets::all_standard())
         .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
         .middleware(rec.clone());
 
     if req.enable_sub_agents.unwrap_or(false) {
         builder = builder.with_sub_agents();
     }
-    if !req.enable_browser.unwrap_or(false) {
-        builder = builder.without_browser();
+    if req.enable_browser.unwrap_or(false) {
+        builder = builder.tools(alva_agent_tools::tool_presets::browser_tools());
     }
 
     // Add user-selected extra tools (BaseAgent registers all builtins by default)

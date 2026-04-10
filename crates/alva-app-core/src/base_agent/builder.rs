@@ -54,7 +54,6 @@ pub struct BaseAgentBuilder {
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
     pub(crate) skill_dirs: Vec<PathBuf>,
     pub(crate) enable_memory: bool,
-    pub(crate) enable_browser: bool,
     pub(crate) enable_sub_agents: bool,
     pub(crate) sub_agent_max_depth: u32,
     pub(crate) max_iterations: u32,
@@ -78,7 +77,6 @@ impl BaseAgentBuilder {
             extra_middleware: Vec::new(),
             skill_dirs: Vec::new(),
             enable_memory: false,
-            enable_browser: true,
             enable_sub_agents: false,
             sub_agent_max_depth: 3,
             max_iterations: 100,
@@ -111,9 +109,15 @@ impl BaseAgentBuilder {
 
     // -- Tools ----------------------------------------------------------------
 
-    /// Add a custom tool.
+    /// Add a single tool.
     pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
         self.extra_tools.push(tool);
+        self
+    }
+
+    /// Add multiple tools at once.
+    pub fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
+        self.extra_tools.extend(tools);
         self
     }
 
@@ -143,18 +147,6 @@ impl BaseAgentBuilder {
     /// Enable the memory subsystem (SQLite-backed).
     pub fn with_memory(mut self) -> Self {
         self.enable_memory = true;
-        self
-    }
-
-    /// Enable browser tools (default: enabled).
-    pub fn with_browser(mut self) -> Self {
-        self.enable_browser = true;
-        self
-    }
-
-    /// Disable browser tools.
-    pub fn without_browser(mut self) -> Self {
-        self.enable_browser = false;
         self
     }
 
@@ -217,20 +209,13 @@ impl BaseAgentBuilder {
             Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
         );
 
-        // 2. Create ToolRegistry and populate with builtin/browser tools
+        // 2. Create ToolRegistry from caller-provided tools only
         let mut tool_registry = ToolRegistry::new();
-        if self.enable_browser {
-            alva_agent_tools::register_all_tools(&mut tool_registry);
-        } else {
-            alva_agent_tools::register_builtin_tools(&mut tool_registry);
-        }
-
-        // 3. Register extra custom tools in the registry
         for tool in self.extra_tools {
             tool_registry.register(tool);
         }
 
-        // 4. Build Arc<dyn Tool> list
+        // 3. Build Arc<dyn Tool> list
         let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
 
         // 5. Create SkillStore
@@ -424,7 +409,6 @@ mod tests {
     fn builder_defaults() {
         let builder = BaseAgentBuilder::new();
         assert!(builder.workspace.is_none());
-        assert!(builder.enable_browser);
         assert!(!builder.enable_memory);
         assert_eq!(builder.max_iterations, 100);
         assert_eq!(builder.system_prompt, "You are a helpful AI assistant.");
@@ -436,13 +420,11 @@ mod tests {
             .workspace("/tmp/test")
             .system_prompt("Custom prompt")
             .sandbox_mode(SandboxMode::RestrictiveOpen)
-            .without_browser()
             .with_memory()
             .max_iterations(200);
 
         assert_eq!(builder.workspace, Some(PathBuf::from("/tmp/test")));
         assert_eq!(builder.system_prompt, "Custom prompt");
-        assert!(!builder.enable_browser);
         assert!(builder.enable_memory);
         assert_eq!(builder.max_iterations, 200);
     }
@@ -465,7 +447,6 @@ mod tests {
 
         let result = BaseAgent::builder()
             .system_prompt("test")
-            .without_browser()
             .build(model)
             .await;
 
@@ -482,7 +463,6 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let result = BaseAgent::builder()
             .workspace(tmp.path())
-            .without_browser()
             .build(model)
             .await;
 
@@ -499,7 +479,6 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let result = BaseAgent::builder()
             .workspace(tmp.path())
-            .without_browser()
             .middlewares(middleware_presets::guardrails())
             .build(model)
             .await;

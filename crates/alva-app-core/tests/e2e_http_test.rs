@@ -206,7 +206,6 @@ async fn e2e_http_streaming_full_pipeline() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("You are a test bot.")
-        .without_browser()
         .build(model)
         .await
         .expect("build");
@@ -281,7 +280,6 @@ async fn e2e_http_tool_call_pipeline() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test.")
-        .without_browser()
         .tool(Box::new(mock_tool))
         .build(model)
         .await

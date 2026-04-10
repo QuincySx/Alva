@@ -76,7 +76,7 @@ pub(crate) async fn build_agent(
         .system_prompt(&system_prompt)
         .skill_dir(paths.project_skills_dir())
         .skill_dir(paths.global_skills_dir())
-        .without_browser()
+        .tools(alva_app_core::tool_presets::all_standard())
         .with_sub_agents()
         .sub_agent_max_depth(3)
         .middlewares(alva_app_core::base_agent::builder::middleware_presets::production());

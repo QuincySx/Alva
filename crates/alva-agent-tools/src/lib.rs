@@ -65,6 +65,8 @@ pub mod read_url;
 #[cfg(feature = "browser")]
 pub mod browser;
 
+use std::sync::Arc;
+use alva_types::tool::Tool;
 use alva_types::ToolRegistry;
 
 /// Batch-register tools into a ToolRegistry.
@@ -75,86 +77,157 @@ macro_rules! register_tools {
     };
 }
 
-/// Register all built-in tools into a ToolRegistry
-pub fn register_builtin_tools(registry: &mut ToolRegistry) {
-    register_tools!(
-        registry,
-        execute_shell::ExecuteShellTool,
-        create_file::CreateFileTool,
-        file_edit::FileEditTool,
-        read_file::ReadFileTool,
-        find_files::FindFilesTool,
-        grep_search::GrepSearchTool,
-        list_files::ListFilesTool,
-        ask_human::AskHumanTool,
-        view_image::ViewImageTool,
-        // Phase 3 tools
-        task_create::TaskCreateTool,
-        task_update::TaskUpdateTool,
-        task_get::TaskGetTool,
-        task_list::TaskListTool,
-        task_output::TaskOutputTool,
-        task_stop::TaskStopTool,
-        team_create::TeamCreateTool,
-        team_delete::TeamDeleteTool,
-        agent_tool::AgentTool,
-        send_message::SendMessageTool,
-        skill_tool::SkillTool,
-        tool_search::ToolSearchTool,
-        sleep_tool::SleepTool,
-        enter_plan_mode::EnterPlanModeTool,
-        exit_plan_mode::ExitPlanModeTool,
-        notebook_edit::NotebookEditTool,
-        config_tool::ConfigTool,
-        todo_write::TodoWriteTool,
-        schedule_cron::ScheduleCronTool,
-        remote_trigger::RemoteTriggerTool,
-        enter_worktree::EnterWorktreeTool,
-        exit_worktree::ExitWorktreeTool,
-    );
+// ---------------------------------------------------------------------------
+// Tool presets — grouped by capability domain
+// ---------------------------------------------------------------------------
 
+/// Pre-built tool sets for common use cases.
+/// Callers compose what they need via `BaseAgent::builder().tools(...)`.
+pub mod tool_presets {
+    use super::*;
+
+    /// Core file tools: read, write, edit, search, list.
+    pub fn file_io() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(read_file::ReadFileTool),
+            Box::new(create_file::CreateFileTool),
+            Box::new(file_edit::FileEditTool),
+            Box::new(list_files::ListFilesTool),
+            Box::new(find_files::FindFilesTool),
+            Box::new(grep_search::GrepSearchTool),
+            Box::new(view_image::ViewImageTool),
+        ]
+    }
+
+    /// Shell execution.
+    pub fn shell() -> Vec<Box<dyn Tool>> {
+        vec![Box::new(execute_shell::ExecuteShellTool)]
+    }
+
+    /// Human interaction.
+    pub fn interaction() -> Vec<Box<dyn Tool>> {
+        vec![Box::new(ask_human::AskHumanTool)]
+    }
+
+    /// Task management: create, update, get, list, output, stop.
+    pub fn task_management() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(task_create::TaskCreateTool),
+            Box::new(task_update::TaskUpdateTool),
+            Box::new(task_get::TaskGetTool),
+            Box::new(task_list::TaskListTool),
+            Box::new(task_output::TaskOutputTool),
+            Box::new(task_stop::TaskStopTool),
+        ]
+    }
+
+    /// Team / multi-agent coordination.
+    pub fn team() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(team_create::TeamCreateTool),
+            Box::new(team_delete::TeamDeleteTool),
+            Box::new(send_message::SendMessageTool),
+        ]
+    }
+
+    /// Planning and mode switching.
+    pub fn planning() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(enter_plan_mode::EnterPlanModeTool),
+            Box::new(exit_plan_mode::ExitPlanModeTool),
+            Box::new(todo_write::TodoWriteTool),
+        ]
+    }
+
+    /// Git worktree tools.
+    pub fn worktree() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(enter_worktree::EnterWorktreeTool),
+            Box::new(exit_worktree::ExitWorktreeTool),
+        ]
+    }
+
+    /// Utility tools: sleep, config, notebook, skill, tool_search, schedule, remote.
+    pub fn utility() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(sleep_tool::SleepTool),
+            Box::new(config_tool::ConfigTool),
+            Box::new(notebook_edit::NotebookEditTool),
+            Box::new(skill_tool::SkillTool),
+            Box::new(tool_search::ToolSearchTool),
+            Box::new(schedule_cron::ScheduleCronTool),
+            Box::new(remote_trigger::RemoteTriggerTool),
+        ]
+    }
+
+    /// Web tools (native only): internet search, URL fetching.
     #[cfg(feature = "native")]
-    register_tools!(
-        registry,
-        internet_search::InternetSearchTool,
-        read_url::ReadUrlTool,
-    );
+    pub fn web() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(internet_search::InternetSearchTool),
+            Box::new(read_url::ReadUrlTool),
+        ]
+    }
+
+    #[cfg(not(feature = "native"))]
+    pub fn web() -> Vec<Box<dyn Tool>> {
+        vec![]
+    }
+
+    /// Browser automation tools (browser feature only).
+    #[cfg(feature = "browser")]
+    pub fn browser_tools() -> Vec<Box<dyn Tool>> {
+        let manager = browser::browser_manager::shared_browser_manager();
+        vec![
+            Box::new(browser::BrowserStartTool { manager: manager.clone() }),
+            Box::new(browser::BrowserStopTool { manager: manager.clone() }),
+            Box::new(browser::BrowserNavigateTool { manager: manager.clone() }),
+            Box::new(browser::BrowserActionTool { manager: manager.clone() }),
+            Box::new(browser::BrowserSnapshotTool { manager: manager.clone() }),
+            Box::new(browser::BrowserScreenshotTool { manager: manager.clone() }),
+            Box::new(browser::BrowserStatusTool { manager: manager.clone() }),
+        ]
+    }
+
+    #[cfg(not(feature = "browser"))]
+    pub fn browser_tools() -> Vec<Box<dyn Tool>> {
+        vec![]
+    }
+
+    /// All standard tools (file_io + shell + interaction + task + team + planning
+    /// + worktree + utility + web). Does NOT include browser or agent spawn.
+    pub fn all_standard() -> Vec<Box<dyn Tool>> {
+        let mut tools = Vec::new();
+        tools.extend(file_io());
+        tools.extend(shell());
+        tools.extend(interaction());
+        tools.extend(task_management());
+        tools.extend(team());
+        tools.extend(planning());
+        tools.extend(worktree());
+        tools.extend(utility());
+        tools.extend(web());
+        tools
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy registration functions (for backward compat during migration)
+// ---------------------------------------------------------------------------
+
+/// Register all built-in tools into a ToolRegistry.
+pub fn register_builtin_tools(registry: &mut ToolRegistry) {
+    for tool in tool_presets::all_standard() {
+        registry.register(tool);
+    }
+    // Legacy: include placeholder AgentTool
+    registry.register(Box::new(agent_tool::AgentTool));
 }
 
 /// Register all built-in tools including browser tools into a ToolRegistry.
-///
-/// Browser tools share a `BrowserManager` instance for coordinating Chrome lifecycle.
-#[cfg(feature = "browser")]
-pub fn register_all_tools(registry: &mut ToolRegistry) {
-    // Standard tools
-    register_builtin_tools(registry);
-
-    // Browser tools — all share the same BrowserManager
-    let manager = browser::browser_manager::shared_browser_manager();
-    registry.register(Box::new(browser::BrowserStartTool {
-        manager: manager.clone(),
-    }));
-    registry.register(Box::new(browser::BrowserStopTool {
-        manager: manager.clone(),
-    }));
-    registry.register(Box::new(browser::BrowserNavigateTool {
-        manager: manager.clone(),
-    }));
-    registry.register(Box::new(browser::BrowserActionTool {
-        manager: manager.clone(),
-    }));
-    registry.register(Box::new(browser::BrowserSnapshotTool {
-        manager: manager.clone(),
-    }));
-    registry.register(Box::new(browser::BrowserScreenshotTool {
-        manager: manager.clone(),
-    }));
-    registry.register(Box::new(browser::BrowserStatusTool {
-        manager: manager.clone(),
-    }));
-}
-
-#[cfg(not(feature = "browser"))]
 pub fn register_all_tools(registry: &mut ToolRegistry) {
     register_builtin_tools(registry);
+    for tool in tool_presets::browser_tools() {
+        registry.register(tool);
+    }
 }

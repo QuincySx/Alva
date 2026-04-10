@@ -25,7 +25,6 @@ async fn build_agent(model: Arc<dyn alva_types::LanguageModel>) -> (BaseAgent, t
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("You are a test assistant.")
-        .without_browser()
         .build(model)
         .await
         .expect("build should succeed");
@@ -129,7 +128,6 @@ async fn e2e_tool_call_chain() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test agent.")
-        .without_browser()
         .tool(Box::new(mock_tool))
         .build(model)
         .await
@@ -256,7 +254,6 @@ async fn e2e_steering_mid_turn() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test.")
-        .without_browser()
         .tool(Box::new(mock_tool))
         .build(model)
         .await
@@ -442,7 +439,6 @@ async fn e2e_multiple_tool_calls_in_single_response() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test.")
-        .without_browser()
         .tool(Box::new(tool_alpha))
         .tool(Box::new(tool_beta))
         .build(model)
@@ -590,7 +586,6 @@ async fn build_agent_with_workspace(
     BaseAgent::builder()
         .workspace(workspace)
         .system_prompt("You are a test assistant.")
-        .without_browser()
         .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
         .build(model)
         .await
@@ -955,7 +950,6 @@ async fn e2e_multi_turn_tool_loop() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test multi-turn.")
-        .without_browser()
         .tool(Box::new(tool1))
         .tool(Box::new(tool2))
         .tool(Box::new(tool3))
@@ -1147,7 +1141,6 @@ async fn e2e_session_message_flow() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test flow.")
-        .without_browser()
         .tool(Box::new(mock_tool))
         .build(model)
         .await
@@ -1232,7 +1225,6 @@ async fn e2e_multi_turn_mixed_tools() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test mixed.")
-        .without_browser()
         .tool(Box::new(reader))
         .tool(Box::new(analyzer))
         .build(model)
@@ -1385,7 +1377,6 @@ async fn e2e_tool_event_ordering() {
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
         .system_prompt("Test ordering.")
-        .without_browser()
         .tool(Box::new(mock_tool))
         .build(model)
         .await
@@ -1441,7 +1432,7 @@ async fn e2e_builtin_tool_registry_completeness() {
     let tmp = tempfile::tempdir().unwrap();
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
-        .without_browser()
+        .tools(alva_app_core::tool_presets::all_standard())
         .build(model)
         .await
         .expect("build should succeed");
@@ -1449,7 +1440,7 @@ async fn e2e_builtin_tool_registry_completeness() {
     let defs = agent.tool_registry().definitions();
     let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
 
-    // All core builtin tools should be registered
+    // All core tools should be registered via preset
     let expected = [
         "read_file",
         "file_edit",
