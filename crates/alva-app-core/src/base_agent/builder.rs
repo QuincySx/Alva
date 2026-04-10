@@ -26,7 +26,24 @@ use super::permission::PermissionMode;
 
 /// Builder for constructing a [`BaseAgent`] with sensible defaults.
 ///
-/// Required: `workspace` must be set before calling `build()`.
+/// # Middleware
+///
+/// By default, `build()` adds the full production middleware stack
+/// (Security, LoopDetection, DanglingToolCall, ToolTimeout, Compaction,
+/// PlanMode, Checkpoint). Use `.bare()` to skip all defaults and
+/// register only what you need via `.middleware()` / `.middlewares()`.
+///
+/// ```rust,ignore
+/// // Full production stack (default):
+/// BaseAgent::builder().workspace(path).build(model).await?;
+///
+/// // Bare — only what you register:
+/// BaseAgent::builder()
+///     .workspace(path)
+///     .bare()
+///     .middleware(Arc::new(LoopDetectionMiddleware::new()))
+///     .build(model).await?;
+/// ```
 pub struct BaseAgentBuilder {
     pub(crate) workspace: Option<PathBuf>,
     pub(crate) system_prompt: String,
@@ -45,14 +62,8 @@ pub struct BaseAgentBuilder {
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
 
-    // Middleware toggles — all default to true
-    pub(crate) enable_security: bool,
-    pub(crate) enable_loop_detection: bool,
-    pub(crate) enable_dangling_tool_check: bool,
-    pub(crate) enable_tool_timeout: bool,
-    pub(crate) enable_compaction: bool,
-    pub(crate) enable_plan_mode: bool,
-    pub(crate) enable_checkpoint: bool,
+    /// If false, `build()` skips all builtin middleware. Default: true.
+    pub(crate) use_default_middleware: bool,
 }
 
 impl BaseAgentBuilder {
@@ -73,15 +84,11 @@ impl BaseAgentBuilder {
             context_window: 0,
             approval_notifier: None,
             bus_plugins: Vec::new(),
-            enable_security: true,
-            enable_loop_detection: true,
-            enable_dangling_tool_check: true,
-            enable_tool_timeout: true,
-            enable_compaction: true,
-            enable_plan_mode: true,
-            enable_checkpoint: true,
+            use_default_middleware: true,
         }
     }
+
+    // -- Core configuration ---------------------------------------------------
 
     /// Set the workspace root directory (required).
     pub fn workspace(mut self, path: impl Into<PathBuf>) -> Self {
@@ -101,17 +108,37 @@ impl BaseAgentBuilder {
         self
     }
 
+    // -- Tools ----------------------------------------------------------------
+
     /// Add a custom tool.
     pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
         self.extra_tools.push(tool);
         self
     }
 
-    /// Add extra middleware (appended AFTER the default middleware stack).
+    // -- Middleware ------------------------------------------------------------
+
+    /// Skip all builtin middleware. Only middleware registered via
+    /// `.middleware()` / `.middlewares()` will be used.
+    pub fn bare(mut self) -> Self {
+        self.use_default_middleware = false;
+        self
+    }
+
+    /// Add a single middleware. Works with or without `.bare()`.
+    /// When using default middleware, extra middleware is appended after builtins.
     pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
         self.extra_middleware.push(mw);
         self
     }
+
+    /// Add multiple middleware at once.
+    pub fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
+        self.extra_middleware.extend(mws);
+        self
+    }
+
+    // -- Features -------------------------------------------------------------
 
     /// Add a skill directory to scan for skills.
     pub fn skill_dir(mut self, path: impl Into<PathBuf>) -> Self {
@@ -119,7 +146,7 @@ impl BaseAgentBuilder {
         self
     }
 
-    /// Enable the memory subsystem (SQLite-backed, stored in `workspace/.srow/memory.db`).
+    /// Enable the memory subsystem (SQLite-backed).
     pub fn with_memory(mut self) -> Self {
         self.enable_memory = true;
         self
@@ -138,16 +165,12 @@ impl BaseAgentBuilder {
     }
 
     /// Enable the `agent` tool (sub-agent spawning). Default: off.
-    ///
-    /// Sub-agents can spawn further sub-agents up to `max_depth` levels.
-    /// Default max depth: 3.
     pub fn with_sub_agents(mut self) -> Self {
         self.enable_sub_agents = true;
         self
     }
 
     /// Set the maximum sub-agent nesting depth (default: 3).
-    /// Only meaningful when sub-agents are enabled.
     pub fn sub_agent_max_depth(mut self, depth: u32) -> Self {
         self.sub_agent_max_depth = depth;
         self
@@ -160,14 +183,12 @@ impl BaseAgentBuilder {
     }
 
     /// Set the context window size (default: 0 = no limit).
-    /// When > 0, only the most recent N messages are included in LLM context.
     pub fn context_window(mut self, n: usize) -> Self {
         self.context_window = n;
         self
     }
 
     /// Set up an approval channel for interactive permission prompts.
-    /// Returns the receiving end; the CLI/UI should poll this for ApprovalRequest events.
     pub fn with_approval_channel(&mut self) -> mpsc::UnboundedReceiver<ApprovalRequest> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.approval_notifier = Some(ApprovalNotifier { tx });
@@ -180,22 +201,7 @@ impl BaseAgentBuilder {
         self
     }
 
-    // -- Middleware toggles (all default to enabled) -------------------------
-
-    /// Disable SecurityMiddleware (permission enforcement, path filtering).
-    pub fn without_security(mut self) -> Self { self.enable_security = false; self }
-    /// Disable LoopDetectionMiddleware (repeated tool call detection).
-    pub fn without_loop_detection(mut self) -> Self { self.enable_loop_detection = false; self }
-    /// Disable DanglingToolCallMiddleware (tool call validation).
-    pub fn without_dangling_tool_check(mut self) -> Self { self.enable_dangling_tool_check = false; self }
-    /// Disable ToolTimeoutMiddleware (120s default tool timeout).
-    pub fn without_tool_timeout(mut self) -> Self { self.enable_tool_timeout = false; self }
-    /// Disable CompactionMiddleware (auto-summarize when context is full).
-    pub fn without_compaction(mut self) -> Self { self.enable_compaction = false; self }
-    /// Disable PlanModeMiddleware (write-blocking in plan mode).
-    pub fn without_plan_mode(mut self) -> Self { self.enable_plan_mode = false; self }
-    /// Disable CheckpointMiddleware (file backups before writes).
-    pub fn without_checkpoint(mut self) -> Self { self.enable_checkpoint = false; self }
+    // -- Build ----------------------------------------------------------------
 
     /// Consume the builder and produce a ready-to-use [`BaseAgent`].
     ///
@@ -210,10 +216,9 @@ impl BaseAgentBuilder {
 
         // 1b. Create the coordination bus
         let bus = Bus::new();
-        let bus_writer = bus.writer();   // For provide() calls during init
-        let bus_handle = bus.handle();   // Read-only, distributed to middleware + config
+        let bus_writer = bus.writer();
+        let bus_handle = bus.handle();
 
-        // Register token counter on bus (fallback heuristic — providers can override)
         bus_writer.provide::<dyn alva_types::TokenCounter>(
             Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
         );
@@ -231,12 +236,10 @@ impl BaseAgentBuilder {
             tool_registry.register(tool);
         }
 
-        // 4. Build Arc<dyn Tool> list — shares Arc instances with the registry.
+        // 4. Build Arc<dyn Tool> list
         let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
 
-        // 5. Create SkillStore — scans the primary skill directory.
-        //    By default uses project skills (<workspace>/.alva/skills/).
-        //    Callers can override via skill_dir().
+        // 5. Create SkillStore
         let skill_store = {
             let primary_dir = if !self.skill_dirs.is_empty() {
                 self.skill_dirs[0].clone()
@@ -257,66 +260,44 @@ impl BaseAgentBuilder {
 
         let skill_store = Arc::new(skill_store);
 
-        // 6. Build V2 MiddlewareStack
+        // 6. Build MiddlewareStack
         let mut middleware_stack = MiddlewareStack::new();
+        let mut security_guard = None;
+        let mut plan_mw: Option<Arc<PlanModeMiddleware>> = None;
 
-        // a. Security middleware (highest priority — runs before all others)
-        let security_guard = if self.enable_security {
-            let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
+        if self.use_default_middleware {
+            // Full production middleware stack
+            let sec = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
                 .with_bus(bus_handle.clone());
-            let guard = Some(security_mw.guard());
-            middleware_stack.push_sorted(Arc::new(security_mw));
-            guard
-        } else {
-            None
-        };
+            security_guard = Some(sec.guard());
+            middleware_stack.push_sorted(Arc::new(sec));
 
-        // b. Builtin: DanglingToolCallMiddleware
-        if self.enable_dangling_tool_check {
             middleware_stack.push_sorted(Arc::new(
                 alva_agent_core::builtins::DanglingToolCallMiddleware::new(),
             ));
-        }
-
-        // c. Builtin: LoopDetectionMiddleware
-        if self.enable_loop_detection {
             middleware_stack.push_sorted(Arc::new(
                 alva_agent_core::builtins::LoopDetectionMiddleware::new(),
             ));
-        }
-
-        // d. Builtin: ToolTimeoutMiddleware (120s default)
-        if self.enable_tool_timeout {
             middleware_stack.push_sorted(Arc::new(
                 alva_agent_core::builtins::ToolTimeoutMiddleware::default(),
             ));
-        }
-
-        // e. Compaction middleware (auto-summarizes old messages when context is full)
-        if self.enable_compaction {
             middleware_stack.push_sorted(Arc::new(
                 alva_agent_runtime::middleware::CompactionMiddleware::default()
                     .with_bus(bus_handle.clone()),
             ));
+
+            let pm = Arc::new(PlanModeMiddleware::new(false));
+            middleware_stack.push_sorted(pm.clone());
+            plan_mw = Some(pm);
+
+            middleware_stack.push_sorted(Arc::new(
+                CheckpointMiddleware::new().with_bus(bus_handle.clone()),
+            ));
         }
 
-        // f. Extra middleware from user
+        // Extra middleware from caller (always added, with or without defaults)
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
-        }
-
-        // g. Plan mode middleware (starts disabled)
-        let plan_mw = if self.enable_plan_mode {
-            let mw = Arc::new(PlanModeMiddleware::new(false));
-            middleware_stack.push_sorted(mw.clone());
-            Some(mw)
-        } else {
-            None
-        };
-
-        // h. Checkpoint middleware (saves file backups before writes)
-        if self.enable_checkpoint {
-            middleware_stack.push_sorted(Arc::new(CheckpointMiddleware::new().with_bus(bus_handle.clone())));
         }
 
         // 7. Optionally add the agent spawn tool
@@ -347,7 +328,6 @@ impl BaseAgentBuilder {
 
         // 9. Create PendingMessageQueue + V2 AgentConfig
         let pending_messages = Arc::new(alva_agent_core::pending_queue::PendingMessageQueue::new());
-        // Register PendingMessageQueue as AgentLoopHook capability on the bus
         bus_writer.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
             pending_messages.clone() as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
         );
@@ -363,7 +343,6 @@ impl BaseAgentBuilder {
             );
         }
 
-        // Start bus plugins (event subscriptions, background tasks)
         for plugin in &self.bus_plugins {
             plugin.start(&bus_handle);
         }
@@ -415,6 +394,30 @@ impl Default for BaseAgentBuilder {
 }
 
 // ---------------------------------------------------------------------------
+// Middleware presets — common middleware combinations
+// ---------------------------------------------------------------------------
+
+/// Pre-built middleware sets for common use cases.
+pub mod middleware_presets {
+    use super::*;
+
+    /// Minimal guardrails: loop detection + dangling tool call validation.
+    pub fn guardrails() -> Vec<Arc<dyn Middleware>> {
+        vec![
+            Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
+            Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()),
+        ]
+    }
+
+    /// Guardrails + tool timeout (120s default).
+    pub fn guardrails_with_timeout() -> Vec<Arc<dyn Middleware>> {
+        let mut mws = guardrails();
+        mws.push(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()));
+        mws
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -431,8 +434,15 @@ mod tests {
         assert!(builder.workspace.is_none());
         assert!(builder.enable_browser);
         assert!(!builder.enable_memory);
+        assert!(builder.use_default_middleware);
         assert_eq!(builder.max_iterations, 100);
         assert_eq!(builder.system_prompt, "You are a helpful AI assistant.");
+    }
+
+    #[test]
+    fn builder_bare_disables_defaults() {
+        let builder = BaseAgentBuilder::new().bare();
+        assert!(!builder.use_default_middleware);
     }
 
     #[test]
@@ -492,5 +502,24 @@ mod tests {
             .await;
 
         assert!(result.is_ok(), "build with workspace should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_bare_build_succeeds() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("unused")),
+        );
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let result = BaseAgent::builder()
+            .workspace(tmp.path())
+            .without_browser()
+            .bare()
+            .middlewares(middleware_presets::guardrails())
+            .build(model)
+            .await;
+
+        assert!(result.is_ok(), "bare build should succeed");
     }
 }
