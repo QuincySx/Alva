@@ -227,7 +227,7 @@ async fn create_run(
     let mut registry = ToolRegistry::new();
     alva_agent_tools::register_builtin_tools(&mut registry);
 
-    let tools: Vec<Arc<dyn alva_types::Tool>> = match &req.tools {
+    let mut tools: Vec<Arc<dyn alva_types::Tool>> = match &req.tools {
         None => registry.list_arc(),
         Some(names) => registry
             .list_arc()
@@ -235,6 +235,15 @@ async fn create_run(
             .filter(|t| names.contains(&t.name().to_string()))
             .collect(),
     };
+
+    // Replace placeholder AgentTool with real AgentSpawnTool if user selected "agent"
+    let has_agent_tool = tools.iter().any(|t| t.name() == "agent");
+    if has_agent_tool {
+        // Remove placeholder
+        tools.retain(|t| t.name() != "agent");
+        // Will be replaced with real spawn tool after model is set up (see below)
+    }
+
     let tool_names: Vec<String> = tools.iter().map(|t| t.name().to_string()).collect();
 
     // -- 3. Resolve workspace ------------------------------------------------
@@ -249,6 +258,20 @@ async fn create_run(
         let p = tmp.path().to_path_buf();
         (Some(tmp), p)
     };
+
+    // -- 3b. Wire real sub-agent support if requested -------------------------
+    let max_iterations = req.max_iterations.unwrap_or(10);
+    if has_agent_tool {
+        let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
+            model.clone(),
+            tools.clone(),
+            std::time::Duration::from_secs(300),
+            max_iterations,
+            3, // max sub-agent depth
+        ));
+        let spawn_tool = alva_app_core::plugins::agent_spawn::create_agent_spawn_tool(root_scope);
+        tools.push(Arc::from(spawn_tool));
+    }
 
     // -- 4. Assemble agent state + config -----------------------------------
     let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
@@ -269,7 +292,6 @@ async fn create_run(
     middleware.push_sorted(rec.clone());
 
     let system_prompt = req.system_prompt;
-    let max_iterations = req.max_iterations.unwrap_or(10);
 
     // Pre-fill config fields the middleware can't access via AgentState
     rec.set_config(system_prompt.clone(), max_iterations, vec![]);
