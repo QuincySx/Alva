@@ -86,11 +86,21 @@ impl LanguageModel for OpenAIChatProvider {
             body["tools"] = serde_json::json!(oai_tools);
         }
 
-        tracing::debug!(
+        let span = tracing::info_span!("llm_request",
+            provider = "openai_chat",
             model = %self.model,
+            url = %url,
             messages = oai_messages.len(),
             tools = oai_tools.len(),
-            "calling chat completions"
+            stream = false,
+        );
+        let _guard = span.enter();
+
+        let body_str = serde_json::to_string(&body).unwrap_or_default();
+        tracing::debug!(
+            body_len = body_str.len(),
+            body_preview = &body_str[..body_str.len().min(500)],
+            "LLM request body"
         );
 
         let req = self.client.post(&url).header("Content-Type", "application/json");
@@ -106,6 +116,13 @@ impl LanguageModel for OpenAIChatProvider {
             .text()
             .await
             .map_err(|e| AgentError::LlmError(format!("read response body: {}", e)))?;
+
+        tracing::debug!(
+            status = %status,
+            body_len = resp_text.len(),
+            body_preview = &resp_text[..resp_text.len().min(500)],
+            "LLM response"
+        );
 
         if !status.is_success() {
             return Err(AgentError::LlmError(format!(
@@ -155,6 +172,22 @@ impl LanguageModel for OpenAIChatProvider {
         if !oai_tools.is_empty() {
             body["tools"] = serde_json::json!(oai_tools);
         }
+
+        let body_str = serde_json::to_string(&body).unwrap_or_default();
+        tracing::info!(
+            provider = "openai_chat",
+            model = %model,
+            url = %url,
+            messages = oai_messages.len(),
+            tools = oai_tools.len(),
+            stream = true,
+            body_len = body_str.len(),
+            "LLM stream request"
+        );
+        tracing::debug!(
+            body_preview = &body_str[..body_str.len().min(500)],
+            "LLM stream request body"
+        );
 
         Box::pin(async_stream::stream! {
             yield StreamEvent::Start;

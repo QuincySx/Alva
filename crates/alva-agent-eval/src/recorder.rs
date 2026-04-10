@@ -107,6 +107,8 @@ struct TurnBuild {
     llm_input_tokens: u32,
     llm_output_tokens: u32,
     tool_calls: Vec<ToolCallRecord>,
+    /// Timestamp when current tool execution started (set in before_tool_call)
+    current_tool_start: Option<Instant>,
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +331,7 @@ impl Middleware for RecorderMiddleware {
             llm_input_tokens: 0,
             llm_output_tokens: 0,
             tool_calls: Vec::new(),
+            current_tool_start: None,
         });
 
         Ok(())
@@ -354,6 +357,18 @@ impl Middleware for RecorderMiddleware {
         Ok(())
     }
 
+    async fn before_tool_call(
+        &self,
+        _state: &mut AgentState,
+        _tool_call: &ToolCall,
+    ) -> Result<(), MiddlewareError> {
+        let mut s = self.state.lock().unwrap();
+        if let Some(ref mut tb) = s.current_turn {
+            tb.current_tool_start = Some(Instant::now());
+        }
+        Ok(())
+    }
+
     async fn after_tool_call(
         &self,
         _state: &mut AgentState,
@@ -363,12 +378,15 @@ impl Middleware for RecorderMiddleware {
         let mut s = self.state.lock().unwrap();
 
         if let Some(ref mut tb) = s.current_turn {
+            let duration_ms = tb.current_tool_start
+                .map(|t| t.elapsed().as_millis() as u64)
+                .unwrap_or(0);
             let is_error = result.is_error;
             tb.tool_calls.push(ToolCallRecord {
                 tool_call: tool_call.clone(),
                 result: Some(result.clone()),
                 is_error,
-                duration_ms: 0, // individual tool timing not available at this hook
+                duration_ms,
                 middleware_hooks: Vec::new(),
             });
         }

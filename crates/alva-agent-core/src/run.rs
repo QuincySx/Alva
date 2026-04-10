@@ -343,6 +343,7 @@ async fn run_loop(
 
             // Emit TurnStart
             let _ = event_tx.send(AgentEvent::TurnStart);
+            let turn_start = std::time::Instant::now();
 
             // 3a. Get messages from session (optionally windowed)
             let session_messages = if config.context_window > 0 {
@@ -453,6 +454,12 @@ async fn run_loop(
 
             // 3j. If no tool_calls, emit TurnEnd and break inner (natural finish — check follow-ups)
             if tool_calls.is_empty() {
+                tracing::info!(
+                    turn = total_iterations,
+                    duration_ms = turn_start.elapsed().as_millis() as u64,
+                    tool_calls = 0,
+                    "turn completed (no tool calls)"
+                );
                 let _ = event_tx.send(AgentEvent::TurnEnd);
                 break 'inner;
             }
@@ -470,6 +477,7 @@ async fn run_loop(
                 let _ = event_tx.send(AgentEvent::ToolExecutionStart {
                     tool_call: tool_call.clone(),
                 });
+                let tool_start = std::time::Instant::now();
 
                 // Find tool by name — clone the Arc so we don't hold an immutable
                 // borrow on state.tools across the mutable middleware calls.
@@ -540,6 +548,15 @@ async fn run_loop(
                 };
                 state.session.append(AgentMessage::Standard(tool_message));
 
+                let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
+                tracing::info!(
+                    tool = %tool_call.name,
+                    duration_ms = tool_duration_ms,
+                    is_error = result.is_error,
+                    result_len = result.model_text().len(),
+                    "tool execution completed"
+                );
+
                 // Emit ToolExecutionEnd
                 let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
                     tool_call: tool_call.clone(),
@@ -548,6 +565,12 @@ async fn run_loop(
             }
 
             // 3l. Emit TurnEnd
+            tracing::info!(
+                turn = total_iterations,
+                duration_ms = turn_start.elapsed().as_millis() as u64,
+                tool_calls = tool_calls.len(),
+                "turn completed (with tool calls)"
+            );
             let _ = event_tx.send(AgentEvent::TurnEnd);
 
             // Steering check: after tool execution, before next LLM call

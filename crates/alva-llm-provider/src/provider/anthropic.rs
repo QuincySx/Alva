@@ -117,11 +117,21 @@ impl LanguageModel for AnthropicProvider {
             body["tools"] = serde_json::json!(api_tools);
         }
 
-        tracing::debug!(
+        let span = tracing::info_span!("llm_request",
+            provider = "anthropic",
             model = %self.model,
+            url = %url,
             messages = api_messages.len(),
             tools = api_tools.len(),
-            "calling Anthropic Messages API"
+            stream = false,
+        );
+        let _guard = span.enter();
+
+        let body_str = serde_json::to_string(&body).unwrap_or_default();
+        tracing::debug!(
+            body_len = body_str.len(),
+            body_preview = &body_str[..body_str.len().min(500)],
+            "LLM request body"
         );
 
         let req = self.client.post(&url)
@@ -157,6 +167,13 @@ impl LanguageModel for AnthropicProvider {
             .text()
             .await
             .map_err(|e| AgentError::LlmError(format!("read response body: {}", e)))?;
+
+        tracing::debug!(
+            status = %status,
+            body_len = resp_text.len(),
+            body_preview = &resp_text[..resp_text.len().min(500)],
+            "LLM response"
+        );
 
         if !status.is_success() {
             return Err(AgentError::LlmError(format!(
@@ -213,6 +230,22 @@ impl LanguageModel for AnthropicProvider {
         if !api_tools.is_empty() {
             body["tools"] = serde_json::json!(api_tools);
         }
+
+        let body_str = serde_json::to_string(&body).unwrap_or_default();
+        tracing::info!(
+            provider = "anthropic",
+            model = %model,
+            url = %url,
+            messages = api_messages.len(),
+            tools = api_tools.len(),
+            stream = true,
+            body_len = body_str.len(),
+            "LLM stream request"
+        );
+        tracing::debug!(
+            body_preview = &body_str[..body_str.len().min(500)],
+            "LLM stream request body"
+        );
 
         Box::pin(async_stream::stream! {
             yield StreamEvent::Start;

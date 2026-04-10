@@ -89,11 +89,21 @@ impl LanguageModel for OpenAIResponsesProvider {
             body["tools"] = serde_json::json!(resp_tools);
         }
 
-        tracing::debug!(
+        let span = tracing::info_span!("llm_request",
+            provider = "openai_responses",
             model = %self.model,
-            input_items = input.len(),
+            url = %url,
+            messages = input.len(),
             tools = resp_tools.len(),
-            "calling OpenAI Responses API"
+            stream = false,
+        );
+        let _guard = span.enter();
+
+        let body_str = serde_json::to_string(&body).unwrap_or_default();
+        tracing::debug!(
+            body_len = body_str.len(),
+            body_preview = &body_str[..body_str.len().min(500)],
+            "LLM request body"
         );
 
         let req = self.client.post(&url).header("Content-Type", "application/json");
@@ -109,6 +119,13 @@ impl LanguageModel for OpenAIResponsesProvider {
             .text()
             .await
             .map_err(|e| AgentError::LlmError(format!("read response body: {}", e)))?;
+
+        tracing::debug!(
+            status = %status,
+            body_len = resp_text.len(),
+            body_preview = &resp_text[..resp_text.len().min(500)],
+            "LLM response"
+        );
 
         if !status.is_success() {
             return Err(AgentError::LlmError(format!(
@@ -158,6 +175,22 @@ impl LanguageModel for OpenAIResponsesProvider {
         if !resp_tools.is_empty() {
             body["tools"] = serde_json::json!(resp_tools);
         }
+
+        let body_str = serde_json::to_string(&body).unwrap_or_default();
+        tracing::info!(
+            provider = "openai_responses",
+            model = %model,
+            url = %url,
+            messages = input.len(),
+            tools = resp_tools.len(),
+            stream = true,
+            body_len = body_str.len(),
+            "LLM stream request"
+        );
+        tracing::debug!(
+            body_preview = &body_str[..body_str.len().min(500)],
+            "LLM stream request body"
+        );
 
         Box::pin(async_stream::stream! {
             yield StreamEvent::Start;
