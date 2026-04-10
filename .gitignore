@@ -9,3 +9,4 @@ Cargo.lock
 .claude/hud-last-scan
 .claude/projects/
 .playwright-cli/
+alva-eval-runs.db

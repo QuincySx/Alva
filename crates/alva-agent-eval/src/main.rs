@@ -12,6 +12,7 @@
 mod log_capture;
 mod recorder;
 mod skills;
+mod store;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -74,10 +75,10 @@ struct AppState {
     runs: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedReceiver<AgentEvent>>>,
     /// Session references for post-run message inspection.
     sessions: Mutex<HashMap<String, Arc<dyn AgentSession>>>,
-    /// Completed run records for post-run inspection.
-    records: Mutex<HashMap<String, recorder::RunRecord>>,
-    /// Captured tracing logs per run.
+    /// Captured tracing logs per run (in-memory, flushed to DB on completion).
     log_store: log_capture::LogStore,
+    /// Persistent storage for completed runs.
+    db: Arc<store::RunStore>,
 }
 
 // ---------------------------------------------------------------------------
@@ -306,11 +307,10 @@ async fn create_run(
         // Stop capturing and extract record
         log_store.stop_capture();
         let record = rec_clone.take_record();
-        state_clone
-            .records
-            .lock()
-            .await
-            .insert(run_id_for_record, record);
+        let logs = log_store.get_logs(&run_id_for_record);
+
+        // Persist to SQLite
+        state_clone.db.save(&run_id_for_record, &record, &logs);
     });
 
     // -- 6. Store handles ---------------------------------------------------
@@ -374,36 +374,15 @@ async fn get_record(
     State(state): State<Arc<AppState>>,
     Path(run_id): Path<String>,
 ) -> impl IntoResponse {
-    let records = state.records.lock().await;
-    match records.get(&run_id) {
-        Some(record) => Json(record.clone()).into_response(),
+    match state.db.get_record(&run_id) {
+        Some(record) => Json(record).into_response(),
         None => (StatusCode::NOT_FOUND, "record not found or still running").into_response(),
     }
 }
 
-#[derive(Serialize)]
-struct RunSummary {
-    run_id: String,
-    model_id: String,
-    turns: usize,
-    total_tokens: u64,
-    duration_ms: u64,
-}
-
-/// List summaries of all completed runs.
-async fn list_runs(State(state): State<Arc<AppState>>) -> Json<Vec<RunSummary>> {
-    let records = state.records.lock().await;
-    let summaries = records
-        .iter()
-        .map(|(id, r)| RunSummary {
-            run_id: id.clone(),
-            model_id: r.config_snapshot.model_id.clone(),
-            turns: r.turns.len(),
-            total_tokens: r.total_input_tokens + r.total_output_tokens,
-            duration_ms: r.total_duration_ms,
-        })
-        .collect();
-    Json(summaries)
+/// List summaries of all completed runs (from DB).
+async fn list_runs(State(state): State<Arc<AppState>>) -> Json<Vec<store::StoredRunSummary>> {
+    Json(state.db.list())
 }
 
 // ---------------------------------------------------------------------------
@@ -437,9 +416,8 @@ async fn get_compare(
     State(state): State<Arc<AppState>>,
     Path((id_a, id_b)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let records = state.records.lock().await;
-    let rec_a = records.get(&id_a).cloned();
-    let rec_b = records.get(&id_b).cloned();
+    let rec_a = state.db.get_record(&id_a);
+    let rec_b = state.db.get_record(&id_b);
 
     let diff = build_compare_diff(rec_a.as_ref(), rec_b.as_ref());
 
@@ -497,12 +475,29 @@ fn build_compare_diff(
 // Run logs (captured tracing events)
 // ---------------------------------------------------------------------------
 
+/// Delete a run record from the DB.
+async fn delete_run(
+    State(state): State<Arc<AppState>>,
+    Path(run_id): Path<String>,
+) -> impl IntoResponse {
+    if state.db.delete(&run_id) {
+        (StatusCode::OK, "deleted").into_response()
+    } else {
+        (StatusCode::NOT_FOUND, "run not found").into_response()
+    }
+}
+
 /// Get captured tracing logs for a run (request/response bodies, tool timing, etc.)
+/// Checks in-memory first (active run), then falls back to DB.
 async fn get_logs(
     State(state): State<Arc<AppState>>,
     Path(run_id): Path<String>,
 ) -> Json<Vec<log_capture::LogEntry>> {
-    Json(state.log_store.get_logs(&run_id))
+    let in_memory = state.log_store.get_logs(&run_id);
+    if !in_memory.is_empty() {
+        return Json(in_memory);
+    }
+    Json(state.db.get_logs(&run_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -617,11 +612,13 @@ async fn main() {
         .with(log_capture::LogCaptureLayer::new(log_store.clone()))
         .init();
 
+    let db = Arc::new(store::RunStore::open("alva-eval-runs.db"));
+
     let state = Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
-        records: Mutex::new(HashMap::new()),
         log_store: log_store.clone(),
+        db,
     });
 
     let app = Router::new()
@@ -631,6 +628,7 @@ async fn main() {
         .route("/api/events/:run_id", get(events))
         .route("/api/messages/:run_id", get(get_messages))
         .route("/api/runs", get(list_runs))
+        .route("/api/runs/:run_id", axum::routing::delete(delete_run))
         .route("/api/records/:run_id", get(get_record))
         .route("/api/logs/:run_id", get(get_logs))
         .route("/api/compare", post(start_compare))

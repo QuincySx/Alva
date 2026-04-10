@@ -17,7 +17,7 @@ use tracing_subscriber::Layer;
 // Log entry
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct LogEntry {
     pub timestamp: String,
     pub level: String,

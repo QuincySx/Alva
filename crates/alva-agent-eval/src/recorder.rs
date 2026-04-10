@@ -22,7 +22,7 @@ use alva_types::{ContentBlock, Message, ToolCall, ToolDefinition, ToolOutput};
 // ---------------------------------------------------------------------------
 
 /// Top-level record for a complete agent run.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct RunRecord {
     pub config_snapshot: ConfigSnapshot,
     pub turns: Vec<TurnRecord>,
@@ -32,7 +32,7 @@ pub struct RunRecord {
 }
 
 /// Snapshot of the agent configuration at the start of the run.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ConfigSnapshot {
     pub system_prompt: String,
     pub model_id: String,
@@ -48,7 +48,7 @@ pub struct ConfigSnapshot {
 // ---------------------------------------------------------------------------
 
 /// Record for a single agent turn (one LLM call + zero or more tool calls).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct TurnRecord {
     pub turn_number: u32,
     pub llm_call: LlmCallRecord,
@@ -57,7 +57,7 @@ pub struct TurnRecord {
 }
 
 /// Details of a single LLM inference call.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct LlmCallRecord {
     pub messages_sent: Vec<Message>,
     pub messages_sent_count: usize,
@@ -71,7 +71,7 @@ pub struct LlmCallRecord {
 }
 
 /// Details of a single tool invocation within a turn.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ToolCallRecord {
     pub tool_call: ToolCall,
     pub result: Option<ToolOutput>,
@@ -85,7 +85,7 @@ pub struct ToolCallRecord {
 // ---------------------------------------------------------------------------
 
 /// Timing and outcome of a single middleware hook invocation.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct HookRecord {
     pub middleware_name: String,
     pub hook: String,
