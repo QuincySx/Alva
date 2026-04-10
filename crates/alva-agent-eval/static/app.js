@@ -39,6 +39,28 @@ async function loadTools() {
   }
 }
 
+async function loadMiddleware() {
+  try {
+    const res = await fetch('/api/middleware');
+    const mws = await res.json();
+    const picker = document.getElementById('middleware-picker');
+    picker.innerHTML = '';
+    mws.forEach(m => {
+      const label = document.createElement('label');
+      const checked = m.default_enabled ? 'checked' : '';
+      label.innerHTML = `
+        <input type="checkbox" value="${m.name}" ${checked}>
+        <span>
+          <strong>${m.name}</strong>
+          <span class="tool-desc">${escHtml(truncate(m.description, 60))}</span>
+        </span>`;
+      picker.appendChild(label);
+    });
+  } catch (e) {
+    console.error('Failed to load middleware:', e);
+  }
+}
+
 function selectAllTools() {
   document.querySelectorAll('#tool-picker input').forEach(c => c.checked = true);
 }
@@ -100,6 +122,12 @@ async function startRun() {
   if (workspace) body.workspace = workspace;
   if (document.getElementById('enable-sub-agents')?.checked) body.enable_sub_agents = true;
   if (document.getElementById('enable-browser')?.checked) body.enable_browser = true;
+
+  // Middleware selection
+  const selectedMiddleware = Array.from(
+    document.querySelectorAll('#middleware-picker input:checked')
+  ).map(c => c.value);
+  if (selectedMiddleware.length > 0) body.middleware = selectedMiddleware;
 
   try {
     const res = await fetch('/api/run', {
@@ -513,5 +541,6 @@ loadProfile().then(() => {
   restoreSettings();
 });
 
-// 3. Load tools, then restore saved tool selection
+// 3. Load tools + middleware, then restore saved selections
 loadTools().then(() => restoreToolSelection());
+loadMiddleware();

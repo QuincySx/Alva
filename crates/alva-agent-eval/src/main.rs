@@ -87,11 +87,13 @@ struct RunRequest {
     base_url: Option<String>,
     system_prompt: String,
     user_prompt: String,
-    /// If omitted, all builtin tools are registered.
-    /// Note: BaseAgent always registers all builtins; this field is reserved for future filtering.
+    /// Tool names to enable. If omitted, all standard tools are registered.
     #[serde(default)]
-    #[allow(dead_code)]
     tools: Option<Vec<String>>,
+    /// Middleware names to enable. If omitted, full production stack is used.
+    /// Available: loop_detection, dangling_tool_check, tool_timeout, compaction, checkpoint, plan_mode
+    #[serde(default)]
+    middleware: Option<Vec<String>>,
     #[serde(default)]
     max_iterations: Option<u32>,
     /// Workspace directory for tools to operate on. If omitted, uses a temp dir.
@@ -159,6 +161,25 @@ struct CompareDiff {
 // ---------------------------------------------------------------------------
 // API routes
 // ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct MiddlewareInfo {
+    name: String,
+    description: String,
+    default_enabled: bool,
+}
+
+/// List available middleware options.
+async fn list_middleware() -> Json<Vec<MiddlewareInfo>> {
+    Json(vec![
+        MiddlewareInfo { name: "loop_detection".into(), description: "Detect repeated tool calls and break loops".into(), default_enabled: true },
+        MiddlewareInfo { name: "dangling_tool_check".into(), description: "Validate tool call format and existence".into(), default_enabled: true },
+        MiddlewareInfo { name: "tool_timeout".into(), description: "120s timeout per tool execution".into(), default_enabled: true },
+        MiddlewareInfo { name: "compaction".into(), description: "Auto-summarize old messages when context is full".into(), default_enabled: true },
+        MiddlewareInfo { name: "checkpoint".into(), description: "File backups before write operations".into(), default_enabled: true },
+        MiddlewareInfo { name: "plan_mode".into(), description: "Block write tools in plan mode (read-only)".into(), default_enabled: true },
+    ])
+}
 
 /// List all available builtin tools.
 async fn list_tools() -> Json<Vec<ToolInfo>> {
@@ -244,16 +265,49 @@ async fn create_run(
     let rec = Arc::new(rec);
     rec.set_config(system_prompt.clone(), max_iterations, vec![]);
 
-    // Tools: start with all standard, optionally add browser
+    // -- Tools: filter by user selection or use all_standard -------------------
+    let all_tools = alva_agent_tools::tool_presets::all_standard();
+    let selected_tools: Vec<Box<dyn alva_types::Tool>> = match &req.tools {
+        Some(names) => all_tools.into_iter().filter(|t| names.contains(&t.name().to_string())).collect(),
+        None => all_tools,
+    };
+
+    // -- Middleware: build from user selection or use production preset --------
+    let mut selected_middleware: Vec<Arc<dyn alva_agent_core::middleware::Middleware>> = Vec::new();
+    let mut enable_plan_mode = false;
+
+    match &req.middleware {
+        Some(names) => {
+            for name in names {
+                match name.as_str() {
+                    "loop_detection" => selected_middleware.push(Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new())),
+                    "dangling_tool_check" => selected_middleware.push(Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new())),
+                    "tool_timeout" => selected_middleware.push(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default())),
+                    "compaction" => selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default())),
+                    "checkpoint" => selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new())),
+                    "plan_mode" => enable_plan_mode = true,
+                    _ => tracing::warn!(name = name.as_str(), "unknown middleware, skipping"),
+                }
+            }
+        }
+        None => {
+            selected_middleware = alva_app_core::base_agent::builder::middleware_presets::production();
+            enable_plan_mode = true;
+        }
+    };
+
+    // -- Build agent ----------------------------------------------------------
     let mut builder = alva_app_core::BaseAgent::builder()
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
         .max_iterations(max_iterations)
-        .tools(alva_agent_tools::tool_presets::all_standard())
-        .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
-        .with_plan_mode()
+        .tools(selected_tools)
+        .middlewares(selected_middleware)
         .middleware(rec.clone());
 
+    if enable_plan_mode {
+        builder = builder.with_plan_mode();
+    }
     if req.enable_sub_agents.unwrap_or(false) {
         builder = builder.with_sub_agents();
     }
@@ -593,6 +647,7 @@ async fn main() {
     let app = Router::new()
         // API routes
         .route("/api/tools", get(list_tools))
+        .route("/api/middleware", get(list_middleware))
         .route("/api/run", post(start_run))
         .route("/api/events/:run_id", get(events))
         // /api/messages removed — messages are in /api/records/:run_id
