@@ -576,7 +576,14 @@ async fn browse_dir(Json(req): Json<BrowseRequest>) -> Result<Json<BrowseRespons
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // Default to warn; use RUST_LOG env to override
+    // e.g. RUST_LOG=info or RUST_LOG=debug,hyper=warn
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .init();
 
     let state = Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),

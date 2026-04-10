@@ -29,8 +29,6 @@ use alva_types::ContentBlock;
 use crate::config::ProviderConfig;
 use crate::rate_limit::RateLimitState;
 
-/// Default Anthropic API base URL.
-const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 /// Current Anthropic API version header value.
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
