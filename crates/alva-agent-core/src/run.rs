@@ -61,6 +61,7 @@ impl LlmCallFn for ActualLlmCall {
         let mut text_content = String::new();
         let mut usage = None;
         let mut last_tool_call_index = None;
+        let mut event_count: u32 = 0;
 
         // Track in-progress tool calls in appearance order while allowing
         // providers to repeat the same tool-call id across multiple deltas.
@@ -69,6 +70,7 @@ impl LlmCallFn for ActualLlmCall {
             std::collections::HashMap::new();
 
         while let Some(event) = stream.next().await {
+            event_count += 1;
             // Build a placeholder message for the MessageUpdate envelope.
             let agent_msg = AgentMessage::Standard(Message {
                 id: self.message_id.clone(),
@@ -130,13 +132,76 @@ impl LlmCallFn for ActualLlmCall {
             }
         }
 
-        // Assemble the final Message from accumulated chunks.
+        // Check if streaming produced anything useful
+        let text_len = text_content.len();
+        let tool_call_count = tool_call_builders.len();
+
+        if text_len == 0 && tool_call_count == 0 {
+            // Stream returned nothing — fallback to non-streaming complete()
+            tracing::warn!(
+                model = %self.model.model_id(),
+                stream_events = event_count,
+                "LLM stream produced empty response — falling back to non-streaming"
+            );
+
+            let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
+            match self.model.complete(&messages, &tool_refs, &self.model_config).await {
+                Ok(msg) => {
+                    // Emit the fallback result as synthetic events so the UI still sees them
+                    for block in &msg.content {
+                        let delta = match block {
+                            ContentBlock::Text { text } => StreamEvent::TextDelta { text: text.clone() },
+                            ContentBlock::ToolUse { id, name, input } => StreamEvent::ToolCallDelta {
+                                id: id.clone(),
+                                name: Some(name.clone()),
+                                arguments_delta: input.to_string(),
+                            },
+                            _ => continue,
+                        };
+                        let agent_msg = AgentMessage::Standard(Message {
+                            id: self.message_id.clone(),
+                            role: MessageRole::Assistant,
+                            content: vec![],
+                            tool_call_id: None,
+                            usage: None,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                        });
+                        let _ = self.event_tx.send(AgentEvent::MessageUpdate {
+                            message: agent_msg,
+                            delta,
+                        });
+                    }
+
+                    tracing::info!(
+                        model = %self.model.model_id(),
+                        content_blocks = msg.content.len(),
+                        has_usage = msg.usage.is_some(),
+                        "non-streaming fallback succeeded"
+                    );
+                    return Ok(msg);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "non-streaming fallback also failed");
+                    return Err(e);
+                }
+            }
+        }
+
+        if usage.is_none() {
+            tracing::debug!(
+                model = %self.model.model_id(),
+                stream_events = event_count,
+                text_len,
+                "LLM stream completed without usage data"
+            );
+        }
+
+        // Assemble the final Message from accumulated stream chunks.
         let mut content_blocks = Vec::new();
         if !text_content.is_empty() {
             content_blocks.push(ContentBlock::Text { text: text_content });
         }
 
-        // Convert accumulated tool calls to ContentBlocks (sorted by index).
         for (id, name, args_str) in tool_call_builders {
             let input: Value = serde_json::from_str(&args_str).map_err(|error| {
                 AgentError::LlmError(format!(
@@ -257,8 +322,8 @@ async fn run_loop(
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     let mut total_iterations: u32 = 0;
-    let mut session_input_tokens: u64 = 0;
-    let mut session_output_tokens: u64 = 0;
+    let mut _session_input_tokens: u64 = 0;
+    let mut _session_output_tokens: u64 = 0;
 
     // Outer loop: processes follow-up messages
     'outer: loop {
@@ -359,8 +424,8 @@ async fn run_loop(
 
             // 3h. Track token usage from this turn
             if let Some(ref usage) = response.usage {
-                session_input_tokens += usage.input_tokens as u64;
-                session_output_tokens += usage.output_tokens as u64;
+                _session_input_tokens += usage.input_tokens as u64;
+                _session_output_tokens += usage.output_tokens as u64;
             }
 
             // 3i. Emit MessageEnd with the complete response
