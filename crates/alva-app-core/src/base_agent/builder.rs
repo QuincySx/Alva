@@ -44,6 +44,15 @@ pub struct BaseAgentBuilder {
     pub(crate) context_window: usize,
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
+
+    // Middleware toggles — all default to true
+    pub(crate) enable_security: bool,
+    pub(crate) enable_loop_detection: bool,
+    pub(crate) enable_dangling_tool_check: bool,
+    pub(crate) enable_tool_timeout: bool,
+    pub(crate) enable_compaction: bool,
+    pub(crate) enable_plan_mode: bool,
+    pub(crate) enable_checkpoint: bool,
 }
 
 impl BaseAgentBuilder {
@@ -64,6 +73,13 @@ impl BaseAgentBuilder {
             context_window: 0,
             approval_notifier: None,
             bus_plugins: Vec::new(),
+            enable_security: true,
+            enable_loop_detection: true,
+            enable_dangling_tool_check: true,
+            enable_tool_timeout: true,
+            enable_compaction: true,
+            enable_plan_mode: true,
+            enable_checkpoint: true,
         }
     }
 
@@ -164,6 +180,23 @@ impl BaseAgentBuilder {
         self
     }
 
+    // -- Middleware toggles (all default to enabled) -------------------------
+
+    /// Disable SecurityMiddleware (permission enforcement, path filtering).
+    pub fn without_security(mut self) -> Self { self.enable_security = false; self }
+    /// Disable LoopDetectionMiddleware (repeated tool call detection).
+    pub fn without_loop_detection(mut self) -> Self { self.enable_loop_detection = false; self }
+    /// Disable DanglingToolCallMiddleware (tool call validation).
+    pub fn without_dangling_tool_check(mut self) -> Self { self.enable_dangling_tool_check = false; self }
+    /// Disable ToolTimeoutMiddleware (120s default tool timeout).
+    pub fn without_tool_timeout(mut self) -> Self { self.enable_tool_timeout = false; self }
+    /// Disable CompactionMiddleware (auto-summarize when context is full).
+    pub fn without_compaction(mut self) -> Self { self.enable_compaction = false; self }
+    /// Disable PlanModeMiddleware (write-blocking in plan mode).
+    pub fn without_plan_mode(mut self) -> Self { self.enable_plan_mode = false; self }
+    /// Disable CheckpointMiddleware (file backups before writes).
+    pub fn without_checkpoint(mut self) -> Self { self.enable_checkpoint = false; self }
+
     /// Consume the builder and produce a ready-to-use [`BaseAgent`].
     ///
     /// # Errors
@@ -228,43 +261,63 @@ impl BaseAgentBuilder {
         let mut middleware_stack = MiddlewareStack::new();
 
         // a. Security middleware (highest priority — runs before all others)
-        let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
-            .with_bus(bus_handle.clone());
-        let security_guard = Some(security_mw.guard());
-        middleware_stack.push_sorted(Arc::new(security_mw));
+        let security_guard = if self.enable_security {
+            let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
+                .with_bus(bus_handle.clone());
+            let guard = Some(security_mw.guard());
+            middleware_stack.push_sorted(Arc::new(security_mw));
+            guard
+        } else {
+            None
+        };
 
         // b. Builtin: DanglingToolCallMiddleware
-        middleware_stack.push_sorted(Arc::new(
-            alva_agent_core::builtins::DanglingToolCallMiddleware::new(),
-        ));
+        if self.enable_dangling_tool_check {
+            middleware_stack.push_sorted(Arc::new(
+                alva_agent_core::builtins::DanglingToolCallMiddleware::new(),
+            ));
+        }
 
         // c. Builtin: LoopDetectionMiddleware
-        middleware_stack.push_sorted(Arc::new(
-            alva_agent_core::builtins::LoopDetectionMiddleware::new(),
-        ));
+        if self.enable_loop_detection {
+            middleware_stack.push_sorted(Arc::new(
+                alva_agent_core::builtins::LoopDetectionMiddleware::new(),
+            ));
+        }
 
         // d. Builtin: ToolTimeoutMiddleware (120s default)
-        middleware_stack.push_sorted(Arc::new(
-            alva_agent_core::builtins::ToolTimeoutMiddleware::default(),
-        ));
+        if self.enable_tool_timeout {
+            middleware_stack.push_sorted(Arc::new(
+                alva_agent_core::builtins::ToolTimeoutMiddleware::default(),
+            ));
+        }
 
         // e. Compaction middleware (auto-summarizes old messages when context is full)
-        middleware_stack.push_sorted(Arc::new(
-            alva_agent_runtime::middleware::CompactionMiddleware::default()
-                .with_bus(bus_handle.clone()),
-        ));
+        if self.enable_compaction {
+            middleware_stack.push_sorted(Arc::new(
+                alva_agent_runtime::middleware::CompactionMiddleware::default()
+                    .with_bus(bus_handle.clone()),
+            ));
+        }
 
         // f. Extra middleware from user
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
 
-        // f. Plan mode middleware (starts disabled)
-        let plan_mw = Arc::new(PlanModeMiddleware::new(false));
-        middleware_stack.push_sorted(plan_mw.clone());
+        // g. Plan mode middleware (starts disabled)
+        let plan_mw = if self.enable_plan_mode {
+            let mw = Arc::new(PlanModeMiddleware::new(false));
+            middleware_stack.push_sorted(mw.clone());
+            Some(mw)
+        } else {
+            None
+        };
 
-        // g. Checkpoint middleware (saves file backups before writes)
-        middleware_stack.push_sorted(Arc::new(CheckpointMiddleware::new().with_bus(bus_handle.clone())));
+        // h. Checkpoint middleware (saves file backups before writes)
+        if self.enable_checkpoint {
+            middleware_stack.push_sorted(Arc::new(CheckpointMiddleware::new().with_bus(bus_handle.clone())));
+        }
 
         // 7. Optionally add the agent spawn tool
         if self.enable_sub_agents {
@@ -347,7 +400,7 @@ impl BaseAgentBuilder {
             skill_store,
             memory,
             security_guard,
-            plan_mode_middleware: Some(plan_mw),
+            plan_mode_middleware: plan_mw,
             pending_messages,
             bus_writer,
             bus: bus_handle,
