@@ -9,6 +9,7 @@
 //! # open http://127.0.0.1:3000
 //! ```
 
+mod log_capture;
 mod recorder;
 mod skills;
 
@@ -75,6 +76,8 @@ struct AppState {
     sessions: Mutex<HashMap<String, Arc<dyn AgentSession>>>,
     /// Completed run records for post-run inspection.
     records: Mutex<HashMap<String, recorder::RunRecord>>,
+    /// Captured tracing logs per run.
+    log_store: log_capture::LogStore,
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +291,10 @@ async fn create_run(
     let rec_clone = rec.clone();
     let state_clone = state.clone();
     let run_id_for_record = run_id.clone();
+    let log_store = state.log_store.clone();
+
+    // Start capturing tracing events for this run
+    log_store.start_capture(&run_id);
 
     tokio::spawn(async move {
         let _tmp_guard = _tmp_guard; // keep TempDir alive if used
@@ -296,7 +303,8 @@ async fn create_run(
             tracing::error!(error = %e, "agent run failed");
         }
 
-        // Extract record after run completes
+        // Stop capturing and extract record
+        log_store.stop_capture();
         let record = rec_clone.take_record();
         state_clone
             .records
@@ -486,6 +494,18 @@ fn build_compare_diff(
 }
 
 // ---------------------------------------------------------------------------
+// Run logs (captured tracing events)
+// ---------------------------------------------------------------------------
+
+/// Get captured tracing logs for a run (request/response bodies, tool timing, etc.)
+async fn get_logs(
+    State(state): State<Arc<AppState>>,
+    Path(run_id): Path<String>,
+) -> Json<Vec<log_capture::LogEntry>> {
+    Json(state.log_store.get_logs(&run_id))
+}
+
+// ---------------------------------------------------------------------------
 // Skill discovery
 // ---------------------------------------------------------------------------
 
@@ -576,19 +596,32 @@ async fn browse_dir(Json(req): Json<BrowseRequest>) -> Result<Json<BrowseRespons
 
 #[tokio::main]
 async fn main() {
-    // Default to warn; use RUST_LOG env to override
-    // e.g. RUST_LOG=info or RUST_LOG=debug,hyper=warn
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
+    // Log capture: captures tracing events from providers/agent-core per run
+    let log_store = log_capture::LogStore::new();
+
+    // Tracing subscriber: terminal output + log capture layer
+    // The capture layer intercepts events from alva_llm_provider and alva_agent_core,
+    // buffering them per run_id for the web UI.
+    // Terminal output defaults to warn; override with RUST_LOG=info or RUST_LOG=debug.
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(
+            "warn,alva_llm_provider=debug,alva_agent_core=info"
+        ));
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(log_capture::LogCaptureLayer::new(log_store.clone()))
         .init();
 
     let state = Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
         records: Mutex::new(HashMap::new()),
+        log_store: log_store.clone(),
     });
 
     let app = Router::new()
@@ -599,6 +632,7 @@ async fn main() {
         .route("/api/messages/:run_id", get(get_messages))
         .route("/api/runs", get(list_runs))
         .route("/api/records/:run_id", get(get_record))
+        .route("/api/logs/:run_id", get(get_logs))
         .route("/api/compare", post(start_compare))
         .route("/api/compare/:id_a/:id_b", get(get_compare))
         // Directory browser

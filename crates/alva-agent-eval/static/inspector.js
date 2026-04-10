@@ -134,8 +134,56 @@ function renderRecord(record, container) {
     </div>`;
   container.appendChild(summary);
 
+  // Load tracing logs for this run
+  loadLogs(currentRunId, container);
+
   document.getElementById('status').textContent = `Inspecting run`;
   document.getElementById('status').style.color = 'var(--blue)';
+}
+
+async function loadLogs(runId, container) {
+  try {
+    const res = await fetch(`/api/logs/${runId}`);
+    if (!res.ok) return;
+    const logs = await res.json();
+    if (!logs.length) return;
+
+    const logsCard = document.createElement('div');
+    logsCard.className = 'card';
+    logsCard.style.borderLeftColor = 'var(--purple)';
+
+    let html = `<details>
+      <summary style="cursor:pointer;font-size:13px;font-weight:600">
+        Tracing Logs (${logs.length} events)
+      </summary>
+      <div style="margin-top:8px;max-height:500px;overflow-y:auto">`;
+
+    for (const log of logs) {
+      const levelColor = {
+        'ERROR': 'var(--red)',
+        'WARN': 'var(--orange)',
+        'INFO': 'var(--blue)',
+        'DEBUG': 'var(--text-dim)',
+      }[log.level] || 'var(--text-dim)';
+
+      const fields = Object.entries(log.fields)
+        .map(([k, v]) => `<span style="color:var(--text-dim)">${escHtml(k)}</span>=<span style="color:var(--text)">${escHtml(truncate(v.replace(/^"|"$/g, ''), 120))}</span>`)
+        .join(' ');
+
+      html += `<div style="font-family:var(--mono);font-size:11px;padding:3px 6px;border-bottom:1px solid var(--border)">
+        <span style="color:${levelColor};font-weight:600;width:40px;display:inline-block">${log.level}</span>
+        <span style="color:var(--text-dim)">${log.target.split('::').pop()}</span>
+        <span style="color:var(--text)">${escHtml(log.message)}</span>
+        ${fields ? `<div style="margin-left:46px;color:var(--text-dim)">${fields}</div>` : ''}
+      </div>`;
+    }
+
+    html += `</div></details>`;
+    logsCard.innerHTML = html;
+    container.appendChild(logsCard);
+  } catch (e) {
+    // Log fetch failed — not critical
+  }
 }
 
 // Init
