@@ -62,8 +62,25 @@ async function loadRecord(runId) {
 // Render: full record
 // ---------------------------------------------------------------------------
 
-function renderRecord(record, container) {
+async function renderRecord(record, container) {
   container.innerHTML = '';
+
+  // Load tracing logs first so we can annotate turns with fallback info
+  let logs = [];
+  try {
+    const logsRes = await fetch(`/api/logs/${currentRunId}`);
+    if (logsRes.ok) logs = await logsRes.json();
+  } catch {}
+
+  // Detect which turns used streaming fallback
+  const fallbackTurns = new Set();
+  logs.forEach((log, i) => {
+    if (log.message.includes('falling back to non-streaming')) {
+      // The turn number is the count of "turn completed" logs before this one + 1
+      const completedBefore = logs.slice(0, i).filter(l => l.message.includes('turn completed')).length;
+      fallbackTurns.add(completedBefore + 1);
+    }
+  });
 
   // ── Run Overview ──
   renderOverview(record, container);
@@ -71,7 +88,7 @@ function renderRecord(record, container) {
   // ── Turn timeline ──
   let prevInputTokens = 0;
   record.turns.forEach((turn, idx) => {
-    renderTurn(turn, prevInputTokens, container);
+    renderTurn(turn, prevInputTokens, container, fallbackTurns.has(turn.turn_number));
     prevInputTokens = turn.llm_call.input_tokens;
   });
 
@@ -79,7 +96,7 @@ function renderRecord(record, container) {
   renderSummary(record, container);
 
   // ── Tracing Logs ──
-  loadLogs(currentRunId, container);
+  renderLogs(logs, container);
 
   document.getElementById('status').textContent = 'Inspecting run';
   document.getElementById('status').style.color = 'var(--blue)';
@@ -137,10 +154,13 @@ function renderOverview(record, container) {
 // Render: single turn
 // ---------------------------------------------------------------------------
 
-function renderTurn(turn, prevInputTokens, container) {
+function renderTurn(turn, prevInputTokens, container, usedFallback) {
   const lc = turn.llm_call;
   const turnTokens = lc.input_tokens + lc.output_tokens;
   const tokenDelta = prevInputTokens > 0 ? lc.input_tokens - prevInputTokens : 0;
+  const fallbackBadge = usedFallback
+    ? ' <span style="background:#553300;color:var(--orange);font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px">fallback</span>'
+    : '';
 
   const turnEl = document.createElement('div');
   turnEl.className = 'card';
@@ -150,7 +170,7 @@ function renderTurn(turn, prevInputTokens, container) {
   // ── Turn header ──
   let html = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
-      <div style="font-weight:600;font-size:14px">Turn ${turn.turn_number}</div>
+      <div style="font-weight:600;font-size:14px">Turn ${turn.turn_number}${fallbackBadge}</div>
       <div style="display:flex;gap:12px;font-size:11px;color:var(--text-dim);font-family:var(--mono)">
         <span>${(turn.duration_ms / 1000).toFixed(1)}s</span>
         <span>${turnTokens.toLocaleString()} tok</span>
@@ -242,7 +262,8 @@ function renderTurn(turn, prevInputTokens, container) {
         </details>
         <details style="margin-top:4px">
           <summary style="cursor:pointer;font-size:11px;color:var(--blue)">Output (${tc.result ? formatToolOutput(tc.result).length : 0} chars)</summary>
-          <pre style="max-height:200px">${escHtml(truncate(tc.result ? formatToolOutput(tc.result) : '(no output)', 2000))}</pre>
+          <pre style="max-height:300px;overflow-y:auto">${escHtml(truncate(tc.result ? formatToolOutput(tc.result) : '(no output)', 800))}</pre>
+          ${tc.result && formatToolOutput(tc.result).length > 800 ? '<div style="font-size:10px;color:var(--text-dim);margin-top:2px">Showing first 800 chars. Full output available via API.</div>' : ''}
         </details>
       </div>`;
   }
@@ -306,12 +327,8 @@ function renderSummary(record, container) {
 // Render: tracing logs
 // ---------------------------------------------------------------------------
 
-async function loadLogs(runId, container) {
-  try {
-    const res = await fetch(`/api/logs/${runId}`);
-    if (!res.ok) return;
-    const logs = await res.json();
-    if (!logs.length) return;
+function renderLogs(logs, container) {
+  if (!logs || !logs.length) return;
 
     const logsCard = document.createElement('div');
     logsCard.className = 'card';
@@ -340,9 +357,15 @@ async function loadLogs(runId, container) {
         .filter(([k]) => k !== 'message')
         .map(([k, v]) => {
           const val = v.replace(/^"|"$/g, '');
-          // Highlight important fields
+          // Expandable fields with large content (body previews, buffers)
           if (k === 'body_preview' || k === 'remaining_buffer' || k === 'preview') {
-            return `<details style="display:inline"><summary style="cursor:pointer;color:var(--blue);font-size:10px">${k} (${val.length} chars)</summary><pre style="margin:2px 0">${escHtml(truncate(val, 500))}</pre></details>`;
+            // Try to pretty-print JSON
+            let formatted = val;
+            try {
+              const parsed = JSON.parse(val);
+              formatted = JSON.stringify(parsed, null, 2);
+            } catch {}
+            return `<details style="display:inline"><summary style="cursor:pointer;color:var(--blue);font-size:10px">${k} (${val.length} chars)</summary><pre style="margin:2px 0;max-height:200px;overflow-y:auto">${escHtml(truncate(formatted, 1000))}</pre></details>`;
           }
           return `<span style="color:var(--text-dim)">${k}</span>=<span>${escHtml(truncate(val, 80))}</span>`;
         })
@@ -359,9 +382,6 @@ async function loadLogs(runId, container) {
     html += `</div></details>`;
     logsCard.innerHTML = html;
     container.appendChild(logsCard);
-  } catch (e) {
-    // Log fetch failed — not critical
-  }
 }
 
 // ---------------------------------------------------------------------------
