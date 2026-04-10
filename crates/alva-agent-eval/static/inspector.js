@@ -1,8 +1,10 @@
 // ---------------------------------------------------------------------------
-// Inspector — run detail viewer with structured turn timeline
+// Inspector — three-column: runs | timeline | detail
 // ---------------------------------------------------------------------------
 
 let currentRunId = null;
+let allLogs = [];
+let selectedBlock = null;
 
 // ---------------------------------------------------------------------------
 // Sidebar: run list
@@ -15,19 +17,18 @@ async function loadRuns() {
     const runs = await res.json();
     container.innerHTML = '';
     if (runs.length === 0) {
-      container.innerHTML = '<div style="color:var(--text-dim);font-size:12px">No completed runs yet. Go to Playground to start one.</div>';
+      container.innerHTML = '<div style="color:var(--text-dim);font-size:12px">No completed runs. Go to Playground first.</div>';
       return;
     }
     runs.forEach(r => {
       const el = document.createElement('div');
       el.className = 'card';
       el.style.cursor = 'pointer';
-      el.style.marginBottom = '6px';
+      el.style.marginBottom = '4px';
+      el.style.padding = '6px 8px';
       el.innerHTML = `
-        <div class="card-header">${escHtml(r.model_id)}</div>
-        <div style="font-size:11px;color:var(--text-dim)">
-          ${r.turns} turns, ${r.total_tokens} tok, ${(r.duration_ms / 1000).toFixed(1)}s
-        </div>`;
+        <div style="font-weight:600;font-size:12px">${escHtml(r.model_id)}</div>
+        <div style="font-size:10px;color:var(--text-dim)">${r.turns}T ${r.total_tokens}tok ${(r.duration_ms/1000).toFixed(1)}s</div>`;
       el.onclick = () => loadRecord(r.run_id);
       container.appendChild(el);
     });
@@ -37,351 +38,332 @@ async function loadRuns() {
 }
 
 // ---------------------------------------------------------------------------
-// Main: load and render a run record
+// Load record + logs
 // ---------------------------------------------------------------------------
 
 async function loadRecord(runId) {
   currentRunId = runId;
-  const content = document.getElementById('inspector-content');
-  content.innerHTML = '<div style="color:var(--text-dim);margin:auto">Loading record...</div>';
+  const timeline = document.getElementById('inspector-content');
+  const detail = document.getElementById('detail-panel');
+  timeline.innerHTML = '<div style="color:var(--text-dim);margin:auto">Loading...</div>';
+  detail.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:16px">Loading...</div>';
 
   try {
-    const res = await fetch(`/api/records/${runId}`);
-    if (!res.ok) {
-      content.innerHTML = '<div style="color:var(--red);margin:auto">Record not found</div>';
-      return;
-    }
-    const record = await res.json();
-    renderRecord(record, content);
+    const [recRes, logsRes] = await Promise.all([
+      fetch(`/api/records/${runId}`),
+      fetch(`/api/logs/${runId}`),
+    ]);
+    if (!recRes.ok) { timeline.innerHTML = '<div style="color:var(--red);margin:auto">Record not found</div>'; return; }
+    const record = await recRes.json();
+    allLogs = logsRes.ok ? await logsRes.json() : [];
+    renderTimeline(record, timeline);
+    detail.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:16px">Click any block to see details</div>';
+    document.getElementById('status').textContent = 'Inspecting run';
+    document.getElementById('status').style.color = 'var(--blue)';
   } catch (e) {
-    content.innerHTML = `<div style="color:var(--red);margin:auto">${e.message}</div>`;
+    timeline.innerHTML = `<div style="color:var(--red);margin:auto">${e.message}</div>`;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Render: full record
+// Select a block → show detail in right panel
 // ---------------------------------------------------------------------------
 
-async function renderRecord(record, container) {
+function selectBlock(el, detailFn) {
+  document.querySelectorAll('.event-block.selected').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  const panel = document.getElementById('detail-panel');
+  panel.innerHTML = '';
+  detailFn(panel);
+  panel.scrollTop = 0;
+}
+
+function addDetailSection(panel, title, contentHtml) {
+  const section = document.createElement('div');
+  section.className = 'detail-section';
+  section.innerHTML = `<h4>${title}</h4>${contentHtml}`;
+  panel.appendChild(section);
+}
+
+// Filter logs by message keywords
+function filterLogs(keywords) {
+  return allLogs.filter(l => keywords.some(kw => l.message.toLowerCase().includes(kw.toLowerCase()) || l.target.includes(kw)));
+}
+
+function renderLogEntries(logs) {
+  if (!logs.length) return '<div style="color:var(--text-dim)">No logs for this event</div>';
+  const colors = { 'ERROR': 'var(--red)', 'WARN': 'var(--orange)', 'INFO': 'var(--blue)', 'DEBUG': 'var(--text-dim)' };
+  return logs.map(l => {
+    const fields = Object.entries(l.fields).map(([k, v]) => {
+      const val = String(v).replace(/^"|"$/g, '');
+      if (val.length > 100) {
+        let formatted = val;
+        try { formatted = JSON.stringify(JSON.parse(val), null, 2); } catch {}
+        return `<div style="margin-top:2px"><span style="color:var(--text-dim)">${escHtml(k)}:</span><pre>${escHtml(formatted)}</pre></div>`;
+      }
+      return `<span style="color:var(--text-dim)">${escHtml(k)}</span>=<span>${escHtml(val)}</span> `;
+    }).join('');
+    return `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:11px">
+      <span style="color:${colors[l.level] || 'var(--text-dim)'};font-weight:600">${l.level}</span>
+      <span style="color:var(--text)">${escHtml(l.message)}</span>
+      <div style="margin-left:4px;margin-top:2px">${fields}</div>
+    </div>`;
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Render timeline (left center column)
+// ---------------------------------------------------------------------------
+
+function renderTimeline(record, container) {
   container.innerHTML = '';
 
-  // Load tracing logs first so we can annotate turns with fallback info
-  let logs = [];
-  try {
-    const logsRes = await fetch(`/api/logs/${currentRunId}`);
-    if (logsRes.ok) logs = await logsRes.json();
-  } catch {}
+  // Overview block
+  renderOverviewBlock(record, container);
 
-  // Detect which turns used streaming fallback
+  // Turns
+  let prevInputTokens = 0;
+  // Detect fallback turns
   const fallbackTurns = new Set();
-  logs.forEach((log, i) => {
+  allLogs.forEach((log, i) => {
     if (log.message.includes('falling back to non-streaming')) {
-      // The turn number is the count of "turn completed" logs before this one + 1
-      const completedBefore = logs.slice(0, i).filter(l => l.message.includes('turn completed')).length;
+      const completedBefore = allLogs.slice(0, i).filter(l => l.message.includes('turn completed')).length;
       fallbackTurns.add(completedBefore + 1);
     }
   });
 
-  // ── Run Overview ──
-  renderOverview(record, container);
-
-  // ── Turn timeline ──
-  let prevInputTokens = 0;
-  record.turns.forEach((turn, idx) => {
-    renderTurn(turn, prevInputTokens, container, fallbackTurns.has(turn.turn_number));
+  record.turns.forEach(turn => {
+    renderTurnBlock(turn, prevInputTokens, container, fallbackTurns.has(turn.turn_number));
     prevInputTokens = turn.llm_call.input_tokens;
   });
 
-  // ── Summary ──
-  renderSummary(record, container);
-
-  // ── Tracing Logs ──
-  renderLogs(logs, container);
-
-  document.getElementById('status').textContent = 'Inspecting run';
-  document.getElementById('status').style.color = 'var(--blue)';
+  // Summary
+  renderSummaryBlock(record, container);
 }
 
 // ---------------------------------------------------------------------------
-// Render: overview card
+// Overview block
 // ---------------------------------------------------------------------------
 
-function renderOverview(record, container) {
+function renderOverviewBlock(record, container) {
   const c = record.config_snapshot;
   const totalTokens = record.total_input_tokens + record.total_output_tokens;
   const totalTools = record.turns.reduce((sum, t) => sum + t.tool_calls.length, 0);
 
   const el = document.createElement('div');
-  el.className = 'card start';
+  el.className = 'card start event-block';
   el.innerHTML = `
-    <div class="card-header" style="font-size:14px">Run Overview</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-top:8px">
-      <div>Model: <strong style="color:var(--text)">${escHtml(c.model_id)}</strong></div>
-      <div>Total: <strong style="color:var(--text)">${totalTokens.toLocaleString()}</strong> tokens</div>
-      <div>Duration: <strong style="color:var(--text)">${(record.total_duration_ms / 1000).toFixed(1)}s</strong></div>
-      <div>Turns: <strong style="color:var(--text)">${record.turns.length}</strong></div>
-      <div>Tools registered: <strong style="color:var(--text)">${c.tool_names.length}</strong></div>
-      <div>Tool calls: <strong style="color:var(--text)">${totalTools}</strong></div>
-      <div>Max iterations: <strong style="color:var(--text)">${c.max_iterations}</strong></div>
-      <div>Tokens: <strong style="color:var(--text)">${record.total_input_tokens.toLocaleString()}</strong> in / <strong style="color:var(--text)">${record.total_output_tokens.toLocaleString()}</strong> out</div>
-    </div>
+    <div class="card-header" style="font-size:13px">Run Overview</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:4px">
+      ${escHtml(c.model_id)} · ${record.turns.length}T · ${totalTokens.toLocaleString()} tok · ${(record.total_duration_ms/1000).toFixed(1)}s
+    </div>`;
 
-    <details style="margin-top:10px">
-      <summary style="cursor:pointer;font-size:12px;color:var(--blue)">System Prompt</summary>
-      <pre>${escHtml(c.system_prompt || '(empty)')}</pre>
-    </details>
+  el.onclick = () => selectBlock(el, panel => {
+    addDetailSection(panel, 'Configuration', `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;font-size:12px">
+        <div>Model: <strong>${escHtml(c.model_id)}</strong></div>
+        <div>Turns: <strong>${record.turns.length}</strong></div>
+        <div>Duration: <strong>${(record.total_duration_ms/1000).toFixed(1)}s</strong></div>
+        <div>Tokens: <strong>${totalTokens.toLocaleString()}</strong></div>
+        <div>Tools: <strong>${c.tool_names.length}</strong></div>
+        <div>Tool calls: <strong>${totalTools}</strong></div>
+        <div>Max iter: <strong>${c.max_iterations}</strong></div>
+        <div>In/Out: <strong>${record.total_input_tokens.toLocaleString()} / ${record.total_output_tokens.toLocaleString()}</strong></div>
+      </div>`);
+    addDetailSection(panel, 'System Prompt', `<pre>${escHtml(c.system_prompt || '(empty)')}</pre>`);
+    if (c.tool_definitions?.length) {
+      addDetailSection(panel, `Tool Definitions (${c.tool_definitions.length})`,
+        c.tool_definitions.map(td =>
+          `<details style="margin-bottom:4px"><summary style="cursor:pointer"><strong>${escHtml(td.name)}</strong> <span style="color:var(--text-dim)">${escHtml(truncate(td.description,50))}</span></summary><pre>${escHtml(formatJson(td.parameters))}</pre></details>`
+        ).join(''));
+    }
+  });
 
-    ${c.tool_definitions && c.tool_definitions.length > 0 ? `
-    <details style="margin-top:6px">
-      <summary style="cursor:pointer;font-size:12px;color:var(--blue)">Tool Definitions (${c.tool_definitions.length})</summary>
-      <div style="margin-top:6px">
-        ${c.tool_definitions.map(td => `
-          <details style="margin-left:8px;margin-bottom:4px">
-            <summary style="cursor:pointer;font-size:12px">
-              <strong>${escHtml(td.name)}</strong>
-              <span style="color:var(--text-dim);font-size:11px;margin-left:6px">${escHtml(truncate(td.description, 60))}</span>
-            </summary>
-            <pre style="margin-left:16px">${escHtml(formatJson(td.parameters))}</pre>
-          </details>
-        `).join('')}
-      </div>
-    </details>` : ''}
-  `;
   container.appendChild(el);
 }
 
 // ---------------------------------------------------------------------------
-// Render: single turn
+// Turn block (contains LLM request, response, tools)
 // ---------------------------------------------------------------------------
 
-function renderTurn(turn, prevInputTokens, container, usedFallback) {
+function renderTurnBlock(turn, prevInputTokens, container, usedFallback) {
   const lc = turn.llm_call;
   const turnTokens = lc.input_tokens + lc.output_tokens;
   const tokenDelta = prevInputTokens > 0 ? lc.input_tokens - prevInputTokens : 0;
-  const fallbackBadge = usedFallback
-    ? ' <span style="background:#553300;color:var(--orange);font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px">fallback</span>'
-    : '';
+  const fb = usedFallback ? ' <span style="background:#553300;color:var(--orange);font-size:9px;padding:1px 5px;border-radius:6px">fallback</span>' : '';
 
+  // Turn wrapper
   const turnEl = document.createElement('div');
-  turnEl.className = 'card';
-  turnEl.style.borderLeftColor = 'var(--purple)';
-  turnEl.style.padding = '0';
+  turnEl.style.cssText = 'border-left:2px solid var(--purple);padding-left:10px;margin-left:4px';
 
-  // ── Turn header ──
-  let html = `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
-      <div style="font-weight:600;font-size:14px">Turn ${turn.turn_number}${fallbackBadge}</div>
-      <div style="display:flex;gap:12px;font-size:11px;color:var(--text-dim);font-family:var(--mono)">
-        <span>${(turn.duration_ms / 1000).toFixed(1)}s</span>
-        <span>${turnTokens.toLocaleString()} tok</span>
-      </div>
+  // Turn header
+  const header = document.createElement('div');
+  header.style.cssText = 'font-size:12px;color:var(--text-dim);margin-bottom:4px;display:flex;justify-content:space-between';
+  header.innerHTML = `<span style="font-weight:600;color:var(--text)">Turn ${turn.turn_number}${fb}</span><span style="font-family:var(--mono)">${(turn.duration_ms/1000).toFixed(1)}s · ${turnTokens.toLocaleString()} tok</span>`;
+  turnEl.appendChild(header);
+
+  // LLM Request block
+  const reqEl = document.createElement('div');
+  reqEl.className = 'card event-block';
+  reqEl.style.cssText = 'padding:6px 10px;margin-bottom:4px;border-left-color:var(--blue)';
+  reqEl.innerHTML = `
+    <div style="display:flex;justify-content:space-between;font-size:11px">
+      <span style="color:var(--blue);font-weight:600">LLM Request</span>
+      <span style="color:var(--text-dim);font-family:var(--mono)">${lc.messages_sent_count} msgs · ${lc.input_tokens.toLocaleString()} in tok</span>
     </div>
-    <div style="padding:10px 14px">
-  `;
+    ${tokenDelta > 0 ? `<div style="font-size:10px;color:var(--orange)">+${tokenDelta.toLocaleString()} from prev turn</div>` : ''}`;
 
-  // ── LLM Request ──
-  html += `
-    <div style="background:var(--bg);border-radius:6px;padding:8px 10px;margin-bottom:2px">
-      <div style="display:flex;justify-content:space-between;font-size:12px">
-        <span style="color:var(--blue);font-weight:600">LLM Request</span>
-        <span style="color:var(--text-dim);font-family:var(--mono)">${lc.messages_sent_count} msgs, ${lc.input_tokens.toLocaleString()} input tok</span>
-      </div>
-      ${tokenDelta > 0 ? `<div style="font-size:11px;color:var(--orange);margin-top:2px">+${tokenDelta.toLocaleString()} tokens from previous turn (history + tool results)</div>` : ''}
-      <details style="margin-top:6px">
-        <summary style="cursor:pointer;font-size:11px;color:var(--blue)">View messages</summary>
-        <pre style="max-height:300px">${escHtml(formatJson(lc.messages_sent))}</pre>
-      </details>
-    </div>
-  `;
+  reqEl.onclick = () => selectBlock(reqEl, panel => {
+    addDetailSection(panel, `LLM Request — Turn ${turn.turn_number}`, `
+      <div style="font-size:12px;margin-bottom:6px">
+        Messages: ${lc.messages_sent_count} · Input tokens: ${lc.input_tokens.toLocaleString()}
+        ${tokenDelta > 0 ? `<br><span style="color:var(--orange)">+${tokenDelta.toLocaleString()} tokens growth from previous turn</span>` : ''}
+      </div>`);
+    addDetailSection(panel, 'Messages Sent', `<pre>${escHtml(formatJson(lc.messages_sent))}</pre>`);
+    // Show related logs
+    const reqLogs = filterLogs(['LLM request', 'LLM stream request', 'sending HTTP', 'before_llm_call']);
+    if (reqLogs.length) addDetailSection(panel, 'Related Logs', renderLogEntries(reqLogs));
+  });
+  turnEl.appendChild(reqEl);
 
-  // ── Arrow ──
-  html += `<div style="text-align:center;color:var(--text-dim);font-size:14px;line-height:1">↓</div>`;
+  // Arrow
+  turnEl.appendChild(makeArrow());
 
-  // ── LLM Response ──
-  const resp = lc.response;
+  // LLM Response block
+  const respEl = document.createElement('div');
+  respEl.className = 'card event-block';
   const stopColor = lc.stop_reason === 'tool_use' ? 'var(--orange)' : lc.stop_reason === 'end_turn' ? 'var(--green)' : 'var(--red)';
+  respEl.style.cssText = `padding:6px 10px;margin-bottom:4px;border-left-color:${stopColor}`;
 
-  html += `
-    <div style="background:var(--bg);border-radius:6px;padding:8px 10px;margin-bottom:2px">
-      <div style="display:flex;justify-content:space-between;font-size:12px">
-        <span style="color:var(--green);font-weight:600">LLM Response</span>
-        <span style="color:var(--text-dim);font-family:var(--mono)">${lc.output_tokens.toLocaleString()} out tok, ${(lc.duration_ms / 1000).toFixed(1)}s</span>
-      </div>
-      <div style="margin-top:4px">
-        <span class="badge" style="background:${stopColor}22;color:${stopColor};font-size:10px;padding:1px 6px;border-radius:8px">${lc.stop_reason}</span>
-      </div>
-  `;
-
-  if (resp && resp.content) {
-    for (const block of resp.content) {
-      if ((block.type === 'text' || block.Text) && (block.text || block.Text?.text)) {
-        const text = block.text || block.Text?.text || '';
-        html += `
-          <details style="margin-top:6px" ${lc.stop_reason === 'end_turn' ? 'open' : ''}>
-            <summary style="cursor:pointer;font-size:11px;color:var(--blue)">Response text (${text.length} chars)</summary>
-            <pre style="max-height:300px">${escHtml(truncate(text, 3000))}</pre>
-          </details>`;
+  let respPreview = '';
+  const resp = lc.response;
+  if (resp?.content) {
+    for (const b of resp.content) {
+      if ((b.type === 'text' || b.Text) && (b.text || b.Text?.text)) {
+        respPreview = truncate(b.text || b.Text?.text || '', 80);
       }
-      if (block.type === 'tool_use' || block.ToolUse) {
-        const name = block.name || block.ToolUse?.name || '?';
-        const input = block.input || block.ToolUse?.input || {};
-        html += `
-          <div style="margin-top:6px;font-size:12px;font-family:var(--mono)">
-            <span style="color:var(--orange)">→ ${escHtml(name)}</span>(${escHtml(truncate(JSON.stringify(input), 100))})
-          </div>`;
+      if (b.type === 'tool_use') {
+        respPreview = `→ ${b.name}(${truncate(JSON.stringify(b.input), 50)})`;
       }
     }
-  } else {
-    html += `<div style="color:var(--red);font-size:12px;margin-top:4px">(empty response)</div>`;
   }
-  html += `</div>`;
 
-  // ── Tool Calls ──
+  respEl.innerHTML = `
+    <div style="display:flex;justify-content:space-between;font-size:11px">
+      <span style="color:var(--green);font-weight:600">LLM Response</span>
+      <span style="color:var(--text-dim);font-family:var(--mono)">${lc.output_tokens.toLocaleString()} out · ${(lc.duration_ms/1000).toFixed(1)}s</span>
+    </div>
+    <div style="margin-top:2px"><span style="background:${stopColor}22;color:${stopColor};font-size:9px;padding:1px 5px;border-radius:6px">${lc.stop_reason}</span></div>
+    ${respPreview ? `<div style="font-size:11px;color:var(--text-dim);margin-top:3px;font-family:var(--mono)">${escHtml(respPreview)}</div>` : ''}`;
+
+  respEl.onclick = () => selectBlock(respEl, panel => {
+    addDetailSection(panel, `LLM Response — Turn ${turn.turn_number}`, `
+      <div style="font-size:12px">
+        Stop: <strong style="color:${stopColor}">${lc.stop_reason}</strong> ·
+        Tokens: ${lc.output_tokens.toLocaleString()} ·
+        Duration: ${(lc.duration_ms/1000).toFixed(1)}s
+      </div>`);
+    if (resp?.content) {
+      for (const b of resp.content) {
+        if ((b.type === 'text' || b.Text) && (b.text || b.Text?.text)) {
+          addDetailSection(panel, 'Response Text', `<pre>${escHtml(b.text || b.Text?.text || '')}</pre>`);
+        }
+        if (b.type === 'tool_use') {
+          addDetailSection(panel, `Tool Call: ${b.name}`, `<pre>${escHtml(formatJson(b.input))}</pre>`);
+        }
+      }
+    }
+    addDetailSection(panel, 'Full Response Object', `<pre>${escHtml(formatJson(resp))}</pre>`);
+    const respLogs = filterLogs(['HTTP response', 'after_llm_call', 'fallback', 'LLM stream produced']);
+    if (respLogs.length) addDetailSection(panel, 'Related Logs', renderLogEntries(respLogs));
+  });
+  turnEl.appendChild(respEl);
+
+  // Tool calls
   for (const tc of turn.tool_calls) {
-    html += `<div style="text-align:center;color:var(--text-dim);font-size:14px;line-height:1">↓</div>`;
+    turnEl.appendChild(makeArrow());
 
+    const toolEl = document.createElement('div');
+    toolEl.className = 'card event-block';
     const isErr = tc.is_error;
-    const borderColor = isErr ? 'var(--red)' : 'var(--orange)';
-    const statusBadge = isErr
-      ? '<span class="badge badge-err">ERROR</span>'
-      : '<span class="badge badge-ok">OK</span>';
+    toolEl.style.cssText = `padding:6px 10px;margin-bottom:4px;border-left-color:${isErr ? 'var(--red)' : 'var(--orange)'}`;
 
-    html += `
-      <div style="background:var(--bg);border-radius:6px;padding:8px 10px;border-left:2px solid ${borderColor}">
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">
-          <div>
-            <span class="badge badge-tool">TOOL</span>
-            <strong style="margin-left:4px">${escHtml(tc.tool_call.name)}</strong>
-            ${statusBadge}
-          </div>
-          <span style="color:var(--text-dim);font-family:var(--mono)">${tc.duration_ms}ms</span>
-        </div>
-        <details style="margin-top:6px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--blue)">Input</summary>
-          <pre>${escHtml(formatJson(tc.tool_call.arguments))}</pre>
-        </details>
-        <details style="margin-top:4px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--blue)">Output (${tc.result ? formatToolOutput(tc.result).length : 0} chars)</summary>
-          <pre style="max-height:300px;overflow-y:auto">${escHtml(truncate(tc.result ? formatToolOutput(tc.result) : '(no output)', 800))}</pre>
-          ${tc.result && formatToolOutput(tc.result).length > 800 ? '<div style="font-size:10px;color:var(--text-dim);margin-top:2px">Showing first 800 chars. Full output available via API.</div>' : ''}
-        </details>
+    const statusBadge = isErr ? '<span class="badge badge-err">ERR</span>' : '<span class="badge badge-ok">OK</span>';
+    toolEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;font-size:11px">
+        <div><span class="badge badge-tool">TOOL</span> <strong>${escHtml(tc.tool_call.name)}</strong> ${statusBadge}</div>
+        <span style="color:var(--text-dim);font-family:var(--mono)">${tc.duration_ms}ms</span>
       </div>`;
+
+    toolEl.onclick = () => selectBlock(toolEl, panel => {
+      addDetailSection(panel, `Tool: ${tc.tool_call.name}`, `
+        <div style="font-size:12px">
+          Status: ${isErr ? '<span style="color:var(--red)">ERROR</span>' : '<span style="color:var(--green)">OK</span>'} ·
+          Duration: ${tc.duration_ms}ms
+        </div>`);
+      addDetailSection(panel, 'Input Arguments', `<pre>${escHtml(formatJson(tc.tool_call.arguments))}</pre>`);
+      const output = tc.result ? formatToolOutput(tc.result) : '(no output)';
+      addDetailSection(panel, `Output (${output.length} chars)`, `<pre>${escHtml(output)}</pre>`);
+      const toolLogs = filterLogs(['tool execution', tc.tool_call.name, 'before_tool', 'after_tool']);
+      if (toolLogs.length) addDetailSection(panel, 'Related Logs', renderLogEntries(toolLogs));
+    });
+    turnEl.appendChild(toolEl);
   }
 
-  html += `</div>`; // close padding div
-  turnEl.innerHTML = html;
   container.appendChild(turnEl);
 }
 
 // ---------------------------------------------------------------------------
-// Render: summary
+// Summary block
 // ---------------------------------------------------------------------------
 
-function renderSummary(record, container) {
+function renderSummaryBlock(record, container) {
   const totalTokens = record.total_input_tokens + record.total_output_tokens;
   const totalTools = record.turns.reduce((sum, t) => sum + t.tool_calls.length, 0);
 
-  // Token breakdown per turn
-  let tokenBreakdown = '';
-  if (record.turns.length > 1) {
-    tokenBreakdown = `
-      <div style="margin-top:8px;font-size:11px">
-        <div style="color:var(--text-dim);margin-bottom:4px">Token usage per turn:</div>
-        ${record.turns.map(t => {
-          const pct = totalTokens > 0 ? ((t.llm_call.input_tokens + t.llm_call.output_tokens) / totalTokens * 100).toFixed(0) : 0;
-          return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-            <span style="width:50px;color:var(--text-dim)">Turn ${t.turn_number}</span>
-            <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-              <div style="height:100%;width:${pct}%;background:var(--blue);border-radius:3px"></div>
-            </div>
-            <span style="width:80px;text-align:right;font-family:var(--mono)">${(t.llm_call.input_tokens + t.llm_call.output_tokens).toLocaleString()}</span>
-          </div>`;
-        }).join('')}
-      </div>`;
-  }
-
   const el = document.createElement('div');
-  el.className = 'card end-ok';
+  el.className = 'card end-ok event-block';
+  el.style.padding = '8px 12px';
   el.innerHTML = `
-    <div class="card-header" style="font-size:14px">Summary</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;text-align:center">
-      <div style="background:var(--bg);padding:8px;border-radius:6px">
-        <div style="font-size:20px;font-weight:700;color:var(--text)">${record.turns.length}</div>
-        <div style="font-size:11px;color:var(--text-dim)">Turns</div>
-      </div>
-      <div style="background:var(--bg);padding:8px;border-radius:6px">
-        <div style="font-size:20px;font-weight:700;color:var(--text)">${totalTokens.toLocaleString()}</div>
-        <div style="font-size:11px;color:var(--text-dim)">Tokens</div>
-      </div>
-      <div style="background:var(--bg);padding:8px;border-radius:6px">
-        <div style="font-size:20px;font-weight:700;color:var(--text)">${(record.total_duration_ms / 1000).toFixed(1)}s</div>
-        <div style="font-size:11px;color:var(--text-dim)">Duration</div>
-      </div>
-    </div>
-    ${tokenBreakdown}
-  `;
+    <div style="display:flex;gap:16px;font-size:12px;justify-content:center">
+      <div style="text-align:center"><div style="font-size:18px;font-weight:700">${record.turns.length}</div><div style="font-size:10px;color:var(--text-dim)">Turns</div></div>
+      <div style="text-align:center"><div style="font-size:18px;font-weight:700">${totalTokens.toLocaleString()}</div><div style="font-size:10px;color:var(--text-dim)">Tokens</div></div>
+      <div style="text-align:center"><div style="font-size:18px;font-weight:700">${(record.total_duration_ms/1000).toFixed(1)}s</div><div style="font-size:10px;color:var(--text-dim)">Duration</div></div>
+      <div style="text-align:center"><div style="font-size:18px;font-weight:700">${totalTools}</div><div style="font-size:10px;color:var(--text-dim)">Tool Calls</div></div>
+    </div>`;
+
+  el.onclick = () => selectBlock(el, panel => {
+    addDetailSection(panel, 'Summary', `
+      <div style="font-size:12px">
+        Turns: ${record.turns.length}<br>
+        Total tokens: ${totalTokens.toLocaleString()} (${record.total_input_tokens.toLocaleString()} in + ${record.total_output_tokens.toLocaleString()} out)<br>
+        Duration: ${(record.total_duration_ms/1000).toFixed(1)}s<br>
+        Tool calls: ${totalTools}
+      </div>`);
+    // Token per turn breakdown
+    if (record.turns.length > 1) {
+      let breakdown = record.turns.map(t => {
+        const tok = t.llm_call.input_tokens + t.llm_call.output_tokens;
+        const pct = totalTokens > 0 ? (tok / totalTokens * 100).toFixed(0) : 0;
+        return `Turn ${t.turn_number}: ${tok.toLocaleString()} tokens (${pct}%) — ${(t.duration_ms/1000).toFixed(1)}s`;
+      }).join('<br>');
+      addDetailSection(panel, 'Per-Turn Breakdown', `<div style="font-size:12px;font-family:var(--mono)">${breakdown}</div>`);
+    }
+    // All logs
+    addDetailSection(panel, `All Logs (${allLogs.length})`, renderLogEntries(allLogs));
+  });
   container.appendChild(el);
 }
 
 // ---------------------------------------------------------------------------
-// Render: tracing logs
+// Helpers
 // ---------------------------------------------------------------------------
 
-function renderLogs(logs, container) {
-  if (!logs || !logs.length) return;
-
-    const logsCard = document.createElement('div');
-    logsCard.className = 'card';
-    logsCard.style.borderLeftColor = 'var(--purple)';
-
-    let html = `<details>
-      <summary style="cursor:pointer;font-size:13px;font-weight:600">
-        Tracing Logs <span style="color:var(--text-dim);font-weight:400">(${logs.length} events)</span>
-      </summary>
-      <div style="margin-top:8px;max-height:500px;overflow-y:auto">`;
-
-    const levelColors = {
-      'ERROR': 'var(--red)',
-      'WARN': 'var(--orange)',
-      'INFO': 'var(--blue)',
-      'DEBUG': 'var(--text-dim)',
-      'TRACE': 'var(--text-dim)',
-    };
-
-    for (const log of logs) {
-      const color = levelColors[log.level] || 'var(--text-dim)';
-      const shortTarget = log.target.split('::').slice(-1)[0];
-
-      // Format fields inline, highlight key ones
-      const fieldHtml = Object.entries(log.fields)
-        .filter(([k]) => k !== 'message')
-        .map(([k, v]) => {
-          const val = v.replace(/^"|"$/g, '');
-          // Expandable fields with large content (body previews, buffers)
-          if (k === 'body_preview' || k === 'remaining_buffer' || k === 'preview') {
-            // Try to pretty-print JSON
-            let formatted = val;
-            try {
-              const parsed = JSON.parse(val);
-              formatted = JSON.stringify(parsed, null, 2);
-            } catch {}
-            return `<details style="display:inline"><summary style="cursor:pointer;color:var(--blue);font-size:10px">${k} (${val.length} chars)</summary><pre style="margin:2px 0;max-height:200px;overflow-y:auto">${escHtml(truncate(formatted, 1000))}</pre></details>`;
-          }
-          return `<span style="color:var(--text-dim)">${k}</span>=<span>${escHtml(truncate(val, 80))}</span>`;
-        })
-        .join(' ');
-
-      html += `<div style="font-family:var(--mono);font-size:11px;padding:4px 6px;border-bottom:1px solid var(--border)">
-        <span style="color:${color};font-weight:600;display:inline-block;width:40px">${log.level}</span>
-        <span style="color:var(--text-dim)">${shortTarget}</span>
-        <span style="color:var(--text);margin-left:4px">${escHtml(log.message)}</span>
-        ${fieldHtml ? `<div style="margin-left:46px;margin-top:1px">${fieldHtml}</div>` : ''}
-      </div>`;
-    }
-
-    html += `</div></details>`;
-    logsCard.innerHTML = html;
-    container.appendChild(logsCard);
+function makeArrow() {
+  const arrow = document.createElement('div');
+  arrow.style.cssText = 'text-align:center;color:var(--text-dim);font-size:12px;line-height:1;margin:1px 0';
+  arrow.textContent = '↓';
+  return arrow;
 }
 
 // ---------------------------------------------------------------------------

@@ -336,6 +336,85 @@ body {
   margin-top: 4px;
 }
 
+/* ── Inspector three-column layout ──────────────────────────────── */
+
+.inspector-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.inspector-body {
+  display: grid;
+  grid-template-columns: 220px 1fr 380px;
+  flex: 1;
+  overflow: hidden;
+}
+.inspector-runs {
+  padding: 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+.inspector-runs label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.inspector-timeline {
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.inspector-detail {
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12px;
+}
+.inspector-detail pre {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--bg2);
+  border-radius: 4px;
+  padding: 8px;
+  margin: 4px 0;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.inspector-detail .detail-section {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.inspector-detail .detail-section h4 {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+/* Clickable event blocks in timeline */
+.event-block {
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.event-block:hover {
+  border-color: var(--blue) !important;
+}
+.event-block.selected {
+  border-color: var(--blue) !important;
+  box-shadow: 0 0 0 1px var(--blue);
+}
+
 /* ── Compare layout ─────────────────────────────────────────────── */
 
 .compare-app {
