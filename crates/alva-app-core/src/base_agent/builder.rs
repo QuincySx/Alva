@@ -62,8 +62,13 @@ pub struct BaseAgentBuilder {
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
 
-    /// If false, `build()` skips all builtin middleware. Default: true.
-    pub(crate) use_default_middleware: bool,
+    // Typed references for special middleware that BaseAgent needs direct access to
+    pub(crate) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
+    pub(crate) plan_mode_mw: Option<Arc<PlanModeMiddleware>>,
+
+    // Bus-dependent middleware (created in build() where bus is available)
+    pub(crate) enable_compaction: bool,
+    pub(crate) enable_checkpoint: bool,
 }
 
 impl BaseAgentBuilder {
@@ -84,7 +89,10 @@ impl BaseAgentBuilder {
             context_window: 0,
             approval_notifier: None,
             bus_plugins: Vec::new(),
-            use_default_middleware: true,
+            security_guard: None,
+            plan_mode_mw: None,
+            enable_compaction: false,
+            enable_checkpoint: false,
         }
     }
 
@@ -118,15 +126,7 @@ impl BaseAgentBuilder {
 
     // -- Middleware ------------------------------------------------------------
 
-    /// Skip all builtin middleware. Only middleware registered via
-    /// `.middleware()` / `.middlewares()` will be used.
-    pub fn bare(mut self) -> Self {
-        self.use_default_middleware = false;
-        self
-    }
-
-    /// Add a single middleware. Works with or without `.bare()`.
-    /// When using default middleware, extra middleware is appended after builtins.
+    /// Add a single middleware.
     pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
         self.extra_middleware.push(mw);
         self
@@ -135,6 +135,21 @@ impl BaseAgentBuilder {
     /// Add multiple middleware at once.
     pub fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
         self.extra_middleware.extend(mws);
+        self
+    }
+
+
+    /// Add CompactionMiddleware (auto-summarize when context is full). Requires bus context.
+    pub fn with_compaction(mut self) -> Self { self.enable_compaction = true; self }
+
+    /// Add CheckpointMiddleware (file backups before writes). Requires bus context.
+    pub fn with_checkpoint(mut self) -> Self { self.enable_checkpoint = true; self }
+
+    /// Add PlanModeMiddleware (starts disabled) and store its reference.
+    pub fn with_plan_mode(mut self) -> Self {
+        let pm = Arc::new(PlanModeMiddleware::new(false));
+        self.plan_mode_mw = Some(pm.clone());
+        self.extra_middleware.push(pm);
         self
     }
 
@@ -262,42 +277,31 @@ impl BaseAgentBuilder {
 
         // 6. Build MiddlewareStack
         let mut middleware_stack = MiddlewareStack::new();
-        let mut security_guard = None;
-        let mut plan_mw: Option<Arc<PlanModeMiddleware>> = None;
 
-        if self.use_default_middleware {
-            // Full production middleware stack
-            let sec = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
-                .with_bus(bus_handle.clone());
-            security_guard = Some(sec.guard());
-            middleware_stack.push_sorted(Arc::new(sec));
+        // Security is always active (bound to workspace + sandbox_mode)
+        let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
+            .with_bus(bus_handle.clone());
+        let security_guard = Some(security_mw.guard());
+        middleware_stack.push_sorted(Arc::new(security_mw));
 
-            middleware_stack.push_sorted(Arc::new(
-                alva_agent_core::builtins::DanglingToolCallMiddleware::new(),
-            ));
-            middleware_stack.push_sorted(Arc::new(
-                alva_agent_core::builtins::LoopDetectionMiddleware::new(),
-            ));
-            middleware_stack.push_sorted(Arc::new(
-                alva_agent_core::builtins::ToolTimeoutMiddleware::default(),
-            ));
+        // Caller-registered middleware
+        let plan_mw = self.plan_mode_mw;
+        for mw in self.extra_middleware {
+            middleware_stack.push_sorted(mw);
+        }
+
+        // Bus-dependent middleware that needs context from build()
+        // These are opt-in via with_compaction() / with_checkpoint()
+        if self.enable_compaction {
             middleware_stack.push_sorted(Arc::new(
                 alva_agent_runtime::middleware::CompactionMiddleware::default()
                     .with_bus(bus_handle.clone()),
             ));
-
-            let pm = Arc::new(PlanModeMiddleware::new(false));
-            middleware_stack.push_sorted(pm.clone());
-            plan_mw = Some(pm);
-
+        }
+        if self.enable_checkpoint {
             middleware_stack.push_sorted(Arc::new(
                 CheckpointMiddleware::new().with_bus(bus_handle.clone()),
             ));
-        }
-
-        // Extra middleware from caller (always added, with or without defaults)
-        for mw in self.extra_middleware {
-            middleware_stack.push_sorted(mw);
         }
 
         // 7. Optionally add the agent spawn tool
@@ -398,6 +402,8 @@ impl Default for BaseAgentBuilder {
 // ---------------------------------------------------------------------------
 
 /// Pre-built middleware sets for common use cases.
+///
+/// Security middleware is always added by `build()` and is NOT included in presets.
 pub mod middleware_presets {
     use super::*;
 
@@ -414,6 +420,17 @@ pub mod middleware_presets {
         let mut mws = guardrails();
         mws.push(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()));
         mws
+    }
+
+    /// Full production stack: guardrails + timeout.
+    /// Use with `.with_compaction()`, `.with_checkpoint()`, `.with_plan_mode()`
+    /// for the complete set.
+    pub fn production() -> Vec<Arc<dyn Middleware>> {
+        vec![
+            Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
+            Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()),
+            Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()),
+        ]
     }
 }
 
@@ -434,15 +451,8 @@ mod tests {
         assert!(builder.workspace.is_none());
         assert!(builder.enable_browser);
         assert!(!builder.enable_memory);
-        assert!(builder.use_default_middleware);
         assert_eq!(builder.max_iterations, 100);
         assert_eq!(builder.system_prompt, "You are a helpful AI assistant.");
-    }
-
-    #[test]
-    fn builder_bare_disables_defaults() {
-        let builder = BaseAgentBuilder::new().bare();
-        assert!(!builder.use_default_middleware);
     }
 
     #[test]
@@ -505,7 +515,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_bare_build_succeeds() {
+    async fn test_build_with_preset_succeeds() {
         let model = Arc::new(
             MockLanguageModel::new()
                 .with_response(make_assistant_message("unused")),
@@ -515,11 +525,10 @@ mod tests {
         let result = BaseAgent::builder()
             .workspace(tmp.path())
             .without_browser()
-            .bare()
             .middlewares(middleware_presets::guardrails())
             .build(model)
             .await;
 
-        assert!(result.is_ok(), "bare build should succeed");
+        assert!(result.is_ok(), "build with preset should succeed");
     }
 }

@@ -244,6 +244,10 @@ async fn create_run(
         .without_browser()
         .with_sub_agents()
         .max_iterations(max_iterations)
+        .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
+        .with_compaction()
+        .with_checkpoint()
+        .with_plan_mode()
         .middleware(rec.clone());
 
     // Add user-selected extra tools (BaseAgent registers all builtins by default)

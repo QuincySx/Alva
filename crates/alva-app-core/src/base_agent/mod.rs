@@ -5,7 +5,7 @@
 
 mod permission;
 mod agent;
-mod builder;
+pub mod builder;
 
 pub use permission::PermissionMode;
 pub use agent::BaseAgent;
