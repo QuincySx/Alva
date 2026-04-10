@@ -121,6 +121,8 @@ struct RecorderState {
     turns: Vec<TurnRecord>,
     current_turn: Option<TurnBuild>,
     run_start: Instant,
+    /// Notifies when the run ends (on_agent_end called).
+    done_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -139,15 +141,18 @@ pub struct RecorderMiddleware {
 impl RecorderMiddleware {
     /// Create a new recorder. The clock starts when the middleware is created,
     /// but `run_start` is reset in `on_agent_start` for accuracy.
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> (Self, tokio::sync::oneshot::Receiver<()>) {
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let this = Self {
             state: Arc::new(Mutex::new(RecorderState {
                 config_snapshot: None,
                 turns: Vec::new(),
                 current_turn: None,
                 run_start: Instant::now(),
+                done_tx: Some(done_tx),
             })),
-        }
+        };
+        (this, done_rx)
     }
 
     /// Pre-fill config fields that are only available to the caller (not via AgentState).
@@ -306,6 +311,10 @@ impl Middleware for RecorderMiddleware {
     ) -> Result<(), MiddlewareError> {
         let mut s = self.state.lock().unwrap();
         Self::finalize_current_turn(&mut s);
+        // Notify that the run is done
+        if let Some(tx) = s.done_tx.take() {
+            let _ = tx.send(());
+        }
         Ok(())
     }
 

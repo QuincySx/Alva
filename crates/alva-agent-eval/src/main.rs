@@ -29,16 +29,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use alva_agent_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
 use alva_agent_core::event::AgentEvent;
-use alva_agent_core::middleware::MiddlewareStack;
-use alva_agent_core::run::run_agent;
-use alva_agent_core::shared::Extensions;
-use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_llm_provider::{AnthropicProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig};
-use alva_types::session::{AgentSession, InMemorySession};
 use alva_types::{
-    AgentMessage, CancellationToken, LanguageModel, Message, ModelConfig, ToolRegistry,
+    LanguageModel, ToolRegistry,
 };
 
 // ---------------------------------------------------------------------------
@@ -73,8 +67,6 @@ async fn serve_static(path: Option<Path<String>>) -> impl IntoResponse {
 struct AppState {
     /// Pending event receivers keyed by run_id.
     runs: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedReceiver<AgentEvent>>>,
-    /// Session references for post-run message inspection.
-    sessions: Mutex<HashMap<String, Arc<dyn AgentSession>>>,
     /// Captured tracing logs per run (in-memory, flushed to DB on completion).
     log_store: log_capture::LogStore,
     /// Persistent storage for completed runs.
@@ -96,7 +88,9 @@ struct RunRequest {
     system_prompt: String,
     user_prompt: String,
     /// If omitted, all builtin tools are registered.
+    /// Note: BaseAgent always registers all builtins; this field is reserved for future filtering.
     #[serde(default)]
+    #[allow(dead_code)]
     tools: Option<Vec<String>>,
     #[serde(default)]
     max_iterations: Option<u32>,
@@ -223,30 +217,7 @@ async fn create_run(
         _ => Arc::new(OpenAIChatProvider::new(provider_config)),
     };
 
-    // -- 2. Build tool set --------------------------------------------------
-    let mut registry = ToolRegistry::new();
-    alva_agent_tools::register_builtin_tools(&mut registry);
-
-    let mut tools: Vec<Arc<dyn alva_types::Tool>> = match &req.tools {
-        None => registry.list_arc(),
-        Some(names) => registry
-            .list_arc()
-            .into_iter()
-            .filter(|t| names.contains(&t.name().to_string()))
-            .collect(),
-    };
-
-    // Replace placeholder AgentTool with real AgentSpawnTool if user selected "agent"
-    let has_agent_tool = tools.iter().any(|t| t.name() == "agent");
-    if has_agent_tool {
-        // Remove placeholder
-        tools.retain(|t| t.name() != "agent");
-        // Will be replaced with real spawn tool after model is set up (see below)
-    }
-
-    let tool_names: Vec<String> = tools.iter().map(|t| t.name().to_string()).collect();
-
-    // -- 3. Resolve workspace ------------------------------------------------
+    // -- 2. Resolve workspace ------------------------------------------------
     let (_tmp_guard, workspace_path) = if let Some(ref ws) = req.workspace {
         let p = std::path::PathBuf::from(ws);
         if !p.is_dir() {
@@ -259,89 +230,61 @@ async fn create_run(
         (Some(tmp), p)
     };
 
-    // -- 3b. Wire real sub-agent support if requested -------------------------
+    // -- 3. Build BaseAgent via builder (includes all middleware + sub-agents) --
     let max_iterations = req.max_iterations.unwrap_or(10);
-    if has_agent_tool {
-        let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
-            model.clone(),
-            tools.clone(),
-            std::time::Duration::from_secs(300),
-            max_iterations,
-            3, // max sub-agent depth
-        ));
-        let spawn_tool = alva_app_core::plugins::agent_spawn::create_agent_spawn_tool(root_scope);
-        tools.push(Arc::from(spawn_tool));
-    }
-
-    // -- 4. Assemble agent state + config -----------------------------------
-    let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
-    let session_ref = session.clone();
-
-    let agent_state = AgentState {
-        model,
-        tools,
-        session,
-        extensions: Extensions::new(),
-    };
-
-    let mut middleware = MiddlewareStack::new();
-    middleware.push_sorted(Arc::new(LoopDetectionMiddleware::new()));
-    middleware.push_sorted(Arc::new(DanglingToolCallMiddleware::new()));
-
-    let rec = Arc::new(recorder::RecorderMiddleware::new());
-    middleware.push_sorted(rec.clone());
-
     let system_prompt = req.system_prompt;
 
-    // Pre-fill config fields the middleware can't access via AgentState
+    let (rec, done_rx) = recorder::RecorderMiddleware::new();
+    let rec = Arc::new(rec);
     rec.set_config(system_prompt.clone(), max_iterations, vec![]);
 
-    let agent_config = AgentConfig {
-        middleware,
-        system_prompt,
-        max_iterations,
-        model_config: ModelConfig::default(),
-        context_window: 0,
-        workspace: Some(workspace_path),
-        bus: None,
-    };
+    let builder = alva_app_core::BaseAgent::builder()
+        .workspace(&workspace_path)
+        .system_prompt(&system_prompt)
+        .without_browser()
+        .with_sub_agents()
+        .max_iterations(max_iterations)
+        .middleware(rec.clone());
 
-    // -- 5. Spawn the agent run ---------------------------------------------
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let cancel = CancellationToken::new();
-    let messages = vec![AgentMessage::Standard(Message::user(&req.user_prompt))];
+    // Add user-selected extra tools (BaseAgent registers all builtins by default)
+    // Note: BaseAgent always has all builtin tools; user tool selection filters
+    // what's visible but BaseAgent doesn't support per-tool filtering.
+    // For now we pass all tools through; filtering can be added later.
 
+    let agent = builder
+        .build(model)
+        .await
+        .map_err(|e| format!("build agent: {e}"))?;
+
+    let tool_names = agent.tool_names();
+
+    // -- 4. Start the run via BaseAgent::prompt_text -------------------------
+    let log_store = state.log_store.clone();
+    log_store.start_capture(&run_id);
+
+    let rx = agent.prompt_text(&req.user_prompt);
+
+    // Spawn a watcher task: when the SSE stream ends (AgentEnd), extract record + persist
     let rec_clone = rec.clone();
     let state_clone = state.clone();
     let run_id_for_record = run_id.clone();
-    let log_store = state.log_store.clone();
-
-    // Start capturing tracing events for this run
-    log_store.start_capture(&run_id);
 
     tokio::spawn(async move {
-        let _tmp_guard = _tmp_guard; // keep TempDir alive if used
-        let mut st = agent_state;
-        if let Err(e) = run_agent(&mut st, &agent_config, cancel, messages, tx).await {
-            tracing::error!(error = %e, "agent run failed");
-        }
+        let _tmp_guard = _tmp_guard; // keep TempDir alive
+        let _agent = agent; // keep BaseAgent alive while running
 
-        // Stop capturing and extract record
+        // Wait for on_agent_end to fire
+        let _ = done_rx.await;
+
+        // Extract record and persist
         log_store.stop_capture();
         let record = rec_clone.take_record();
         let logs = log_store.get_logs(&run_id_for_record);
-
-        // Persist to SQLite
         state_clone.db.save(&run_id_for_record, &record, &logs);
     });
 
-    // -- 6. Store handles ---------------------------------------------------
+    // -- 5. Store handles ---------------------------------------------------
     state.runs.lock().await.insert(run_id.clone(), rx);
-    state
-        .sessions
-        .lock()
-        .await
-        .insert(run_id.clone(), session_ref);
 
     Ok((run_id, tool_names))
 }
@@ -379,17 +322,7 @@ async fn events(
     }
 }
 
-/// Retrieve session messages after a run completes.
-async fn get_messages(
-    State(state): State<Arc<AppState>>,
-    Path(run_id): Path<String>,
-) -> impl IntoResponse {
-    let sessions = state.sessions.lock().await;
-    match sessions.get(&run_id) {
-        Some(session) => Json(session.messages()).into_response(),
-        None => (StatusCode::NOT_FOUND, "run not found").into_response(),
-    }
-}
+// get_messages removed — use /api/records/:run_id instead (messages are in the record)
 
 /// Retrieve the full run record for a completed run.
 async fn get_record(
@@ -638,7 +571,6 @@ async fn main() {
 
     let state = Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
-        sessions: Mutex::new(HashMap::new()),
         log_store: log_store.clone(),
         db,
     });
@@ -648,7 +580,7 @@ async fn main() {
         .route("/api/tools", get(list_tools))
         .route("/api/run", post(start_run))
         .route("/api/events/:run_id", get(events))
-        .route("/api/messages/:run_id", get(get_messages))
+        // /api/messages removed — messages are in /api/records/:run_id
         .route("/api/runs", get(list_runs))
         .route("/api/runs/:run_id", axum::routing::delete(delete_run))
         .route("/api/records/:run_id", get(get_record))
