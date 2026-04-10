@@ -275,8 +275,11 @@ impl BaseAgentBuilder {
             workspace: Some(workspace.clone()),
         });
 
-        // 7. Optionally add the agent spawn tool
+        // 7. Optionally add the agent spawn tool (replaces the placeholder from builtins)
         if self.enable_sub_agents {
+            // Remove the placeholder AgentTool registered by register_builtin_tools()
+            alva_tools_list.retain(|t| t.name() != "agent");
+
             let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
                 model.clone(),
                 alva_tools_list.clone(),
