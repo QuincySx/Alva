@@ -253,9 +253,7 @@ impl MiddlewareStack {
             let start = std::time::Instant::now();
             layer.before_llm_call(state, messages).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            if elapsed > 1 {
-                tracing::debug!(middleware = layer.name(), hook = "before_llm_call", duration_ms = elapsed, "middleware hook");
-            }
+            tracing::info!(middleware = layer.name(), hook = "before_llm_call", duration_ms = elapsed, "middleware hook");
         }
         Ok(())
     }
@@ -270,9 +268,7 @@ impl MiddlewareStack {
             let start = std::time::Instant::now();
             layer.before_tool_call(state, tool_call).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            if elapsed > 1 {
-                tracing::debug!(middleware = layer.name(), hook = "before_tool_call", duration_ms = elapsed, "middleware hook");
-            }
+            tracing::info!(middleware = layer.name(), hook = "before_tool_call", duration_ms = elapsed, "middleware hook");
         }
         Ok(())
     }
@@ -289,9 +285,7 @@ impl MiddlewareStack {
             let start = std::time::Instant::now();
             layer.after_llm_call(state, response).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            if elapsed > 1 {
-                tracing::debug!(middleware = layer.name(), hook = "after_llm_call", duration_ms = elapsed, "middleware hook");
-            }
+            tracing::info!(middleware = layer.name(), hook = "after_llm_call", duration_ms = elapsed, "middleware hook");
         }
         Ok(())
     }
@@ -307,9 +301,7 @@ impl MiddlewareStack {
             let start = std::time::Instant::now();
             layer.after_tool_call(state, tool_call, result).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            if elapsed > 1 {
-                tracing::debug!(middleware = layer.name(), hook = "after_tool_call", duration_ms = elapsed, "middleware hook");
-            }
+            tracing::info!(middleware = layer.name(), hook = "after_tool_call", duration_ms = elapsed, "middleware hook");
         }
         Ok(())
     }

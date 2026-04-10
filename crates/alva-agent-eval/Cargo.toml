@@ -15,6 +15,7 @@ alva-agent-core = { path = "../alva-agent-core" }
 alva-agent-tools = { path = "../alva-agent-tools", default-features = false, features = ["native"] }
 alva-agent-scope = { path = "../alva-agent-scope" }
 alva-agent-runtime = { path = "../alva-agent-runtime" }
+alva-agent-security = { path = "../alva-agent-security" }
 alva-app-core = { path = "../alva-app-core" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 alva-protocol-skill = { path = "../alva-protocol-skill" }

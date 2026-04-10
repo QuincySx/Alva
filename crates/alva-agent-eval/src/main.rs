@@ -315,10 +315,8 @@ async fn create_run(
         builder = builder.tools(alva_agent_tools::tool_presets::browser_tools());
     }
 
-    // Add user-selected extra tools (BaseAgent registers all builtins by default)
-    // Note: BaseAgent always has all builtin tools; user tool selection filters
-    // what's visible but BaseAgent doesn't support per-tool filtering.
-    // For now we pass all tools through; filtering can be added later.
+    // -- Approval handler: auto-approve with logging ---------------------------
+    let mut approval_rx = builder.with_approval_channel();
 
     let agent = builder
         .build(model)
@@ -333,22 +331,40 @@ async fn create_run(
 
     let rx = agent.prompt_text(&req.user_prompt);
 
-    // Spawn a watcher task: when the SSE stream ends (AgentEnd), extract record + persist
+    // -- Spawn: auto-approve permissions + persist record ----------------------
     let rec_clone = rec.clone();
     let state_clone = state.clone();
     let run_id_for_record = run_id.clone();
+    let log_store_for_persist = log_store.clone();
 
+    // Auto-approval task — runs alongside the agent
+    tokio::spawn(async move {
+        while let Some(req) = approval_rx.recv().await {
+            tracing::info!(
+                tool = %req.tool_name,
+                request_id = %req.request_id,
+                args = %req.arguments.to_string().chars().take(100).collect::<String>(),
+                "auto-approving tool permission (eval mode)"
+            );
+            agent.resolve_permission(
+                &req.request_id,
+                &req.tool_name,
+                alva_agent_security::PermissionDecision::AllowOnce,
+            ).await;
+        }
+    });
+
+    // Record persistence task — waits for on_agent_end
     tokio::spawn(async move {
         let _tmp_guard = _tmp_guard; // keep TempDir alive
-        let _agent = agent; // keep BaseAgent alive while running
 
         // Wait for on_agent_end to fire
         let _ = done_rx.await;
 
         // Extract record and persist
-        log_store.stop_capture();
+        log_store_for_persist.stop_capture();
         let record = rec_clone.take_record();
-        let logs = log_store.get_logs(&run_id_for_record);
+        let logs = log_store_for_persist.get_logs(&run_id_for_record);
         state_clone.db.save(&run_id_for_record, &record, &logs);
     });
 
