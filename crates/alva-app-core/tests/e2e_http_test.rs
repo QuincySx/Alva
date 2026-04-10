@@ -1,7 +1,7 @@
 //! HTTP-level E2E test: mock OpenAI server -> Provider -> Agent -> Events.
 //!
 //! Starts a local TCP server speaking the OpenAI SSE streaming protocol,
-//! sends a real HTTP request through OpenAIProvider -> BaseAgent -> streaming
+//! sends a real HTTP request through OpenAIChatProvider -> BaseAgent -> streaming
 //! events. Tests the full network -> provider -> agent -> event chain.
 
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 
 use alva_app_core::base_agent::BaseAgent;
 use alva_app_core::AgentEvent;
-use alva_provider::{ProviderConfig, OpenAIProvider};
+use alva_llm_provider::{ProviderConfig, OpenAIChatProvider};
 use alva_types::{LanguageModel, StreamEvent};
 
 // ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ async fn e2e_http_streaming_full_pipeline() {
         base_url: server_url,
         max_tokens: 1000,
     };
-    let model: Arc<dyn LanguageModel> = Arc::new(OpenAIProvider::new(config));
+    let model: Arc<dyn LanguageModel> = Arc::new(OpenAIChatProvider::new(config));
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let agent = BaseAgent::builder()
@@ -268,7 +268,7 @@ async fn e2e_http_tool_call_pipeline() {
         base_url: server_url,
         max_tokens: 1000,
     };
-    let model: Arc<dyn LanguageModel> = Arc::new(OpenAIProvider::new(config));
+    let model: Arc<dyn LanguageModel> = Arc::new(OpenAIChatProvider::new(config));
 
     let mock_tool =
         alva_test::mock_tool::MockTool::new("my_http_tool")

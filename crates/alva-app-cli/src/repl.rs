@@ -1,4 +1,4 @@
-// INPUT:  alva_app_core, alva_provider, alva_agent_runtime, checkpoint, session_store, output, event_handler, commands
+// INPUT:  alva_app_core, alva_llm_provider, alva_agent_runtime, checkpoint, session_store, output, event_handler, commands
 // OUTPUT: run_repl, restore_messages
 // POS:    Interactive REPL loop — session management, slash commands, and user input dispatch
 
@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use alva_app_core::{AgentMessage, AlvaPaths, BaseAgent, PermissionMode};
 use alva_agent_runtime::middleware::security::ApprovalRequest;
-use alva_provider::{OpenAIProvider, ProviderConfig};
+use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
@@ -195,7 +195,7 @@ pub(crate) async fn run_repl(
                     if !model_id.is_empty() {
                         let mut new_config = config.clone();
                         new_config.model = model_id.to_string();
-                        let new_model = Arc::new(OpenAIProvider::new(new_config));
+                        let new_model = Arc::new(OpenAIChatProvider::new(new_config));
                         agent.set_model(new_model).await;
                         eprintln!("  Switched to model: {}", model_id);
                     }

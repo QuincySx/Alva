@@ -13,7 +13,7 @@ alva-app-core = { path = "../alva-app-core" }
 alva-agent-core = { path = "../alva-agent-core" }
 alva-agent-runtime = { path = "../alva-agent-runtime" }
 alva-types = { path = "../alva-types" }
-alva-provider = { path = "../alva-provider" }
+alva-llm-provider = { path = "../alva-llm-provider" }
 tokio = { version = "1", features = ["full"] }
 crossterm = "0.28"
 ratatui = "0.29"

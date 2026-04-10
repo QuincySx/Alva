@@ -23,7 +23,6 @@ use alva_types::base::error::AgentError;
 use alva_types::base::message::{Message, MessageRole, UsageMetadata};
 use alva_types::base::stream::StreamEvent;
 use alva_types::model::{LanguageModel, ModelConfig};
-use alva_types::provider::credential::{CredentialSource, StaticCredential};
 use alva_types::tool::Tool;
 use alva_types::ContentBlock;
 
@@ -37,45 +36,28 @@ const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
 /// Anthropic Messages API provider.
 pub struct AnthropicProvider {
-    credential: Arc<dyn CredentialSource>,
     model: String,
     base_url: String,
     max_tokens: u32,
+    /// Pre-resolved auth headers (from api_key or custom_headers at construction time).
+    auth_headers: std::collections::HashMap<String, String>,
     client: Client,
     /// Shared rate limit state for tracking API usage.
     pub rate_limit: Arc<RateLimitState>,
 }
 
 impl AnthropicProvider {
-    /// Create from config, using the Anthropic API base URL.
+    /// Create from config. Auth is resolved once here — api_key or custom_headers
+    /// are converted to unified headers via `XApiKey` scheme.
     pub fn new(config: ProviderConfig) -> Self {
-        let base_url = if config.base_url == "https://api.openai.com/v1" {
-            DEFAULT_ANTHROPIC_BASE_URL.to_string()
-        } else {
-            config.base_url.clone()
-        };
+        let auth_headers = crate::auth::resolve_auth_headers(
+            &config.api_key, &config.custom_headers, crate::auth::AuthScheme::XApiKey,
+        );
         Self {
-            credential: Arc::new(StaticCredential::new(&config.api_key)),
             model: config.model,
-            base_url,
+            base_url: config.base_url,
             max_tokens: config.max_tokens,
-            client: Client::new(),
-            rate_limit: Arc::new(RateLimitState::new()),
-        }
-    }
-
-    /// Create with a custom credential source (for OAuth, vault, etc.).
-    pub fn with_credential(credential: Arc<dyn CredentialSource>, config: ProviderConfig) -> Self {
-        let base_url = if config.base_url == "https://api.openai.com/v1" {
-            DEFAULT_ANTHROPIC_BASE_URL.to_string()
-        } else {
-            config.base_url.clone()
-        };
-        Self {
-            credential,
-            model: config.model,
-            base_url,
-            max_tokens: config.max_tokens,
+            auth_headers,
             client: Client::new(),
             rate_limit: Arc::new(RateLimitState::new()),
         }
@@ -104,12 +86,6 @@ impl LanguageModel for AnthropicProvider {
             "{}/v1/messages",
             self.base_url.trim_end_matches('/')
         );
-
-        let api_key = self
-            .credential
-            .get_api_key()
-            .await
-            .map_err(|e| AgentError::LlmError(format!("credential error: {}", e)))?;
 
         // Record request for rate limiting
         let _rate_check = self.rate_limit.record_request();
@@ -148,12 +124,11 @@ impl LanguageModel for AnthropicProvider {
             "calling Anthropic Messages API"
         );
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("x-api-key", &api_key)
+        let req = self.client.post(&url)
             .header("anthropic-version", ANTHROPIC_API_VERSION)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        let req = crate::auth::apply_headers(req, &self.auth_headers);
+        let resp = req
             .json(&body)
             .send()
             .await
@@ -207,11 +182,11 @@ impl LanguageModel for AnthropicProvider {
             "{}/v1/messages",
             self.base_url.trim_end_matches('/')
         );
-        let credential = self.credential.clone();
         let client = self.client.clone();
         let model = self.model.clone();
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
         let rate_limit = self.rate_limit.clone();
+        let auth_headers = self.auth_headers.clone();
 
         let (system_prompt, api_messages) = to_anthropic_messages(messages);
         let api_tools = to_anthropic_tools(tools);
@@ -245,19 +220,11 @@ impl LanguageModel for AnthropicProvider {
             // Record request for rate limiting
             let _rate_check = rate_limit.record_request();
 
-            let api_key = match credential.get_api_key().await {
-                Ok(k) => k,
-                Err(e) => {
-                    yield StreamEvent::Error(format!("credential error: {}", e));
-                    return;
-                }
-            };
-
-            let resp = match client
-                .post(&url)
-                .header("x-api-key", &api_key)
+            let req = client.post(&url)
                 .header("anthropic-version", ANTHROPIC_API_VERSION)
-                .header("Content-Type", "application/json")
+                .header("Content-Type", "application/json");
+            let req = crate::auth::apply_headers(req, &auth_headers);
+            let resp = match req
                 .json(&body)
                 .send()
                 .await
@@ -301,7 +268,15 @@ impl LanguageModel for AnthropicProvider {
                     }
 
                     if let Some(data) = line.strip_prefix("data: ") {
-                        if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
+                        let parsed = serde_json::from_str::<AnthropicStreamEvent>(data);
+                        if let Err(ref e) = parsed {
+                            tracing::warn!(
+                                error = %e,
+                                data = &data[..data.len().min(200)],
+                                "failed to parse Anthropic SSE chunk, skipping"
+                            );
+                        }
+                        if let Ok(event) = parsed {
                             match event.event_type.as_str() {
                                 "content_block_delta" => {
                                     if let Some(delta) = event.delta {

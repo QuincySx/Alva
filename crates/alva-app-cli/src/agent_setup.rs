@@ -1,4 +1,4 @@
-// INPUT:  alva_app_core, alva_agent_runtime, alva_provider, checkpoint
+// INPUT:  alva_app_core, alva_agent_runtime, alva_llm_provider, checkpoint
 // OUTPUT: CliCheckpointCallback, load_project_context, build_agent
 // POS:    Agent construction — config loading, provider wiring, checkpoint callback, and project context discovery
 
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder};
 use alva_agent_runtime::middleware::checkpoint::CheckpointCallback;
 use alva_agent_runtime::middleware::security::ApprovalRequest;
-use alva_provider::{OpenAIProvider, ProviderConfig};
+use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
@@ -70,7 +70,7 @@ pub(crate) async fn build_agent(
         project_context
     );
 
-    let model = Arc::new(OpenAIProvider::new(config.clone()));
+    let model = Arc::new(OpenAIChatProvider::new(config.clone()));
     let mut builder = BaseAgentBuilder::new()
         .workspace(workspace)
         .system_prompt(&system_prompt)

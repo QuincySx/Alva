@@ -4,7 +4,6 @@
 //! tool definitions. Works with OpenAI, DeepSeek, Ollama, vLLM, etc.
 
 use std::pin::Pin;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -16,40 +15,33 @@ use alva_types::base::error::AgentError;
 use alva_types::base::message::{Message, MessageRole, UsageMetadata};
 use alva_types::model::{LanguageModel, ModelConfig};
 use alva_types::base::stream::StreamEvent;
-use alva_types::provider::credential::{CredentialSource, StaticCredential};
 use alva_types::tool::Tool;
 use alva_types::ContentBlock;
 
 use crate::config::ProviderConfig;
 
 /// OpenAI-compatible LLM provider.
-pub struct OpenAIProvider {
-    credential: Arc<dyn CredentialSource>,
+pub struct OpenAIChatProvider {
     model: String,
     base_url: String,
     max_tokens: u32,
+    /// Pre-resolved auth headers (from api_key or custom_headers at construction time).
+    auth_headers: std::collections::HashMap<String, String>,
     client: Client,
 }
 
-impl OpenAIProvider {
-    /// Create from config (backward compatible — wraps api_key in StaticCredential).
+impl OpenAIChatProvider {
+    /// Create from config. Auth is resolved once here — api_key or custom_headers
+    /// are converted to unified headers via `Bearer` scheme.
     pub fn new(config: ProviderConfig) -> Self {
+        let auth_headers = crate::auth::resolve_auth_headers(
+            &config.api_key, &config.custom_headers, crate::auth::AuthScheme::Bearer,
+        );
         Self {
-            credential: Arc::new(StaticCredential::new(&config.api_key)),
             model: config.model,
             base_url: config.base_url,
             max_tokens: config.max_tokens,
-            client: Client::new(),
-        }
-    }
-
-    /// Create with a custom credential source (for OAuth, vault, etc.).
-    pub fn with_credential(credential: Arc<dyn CredentialSource>, config: ProviderConfig) -> Self {
-        Self {
-            credential,
-            model: config.model,
-            base_url: config.base_url,
-            max_tokens: config.max_tokens,
+            auth_headers,
             client: Client::new(),
         }
     }
@@ -60,7 +52,7 @@ impl OpenAIProvider {
 // ---------------------------------------------------------------------------
 
 #[async_trait]
-impl LanguageModel for OpenAIProvider {
+impl LanguageModel for OpenAIChatProvider {
     async fn complete(
         &self,
         messages: &[Message],
@@ -68,10 +60,6 @@ impl LanguageModel for OpenAIProvider {
         config: &ModelConfig,
     ) -> Result<Message, AgentError> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-
-        let api_key = self.credential.get_api_key().await
-            .map_err(|e| AgentError::LlmError(format!("credential error: {}", e)))?;
-
         let oai_messages = to_oai_messages(messages);
         let oai_tools = to_oai_tools(tools);
 
@@ -105,11 +93,9 @@ impl LanguageModel for OpenAIProvider {
             "calling chat completions"
         );
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
+        let req = self.client.post(&url).header("Content-Type", "application/json");
+        let req = crate::auth::apply_headers(req, &self.auth_headers);
+        let resp = req
             .json(&body)
             .send()
             .await
@@ -141,10 +127,10 @@ impl LanguageModel for OpenAIProvider {
         config: &ModelConfig,
     ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let credential = self.credential.clone();
         let client = self.client.clone();
         let model = self.model.clone();
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
+        let auth_headers = self.auth_headers.clone();
 
         let oai_messages = to_oai_messages(messages);
         let oai_tools = to_oai_tools(tools);
@@ -173,18 +159,9 @@ impl LanguageModel for OpenAIProvider {
         Box::pin(async_stream::stream! {
             yield StreamEvent::Start;
 
-            let api_key = match credential.get_api_key().await {
-                Ok(k) => k,
-                Err(e) => {
-                    yield StreamEvent::Error(format!("credential error: {}", e));
-                    return;
-                }
-            };
-
-            let resp = match client
-                .post(&url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Content-Type", "application/json")
+            let req = client.post(&url).header("Content-Type", "application/json");
+            let req = crate::auth::apply_headers(req, &auth_headers);
+            let resp = match req
                 .json(&body)
                 .send()
                 .await
@@ -206,6 +183,15 @@ impl LanguageModel for OpenAIProvider {
             // Read SSE lines from the byte stream
             let mut byte_stream = resp.bytes_stream();
             let mut buffer = String::new();
+            let mut raw_bytes_total: usize = 0;
+            let mut first_chunk_logged = false;
+            // Diagnostics: track what we received for end-of-stream summary
+            let mut sse_data_count: u32 = 0;
+            let mut sse_parsed_count: u32 = 0;
+            let mut sse_empty_choices: u32 = 0;
+            let mut sse_content_deltas: u32 = 0;
+            let mut sse_tool_deltas: u32 = 0;
+            let mut first_raw_data: Option<String> = None; // capture first SSE data line for diagnostics
 
             while let Some(chunk) = futures::StreamExt::next(&mut byte_stream).await {
                 let chunk = match chunk {
@@ -216,7 +202,17 @@ impl LanguageModel for OpenAIProvider {
                     }
                 };
 
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
+                let chunk_str = String::from_utf8_lossy(&chunk);
+                raw_bytes_total += chunk.len();
+                if !first_chunk_logged {
+                    first_chunk_logged = true;
+                    tracing::debug!(
+                        bytes = chunk.len(),
+                        preview = &chunk_str[..chunk_str.len().min(300)],
+                        "first SSE chunk received"
+                    );
+                }
+                buffer.push_str(&chunk_str);
 
                 // Process complete lines
                 while let Some(newline_pos) = buffer.find('\n') {
@@ -229,41 +225,89 @@ impl LanguageModel for OpenAIProvider {
 
                     if let Some(data) = line.strip_prefix("data: ") {
                         if data == "[DONE]" {
+                            // End-of-stream diagnostics
+                            if sse_content_deltas == 0 && sse_tool_deltas == 0 {
+                                tracing::warn!(
+                                    sse_data_lines = sse_data_count,
+                                    sse_parsed = sse_parsed_count,
+                                    sse_empty_choices = sse_empty_choices,
+                                    first_data = first_raw_data.as_deref().unwrap_or("(none)"),
+                                    "SSE stream produced no content — 0 text deltas, 0 tool deltas"
+                                );
+                            }
                             yield StreamEvent::Done;
                             return;
                         }
 
-                        if let Ok(chunk) = serde_json::from_str::<OaiStreamChunk>(data) {
-                            for choice in &chunk.choices {
-                                if let Some(ref content) = choice.delta.content {
-                                    if !content.is_empty() {
-                                        yield StreamEvent::TextDelta { text: content.clone() };
+                        sse_data_count += 1;
+                        if first_raw_data.is_none() {
+                            first_raw_data = Some(data[..data.len().min(300)].to_string());
+                        }
+
+                        match serde_json::from_str::<OaiStreamChunk>(data) {
+                            Ok(chunk) => {
+                                sse_parsed_count += 1;
+                                if chunk.choices.is_empty() {
+                                    sse_empty_choices += 1;
+                                }
+                                for choice in &chunk.choices {
+                                    if let Some(ref content) = choice.delta.content {
+                                        if !content.is_empty() {
+                                            sse_content_deltas += 1;
+                                            yield StreamEvent::TextDelta { text: content.clone() };
+                                        }
+                                    }
+                                    if let Some(ref tool_calls) = choice.delta.tool_calls {
+                                        for tc in tool_calls {
+                                            sse_tool_deltas += 1;
+                                            yield StreamEvent::ToolCallDelta {
+                                                id: tc.id.clone().unwrap_or_default(),
+                                                name: tc.function.as_ref().and_then(|f| f.name.clone()),
+                                                arguments_delta: tc.function.as_ref()
+                                                    .map(|f| f.arguments.clone().unwrap_or_default())
+                                                    .unwrap_or_default(),
+                                            };
+                                        }
                                     }
                                 }
-                                if let Some(ref tool_calls) = choice.delta.tool_calls {
-                                    for tc in tool_calls {
-                                        yield StreamEvent::ToolCallDelta {
-                                            id: tc.id.clone().unwrap_or_default(),
-                                            name: tc.function.as_ref().and_then(|f| f.name.clone()),
-                                            arguments_delta: tc.function.as_ref()
-                                                .map(|f| f.arguments.clone().unwrap_or_default())
-                                                .unwrap_or_default(),
-                                        };
-                                    }
+                                if let Some(ref usage) = chunk.usage {
+                                    yield StreamEvent::Usage(UsageMetadata {
+                                        input_tokens: usage.prompt_tokens,
+                                        output_tokens: usage.completion_tokens,
+                                        total_tokens: usage.total_tokens,
+                                    });
                                 }
                             }
-                            if let Some(ref usage) = chunk.usage {
-                                yield StreamEvent::Usage(UsageMetadata {
-                                    input_tokens: usage.prompt_tokens,
-                                    output_tokens: usage.completion_tokens,
-                                    total_tokens: usage.total_tokens,
-                                });
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = %e,
+                                    data = &data[..data.len().min(200)],
+                                    "failed to parse SSE chunk, skipping"
+                                );
                             }
                         }
                     }
                 }
             }
 
+            // Stream ended without [DONE] — diagnostics only (fallback is in agent-core)
+            if raw_bytes_total == 0 {
+                tracing::warn!("SSE stream closed with empty body — proxy returned HTTP 200 but no data");
+            } else if sse_data_count == 0 {
+                tracing::warn!(
+                    raw_bytes = raw_bytes_total,
+                    remaining_buffer = &buffer[..buffer.len().min(500)],
+                    "received {} bytes but found no 'data:' lines", raw_bytes_total,
+                );
+            } else if sse_content_deltas == 0 && sse_tool_deltas == 0 {
+                tracing::warn!(
+                    sse_data_lines = sse_data_count,
+                    sse_parsed = sse_parsed_count,
+                    sse_empty_choices = sse_empty_choices,
+                    first_data = first_raw_data.as_deref().unwrap_or("(none)"),
+                    "SSE parsed OK but produced no text or tool content"
+                );
+            }
             yield StreamEvent::Done;
         })
     }

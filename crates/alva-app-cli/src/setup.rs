@@ -7,7 +7,7 @@ use crossterm::style::Stylize;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
-use alva_provider::ProviderConfig;
+use alva_llm_provider::ProviderConfig;
 
 /// Known provider presets.
 struct ProviderPreset {
@@ -192,6 +192,7 @@ pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
         model,
         base_url,
         max_tokens: 8192,
+        custom_headers: std::collections::HashMap::new(),
     };
 
     // Save to global config (~/.config/alva/config.json)

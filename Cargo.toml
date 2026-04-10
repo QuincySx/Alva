@@ -23,7 +23,8 @@ members = [
     "crates/alva-test",
     "crates/alva-app-devtools-mcp",
     "crates/alva-environment",
-    "crates/alva-provider",
+    "crates/alva-llm-provider",
+    "crates/alva-agent-eval",
 ]
 resolver = "2"
 

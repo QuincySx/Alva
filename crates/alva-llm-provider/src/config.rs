@@ -13,13 +13,21 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Configuration for the OpenAI-compatible provider.
+/// Configuration for LLM providers.
+///
+/// Authentication is mutually exclusive:
+/// - If `custom_headers` is non-empty, those headers are sent as-is (api_key is ignored).
+/// - If `custom_headers` is empty, `api_key` is used to construct the standard auth header
+///   (`Authorization: Bearer` for OpenAI, `x-api-key` for Anthropic).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub api_key: String,
     pub model: String,
     pub base_url: String,
     pub max_tokens: u32,
+    /// Custom headers to send with every request. When non-empty, `api_key` is ignored.
+    #[serde(default)]
+    pub custom_headers: std::collections::HashMap<String, String>,
 }
 
 /// Partial config — all fields optional, for layered merging.
@@ -63,9 +71,7 @@ impl PartialConfig {
     }
 
     fn into_config(self) -> Result<ProviderConfig, String> {
-        let api_key = self
-            .api_key
-            .ok_or("api_key is not configured. Run the setup wizard or set ALVA_API_KEY.")?;
+        let api_key = self.api_key.unwrap_or_default();
         Ok(ProviderConfig {
             api_key,
             model: self.model.unwrap_or_else(|| "gpt-4o".to_string()),
@@ -73,8 +79,48 @@ impl PartialConfig {
                 .base_url
                 .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
             max_tokens: self.max_tokens.unwrap_or(8192),
+            custom_headers: std::collections::HashMap::new(),
         })
     }
+}
+
+/// Known API path suffixes that should be stripped from base_url.
+/// Order matters — longer suffixes first to avoid partial matches.
+const KNOWN_SUFFIXES: &[&str] = &[
+    "/v1/chat/completions",
+    "/chat/completions",
+    "/v1/responses",
+    "/responses",
+    "/v1/messages",
+    "/messages",
+    "/v1",
+];
+
+/// Strip known API endpoint suffixes from a base URL.
+///
+/// Users often paste full endpoint URLs like `https://api.openai.com/v1/chat/completions`
+/// when they should only provide the base `https://api.openai.com/v1`.
+/// This normalizes to just the base so providers can append their own paths.
+///
+/// ```text
+/// "https://api.openai.com/v1/chat/completions"  → "https://api.openai.com/v1"
+/// "https://api.openai.com/v1"                   → "https://api.openai.com"
+/// "https://api.anthropic.com/v1/messages"        → "https://api.anthropic.com"
+/// "https://my-proxy.com/api"                     → "https://my-proxy.com/api" (unchanged)
+/// ```
+pub fn normalize_base_url(url: &str) -> String {
+    let mut url = url.trim_end_matches('/').to_string();
+    for suffix in KNOWN_SUFFIXES {
+        if url.ends_with(suffix) {
+            url.truncate(url.len() - suffix.len());
+            break;
+        }
+    }
+    // Don't return empty string
+    if url.is_empty() {
+        return "https://api.openai.com".to_string();
+    }
+    url
 }
 
 impl ProviderConfig {
@@ -202,9 +248,10 @@ mod tests {
     }
 
     #[test]
-    fn into_config_fails_without_api_key() {
+    fn into_config_succeeds_without_api_key() {
         let partial = PartialConfig::default();
-        assert!(partial.into_config().is_err());
+        let config = partial.into_config().unwrap();
+        assert_eq!(config.api_key, "");
     }
 
     #[test]
@@ -234,6 +281,7 @@ mod tests {
             model: "test-model".into(),
             base_url: "https://test.api/v1".into(),
             max_tokens: 4096,
+            custom_headers: std::collections::HashMap::new(),
         };
         let path = config.save_project(tmp.path()).unwrap();
         assert!(path.exists());

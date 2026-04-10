@@ -43,7 +43,7 @@ use ratatui::Terminal;
 
 use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, PermissionDecision};
 use alva_agent_runtime::middleware::security::ApprovalRequest;
-use alva_provider::{OpenAIProvider, ProviderConfig};
+use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
@@ -1146,7 +1146,7 @@ async fn handle_slash_command(
             } else {
                 let mut new_config = config.clone();
                 new_config.model = model_id.to_string();
-                let new_model = Arc::new(OpenAIProvider::new(new_config));
+                let new_model = Arc::new(OpenAIChatProvider::new(new_config));
                 agent.set_model(new_model).await;
                 app.model_name = model_id.to_string();
                 app.push_system_message(&format!("Switched to model: {}", model_id));

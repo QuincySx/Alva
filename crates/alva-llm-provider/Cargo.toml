@@ -1,5 +1,5 @@
 [package]
-name = "alva-provider"
+name = "alva-llm-provider"
 version = "0.1.0"
 edition = "2021"
 description = "OpenAI-compatible LLM provider for alva agent framework"

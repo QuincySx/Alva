@@ -31,7 +31,7 @@ pub mod ui;
 use std::io::{self, Read as _};
 
 use alva_app_core::AlvaPaths;
-use alva_provider::ProviderConfig;
+use alva_llm_provider::ProviderConfig;
 
 use session_store::SessionStore;
 
