@@ -2,13 +2,19 @@
 // OUTPUT: PlanModeMiddleware
 // POS:    Blocks non-read-only tools when plan mode is active — read-only analysis only.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use alva_agent_core::middleware::{Middleware, MiddlewareError};
+use alva_agent_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
 use alva_agent_core::shared::MiddlewarePriority;
 use alva_agent_core::state::AgentState;
 use alva_types::ToolCall;
 use async_trait::async_trait;
+
+/// Bus event to toggle plan mode from outside (e.g. BaseAgent::set_permission_mode).
+#[derive(Clone, Debug)]
+pub struct PlanModeChanged(pub bool);
+impl alva_types::BusEvent for PlanModeChanged {}
 
 /// Middleware that blocks non-read-only tools when plan mode is active.
 /// When enabled, the agent can only read and analyze — no modifications.
@@ -18,7 +24,7 @@ use async_trait::async_trait;
 /// 2. `tool.is_read_only(input)` from the Tool trait
 /// 3. Unknown tools default to non-read-only (blocked)
 pub struct PlanModeMiddleware {
-    enabled: AtomicBool,
+    enabled: Arc<AtomicBool>,
     /// Settings-based read_only patterns for dynamic tools.
     read_only_patterns: Vec<String>,
 }
@@ -26,7 +32,7 @@ pub struct PlanModeMiddleware {
 impl PlanModeMiddleware {
     pub fn new(enabled: bool) -> Self {
         Self {
-            enabled: AtomicBool::new(enabled),
+            enabled: Arc::new(AtomicBool::new(enabled)),
             read_only_patterns: Vec::new(),
         }
     }
@@ -66,6 +72,18 @@ impl PlanModeMiddleware {
 
 #[async_trait]
 impl Middleware for PlanModeMiddleware {
+    fn configure(&self, ctx: &MiddlewareContext) {
+        if let Some(bus) = &ctx.bus {
+            let enabled = self.enabled.clone();
+            let mut rx = bus.subscribe::<PlanModeChanged>();
+            tokio::spawn(async move {
+                while let Ok(PlanModeChanged(on)) = rx.recv().await {
+                    enabled.store(on, Ordering::Relaxed);
+                }
+            });
+        }
+    }
+
     async fn before_tool_call(
         &self,
         state: &mut AgentState,

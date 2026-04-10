@@ -62,9 +62,8 @@ pub struct BaseAgentBuilder {
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
 
-    // Typed references for special middleware that BaseAgent needs direct access to
+    // Typed reference: Security needs guard for resolve_permission()
     pub(crate) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
-    pub(crate) plan_mode_mw: Option<Arc<PlanModeMiddleware>>,
 
 }
 
@@ -87,7 +86,6 @@ impl BaseAgentBuilder {
             approval_notifier: None,
             bus_plugins: Vec::new(),
             security_guard: None,
-            plan_mode_mw: None,
         }
     }
 
@@ -133,14 +131,6 @@ impl BaseAgentBuilder {
         self
     }
 
-
-    /// Add PlanModeMiddleware (starts disabled) and store its reference.
-    pub fn with_plan_mode(mut self) -> Self {
-        let pm = Arc::new(PlanModeMiddleware::new(false));
-        self.plan_mode_mw = Some(pm.clone());
-        self.extra_middleware.push(pm);
-        self
-    }
 
     // -- Features -------------------------------------------------------------
 
@@ -274,7 +264,6 @@ impl BaseAgentBuilder {
         middleware_stack.push_sorted(Arc::new(security_mw));
 
         // Caller-registered middleware
-        let plan_mw = self.plan_mode_mw;
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
@@ -365,7 +354,6 @@ impl BaseAgentBuilder {
             skill_store,
             memory,
             security_guard,
-            plan_mode_middleware: plan_mw,
             pending_messages,
             bus_writer,
             bus: bus_handle,
@@ -404,8 +392,8 @@ pub mod middleware_presets {
         mws
     }
 
-    /// Full production stack: guardrails + timeout + compaction + checkpoint.
-    /// Compaction and Checkpoint receive bus via `configure()` at build time.
+    /// Full production stack: guardrails + timeout + compaction + checkpoint + plan mode.
+    /// Middleware that needs bus receives it via `configure()` at build time.
     pub fn production() -> Vec<Arc<dyn Middleware>> {
         vec![
             Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
@@ -413,6 +401,7 @@ pub mod middleware_presets {
             Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()),
             Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()),
             Arc::new(CheckpointMiddleware::new()),
+            Arc::new(alva_agent_runtime::middleware::PlanModeMiddleware::new(false)),
         ]
     }
 }
