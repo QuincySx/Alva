@@ -26,7 +26,7 @@ pub struct CheckpointCallbackRef(pub Arc<dyn CheckpointCallback>);
 
 /// Middleware that auto-checkpoints files before non-read-only tools modify them.
 pub struct CheckpointMiddleware {
-    bus: Option<BusHandle>,
+    bus: std::sync::OnceLock<BusHandle>,
     /// Settings-based read_only patterns for dynamic tools.
     read_only_patterns: Vec<String>,
 }
@@ -34,14 +34,14 @@ pub struct CheckpointMiddleware {
 impl CheckpointMiddleware {
     pub fn new() -> Self {
         Self {
-            bus: None,
+            bus: std::sync::OnceLock::new(),
             read_only_patterns: Vec::new(),
         }
     }
 
     /// Attach a bus handle so the middleware can look up capabilities (e.g. CheckpointCallbackRef).
-    pub fn with_bus(mut self, bus: BusHandle) -> Self {
-        self.bus = Some(bus);
+    pub fn with_bus(self, bus: BusHandle) -> Self {
+        let _ = self.bus.set(bus);
         self
     }
 
@@ -75,6 +75,12 @@ impl Default for CheckpointMiddleware {
 
 #[async_trait]
 impl Middleware for CheckpointMiddleware {
+    fn configure(&self, ctx: &alva_agent_core::middleware::MiddlewareContext) {
+        if let Some(bus) = &ctx.bus {
+            let _ = self.bus.set(bus.clone());
+        }
+    }
+
     async fn before_tool_call(
         &self,
         state: &mut AgentState,
@@ -94,7 +100,7 @@ impl Middleware for CheckpointMiddleware {
             return Ok(());
         }
 
-        if let Some(cb) = self.bus.as_ref().and_then(|b| b.get::<CheckpointCallbackRef>()) {
+        if let Some(cb) = self.bus.get().and_then(|b| b.get::<CheckpointCallbackRef>()) {
             let mut paths = Vec::new();
 
             // Extract file path from tool arguments

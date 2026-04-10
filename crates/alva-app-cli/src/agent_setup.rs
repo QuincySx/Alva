@@ -80,8 +80,6 @@ pub(crate) async fn build_agent(
         .with_sub_agents()
         .sub_agent_max_depth(3)
         .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
-        .with_compaction()
-        .with_checkpoint()
         .with_plan_mode();
     let approval_rx = builder.with_approval_channel();
     let agent = builder.build(model).await.expect("failed to build agent");

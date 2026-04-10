@@ -66,9 +66,6 @@ pub struct BaseAgentBuilder {
     pub(crate) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
     pub(crate) plan_mode_mw: Option<Arc<PlanModeMiddleware>>,
 
-    // Bus-dependent middleware (created in build() where bus is available)
-    pub(crate) enable_compaction: bool,
-    pub(crate) enable_checkpoint: bool,
 }
 
 impl BaseAgentBuilder {
@@ -91,8 +88,6 @@ impl BaseAgentBuilder {
             bus_plugins: Vec::new(),
             security_guard: None,
             plan_mode_mw: None,
-            enable_compaction: false,
-            enable_checkpoint: false,
         }
     }
 
@@ -138,12 +133,6 @@ impl BaseAgentBuilder {
         self
     }
 
-
-    /// Add CompactionMiddleware (auto-summarize when context is full). Requires bus context.
-    pub fn with_compaction(mut self) -> Self { self.enable_compaction = true; self }
-
-    /// Add CheckpointMiddleware (file backups before writes). Requires bus context.
-    pub fn with_checkpoint(mut self) -> Self { self.enable_checkpoint = true; self }
 
     /// Add PlanModeMiddleware (starts disabled) and store its reference.
     pub fn with_plan_mode(mut self) -> Self {
@@ -290,19 +279,12 @@ impl BaseAgentBuilder {
             middleware_stack.push_sorted(mw);
         }
 
-        // Bus-dependent middleware that needs context from build()
-        // These are opt-in via with_compaction() / with_checkpoint()
-        if self.enable_compaction {
-            middleware_stack.push_sorted(Arc::new(
-                alva_agent_runtime::middleware::CompactionMiddleware::default()
-                    .with_bus(bus_handle.clone()),
-            ));
-        }
-        if self.enable_checkpoint {
-            middleware_stack.push_sorted(Arc::new(
-                CheckpointMiddleware::new().with_bus(bus_handle.clone()),
-            ));
-        }
+        // Configure all middleware with shared infrastructure (bus, workspace).
+        // Middleware that needs bus/workspace grabs it here via configure().
+        middleware_stack.configure_all(&alva_agent_core::middleware::MiddlewareContext {
+            bus: Some(bus_handle.clone()),
+            workspace: Some(workspace.clone()),
+        });
 
         // 7. Optionally add the agent spawn tool
         if self.enable_sub_agents {
@@ -422,14 +404,15 @@ pub mod middleware_presets {
         mws
     }
 
-    /// Full production stack: guardrails + timeout.
-    /// Use with `.with_compaction()`, `.with_checkpoint()`, `.with_plan_mode()`
-    /// for the complete set.
+    /// Full production stack: guardrails + timeout + compaction + checkpoint.
+    /// Compaction and Checkpoint receive bus via `configure()` at build time.
     pub fn production() -> Vec<Arc<dyn Middleware>> {
         vec![
             Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
             Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()),
             Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()),
+            Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()),
+            Arc::new(CheckpointMiddleware::new()),
         ]
     }
 }

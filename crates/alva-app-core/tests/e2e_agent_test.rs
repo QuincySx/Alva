@@ -592,8 +592,6 @@ async fn build_agent_with_workspace(
         .system_prompt("You are a test assistant.")
         .without_browser()
         .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
-        .with_compaction()
-        .with_checkpoint()
         .with_plan_mode()
         .build(model)
         .await

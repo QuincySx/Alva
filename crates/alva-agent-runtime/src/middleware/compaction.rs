@@ -47,7 +47,7 @@ impl Default for CompactionConfig {
 pub struct CompactionMiddleware {
     config: CompactionConfig,
     compaction_count: AtomicUsize,
-    bus: Option<BusHandle>,
+    bus: std::sync::OnceLock<BusHandle>,
 }
 
 impl CompactionMiddleware {
@@ -55,13 +55,13 @@ impl CompactionMiddleware {
         Self {
             config,
             compaction_count: AtomicUsize::new(0),
-            bus: None,
+            bus: std::sync::OnceLock::new(),
         }
     }
 
     /// Attach a bus handle for token counting and event emission.
-    pub fn with_bus(mut self, bus: BusHandle) -> Self {
-        self.bus = Some(bus);
+    pub fn with_bus(self, bus: BusHandle) -> Self {
+        let _ = self.bus.set(bus);
         self
     }
 
@@ -134,13 +134,19 @@ fn build_summary_prompt(old_messages: &[Message]) -> String {
 
 #[async_trait]
 impl Middleware for CompactionMiddleware {
+    fn configure(&self, ctx: &alva_agent_core::middleware::MiddlewareContext) {
+        if let Some(bus) = &ctx.bus {
+            let _ = self.bus.set(bus.clone());
+        }
+    }
+
     async fn before_llm_call(
         &self,
         state: &mut AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         // Use bus TokenCounter for better estimation; fall back to local heuristic.
-        let total_tokens = if let Some(ref bus) = self.bus {
+        let total_tokens = if let Some(bus) = self.bus.get() {
             if let Some(counter) = bus.get::<dyn alva_types::TokenCounter>() {
                 messages
                     .iter()
@@ -158,7 +164,7 @@ impl Middleware for CompactionMiddleware {
         }
 
         // Emit TokenBudgetExceeded event for observability.
-        if let Some(ref bus) = self.bus {
+        if let Some(bus) = self.bus.get() {
             bus.emit(alva_types::TokenBudgetExceeded {
                 agent_id: String::new(),
                 usage_ratio: total_tokens as f32 / self.config.trigger_tokens as f32,
@@ -258,7 +264,7 @@ impl Middleware for CompactionMiddleware {
 
         let old_count = messages.len();
         let new_count = compacted.len();
-        let new_tokens = if let Some(ref bus) = self.bus {
+        let new_tokens = if let Some(bus) = self.bus.get() {
             if let Some(counter) = bus.get::<dyn alva_types::TokenCounter>() {
                 compacted
                     .iter()
@@ -293,7 +299,7 @@ impl Middleware for CompactionMiddleware {
         }
 
         // Emit ContextCompacted event for observability.
-        if let Some(ref bus) = self.bus {
+        if let Some(bus) = self.bus.get() {
             bus.emit(alva_types::ContextCompacted {
                 agent_id: String::new(),
                 strategy: "llm_summarization".to_string(),

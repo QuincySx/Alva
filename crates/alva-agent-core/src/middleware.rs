@@ -128,6 +128,10 @@ pub trait Middleware: Send + Sync {
             .map_err(MiddlewareError::from)
     }
 
+    /// Called once after the agent is fully constructed, before any run.
+    /// Middleware that needs shared infrastructure (bus, workspace) can grab it here.
+    fn configure(&self, _ctx: &MiddlewareContext) {}
+
     /// Execution priority (lower values run first in before-hooks).
     /// Default is `MiddlewarePriority::DEFAULT` (3000).
     fn priority(&self) -> i32 {
@@ -138,6 +142,13 @@ pub trait Middleware: Send + Sync {
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
+}
+
+/// Context passed to middleware during [`Middleware::configure`].
+/// Contains shared infrastructure created during agent construction.
+pub struct MiddlewareContext {
+    pub bus: Option<alva_types::BusHandle>,
+    pub workspace: Option<std::path::PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +191,13 @@ impl MiddlewareStack {
 
     pub fn len(&self) -> usize {
         self.layers.len()
+    }
+
+    /// Call `configure()` on all middleware with the given context.
+    pub fn configure_all(&self, ctx: &MiddlewareContext) {
+        for layer in &self.layers {
+            layer.configure(ctx);
+        }
     }
 
     /// Iterate over all middleware layers in order.
