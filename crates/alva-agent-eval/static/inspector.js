@@ -220,11 +220,16 @@ function renderTurnBlock(turn, prevInputTokens, container, usedFallback) {
         ${tokenDelta > 0 ? `<br><span style="color:var(--orange)">+${tokenDelta.toLocaleString()} tokens growth from previous turn</span>` : ''}
       </div>`);
     addDetailSection(panel, 'Messages Sent', `<pre>${escHtml(formatJson(lc.messages_sent))}</pre>`);
-    // Show related logs
     const reqLogs = filterLogs(['LLM request', 'LLM stream request', 'sending HTTP', 'before_llm_call']);
     if (reqLogs.length) addDetailSection(panel, 'Related Logs', renderLogEntries(reqLogs));
   });
   turnEl.appendChild(reqEl);
+
+  // Middleware hooks between request and response
+  const middlewareLogs = filterLogs(['middleware hook', 'before_llm', 'after_llm']);
+  if (middlewareLogs.length) {
+    turnEl.appendChild(makeMiddlewareBlock(middlewareLogs, 'LLM Middleware'));
+  }
 
   // Arrow
   turnEl.appendChild(makeArrow());
@@ -324,13 +329,29 @@ function renderSummaryBlock(record, container) {
   const el = document.createElement('div');
   el.className = 'card end-ok event-block';
   el.style.padding = '8px 12px';
+  let tokenBars = '';
+  if (record.turns.length > 1) {
+    tokenBars = `<div style="margin-top:8px;font-size:10px">
+      ${record.turns.map(t => {
+        const tok = t.llm_call.input_tokens + t.llm_call.output_tokens;
+        const pct = totalTokens > 0 ? (tok / totalTokens * 100).toFixed(0) : 0;
+        return `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+          <span style="width:40px;color:var(--text-dim)">T${t.turn_number}</span>
+          <div style="flex:1;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--blue);border-radius:3px"></div></div>
+          <span style="width:55px;text-align:right;font-family:var(--mono);color:var(--text-dim)">${tok.toLocaleString()}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
   el.innerHTML = `
     <div style="display:flex;gap:16px;font-size:12px;justify-content:center">
       <div style="text-align:center"><div style="font-size:18px;font-weight:700">${record.turns.length}</div><div style="font-size:10px;color:var(--text-dim)">Turns</div></div>
       <div style="text-align:center"><div style="font-size:18px;font-weight:700">${totalTokens.toLocaleString()}</div><div style="font-size:10px;color:var(--text-dim)">Tokens</div></div>
       <div style="text-align:center"><div style="font-size:18px;font-weight:700">${(record.total_duration_ms/1000).toFixed(1)}s</div><div style="font-size:10px;color:var(--text-dim)">Duration</div></div>
       <div style="text-align:center"><div style="font-size:18px;font-weight:700">${totalTools}</div><div style="font-size:10px;color:var(--text-dim)">Tool Calls</div></div>
-    </div>`;
+    </div>
+    ${tokenBars}`;
 
   el.onclick = () => selectBlock(el, panel => {
     addDetailSection(panel, 'Summary', `
@@ -364,6 +385,17 @@ function makeArrow() {
   arrow.style.cssText = 'text-align:center;color:var(--text-dim);font-size:12px;line-height:1;margin:1px 0';
   arrow.textContent = '↓';
   return arrow;
+}
+
+function makeMiddlewareBlock(logs, label) {
+  const el = document.createElement('div');
+  el.className = 'card event-block';
+  el.style.cssText = 'padding:4px 10px;margin-bottom:2px;border-left-color:var(--text-dim);background:transparent;border:1px dashed var(--border);font-size:10px;color:var(--text-dim)';
+  el.innerHTML = `${label} (${logs.length} hooks)`;
+  el.onclick = () => selectBlock(el, panel => {
+    addDetailSection(panel, label, renderLogEntries(logs));
+  });
+  return el;
 }
 
 // ---------------------------------------------------------------------------
