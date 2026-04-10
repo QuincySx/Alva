@@ -251,6 +251,8 @@ impl LanguageModel for AnthropicProvider {
             // Record request for rate limiting
             let _rate_check = rate_limit.record_request();
 
+            tracing::info!(provider = "anthropic", "sending HTTP request, waiting for response...");
+            let req_start = std::time::Instant::now();
             let req = client.post(&url)
                 .header("anthropic-version", ANTHROPIC_API_VERSION)
                 .header("Content-Type", "application/json");
@@ -262,10 +264,12 @@ impl LanguageModel for AnthropicProvider {
             {
                 Ok(r) => r,
                 Err(e) => {
+                    tracing::error!(duration_ms = req_start.elapsed().as_millis() as u64, error = %e, "HTTP request failed");
                     yield StreamEvent::Error(format!("HTTP request failed: {}", e));
                     return;
                 }
             };
+            tracing::info!(provider = "anthropic", status = %resp.status(), duration_ms = req_start.elapsed().as_millis() as u64, "HTTP response received");
 
             if !resp.status().is_success() {
                 let status = resp.status();

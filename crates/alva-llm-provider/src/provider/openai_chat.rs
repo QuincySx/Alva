@@ -192,6 +192,8 @@ impl LanguageModel for OpenAIChatProvider {
         Box::pin(async_stream::stream! {
             yield StreamEvent::Start;
 
+            tracing::info!(provider = "openai_chat", "sending HTTP request, waiting for response...");
+            let req_start = std::time::Instant::now();
             let req = client.post(&url).header("Content-Type", "application/json");
             let req = crate::auth::apply_headers(req, &auth_headers);
             let resp = match req
@@ -201,10 +203,17 @@ impl LanguageModel for OpenAIChatProvider {
             {
                 Ok(r) => r,
                 Err(e) => {
+                    tracing::error!(duration_ms = req_start.elapsed().as_millis() as u64, error = %e, "HTTP request failed");
                     yield StreamEvent::Error(format!("HTTP request failed: {}", e));
                     return;
                 }
             };
+            tracing::info!(
+                provider = "openai_chat",
+                status = %resp.status(),
+                duration_ms = req_start.elapsed().as_millis() as u64,
+                "HTTP response received, reading stream"
+            );
 
             if !resp.status().is_success() {
                 let status = resp.status();
