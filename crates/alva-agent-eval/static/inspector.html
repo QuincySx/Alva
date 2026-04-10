@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>alva-eval — Inspector</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>alva-eval</h1>
+    <span class="tag">Inspector</span>
+  </div>
+  <nav class="nav">
+    <a href="/" class="nav-link">Playground</a>
+    <a href="/inspector.html" class="nav-link active">Inspector</a>
+    <a href="/compare.html" class="nav-link">Compare</a>
+  </nav>
+
+  <aside class="sidebar" id="run-list">
+    <label>Completed Runs</label>
+    <div id="runs-container" style="margin-top:8px">
+      <div style="color:var(--text-dim);font-size:12px">Loading...</div>
+    </div>
+  </aside>
+
+  <main class="main" id="inspector-content">
+    <!-- Populated by inspector.js -->
+  </main>
+
+  <div class="footer">
+    <span id="status">Select a run to inspect</span>
+    <div class="stats" id="stats"></div>
+  </div>
+</div>
+
+<script src="/shared.js"></script>
+<script src="/inspector.js"></script>
+</body>
+</html>
