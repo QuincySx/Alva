@@ -291,22 +291,34 @@ function renderTurnBlock(turn, prevInputTokens, container, usedFallback) {
     const toolEl = document.createElement('div');
     toolEl.className = 'card event-block';
     const isErr = tc.is_error;
-    toolEl.style.cssText = `padding:6px 10px;margin-bottom:4px;border-left-color:${isErr ? 'var(--red)' : 'var(--orange)'}`;
+    const isSubAgent = tc.tool_call.name === 'agent';
+    const borderColor = isSubAgent ? 'var(--purple)' : (isErr ? 'var(--red)' : 'var(--orange)');
+    toolEl.style.cssText = `padding:6px 10px;margin-bottom:4px;border-left-color:${borderColor}`;
 
     const statusBadge = isErr ? '<span class="badge badge-err">ERR</span>' : '<span class="badge badge-ok">OK</span>';
+    const typeBadge = isSubAgent
+      ? '<span style="background:#2d1f3d;color:var(--purple);font-size:9px;padding:1px 5px;border-radius:6px">SUB-AGENT</span>'
+      : '<span class="badge badge-tool">TOOL</span>';
     toolEl.innerHTML = `
       <div style="display:flex;justify-content:space-between;font-size:11px">
-        <div><span class="badge badge-tool">TOOL</span> <strong>${escHtml(tc.tool_call.name)}</strong> ${statusBadge}</div>
+        <div>${typeBadge} <strong>${escHtml(tc.tool_call.name)}</strong> ${statusBadge}</div>
         <span style="color:var(--text-dim);font-family:var(--mono)">${tc.duration_ms}ms</span>
-      </div>`;
+      </div>
+      ${isSubAgent ? `<div style="font-size:10px;color:var(--text-dim);margin-top:2px">${escHtml(truncate(tc.tool_call.arguments.task || tc.tool_call.arguments.description || '', 80))}</div>` : ''}`;
 
     toolEl.onclick = () => selectBlock(toolEl, panel => {
-      addDetailSection(panel, `Tool: ${tc.tool_call.name}`, `
+      addDetailSection(panel, `${isSubAgent ? 'Sub-Agent' : 'Tool'}: ${tc.tool_call.name}`, `
         <div style="font-size:12px">
           Status: ${isErr ? '<span style="color:var(--red)">ERROR</span>' : '<span style="color:var(--green)">OK</span>'} ·
           Duration: ${tc.duration_ms}ms
         </div>`);
       addDetailSection(panel, 'Input Arguments', `<pre>${escHtml(formatJson(tc.tool_call.arguments))}</pre>`);
+
+      // For sub-agent: show child agent's internal activity
+      if (isSubAgent) {
+        renderSubAgentTimeline(panel, tc);
+      }
+
       const output = tc.result ? formatToolOutput(tc.result) : '(no output)';
       addDetailSection(panel, `Output (${output.length} chars)`, `<pre>${escHtml(output)}</pre>`);
       const toolLogs = filterLogs(['tool execution', tc.tool_call.name, 'before_tool', 'after_tool']);
@@ -379,6 +391,89 @@ function renderSummaryBlock(record, container) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Sub-agent timeline (extracted from tracing logs)
+// ---------------------------------------------------------------------------
+
+function renderSubAgentTimeline(panel, tc) {
+  // Find all child-agent activity logs.
+  // These are LLM requests, tool executions, and turn completions that happened
+  // during this agent tool call. We identify them by looking for logs between
+  // the parent's "tool execution completed" events.
+  //
+  // Heuristic: find all "LLM stream request" / "tool execution completed" /
+  // "turn completed" / "HTTP response" / "fallback" logs that are NOT the
+  // parent's own turns. The child's logs are interleaved with parent logs,
+  // but we can distinguish them because:
+  // - Child's "turn completed" logs have lower turn numbers (restart from 1)
+  // - Child's LLM requests happen after parent's ToolExecutionStart for "agent"
+
+  const childLogs = allLogs.filter(l => {
+    const msg = l.message.toLowerCase();
+    return msg.includes('llm stream request') ||
+           msg.includes('llm request body') ||
+           msg.includes('http response') ||
+           msg.includes('fallback') ||
+           msg.includes('tool execution completed') ||
+           msg.includes('turn completed') ||
+           msg.includes('sending http') ||
+           msg.includes('empty response');
+  });
+
+  if (childLogs.length === 0) {
+    addDetailSection(panel, 'Sub-Agent Activity', '<div style="color:var(--text-dim)">No child agent logs captured</div>');
+    return;
+  }
+
+  // Build a mini-timeline
+  let html = '<div style="border-left:2px solid var(--purple);padding-left:8px;margin-left:4px">';
+
+  // Group into "turns" by looking for "turn completed" entries
+  let currentTurn = [];
+  let turnNum = 0;
+
+  for (const log of childLogs) {
+    const msg = log.message;
+
+    if (msg.includes('turn completed')) {
+      turnNum++;
+      const turnDuration = log.fields.duration_ms || '?';
+      const toolCalls = log.fields.tool_calls || '0';
+      html += `<div style="margin-bottom:6px">`;
+      html += `<div style="font-size:11px;font-weight:600;color:var(--purple)">Child Turn ${turnNum} <span style="font-weight:400;color:var(--text-dim)">${turnDuration}ms · ${toolCalls} tools</span></div>`;
+
+      // Show the events that led to this turn
+      for (const ev of currentTurn) {
+        const color = { 'ERROR': 'var(--red)', 'WARN': 'var(--orange)', 'INFO': 'var(--blue)', 'DEBUG': 'var(--text-dim)' }[ev.level] || 'var(--text-dim)';
+        const shortFields = Object.entries(ev.fields)
+          .filter(([k]) => !['body_preview', 'remaining_buffer', 'preview'].includes(k))
+          .map(([k, v]) => `${k}=${truncate(String(v).replace(/^"|"$/g, ''), 40)}`)
+          .join(' ');
+        html += `<div style="font-size:10px;font-family:var(--mono);padding:1px 0;color:var(--text-dim)">
+          <span style="color:${color}">${ev.level}</span> ${escHtml(ev.message)} <span style="opacity:0.6">${shortFields}</span>
+        </div>`;
+      }
+      html += `</div>`;
+      currentTurn = [];
+    } else {
+      currentTurn.push(log);
+    }
+  }
+
+  // Any remaining events after last turn
+  if (currentTurn.length > 0) {
+    for (const ev of currentTurn) {
+      const color = { 'ERROR': 'var(--red)', 'WARN': 'var(--orange)', 'INFO': 'var(--blue)', 'DEBUG': 'var(--text-dim)' }[ev.level] || 'var(--text-dim)';
+      html += `<div style="font-size:10px;font-family:var(--mono);padding:1px 0;color:var(--text-dim)">
+        <span style="color:${color}">${ev.level}</span> ${escHtml(ev.message)}
+      </div>`;
+    }
+  }
+
+  html += '</div>';
+  addDetailSection(panel, `Sub-Agent Activity (${childLogs.length} events)`, html);
+}
 
 function makeArrow() {
   const arrow = document.createElement('div');
