@@ -8,5 +8,5 @@ pub mod security;
 
 pub use checkpoint::{CheckpointCallback, CheckpointCallbackRef, CheckpointMiddleware};
 pub use compaction::{CompactionConfig, CompactionMiddleware};
-pub use plan_mode::{PlanModeChanged, PlanModeMiddleware};
+pub use plan_mode::PlanModeMiddleware;
 pub use security::{ApprovalNotifier, ApprovalRequest, SecurityMiddleware};

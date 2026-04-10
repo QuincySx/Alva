@@ -79,7 +79,8 @@ pub(crate) async fn build_agent(
         .tools(alva_app_core::tool_presets::all_standard())
         .with_sub_agents()
         .sub_agent_max_depth(3)
-        .middlewares(alva_app_core::base_agent::builder::middleware_presets::production());
+        .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
+        .with_plan_mode();
     let approval_rx = builder.with_approval_channel();
     let agent = builder.build(model).await.expect("failed to build agent");
 

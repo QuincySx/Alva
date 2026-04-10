@@ -251,6 +251,7 @@ async fn create_run(
         .max_iterations(max_iterations)
         .tools(alva_agent_tools::tool_presets::all_standard())
         .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
+        .with_plan_mode()
         .middleware(rec.clone());
 
     if req.enable_sub_agents.unwrap_or(false) {

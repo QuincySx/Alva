@@ -4,7 +4,7 @@ use alva_agent_core::run::run_agent;
 use alva_agent_core::event::AgentEvent;
 use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_memory::MemoryService;
-// PlanModeMiddleware communicates via bus event (PlanModeChanged)
+use alva_agent_runtime::middleware::PlanModeMiddleware;
 use alva_types::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
@@ -40,6 +40,7 @@ pub struct BaseAgent {
     pub(super) skill_store: Arc<SkillStore>,
     pub(super) memory: Option<MemoryService>,
     pub(super) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
+    pub(super) plan_mode_middleware: Option<Arc<PlanModeMiddleware>>,
     /// Pending messages queue — bridges external steer/follow_up calls
     /// to the agent loop via AgentLoopHook.
     pub(super) pending_messages: Arc<alva_agent_core::pending_queue::PendingMessageQueue>,
@@ -171,10 +172,9 @@ impl BaseAgent {
         let mut m = self.permission_mode.lock().unwrap_or_else(|e| e.into_inner());
         *m = mode;
 
-        // Toggle plan mode via bus event — PlanModeMiddleware listens for this
-        self.bus.emit(alva_agent_runtime::middleware::PlanModeChanged(
-            mode == PermissionMode::Plan,
-        ));
+        if let Some(ref plan_mw) = self.plan_mode_middleware {
+            plan_mw.set_enabled(mode == PermissionMode::Plan);
+        }
     }
 
     /// Switch the language model. Takes effect on the next prompt.

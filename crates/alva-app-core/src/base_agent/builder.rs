@@ -61,8 +61,9 @@ pub struct BaseAgentBuilder {
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
 
-    // Typed reference: Security needs guard for resolve_permission()
+    // Typed references for middleware that needs runtime access from BaseAgent
     pub(crate) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
+    pub(crate) plan_mode_mw: Option<Arc<PlanModeMiddleware>>,
 
 }
 
@@ -84,6 +85,7 @@ impl BaseAgentBuilder {
             approval_notifier: None,
             bus_plugins: Vec::new(),
             security_guard: None,
+            plan_mode_mw: None,
         }
     }
 
@@ -126,6 +128,15 @@ impl BaseAgentBuilder {
     /// Add a single middleware.
     pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
         self.extra_middleware.push(mw);
+        self
+    }
+
+    /// Add PlanModeMiddleware and store typed ref for runtime toggle.
+    /// BaseAgent::set_permission_mode() needs direct access to call set_enabled().
+    pub fn with_plan_mode(mut self) -> Self {
+        let pm = Arc::new(PlanModeMiddleware::new(false));
+        self.plan_mode_mw = Some(pm.clone());
+        self.extra_middleware.push(pm);
         self
     }
 
@@ -342,6 +353,7 @@ impl BaseAgentBuilder {
             skill_store,
             memory,
             security_guard,
+            plan_mode_middleware: self.plan_mode_mw,
             pending_messages,
             bus_writer,
             bus: bus_handle,
@@ -380,7 +392,8 @@ pub mod middleware_presets {
         mws
     }
 
-    /// Full production stack: guardrails + timeout + compaction + checkpoint + plan mode.
+    /// Full production stack: guardrails + timeout + compaction + checkpoint.
+    /// PlanMode is NOT included — use `.with_plan_mode()` separately (needs typed ref).
     /// Middleware that needs bus receives it via `configure()` at build time.
     pub fn production() -> Vec<Arc<dyn Middleware>> {
         vec![
@@ -389,7 +402,6 @@ pub mod middleware_presets {
             Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()),
             Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()),
             Arc::new(CheckpointMiddleware::new()),
-            Arc::new(alva_agent_runtime::middleware::PlanModeMiddleware::new(false)),
         ]
     }
 }

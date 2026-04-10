@@ -2,19 +2,13 @@
 // OUTPUT: PlanModeMiddleware
 // POS:    Blocks non-read-only tools when plan mode is active — read-only analysis only.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use alva_agent_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
+use alva_agent_core::middleware::{Middleware, MiddlewareError};
 use alva_agent_core::shared::MiddlewarePriority;
 use alva_agent_core::state::AgentState;
 use alva_types::ToolCall;
 use async_trait::async_trait;
-
-/// Bus event to toggle plan mode from outside (e.g. BaseAgent::set_permission_mode).
-#[derive(Clone, Debug)]
-pub struct PlanModeChanged(pub bool);
-impl alva_types::BusEvent for PlanModeChanged {}
 
 /// Middleware that blocks non-read-only tools when plan mode is active.
 /// When enabled, the agent can only read and analyze — no modifications.
@@ -24,7 +18,7 @@ impl alva_types::BusEvent for PlanModeChanged {}
 /// 2. `tool.is_read_only(input)` from the Tool trait
 /// 3. Unknown tools default to non-read-only (blocked)
 pub struct PlanModeMiddleware {
-    enabled: Arc<AtomicBool>,
+    enabled: AtomicBool,
     /// Settings-based read_only patterns for dynamic tools.
     read_only_patterns: Vec<String>,
 }
@@ -32,7 +26,7 @@ pub struct PlanModeMiddleware {
 impl PlanModeMiddleware {
     pub fn new(enabled: bool) -> Self {
         Self {
-            enabled: Arc::new(AtomicBool::new(enabled)),
+            enabled: AtomicBool::new(enabled),
             read_only_patterns: Vec::new(),
         }
     }
@@ -72,18 +66,6 @@ impl PlanModeMiddleware {
 
 #[async_trait]
 impl Middleware for PlanModeMiddleware {
-    fn configure(&self, ctx: &MiddlewareContext) {
-        if let Some(bus) = &ctx.bus {
-            let enabled = self.enabled.clone();
-            let mut rx = bus.subscribe::<PlanModeChanged>();
-            tokio::spawn(async move {
-                while let Ok(PlanModeChanged(on)) = rx.recv().await {
-                    enabled.store(on, Ordering::Relaxed);
-                }
-            });
-        }
-    }
-
     async fn before_tool_call(
         &self,
         state: &mut AgentState,
@@ -177,7 +159,6 @@ mod tests {
         async fn execute(&self, _: serde_json::Value, _: &dyn alva_types::ToolExecutionContext) -> Result<ToolOutput, AgentError> { Ok(ToolOutput::text("ok")) }
     }
 
-    /// MCP tool that doesn't implement is_read_only (defaults to false).
     struct McpTool(&'static str);
     #[async_trait]
     impl Tool for McpTool {
@@ -201,7 +182,6 @@ mod tests {
     async fn blocks_write_tools() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
-
         let tc = ToolCall { id: "1".into(), name: "execute_shell".into(), arguments: serde_json::json!({}) };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
     }
@@ -210,7 +190,6 @@ mod tests {
     async fn allows_read_only_tools() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
-
         let tc = ToolCall { id: "2".into(), name: "grep_search".into(), arguments: serde_json::json!({}) };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
     }
@@ -219,9 +198,8 @@ mod tests {
     async fn mcp_tool_blocked_by_default() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
-
         let tc = ToolCall { id: "3".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
-        assert!(mw.before_tool_call(&mut state, &tc).await.is_err(), "MCP tool should be blocked by default");
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
     }
 
     #[tokio::test]
@@ -229,31 +207,16 @@ mod tests {
         let mw = PlanModeMiddleware::new(true)
             .with_read_only_patterns(vec!["mcp:context7:*".to_string()]);
         let mut state = make_state_with_tools(test_tools());
-
-        // context7 tools allowed
         let tc = ToolCall { id: "4".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
-        assert!(mw.before_tool_call(&mut state, &tc).await.is_ok(), "context7 should be allowed by pattern");
-
-        // evil-server still blocked
-        let tc = ToolCall { id: "5".into(), name: "mcp:evil-server:run-code".into(), arguments: serde_json::json!({}) };
-        assert!(mw.before_tool_call(&mut state, &tc).await.is_err(), "evil-server should still be blocked");
-    }
-
-    #[tokio::test]
-    async fn exact_pattern_match() {
-        let mw = PlanModeMiddleware::new(true)
-            .with_read_only_patterns(vec!["mcp:context7:query-docs".to_string()]);
-        let mut state = make_state_with_tools(test_tools());
-
-        let tc = ToolCall { id: "6".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
+        let tc = ToolCall { id: "5".into(), name: "mcp:evil-server:run-code".into(), arguments: serde_json::json!({}) };
+        assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
     }
 
     #[tokio::test]
     async fn disabled_allows_everything() {
         let mw = PlanModeMiddleware::new(false);
         let mut state = make_state_with_tools(test_tools());
-
         let tc = ToolCall { id: "7".into(), name: "execute_shell".into(), arguments: serde_json::json!({}) };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
     }
@@ -263,7 +226,6 @@ mod tests {
         let mw = PlanModeMiddleware::new(false);
         let mut state = make_state_with_tools(test_tools());
         let tc = ToolCall { id: "8".into(), name: "create_file".into(), arguments: serde_json::json!({}) };
-
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
         mw.set_enabled(true);
         assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
