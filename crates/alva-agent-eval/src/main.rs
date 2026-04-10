@@ -101,6 +101,12 @@ struct RunRequest {
     /// When non-empty, api_key is ignored and these headers are sent as-is.
     #[serde(default)]
     custom_headers: Option<std::collections::HashMap<String, String>>,
+    /// Enable sub-agent spawning. Default: false.
+    #[serde(default)]
+    enable_sub_agents: Option<bool>,
+    /// Enable browser tools. Default: false.
+    #[serde(default)]
+    enable_browser: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -238,14 +244,19 @@ async fn create_run(
     let rec = Arc::new(rec);
     rec.set_config(system_prompt.clone(), max_iterations, vec![]);
 
-    let builder = alva_app_core::BaseAgent::builder()
+    let mut builder = alva_app_core::BaseAgent::builder()
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
-        .without_browser()
-        .with_sub_agents()
         .max_iterations(max_iterations)
         .middlewares(alva_app_core::base_agent::builder::middleware_presets::production())
         .middleware(rec.clone());
+
+    if req.enable_sub_agents.unwrap_or(false) {
+        builder = builder.with_sub_agents();
+    }
+    if !req.enable_browser.unwrap_or(false) {
+        builder = builder.without_browser();
+    }
 
     // Add user-selected extra tools (BaseAgent registers all builtins by default)
     // Note: BaseAgent always has all builtin tools; user tool selection filters

@@ -98,6 +98,8 @@ async function startRun() {
   if (apiKey) body.api_key = apiKey;
   if (baseUrl) body.base_url = baseUrl;
   if (workspace) body.workspace = workspace;
+  if (document.getElementById('enable-sub-agents')?.checked) body.enable_sub_agents = true;
+  if (document.getElementById('enable-browser')?.checked) body.enable_browser = true;
 
   try {
     const res = await fetch('/api/run', {
