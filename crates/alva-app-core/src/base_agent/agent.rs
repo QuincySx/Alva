@@ -37,7 +37,7 @@ pub struct BaseAgent {
     pub(super) current_cancel: std::sync::Mutex<CancellationToken>,
     pub(super) permission_mode: std::sync::Mutex<PermissionMode>,
     pub(super) tool_registry: ToolRegistry,
-    pub(super) skill_store: Arc<SkillStore>,
+    pub(super) skill_store: Option<Arc<SkillStore>>,
     pub(super) memory: Option<MemoryService>,
     pub(super) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
     pub(super) plan_mode_middleware: Option<Arc<PlanModeMiddleware>>,
@@ -143,9 +143,9 @@ impl BaseAgent {
         }
     }
 
-    /// Access the skill store.
-    pub fn skill_store(&self) -> &Arc<SkillStore> {
-        &self.skill_store
+    /// Access the skill store (if SkillsExtension is registered).
+    pub fn skill_store(&self) -> Option<&Arc<SkillStore>> {
+        self.skill_store.as_ref()
     }
 
     /// Access the tool registry (for name-based lookup of registered tools).

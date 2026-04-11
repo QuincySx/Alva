@@ -74,10 +74,12 @@ pub(crate) async fn build_agent(
     let mut builder = BaseAgentBuilder::new()
         .workspace(workspace)
         .system_prompt(&system_prompt)
-        .skill_dir(paths.project_skills_dir())
-        .skill_dir(paths.global_skills_dir())
-        .extension(Box::new(alva_app_core::tool_extensions::AllStandardExtension))
-        .extension(Box::new(alva_app_core::runtime_extensions::ProductionExtension))
+        .extension(Box::new(alva_app_core::extension::SkillsExtension::new(vec![
+            paths.project_skills_dir(),
+            paths.global_skills_dir(),
+        ])))
+        .extension(Box::new(alva_app_core::extension::AllStandardExtension))
+        .extension(Box::new(alva_app_core::extension::ProductionExtension))
         .with_sub_agents()
         .sub_agent_max_depth(3);
     let approval_rx = builder.with_approval_channel();

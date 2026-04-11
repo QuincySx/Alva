@@ -14,15 +14,13 @@ use alva_types::{
 };
 use alva_types::session::{AgentSession, InMemorySession};
 
-use crate::skills::store::SkillStore;
-use crate::skills::skill_fs::FsSkillRepository;
-use crate::skills::skill_ports::skill_repository::SkillRepository;
 use crate::error::EngineError;
 
 use tokio::sync::{mpsc, Mutex};
 
 use super::agent::BaseAgent;
 use super::permission::PermissionMode;
+use crate::extension::Extension;
 
 /// Builder for constructing a [`BaseAgent`] with sensible defaults.
 ///
@@ -50,11 +48,10 @@ pub struct BaseAgentBuilder {
     pub(crate) sandbox_mode: SandboxMode,
 
     // Extensions
-    pub(crate) extensions: Vec<Box<dyn alva_agent_core::Extension>>,
+    pub(crate) extensions: Vec<Box<dyn Extension>>,
     // Direct tool/middleware (for special cases like sub-agents, plan-mode)
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
-    pub(crate) skill_dirs: Vec<PathBuf>,
     pub(crate) enable_memory: bool,
     pub(crate) enable_sub_agents: bool,
     pub(crate) sub_agent_max_depth: u32,
@@ -79,7 +76,6 @@ impl BaseAgentBuilder {
             extensions: Vec::new(),
             extra_tools: Vec::new(),
             extra_middleware: Vec::new(),
-            skill_dirs: Vec::new(),
             enable_memory: false,
             enable_sub_agents: false,
             sub_agent_max_depth: 3,
@@ -116,7 +112,7 @@ impl BaseAgentBuilder {
 
     /// Register an extension. Extensions contribute tools and/or middleware.
     /// This is the primary way to add capabilities to an agent.
-    pub fn extension(mut self, ext: Box<dyn alva_agent_core::Extension>) -> Self {
+    pub fn extension(mut self, ext: Box<dyn Extension>) -> Self {
         self.extensions.push(ext);
         self
     }
@@ -126,6 +122,12 @@ impl BaseAgentBuilder {
     /// Add tools directly. Prefer `.extension()` for public use.
     pub fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
         self.extra_tools.extend(tools);
+        self
+    }
+
+    /// Add a single tool directly. Prefer `.extension()` for public use.
+    pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
+        self.extra_tools.push(tool);
         self
     }
 
@@ -154,12 +156,6 @@ impl BaseAgentBuilder {
 
 
     // -- Features -------------------------------------------------------------
-
-    /// Add a skill directory to scan for skills.
-    pub fn skill_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.skill_dirs.push(path.into());
-        self
-    }
 
     /// Enable the memory subsystem (SQLite-backed).
     pub fn with_memory(mut self) -> Self {
@@ -232,10 +228,10 @@ impl BaseAgentBuilder {
 
         for ext in &self.extensions {
             tracing::info!(extension = ext.name(), "loading extension");
-            for tool in ext.tools() {
+            for tool in ext.tools().await {
                 tool_registry.register(tool);
             }
-            ext_middleware.extend(ext.middleware());
+            ext_middleware.extend(ext.middleware().await);
         }
 
         // 3. Add direct tools (for special cases)
@@ -246,26 +242,7 @@ impl BaseAgentBuilder {
         // 4. Build Arc<dyn Tool> list
         let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
 
-        // 5. Create SkillStore
-        let skill_store = {
-            let primary_dir = if !self.skill_dirs.is_empty() {
-                self.skill_dirs[0].clone()
-            } else {
-                workspace.join(".alva").join("skills")
-            };
-
-            let repo = Arc::new(FsSkillRepository::new(
-                primary_dir.join("bundled"),
-                primary_dir.join("mbb"),
-                primary_dir.join("user"),
-                primary_dir.join("state.json"),
-            ));
-            let store = SkillStore::new(repo.clone() as Arc<dyn SkillRepository>);
-            let _ = store.scan().await;
-            store
-        };
-
-        let skill_store = Arc::new(skill_store);
+        // 5. SkillStore is now managed by SkillsExtension
 
         // 6. Build MiddlewareStack
         let mut middleware_stack = MiddlewareStack::new();
@@ -290,6 +267,16 @@ impl BaseAgentBuilder {
             bus: Some(bus_handle.clone()),
             workspace: Some(workspace.clone()),
         });
+
+        // Configure extensions with full context (bus, workspace, tool names).
+        let ext_ctx = crate::extension::ExtensionContext {
+            bus: bus_handle.clone(),
+            workspace: workspace.clone(),
+            tool_names: tool_registry.definitions().iter().map(|d| d.name.clone()).collect(),
+        };
+        for ext in &self.extensions {
+            ext.configure(&ext_ctx).await;
+        }
 
         // 7. Optionally add the agent spawn tool (replaces the placeholder from builtins)
         if self.enable_sub_agents {
@@ -370,7 +357,7 @@ impl BaseAgentBuilder {
             current_cancel: std::sync::Mutex::new(CancellationToken::new()),
             permission_mode: std::sync::Mutex::new(PermissionMode::Ask),
             tool_registry,
-            skill_store,
+            skill_store: None,
             memory,
             security_guard,
             plan_mode_middleware: self.plan_mode_mw,
@@ -459,15 +446,6 @@ mod tests {
         assert_eq!(builder.system_prompt, "Custom prompt");
         assert!(builder.enable_memory);
         assert_eq!(builder.max_iterations, 200);
-    }
-
-    #[test]
-    fn builder_skill_dirs() {
-        let builder = BaseAgentBuilder::new()
-            .skill_dir("/path/to/skills1")
-            .skill_dir("/path/to/skills2");
-
-        assert_eq!(builder.skill_dirs.len(), 2);
     }
 
     #[tokio::test]
