@@ -14,9 +14,10 @@ pub struct RegisteredCommand {
     pub source_extension: String,
 }
 
-/// Runtime container for extension event handlers and commands.
+/// Runtime container for extension event handlers, middleware, and commands.
 pub struct ExtensionHost {
     handlers: HashMap<&'static str, Vec<(String, HandlerFn)>>,  // (extension_name, handler)
+    middlewares: Vec<Arc<dyn alva_agent_core::middleware::Middleware>>,
     commands: Vec<RegisteredCommand>,
     pending_messages: Option<Arc<alva_agent_core::pending_queue::PendingMessageQueue>>,
     cancel_token: Option<Arc<std::sync::Mutex<CancellationToken>>>,
@@ -26,6 +27,7 @@ impl ExtensionHost {
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
+            middlewares: Vec::new(),
             commands: Vec::new(),
             pending_messages: None,
             cancel_token: None,
@@ -34,6 +36,15 @@ impl ExtensionHost {
 
     pub fn register_handler(&mut self, event_type: &'static str, source: String, handler: HandlerFn) {
         self.handlers.entry(event_type).or_default().push((source, handler));
+    }
+
+    pub fn register_middleware(&mut self, mw: Arc<dyn alva_agent_core::middleware::Middleware>) {
+        self.middlewares.push(mw);
+    }
+
+    /// Take all registered middleware (drains the collection).
+    pub fn take_middlewares(&mut self) -> Vec<Arc<dyn alva_agent_core::middleware::Middleware>> {
+        std::mem::take(&mut self.middlewares)
     }
 
     pub fn register_command(&mut self, cmd: RegisteredCommand) {
@@ -104,6 +115,12 @@ pub struct HostAPI {
 impl HostAPI {
     pub fn new(host: Arc<RwLock<ExtensionHost>>, extension_name: String) -> Self {
         Self { host, extension_name }
+    }
+
+    /// Register a middleware. Called during activate(), collected by the builder.
+    pub fn middleware(&self, mw: Arc<dyn alva_agent_core::middleware::Middleware>) {
+        let mut host = self.host.write().unwrap();
+        host.register_middleware(mw);
     }
 
     /// Subscribe to an event type.

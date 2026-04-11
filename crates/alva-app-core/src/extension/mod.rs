@@ -15,25 +15,29 @@ pub use bridge::ExtensionBridgeMiddleware;
 use std::sync::Arc;
 use async_trait::async_trait;
 use alva_types::tool::Tool;
-use alva_agent_core::middleware::Middleware;
 
-/// A capability package that participates in agent construction.
+/// A capability package that participates in agent construction and runtime.
 ///
-/// Extensions provide tools and middleware, and receive context
-/// after all extensions are collected (via configure()).
+/// Lifecycle:
+///   1. `tools()`     — build phase: provide tools
+///   2. `activate()`  — build phase: register middleware, event handlers, commands via HostAPI
+///   3. `configure()`  — build phase: setup with bus/workspace context
+///   4. `finalize()`  — build phase: add tools that depend on the final tool list
+///   5. runtime       — event handlers fire, steer/follow_up/shutdown available
 ///
 /// This is the **only** public extensibility point for BaseAgent users.
 #[async_trait]
 pub trait Extension: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str { "" }
+    /// Provide tools during build phase.
     async fn tools(&self) -> Vec<Box<dyn Tool>> { vec![] }
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> { vec![] }
+    /// Register middleware, event handlers, commands via the HostAPI.
+    /// Called after tools are collected but before middleware stack is built.
+    fn activate(&self, _api: &HostAPI) {}
     /// Called after all extensions are collected and bus/workspace are ready.
     async fn configure(&self, _ctx: &ExtensionContext) {}
     /// Called after ALL tools/middleware from ALL extensions are collected.
-    /// Can return additional tools that depend on the final tool list (e.g., AgentSpawnTool).
+    /// Can return additional tools that depend on the final tool list.
     async fn finalize(&self, _ctx: &FinalizeContext) -> Vec<Arc<dyn Tool>> { vec![] }
-    /// Called after the agent is fully built. Register event handlers, commands, etc.
-    fn activate(&self, _api: &HostAPI) {}
 }

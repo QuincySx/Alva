@@ -181,16 +181,14 @@ impl BaseAgentBuilder {
             Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
         );
 
-        // 2. Collect tools + middleware from all extensions
+        // 2. Collect tools from all extensions
         let mut tool_registry = ToolRegistry::new();
-        let mut ext_middleware: Vec<Arc<dyn Middleware>> = Vec::new();
 
         for ext in &self.extensions {
             tracing::info!(extension = ext.name(), "loading extension");
             for tool in ext.tools().await {
                 tool_registry.register(tool);
             }
-            ext_middleware.extend(ext.middleware().await);
         }
 
         // 3. Add direct tools (for special cases)
@@ -201,9 +199,15 @@ impl BaseAgentBuilder {
         // 4. Build Arc<dyn Tool> list
         let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
 
-        // 5. SkillStore is now managed by SkillsExtension
+        // 5. Create ExtensionHost and activate extensions
+        //    Extensions register middleware, event handlers, and commands via HostAPI.
+        let extension_host = Arc::new(std::sync::RwLock::new(crate::extension::ExtensionHost::new()));
+        for ext in &self.extensions {
+            let api = crate::extension::HostAPI::new(extension_host.clone(), ext.name().to_string());
+            ext.activate(&api);
+        }
 
-        // 6. Build MiddlewareStack
+        // 6. Build MiddlewareStack from activated middleware + security + bridge
         let mut middleware_stack = MiddlewareStack::new();
 
         // Security is always active (bound to workspace + sandbox_mode)
@@ -212,13 +216,22 @@ impl BaseAgentBuilder {
         let security_guard = Some(security_mw.guard());
         middleware_stack.push_sorted(Arc::new(security_mw));
 
-        // Extension middleware + direct middleware
-        for mw in ext_middleware {
-            middleware_stack.push_sorted(mw);
+        // Middleware from extensions (registered during activate)
+        {
+            let mut host = extension_host.write().unwrap();
+            for mw in host.take_middlewares() {
+                middleware_stack.push_sorted(mw);
+            }
         }
+
+        // Direct middleware (e.g., eval recorder)
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
+
+        // Bridge middleware (routes lifecycle events to ExtensionHost)
+        let bridge = Arc::new(crate::extension::ExtensionBridgeMiddleware::new(extension_host.clone()));
+        middleware_stack.push_sorted(bridge);
 
         // Configure all middleware with shared infrastructure (bus, workspace).
         // Middleware that needs bus/workspace grabs it here via configure().
@@ -252,11 +265,6 @@ impl BaseAgentBuilder {
             alva_tools_list.extend(extra);
         }
 
-        // 7b. Create ExtensionHost and bridge middleware
-        let extension_host = Arc::new(std::sync::RwLock::new(crate::extension::ExtensionHost::new()));
-        let bridge = Arc::new(crate::extension::ExtensionBridgeMiddleware::new(extension_host.clone()));
-        middleware_stack.push_sorted(bridge);
-
         // 8. Create V2 AgentState
         let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
         if let Some(notifier) = self.approval_notifier {
@@ -281,12 +289,6 @@ impl BaseAgentBuilder {
         {
             let mut host = extension_host.write().unwrap();
             host.bind_agent(pending_messages.clone(), current_cancel.clone());
-        }
-
-        // 9c. Activate extensions — let them register event handlers and commands
-        for ext in &self.extensions {
-            let api = crate::extension::HostAPI::new(extension_host.clone(), ext.name().to_string());
-            ext.activate(&api);
         }
 
         // Register bus plugins

@@ -8,7 +8,7 @@ use alva_agent_core::middleware::Middleware;
 use alva_agent_tools::tool_presets;
 use async_trait::async_trait;
 
-use super::{Extension, ExtensionContext};
+use super::{Extension, ExtensionContext, HostAPI};
 
 // ===========================================================================
 // Tool extensions
@@ -109,8 +109,8 @@ pub struct LoopDetectionExtension;
 impl Extension for LoopDetectionExtension {
     fn name(&self) -> &str { "loop-detection" }
     fn description(&self) -> &str { "Detect repeated tool calls and break loops" }
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new())]
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()));
     }
 }
 
@@ -120,8 +120,8 @@ pub struct DanglingToolCallExtension;
 impl Extension for DanglingToolCallExtension {
     fn name(&self) -> &str { "dangling-tool-call" }
     fn description(&self) -> &str { "Validate tool call format and existence" }
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new())]
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()));
     }
 }
 
@@ -131,8 +131,8 @@ pub struct ToolTimeoutExtension;
 impl Extension for ToolTimeoutExtension {
     fn name(&self) -> &str { "tool-timeout" }
     fn description(&self) -> &str { "120s timeout per tool execution" }
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default())]
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()));
     }
 }
 
@@ -142,10 +142,8 @@ pub struct CompactionExtension;
 impl Extension for CompactionExtension {
     fn name(&self) -> &str { "compaction" }
     fn description(&self) -> &str { "Context compaction" }
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![
-            Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()),
-        ]
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()));
     }
 }
 
@@ -155,10 +153,8 @@ pub struct CheckpointExtension;
 impl Extension for CheckpointExtension {
     fn name(&self) -> &str { "checkpoint" }
     fn description(&self) -> &str { "File checkpoint before tool execution" }
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![
-            Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new()),
-        ]
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new()));
     }
 }
 
@@ -189,8 +185,8 @@ impl Extension for PlanModeExtension {
     fn name(&self) -> &str { "plan-mode" }
     fn description(&self) -> &str { "Plan mode (read-only tool restriction, runtime toggle)" }
 
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![self.middleware.clone()]
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(self.middleware.clone());
     }
 
     async fn configure(&self, ctx: &ExtensionContext) {
@@ -421,11 +417,11 @@ impl Extension for HooksExtension {
     fn name(&self) -> &str { "hooks" }
     fn description(&self) -> &str { "Lifecycle hooks (shell scripts at tool/session events)" }
 
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![Arc::new(HooksMiddleware {
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(Arc::new(HooksMiddleware {
             settings: self.settings.clone(),
             workspace: OnceLock::new(),
-        })]
+        }));
     }
 }
 
@@ -610,12 +606,11 @@ impl Extension for EvaluationExtension {
     fn name(&self) -> &str { "evaluation" }
     fn description(&self) -> &str { "QA evaluation and sprint contract enforcement" }
 
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        match &self.contract {
-            Some(contract) => vec![Arc::new(
+    fn activate(&self, api: &HostAPI) {
+        if let Some(contract) = &self.contract {
+            api.middleware(Arc::new(
                 crate::plugins::evaluation::SprintContractMiddleware::new(contract.clone())
-            )],
-            None => vec![],
+            ));
         }
     }
 }
@@ -661,11 +656,11 @@ impl Extension for SkillsExtension {
         ]
     }
 
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![Arc::new(SkillInjectionMiddleware::with_defaults(
+    fn activate(&self, api: &HostAPI) {
+        api.middleware(Arc::new(SkillInjectionMiddleware::with_defaults(
             self.store.clone(),
             self.injector.clone(),
-        ))]
+        )));
     }
 
     async fn configure(&self, _ctx: &ExtensionContext) {
