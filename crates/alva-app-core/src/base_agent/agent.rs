@@ -32,7 +32,8 @@ pub struct BaseAgent {
     pub(super) config: Arc<AgentConfig>,
     /// Holds the CancellationToken for the currently running prompt() call.
     /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
-    pub(super) current_cancel: std::sync::Mutex<CancellationToken>,
+    /// Wrapped in Arc so the ExtensionHost can also hold a reference for shutdown().
+    pub(super) current_cancel: Arc<std::sync::Mutex<CancellationToken>>,
     pub(super) permission_mode: std::sync::Mutex<PermissionMode>,
     pub(super) tool_registry: ToolRegistry,
     pub(super) memory: Option<MemoryService>,
@@ -44,6 +45,8 @@ pub struct BaseAgent {
     pub(super) bus_writer: BusWriter,
     /// Cross-layer coordination bus handle (read-only).
     pub(super) bus: BusHandle,
+    /// Runtime extension host — event dispatch and command registry.
+    pub(super) extension_host: Arc<std::sync::RwLock<crate::extension::ExtensionHost>>,
 }
 
 impl BaseAgent {
@@ -189,6 +192,11 @@ impl BaseAgent {
     /// Access the cross-layer coordination bus.
     pub fn bus(&self) -> &BusHandle {
         &self.bus
+    }
+
+    /// Access the runtime extension host (event dispatch and command registry).
+    pub fn extension_host(&self) -> &Arc<std::sync::RwLock<crate::extension::ExtensionHost>> {
+        &self.extension_host
     }
 
     /// Resolve a pending permission request. Called by the UI layer (CLI/GUI).

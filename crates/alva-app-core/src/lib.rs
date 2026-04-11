@@ -96,3 +96,6 @@ pub use paths::AlvaPaths;
 pub use hooks::{HookEvent, HookExecutor, HookInput, HookOutcome, HookOutput, HookResult};
 pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};
 pub use state::{AppState, AppStateStore, Selectors};
+
+// Re-export Extension V2 runtime API types
+pub use crate::extension::{ExtensionEvent, EventResult, ExtensionHost, HostAPI};

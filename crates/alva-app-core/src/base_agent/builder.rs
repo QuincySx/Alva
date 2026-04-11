@@ -252,6 +252,11 @@ impl BaseAgentBuilder {
             alva_tools_list.extend(extra);
         }
 
+        // 7b. Create ExtensionHost and bridge middleware
+        let extension_host = Arc::new(std::sync::RwLock::new(crate::extension::ExtensionHost::new()));
+        let bridge = Arc::new(crate::extension::ExtensionBridgeMiddleware::new(extension_host.clone()));
+        middleware_stack.push_sorted(bridge);
+
         // 8. Create V2 AgentState
         let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
         if let Some(notifier) = self.approval_notifier {
@@ -270,6 +275,19 @@ impl BaseAgentBuilder {
         bus_writer.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
             pending_messages.clone() as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
         );
+
+        // 9b. Create Arc-wrapped cancel token and bind to extension host
+        let current_cancel = Arc::new(std::sync::Mutex::new(CancellationToken::new()));
+        {
+            let mut host = extension_host.write().unwrap();
+            host.bind_agent(pending_messages.clone(), current_cancel.clone());
+        }
+
+        // 9c. Activate extensions — let them register event handlers and commands
+        for ext in &self.extensions {
+            let api = crate::extension::HostAPI::new(extension_host.clone(), ext.name().to_string());
+            ext.activate(&api);
+        }
 
         // Register bus plugins
         for plugin in &self.bus_plugins {
@@ -312,7 +330,7 @@ impl BaseAgentBuilder {
         Ok(BaseAgent {
             state: Arc::new(Mutex::new(state)),
             config: Arc::new(config),
-            current_cancel: std::sync::Mutex::new(CancellationToken::new()),
+            current_cancel,
             permission_mode: std::sync::Mutex::new(PermissionMode::Ask),
             tool_registry,
             memory,
@@ -320,6 +338,7 @@ impl BaseAgentBuilder {
             pending_messages,
             bus_writer,
             bus: bus_handle,
+            extension_host,
         })
     }
 }

@@ -2,9 +2,15 @@
 
 mod context;
 mod builtins;
+mod events;
+mod host;
+mod bridge;
 
 pub use context::{ExtensionContext, FinalizeContext};
 pub use builtins::*;
+pub use events::{ExtensionEvent, EventResult};
+pub use host::{ExtensionHost, HostAPI, RegisteredCommand};
+pub use bridge::ExtensionBridgeMiddleware;
 
 use std::sync::Arc;
 use async_trait::async_trait;
@@ -28,4 +34,6 @@ pub trait Extension: Send + Sync {
     /// Called after ALL tools/middleware from ALL extensions are collected.
     /// Can return additional tools that depend on the final tool list (e.g., AgentSpawnTool).
     async fn finalize(&self, _ctx: &FinalizeContext) -> Vec<Arc<dyn Tool>> { vec![] }
+    /// Called after the agent is fully built. Register event handlers, commands, etc.
+    fn activate(&self, _api: &HostAPI) {}
 }
