@@ -4,12 +4,10 @@ use alva_agent_core::run::run_agent;
 use alva_agent_core::event::AgentEvent;
 use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_memory::MemoryService;
-use alva_agent_runtime::middleware::PlanModeMiddleware;
+use alva_agent_runtime::middleware::PlanModeControl;
 use alva_types::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
-
-use crate::skills::store::SkillStore;
 
 use tokio::sync::{mpsc, Mutex};
 
@@ -37,10 +35,8 @@ pub struct BaseAgent {
     pub(super) current_cancel: std::sync::Mutex<CancellationToken>,
     pub(super) permission_mode: std::sync::Mutex<PermissionMode>,
     pub(super) tool_registry: ToolRegistry,
-    pub(super) skill_store: Option<Arc<SkillStore>>,
     pub(super) memory: Option<MemoryService>,
     pub(super) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
-    pub(super) plan_mode_middleware: Option<Arc<PlanModeMiddleware>>,
     /// Pending messages queue — bridges external steer/follow_up calls
     /// to the agent loop via AgentLoopHook.
     pub(super) pending_messages: Arc<alva_agent_core::pending_queue::PendingMessageQueue>,
@@ -143,11 +139,6 @@ impl BaseAgent {
         }
     }
 
-    /// Access the skill store (if SkillsExtension is registered).
-    pub fn skill_store(&self) -> Option<&Arc<SkillStore>> {
-        self.skill_store.as_ref()
-    }
-
     /// Access the tool registry (for name-based lookup of registered tools).
     pub fn tool_registry(&self) -> &ToolRegistry {
         &self.tool_registry
@@ -172,8 +163,9 @@ impl BaseAgent {
         let mut m = self.permission_mode.lock().unwrap_or_else(|e| e.into_inner());
         *m = mode;
 
-        if let Some(ref plan_mw) = self.plan_mode_middleware {
-            plan_mw.set_enabled(mode == PermissionMode::Plan);
+        // Toggle plan mode via bus — PlanModeExtension registers PlanModeControl
+        if let Some(ctrl) = self.bus.get::<dyn PlanModeControl>() {
+            ctrl.set_enabled(mode == PermissionMode::Plan);
         }
     }
 

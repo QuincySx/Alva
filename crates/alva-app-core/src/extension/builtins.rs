@@ -99,32 +99,40 @@ impl Extension for BrowserExtension {
     async fn tools(&self) -> Vec<Box<dyn Tool>> { tool_presets::browser_tools() }
 }
 
-/// All standard tools (file_io + shell + interaction + task + team + planning
-/// + worktree + utility + web). Does NOT include browser.
-pub struct AllStandardExtension;
-#[async_trait]
-impl Extension for AllStandardExtension {
-    fn name(&self) -> &str { "all-standard" }
-    fn description(&self) -> &str { "All standard tools" }
-    async fn tools(&self) -> Vec<Box<dyn Tool>> { tool_presets::all_standard() }
-}
-
 // ===========================================================================
 // Middleware extensions
 // ===========================================================================
 
-/// Guardrails: loop detection + dangling tool call + tool timeout.
-pub struct GuardrailsExtension;
+/// Loop detection middleware.
+pub struct LoopDetectionExtension;
 #[async_trait]
-impl Extension for GuardrailsExtension {
-    fn name(&self) -> &str { "guardrails" }
-    fn description(&self) -> &str { "Loop detection, dangling tool call, and tool timeout" }
+impl Extension for LoopDetectionExtension {
+    fn name(&self) -> &str { "loop-detection" }
+    fn description(&self) -> &str { "Detect repeated tool calls and break loops" }
     async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![
-            Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
-            Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()),
-            Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()),
-        ]
+        vec![Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new())]
+    }
+}
+
+/// Dangling tool call validation middleware.
+pub struct DanglingToolCallExtension;
+#[async_trait]
+impl Extension for DanglingToolCallExtension {
+    fn name(&self) -> &str { "dangling-tool-call" }
+    fn description(&self) -> &str { "Validate tool call format and existence" }
+    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
+        vec![Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new())]
+    }
+}
+
+/// Tool timeout middleware (120s default).
+pub struct ToolTimeoutExtension;
+#[async_trait]
+impl Extension for ToolTimeoutExtension {
+    fn name(&self) -> &str { "tool-timeout" }
+    fn description(&self) -> &str { "120s timeout per tool execution" }
+    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
+        vec![Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default())]
     }
 }
 
@@ -154,34 +162,373 @@ impl Extension for CheckpointExtension {
     }
 }
 
-/// Plan mode middleware — restricts tools to read-only when plan mode is active.
-pub struct PlanModeExtension;
-#[async_trait]
-impl Extension for PlanModeExtension {
-    fn name(&self) -> &str { "plan-mode" }
-    fn description(&self) -> &str { "Plan mode (read-only tool restriction)" }
-    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![
-            Arc::new(alva_agent_runtime::middleware::PlanModeMiddleware::new(false)),
-        ]
+// ===========================================================================
+// PlanMode extension
+// ===========================================================================
+
+use alva_agent_runtime::middleware::{PlanModeControl, PlanModeMiddleware};
+
+/// Plan mode extension — blocks non-read-only tools when plan mode is active.
+///
+/// Runtime toggle is exposed via the bus as `dyn PlanModeControl`, allowing
+/// `BaseAgent::set_permission_mode()` to toggle it without a typed reference.
+pub struct PlanModeExtension {
+    middleware: Arc<PlanModeMiddleware>,
+}
+
+impl PlanModeExtension {
+    pub fn new() -> Self {
+        Self {
+            middleware: Arc::new(PlanModeMiddleware::new(false)),
+        }
     }
 }
 
-/// Full production middleware stack: guardrails + compaction + checkpoint + plan mode.
-pub struct ProductionExtension;
 #[async_trait]
-impl Extension for ProductionExtension {
-    fn name(&self) -> &str { "production" }
-    fn description(&self) -> &str { "Full production middleware stack" }
+impl Extension for PlanModeExtension {
+    fn name(&self) -> &str { "plan-mode" }
+    fn description(&self) -> &str { "Plan mode (read-only tool restriction, runtime toggle)" }
+
     async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
-        vec![
-            Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
-            Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()),
-            Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()),
-            Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()),
-            Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new()),
-            Arc::new(alva_agent_runtime::middleware::PlanModeMiddleware::new(false)),
-        ]
+        vec![self.middleware.clone()]
+    }
+
+    async fn configure(&self, ctx: &ExtensionContext) {
+        // Register PlanModeControl on bus for runtime toggle
+        ctx.bus_writer.provide::<dyn PlanModeControl>(self.middleware.clone());
+    }
+}
+
+// ===========================================================================
+// SubAgent extension
+// ===========================================================================
+
+/// Sub-agent spawning via the `agent` tool.
+///
+/// Uses `finalize()` because it needs the final tool list and model to
+/// construct the `SpawnScopeImpl` root scope.
+pub struct SubAgentExtension {
+    max_depth: u32,
+}
+
+impl SubAgentExtension {
+    pub fn new(max_depth: u32) -> Self {
+        Self { max_depth }
+    }
+}
+
+#[async_trait]
+impl Extension for SubAgentExtension {
+    fn name(&self) -> &str { "sub-agents" }
+    fn description(&self) -> &str { "Sub-agent spawning via the agent tool" }
+
+    async fn finalize(&self, ctx: &super::FinalizeContext) -> Vec<Arc<dyn Tool>> {
+        // Build a clean tool list without any placeholder agent tool
+        let tools_without_agent: Vec<Arc<dyn Tool>> = ctx.tools.iter()
+            .filter(|t| t.name() != "agent")
+            .cloned()
+            .collect();
+
+        let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
+            ctx.model.clone(),
+            tools_without_agent,
+            std::time::Duration::from_secs(300),
+            ctx.max_iterations,
+            self.max_depth,
+        ));
+        let spawn_tool = crate::plugins::agent_spawn::create_agent_spawn_tool(root_scope);
+        vec![Arc::from(spawn_tool)]
+    }
+}
+
+// ===========================================================================
+// MCP extension
+// ===========================================================================
+
+use alva_protocol_mcp::transport::McpTransport;
+use alva_protocol_mcp::error::McpError;
+use alva_protocol_mcp::types::McpToolInfo;
+
+use crate::mcp::config::McpConfig;
+use crate::mcp::runtime::{McpManager, McpTransportFactory};
+use crate::mcp::tool_adapter::build_mcp_tools;
+use crate::mcp::tools::McpRuntimeTool;
+
+/// Stub transport factory used when no real MCP transport implementation is
+/// available.  Creates transports that immediately fail on connect, so the
+/// extension degrades gracefully (tools from unreachable servers are simply
+/// omitted).
+struct StubTransportFactory;
+
+impl McpTransportFactory for StubTransportFactory {
+    fn create(
+        &self,
+        _config: &alva_protocol_mcp::types::McpServerConfig,
+    ) -> Box<dyn McpTransport> {
+        Box::new(StubTransport)
+    }
+}
+
+/// A transport that always fails — used as a placeholder until real stdio/SSE
+/// transports are wired in.
+struct StubTransport;
+
+#[async_trait]
+impl McpTransport for StubTransport {
+    async fn connect(&mut self) -> Result<(), McpError> {
+        Err(McpError::Transport(
+            "no real MCP transport implementation available yet".into(),
+        ))
+    }
+    async fn disconnect(&mut self) -> Result<(), McpError> {
+        Ok(())
+    }
+    fn is_connected(&self) -> bool {
+        false
+    }
+    async fn list_tools(&self) -> Result<Vec<McpToolInfo>, McpError> {
+        Ok(vec![])
+    }
+    async fn call_tool(
+        &self,
+        _tool_name: &str,
+        _arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, McpError> {
+        Err(McpError::NotConnected("stub transport".into()))
+    }
+}
+
+/// MCP server integration — discovers and exposes tools from MCP servers.
+///
+/// During `tools()`, the extension:
+/// 1. Loads MCP config from the given paths (global + project `mcp.json`).
+/// 2. Creates an [`McpManager`], registers servers, and auto-connects.
+/// 3. Wraps discovered MCP tools as standard `Tool` trait objects via
+///    [`McpToolAdapter`](crate::mcp::tool_adapter::McpToolAdapter).
+/// 4. Provides an [`McpRuntimeTool`] for runtime server management.
+///
+/// All errors are caught and logged — MCP failures never prevent agent startup.
+pub struct McpExtension {
+    config_paths: Vec<PathBuf>,
+}
+
+impl McpExtension {
+    /// Create a new MCP extension that will load config from the given paths.
+    ///
+    /// Typically called with `[paths.global_mcp_config(), paths.project_mcp_config()]`.
+    pub fn new(config_paths: Vec<PathBuf>) -> Self {
+        Self { config_paths }
+    }
+}
+
+#[async_trait]
+impl Extension for McpExtension {
+    fn name(&self) -> &str {
+        "mcp"
+    }
+
+    fn description(&self) -> &str {
+        "MCP server integration"
+    }
+
+    async fn tools(&self) -> Vec<Box<dyn Tool>> {
+        match self.load_and_connect().await {
+            Ok(tools) => tools,
+            Err(e) => {
+                tracing::warn!("MCP extension failed to initialise: {e}");
+                vec![]
+            }
+        }
+    }
+}
+
+impl McpExtension {
+    /// Internal helper: load config, create manager, connect, discover tools.
+    async fn load_and_connect(&self) -> Result<Vec<Box<dyn Tool>>, Box<dyn std::error::Error + Send + Sync>> {
+        // 1. Load and merge configs from all paths (later paths override earlier).
+        let mut merged = McpConfig::default();
+        for path in &self.config_paths {
+            let cfg = McpConfig::load(path).await?;
+            for (id, entry) in cfg.servers {
+                merged.servers.insert(id, entry);
+            }
+        }
+
+        if merged.servers.is_empty() {
+            tracing::debug!("MCP: no servers configured — skipping");
+            return Ok(vec![]);
+        }
+
+        tracing::info!("MCP: {} server(s) configured", merged.servers.len());
+
+        // 2. Create manager with stub factory (will be replaced with real
+        //    transport implementations later).
+        let factory: Arc<dyn McpTransportFactory> = Arc::new(StubTransportFactory);
+        let manager = Arc::new(McpManager::new(factory));
+
+        // 3. Register all servers.
+        let server_configs = merged.to_server_configs();
+        for cfg in &server_configs {
+            manager.register(cfg.clone()).await;
+        }
+
+        // 4. Auto-connect servers that have auto_connect = true.
+        let errors = manager.connect_auto().await;
+        for (id, err) in &errors {
+            tracing::warn!("MCP: server '{id}' auto-connect failed: {err}");
+        }
+
+        // 5. Discover tools from connected servers.
+        let tool_infos = manager.list_all_tools().await;
+        tracing::info!("MCP: discovered {} tool(s) from connected servers", tool_infos.len());
+
+        // 6. Wrap MCP tools as standard Tool trait objects.
+        let mut tools = build_mcp_tools(manager.clone(), tool_infos);
+
+        // 7. Add the MCP runtime meta-tool for server management.
+        tools.push(Box::new(McpRuntimeTool {
+            manager: manager.clone(),
+        }));
+
+        Ok(tools)
+    }
+}
+
+// ===========================================================================
+// Hooks extension
+// ===========================================================================
+
+use std::sync::OnceLock;
+use crate::hooks::{HookEvent, HookExecutor, HookInput};
+use crate::settings::HooksSettings;
+use alva_types::ToolCall;
+use alva_types::tool::execution::ToolOutput;
+
+/// Lifecycle hooks as middleware — runs shell scripts at PreToolUse, PostToolUse,
+/// SessionStart, and SessionEnd events.
+pub struct HooksExtension {
+    settings: HooksSettings,
+}
+
+impl HooksExtension {
+    pub fn new(settings: HooksSettings) -> Self {
+        Self { settings }
+    }
+}
+
+#[async_trait]
+impl Extension for HooksExtension {
+    fn name(&self) -> &str { "hooks" }
+    fn description(&self) -> &str { "Lifecycle hooks (shell scripts at tool/session events)" }
+
+    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
+        vec![Arc::new(HooksMiddleware {
+            settings: self.settings.clone(),
+            workspace: OnceLock::new(),
+        })]
+    }
+}
+
+/// Internal middleware that delegates to HookExecutor.
+struct HooksMiddleware {
+    settings: HooksSettings,
+    workspace: OnceLock<PathBuf>,
+}
+
+#[async_trait]
+impl Middleware for HooksMiddleware {
+    fn name(&self) -> &str { "hooks" }
+
+    fn configure(&self, ctx: &alva_agent_core::middleware::MiddlewareContext) {
+        if let Some(ref ws) = ctx.workspace {
+            let _ = self.workspace.set(ws.clone());
+        }
+    }
+
+    fn priority(&self) -> i32 {
+        // Run after security but before guardrails and most other middleware
+        alva_agent_core::shared::MiddlewarePriority::HOOKS
+    }
+
+    async fn on_agent_start(&self, _state: &mut alva_agent_core::state::AgentState) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+        if let Some(ws) = self.workspace.get() {
+            let executor = HookExecutor::new(ws, "session"); // TODO: real session_id
+            let input = HookInput::lifecycle(HookEvent::SessionStart, "session", ws);
+            let result = executor.run(&self.settings, HookEvent::SessionStart, None, input).await;
+            if result.is_blocked() {
+                return Err(alva_agent_core::shared::MiddlewareError::Blocked {
+                    reason: result.blocking_messages().join("; "),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    async fn on_agent_end(
+        &self,
+        _state: &mut alva_agent_core::state::AgentState,
+        _error: Option<&str>,
+    ) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+        if let Some(ws) = self.workspace.get() {
+            let executor = HookExecutor::new(ws, "session");
+            let input = HookInput::lifecycle(HookEvent::SessionEnd, "session", ws);
+            let _ = executor.run(&self.settings, HookEvent::SessionEnd, None, input).await;
+        }
+        Ok(())
+    }
+
+    async fn before_tool_call(
+        &self,
+        _state: &mut alva_agent_core::state::AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+        if let Some(ws) = self.workspace.get() {
+            let executor = HookExecutor::new(ws, "session");
+            let input = HookInput::pre_tool_use(
+                &tool_call.name,
+                tool_call.arguments.clone(),
+                "session",
+                ws,
+            );
+            let result = executor.run(
+                &self.settings,
+                HookEvent::PreToolUse,
+                Some(&tool_call.name),
+                input,
+            ).await;
+            if result.is_blocked() {
+                return Err(alva_agent_core::shared::MiddlewareError::Blocked {
+                    reason: result.blocking_messages().join("; "),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    async fn after_tool_call(
+        &self,
+        _state: &mut alva_agent_core::state::AgentState,
+        tool_call: &ToolCall,
+        tool_output: &mut ToolOutput,
+    ) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+        if let Some(ws) = self.workspace.get() {
+            let executor = HookExecutor::new(ws, "session");
+            let response_text = tool_output.model_text();
+            let input = HookInput::post_tool_use(
+                &tool_call.name,
+                tool_call.arguments.clone(),
+                &response_text,
+                "session",
+                ws,
+            );
+            let _ = executor.run(
+                &self.settings,
+                HookEvent::PostToolUse,
+                Some(&tool_call.name),
+                input,
+            ).await;
+        }
+        Ok(())
     }
 }
 
@@ -196,6 +543,82 @@ use crate::skills::tools::{SearchSkillsTool, UseSkillTool};
 use crate::skills::middleware::SkillInjectionMiddleware;
 use crate::skills::skill_fs::FsSkillRepository;
 use crate::skills::skill_ports::skill_repository::SkillRepository;
+
+// ===========================================================================
+// Analytics, Auth, LSP, Evaluation extensions
+// ===========================================================================
+
+/// Telemetry and event tracking.
+pub struct AnalyticsExtension {
+    log_path: Option<PathBuf>,
+}
+
+impl AnalyticsExtension {
+    pub fn new(log_path: Option<PathBuf>) -> Self {
+        Self { log_path }
+    }
+}
+
+#[async_trait]
+impl Extension for AnalyticsExtension {
+    fn name(&self) -> &str { "analytics" }
+    fn description(&self) -> &str { "Telemetry and event tracking" }
+
+    async fn configure(&self, ctx: &ExtensionContext) {
+        let path = self.log_path.clone()
+            .unwrap_or_else(|| ctx.workspace.join(".alva/analytics.jsonl"));
+        tracing::debug!(path = %path.display(), "analytics sink configured");
+    }
+}
+
+/// OAuth authentication and token persistence.
+pub struct AuthExtension;
+
+#[async_trait]
+impl Extension for AuthExtension {
+    fn name(&self) -> &str { "auth" }
+    fn description(&self) -> &str { "OAuth authentication and token persistence" }
+}
+
+/// Language Server Protocol management.
+pub struct LspExtension;
+
+#[async_trait]
+impl Extension for LspExtension {
+    fn name(&self) -> &str { "lsp" }
+    fn description(&self) -> &str { "Language server management and diagnostics" }
+}
+
+/// QA evaluation with sprint contract enforcement.
+pub struct EvaluationExtension {
+    contract: Option<crate::plugins::evaluation::SprintContract>,
+}
+
+impl EvaluationExtension {
+    pub fn new() -> Self {
+        Self { contract: None }
+    }
+
+    pub fn with_contract(mut self, contract: crate::plugins::evaluation::SprintContract) -> Self {
+        self.contract = Some(contract);
+        self
+    }
+}
+
+#[async_trait]
+impl Extension for EvaluationExtension {
+    fn name(&self) -> &str { "evaluation" }
+    fn description(&self) -> &str { "QA evaluation and sprint contract enforcement" }
+
+    async fn middleware(&self) -> Vec<Arc<dyn Middleware>> {
+        match &self.contract {
+            Some(contract) => vec![Arc::new(
+                crate::plugins::evaluation::SprintContractMiddleware::new(contract.clone())
+            )],
+            None => vec![],
+        }
+    }
+}
 
 /// Skill system: discovery, loading, and context injection.
 /// Provides SearchSkillsTool + UseSkillTool and SkillInjectionMiddleware.
@@ -223,11 +646,6 @@ impl SkillsExtension {
         let injector = Arc::new(SkillInjector::new(SkillLoader::new(repo as Arc<dyn SkillRepository>)));
 
         Self { store, loader, injector }
-    }
-
-    /// Access the underlying SkillStore (e.g., for agent_template_service).
-    pub fn store(&self) -> &Arc<SkillStore> {
-        &self.store
     }
 }
 

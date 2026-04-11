@@ -32,14 +32,10 @@ pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, Pen
 pub use alva_agent_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
 pub use alva_agent_core::run_agent;
 
-// Re-export alva-agent-tools (tool registration + presets + extensions + browser automation)
+// Re-export alva-agent-tools (tool registration + presets + browser automation)
 pub use alva_agent_tools::{register_all_tools, register_builtin_tools, tool_presets};
-pub use alva_agent_tools::extensions as tool_extensions;
 pub use alva_agent_tools::browser::BrowserManager;
 pub use alva_agent_tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
-
-// Re-export alva-agent-runtime extensions
-pub use alva_agent_runtime::extensions as runtime_extensions;
 
 // Re-export alva-agent-security
 pub use alva_agent_security::{
@@ -67,6 +63,7 @@ pub use alva_environment;
 
 // ── Kept modules ─────────────────────────────────────────────────────
 
+pub mod extension;
 pub mod agent;
 pub mod mcp;
 pub mod skills;

@@ -103,6 +103,7 @@ pub struct MiddlewarePriority;
 
 impl MiddlewarePriority {
     pub const SECURITY: i32 = 1000;
+    pub const HOOKS: i32 = 1500;
     pub const GUARDRAIL: i32 = 2000;
     pub const CONTEXT: i32 = 3000;
     pub const DEFAULT: i32 = 3000;

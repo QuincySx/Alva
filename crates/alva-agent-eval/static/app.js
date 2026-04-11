@@ -9,68 +9,62 @@ let currentStreamingEl = null;
 let lastRunId = null;
 
 // ---------------------------------------------------------------------------
-// Init: load tool list
+// Init: load extension list
 // ---------------------------------------------------------------------------
 
-const CORE_TOOLS = [
-  'read_file', 'grep_search', 'list_files', 'find_files',
-  'create_file', 'file_edit', 'execute_shell',
-];
-
-async function loadTools() {
+async function loadExtensions() {
   try {
-    const res = await fetch('/api/tools');
-    const tools = await res.json();
-    const picker = document.getElementById('tool-picker');
-    picker.innerHTML = '';
-    tools.forEach(t => {
-      const label = document.createElement('label');
-      const checked = CORE_TOOLS.includes(t.name) ? 'checked' : '';
-      label.innerHTML = `
-        <input type="checkbox" value="${t.name}" ${checked}>
-        <span>
-          <strong>${t.name}</strong>
-          <span class="tool-desc">${escHtml(truncate(t.description, 80))}</span>
-        </span>`;
-      picker.appendChild(label);
-    });
+    const res = await fetch('/api/extensions');
+    const exts = await res.json();
+    const picker = document.getElementById('extension-picker');
+
+    // Group by category
+    const tools = exts.filter(e => e.category === 'tools');
+    const middleware = exts.filter(e => e.category === 'middleware');
+    const system = exts.filter(e => e.category === 'system');
+
+    let html = '';
+
+    if (tools.length) {
+      html += '<div style="padding:4px 8px;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border)">Tools</div>';
+      tools.forEach(e => {
+        html += `<label title="${escHtml(e.description)}"><input type="checkbox" value="${e.name}" ${e.default_enabled ? 'checked' : ''}> ${e.name} <span style="color:var(--text-dim);font-size:11px">&mdash; ${escHtml(e.description)}</span></label>`;
+      });
+    }
+
+    if (middleware.length) {
+      html += '<div style="padding:4px 8px;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);margin-top:4px">Middleware</div>';
+      middleware.forEach(e => {
+        html += `<label title="${escHtml(e.description)}"><input type="checkbox" value="${e.name}" ${e.default_enabled ? 'checked' : ''}> ${e.name} <span style="color:var(--text-dim);font-size:11px">&mdash; ${escHtml(e.description)}</span></label>`;
+      });
+    }
+
+    if (system.length) {
+      html += '<div style="padding:4px 8px;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);margin-top:4px">System</div>';
+      system.forEach(e => {
+        html += `<label title="${escHtml(e.description)}"><input type="checkbox" value="${e.name}" ${e.default_enabled ? 'checked' : ''}> ${e.name} <span style="color:var(--text-dim);font-size:11px">&mdash; ${escHtml(e.description)}</span></label>`;
+      });
+    }
+
+    picker.innerHTML = html;
   } catch (e) {
-    console.error('Failed to load tools:', e);
+    console.error('Failed to load extensions:', e);
   }
 }
 
-async function loadMiddleware() {
-  try {
-    const res = await fetch('/api/middleware');
-    const mws = await res.json();
-    const picker = document.getElementById('middleware-picker');
-    picker.innerHTML = '';
-    mws.forEach(m => {
-      const label = document.createElement('label');
-      const checked = m.default_enabled ? 'checked' : '';
-      label.innerHTML = `
-        <input type="checkbox" value="${m.name}" ${checked}>
-        <span>
-          <strong>${m.name}</strong>
-          <span class="tool-desc">${escHtml(truncate(m.description, 60))}</span>
-        </span>`;
-      picker.appendChild(label);
-    });
-  } catch (e) {
-    console.error('Failed to load middleware:', e);
-  }
+function selectAllExtensions() {
+  document.querySelectorAll('#extension-picker input').forEach(c => c.checked = true);
+  autoSave();
 }
-
-function selectAllTools() {
-  document.querySelectorAll('#tool-picker input').forEach(c => c.checked = true);
+function selectNoExtensions() {
+  document.querySelectorAll('#extension-picker input').forEach(c => c.checked = false);
+  autoSave();
 }
-function selectNoTools() {
-  document.querySelectorAll('#tool-picker input').forEach(c => c.checked = false);
-}
-function selectCoreTools() {
-  document.querySelectorAll('#tool-picker input').forEach(c => {
-    c.checked = CORE_TOOLS.includes(c.value);
+function selectDefaultExtensions() {
+  document.querySelectorAll('#extension-picker input').forEach(c => {
+    c.checked = c.defaultChecked;
   });
+  autoSave();
 }
 
 // ---------------------------------------------------------------------------
@@ -100,20 +94,21 @@ async function startRun() {
   setStatus('Starting...', 'var(--blue)');
 
   const provider = document.querySelector('input[name="provider"]:checked').value;
-  const selectedTools = Array.from(
-    document.querySelectorAll('#tool-picker input:checked')
-  ).map(c => c.value);
 
   const apiKey = document.getElementById('apikey').value.trim();
   const baseUrl = document.getElementById('baseurl').value.trim();
   const workspace = document.getElementById('workspace').value.trim();
+
+  const selectedExtensions = Array.from(
+    document.querySelectorAll('#extension-picker input:checked')
+  ).map(c => c.value);
 
   const body = {
     provider,
     model: document.getElementById('model').value.trim(),
     system_prompt: document.getElementById('system').value,
     user_prompt: document.getElementById('prompt').value,
-    tools: selectedTools.length > 0 ? selectedTools : null,
+    extensions: selectedExtensions.length > 0 ? selectedExtensions : null,
     max_iterations: parseInt(document.getElementById('maxiter').value) || 10,
   };
 
@@ -121,13 +116,6 @@ async function startRun() {
   if (baseUrl) body.base_url = baseUrl;
   if (workspace) body.workspace = workspace;
   if (document.getElementById('enable-sub-agents')?.checked) body.enable_sub_agents = true;
-  if (document.getElementById('enable-browser')?.checked) body.enable_browser = true;
-
-  // Middleware selection
-  const selectedMiddleware = Array.from(
-    document.querySelectorAll('#middleware-picker input:checked')
-  ).map(c => c.value);
-  if (selectedMiddleware.length > 0) body.middleware = selectedMiddleware;
 
   try {
     const res = await fetch('/api/run', {
@@ -527,8 +515,8 @@ function autoSave() {
   if (el) el.addEventListener('input', autoSave);
 });
 
-// Auto-save tool selection changes
-document.getElementById('tool-picker')?.addEventListener('change', autoSave);
+// Auto-save extension selection changes
+document.getElementById('extension-picker')?.addEventListener('change', autoSave);
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -541,6 +529,5 @@ loadProfile().then(() => {
   restoreSettings();
 });
 
-// 3. Load tools + middleware, then restore saved selections
-loadTools().then(() => restoreToolSelection());
-loadMiddleware();
+// 3. Load extensions, then restore saved selections
+loadExtensions().then(() => restoreExtensionSelection());

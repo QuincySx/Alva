@@ -30,10 +30,9 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use alva_agent_core::event::AgentEvent;
+use alva_app_core::extension::*;
 use alva_llm_provider::{AnthropicProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig};
-use alva_types::{
-    LanguageModel, ToolRegistry,
-};
+use alva_types::LanguageModel;
 
 // ---------------------------------------------------------------------------
 // Embedded static assets
@@ -87,13 +86,9 @@ struct RunRequest {
     base_url: Option<String>,
     system_prompt: String,
     user_prompt: String,
-    /// Tool names to enable. If omitted, all standard tools are registered.
+    /// Extension names to enable. Each extension contributes tools and/or middleware.
     #[serde(default)]
-    tools: Option<Vec<String>>,
-    /// Middleware names to enable. If omitted, full production stack is used.
-    /// Available: loop_detection, dangling_tool_check, tool_timeout, compaction, checkpoint, plan_mode
-    #[serde(default)]
-    middleware: Option<Vec<String>>,
+    extensions: Option<Vec<String>>,
     #[serde(default)]
     max_iterations: Option<u32>,
     /// Workspace directory for tools to operate on. If omitted, uses a temp dir.
@@ -106,9 +101,6 @@ struct RunRequest {
     /// Enable sub-agent spawning. Default: false.
     #[serde(default)]
     enable_sub_agents: Option<bool>,
-    /// Enable browser tools. Default: false.
-    #[serde(default)]
-    enable_browser: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -118,9 +110,11 @@ struct RunResponse {
 }
 
 #[derive(Serialize)]
-struct ToolInfo {
+struct ExtensionInfo {
     name: String,
     description: String,
+    category: String,
+    default_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -162,40 +156,74 @@ struct CompareDiff {
 // API routes
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize)]
-struct MiddlewareInfo {
-    name: String,
-    description: String,
-    default_enabled: bool,
-}
-
-/// List available middleware options.
-async fn list_middleware() -> Json<Vec<MiddlewareInfo>> {
+/// List all available extensions (tools + middleware).
+async fn list_extensions() -> Json<Vec<ExtensionInfo>> {
     Json(vec![
-        MiddlewareInfo { name: "loop_detection".into(), description: "Detect repeated tool calls and break loops".into(), default_enabled: true },
-        MiddlewareInfo { name: "dangling_tool_check".into(), description: "Validate tool call format and existence".into(), default_enabled: true },
-        MiddlewareInfo { name: "tool_timeout".into(), description: "120s timeout per tool execution".into(), default_enabled: true },
-        MiddlewareInfo { name: "compaction".into(), description: "Auto-summarize old messages when context is full".into(), default_enabled: true },
-        MiddlewareInfo { name: "checkpoint".into(), description: "File backups before write operations".into(), default_enabled: true },
-        MiddlewareInfo { name: "plan_mode".into(), description: "Block write tools in plan mode (read-only)".into(), default_enabled: true },
+        // Tool extensions
+        ExtensionInfo { name: "core".into(), description: "File I/O: read, write, edit, search, list".into(), category: "tools".into(), default_enabled: true },
+        ExtensionInfo { name: "shell".into(), description: "Shell command execution".into(), category: "tools".into(), default_enabled: true },
+        ExtensionInfo { name: "interaction".into(), description: "Human interaction (ask_human)".into(), category: "tools".into(), default_enabled: false },
+        ExtensionInfo { name: "task".into(), description: "Task management: create, update, get, list".into(), category: "tools".into(), default_enabled: false },
+        ExtensionInfo { name: "team".into(), description: "Team / multi-agent coordination".into(), category: "tools".into(), default_enabled: false },
+        ExtensionInfo { name: "planning".into(), description: "Planning mode + worktree tools".into(), category: "tools".into(), default_enabled: false },
+        ExtensionInfo { name: "utility".into(), description: "Sleep, config, notebook, skill, schedule".into(), category: "tools".into(), default_enabled: false },
+        ExtensionInfo { name: "web".into(), description: "Internet search + URL fetching".into(), category: "tools".into(), default_enabled: true },
+        ExtensionInfo { name: "browser".into(), description: "Browser automation (7 tools)".into(), category: "tools".into(), default_enabled: false },
+        // System extensions
+        ExtensionInfo { name: "skills".into(), description: "Skill discovery, loading, and context injection".into(), category: "system".into(), default_enabled: false },
+        ExtensionInfo { name: "mcp".into(), description: "MCP server integration (connect external tools)".into(), category: "system".into(), default_enabled: false },
+        ExtensionInfo { name: "hooks".into(), description: "Lifecycle hooks (shell scripts at tool/session events)".into(), category: "system".into(), default_enabled: false },
+        ExtensionInfo { name: "analytics".into(), description: "Telemetry and event tracking".into(), category: "system".into(), default_enabled: false },
+        ExtensionInfo { name: "evaluation".into(), description: "QA evaluation and sprint contract enforcement".into(), category: "system".into(), default_enabled: false },
+        // Middleware extensions
+        ExtensionInfo { name: "loop-detection".into(), description: "Detect repeated tool calls and break loops".into(), category: "middleware".into(), default_enabled: true },
+        ExtensionInfo { name: "dangling-tool-call".into(), description: "Validate tool call format and existence".into(), category: "middleware".into(), default_enabled: true },
+        ExtensionInfo { name: "tool-timeout".into(), description: "120s timeout per tool execution".into(), category: "middleware".into(), default_enabled: true },
+        ExtensionInfo { name: "compaction".into(), description: "Auto-summarize old messages when context full".into(), category: "middleware".into(), default_enabled: true },
+        ExtensionInfo { name: "checkpoint".into(), description: "File backups before write operations".into(), category: "middleware".into(), default_enabled: true },
+        ExtensionInfo { name: "plan-mode".into(), description: "Plan mode (read-only tool restriction, runtime toggle)".into(), category: "middleware".into(), default_enabled: false },
+        ExtensionInfo { name: "sub-agents".into(), description: "Sub-agent spawning via the agent tool".into(), category: "system".into(), default_enabled: false },
     ])
 }
 
-/// List all available builtin tools.
-async fn list_tools() -> Json<Vec<ToolInfo>> {
-    let mut registry = ToolRegistry::new();
-    alva_agent_tools::register_builtin_tools(&mut registry);
-
-    let tools = registry
-        .definitions()
-        .into_iter()
-        .map(|d| ToolInfo {
-            name: d.name,
-            description: d.description,
-        })
-        .collect();
-
-    Json(tools)
+/// Map an extension name to its concrete Extension type.
+fn create_extension(name: &str, workspace: &std::path::Path) -> Option<Box<dyn alva_app_core::extension::Extension>> {
+    match name {
+        // Tool extensions
+        "core" => Some(Box::new(CoreExtension)),
+        "shell" => Some(Box::new(ShellExtension)),
+        "interaction" => Some(Box::new(InteractionExtension)),
+        "task" => Some(Box::new(TaskExtension)),
+        "team" => Some(Box::new(TeamExtension)),
+        "planning" => Some(Box::new(PlanningExtension)),
+        "utility" => Some(Box::new(UtilityExtension)),
+        "web" => Some(Box::new(WebExtension)),
+        "browser" => Some(Box::new(BrowserExtension)),
+        // System extensions
+        "skills" => Some(Box::new(SkillsExtension::new(vec![
+            workspace.join(".alva/skills"),
+        ]))),
+        "mcp" => Some(Box::new(McpExtension::new(vec![
+            workspace.join(".alva/mcp.json"),
+        ]))),
+        "hooks" => Some(Box::new(HooksExtension::new(
+            alva_app_core::settings::HooksSettings::default(),
+        ))),
+        "analytics" => Some(Box::new(AnalyticsExtension::new(None))),
+        "evaluation" => Some(Box::new(EvaluationExtension::new())),
+        // Middleware extensions
+        "loop-detection" => Some(Box::new(LoopDetectionExtension)),
+        "dangling-tool-call" => Some(Box::new(DanglingToolCallExtension)),
+        "tool-timeout" => Some(Box::new(ToolTimeoutExtension)),
+        "compaction" => Some(Box::new(CompactionExtension)),
+        "checkpoint" => Some(Box::new(CheckpointExtension)),
+        "plan-mode" => Some(Box::new(alva_app_core::extension::PlanModeExtension::new())),
+        "sub-agents" => Some(Box::new(alva_app_core::extension::SubAgentExtension::new(3))),
+        _ => {
+            tracing::warn!(name, "unknown extension, skipping");
+            None
+        }
+    }
 }
 
 /// Internal: create an agent run and return (run_id, tool_names).
@@ -257,67 +285,43 @@ async fn create_run(
         (Some(tmp), p)
     };
 
-    // -- 3. Build BaseAgent via builder (includes all middleware + sub-agents) --
+    // -- 3. Build BaseAgent via builder (extensions-based) ----------------------
     let max_iterations = req.max_iterations.unwrap_or(10);
     let system_prompt = req.system_prompt;
 
+    let default_extensions = vec![
+        "core", "shell", "web",
+        "loop-detection", "dangling-tool-call", "tool-timeout", "compaction", "checkpoint",
+    ];
+
+    let extension_names: Vec<String> = req.extensions.clone()
+        .unwrap_or_else(|| default_extensions.iter().map(|s| s.to_string()).collect());
+
     let (rec, done_rx) = recorder::RecorderMiddleware::new();
     let rec = Arc::new(rec);
-    rec.set_config(system_prompt.clone(), max_iterations, vec![]);
+    rec.set_config(
+        system_prompt.clone(),
+        max_iterations,
+        vec![],                  // skill_names
+        extension_names.clone(), // extension_names
+        vec![],                  // middleware_names (no longer separate)
+    );
 
-    // -- Build dynamic extension from UI selections ----------------------------
-    // Tools
-    let all_tools = alva_agent_tools::tool_presets::all_standard();
-    let selected_tools: Vec<Box<dyn alva_types::Tool>> = match &req.tools {
-        Some(names) => all_tools.into_iter().filter(|t| names.contains(&t.name().to_string())).collect(),
-        None => all_tools,
-    };
-
-    // Middleware
-    let mut selected_middleware: Vec<Arc<dyn alva_agent_core::middleware::Middleware>> = Vec::new();
-    let mut enable_plan_mode = false;
-
-    match &req.middleware {
-        Some(names) => {
-            for name in names {
-                match name.as_str() {
-                    "loop_detection" => selected_middleware.push(Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new())),
-                    "dangling_tool_check" => selected_middleware.push(Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new())),
-                    "tool_timeout" => selected_middleware.push(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default())),
-                    "compaction" => selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default())),
-                    "checkpoint" => selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new())),
-                    "plan_mode" => enable_plan_mode = true,
-                    _ => tracing::warn!(name = name.as_str(), "unknown middleware, skipping"),
-                }
-            }
-        }
-        None => {
-            selected_middleware.push(Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()));
-            selected_middleware.push(Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()));
-            selected_middleware.push(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()));
-            selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()));
-            selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new()));
-            enable_plan_mode = true;
-        }
-    };
-
-    // -- Build agent (use direct tools/middleware for dynamic eval selection) ---
+    // -- Build agent via extensions -------------------------------------------
     let mut builder = alva_app_core::BaseAgent::builder()
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
         .max_iterations(max_iterations)
-        .tools(selected_tools)
-        .middlewares(selected_middleware)
-        .middleware(rec.clone());
+        .middleware(rec.clone()); // Recorder is always added
 
-    if enable_plan_mode {
-        builder = builder.with_plan_mode();
+    for name in &extension_names {
+        if let Some(ext) = create_extension(name, &workspace_path) {
+            builder = builder.extension(ext);
+        }
     }
+
     if req.enable_sub_agents.unwrap_or(false) {
-        builder = builder.with_sub_agents();
-    }
-    if req.enable_browser.unwrap_or(false) {
-        builder = builder.extension(Box::new(alva_agent_tools::extensions::BrowserExtension));
+        builder = builder.extension(Box::new(alva_app_core::extension::SubAgentExtension::new(3)));
     }
 
     // -- Approval handler: auto-approve with logging ---------------------------
@@ -359,18 +363,26 @@ async fn create_run(
         }
     });
 
-    // Record persistence task — waits for on_agent_end
+    // Record persistence task — waits for on_agent_end (with timeout for panic safety)
     tokio::spawn(async move {
         let _tmp_guard = _tmp_guard; // keep TempDir alive
 
-        // Wait for on_agent_end to fire
-        let _ = done_rx.await;
+        // Wait for on_agent_end to fire, with 10-minute timeout for panic safety
+        let timeout_result = tokio::time::timeout(
+            std::time::Duration::from_secs(600),
+            done_rx,
+        ).await;
+
+        if timeout_result.is_err() {
+            tracing::error!(run_id = %run_id_for_record, "run did not complete within 10 minutes, saving partial record");
+        }
 
         // Extract record and persist
-        log_store_for_persist.stop_capture();
+        log_store_for_persist.stop_capture(&run_id_for_record);
         let record = rec_clone.take_record();
         let logs = log_store_for_persist.get_logs(&run_id_for_record);
         state_clone.db.save(&run_id_for_record, &record, &logs);
+        log_store_for_persist.remove_logs(&run_id_for_record);
     });
 
     // -- 5. Store handles ---------------------------------------------------
@@ -645,7 +657,7 @@ async fn main() {
     // Terminal output defaults to warn; override with RUST_LOG=info or RUST_LOG=debug.
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(
-            "warn,alva_llm_provider=debug,alva_agent_core=info"
+            "warn,alva_llm_provider=debug,alva_agent_core=info,alva_agent_runtime=info,alva_agent_tools=info,alva_agent_security=info,alva_app_core=info"
         ));
 
     use tracing_subscriber::layer::SubscriberExt;
@@ -667,8 +679,7 @@ async fn main() {
 
     let app = Router::new()
         // API routes
-        .route("/api/tools", get(list_tools))
-        .route("/api/middleware", get(list_middleware))
+        .route("/api/extensions", get(list_extensions))
         .route("/api/run", post(start_run))
         .route("/api/events/:run_id", get(events))
         // /api/messages removed — messages are in /api/records/:run_id

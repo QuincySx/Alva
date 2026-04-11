@@ -4,7 +4,7 @@
 //! It lives purely at the eval app layer — no changes to Provider or Agent-core needed.
 //! The providers already emit debug/info events; this layer captures them for the UI.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -31,10 +31,13 @@ pub struct LogEntry {
 // ---------------------------------------------------------------------------
 
 /// Thread-safe store for captured log entries, keyed by run_id.
+///
+/// Supports multiple concurrent active runs (e.g., compare mode).
+/// Events are broadcast to ALL active runs since tracing events are global.
 #[derive(Clone)]
 pub struct LogStore {
-    /// Current active run_id — set before agent run starts, cleared after.
-    active_run: Arc<Mutex<Option<String>>>,
+    /// Currently active run IDs — events are captured for all of them.
+    active_runs: Arc<Mutex<HashSet<String>>>,
     /// Captured logs per run_id.
     logs: Arc<Mutex<HashMap<String, Vec<LogEntry>>>>,
 }
@@ -42,19 +45,19 @@ pub struct LogStore {
 impl LogStore {
     pub fn new() -> Self {
         Self {
-            active_run: Arc::new(Mutex::new(None)),
+            active_runs: Arc::new(Mutex::new(HashSet::new())),
             logs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Set the active run_id. All subsequent log events will be captured under this id.
+    /// Start capturing logs for a run. Multiple runs can be active simultaneously.
     pub fn start_capture(&self, run_id: &str) {
-        *self.active_run.lock().unwrap() = Some(run_id.to_string());
+        self.active_runs.lock().unwrap().insert(run_id.to_string());
     }
 
-    /// Stop capturing logs for the current run.
-    pub fn stop_capture(&self) {
-        *self.active_run.lock().unwrap() = None;
+    /// Stop capturing logs for a specific run.
+    pub fn stop_capture(&self, run_id: &str) {
+        self.active_runs.lock().unwrap().remove(run_id);
     }
 
     /// Get captured logs for a run.
@@ -67,16 +70,20 @@ impl LogStore {
             .unwrap_or_default()
     }
 
-    /// Push a log entry to the active run.
+    /// Remove logs for a completed run (free memory after persistence).
+    pub fn remove_logs(&self, run_id: &str) {
+        self.logs.lock().unwrap().remove(run_id);
+    }
+
+    /// Push a log entry to all active runs.
     fn push(&self, entry: LogEntry) {
-        let run_id = self.active_run.lock().unwrap().clone();
-        if let Some(run_id) = run_id {
-            self.logs
-                .lock()
-                .unwrap()
-                .entry(run_id)
-                .or_default()
-                .push(entry);
+        let active = self.active_runs.lock().unwrap().clone();
+        if active.is_empty() {
+            return;
+        }
+        let mut logs = self.logs.lock().unwrap();
+        for run_id in &active {
+            logs.entry(run_id.clone()).or_default().push(entry.clone());
         }
     }
 }
@@ -138,10 +145,10 @@ impl Visit for FieldVisitor {
 // Tracing Layer implementation
 // ---------------------------------------------------------------------------
 
-/// A tracing Layer that captures events from LLM providers and agent-core
-/// into a per-run log buffer.
+/// A tracing Layer that captures events from agent crates into per-run log buffers.
 ///
-/// Only captures events from relevant targets (alva_llm_provider, alva_agent_core).
+/// Captures events from: alva_llm_provider, alva_agent_core, alva_agent_runtime,
+/// alva_agent_tools, alva_agent_security, alva_app_core, alva_agent_eval.
 pub struct LogCaptureLayer {
     store: LogStore,
 }
@@ -160,6 +167,11 @@ impl<S: Subscriber> Layer<S> for LogCaptureLayer {
         // Only capture events from our crates
         if !target.starts_with("alva_llm_provider")
             && !target.starts_with("alva_agent_core")
+            && !target.starts_with("alva_agent_runtime")
+            && !target.starts_with("alva_agent_tools")
+            && !target.starts_with("alva_agent_security")
+            && !target.starts_with("alva_app_core")
+            && !target.starts_with("alva_agent_eval")
         {
             return;
         }

@@ -78,10 +78,28 @@ pub(crate) async fn build_agent(
             paths.project_skills_dir(),
             paths.global_skills_dir(),
         ])))
-        .extension(Box::new(alva_app_core::extension::AllStandardExtension))
-        .extension(Box::new(alva_app_core::extension::ProductionExtension))
-        .with_sub_agents()
-        .sub_agent_max_depth(3);
+        .extension(Box::new(alva_app_core::extension::CoreExtension))
+        .extension(Box::new(alva_app_core::extension::ShellExtension))
+        .extension(Box::new(alva_app_core::extension::InteractionExtension))
+        .extension(Box::new(alva_app_core::extension::TaskExtension))
+        .extension(Box::new(alva_app_core::extension::TeamExtension))
+        .extension(Box::new(alva_app_core::extension::PlanningExtension))
+        .extension(Box::new(alva_app_core::extension::UtilityExtension))
+        .extension(Box::new(alva_app_core::extension::WebExtension))
+        .extension(Box::new(alva_app_core::extension::LoopDetectionExtension))
+        .extension(Box::new(alva_app_core::extension::DanglingToolCallExtension))
+        .extension(Box::new(alva_app_core::extension::ToolTimeoutExtension))
+        .extension(Box::new(alva_app_core::extension::CompactionExtension))
+        .extension(Box::new(alva_app_core::extension::CheckpointExtension))
+        .extension(Box::new(alva_app_core::extension::PlanModeExtension::new()))
+        .extension(Box::new(alva_app_core::extension::SubAgentExtension::new(3)))
+        .extension(Box::new(alva_app_core::extension::McpExtension::new(vec![
+            paths.global_mcp_config(),
+            paths.project_mcp_config(),
+        ])))
+        .extension(Box::new(alva_app_core::extension::HooksExtension::new(
+            alva_app_core::settings::HooksSettings::default(),
+        )));
     let approval_rx = builder.with_approval_channel();
     let agent = builder.build(model).await.expect("failed to build agent");
 

@@ -52,19 +52,14 @@
     <label for="prompt">User Prompt</label>
     <textarea id="prompt" rows="3" placeholder="Ask the agent something..."></textarea>
 
-    <label>Tools</label>
+    <label>Extensions</label>
     <div class="tool-actions">
-      <button onclick="selectAllTools()">Select All</button>
-      <button onclick="selectNoTools()">Select None</button>
-      <button onclick="selectCoreTools()">Core Only</button>
+      <button onclick="selectAllExtensions()">Select All</button>
+      <button onclick="selectNoExtensions()">Select None</button>
+      <button onclick="selectDefaultExtensions()">Defaults</button>
     </div>
-    <div class="tool-picker" id="tool-picker">
-      <div style="color:var(--text-dim);font-size:12px;padding:8px">Loading tools...</div>
-    </div>
-
-    <label>Middleware</label>
-    <div class="tool-picker" id="middleware-picker">
-      <div style="color:var(--text-dim);font-size:12px;padding:8px">Loading...</div>
+    <div class="tool-picker" id="extension-picker">
+      <div style="color:var(--text-dim);font-size:12px;padding:8px">Loading extensions...</div>
     </div>
 
     <label>Skills</label>
@@ -90,10 +85,6 @@
       <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;cursor:pointer;margin:0">
         <input type="checkbox" id="enable-sub-agents" style="width:auto;accent-color:var(--blue)">
         Sub-Agents
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;cursor:pointer;margin:0">
-        <input type="checkbox" id="enable-browser" style="width:auto;accent-color:var(--blue)">
-        Browser Tools
       </label>
     </div>
 

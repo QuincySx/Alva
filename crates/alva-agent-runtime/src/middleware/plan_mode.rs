@@ -46,6 +46,20 @@ impl PlanModeMiddleware {
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
     }
+}
+
+/// Trait for runtime plan mode control, exposed via Bus.
+pub trait PlanModeControl: Send + Sync {
+    fn set_enabled(&self, enabled: bool);
+}
+
+impl PlanModeControl for PlanModeMiddleware {
+    fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+}
+
+impl PlanModeMiddleware {
 
     /// Check if a tool name matches any read_only pattern from settings.
     fn matches_read_only_pattern(&self, tool_name: &str) -> bool {

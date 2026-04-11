@@ -6,7 +6,6 @@ description = "Built-in tool implementations for the agent framework"
 
 [dependencies]
 alva-types = { path = "../alva-types" }
-alva-agent-core = { path = "../alva-agent-core" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "time"] }
 futures = "0.3"

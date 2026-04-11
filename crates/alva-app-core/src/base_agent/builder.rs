@@ -6,7 +6,7 @@ use alva_agent_core::state::{AgentConfig, AgentState};
 use alva_agent_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
 use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest};
-use alva_agent_runtime::middleware::{CheckpointMiddleware, PlanModeMiddleware, SecurityMiddleware};
+use alva_agent_runtime::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
 use alva_types::{
     Bus, BusPlugin, CancellationToken, LanguageModel,
@@ -22,24 +22,18 @@ use super::agent::BaseAgent;
 use super::permission::PermissionMode;
 use crate::extension::Extension;
 
-/// Builder for constructing a [`BaseAgent`] with sensible defaults.
+/// Builder for constructing a [`BaseAgent`].
 ///
-/// # Middleware
-///
-/// By default, `build()` adds the full production middleware stack
-/// (Security, LoopDetection, DanglingToolCall, ToolTimeout, Compaction,
-/// PlanMode, Checkpoint). Use `.bare()` to skip all defaults and
-/// register only what you need via `.middleware()` / `.middlewares()`.
+/// By default, `build()` only adds `SecurityMiddleware`. All other tools
+/// and middleware come from registered Extensions via `.extension()`.
 ///
 /// ```rust,ignore
-/// // Full production stack (default):
-/// BaseAgent::builder().workspace(path).build(model).await?;
-///
-/// // Bare — only what you register:
 /// BaseAgent::builder()
 ///     .workspace(path)
-///     .bare()
-///     .middleware(Arc::new(LoopDetectionMiddleware::new()))
+///     .extension(Box::new(CoreExtension))
+///     .extension(Box::new(ShellExtension))
+///     .extension(Box::new(LoopDetectionExtension))
+///     .extension(Box::new(CompactionExtension))
 ///     .build(model).await?;
 /// ```
 pub struct BaseAgentBuilder {
@@ -49,21 +43,14 @@ pub struct BaseAgentBuilder {
 
     // Extensions
     pub(crate) extensions: Vec<Box<dyn Extension>>,
-    // Direct tool/middleware (for special cases like sub-agents, plan-mode)
+    // Direct tool/middleware (for special cases beyond extensions)
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
     pub(crate) enable_memory: bool,
-    pub(crate) enable_sub_agents: bool,
-    pub(crate) sub_agent_max_depth: u32,
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
-
-    // Typed references for middleware that needs runtime access from BaseAgent
-    pub(crate) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
-    pub(crate) plan_mode_mw: Option<Arc<PlanModeMiddleware>>,
-
 }
 
 impl BaseAgentBuilder {
@@ -77,14 +64,10 @@ impl BaseAgentBuilder {
             extra_tools: Vec::new(),
             extra_middleware: Vec::new(),
             enable_memory: false,
-            enable_sub_agents: false,
-            sub_agent_max_depth: 3,
             max_iterations: 100,
             context_window: 0,
             approval_notifier: None,
             bus_plugins: Vec::new(),
-            security_guard: None,
-            plan_mode_mw: None,
         }
     }
 
@@ -143,35 +126,11 @@ impl BaseAgentBuilder {
         self
     }
 
-    // -- Special builder methods (justified exceptions) -----------------------
-
-    /// Add PlanModeMiddleware and store typed ref for runtime toggle.
-    /// BaseAgent::set_permission_mode() needs direct access to call set_enabled().
-    pub fn with_plan_mode(mut self) -> Self {
-        let pm = Arc::new(PlanModeMiddleware::new(false));
-        self.plan_mode_mw = Some(pm.clone());
-        self.extra_middleware.push(pm);
-        self
-    }
-
-
     // -- Features -------------------------------------------------------------
 
     /// Enable the memory subsystem (SQLite-backed).
     pub fn with_memory(mut self) -> Self {
         self.enable_memory = true;
-        self
-    }
-
-    /// Enable the `agent` tool (sub-agent spawning). Default: off.
-    pub fn with_sub_agents(mut self) -> Self {
-        self.enable_sub_agents = true;
-        self
-    }
-
-    /// Set the maximum sub-agent nesting depth (default: 3).
-    pub fn sub_agent_max_depth(mut self, depth: u32) -> Self {
-        self.sub_agent_max_depth = depth;
         self
     }
 
@@ -271,6 +230,7 @@ impl BaseAgentBuilder {
         // Configure extensions with full context (bus, workspace, tool names).
         let ext_ctx = crate::extension::ExtensionContext {
             bus: bus_handle.clone(),
+            bus_writer: bus_writer.clone(),
             workspace: workspace.clone(),
             tool_names: tool_registry.definitions().iter().map(|d| d.name.clone()).collect(),
         };
@@ -278,20 +238,18 @@ impl BaseAgentBuilder {
             ext.configure(&ext_ctx).await;
         }
 
-        // 7. Optionally add the agent spawn tool (replaces the placeholder from builtins)
-        if self.enable_sub_agents {
-            // Remove the placeholder AgentTool registered by register_builtin_tools()
-            alva_tools_list.retain(|t| t.name() != "agent");
-
-            let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
-                model.clone(),
-                alva_tools_list.clone(),
-                std::time::Duration::from_secs(300),
-                self.max_iterations,
-                self.sub_agent_max_depth,
-            ));
-            let spawn_tool = crate::plugins::agent_spawn::create_agent_spawn_tool(root_scope);
-            alva_tools_list.push(Arc::from(spawn_tool));
+        // 7. Finalize phase — extensions can add tools that depend on the final tool list
+        let finalize_ctx = crate::extension::FinalizeContext {
+            bus: bus_handle.clone(),
+            bus_writer: bus_writer.clone(),
+            workspace: workspace.clone(),
+            model: model.clone(),
+            tools: alva_tools_list.clone(),
+            max_iterations: self.max_iterations,
+        };
+        for ext in &self.extensions {
+            let extra = ext.finalize(&finalize_ctx).await;
+            alva_tools_list.extend(extra);
         }
 
         // 8. Create V2 AgentState
@@ -357,10 +315,8 @@ impl BaseAgentBuilder {
             current_cancel: std::sync::Mutex::new(CancellationToken::new()),
             permission_mode: std::sync::Mutex::new(PermissionMode::Ask),
             tool_registry,
-            skill_store: None,
             memory,
             security_guard,
-            plan_mode_middleware: self.plan_mode_mw,
             pending_messages,
             bus_writer,
             bus: bus_handle,
@@ -378,40 +334,7 @@ impl Default for BaseAgentBuilder {
 // Middleware presets — common middleware combinations
 // ---------------------------------------------------------------------------
 
-/// Pre-built middleware sets for common use cases.
-///
-/// Security middleware is always added by `build()` and is NOT included in presets.
-pub mod middleware_presets {
-    use super::*;
-
-    /// Minimal guardrails: loop detection + dangling tool call validation.
-    pub fn guardrails() -> Vec<Arc<dyn Middleware>> {
-        vec![
-            Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
-            Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()),
-        ]
-    }
-
-    /// Guardrails + tool timeout (120s default).
-    pub fn guardrails_with_timeout() -> Vec<Arc<dyn Middleware>> {
-        let mut mws = guardrails();
-        mws.push(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()));
-        mws
-    }
-
-    /// Full production stack: guardrails + timeout + compaction + checkpoint.
-    /// PlanMode is NOT included — use `.with_plan_mode()` separately (needs typed ref).
-    /// Middleware that needs bus receives it via `configure()` at build time.
-    pub fn production() -> Vec<Arc<dyn Middleware>> {
-        vec![
-            Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()),
-            Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()),
-            Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()),
-            Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()),
-            Arc::new(CheckpointMiddleware::new()),
-        ]
-    }
-}
+// middleware_presets removed — use individual middleware extensions instead.
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -489,10 +412,12 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let result = BaseAgent::builder()
             .workspace(tmp.path())
-            .middlewares(middleware_presets::guardrails())
+            .extension(Box::new(crate::extension::LoopDetectionExtension))
+            .extension(Box::new(crate::extension::DanglingToolCallExtension))
+            .extension(Box::new(crate::extension::ToolTimeoutExtension))
             .build(model)
             .await;
 
-        assert!(result.is_ok(), "build with preset should succeed");
+        assert!(result.is_ok(), "build with extension should succeed");
     }
 }

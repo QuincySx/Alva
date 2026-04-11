@@ -41,6 +41,10 @@ pub struct ConfigSnapshot {
     pub tool_definitions: Vec<ToolDefinition>,
     pub skill_names: Vec<String>,
     pub max_iterations: u32,
+    #[serde(default)]
+    pub extension_names: Vec<String>,
+    #[serde(default)]
+    pub middleware_names: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +71,8 @@ pub struct LlmCallRecord {
     pub duration_ms: u64,
     /// One of `"end_turn"`, `"tool_use"`, `"max_tokens"`, or `"error"`.
     pub stop_reason: String,
+    /// Error message if the agent ended with an error (set in `on_agent_end`).
+    pub error_message: Option<String>,
     pub middleware_hooks: Vec<HookRecord>,
 }
 
@@ -157,12 +163,21 @@ impl RecorderMiddleware {
 
     /// Pre-fill config fields that are only available to the caller (not via AgentState).
     /// Call this before the agent run starts.
-    pub fn set_config(&self, system_prompt: String, max_iterations: u32, skill_names: Vec<String>) {
+    pub fn set_config(
+        &self,
+        system_prompt: String,
+        max_iterations: u32,
+        skill_names: Vec<String>,
+        extension_names: Vec<String>,
+        middleware_names: Vec<String>,
+    ) {
         let mut s = self.state.lock().unwrap();
         if let Some(ref mut snap) = s.config_snapshot {
             snap.system_prompt = system_prompt;
             snap.max_iterations = max_iterations;
             snap.skill_names = skill_names;
+            snap.extension_names = extension_names;
+            snap.middleware_names = middleware_names;
         } else {
             s.config_snapshot = Some(ConfigSnapshot {
                 system_prompt,
@@ -171,6 +186,8 @@ impl RecorderMiddleware {
                 tool_definitions: vec![],
                 skill_names,
                 max_iterations,
+                extension_names,
+                middleware_names,
             });
         }
     }
@@ -206,6 +223,8 @@ impl RecorderMiddleware {
             tool_definitions: Vec::new(),
             skill_names: Vec::new(),
             max_iterations: 0,
+            extension_names: Vec::new(),
+            middleware_names: Vec::new(),
         });
 
         let turns = std::mem::take(&mut s.turns);
@@ -253,6 +272,7 @@ impl RecorderMiddleware {
                 output_tokens: tb.llm_output_tokens,
                 duration_ms: llm_duration_ms,
                 stop_reason,
+                error_message: None,
                 middleware_hooks: Vec::new(),
             };
 
@@ -298,6 +318,8 @@ impl Middleware for RecorderMiddleware {
                 tool_definitions,
                 skill_names: Vec::new(),
                 max_iterations: 0,
+                extension_names: Vec::new(),
+                middleware_names: Vec::new(),
             });
         }
 
@@ -307,10 +329,16 @@ impl Middleware for RecorderMiddleware {
     async fn on_agent_end(
         &self,
         _state: &mut AgentState,
-        _error: Option<&str>,
+        error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         let mut s = self.state.lock().unwrap();
         Self::finalize_current_turn(&mut s);
+        // Set error message on the last turn (covers both pre-finalized and just-finalized)
+        if let Some(err) = error {
+            if let Some(last_turn) = s.turns.last_mut() {
+                last_turn.llm_call.error_message = Some(err.to_string());
+            }
+        }
         // Notify that the run is done
         if let Some(tx) = s.done_tx.take() {
             let _ = tx.send(());

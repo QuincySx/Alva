@@ -179,6 +179,16 @@ impl Tool for AgentSpawnTool {
             board_registry: self.board_registry.clone(),
         }));
 
+        tracing::info!(
+            sub_agent_task = %input.task,
+            sub_agent_role = %input.role,
+            depth = child_scope.depth(),
+            parent_scope_id = %self.scope.id(),
+            inherit_tools = input.inherit_tools,
+            tool_count = child_tools.len(),
+            "sub-agent spawned"
+        );
+
         // Run child agent using the shared helper
         let result = run_child_agent(ChildAgentParams {
             model: child_scope.model(),
@@ -196,6 +206,16 @@ impl Tool for AgentSpawnTool {
             bus: ctx.bus().cloned(),
         })
         .await;
+
+        tracing::info!(
+            sub_agent_role = %input.role,
+            depth = child_scope.depth(),
+            parent_scope_id = %self.scope.id(),
+            output_len = result.text.len(),
+            success = !result.is_error,
+            error = result.error.as_deref().unwrap_or(""),
+            "sub-agent completed"
+        );
 
         // Post result to board if applicable
         if let Some(board_id) = &input.board {

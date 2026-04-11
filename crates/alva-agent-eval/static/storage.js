@@ -110,7 +110,7 @@ function defaultStore() {
     workspace: '',
     system_prompt: 'You are a helpful coding assistant. Use tools when appropriate.',
     max_iterations: 10,
-    selected_tools: null, // null = use defaults from CORE_TOOLS
+    selected_extensions: null, // null = use defaults from server
   };
 }
 
@@ -205,7 +205,7 @@ function getSettings() {
     workspace: store.workspace || '',
     system_prompt: store.system_prompt || '',
     max_iterations: store.max_iterations || 10,
-    selected_tools: store.selected_tools || null,
+    selected_extensions: store.selected_extensions || null,
   };
 }
 
@@ -282,15 +282,15 @@ async function deleteProfile() {
 
 /** Save non-profile settings (workspace, system prompt, etc.) from the form. */
 function persistSettings() {
-  const selectedTools = Array.from(
-    document.querySelectorAll('#tool-picker input:checked')
+  const selectedExtensions = Array.from(
+    document.querySelectorAll('#extension-picker input:checked')
   ).map(c => c.value);
 
   saveSettings({
     workspace: document.getElementById('workspace')?.value || '',
     system_prompt: document.getElementById('system')?.value || '',
     max_iterations: parseInt(document.getElementById('maxiter')?.value) || 10,
-    selected_tools: selectedTools.length > 0 ? selectedTools : null,
+    selected_extensions: selectedExtensions.length > 0 ? selectedExtensions : null,
   });
 }
 
@@ -303,11 +303,11 @@ function restoreSettings() {
   // Tool checkboxes are restored in app.js after tool list loads
 }
 
-/** Restore tool checkbox state from saved settings. Called after tool picker is populated. */
-function restoreToolSelection() {
+/** Restore extension checkbox state from saved settings. Called after extension picker is populated. */
+function restoreExtensionSelection() {
   const s = getSettings();
-  if (!s.selected_tools) return; // Use defaults
-  document.querySelectorAll('#tool-picker input[type="checkbox"]').forEach(cb => {
-    cb.checked = s.selected_tools.includes(cb.value);
+  if (!s.selected_extensions) return; // Use defaults from server
+  document.querySelectorAll('#extension-picker input[type="checkbox"]').forEach(cb => {
+    cb.checked = s.selected_extensions.includes(cb.value);
   });
 }
