@@ -4,6 +4,7 @@
 
 pub mod builtins;
 pub mod event;
+pub mod extension;
 pub mod middleware;
 pub mod pending_queue;
 pub mod run;
@@ -17,6 +18,9 @@ pub use shared::{Extensions, MiddlewareError, MiddlewarePriority};
 
 // Re-exports — state
 pub use state::{AgentConfig, AgentState};
+
+// Re-exports — extension
+pub use extension::{Extension, ExtensionAPI};
 
 // Re-exports — middleware
 pub use middleware::{LlmCallFn, Middleware, MiddlewareStack, ToolCallFn};

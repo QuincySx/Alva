@@ -65,6 +65,8 @@ pub mod read_url;
 #[cfg(feature = "browser")]
 pub mod browser;
 
+pub mod extensions;
+
 use std::sync::Arc;
 use alva_types::tool::Tool;
 use alva_types::ToolRegistry;

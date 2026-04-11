@@ -265,14 +265,15 @@ async fn create_run(
     let rec = Arc::new(rec);
     rec.set_config(system_prompt.clone(), max_iterations, vec![]);
 
-    // -- Tools: filter by user selection or use all_standard -------------------
+    // -- Build dynamic extension from UI selections ----------------------------
+    // Tools
     let all_tools = alva_agent_tools::tool_presets::all_standard();
     let selected_tools: Vec<Box<dyn alva_types::Tool>> = match &req.tools {
         Some(names) => all_tools.into_iter().filter(|t| names.contains(&t.name().to_string())).collect(),
         None => all_tools,
     };
 
-    // -- Middleware: build from user selection or use production preset --------
+    // Middleware
     let mut selected_middleware: Vec<Arc<dyn alva_agent_core::middleware::Middleware>> = Vec::new();
     let mut enable_plan_mode = false;
 
@@ -291,9 +292,35 @@ async fn create_run(
             }
         }
         None => {
-            selected_middleware = alva_app_core::base_agent::builder::middleware_presets::production();
+            selected_middleware.push(Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()));
+            selected_middleware.push(Arc::new(alva_agent_core::builtins::DanglingToolCallMiddleware::new()));
+            selected_middleware.push(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()));
+            selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()));
+            selected_middleware.push(Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new()));
             enable_plan_mode = true;
         }
+    };
+
+    // Wrap into a dynamic extension
+    struct EvalRunExtension {
+        tools: std::sync::Mutex<Option<Vec<Box<dyn alva_types::Tool>>>>,
+        middleware: std::sync::Mutex<Option<Vec<Arc<dyn alva_agent_core::middleware::Middleware>>>>,
+    }
+    impl alva_agent_core::Extension for EvalRunExtension {
+        fn name(&self) -> &str { "eval-run" }
+        fn activate(&self, api: &mut alva_agent_core::ExtensionAPI) {
+            if let Some(tools) = self.tools.lock().unwrap().take() {
+                api.add_tools(tools);
+            }
+            if let Some(mws) = self.middleware.lock().unwrap().take() {
+                api.add_middlewares(mws);
+            }
+        }
+    }
+
+    let eval_ext = EvalRunExtension {
+        tools: std::sync::Mutex::new(Some(selected_tools)),
+        middleware: std::sync::Mutex::new(Some(selected_middleware)),
     };
 
     // -- Build agent ----------------------------------------------------------
@@ -301,9 +328,10 @@ async fn create_run(
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
         .max_iterations(max_iterations)
-        .tools(selected_tools)
-        .middlewares(selected_middleware)
-        .middleware(rec.clone());
+        .extension(Box::new(eval_ext));
+
+    // Recorder middleware (direct, not through extension)
+    builder = builder.middleware(rec.clone());
 
     if enable_plan_mode {
         builder = builder.with_plan_mode();
@@ -312,7 +340,7 @@ async fn create_run(
         builder = builder.with_sub_agents();
     }
     if req.enable_browser.unwrap_or(false) {
-        builder = builder.tools(alva_agent_tools::tool_presets::browser_tools());
+        builder = builder.extension(Box::new(alva_agent_tools::extensions::BrowserExtension));
     }
 
     // -- Approval handler: auto-approve with logging ---------------------------

@@ -49,7 +49,9 @@ pub struct BaseAgentBuilder {
     pub(crate) system_prompt: String,
     pub(crate) sandbox_mode: SandboxMode,
 
-    // Optional overrides
+    // Extensions
+    pub(crate) extensions: Vec<Box<dyn alva_agent_core::Extension>>,
+    // Direct tool/middleware (for special cases like sub-agents, plan-mode)
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
     pub(crate) skill_dirs: Vec<PathBuf>,
@@ -74,6 +76,7 @@ impl BaseAgentBuilder {
             workspace: None,
             system_prompt: "You are a helpful AI assistant.".to_string(),
             sandbox_mode: SandboxMode::RestrictiveOpen,
+            extensions: Vec::new(),
             extra_tools: Vec::new(),
             extra_middleware: Vec::new(),
             skill_dirs: Vec::new(),
@@ -109,27 +112,36 @@ impl BaseAgentBuilder {
         self
     }
 
-    // -- Tools ----------------------------------------------------------------
+    // -- Extensions -----------------------------------------------------------
 
-    /// Add a single tool.
-    pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
-        self.extra_tools.push(tool);
+    /// Register an extension. Extensions contribute tools and/or middleware.
+    /// This is the primary way to add capabilities to an agent.
+    pub fn extension(mut self, ext: Box<dyn alva_agent_core::Extension>) -> Self {
+        self.extensions.push(ext);
         self
     }
 
-    /// Add multiple tools at once.
+    // -- Direct tool/middleware (internal / eval use) -------------------------
+
+    /// Add tools directly. Prefer `.extension()` for public use.
     pub fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
         self.extra_tools.extend(tools);
         self
     }
 
-    // -- Middleware ------------------------------------------------------------
+    /// Add middleware directly. Prefer `.extension()` for public use.
+    pub fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
+        self.extra_middleware.extend(mws);
+        self
+    }
 
-    /// Add a single middleware.
+    /// Add a single middleware directly. Prefer `.extension()` for public use.
     pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
         self.extra_middleware.push(mw);
         self
     }
+
+    // -- Special builder methods (justified exceptions) -----------------------
 
     /// Add PlanModeMiddleware and store typed ref for runtime toggle.
     /// BaseAgent::set_permission_mode() needs direct access to call set_enabled().
@@ -137,12 +149,6 @@ impl BaseAgentBuilder {
         let pm = Arc::new(PlanModeMiddleware::new(false));
         self.plan_mode_mw = Some(pm.clone());
         self.extra_middleware.push(pm);
-        self
-    }
-
-    /// Add multiple middleware at once.
-    pub fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
-        self.extra_middleware.extend(mws);
         self
     }
 
@@ -220,13 +226,23 @@ impl BaseAgentBuilder {
             Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
         );
 
-        // 2. Create ToolRegistry from caller-provided tools only
+        // 2. Activate all extensions — collect tools + middleware
+        let mut ext_api = alva_agent_core::ExtensionAPI::new();
+        for ext in &self.extensions {
+            tracing::info!(extension = ext.name(), "activating extension");
+            ext.activate(&mut ext_api);
+        }
+
+        // 3. Build ToolRegistry from extension + direct tools
         let mut tool_registry = ToolRegistry::new();
+        for tool in ext_api.drain_tools() {
+            tool_registry.register(tool);
+        }
         for tool in self.extra_tools {
             tool_registry.register(tool);
         }
 
-        // 3. Build Arc<dyn Tool> list
+        // 4. Build Arc<dyn Tool> list
         let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
 
         // 5. Create SkillStore
@@ -259,7 +275,10 @@ impl BaseAgentBuilder {
         let security_guard = Some(security_mw.guard());
         middleware_stack.push_sorted(Arc::new(security_mw));
 
-        // Caller-registered middleware
+        // Extension middleware + direct middleware
+        for mw in ext_api.drain_middleware() {
+            middleware_stack.push_sorted(mw);
+        }
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
