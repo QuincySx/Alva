@@ -301,37 +301,14 @@ async fn create_run(
         }
     };
 
-    // Wrap into a dynamic extension
-    struct EvalRunExtension {
-        tools: std::sync::Mutex<Option<Vec<Box<dyn alva_types::Tool>>>>,
-        middleware: std::sync::Mutex<Option<Vec<Arc<dyn alva_agent_core::middleware::Middleware>>>>,
-    }
-    impl alva_agent_core::Extension for EvalRunExtension {
-        fn name(&self) -> &str { "eval-run" }
-        fn activate(&self, api: &mut alva_agent_core::ExtensionAPI) {
-            if let Some(tools) = self.tools.lock().unwrap().take() {
-                api.add_tools(tools);
-            }
-            if let Some(mws) = self.middleware.lock().unwrap().take() {
-                api.add_middlewares(mws);
-            }
-        }
-    }
-
-    let eval_ext = EvalRunExtension {
-        tools: std::sync::Mutex::new(Some(selected_tools)),
-        middleware: std::sync::Mutex::new(Some(selected_middleware)),
-    };
-
-    // -- Build agent ----------------------------------------------------------
+    // -- Build agent (use direct tools/middleware for dynamic eval selection) ---
     let mut builder = alva_app_core::BaseAgent::builder()
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
         .max_iterations(max_iterations)
-        .extension(Box::new(eval_ext));
-
-    // Recorder middleware (direct, not through extension)
-    builder = builder.middleware(rec.clone());
+        .tools(selected_tools)
+        .middlewares(selected_middleware)
+        .middleware(rec.clone());
 
     if enable_plan_mode {
         builder = builder.with_plan_mode();

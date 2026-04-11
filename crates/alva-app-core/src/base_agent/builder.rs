@@ -226,18 +226,19 @@ impl BaseAgentBuilder {
             Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
         );
 
-        // 2. Activate all extensions — collect tools + middleware
-        let mut ext_api = alva_agent_core::ExtensionAPI::new();
+        // 2. Collect tools + middleware from all extensions
+        let mut tool_registry = ToolRegistry::new();
+        let mut ext_middleware: Vec<Arc<dyn Middleware>> = Vec::new();
+
         for ext in &self.extensions {
-            tracing::info!(extension = ext.name(), "activating extension");
-            ext.activate(&mut ext_api);
+            tracing::info!(extension = ext.name(), "loading extension");
+            for tool in ext.tools() {
+                tool_registry.register(tool);
+            }
+            ext_middleware.extend(ext.middleware());
         }
 
-        // 3. Build ToolRegistry from extension + direct tools
-        let mut tool_registry = ToolRegistry::new();
-        for tool in ext_api.drain_tools() {
-            tool_registry.register(tool);
-        }
+        // 3. Add direct tools (for special cases)
         for tool in self.extra_tools {
             tool_registry.register(tool);
         }
@@ -276,7 +277,7 @@ impl BaseAgentBuilder {
         middleware_stack.push_sorted(Arc::new(security_mw));
 
         // Extension middleware + direct middleware
-        for mw in ext_api.drain_middleware() {
+        for mw in ext_middleware {
             middleware_stack.push_sorted(mw);
         }
         for mw in self.extra_middleware {

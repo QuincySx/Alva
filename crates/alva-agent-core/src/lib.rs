@@ -20,7 +20,7 @@ pub use shared::{Extensions, MiddlewareError, MiddlewarePriority};
 pub use state::{AgentConfig, AgentState};
 
 // Re-exports — extension
-pub use extension::{Extension, ExtensionAPI};
+pub use extension::Extension;
 
 // Re-exports — middleware
 pub use middleware::{LlmCallFn, Middleware, MiddlewareStack, ToolCallFn};
