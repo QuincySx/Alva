@@ -46,6 +46,15 @@ impl Middleware for ToolTimeoutMiddleware {
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
+        // Skip sub-agent spawning: the `agent` tool runs a full child agent
+        // which has its own per-scope timeout budget (SpawnScopeImpl::timeout).
+        // Wrapping it with the generic per-tool timeout would pre-empt the
+        // child's budget with a much shorter default, breaking long-running
+        // sub-agent tasks (research, multi-step workflows, etc.).
+        if tool_call.name == "agent" {
+            return next.call(state, tool_call).await.map_err(MiddlewareError::from);
+        }
+
         match tokio::time::timeout(self.timeout, next.call(state, tool_call)).await {
             Ok(result) => result.map_err(MiddlewareError::from),
             Err(_) => Ok(ToolOutput::error(format!(

@@ -289,7 +289,10 @@ impl Extension for SubAgentExtension {
         let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
             ctx.model.clone(),
             tools_without_agent,
-            std::time::Duration::from_secs(300),
+            // 15-minute budget per sub-agent. The parent's ToolTimeoutMiddleware
+            // exempts the `agent` tool, so this scope timeout is the single
+            // authoritative cap on sub-agent execution.
+            std::time::Duration::from_secs(900),
             ctx.max_iterations,
             self.max_depth,
         ));
