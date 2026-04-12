@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, Mutex};
 use super::permission::PermissionMode;
 use super::builder::BaseAgentBuilder;
 
-/// Pre-wired, batteries-included agent (V2 engine) that automatically composes
+/// Pre-wired, batteries-included agent (engine) that automatically composes
 /// tools, security, and skill injection.
 ///
 /// Use [`BaseAgent::builder()`] to construct one with sensible defaults:

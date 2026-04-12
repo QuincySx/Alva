@@ -1,6 +1,6 @@
 // INPUT:  alva_agent_core::{middleware, state, shared}, alva_types::Message
 // OUTPUT: SprintContract, SprintContractMiddleware
-// POS:    Middleware that injects sprint completion contracts into the LLM context (V2).
+// POS:    Middleware that injects sprint completion contracts into the LLM context.
 
 //! Sprint Contract middleware — injects structured completion criteria into the
 //! agent's context so both generator and evaluator share an explicit "definition

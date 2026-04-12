@@ -7,7 +7,7 @@ use super::events::{ExtensionEvent, EventResult};
 
 type HandlerFn = Box<dyn Fn(&ExtensionEvent) -> EventResult + Send + Sync>;
 
-/// Command registered by an extension (metadata only in V1).
+/// Command registered by an extension (metadata only).
 pub struct RegisteredCommand {
     pub name: String,
     pub description: String,
@@ -129,7 +129,7 @@ impl HostAPI {
         host.register_handler(event_type, self.extension_name.clone(), Box::new(handler));
     }
 
-    /// Register a /command (metadata only in V1, routing is P3).
+    /// Register a /command (metadata only, routing is P3).
     pub fn register_command(&self, name: &str, description: &str) {
         let mut host = self.host.write().unwrap();
         host.register_command(RegisteredCommand {

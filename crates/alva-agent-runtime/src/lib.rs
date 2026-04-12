@@ -1,9 +1,9 @@
-// INPUT:  alva_agent_core (V2), alva_types, alva_agent_tools, alva_agent_security, alva_agent_memory (native)
+// INPUT:  alva_agent_core, alva_types, alva_agent_tools, alva_agent_security, alva_agent_memory (native)
 // OUTPUT: AgentRuntime, AgentRuntimeBuilder, model, AgentState, AgentConfig, AgentEvent, AgentMessage, run_agent, Middleware, MiddlewareStack, SecurityMiddleware
 // POS:    Crate root — composes all agent subsystems and re-exports a batteries-included API.
 //! Batteries-included agent runtime.
 //!
-//! Composes alva-agent-core (V2) + alva-agent-tools + alva-agent-security + alva-agent-memory
+//! Composes alva-agent-core + alva-agent-tools + alva-agent-security + alva-agent-memory
 //! into a ready-to-use agent with a builder API.
 
 pub mod builder;
@@ -14,7 +14,7 @@ pub mod middleware;
 pub use builder::{AgentRuntime, AgentRuntimeBuilder};
 pub use init::model;
 
-// Re-export V2 key types for convenience
+// Re-export key types for convenience
 pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, run_agent};
 pub use alva_agent_core::{Middleware, MiddlewareStack};
 pub use alva_types::{Tool, ToolExecutionContext, ToolRegistry, LanguageModel, Provider, ProviderRegistry};

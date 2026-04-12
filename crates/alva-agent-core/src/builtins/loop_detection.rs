@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use crate::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
 use crate::state::AgentState;
 
-/// V2 middleware that detects and breaks repetitive tool-call loops.
+/// middleware that detects and breaks repetitive tool-call loops.
 ///
 /// Hashes tool_calls from each LLM response using a sliding window per session.
 /// When the same hash appears repeatedly:

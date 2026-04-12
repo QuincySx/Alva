@@ -1,13 +1,13 @@
-// INPUT:  alva_agent_core (V2), alva_types, async_trait
+// INPUT:  alva_agent_core, alva_types, async_trait
 // OUTPUT: (none — example binary)
-// POS:    Example demonstrating V2 middleware composition (logging, security, token counting)
-//! Example: composing V2 middleware into an agent config.
+// POS:    Example demonstrating middleware composition (logging, security, token counting)
+//! Example: composing middleware into an agent config.
 //!
 //! Demonstrates:
 //! - LoggingMiddleware  — logs before/after tool calls
 //! - SecurityMiddleware — blocks specific tools
 //! - TokenCountingMiddleware — uses Extensions for cross-middleware state
-//! - Composing them into a V2 MiddlewareStack and attaching to AgentConfig
+//! - Composing them into a MiddlewareStack and attaching to AgentConfig
 
 use std::sync::Arc;
 
@@ -199,7 +199,7 @@ impl alva_types::LanguageModel for StubModel {
 // ---------------------------------------------------------------------------
 
 fn main() {
-    println!("=== Middleware Basic Example (V2) ===\n");
+    println!("=== Middleware Basic Example ===\n");
 
     // 1. Build the middleware stack (order matters — onion model).
     let mut stack = MiddlewareStack::new();
@@ -214,7 +214,7 @@ fn main() {
         stack.len()
     );
 
-    // 2. Create V2 AgentState + AgentConfig
+    // 2. Create AgentState + AgentConfig
     let session: Arc<dyn alva_types::session::AgentSession> = Arc::new(InMemorySession::new());
     let mut state = AgentState {
         model: Arc::new(StubModel),

@@ -1,6 +1,6 @@
-// INPUT:  AlvaAdapterConfig, EventMapper, alva_agent_core (V2), alva_engine_runtime::*
-// OUTPUT: AlvaAdapter — EngineRuntime implementation that wraps V2 agent engine
-// POS:    Core adapter bridging the V2 agent engine to the unified EngineRuntime interface.
+// INPUT:  AlvaAdapterConfig, EventMapper, alva_agent_core, alva_engine_runtime::*
+// OUTPUT: AlvaAdapter — EngineRuntime implementation that wraps agent engine
+// POS:    Core adapter bridging the agent engine to the unified EngineRuntime interface.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -40,7 +40,7 @@ struct SessionHandle {
 // AlvaAdapter
 // ---------------------------------------------------------------------------
 
-/// `EngineRuntime` adapter that wraps V2 agent engine.
+/// `EngineRuntime` adapter that wraps agent engine.
 ///
 /// Each `execute()` call creates a fresh `AgentState` + `AgentConfig`, runs
 /// `run_agent` in a spawned task, and returns a `RuntimeEvent` stream.
@@ -84,7 +84,7 @@ impl EngineRuntime for AlvaAdapter {
             .system_prompt
             .unwrap_or_else(|| self.config.system_prompt.clone());
 
-        // 3. Build V2 AgentState.
+        // 3. Build AgentState.
         let session: Arc<dyn alva_types::session::AgentSession> = Arc::new(InMemorySession::new());
         let state = AgentState {
             model: self.config.model.clone(),
@@ -93,7 +93,7 @@ impl EngineRuntime for AlvaAdapter {
             extensions: Extensions::new(),
         };
 
-        // 4. Build V2 AgentConfig.
+        // 4. Build AgentConfig.
         let config = AgentConfig {
             middleware: MiddlewareStack::new(),
             system_prompt,
@@ -141,12 +141,12 @@ impl EngineRuntime for AlvaAdapter {
 
         // 10. Spawn the background task.
         tokio::spawn(async move {
-            debug!(session_id = %sid, "AlvaAdapter: starting V2 agent");
+            debug!(session_id = %sid, "AlvaAdapter: starting agent");
 
             // Create a mapper to convert AgentEvents to RuntimeEvents.
             let (agent_tx, mut agent_rx) = mpsc::unbounded_channel();
 
-            // Run the V2 agent loop.
+            // Run the agent loop.
             let mut state = state;
             let run_handle = tokio::spawn(async move {
                 let _ = run_agent(

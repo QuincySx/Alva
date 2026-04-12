@@ -42,9 +42,9 @@ pub trait ToolCallFn: Send + Sync {
 // Middleware trait
 // ---------------------------------------------------------------------------
 
-/// V2 Middleware trait — receives `&mut AgentState` directly.
+/// Middleware trait — receives `&mut AgentState` directly.
 ///
-/// Key differences from v1:
+/// Key differences from the old design:
 /// - `on_agent_start` / `on_agent_end` lifecycle hooks
 /// - `before_*` / `after_*` inspection hooks receive `&mut AgentState`
 /// - `wrap_*` interceptor hooks receive `&mut AgentState` (mutable, state is threaded through the chain)
@@ -155,7 +155,7 @@ pub struct MiddlewareContext {
 // MiddlewareStack — ordered middleware layers (onion model)
 // ---------------------------------------------------------------------------
 
-/// Ordered V2 middleware stack.
+/// Ordered middleware stack.
 ///
 /// **Before** hooks run top-to-bottom (in insertion order).
 /// **After** hooks run bottom-to-top (reverse order) — the onion model.

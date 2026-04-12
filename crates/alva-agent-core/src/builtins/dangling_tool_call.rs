@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use crate::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
 use crate::state::AgentState;
 
-/// V2 middleware that fixes dangling tool calls on conversation resume.
+/// middleware that fixes dangling tool calls on conversation resume.
 ///
 /// When a conversation is interrupted mid-tool-execution, the message history
 /// may contain Assistant messages with `ToolUse` blocks that have no

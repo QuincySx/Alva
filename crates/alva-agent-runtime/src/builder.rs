@@ -1,6 +1,6 @@
-// INPUT:  std::path, std::sync, alva_agent_core (V2), alva_types, alva_agent_tools
+// INPUT:  std::path, std::sync, alva_agent_core, alva_types, alva_agent_tools
 // OUTPUT: AgentRuntime, AgentRuntimeBuilder
-// POS:    Builder pattern for constructing a fully-configured AgentRuntime with V2 state, config, tools, and middleware.
+// POS:    Builder pattern for constructing a fully-configured AgentRuntime with state, config, tools, and middleware.
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ use crate::middleware::{
     SecurityMiddleware,
 };
 
-/// A fully-configured agent runtime combining V2 AgentState, AgentConfig, and ToolRegistry.
+/// A fully-configured agent runtime combining AgentState, AgentConfig, and ToolRegistry.
 pub struct AgentRuntime {
     pub state: AgentState,
     pub config: AgentConfig,

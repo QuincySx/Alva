@@ -71,5 +71,5 @@ pub use hooks::{HookEvent, HookExecutor, HookInput, HookOutcome, HookOutput, Hoo
 pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};
 pub use utils::{estimate_cost_usd, format_token_count};
 
-// Extension V2 runtime API
+// Extension runtime API
 pub use crate::extension::{ExtensionEvent, EventResult, ExtensionHost, HostAPI};

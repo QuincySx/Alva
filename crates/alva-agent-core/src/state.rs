@@ -1,6 +1,6 @@
 // INPUT:  std::sync::Arc, alva_types::{LanguageModel, AgentSession, Tool, BusHandle, ModelConfig}, crate::shared::Extensions
 // OUTPUT: AgentState, AgentConfig
-// POS:    V2 mutable state and immutable config — AgentConfig carries optional BusHandle for cross-layer coordination.
+// POS:    mutable state and immutable config — AgentConfig carries optional BusHandle for cross-layer coordination.
 use std::sync::Arc;
 
 use alva_types::model::LanguageModel;
@@ -12,7 +12,7 @@ use alva_types::ModelConfig;
 
 use crate::shared::Extensions;
 
-/// V2 mutable state — what the agent "has" at runtime.
+/// mutable state — what the agent "has" at runtime.
 ///
 /// Messages are NOT stored here — they live in `session` (single source of truth).
 /// This avoids duplication and keeps the state focused on capabilities.
@@ -27,7 +27,7 @@ pub struct AgentState {
     pub extensions: Extensions,
 }
 
-/// V2 immutable config — logic that doesn't change during a run.
+/// immutable config — logic that doesn't change during a run.
 ///
 /// Separated from `AgentState` so middleware can borrow state mutably
 /// while config is borrowed immutably, avoiding Rust borrow conflicts.

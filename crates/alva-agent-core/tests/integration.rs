@@ -1,4 +1,4 @@
-// V2 integration tests — full agent run with session + middleware.
+// Integration tests — full agent run with session + middleware.
 
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

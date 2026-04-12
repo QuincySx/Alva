@@ -1,6 +1,6 @@
-// INPUT:  gpui, alva_app_core (V2: AgentState, AgentConfig, run_agent), alva_types, tokio, std::sync::Arc, std::pin::Pin
+// INPUT:  gpui, alva_app_core (AgentState, AgentConfig, run_agent), alva_types, tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
-// POS:    GPUI Entity wrapping V2 agent engine that bridges async agent events to GPUI's sync UI thread.
+// POS:    GPUI Entity wrapping agent engine that bridges async agent events to GPUI's sync UI thread.
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -78,12 +78,12 @@ impl LanguageModel for PlaceholderModel {
 }
 
 // ---------------------------------------------------------------------------
-// GpuiChat — GPUI Entity wrapping V2 agent engine
+// GpuiChat — GPUI Entity wrapping agent engine
 // ---------------------------------------------------------------------------
 
-/// GPUI Entity wrapping V2 agent engine.
+/// GPUI Entity wrapping agent engine.
 ///
-/// Holds a shared V2 AgentState + AgentConfig, a local copy of messages
+/// Holds a shared AgentState + AgentConfig, a local copy of messages
 /// (for synchronous UI reads), and the running state. The async agent loop
 /// runs on the shared tokio runtime and sends events back via an `mpsc`
 /// channel that is drained in a GPUI timer/callback.
@@ -114,7 +114,7 @@ impl GpuiChat {
                 )
             });
 
-        // Build V2 AgentState
+        // Build AgentState
         let model: Arc<dyn LanguageModel> = Arc::new(PlaceholderModel);
         let session: Arc<dyn alva_app_core::alva_types::session::AgentSession> =
             Arc::new(alva_app_core::alva_types::session::InMemorySession::new());
@@ -125,7 +125,7 @@ impl GpuiChat {
             extensions: alva_app_core::Extensions::new(),
         };
 
-        // Build V2 AgentConfig
+        // Build AgentConfig
         let agent_config = alva_app_core::AgentConfig {
             middleware: alva_app_core::MiddlewareStack::new(),
             system_prompt: "You are a helpful assistant.".to_string(),
@@ -188,7 +188,7 @@ impl GpuiChat {
         cx.emit(GpuiChatEvent::Updated);
         cx.notify();
 
-        // Prepare for the V2 run_agent call
+        // Prepare for the run_agent call
         let state = self.state.clone();
         let config = self.config.clone();
         let cancel = self.cancel.clone();
@@ -204,7 +204,7 @@ impl GpuiChat {
             let config_clone = config.clone();
             let cancel_clone = cancel.clone();
 
-            // Spawn the V2 run_agent
+            // Spawn the run_agent
             tokio::spawn(async move {
                 let mut st = state_clone.lock().await;
                 let _ = alva_app_core::run_agent(

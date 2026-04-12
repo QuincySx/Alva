@@ -1,11 +1,11 @@
 // INPUT:  std::sync::Arc, alva_types::{LanguageModel, Tool, BusHandle}
 // OUTPUT: pub struct AlvaAdapterConfig
-// POS:    Configuration for the Alva native engine adapter using V2 types.
+// POS:    Configuration for the Alva native engine adapter using agent types.
 
 use alva_types::{BusHandle, LanguageModel, Tool};
 use std::sync::Arc;
 
-/// Configuration for the Alva engine adapter (V2).
+/// Configuration for the Alva engine adapter.
 pub struct AlvaAdapterConfig {
     /// LLM model instance.
     pub model: Arc<dyn LanguageModel>,

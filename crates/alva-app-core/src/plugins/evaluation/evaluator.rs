@@ -34,7 +34,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
-// GradingCriterion (moved from criteria.rs during V2 cleanup)
+// GradingCriterion (moved from criteria.rs during refactor)
 // ---------------------------------------------------------------------------
 
 /// A single grading dimension with a name, description, and weight.

@@ -1,13 +1,13 @@
-// INPUT:  alva_agent_runtime (V2), alva_agent_core (V2), alva_types, async_trait, futures_core
+// INPUT:  alva_agent_runtime, alva_agent_core, alva_types, async_trait, futures_core
 // OUTPUT: (none — example binary)
-// POS:    Example demonstrating V2 agent runtime builder API with a stub LLM provider
-//! Example: building an agent runtime with the V2 builder API.
+// POS:    Example demonstrating agent runtime builder API with a stub LLM provider
+//! Example: building an agent runtime with the builder API.
 //!
 //! Demonstrates:
 //! - Setting up a `ProviderRegistry` (with a stub provider)
 //! - Resolving a model via `alva_agent_runtime::model("provider/model_id", &registry)`
 //! - Using the builder API to compose tools and middleware
-//! - Running the V2 agent loop and consuming events
+//! - Running the agent loop and consuming events
 //!
 //! This example uses a mock model so it runs without any real API keys.
 
@@ -126,7 +126,7 @@ impl Middleware for PrintMiddleware {
 // ---------------------------------------------------------------------------
 
 fn main() {
-    println!("=== alva-agent-runtime Basic Example (V2) ===\n");
+    println!("=== alva-agent-runtime Basic Example ===\n");
 
     // 1. Set up a provider registry with the stub provider.
     let mut registry = ProviderRegistry::new();
@@ -152,14 +152,14 @@ fn main() {
         println!("  - {}", tool.name());
     }
 
-    // 4. Run V2 agent loop and consume events.
+    // 4. Run agent loop and consume events.
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
 
     rt.block_on(async {
-        println!("\n--- Running V2 agent ---");
+        println!("\n--- Running agent ---");
         let cancel = CancellationToken::new();
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
 

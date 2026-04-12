@@ -1,4 +1,4 @@
-// INPUT:  alva_types, alva_agent_core (V2), alva_agent_graph, alva_agent_scope::blackboard, std::sync::Arc
+// INPUT:  alva_types, alva_agent_core, alva_agent_graph, alva_agent_scope::blackboard, std::sync::Arc
 // OUTPUT: TeamTool, create_team_tool
 // POS:    A Tool that lets the LLM dynamically assemble and run a multi-agent team via Graph + Blackboard.
 

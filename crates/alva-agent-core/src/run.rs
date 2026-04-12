@@ -1,6 +1,6 @@
 // INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_types::*, crate::pending_queue::AgentLoopHook
 // OUTPUT: pub async fn run_agent()
-// POS:    V2 session-centric agent loop — uses bus-based AgentLoopHook for steering/follow-up injection.
+// POS:    session-centric agent loop — uses bus-based AgentLoopHook for steering/follow-up injection.
 use std::sync::Arc;
 
 use alva_types::model::LanguageModel;
@@ -257,7 +257,7 @@ impl ToolCallFn for ActualToolCall {
     }
 }
 
-/// V2 agent loop — session-centric with middleware hooks.
+/// agent loop — session-centric with middleware hooks.
 ///
 /// Messages are never stored in local variables across iterations;
 /// instead, every iteration reads the full history from `state.session`.

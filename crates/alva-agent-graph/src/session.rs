@@ -1,7 +1,7 @@
 // INPUT:  crate::checkpoint::CheckpointSaver, crate::compaction::CompactionConfig, crate::pregel::CompiledGraph, crate::retry::RetryConfig
 // OUTPUT: pub struct AgentSession
 // POS:    High-level session wrapper bundling a compiled graph with retry, compaction, and checkpointing.
-//         Note: linear agent support removed — use V2 run_agent directly for single-agent flows.
+//         Note: linear agent support removed — use run_agent directly for single-agent flows.
 
 use crate::checkpoint::CheckpointSaver;
 use crate::compaction::CompactionConfig;

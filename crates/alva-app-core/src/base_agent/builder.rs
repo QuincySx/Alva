@@ -265,7 +265,7 @@ impl BaseAgentBuilder {
             alva_tools_list.extend(extra);
         }
 
-        // 8. Create V2 AgentState
+        // 8. Create AgentState
         let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
         if let Some(notifier) = self.approval_notifier {
             bus_writer.provide(Arc::new(notifier));
@@ -278,7 +278,7 @@ impl BaseAgentBuilder {
             extensions,
         };
 
-        // 9. Create PendingMessageQueue + V2 AgentConfig
+        // 9. Create PendingMessageQueue + AgentConfig
         let pending_messages = Arc::new(alva_agent_core::pending_queue::PendingMessageQueue::new());
         bus_writer.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
             pending_messages.clone() as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,

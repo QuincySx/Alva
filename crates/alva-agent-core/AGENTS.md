@@ -23,5 +23,5 @@
 |------|------------|------|
 | 源码实现 | `src/` | 内核执行循环、状态、middleware、runtime context、pending queue，详见 `src/AGENTS.md` |
 | Builtins 示例 | `examples/` | 演示内核层能力与基础集成方式 |
-| 集成测试 | `tests/` | 覆盖 V2 run loop、tool execution、消息注入等行为 |
+| 集成测试 | `tests/` | 覆盖 run loop、tool execution、消息注入等行为 |
 | Crate 配置 | `Cargo.toml` | 依赖声明：alva-types、tokio、async-trait、serde、tracing 等 |

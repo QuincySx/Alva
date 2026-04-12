@@ -57,7 +57,7 @@ pub struct ChildAgentOutput {
 /// Run a child agent to completion and collect its text output.
 ///
 /// This encapsulates the common pattern shared by all sub-agent tools:
-/// build V2 state → run_agent → collect output from events → fallback to session.
+/// build state → run_agent → collect output from events → fallback to session.
 pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
     let session: Arc<dyn AgentSession> = match &params.parent_session_id {
         Some(parent_id) => Arc::new(InMemorySession::with_parent(parent_id)),

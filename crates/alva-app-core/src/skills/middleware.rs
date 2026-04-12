@@ -1,6 +1,6 @@
 // INPUT:  alva_agent_core::{middleware, state}, alva_types::Message, crate::skills::{store, injector, skill_domain}
 // OUTPUT: SkillInjectionMiddleware
-// POS:    Middleware that dynamically injects relevant skills into the LLM context based on conversation content (V2).
+// POS:    Middleware that dynamically injects relevant skills into the LLM context based on conversation content.
 
 //! Skill injection middleware — dynamically loads skill content into the
 //! system prompt based on conversation context.
