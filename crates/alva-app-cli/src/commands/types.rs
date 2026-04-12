@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 // Re-export shared utilities from app-core so builtins.rs can use them.
-pub use alva_app_core::state::{estimate_cost_usd, format_token_count};
+pub use alva_app_core::{estimate_cost_usd, format_token_count};
 
 /// Command execution result
 #[derive(Debug)]
