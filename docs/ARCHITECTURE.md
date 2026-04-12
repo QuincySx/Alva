@@ -27,7 +27,9 @@ Alva 是一个**分层解耦的 AI Agent 平台**，三大组件完全独立：
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │  alva-app          — GPUI 桌面 GUI                       │    │
-│  │  alva-app-core     — 应用编排层（Agent 生命周期 + Skills + 持久化）│    │
+│  │  alva-app-cli      — 终端 CLI                            │    │
+│  │  alva-app-core     — BaseAgent + Extension 系统           │    │
+│  │  alva-agent-eval   — Agent 测试/评测 playground          │    │
 │  │  alva-app-debug    — 调试 HTTP API + traced! 宏          │    │
 │  │  alva-app-devtools-mcp — MCP 开发工具服务器              │    │
 │  └──────────────────────────────────────────────────────────┘    │
@@ -98,10 +100,49 @@ Alva 是一个**分层解耦的 AI Agent 平台**，三大组件完全独立：
 
 ---
 
+## alva-app-core 模块布局
+
+经过 Extension 系统收敛，app-core 只保留下面这些模块：
+
+```
+crates/alva-app-core/src/
+├── lib.rs          — facade re-exports + 模块声明
+├── base_agent/     — BaseAgent + BaseAgentBuilder + PermissionMode
+├── extension/      — Extension trait + HostAPI + 内置 Extensions
+├── plugins/        — agent_spawn（SubAgent）、evaluation（SprintContract）
+├── skills/         — SkillStore + SkillLoader + SkillInjector
+├── mcp/            — MCP client / server manager（供 McpExtension 使用）
+├── hooks/          — HookExecutor（供 HooksExtension 使用）
+├── settings/       — Settings + HooksSettings
+├── paths/          — AlvaPaths（workspace/global 路径解析）
+├── utils/          — estimate_cost_usd + format_token_count
+└── error.rs        — EngineError
+```
+
+**已删除的旧模块**（pre-Extension 时代遗留）：
+- ❌ `agent/` — ACP 旧副本 + sqlite 持久化（被 alva-protocol-acp 取代）
+- ❌ `state/` — AppState/Selectors（只有 2 个 util 真被用，搬到 utils）
+- ❌ `swarm/` — 旧的多 agent coordinator（被 Extension 系统取代）
+- ❌ `domain/` + `ports/` + `adapters/` — DDD 三件套（只服务于已删除的 sqlite 持久化）
+- ❌ `base/` — 14 行的 process_manager re-export 壳
+- ❌ `analytics/` + `auth/` + `lsp/` — 从未被调用的空壳
+- ❌ `types/` — 4 行 legacy placeholder
+
+---
+
 ## Extension 系统（alva-app-core 层）
 
-Extension 是 BaseAgent 的**唯一公开扩展点**。它将 Tool 和 Middleware 打包为一个"能力包"，
-并在 agent 构建完成后通过 `configure()` 接收运行时上下文。
+**Extension 是 BaseAgent 的唯一公开扩展点。** 所有能力——工具、中间件、子 agent、
+plan mode、skills、MCP、hooks——都通过 Extension 注入。Builder 本身只负责纯配置
+（workspace / system_prompt / max_iterations）。
+
+### 设计原则
+
+1. **单一入口**：所有扩展能力通过 `.extension(Box::new(...))` 注册
+2. **构建期 + 运行期分离**：Extension 既参与 build，也在 build 完成后通过 HostAPI
+   持续与 agent 交互
+3. **错误隔离**：一个 Extension 的 handler panic 不会影响其他 Extension
+4. **可组合**：内置 19 个 Extension，可以自由组合，也可以继续添加自定义
 
 ### 层级定位
 
@@ -109,14 +150,17 @@ Extension 是 BaseAgent 的**唯一公开扩展点**。它将 Tool 和 Middlewar
 Extension trait 不在 agent-core（那里只有 Tool + Middleware 原语），
 也不在 agent-tools（那里只有 tool 实现）。
 
-Extension 是 app-core 层的**组合概念**——它知道 tool_presets 和 middleware_presets，
-把它们组合成有意义的能力包。
+Extension 是 app-core 层的组合概念——把 agent-core/agent-tools/agent-runtime 的
+原语组合成有意义的能力包。
 
 ┌─ alva-app-core ──────────────────────────────────────────────────┐
 │                                                                  │
 │  extension/                                                      │
 │  ├── mod.rs       — Extension trait 定义                          │
-│  ├── context.rs   — ExtensionContext { bus, workspace, tool_names }│
+│  ├── context.rs   — ExtensionContext / FinalizeContext            │
+│  ├── events.rs    — ExtensionEvent / EventResult                  │
+│  ├── host.rs      — ExtensionHost / HostAPI                       │
+│  ├── bridge.rs    — ExtensionBridgeMiddleware                     │
 │  └── builtins.rs  — 内置 Extension 实现                           │
 │                                                                  │
 │  base_agent/                                                     │
@@ -124,117 +168,234 @@ Extension 是 app-core 层的**组合概念**——它知道 tool_presets 和 mi
 │  └── agent.rs     — BaseAgent 运行时                              │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
-        ↑ 使用                         ↑ 使用
-   alva-agent-tools              alva-agent-runtime
-   tool_presets::*               middleware::*
 ```
 
 ### Extension Trait
 
 ```rust
+#[async_trait]
 pub trait Extension: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str { "" }
-    fn tools(&self) -> Vec<Box<dyn Tool>> { vec![] }
-    fn middleware(&self) -> Vec<Arc<dyn Middleware>> { vec![] }
-    fn configure(&self, _ctx: &ExtensionContext) {}
+
+    // 构建期四阶段：
+    async fn tools(&self) -> Vec<Box<dyn Tool>> { vec![] }
+    fn activate(&self, _api: &HostAPI) {}               // 注册 middleware + 事件 + 命令
+    async fn configure(&self, _ctx: &ExtensionContext) {}  // bus/workspace 配置
+    async fn finalize(&self, _ctx: &FinalizeContext) -> Vec<Arc<dyn Tool>> { vec![] }
 }
 
 pub struct ExtensionContext {
-    pub bus: BusHandle,          // 跨层通信
-    pub workspace: PathBuf,      // 工作区根目录
-    pub tool_names: Vec<String>, // 已注册的所有工具名称
+    pub bus: BusHandle,
+    pub bus_writer: BusWriter,      // 允许 Extension 往 bus 注册服务
+    pub workspace: PathBuf,
+    pub tool_names: Vec<String>,
+}
+
+pub struct FinalizeContext {
+    pub bus: BusHandle,
+    pub bus_writer: BusWriter,
+    pub workspace: PathBuf,
+    pub model: Arc<dyn LanguageModel>,  // 仅 finalize 能拿到 model
+    pub tools: Vec<Arc<dyn Tool>>,      // 所有 Extension 收集完的最终工具列表
+    pub max_iterations: u32,
 }
 ```
 
+### HostAPI — 运行时插件接口
+
+`activate(api)` 接收 HostAPI 句柄，让 Extension 在 build 完成后仍能持续和 agent
+交互。这是与 Pi 架构对齐的核心。
+
+```rust
+pub struct HostAPI { /* Arc<RwLock<ExtensionHost>> */ }
+
+impl HostAPI {
+    // 注册中间件（替代旧的 Extension.middleware() 方法）
+    pub fn middleware(&self, mw: Arc<dyn Middleware>);
+
+    // 订阅运行时事件
+    pub fn on(&self, event_type: &'static str,
+              handler: impl Fn(&ExtensionEvent) -> EventResult + Send + Sync + 'static);
+
+    // 注册 /command 斜杠命令
+    pub fn register_command(&self, name: &str, description: &str);
+
+    // 运行时注入消息
+    pub fn steer(&self, text: &str);         // 立即打断当前回合
+    pub fn follow_up(&self, text: &str);     // 当前回合结束后执行
+
+    // 终止 agent
+    pub fn shutdown(&self);
+}
+
+pub enum ExtensionEvent {
+    AgentStart,
+    AgentEnd { error: Option<String> },
+    BeforeToolCall { tool_name, tool_call_id, arguments },
+    AfterToolCall { tool_name, tool_call_id, result },
+    Input { text },
+}
+
+pub enum EventResult {
+    Continue,               // 继续执行
+    Block { reason },       // 阻止（仅 before_tool_call 生效）
+    Handled,                // 已处理，短路后续 handler
+}
+```
+
+### Middleware vs Event Handler
+
+这是容易混淆的点。两者**不重复**，一个是底层机制，一个是上层 API：
+
+| | Middleware | Event Handler |
+|---|-----------|---------------|
+| 定义 | `Middleware` trait impl | 通过 `api.on()` 注册的闭包 |
+| 访问能力 | `&mut AgentState`，可修改 messages/response/tool_call | 只能观察 + Block/Handled |
+| 注册方式 | `api.middleware(Arc<dyn Middleware>)` | `api.on(event_type, handler)` |
+| 优先级 | `priority()` 排序 | 注册顺序 |
+| 适用场景 | 需要修改 state 的拦截（security、compaction、loop detection） | 插件级扩展、异步通知、外部集成 |
+
+`ExtensionBridgeMiddleware`（内置，优先级最外层）桥接二者：在每个 middleware hook
+里调用 `host.emit(event)`，把 middleware 的拦截点暴露给 event handler。
+
 ### 内置 Extension 清单
 
-```
-┌─────────────────────────┬─────────────────────────────────────────┐
-│ 工具 Extension          │ 包含的 tool_presets                      │
-├─────────────────────────┼─────────────────────────────────────────┤
-│ CoreExtension           │ file_io() — read/write/edit/search/list │
-│ ShellExtension          │ shell() — execute_shell                 │
-│ InteractionExtension    │ interaction() — ask_human               │
-│ TaskExtension           │ task_management() — CRUD + output + stop│
-│ TeamExtension           │ team() — create/delete + send_message   │
-│ PlanningExtension       │ planning() + worktree()                 │
-│ UtilityExtension        │ utility() — sleep/config/notebook/...   │
-│ WebExtension            │ web() — internet_search + read_url      │
-│ BrowserExtension        │ browser_tools() — 7 个浏览器自动化工具   │
-│ AllStandardExtension    │ all_standard() — 以上全部（不含 browser）│
-├─────────────────────────┼─────────────────────────────────────────┤
-│ 中间件 Extension        │ 包含的 middleware                        │
-├─────────────────────────┼─────────────────────────────────────────┤
-│ GuardrailsExtension     │ LoopDetection + DanglingToolCall + Timeout│
-│ CompactionExtension     │ CompactionMiddleware                    │
-│ CheckpointExtension     │ CheckpointMiddleware                    │
-│ PlanModeExtension       │ PlanModeMiddleware                      │
-│ ProductionExtension     │ 以上全部合一（生产环境推荐）              │
-└─────────────────────────┴─────────────────────────────────────────┘
-```
+**工具 Extensions**（通过 `tools()` 提供工具）：
+- `CoreExtension` — read/write/edit/search/list
+- `ShellExtension` — execute_shell
+- `InteractionExtension` — ask_human
+- `TaskExtension` — task CRUD
+- `TeamExtension` — 多 agent 协调
+- `PlanningExtension` — 计划 + worktree
+- `UtilityExtension` — sleep/config/notebook/...
+- `WebExtension` — 搜索 + 抓取 URL
+- `BrowserExtension` — 7 个浏览器自动化工具
+
+**中间件 Extensions**（通过 `activate()` 里的 `api.middleware()` 注册）：
+- `LoopDetectionExtension`
+- `DanglingToolCallExtension`
+- `ToolTimeoutExtension`
+- `CompactionExtension`
+- `CheckpointExtension`
+- `PlanModeExtension` — 同时在 `configure()` 里把 `PlanModeControl` 注册到 bus
+
+**系统 Extensions**（多阶段混合）：
+- `SkillsExtension` — tools() + activate()（SkillInjectionMiddleware） + configure()（扫描 skill 目录）
+- `McpExtension` — configure()（异步启动 MCP server + 注入 tools）
+- `HooksExtension` — activate()（HooksMiddleware）
+- `SubAgentExtension` — finalize()（需要最终 tool 列表和 model）
+- `EvaluationExtension` — activate()（SprintContractMiddleware，可选）
 
 ### BaseAgent 构建生命周期
 
 ```
 BaseAgentBuilder
     │
-    │  .extension(Box::new(AllStandardExtension))   ← 对外主 API
-    │  .extension(Box::new(ProductionExtension))
-    │  .tool() / .tools()                           ← 内部/eval 用
-    │  .middleware() / .middlewares()                ← 内部/eval 用
-    │  .with_plan_mode()                            ← 例外：需要 typed ref
-    │  .with_sub_agents()                           ← 例外：需要 SpawnScope
+    │  .workspace(path)                 ← 必需
+    │  .system_prompt(&str)             ← 必需
+    │  .max_iterations(n)
+    │  .extension(Box::new(...))  × N   ← 所有能力都走这里
+    │  .with_approval_channel()          ← HITL 权限通道
+    │  .with_memory()                    ← 可选
     │
     ▼
-build(model)
+build(model).await
     │
     │  ① 创建 Bus，注册 TokenCounter
-    │  ② 遍历 extensions → 收集 tools + middleware
-    │  ③ 添加 extra_tools / extra_middleware（直接注册的）
-    │  ④ 创建 SecurityMiddleware（always-on，不属于任何 extension）
+    │  ② 遍历 extensions → 收集 tools
+    │  ③ 创建 ExtensionHost + 遍历 extensions.activate(HostAPI)
+    │        · 注册 middleware 到 host
+    │        · 注册事件 handlers 到 host
+    │        · 注册 /command
+    │  ④ 构建 MiddlewareStack（security + host.take_middlewares() + bridge）
     │  ⑤ middleware_stack.configure_all(MiddlewareContext { bus, workspace })
-    │  ⑥ ext.configure(ExtensionContext { bus, workspace, tool_names })
-    │  ⑦ 条件：添加 AgentSpawnTool（sub-agents）
+    │  ⑥ ext.configure(ExtensionContext { bus, bus_writer, workspace, tool_names })
+    │  ⑦ ext.finalize(FinalizeContext { model, tools, ... }) → 收集额外 tools
+    │     （SubAgentExtension 用这个加 AgentSpawnTool）
     │  ⑧ 组装 AgentState + AgentConfig
-    │  ⑨ 条件：创建 MemoryService
+    │  ⑨ 创建 PendingMessageQueue + CancellationToken
+    │  ⑩ host.bind_agent(pending, cancel) → 激活 steer/follow_up/shutdown
+    │  ⑪ 可选：创建 MemoryService
     │
     ▼
 BaseAgent
-    ├── state:  AgentState { model, tools, session }
-    ├── config: AgentConfig { middleware_stack, system_prompt, bus, workspace }
-    ├── tool_registry, skill_store, memory
-    ├── security_guard       ← typed ref（运行时权限决策）
-    ├── plan_mode_middleware  ← typed ref（运行时 set_enabled）
-    ├── bus / bus_writer      ← 跨层通信
-    └── pending_messages     ← mid-turn 消息注入
+    ├── state:        Arc<Mutex<AgentState { model, tools, session }>>
+    ├── config:       Arc<AgentConfig { middleware_stack, bus, workspace }>
+    ├── tool_registry
+    ├── memory:       Option<MemoryService>
+    ├── security_guard: Option<Arc<Mutex<SecurityGuard>>>
+    ├── pending_messages: Arc<PendingMessageQueue>     ← steer/follow_up
+    ├── current_cancel:   Arc<Mutex<CancellationToken>>  ← shutdown
+    ├── bus / bus_writer                                  ← 跨层通信
+    └── extension_host: Arc<RwLock<ExtensionHost>>        ← 事件分发 + 命令
 ```
 
 ### 使用方式
 
 ```rust
-// ── CLI（生产）─────────────────────────────────────────
+// ── CLI（生产配置）─────────────────────────────────────────
 let agent = BaseAgent::builder()
     .workspace(workspace)
     .system_prompt(&prompt)
-    .extension(Box::new(AllStandardExtension))    // 全部标准工具
-    .extension(Box::new(ProductionExtension))     // 全部生产中间件
-    .with_sub_agents()
+    // 工具
+    .extension(Box::new(SkillsExtension::new(skill_dirs)))
+    .extension(Box::new(CoreExtension))
+    .extension(Box::new(ShellExtension))
+    .extension(Box::new(InteractionExtension))
+    .extension(Box::new(TaskExtension))
+    .extension(Box::new(TeamExtension))
+    .extension(Box::new(PlanningExtension))
+    .extension(Box::new(UtilityExtension))
+    .extension(Box::new(WebExtension))
+    // 中间件
+    .extension(Box::new(LoopDetectionExtension))
+    .extension(Box::new(DanglingToolCallExtension))
+    .extension(Box::new(ToolTimeoutExtension))
+    .extension(Box::new(CompactionExtension))
+    .extension(Box::new(CheckpointExtension))
+    .extension(Box::new(PlanModeExtension::new()))
+    // 系统
+    .extension(Box::new(SubAgentExtension::new(3)))
+    .extension(Box::new(McpExtension::new(mcp_paths)))
+    .extension(Box::new(HooksExtension::new(hook_settings)))
     .build(model).await?;
 
-// ── Eval（动态选择）───────────────────────────────────
-let agent = BaseAgent::builder()
-    .workspace(&path)
-    .tools(selected_tools)           // UI 勾选的工具
-    .middlewares(selected_middleware) // UI 勾选的中间件
-    .middleware(recorder)            // eval 专用录制
-    .build(model).await?;
+// ── Eval / 动态配置 ────────────────────────────────────────
+// Eval 也走 Extension，根据 UI 勾选动态构造
+for name in selected_extensions {
+    if let Some(ext) = create_extension(name, &workspace) {
+        builder = builder.extension(ext);
+    }
+}
 
-// ── 单元测试（最小化）─────────────────────────────────
-let agent = BaseAgent::builder()
-    .workspace(tmp.path())
-    .tool(Box::new(my_mock_tool))
-    .build(model).await?;
+// ── 自定义 Extension ──────────────────────────────────────
+struct MyExtension;
+
+#[async_trait]
+impl Extension for MyExtension {
+    fn name(&self) -> &str { "my-ext" }
+
+    async fn tools(&self) -> Vec<Box<dyn Tool>> {
+        vec![Box::new(MyTool)]
+    }
+
+    fn activate(&self, api: &HostAPI) {
+        // 监听工具执行完成，注入 steering 消息
+        let api_clone = /* ... */;
+        api.on("after_tool_call", move |event| {
+            if let ExtensionEvent::AfterToolCall { tool_name, .. } = event {
+                if tool_name == "my_tool" {
+                    // 异步处理...
+                }
+            }
+            EventResult::Continue
+        });
+
+        // 注册 /my-command
+        api.register_command("my-cmd", "do my thing");
+    }
+}
 ```
 
 ---
