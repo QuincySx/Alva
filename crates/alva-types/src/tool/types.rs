@@ -171,6 +171,23 @@ pub trait Tool: Send + Sync {
         false
     }
 
+    /// Whether this tool manages its own execution timeout.
+    ///
+    /// When `true`, generic per-tool timeout middleware (e.g.
+    /// `ToolTimeoutMiddleware`) MUST NOT wrap this call with an additional
+    /// timeout. The tool is then solely responsible for bounding its own
+    /// runtime — via a scope budget, an internal cancellation protocol, or
+    /// similar.
+    ///
+    /// Examples:
+    /// - Sub-agent spawning tools that enforce their own per-scope budget
+    /// - Long-running stream/watch tools with explicit cancellation
+    ///
+    /// Default: `false` (the middleware's default timeout applies).
+    fn manages_own_timeout(&self) -> bool {
+        false
+    }
+
     /// Classify the search/read nature of this invocation, if applicable.
     fn is_search_or_read(&self, _input: &serde_json::Value) -> Option<SearchReadInfo> {
         None

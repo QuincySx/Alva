@@ -82,6 +82,14 @@ impl Tool for AgentSpawnTool {
          up to the configured depth limit."
     }
 
+    /// Sub-agents run under their own `SpawnScopeImpl` timeout budget
+    /// (enforced inside `run_child_agent`). Opting out of the generic
+    /// per-tool timeout middleware prevents it from pre-empting the
+    /// scope budget with a shorter default.
+    fn manages_own_timeout(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> Value {
         serde_json::json!({
             "type": "object",

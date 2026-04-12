@@ -46,12 +46,16 @@ impl Middleware for ToolTimeoutMiddleware {
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
-        // Skip sub-agent spawning: the `agent` tool runs a full child agent
-        // which has its own per-scope timeout budget (SpawnScopeImpl::timeout).
-        // Wrapping it with the generic per-tool timeout would pre-empt the
-        // child's budget with a much shorter default, breaking long-running
-        // sub-agent tasks (research, multi-step workflows, etc.).
-        if tool_call.name == "agent" {
+        // Honor the `Tool::manages_own_timeout` contract: tools that opt in
+        // (e.g. sub-agent spawning, long-running stream tools) bound their
+        // own runtime, so wrapping them again with the generic timeout
+        // would only ever shrink their budget.
+        let self_managed = state
+            .tools
+            .iter()
+            .find(|t| t.name() == tool_call.name)
+            .is_some_and(|t| t.manages_own_timeout());
+        if self_managed {
             return next.call(state, tool_call).await.map_err(MiddlewareError::from);
         }
 
