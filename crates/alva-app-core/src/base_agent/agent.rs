@@ -194,6 +194,16 @@ impl BaseAgent {
         &self.bus
     }
 
+    /// Access the bus writer for post-init capability wiring.
+    ///
+    /// Lets outer layers register services on the bus after `build()`
+    /// without the builder having to know every possible capability
+    /// ahead of time. Used, e.g., by observers to provide a
+    /// `ChildRunRecording` service for the `agent_spawn` plugin.
+    pub fn bus_writer(&self) -> &BusWriter {
+        &self.bus_writer
+    }
+
     /// Access the runtime extension host (event dispatch and command registry).
     pub fn extension_host(&self) -> &Arc<std::sync::RwLock<crate::extension::ExtensionHost>> {
         &self.extension_host

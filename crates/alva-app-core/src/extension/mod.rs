@@ -59,7 +59,7 @@ pub use skills::SkillsExtension;
 pub use mcp::McpExtension;
 pub use hooks::HooksExtension;
 pub use evaluation::EvaluationExtension;
-pub use agent_spawn::SubAgentExtension;
+pub use agent_spawn::{ChildRunRecording, SubAgentExtension};
 
 pub use core::CoreExtension;
 pub use shell::ShellExtension;

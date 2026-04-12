@@ -84,6 +84,16 @@ pub struct ToolCallRecord {
     pub is_error: bool,
     pub duration_ms: u64,
     pub middleware_hooks: Vec<HookRecord>,
+    /// Nested `RunRecord` for tools that spawn a full child agent run
+    /// (e.g. the `agent` tool exposed by `SubAgentExtension`).
+    ///
+    /// Populated by `after_tool_call` when a `ChildRunRecording` service
+    /// is registered on the bus: the service hands back the child's
+    /// drained record as JSON and this middleware deserializes it into
+    /// a regular `RunRecord`, giving sub-agents the same structure as
+    /// top-level runs — recursively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub_run: Option<Box<RunRecord>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +152,10 @@ struct RecorderState {
 /// extract the full [`RunRecord`].
 pub struct RecorderMiddleware {
     state: Arc<Mutex<RecorderState>>,
+    /// Captured from `configure()` — used to look up the
+    /// `ChildRunRecording` service when a tool call produces a child
+    /// record we need to attach to the parent's `ToolCallRecord`.
+    bus: std::sync::OnceLock<alva_types::BusHandle>,
 }
 
 impl RecorderMiddleware {
@@ -150,6 +164,7 @@ impl RecorderMiddleware {
     pub fn new() -> (Self, tokio::sync::oneshot::Receiver<()>) {
         let (done_tx, done_rx) = tokio::sync::oneshot::channel();
         let this = Self {
+            bus: std::sync::OnceLock::new(),
             state: Arc::new(Mutex::new(RecorderState {
                 config_snapshot: None,
                 turns: Vec::new(),
@@ -296,6 +311,12 @@ impl Middleware for RecorderMiddleware {
         MiddlewarePriority::OBSERVATION + 100
     }
 
+    fn configure(&self, ctx: &alva_agent_core::middleware::MiddlewareContext) {
+        if let Some(ref bus) = ctx.bus {
+            let _ = self.bus.set(bus.clone());
+        }
+    }
+
     async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
         let mut s = self.state.lock().unwrap();
         s.run_start = Instant::now();
@@ -419,12 +440,23 @@ impl Middleware for RecorderMiddleware {
                 .map(|t| t.elapsed().as_millis() as u64)
                 .unwrap_or(0);
             let is_error = result.is_error;
+            // If a ChildRunRecording service is registered and this tool
+            // call produced a child record, drain and attach it.
+            let sub_run = self
+                .bus
+                .get()
+                .and_then(|b| b.get::<dyn alva_app_core::extension::ChildRunRecording>())
+                .and_then(|svc| svc.take_child_record(&tool_call.id))
+                .and_then(|value| serde_json::from_value::<RunRecord>(value).ok())
+                .map(Box::new);
+
             tb.tool_calls.push(ToolCallRecord {
                 tool_call: tool_call.clone(),
                 result: Some(result.clone()),
                 is_error,
                 duration_ms,
                 middleware_hooks: Vec::new(),
+                sub_run,
             });
         }
 

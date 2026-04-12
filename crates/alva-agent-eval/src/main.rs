@@ -9,6 +9,7 @@
 //! # open http://127.0.0.1:3000
 //! ```
 
+mod child_recording;
 mod log_capture;
 mod recorder;
 mod skills;
@@ -331,6 +332,15 @@ async fn create_run(
         .build(model)
         .await
         .map_err(|e| format!("build agent: {e}"))?;
+
+    // Register the ChildRunRecording service on the bus so that sub-agent
+    // tool calls will produce nested RunRecords that the parent recorder
+    // can attach to ToolCallRecord.sub_run.
+    agent
+        .bus_writer()
+        .provide::<dyn alva_app_core::extension::ChildRunRecording>(
+            Arc::new(crate::child_recording::ChildRunRecordingImpl::new()),
+        );
 
     let tool_names = agent.tool_names();
 

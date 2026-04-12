@@ -164,6 +164,19 @@ pub trait ToolExecutionContext: Send + Sync {
     /// Session identifier for the current agent session.
     fn session_id(&self) -> &str;
 
+    /// ID of the `ToolCall` currently being executed, if available.
+    ///
+    /// Used by tools that need to correlate side-channel state with a
+    /// specific dispatched call (e.g. sub-agent spawning tools keying
+    /// their child run records by the parent tool_call's id so the
+    /// parent recorder can attach them later).
+    ///
+    /// Returns `None` when the context does not track tool call identity
+    /// (e.g. `MinimalExecutionContext` used in tests).
+    fn tool_call_id(&self) -> Option<&str> {
+        None
+    }
+
     /// Read a configuration value by key.
     fn get_config(&self, _key: &str) -> Option<String> {
         None

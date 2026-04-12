@@ -1,5 +1,5 @@
 // INPUT:  alva_types, alva_agent_core::run_child, alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
-// OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentExtension
+// OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentExtension, ChildRunRecording
 // POS:    AI-driven sub-agent spawning — dynamic roles, optional Blackboard communication.
 
 //! Agent spawn plugin — the AI primitive for creating sub-agents.
@@ -11,6 +11,11 @@
 //! Exposes [`SubAgentExtension`] which wires the `agent` tool into the
 //! agent using `finalize()` so the tool receives the final tool list and
 //! model as its root `SpawnScopeImpl`.
+//!
+//! Also exposes the [`ChildRunRecording`] contract — the bus-registered
+//! hook point that lets observers (e.g. an eval recorder) record each
+//! child agent run as a structured nested record. See the trait's docs
+//! for the flow.
 
 use std::sync::Arc;
 
@@ -18,6 +23,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use alva_agent_core::middleware::MiddlewareStack;
 use alva_agent_core::run_child::{run_child_agent, ChildAgentParams};
 use alva_types::base::cancel::CancellationToken;
 use alva_types::base::error::AgentError;
@@ -28,6 +34,67 @@ use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
 use alva_agent_scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
 use alva_agent_scope::board_registry::BoardRegistry;
 use alva_agent_scope::SpawnScopeImpl;
+
+// ---------------------------------------------------------------------------
+// Child-run recording contract (optional observer hook)
+// ---------------------------------------------------------------------------
+
+/// Optional observer hook for capturing sub-agent runs as structured records.
+///
+/// This trait is the **agent_spawn plugin's** contract with any external
+/// observer that wants to record what a child agent did. It is not part
+/// of the core agent loop — `AgentSpawnTool` works fine without an
+/// implementation registered.
+///
+/// When a `ChildRunRecording` service is present on the bus,
+/// `AgentSpawnTool::execute`:
+///
+/// 1. Calls [`begin_child_run`](Self::begin_child_run) with the parent
+///    tool call's id to get a `MiddlewareStack` to drive the child with.
+/// 2. Runs the child agent with that stack installed.
+/// 3. Calls [`finalize_child_run`](Self::finalize_child_run) to tell the
+///    service the run is done — the service drains its internal recorder
+///    into a stored record.
+///
+/// Whoever records the parent run (typically a parent-side middleware)
+/// then calls [`take_child_record`](Self::take_child_record) with the
+/// same tool call id to harvest the nested record and attach it wherever
+/// it likes (e.g. onto the parent's per-tool record struct).
+///
+/// The record is passed as `serde_json::Value` deliberately: the concrete
+/// record type lives in whichever crate implements the service, so this
+/// plugin stays free of any observer-crate dependency.
+///
+/// Register one on the bus with:
+/// ```ignore
+/// bus_writer.provide::<dyn ChildRunRecording>(Arc::new(MyImpl::new()));
+/// ```
+///
+/// # Recursion
+///
+/// If a child agent itself spawns grandchild agents, the same service
+/// handles them too — the child run inherits the parent bus
+/// (see `ChildAgentParams::bus`), so its own `AgentSpawnTool` finds the
+/// same service, calls `begin_child_run` with the grandchild tool call id,
+/// and the recording nests automatically.
+pub trait ChildRunRecording: Send + Sync {
+    /// Start recording a child run keyed by the parent tool call id.
+    /// Returns the middleware stack that must be installed on the child
+    /// agent run (via `ChildAgentParams::middleware`).
+    fn begin_child_run(&self, parent_tool_call_id: &str) -> MiddlewareStack;
+
+    /// Tell the service the child run for `parent_tool_call_id` is done.
+    /// The implementation drains its active recorder for that id into a
+    /// stored record, ready for [`take_child_record`](Self::take_child_record).
+    ///
+    /// Calling this twice for the same id is a no-op.
+    fn finalize_child_run(&self, parent_tool_call_id: &str);
+
+    /// Consume and return the stored child record as JSON, keyed by the
+    /// parent tool call id. Returns `None` if no record was produced or
+    /// it was already taken.
+    fn take_child_record(&self, parent_tool_call_id: &str) -> Option<serde_json::Value>;
+}
 
 // ---------------------------------------------------------------------------
 // Tool input
@@ -198,6 +265,20 @@ impl Tool for AgentSpawnTool {
             "sub-agent spawned"
         );
 
+        // If a ChildRunRecording service is registered on the bus, install a
+        // per-child recorder middleware so the parent-side observer can
+        // later attach the resulting record to this tool call. The service
+        // is keyed by the parent tool_call_id — both ends of the correlation
+        // live on that id.
+        let recording = ctx
+            .bus()
+            .and_then(|b| b.get::<dyn ChildRunRecording>())
+            .zip(ctx.tool_call_id())
+            .map(|(svc, id)| (svc, id.to_string()));
+        let child_middleware = recording
+            .as_ref()
+            .map(|(svc, id)| svc.begin_child_run(id));
+
         // Run child agent using the shared helper
         let result = run_child_agent(ChildAgentParams {
             model: child_scope.model(),
@@ -208,13 +289,20 @@ impl Tool for AgentSpawnTool {
             timeout: child_scope.timeout(),
             parent_session_id: Some(self.scope.session_id().to_string()),
             cancel: CancellationToken::new(),
-            middleware: None, // TODO: accept parent middleware for security/timeout propagation
+            middleware: child_middleware,
             model_config: None,
             context_window: 0,
             workspace: ctx.workspace().map(|p| p.to_path_buf()),
             bus: ctx.bus().cloned(),
         })
         .await;
+
+        // Hand the child record back to the recording service so the
+        // parent's recorder can drain it via `take_child_record` in
+        // `after_tool_call`.
+        if let Some((svc, id)) = &recording {
+            svc.finalize_child_run(id);
+        }
 
         tracing::info!(
             sub_agent_role = %input.role,

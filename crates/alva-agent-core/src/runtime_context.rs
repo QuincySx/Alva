@@ -87,6 +87,10 @@ impl ToolExecutionContext for RuntimeExecutionContext {
         &self.session_id
     }
 
+    fn tool_call_id(&self) -> Option<&str> {
+        Some(&self.tool_call_id)
+    }
+
     fn workspace(&self) -> Option<&Path> {
         self.workspace.as_deref()
     }
