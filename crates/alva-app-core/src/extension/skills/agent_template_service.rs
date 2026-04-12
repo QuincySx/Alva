@@ -1,16 +1,16 @@
-// INPUT:  std::collections, std::sync, crate::mcp::runtime, crate::skills::{injector, store, skill_domain}, crate::error
+// INPUT:  std::collections, std::sync, crate::extension::mcp::runtime, crate::extension::skills::{injector, store, skill_domain}, crate::error
 // OUTPUT: AgentTemplateService, AgentTemplateInstance
 // POS:    Instantiates AgentTemplate into runtime config: merged skills, system prompt, MCP servers, and tool whitelist.
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::{
-    mcp::runtime::McpManager,
-    skills::{
+    extension::mcp::runtime::McpManager,
+    extension::skills::{
         injector::SkillInjector,
         store::SkillStore,
     },
-    skills::skill_domain::{
+    extension::skills::skill_domain::{
         agent_template::{AgentTemplate, GlobalSkillConfig},
         mcp::McpServerConfig,
         skill_config::SkillRef,

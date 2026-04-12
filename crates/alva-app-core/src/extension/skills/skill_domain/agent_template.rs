@@ -1,10 +1,10 @@
-// INPUT:  serde, crate::skills::skill_domain::{mcp, skill_config}
+// INPUT:  serde, crate::extension::skills::skill_domain::{mcp, skill_config}
 // OUTPUT: AgentTemplate, SkillSet, McpSet, GlobalSkillConfig
 // POS:    Defines Agent template structure for capability-set and behavior specification.
 use serde::{Deserialize, Serialize};
 
-use crate::skills::skill_domain::mcp::McpServerConfig;
-use crate::skills::skill_domain::skill_config::{InjectionPolicy, SkillRef};
+use crate::extension::skills::skill_domain::mcp::McpServerConfig;
+use crate::extension::skills::skill_domain::skill_config::{InjectionPolicy, SkillRef};
 
 /// Agent template: defines the capability set and behavior spec for a class of Agents
 /// Corresponds to the "Agent Template Library" concept in Wukong

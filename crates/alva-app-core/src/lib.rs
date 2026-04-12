@@ -6,11 +6,8 @@
 //!
 //! Modules:
 //!   base_agent/  — BaseAgent, BaseAgentBuilder, PermissionMode
-//!   extension/   — Extension trait, HostAPI, event system, builtins
-//!   plugins/     — Agent spawn, evaluation, built-in tools used by extensions
-//!   skills/      — Skill discovery/loading/injection (used by SkillsExtension)
-//!   mcp/         — MCP integration (used by McpExtension)
-//!   hooks/       — Lifecycle hook execution (used by HooksExtension)
+//!   extension/   — Extension trait, HostAPI, event system, and all built-in
+//!                  extensions (skills, mcp, hooks, agent_spawn, evaluation)
 //!   settings/    — Settings + HooksSettings types
 //!   paths/       — Workspace/global path resolution
 //!   utils/       — Small shared helpers (token formatting, cost estimate)
@@ -53,10 +50,6 @@ pub use alva_agent_scope::scope_impl as scope;
 
 pub mod base_agent;
 pub mod extension;
-pub mod plugins;
-pub mod skills;
-pub mod mcp;
-pub mod hooks;
 pub mod settings;
 pub mod paths;
 pub mod utils;
@@ -67,7 +60,7 @@ pub mod error;
 pub use base_agent::{BaseAgent, BaseAgentBuilder, PermissionMode};
 pub use error::EngineError;
 pub use paths::AlvaPaths;
-pub use hooks::{HookEvent, HookExecutor, HookInput, HookOutcome, HookOutput, HookResult};
+pub use extension::hooks::{HookEvent, HookExecutor, HookInput, HookOutcome, HookOutput, HookResult};
 pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};
 pub use utils::{estimate_cost_usd, format_token_count};
 

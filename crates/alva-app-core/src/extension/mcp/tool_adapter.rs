@@ -1,4 +1,4 @@
-// INPUT:  std::sync, async_trait, serde_json, alva_types, crate::mcp::runtime, crate::skills::skill_domain::mcp
+// INPUT:  std::sync, async_trait, serde_json, alva_types, crate::extension::mcp::runtime, crate::extension::skills::skill_domain::mcp
 // OUTPUT: McpToolAdapter, build_mcp_tools
 // POS:    Wraps individual MCP tools as standard Tool trait implementations with namespaced names (mcp:server:tool).
 use std::sync::Arc;
@@ -7,8 +7,8 @@ use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::mcp::runtime::McpManager;
-use crate::skills::skill_domain::mcp::McpToolInfo;
+use crate::extension::mcp::runtime::McpManager;
+use crate::extension::skills::skill_domain::mcp::McpToolInfo;
 
 /// Wraps a single MCP Tool as a alva_app_core Tool trait implementation
 ///

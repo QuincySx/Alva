@@ -11,5 +11,8 @@
 pub mod evaluator;
 pub mod sprint_contract;
 
+mod extension;
+
 pub use evaluator::{EvaluationResult, EvaluationScore, EvaluatorConfig, EvaluatorNode, GradingCriterion};
 pub use sprint_contract::{SprintContract, SprintContractMiddleware};
+pub use extension::EvaluationExtension;

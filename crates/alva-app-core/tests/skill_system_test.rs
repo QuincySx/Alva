@@ -4,20 +4,17 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_app_core::{
-    skills::skill_fs::FsSkillRepository,
-    skills::{
-        injector::SkillInjector,
-        loader::SkillLoader,
-        store::SkillStore,
-    },
-    skills::skill_domain::{
-        skill::{Skill, SkillKind},
-        skill_config::{InjectionPolicy, SkillRef},
-    },
-    skills::skill_ports::skill_repository::SkillRepository,
-    skills::skill_domain::skill::SkillMeta,
+use alva_app_core::extension::skills::skill_fs::FsSkillRepository;
+use alva_app_core::extension::skills::{
+    injector::SkillInjector,
+    loader::SkillLoader,
+    store::SkillStore,
 };
+use alva_app_core::extension::skills::skill_domain::{
+    skill::{Skill, SkillKind, SkillMeta},
+    skill_config::{InjectionPolicy, SkillRef},
+};
+use alva_app_core::extension::skills::skill_ports::skill_repository::SkillRepository;
 
 /// Test: parse SKILL.md frontmatter
 #[test]

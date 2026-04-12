@@ -13,9 +13,11 @@
 
 mod executor;
 mod matcher;
+mod extension;
 
 pub use executor::HookExecutor;
 pub use matcher::matches_hook;
+pub use extension::HooksExtension;
 
 use serde::{Deserialize, Serialize};
 

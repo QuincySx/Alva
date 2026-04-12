@@ -1,11 +1,11 @@
-// INPUT:  crate::skills::skill_domain::mcp, crate::error, serde, std::collections, std::path, tokio::fs
+// INPUT:  crate::extension::skills::skill_domain::mcp, crate::error, serde, std::collections, std::path, tokio::fs
 // OUTPUT: McpConfig, McpServerEntry, McpTransportEntry
 // POS:    Manages mcpServerConfig.json — the user-facing MCP Server configuration file.
 //! mcpServerConfig.json reader/writer
 //!
 //! Reads and writes MCP server configuration files. Callers supply the path.
 
-use crate::skills::skill_domain::mcp::McpServerConfig;
+use crate::extension::skills::skill_domain::mcp::McpServerConfig;
 use crate::error::SkillError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -128,7 +128,7 @@ impl McpConfig {
 impl McpServerEntry {
     /// Convert to the domain-level McpServerConfig
     pub fn to_server_config(&self, id: &str) -> McpServerConfig {
-        use crate::skills::skill_domain::mcp::McpTransportConfig;
+        use crate::extension::skills::skill_domain::mcp::McpTransportConfig;
 
         let transport = match &self.transport {
             McpTransportEntry::Stdio { command, args, env } => McpTransportConfig::Stdio {

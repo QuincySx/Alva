@@ -1,4 +1,4 @@
-// INPUT:  alva_agent_core::{middleware, state}, alva_types::Message, crate::skills::{store, injector, skill_domain}
+// INPUT:  alva_agent_core::{middleware, state}, alva_types::Message, crate::extension::skills::{store, injector, skill_domain}
 // OUTPUT: SkillInjectionMiddleware
 // POS:    Middleware that dynamically injects relevant skills into the LLM context based on conversation content.
 
@@ -19,10 +19,10 @@ use alva_agent_core::state::AgentState;
 use alva_types::{Message, MessageRole};
 use async_trait::async_trait;
 
-use crate::skills::injector::SkillInjector;
-use crate::skills::skill_domain::skill::Skill;
-use crate::skills::skill_domain::skill_config::{InjectionPolicy, SkillRef};
-use crate::skills::store::SkillStore;
+use crate::extension::skills::injector::SkillInjector;
+use crate::extension::skills::skill_domain::skill::Skill;
+use crate::extension::skills::skill_domain::skill_config::{InjectionPolicy, SkillRef};
+use crate::extension::skills::store::SkillStore;
 
 /// Configuration for the skill injection middleware.
 pub struct SkillInjectionConfig {

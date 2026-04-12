@@ -1,16 +1,84 @@
 //! Extension system — the primary extensibility point for agents.
+//!
+//! Contains the `Extension` trait + `HostAPI` infrastructure **and** every
+//! built-in extension (one file or folder per plugin):
+//!
+//! Folder-based plugins (Extension impl lives inside the folder):
+//! - `skills/`       — SkillsExtension (skill discovery, loading, injection)
+//! - `mcp/`          — McpExtension (MCP server integration)
+//! - `hooks/`        — HooksExtension (lifecycle hook execution)
+//! - `evaluation/`   — EvaluationExtension (SprintContract + grading)
+//!
+//! Flat plugins (one file each):
+//! - `agent_spawn`   — SubAgentExtension + AgentSpawnTool
+//! - `core`, `shell`, `interaction`, `task`, `team`, `planning`, `utility`,
+//!   `web`, `browser` — tool-preset wrappers
+//! - `loop_detection`, `dangling_tool_call`, `tool_timeout`, `compaction`,
+//!   `checkpoint`, `plan_mode` — middleware wrappers
+//! - `analytics`, `auth`, `lsp` — stub/hook-point extensions
 
 mod context;
-mod builtins;
 mod events;
 mod host;
 mod bridge;
 
+pub mod skills;
+pub mod mcp;
+pub mod hooks;
+pub mod evaluation;
+pub mod agent_spawn;
+
+// Flat built-in extensions (one plugin per file).
+mod core;
+mod shell;
+mod interaction;
+mod task;
+mod team;
+mod planning;
+mod utility;
+mod web;
+mod browser;
+mod loop_detection;
+mod dangling_tool_call;
+mod tool_timeout;
+mod compaction;
+mod checkpoint;
+mod plan_mode;
+mod analytics;
+mod auth;
+mod lsp;
+
 pub use context::{ExtensionContext, FinalizeContext};
-pub use builtins::*;
 pub use events::{ExtensionEvent, EventResult};
 pub use host::{ExtensionHost, HostAPI, RegisteredCommand};
 pub use bridge::ExtensionBridgeMiddleware;
+
+// Re-export every built-in Extension type at `alva_app_core::extension::*`,
+// preserving the public API.
+pub use skills::SkillsExtension;
+pub use mcp::McpExtension;
+pub use hooks::HooksExtension;
+pub use evaluation::EvaluationExtension;
+pub use agent_spawn::SubAgentExtension;
+
+pub use core::CoreExtension;
+pub use shell::ShellExtension;
+pub use interaction::InteractionExtension;
+pub use task::TaskExtension;
+pub use team::TeamExtension;
+pub use planning::PlanningExtension;
+pub use utility::UtilityExtension;
+pub use web::WebExtension;
+pub use browser::BrowserExtension;
+pub use loop_detection::LoopDetectionExtension;
+pub use dangling_tool_call::DanglingToolCallExtension;
+pub use tool_timeout::ToolTimeoutExtension;
+pub use compaction::CompactionExtension;
+pub use checkpoint::CheckpointExtension;
+pub use plan_mode::PlanModeExtension;
+pub use analytics::AnalyticsExtension;
+pub use auth::AuthExtension;
+pub use lsp::LspExtension;
 
 use std::sync::Arc;
 use async_trait::async_trait;

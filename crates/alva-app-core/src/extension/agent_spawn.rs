@@ -1,15 +1,16 @@
 // INPUT:  alva_types, alva_agent_core::run_child, alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
-// OUTPUT: AgentSpawnTool, create_agent_spawn_tool
+// OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentExtension
 // POS:    AI-driven sub-agent spawning — dynamic roles, optional Blackboard communication.
 
-//! Agent spawn tool — the AI primitive for creating sub-agents.
+//! Agent spawn plugin — the AI primitive for creating sub-agents.
 //!
 //! The LLM decides when to spawn, what role to give, whether to share
 //! a Blackboard. Orchestration lives in the LLM's reasoning, not in
 //! code-level graph definitions.
 //!
-//! This is the **AI API** for dynamic delegation.
-//! For the **developer API** (pre-defined configs), see [`super::task_spawn`].
+//! Exposes [`SubAgentExtension`] which wires the `agent` tool into the
+//! agent using `finalize()` so the tool receives the final tool list and
+//! model as its root `SpawnScopeImpl`.
 
 use std::sync::Arc;
 
@@ -251,4 +252,48 @@ impl Tool for AgentSpawnTool {
 
 pub fn create_agent_spawn_tool(scope: Arc<SpawnScopeImpl>) -> Box<dyn Tool> {
     Box::new(AgentSpawnTool::new(scope))
+}
+
+// ---------------------------------------------------------------------------
+// Extension
+// ---------------------------------------------------------------------------
+
+use crate::extension::{Extension, FinalizeContext};
+
+/// Sub-agent spawning via the `agent` tool.
+///
+/// Uses `finalize()` because it needs the final tool list and model to
+/// construct the `SpawnScopeImpl` root scope.
+pub struct SubAgentExtension {
+    max_depth: u32,
+}
+
+impl SubAgentExtension {
+    pub fn new(max_depth: u32) -> Self {
+        Self { max_depth }
+    }
+}
+
+#[async_trait]
+impl Extension for SubAgentExtension {
+    fn name(&self) -> &str { "sub-agents" }
+    fn description(&self) -> &str { "Sub-agent spawning via the agent tool" }
+
+    async fn finalize(&self, ctx: &FinalizeContext) -> Vec<Arc<dyn Tool>> {
+        // Build a clean tool list without any placeholder agent tool
+        let tools_without_agent: Vec<Arc<dyn Tool>> = ctx.tools.iter()
+            .filter(|t| t.name() != "agent")
+            .cloned()
+            .collect();
+
+        let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
+            ctx.model.clone(),
+            tools_without_agent,
+            std::time::Duration::from_secs(300),
+            ctx.max_iterations,
+            self.max_depth,
+        ));
+        let spawn_tool = create_agent_spawn_tool(root_scope);
+        vec![Arc::from(spawn_tool)]
+    }
 }

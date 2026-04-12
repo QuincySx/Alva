@@ -1,4 +1,4 @@
-// INPUT:  std::sync, alva_types, crate::mcp::runtime, async_trait, serde, serde_json
+// INPUT:  std::sync, alva_types, crate::extension::mcp::runtime, async_trait, serde, serde_json
 // OUTPUT: McpRuntimeTool
 // POS:    Unified MCP meta-tool exposing list_servers, list_tools, and call_tool actions to the Agent.
 //! MCP runtime meta-tool: unified interface for listing servers, listing tools, and calling tools.
@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use crate::mcp::runtime::McpManager;
+use crate::extension::mcp::runtime::McpManager;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
