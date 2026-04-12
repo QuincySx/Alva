@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-use crate::settings::{HookConfig, HookEntry, HooksSettings};
+use crate::settings::{HookEntry, HooksSettings};
 
 use super::{
     matcher::matches_hook, HookEvent, HookInput, HookOutcome, HookOutput, HookResult,

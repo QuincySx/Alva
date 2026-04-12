@@ -32,10 +32,8 @@ pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, Pen
 pub use alva_agent_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
 pub use alva_agent_core::run_agent;
 
-// Re-export alva-agent-tools (tool registration + presets + browser automation)
-pub use alva_agent_tools::{register_all_tools, register_builtin_tools, tool_presets};
-pub use alva_agent_tools::browser::BrowserManager;
-pub use alva_agent_tools::browser::browser_manager::{SharedBrowserManager, shared_browser_manager};
+// Re-export alva-agent-tools (tool presets)
+pub use alva_agent_tools::tool_presets;
 
 // Re-export alva-agent-security
 pub use alva_agent_security::{
@@ -73,13 +71,10 @@ pub(crate) mod types;
 pub(crate) mod domain;
 pub(crate) mod ports;
 pub(crate) mod adapters;
-pub mod auth;
 pub mod base_agent;
 pub mod error;
-pub mod lsp;
 pub mod paths;
 pub mod plugins;
-pub mod analytics;
 pub mod hooks;
 pub mod settings;
 pub mod state;

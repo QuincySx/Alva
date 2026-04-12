@@ -25,17 +25,6 @@ impl std::fmt::Debug for SrowToolContext {
     }
 }
 
-impl SrowToolContext {
-    pub fn new(session_id: impl Into<String>, workspace: impl Into<std::path::PathBuf>) -> Self {
-        Self {
-            session_id: session_id.into(),
-            workspace: workspace.into(),
-            allow_dangerous: false,
-            cancel: CancellationToken::new(),
-        }
-    }
-}
-
 impl alva_types::ToolExecutionContext for SrowToolContext {
     fn cancel_token(&self) -> &CancellationToken {
         &self.cancel

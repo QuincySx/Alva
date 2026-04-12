@@ -18,10 +18,8 @@ pub use executor::HookExecutor;
 pub use matcher::matches_hook;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
-use crate::settings::{HookConfig, HookEntry, HooksSettings};
+use crate::settings::{HookConfig, HooksSettings};
 
 // ---------------------------------------------------------------------------
 // Hook events
