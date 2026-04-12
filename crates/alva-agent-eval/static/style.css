@@ -428,6 +428,52 @@ body {
   box-shadow: 0 0 0 1px var(--blue);
 }
 
+/* ---------------------------------------------------------------------------
+ * Sub-agent modal — full-screen overlay for drilling into a nested sub_run.
+ * Stacks; each nested sub-agent pushes another modal on top with a higher
+ * z-index. Reuses `.inspector-body`/`.inspector-timeline`/`.inspector-detail`
+ * so renderTimeline works unchanged.
+ * --------------------------------------------------------------------------- */
+.sub-agent-modal {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  border-top: 3px solid var(--purple);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+  animation: modal-slide-up 0.18s ease-out;
+}
+@keyframes modal-slide-up {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+.sub-agent-modal .modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sub-agent-modal .modal-close {
+  flex-shrink: 0;
+}
+.sub-agent-modal .modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.sub-agent-modal .modal-title > span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Nested modals sit above their parent via z-index set in JS based on stack depth. */
+
 /* ── Compare layout ─────────────────────────────────────────────── */
 
 .compare-app {

@@ -6,6 +6,10 @@ let currentRunId = null;
 let allLogs = [];
 let selectedBlock = null;
 
+// Stack of open sub-agent modals. Topmost is the most recently opened.
+// ESC key or a modal's own close button pops the topmost.
+const subAgentModalStack = [];
+
 // ---------------------------------------------------------------------------
 // Sidebar: run list
 // ---------------------------------------------------------------------------
@@ -70,9 +74,15 @@ async function loadRecord(runId) {
 // ---------------------------------------------------------------------------
 
 function selectBlock(el, detailFn) {
-  document.querySelectorAll('.event-block.selected').forEach(b => b.classList.remove('selected'));
+  // Scope the selection + detail panel lookup to the nearest enclosing
+  // `.inspector-body` — this works for both the main inspector view and
+  // each sub-agent modal (which reuses the same structure). Lets the
+  // same renderTimeline / click handlers work recursively without any
+  // per-view plumbing.
+  const view = el.closest('.inspector-body') || document.querySelector('.inspector-body');
+  view.querySelectorAll('.event-block.selected').forEach(b => b.classList.remove('selected'));
   el.classList.add('selected');
-  const panel = document.getElementById('detail-panel');
+  const panel = view.querySelector('.inspector-detail');
   panel.innerHTML = '';
   detailFn(panel);
   panel.scrollTop = 0;
@@ -306,24 +316,36 @@ function renderTurnBlock(turn, prevInputTokens, container, usedFallback) {
       </div>
       ${isSubAgent ? `<div style="font-size:10px;color:var(--text-dim);margin-top:2px">${escHtml(truncate(tc.tool_call.arguments.task || tc.tool_call.arguments.description || '', 80))}</div>` : ''}`;
 
-    toolEl.onclick = () => selectBlock(toolEl, panel => {
-      addDetailSection(panel, `${isSubAgent ? 'Sub-Agent' : 'Tool'}: ${tc.tool_call.name}`, `
-        <div style="font-size:12px">
-          Status: ${isErr ? '<span style="color:var(--red)">ERROR</span>' : '<span style="color:var(--green)">OK</span>'} ·
-          Duration: ${tc.duration_ms}ms
-        </div>`);
-      addDetailSection(panel, 'Input Arguments', `<pre>${escHtml(formatJson(tc.tool_call.arguments))}</pre>`);
-
-      // For sub-agent: show child agent's internal activity
-      if (isSubAgent) {
-        renderSubAgentTimeline(panel, tc);
+    toolEl.onclick = () => {
+      // Tier B: sub-agents with a nested RunRecord open a full-screen
+      // modal that reuses renderTimeline on tc.sub_run. No more
+      // log-scraping, pixel-perfect parity with the parent view,
+      // recursive for grandchildren.
+      if (isSubAgent && tc.sub_run) {
+        openSubAgentModal(tc);
+        return;
       }
 
-      const output = tc.result ? formatToolOutput(tc.result) : '(no output)';
-      addDetailSection(panel, `Output (${output.length} chars)`, `<pre>${escHtml(output)}</pre>`);
-      const toolLogs = filterLogs(['tool execution', tc.tool_call.name, 'before_tool', 'after_tool']);
-      if (toolLogs.length) addDetailSection(panel, 'Related Logs', renderLogEntries(toolLogs));
-    });
+      selectBlock(toolEl, panel => {
+        addDetailSection(panel, `${isSubAgent ? 'Sub-Agent' : 'Tool'}: ${tc.tool_call.name}`, `
+          <div style="font-size:12px">
+            Status: ${isErr ? '<span style="color:var(--red)">ERROR</span>' : '<span style="color:var(--green)">OK</span>'} ·
+            Duration: ${tc.duration_ms}ms
+          </div>`);
+        addDetailSection(panel, 'Input Arguments', `<pre>${escHtml(formatJson(tc.tool_call.arguments))}</pre>`);
+
+        // Legacy fallback: sub-agent without structured sub_run (records
+        // captured before Tier B). Reconstructs child activity from logs.
+        if (isSubAgent) {
+          renderSubAgentTimeline(panel, tc);
+        }
+
+        const output = tc.result ? formatToolOutput(tc.result) : '(no output)';
+        addDetailSection(panel, `Output (${output.length} chars)`, `<pre>${escHtml(output)}</pre>`);
+        const toolLogs = filterLogs(['tool execution', tc.tool_call.name, 'before_tool', 'after_tool']);
+        if (toolLogs.length) addDetailSection(panel, 'Related Logs', renderLogEntries(toolLogs));
+      });
+    };
     turnEl.appendChild(toolEl);
   }
 
@@ -393,7 +415,77 @@ function renderSummaryBlock(record, container) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Sub-agent timeline (extracted from tracing logs)
+// Sub-agent modal — recursive re-use of renderTimeline for tc.sub_run
+// ---------------------------------------------------------------------------
+
+/// Open a full-screen modal showing the sub-agent's own timeline.
+///
+/// The modal reuses the same DOM structure as the main inspector body
+/// (`.inspector-body` → `.inspector-timeline` + `.inspector-detail`)
+/// so `renderTimeline`, `selectBlock`, and every click handler work
+/// recursively with zero per-view plumbing. Nested sub-agents stack:
+/// clicking a nested `agent` tool call inside a modal pushes another
+/// modal on top, and the top-left ← Back button pops one layer at a
+/// time. ESC also pops the topmost.
+function openSubAgentModal(tc) {
+  const subRun = tc.sub_run;
+  if (!subRun) return;
+
+  const role = (tc.tool_call.arguments && tc.tool_call.arguments.role) || 'sub-agent';
+  const task = (tc.tool_call.arguments && (tc.tool_call.arguments.task || tc.tool_call.arguments.description)) || '';
+
+  const depth = subAgentModalStack.length + 1;
+  const zIndex = 1000 + depth * 10;
+
+  const modal = document.createElement('div');
+  modal.className = 'sub-agent-modal';
+  modal.style.zIndex = zIndex;
+  modal.innerHTML = `
+    <div class="modal-header">
+      <button class="btn-sm modal-close" title="Close (Esc)">← Back</button>
+      <div class="modal-title">
+        <span style="background:#2d1f3d;color:var(--purple);font-size:10px;padding:2px 6px;border-radius:6px;font-weight:600">SUB-AGENT · L${depth}</span>
+        <strong style="color:var(--purple)">${escHtml(role)}</strong>
+        <span style="color:var(--text-dim);font-size:12px">${escHtml(truncate(task, 120))}</span>
+      </div>
+    </div>
+    <div class="inspector-body">
+      <div class="inspector-timeline"></div>
+      <div class="inspector-detail">
+        <div style="color:var(--text-dim);font-size:12px;padding:16px">Click any block to see details</div>
+      </div>
+    </div>`;
+
+  modal.querySelector('.modal-close').onclick = () => closeTopSubAgentModal();
+
+  const timelineCol = modal.querySelector('.inspector-timeline');
+  document.body.appendChild(modal);
+  subAgentModalStack.push(modal);
+
+  // Reuse the same renderTimeline that powers the parent view — the
+  // child's RunRecord has the identical shape so nothing special is
+  // needed here. Nested sub-agents inside this timeline will trigger
+  // openSubAgentModal again via the same click handler in
+  // renderTurnBlock.
+  renderTimeline(subRun, timelineCol);
+}
+
+function closeTopSubAgentModal() {
+  const modal = subAgentModalStack.pop();
+  if (modal) modal.remove();
+}
+
+// ESC key pops the topmost open sub-agent modal.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && subAgentModalStack.length > 0) {
+    e.preventDefault();
+    closeTopSubAgentModal();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Sub-agent timeline (legacy — used only for records captured BEFORE Tier B
+// when tc.sub_run is not populated; kept for historical record inspection).
 // ---------------------------------------------------------------------------
 
 function renderSubAgentTimeline(panel, tc) {
