@@ -400,13 +400,13 @@ mod tests {
     fn with_bus_sets_bus() {
         let bus = alva_types::Bus::new();
         let mw = CompactionMiddleware::default().with_bus(bus.handle());
-        assert!(mw.bus.is_some());
+        assert!(mw.bus.get().is_some());
     }
 
     #[test]
     fn without_bus_field_is_none() {
         let mw = CompactionMiddleware::default();
-        assert!(mw.bus.is_none());
+        assert!(mw.bus.get().is_none());
     }
 
     #[test]
