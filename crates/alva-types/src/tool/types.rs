@@ -188,6 +188,20 @@ pub trait Tool: Send + Sync {
         false
     }
 
+    /// Hook for mutating the derived JSON schema with runtime data.
+    ///
+    /// Called by `#[derive(Tool)]`-generated `parameters_schema` after
+    /// `schema_for!(Input)` + `normalize_llm_tool_schema`. Tools whose
+    /// schema depends on runtime state (e.g. a dynamic enum computed
+    /// from the parent's tool list) define an **inherent** method on
+    /// their concrete type with the same signature — Rust's method
+    /// resolution prefers the inherent impl over this trait default,
+    /// so the derive's unqualified `self.apply_schema_overrides(...)`
+    /// call picks up the override automatically.
+    ///
+    /// Tools without runtime schema mutation leave this as a no-op.
+    fn apply_schema_overrides(&self, _schema: &mut serde_json::Value) {}
+
     /// Classify the search/read nature of this invocation, if applicable.
     fn is_search_or_read(&self, _input: &serde_json::Value) -> Option<SearchReadInfo> {
         None

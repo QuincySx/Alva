@@ -98,62 +98,6 @@ pub trait ChildRunRecording: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
-// Schema normalization — schemars output → LLM tool-calling spec
-// ---------------------------------------------------------------------------
-
-/// Normalize a `schemars`-generated JSON Schema in-place so it matches
-/// the shape LLM tool-calling APIs (OpenAI function calling, Anthropic
-/// tools) expect.
-///
-/// The transformations are:
-/// 1. **Strip root meta fields**: `$schema`, `title`, root-level
-///    `description` — the tool already exposes `name()` / `description()`
-///    separately, and the LLM doesn't use `$schema`/`title`.
-/// 2. **Strip `default` from properties**: harmless but bloat; LLM
-///    ignores them.
-/// 3. **Collapse `type: ["T", "null"]` → `type: "T"`** on properties:
-///    schemars emits the union form for `Option<T>` fields, but LLM
-///    tool APIs prefer the simpler form (the field's optionality is
-///    already conveyed by its absence from `required`).
-///
-/// This function is the core transform that the future
-/// `#[derive(Tool)]` macro will call on every tool's input schema.
-/// Keeping it as a free function makes it trivially reusable and
-/// unit-testable.
-pub(crate) fn normalize_llm_tool_schema(schema: &mut Value) {
-    // Root-level cleanups.
-    if let Some(obj) = schema.as_object_mut() {
-        obj.remove("$schema");
-        obj.remove("title");
-        obj.remove("description");
-    }
-
-    // Per-property cleanups.
-    if let Some(props) = schema
-        .pointer_mut("/properties")
-        .and_then(Value::as_object_mut)
-    {
-        for (_name, prop) in props.iter_mut() {
-            let Some(prop_obj) = prop.as_object_mut() else {
-                continue;
-            };
-            prop_obj.remove("default");
-
-            // Collapse `type: ["T", "null"]` → `type: "T"`.
-            if let Some(Value::Array(types)) = prop_obj.get("type").cloned() {
-                let non_null: Vec<Value> = types
-                    .into_iter()
-                    .filter(|t| t.as_str() != Some("null"))
-                    .collect();
-                if non_null.len() == 1 {
-                    prop_obj.insert("type".into(), non_null.into_iter().next().unwrap());
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tool input
 // ---------------------------------------------------------------------------
 
@@ -191,6 +135,16 @@ struct SpawnInput {
 // AgentSpawnTool
 // ---------------------------------------------------------------------------
 
+#[derive(alva_types::Tool)]
+#[tool(
+    name = "agent",
+    description = "Spawn a sub-agent to handle a specific task. The sub-agent runs independently \
+        with its own role and system prompt. Use 'board' to enable communication between \
+        multiple agents via a shared workspace. Sub-agents can spawn further sub-agents \
+        up to the configured depth limit.",
+    input = SpawnInput,
+    manages_own_timeout,
+)]
 pub struct AgentSpawnTool {
     scope: Arc<SpawnScopeImpl>,
     /// Board registry for inter-agent communication (optional, independent of scope).
@@ -211,40 +165,17 @@ impl AgentSpawnTool {
     }
 }
 
-#[async_trait]
-impl Tool for AgentSpawnTool {
-    fn name(&self) -> &str {
-        "agent"
-    }
-
-    fn description(&self) -> &str {
-        "Spawn a sub-agent to handle a specific task. The sub-agent runs independently \
-         with its own role and system prompt. Use 'board' to enable communication between \
-         multiple agents via a shared workspace. Sub-agents can spawn further sub-agents \
-         up to the configured depth limit."
-    }
-
-    /// Sub-agents run under their own `SpawnScopeImpl` timeout budget
-    /// (enforced inside `run_child_agent`). Opting out of the generic
-    /// per-tool timeout middleware prevents it from pre-empting the
-    /// scope budget with a shorter default.
-    fn manages_own_timeout(&self) -> bool {
-        true
-    }
-
-    fn parameters_schema(&self) -> Value {
-        // Start from the schemars-derived schema for SpawnInput. Every
-        // static field (type + description) comes from the struct's
-        // doc comments — no hand-written JSON for those.
-        let mut schema = serde_json::to_value(schemars::schema_for!(SpawnInput))
-            .expect("SpawnInput schema serializes to JSON");
-
-        // Normalize to LLM tool-calling conventions.
-        normalize_llm_tool_schema(&mut schema);
-
-        // Inject the runtime-dependent enum for `tools.items`: the exact
-        // set of tool names the parent agent can hand down. schemars
-        // can't know this at compile time — it's per-spawn.
+impl AgentSpawnTool {
+    /// Inject the runtime-dependent enum for `tools.items`: the exact
+    /// set of tool names the parent agent can hand down. schemars can't
+    /// know this at compile time — it's per-spawn.
+    ///
+    /// Picked up automatically by the `#[derive(Tool)]`-generated
+    /// `parameters_schema`: it calls `self.apply_schema_overrides(...)`
+    /// unqualified, which Rust's method resolution binds to this
+    /// inherent method (winning over `Tool::apply_schema_overrides`'s
+    /// trait default).
+    fn apply_schema_overrides(&self, schema: &mut Value) {
         let available_tools = self.scope.parent_tool_names();
         if let Some(items) = schema
             .pointer_mut("/properties/tools/items")
@@ -255,22 +186,16 @@ impl Tool for AgentSpawnTool {
                 Value::Array(available_tools.into_iter().map(Value::String).collect()),
             );
         }
-
-        schema
     }
 
-    async fn execute(
+    /// Core execution, with the input already deserialized. Called by
+    /// the `#[derive(Tool)]`-generated `execute` after it parses the
+    /// JSON input into `SpawnInput`.
+    async fn execute_impl(
         &self,
-        input: Value,
+        input: SpawnInput,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let input: SpawnInput = serde_json::from_value(input).map_err(|e| {
-            AgentError::ToolError {
-                tool_name: "agent".into(),
-                message: format!("invalid input: {}", e),
-            }
-        })?;
-
         let system_prompt = if input.system_prompt.is_empty() {
             format!(
                 "You are a {} agent. Complete the task given to you.",
@@ -492,6 +417,7 @@ impl Extension for SubAgentExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alva_types::tool::schema::normalize_llm_tool_schema;
 
     /// Snapshot-style: print the normalized LLM-facing schema so we
     /// can eyeball it. Run with:
@@ -519,49 +445,5 @@ mod tests {
             .as_str()
             .map(|s| s.contains("task"))
             .unwrap_or(false));
-    }
-
-    #[test]
-    fn normalize_strips_root_meta() {
-        let mut schema = serde_json::json!({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Foo",
-            "description": "struct-level doc",
-            "type": "object",
-            "properties": {}
-        });
-        normalize_llm_tool_schema(&mut schema);
-        assert!(schema.get("$schema").is_none());
-        assert!(schema.get("title").is_none());
-        assert!(schema.get("description").is_none());
-        assert_eq!(schema["type"], "object");
-    }
-
-    #[test]
-    fn normalize_collapses_option_union() {
-        let mut schema = serde_json::json!({
-            "type": "object",
-            "properties": {
-                "name": { "type": ["string", "null"] },
-                "count": { "type": "integer" }
-            }
-        });
-        normalize_llm_tool_schema(&mut schema);
-        assert_eq!(schema["properties"]["name"]["type"], "string");
-        assert_eq!(schema["properties"]["count"]["type"], "integer");
-    }
-
-    #[test]
-    fn normalize_strips_property_defaults() {
-        let mut schema = serde_json::json!({
-            "type": "object",
-            "properties": {
-                "foo": { "type": "string", "default": "hi" },
-                "bar": { "type": "array", "default": [] }
-            }
-        });
-        normalize_llm_tool_schema(&mut schema);
-        assert!(schema["properties"]["foo"].get("default").is_none());
-        assert!(schema["properties"]["bar"].get("default").is_none());
     }
 }

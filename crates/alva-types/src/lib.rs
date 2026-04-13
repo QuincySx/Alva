@@ -33,6 +33,14 @@ pub use model::{LanguageModel, ModelConfig, TokenCounter};
 pub use base::stream::StreamEvent;
 pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, SearchReadInfo};
 pub use tool::execution::{MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput};
+
+// Re-export proc macros from alva-macros. A derive macro and a trait
+// with the same name can coexist: the trait lives in the type namespace,
+// the derive in the macro namespace. `use alva_types::Tool;` imports
+// both, so users write `#[derive(Tool)]` and `impl Tool for ...` with
+// a single import — same pattern as serde's Serialize/Deserialize.
+#[doc(inline)]
+pub use alva_macros::Tool;
 pub use task::{TaskType, TaskStatus, TaskState, generate_task_id, create_task_state};
 pub use token_estimation::{TokenEstimator, SimpleTokenEstimator};
 pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
