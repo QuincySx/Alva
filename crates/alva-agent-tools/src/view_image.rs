@@ -1,54 +1,37 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, base64, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, base64, schemars, serde, crate::local_fs::LocalToolFs
 // OUTPUT: ViewImageTool
 // POS:    Reads image files and returns base64-encoded content with MIME type detection.
 //! view_image — read an image file and return its base64-encoded content
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 use std::path::Path;
 
 use crate::local_fs::LocalToolFs;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Absolute or workspace-relative path to the image file.
     path: String,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "view_image",
+    description = "Read an image file from disk and return its base64-encoded content with MIME type. Supports PNG, JPEG, GIF, WebP, BMP, SVG, and ICO formats.",
+    input = Input,
+    read_only,
+    concurrency_safe,
+)]
 pub struct ViewImageTool;
 
-#[async_trait]
-impl Tool for ViewImageTool {
-    fn name(&self) -> &str {
-        "view_image"
-    }
-
-    fn description(&self) -> &str {
-        "Read an image file from disk and return its base64-encoded content with MIME type. Supports PNG, JPEG, GIF, WebP, BMP, SVG, and ICO formats."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Absolute or workspace-relative path to the image file"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "view_image".into(), message: e.to_string() })?;
-
+impl ViewImageTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "view_image".into(),
             message: "local filesystem context required".into(),

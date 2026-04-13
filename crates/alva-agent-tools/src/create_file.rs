@@ -1,25 +1,26 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: CreateFileTool
 // POS:    Creates or overwrites a file with auto-creation of parent directories,
 //         line ending preservation, and staleness detection.
 //! create_file — create or overwrite a file (FileWriteTool behavior)
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::local_fs::LocalToolFs;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// File path relative to workspace root.
     path: String,
+    /// File content to write.
     content: String,
+    /// Auto-create parent directories, default true.
     #[serde(default)]
     create_dirs: Option<bool>,
 }
-
-pub struct CreateFileTool;
 
 /// Detect the dominant line ending style in existing content.
 /// Returns `"\r\n"` if CRLF is dominant, otherwise `"\n"`.
@@ -46,43 +47,22 @@ fn normalize_line_endings(content: &str, target_ending: &str) -> String {
     }
 }
 
-#[async_trait]
-impl Tool for CreateFileTool {
-    fn name(&self) -> &str {
-        "create_file"
-    }
+#[derive(Tool)]
+#[tool(
+    name = "create_file",
+    description = "Create a new file or overwrite an existing file with the given content. \
+        Preserves existing line endings (CRLF/LF) when overwriting. \
+        The path is relative to the workspace root.",
+    input = Input,
+)]
+pub struct CreateFileTool;
 
-    fn description(&self) -> &str {
-        "Create a new file or overwrite an existing file with the given content. \
-         Preserves existing line endings (CRLF/LF) when overwriting. \
-         The path is relative to the workspace root."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["path", "content"],
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "File path relative to workspace root"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "File content to write"
-                },
-                "create_dirs": {
-                    "type": "boolean",
-                    "description": "Auto-create parent directories, default true"
-                }
-            }
-        })
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "create_file".into(), message: e.to_string() })?;
-
+impl CreateFileTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "create_file".into(),
             message: "local filesystem context required".into(),

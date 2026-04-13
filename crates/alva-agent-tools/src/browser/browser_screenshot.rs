@@ -1,91 +1,70 @@
-// INPUT:  alva_types, async_trait, chromiumoxide::cdp, serde, serde_json, base64, super::browser_manager
+// INPUT:  alva_types, async_trait, base64, chromiumoxide::cdp, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserScreenshotTool
 // POS:    Captures page screenshots (viewport, full-page, or element) and saves to file.
 //! browser_screenshot — capture page screenshot
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams,
 };
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::browser_manager::SharedBrowserManager;
 
-#[derive(Debug, Deserialize)]
+/// Image format for the screenshot.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+enum ImageFormat {
+    Png,
+    Jpeg,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
-    /// Output path for the screenshot file (relative to workspace or absolute)
+    /// Output file path (relative to workspace). Default: 'screenshot.png'.
+    #[serde(default)]
     path: Option<String>,
-    /// Whether to capture the full scrollable page (default: false = viewport only)
+    /// Capture the full scrollable page, not just the viewport. Default: false.
+    #[serde(default)]
     full_page: Option<bool>,
-    /// CSS selector to screenshot a specific element
+    /// CSS selector to screenshot a specific element instead of the page.
+    #[serde(default)]
     selector: Option<String>,
-    /// Image format: "png" (default) or "jpeg"
-    format: Option<String>,
-    /// JPEG quality (0-100), only for jpeg format
+    /// Image format. Default: 'png'.
+    #[serde(default)]
+    format: Option<ImageFormat>,
+    /// JPEG quality (0-100). Only used with format='jpeg'. Default: 80.
+    #[serde(default)]
     quality: Option<i64>,
-    /// Browser instance ID, default "default"
+    /// Browser instance ID. Default: 'default'.
+    #[serde(default)]
     id: Option<String>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "browser_screenshot",
+    description = "Capture a screenshot of the current page. Can capture the viewport, full page, or a specific element. Saves to a file and returns the path.",
+    input = Input,
+    read_only,
+)]
 pub struct BrowserScreenshotTool {
     pub manager: SharedBrowserManager,
 }
 
-#[async_trait]
-impl Tool for BrowserScreenshotTool {
-    fn name(&self) -> &str {
-        "browser_screenshot"
-    }
-
-    fn description(&self) -> &str {
-        "Capture a screenshot of the current page. Can capture the viewport, full page, or a specific element. Saves to a file and returns the path."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Output file path (relative to workspace). Default: 'screenshot.png'"
-                },
-                "full_page": {
-                    "type": "boolean",
-                    "description": "Capture the full scrollable page, not just the viewport. Default: false"
-                },
-                "selector": {
-                    "type": "string",
-                    "description": "CSS selector to screenshot a specific element instead of the page"
-                },
-                "format": {
-                    "type": "string",
-                    "enum": ["png", "jpeg"],
-                    "description": "Image format. Default: 'png'"
-                },
-                "quality": {
-                    "type": "integer",
-                    "description": "JPEG quality (0-100). Only used with format='jpeg'. Default: 80"
-                },
-                "id": {
-                    "type": "string",
-                    "description": "Browser instance ID. Default: 'default'"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_screenshot".into(), message: e.to_string() })?;
-
+impl BrowserScreenshotTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let id = params.id.unwrap_or_else(|| "default".to_string());
-        let format_str = params.format.as_deref().unwrap_or("png");
+        let format_str = match params.format {
+            Some(ImageFormat::Jpeg) => "jpeg",
+            Some(ImageFormat::Png) | None => "png",
+        };
         let output_path = params
             .path
             .clone()

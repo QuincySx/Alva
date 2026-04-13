@@ -1,70 +1,63 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, super::browser_manager
+// INPUT:  alva_types, async_trait, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserSnapshotTool
 // POS:    Extracts page content in text, HTML, or readability (article-extraction) mode.
 //! browser_snapshot — extract page content (text, HTML, readability)
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::browser_manager::SharedBrowserManager;
 
-#[derive(Debug, Deserialize)]
+/// Content extraction mode.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+enum SnapshotMode {
+    /// Visible text only.
+    Text,
+    /// Raw HTML.
+    Html,
+    /// Article-like clean text (strips nav/ads/sidebars).
+    Readability,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
-    /// Extraction mode: "text" (default), "html", "readability"
-    mode: Option<String>,
-    /// CSS selector to scope extraction (optional — defaults to full page)
+    /// Extraction mode. Default: 'text'.
+    #[serde(default)]
+    mode: Option<SnapshotMode>,
+    /// CSS selector to scope extraction to a specific element (e.g. 'article', '#content', '.main').
+    #[serde(default)]
     selector: Option<String>,
-    /// Browser instance ID, default "default"
+    /// Browser instance ID. Default: 'default'.
+    #[serde(default)]
     id: Option<String>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "browser_snapshot",
+    description = "Extract content from the current page. Modes: 'text' (visible text, default), 'html' (raw HTML), 'readability' (article extraction — strips nav/ads/sidebars, returns clean text like Reader Mode).",
+    input = Input,
+    read_only,
+)]
 pub struct BrowserSnapshotTool {
     pub manager: SharedBrowserManager,
 }
 
-#[async_trait]
-impl Tool for BrowserSnapshotTool {
-    fn name(&self) -> &str {
-        "browser_snapshot"
-    }
-
-    fn description(&self) -> &str {
-        "Extract content from the current page. Modes: 'text' (visible text, default), 'html' (raw HTML), 'readability' (article extraction — strips nav/ads/sidebars, returns clean text like Reader Mode)."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "mode": {
-                    "type": "string",
-                    "enum": ["text", "html", "readability"],
-                    "description": "Extraction mode. 'text': visible text only. 'html': raw HTML. 'readability': article-like clean text. Default: 'text'"
-                },
-                "selector": {
-                    "type": "string",
-                    "description": "CSS selector to scope extraction to a specific element (e.g. 'article', '#content', '.main')"
-                },
-                "id": {
-                    "type": "string",
-                    "description": "Browser instance ID. Default: 'default'"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_snapshot".into(), message: e.to_string() })?;
-
+impl BrowserSnapshotTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let id = params.id.unwrap_or_else(|| "default".to_string());
-        let mode = params.mode.as_deref().unwrap_or("text");
+        let (mode_str, mode) = match params.mode {
+            Some(SnapshotMode::Html) => ("html", SnapshotMode::Html),
+            Some(SnapshotMode::Readability) => ("readability", SnapshotMode::Readability),
+            Some(SnapshotMode::Text) | None => ("text", SnapshotMode::Text),
+        };
 
         let manager = self.manager.lock().await;
         let page = manager
@@ -73,13 +66,9 @@ impl Tool for BrowserSnapshotTool {
             .map_err(|e| AgentError::ToolError { tool_name: "browser_snapshot".into(), message: e })?;
 
         let result = match mode {
-            "text" => extract_text(&page, params.selector.as_deref()).await,
-            "html" => extract_html(&page, params.selector.as_deref()).await,
-            "readability" => extract_readability(&page).await,
-            other => Err(format!(
-                "Unknown mode: '{}'. Use text/html/readability.",
-                other
-            )),
+            SnapshotMode::Text => extract_text(&page, params.selector.as_deref()).await,
+            SnapshotMode::Html => extract_html(&page, params.selector.as_deref()).await,
+            SnapshotMode::Readability => extract_readability(&page).await,
         };
 
         match result {
@@ -97,7 +86,7 @@ impl Tool for BrowserSnapshotTool {
                 Ok(ToolOutput::text(json!({
                     "url": url,
                     "title": title,
-                    "mode": mode,
+                    "mode": mode_str,
                     "content": content,
                     "length": content.len(),
                 })

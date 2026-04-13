@@ -1,31 +1,32 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, base64, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, base64, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ReadFileTool
 // POS:    Read file contents with offset/limit pagination, automatic image detection,
 //         encoding detection, PDF page support, and smart truncation.
 //! read_file — read text or image files with pagination and truncation
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::path::Path;
 
 use crate::local_fs::LocalToolFs;
 use crate::truncate::{truncate_head, MAX_BYTES, MAX_LINES};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Path to the file (absolute or relative to workspace).
     path: String,
+    /// Line number to start reading from (1-indexed). Default: 1.
     #[serde(default)]
     offset: Option<usize>,
+    /// Maximum number of lines to read. Default: up to 2000 lines or 50KB.
     #[serde(default)]
     limit: Option<usize>,
     /// Page range for PDF files (e.g., "1-5", "3", "10-20"). Max 20 pages per request.
     #[serde(default)]
     pages: Option<String>,
 }
-
-pub struct ReadFileTool;
 
 /// Detect image MIME type from file header bytes (magic bytes).
 fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
@@ -117,60 +118,26 @@ fn parse_page_range(range: &str) -> Result<(usize, usize), String> {
     }
 }
 
-#[async_trait]
-impl Tool for ReadFileTool {
-    fn name(&self) -> &str {
-        "read_file"
-    }
+#[derive(Tool)]
+#[tool(
+    name = "read_file",
+    description = "Read file contents. Returns text with line numbers for code/text files, \
+        or base64-encoded image data for image files. Supports offset/limit for \
+        paginated reading of large files. Use pages parameter for PDF files.",
+    input = Input,
+    read_only,
+    concurrency_safe,
+)]
+pub struct ReadFileTool;
 
-    fn description(&self) -> &str {
-        "Read file contents. Returns text with line numbers for code/text files, \
-         or base64-encoded image data for image files. Supports offset/limit for \
-         paginated reading of large files. Use pages parameter for PDF files."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to the file (absolute or relative to workspace)"
-                },
-                "offset": {
-                    "type": "integer",
-                    "description": "Line number to start reading from (1-indexed). Default: 1"
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of lines to read. Default: up to 2000 lines or 50KB"
-                },
-                "pages": {
-                    "type": "string",
-                    "description": "Page range for PDF files (e.g., '1-5', '3', '10-20'). Max 20 pages per request."
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(
+impl ReadFileTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "read_file".into(),
             message: "workspace required".into(),
         })?;
 
@@ -187,7 +154,7 @@ impl Tool for ReadFileTool {
 
         // Check file exists
         if !fs.exists(path_str).await.map_err(|e| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "read_file".into(),
             message: e.to_string(),
         })? {
             return Ok(ToolOutput::error(format!(
@@ -198,7 +165,7 @@ impl Tool for ReadFileTool {
 
         // Read raw bytes
         let data = fs.read_file(path_str).await.map_err(|e| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "read_file".into(),
             message: format!("Failed to read file: {e}"),
         })?;
 
@@ -285,9 +252,7 @@ impl Tool for ReadFileTool {
             details: Some(details),
         })
     }
-}
 
-impl ReadFileTool {
     fn handle_image(
         &self,
         data: &[u8],

@@ -1,65 +1,40 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, schemars, serde, crate::local_fs::LocalToolFs
 // OUTPUT: TodoWriteTool
 // POS:    Writes progress notes to a file (defaults to CLAUDE.md).
 //! todo_write — write progress notes
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
 use crate::local_fs::LocalToolFs;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Content to write (progress notes, TODO items, etc.).
     content: String,
+    /// File path to write to (default: CLAUDE.md).
     #[serde(default)]
     file_path: Option<String>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "todo_write",
+    description = "Write progress notes or TODO items to a tracking file. \
+        Defaults to CLAUDE.md in the workspace root.",
+    input = Input,
+)]
 pub struct TodoWriteTool;
 
-#[async_trait]
-impl Tool for TodoWriteTool {
-    fn name(&self) -> &str {
-        "todo_write"
-    }
-
-    fn description(&self) -> &str {
-        "Write progress notes or TODO items to a tracking file. \
-         Defaults to CLAUDE.md in the workspace root."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["content"],
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "Content to write (progress notes, TODO items, etc.)"
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "File path to write to (default: CLAUDE.md)"
-                }
-            }
-        })
-    }
-
-    async fn execute(
+impl TodoWriteTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "todo_write".into(),
             message: "workspace context required".into(),
         })?;
 
@@ -92,7 +67,7 @@ impl Tool for TodoWriteTool {
         fs.write_file(path_str, new_content.as_bytes())
             .await
             .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
+                tool_name: "todo_write".into(),
                 message: format!("Failed to write: {}", e),
             })?;
 

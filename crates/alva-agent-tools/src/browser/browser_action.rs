@@ -1,106 +1,90 @@
-// INPUT:  alva_types, async_trait, chromiumoxide::cdp, serde, serde_json, super::browser_manager
+// INPUT:  alva_types, async_trait, chromiumoxide::cdp, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserActionTool
 // POS:    Performs page interactions (click/type/press/scroll) via CSS selectors or coordinates.
 //! browser_action — page interaction: click, type, press, scroll
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
 };
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::browser_manager::SharedBrowserManager;
 
-#[derive(Debug, Deserialize)]
+/// The kind of page interaction to perform.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+enum ActionKind {
+    Click,
+    Type,
+    Press,
+    Scroll,
+}
+
+/// Scroll direction.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+enum ScrollDirection {
+    Up,
+    Down,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
-    /// Action type: "click", "type", "press", "scroll"
-    action: String,
-    /// CSS selector for click/type actions
+    /// The action to perform.
+    action: ActionKind,
+    /// CSS selector to target (for click/type).
+    #[serde(default)]
     selector: Option<String>,
-    /// Text to type (for "type" action)
+    /// Text to type (required for 'type' action).
+    #[serde(default)]
     text: Option<String>,
-    /// Key to press (for "press" action), e.g. "Enter", "Tab", "Escape"
+    /// Key to press (for 'press' action): Enter, Tab, Escape, ArrowDown, Backspace, etc.
+    #[serde(default)]
     key: Option<String>,
-    /// Scroll direction: "up" or "down" (for "scroll" action)
-    direction: Option<String>,
-    /// Scroll amount in pixels, default 300
+    /// Scroll direction (for 'scroll' action). Default: 'down'.
+    #[serde(default)]
+    direction: Option<ScrollDirection>,
+    /// Scroll amount in pixels. Default: 300.
+    #[serde(default)]
     amount: Option<i64>,
-    /// Coordinate X for click (alternative to selector)
+    /// X coordinate for click (alternative to selector).
+    #[serde(default)]
     x: Option<f64>,
-    /// Coordinate Y for click (alternative to selector)
+    /// Y coordinate for click (alternative to selector).
+    #[serde(default)]
     y: Option<f64>,
-    /// Browser instance ID, default "default"
+    /// Browser instance ID. Default: 'default'.
+    #[serde(default)]
     id: Option<String>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "browser_action",
+    description = "Perform an interaction on the current page. Supports: click (by selector or coordinates), type (text into an element), press (keyboard key), scroll (up/down).",
+    input = Input,
+)]
 pub struct BrowserActionTool {
     pub manager: SharedBrowserManager,
 }
 
-#[async_trait]
-impl Tool for BrowserActionTool {
-    fn name(&self) -> &str {
-        "browser_action"
-    }
-
-    fn description(&self) -> &str {
-        "Perform an interaction on the current page. Supports: click (by selector or coordinates), type (text into an element), press (keyboard key), scroll (up/down)."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["action"],
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["click", "type", "press", "scroll"],
-                    "description": "The action to perform"
-                },
-                "selector": {
-                    "type": "string",
-                    "description": "CSS selector to target (for click/type)"
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Text to type (required for 'type' action)"
-                },
-                "key": {
-                    "type": "string",
-                    "description": "Key to press (for 'press' action): Enter, Tab, Escape, ArrowDown, Backspace, etc."
-                },
-                "direction": {
-                    "type": "string",
-                    "enum": ["up", "down"],
-                    "description": "Scroll direction (for 'scroll' action). Default: 'down'"
-                },
-                "amount": {
-                    "type": "integer",
-                    "description": "Scroll amount in pixels. Default: 300"
-                },
-                "x": {
-                    "type": "number",
-                    "description": "X coordinate for click (alternative to selector)"
-                },
-                "y": {
-                    "type": "number",
-                    "description": "Y coordinate for click (alternative to selector)"
-                },
-                "id": {
-                    "type": "string",
-                    "description": "Browser instance ID. Default: 'default'"
-                }
-            }
-        })
-    }
-
-    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "browser_action".into(), message: e.to_string() })?;
-
+impl BrowserActionTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let id = params.id.clone().unwrap_or_else(|| "default".to_string());
+
+        let action_label = match params.action {
+            ActionKind::Click => "click",
+            ActionKind::Type => "type",
+            ActionKind::Press => "press",
+            ActionKind::Scroll => "scroll",
+        };
 
         let manager = self.manager.lock().await;
         let page = manager
@@ -108,18 +92,17 @@ impl Tool for BrowserActionTool {
             .await
             .map_err(|e| AgentError::ToolError { tool_name: "browser_action".into(), message: e })?;
 
-        let result = match params.action.as_str() {
-            "click" => execute_click(&page, &params).await,
-            "type" => execute_type(&page, &params).await,
-            "press" => execute_press(&page, &params).await,
-            "scroll" => execute_scroll(&page, &params).await,
-            other => Err(format!("Unknown action: '{}'. Use click/type/press/scroll.", other)),
+        let result = match params.action {
+            ActionKind::Click => execute_click(&page, &params).await,
+            ActionKind::Type => execute_type(&page, &params).await,
+            ActionKind::Press => execute_press(&page, &params).await,
+            ActionKind::Scroll => execute_scroll(&page, &params).await,
         };
 
         match result {
             Ok(msg) => Ok(ToolOutput::text(json!({
                 "status": "ok",
-                "action": params.action,
+                "action": action_label,
                 "detail": msg,
             })
             .to_string())),
@@ -268,13 +251,16 @@ async fn execute_scroll(
     page: &chromiumoxide::page::Page,
     params: &Input,
 ) -> Result<String, String> {
-    let direction = params.direction.as_deref().unwrap_or("down");
+    let direction = params.direction.as_ref().unwrap_or(&ScrollDirection::Down);
+    let direction_str = match direction {
+        ScrollDirection::Down => "down",
+        ScrollDirection::Up => "up",
+    };
     let amount = params.amount.unwrap_or(300);
 
     let delta_y = match direction {
-        "down" => amount,
-        "up" => -amount,
-        other => return Err(format!("Invalid scroll direction: '{}'. Use 'up' or 'down'.", other)),
+        ScrollDirection::Down => amount,
+        ScrollDirection::Up => -amount,
     };
 
     let js = format!(
@@ -286,5 +272,5 @@ async fn execute_scroll(
         .await
         .map_err(|e| format!("Scroll failed: {}", e))?;
 
-    Ok(format!("Scrolled {} by {} pixels", direction, amount))
+    Ok(format!("Scrolled {} by {} pixels", direction_str, amount))
 }

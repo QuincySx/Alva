@@ -1,66 +1,53 @@
-// INPUT:  alva_types, async_trait, serde, serde_json
+// INPUT:  alva_types, async_trait, schemars, serde
 // OUTPUT: TaskListTool
 // POS:    Lists all tracked tasks with optional status filter.
 //! task_list — list tracked tasks
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    status: Option<String>,
+/// Task status filter for the list query.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum StatusFilter {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Killed,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct Input {
+    /// Filter tasks by status.
+    #[serde(default)]
+    status: Option<StatusFilter>,
+}
+
+#[derive(Tool)]
+#[tool(
+    name = "task_list",
+    description = "List all tracked tasks. Optionally filter by status (pending, running, completed, failed, killed).",
+    input = Input,
+    read_only,
+    concurrency_safe,
+)]
 pub struct TaskListTool;
 
-#[async_trait]
-impl Tool for TaskListTool {
-    fn name(&self) -> &str {
-        "task_list"
-    }
-
-    fn description(&self) -> &str {
-        "List all tracked tasks. Optionally filter by status (pending, running, completed, failed, killed)."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": ["pending", "running", "completed", "failed", "killed"],
-                    "description": "Filter tasks by status"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    fn is_concurrency_safe(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(
+impl TaskListTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         _ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         // In a full implementation this would iterate over a shared task store.
         let filter_msg = match params.status {
-            Some(ref s) => format!(" (filter: status={})", s),
+            Some(StatusFilter::Pending) => " (filter: status=pending)".to_string(),
+            Some(StatusFilter::Running) => " (filter: status=running)".to_string(),
+            Some(StatusFilter::Completed) => " (filter: status=completed)".to_string(),
+            Some(StatusFilter::Failed) => " (filter: status=failed)".to_string(),
+            Some(StatusFilter::Killed) => " (filter: status=killed)".to_string(),
             None => String::new(),
         };
 

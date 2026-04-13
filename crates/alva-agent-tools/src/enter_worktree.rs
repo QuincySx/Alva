@@ -1,60 +1,39 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, schemars, serde, crate::local_fs::LocalToolFs
 // OUTPUT: EnterWorktreeTool
 // POS:    Creates an isolated git worktree for safe parallel development.
 //! enter_worktree — create an isolated git worktree
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
 use crate::local_fs::LocalToolFs;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Name for the worktree (used for branch and directory). Auto-generated if omitted.
     #[serde(default)]
     name: Option<String>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "enter_worktree",
+    description = "Create an isolated git worktree for safe parallel development. \
+        The worktree gets its own branch and working directory, allowing \
+        changes without affecting the main workspace.",
+    input = Input,
+)]
 pub struct EnterWorktreeTool;
 
-#[async_trait]
-impl Tool for EnterWorktreeTool {
-    fn name(&self) -> &str {
-        "enter_worktree"
-    }
-
-    fn description(&self) -> &str {
-        "Create an isolated git worktree for safe parallel development. \
-         The worktree gets its own branch and working directory, allowing \
-         changes without affecting the main workspace."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Name for the worktree (used for branch and directory). Auto-generated if omitted."
-                }
-            }
-        })
-    }
-
-    async fn execute(
+impl EnterWorktreeTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "enter_worktree".into(),
             message: "workspace context required".into(),
         })?;
 
@@ -93,7 +72,7 @@ impl Tool for EnterWorktreeTool {
                 )))
             }
             Err(e) => Err(AgentError::ToolError {
-                tool_name: self.name().into(),
+                tool_name: "enter_worktree".into(),
                 message: format!("Failed to run git worktree: {}", e),
             }),
         }

@@ -1,27 +1,33 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ListFilesTool
 // POS:    Lists directory contents with recursive traversal and hidden file filtering via ToolFs.
 //! list_files — list directory contents
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::local_fs::LocalToolFs;
 
 /// Maximum entries returned to prevent context overflow.
 const MAX_ENTRIES: usize = 500;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Directory path relative to workspace root, defaults to workspace root.
+    #[serde(default)]
     path: Option<String>,
+    /// List recursively, default false.
+    #[serde(default)]
     recursive: Option<bool>,
+    /// Max recursion depth, default 3.
+    #[serde(default)]
     max_depth: Option<usize>,
+    /// Show hidden files (starting with .), default false.
+    #[serde(default)]
     show_hidden: Option<bool>,
 }
-
-pub struct ListFilesTool;
 
 /// Recursively collect entries (files and directories) via ToolFs,
 /// returning relative paths with a trailing `/` for directories.
@@ -62,48 +68,22 @@ fn list_entries<'a>(
     })
 }
 
-#[async_trait]
-impl Tool for ListFilesTool {
-    fn name(&self) -> &str {
-        "list_files"
-    }
+#[derive(Tool)]
+#[tool(
+    name = "list_files",
+    description = "List files and directories in the given path. Returns a tree-like listing of the directory contents.",
+    input = Input,
+    read_only,
+    concurrency_safe,
+)]
+pub struct ListFilesTool;
 
-    fn description(&self) -> &str {
-        "List files and directories in the given path. Returns a tree-like listing of the directory contents."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Directory path relative to workspace root, defaults to workspace root"
-                },
-                "recursive": {
-                    "type": "boolean",
-                    "description": "List recursively, default false"
-                },
-                "max_depth": {
-                    "type": "integer",
-                    "description": "Max recursion depth, default 3"
-                },
-                "show_hidden": {
-                    "type": "boolean",
-                    "description": "Show hidden files (starting with .), default false"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "list_files".into(), message: e.to_string() })?;
-
+impl ListFilesTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "list_files".into(),
             message: "local filesystem context required".into(),

@@ -1,22 +1,22 @@
-// INPUT:  alva_types, async_trait, serde, serde_json
+// INPUT:  alva_types, async_trait, schemars, serde
 // OUTPUT: ScheduleCronTool
 // POS:    Creates cron-based schedules for recurring agent tasks.
 //! schedule_cron — create cron schedules
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Cron expression (5 fields: min hour dom month dow). Example: '*/5 * * * *'.
     cron: String,
+    /// Prompt / instructions to run on each trigger.
     prompt: String,
+    /// If true, schedule repeats (default true). If false, runs once at next match.
     #[serde(default)]
     recurring: Option<bool>,
 }
-
-pub struct ScheduleCronTool;
 
 /// Basic validation for a 5-field cron expression.
 fn validate_cron(expr: &str) -> Result<(), String> {
@@ -30,49 +30,21 @@ fn validate_cron(expr: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[async_trait]
-impl Tool for ScheduleCronTool {
-    fn name(&self) -> &str {
-        "schedule_cron"
-    }
+#[derive(Tool)]
+#[tool(
+    name = "schedule_cron",
+    description = "Create a cron schedule for recurring agent tasks. Uses standard 5-field \
+        cron format: minute hour day-of-month month day-of-week.",
+    input = Input,
+)]
+pub struct ScheduleCronTool;
 
-    fn description(&self) -> &str {
-        "Create a cron schedule for recurring agent tasks. Uses standard 5-field \
-         cron format: minute hour day-of-month month day-of-week."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["cron", "prompt"],
-            "properties": {
-                "cron": {
-                    "type": "string",
-                    "description": "Cron expression (5 fields: min hour dom month dow). Example: '*/5 * * * *'"
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "Prompt/instructions to run on each trigger"
-                },
-                "recurring": {
-                    "type": "boolean",
-                    "description": "If true, schedule repeats (default true). If false, runs once at next match."
-                }
-            }
-        })
-    }
-
-    async fn execute(
+impl ScheduleCronTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         _ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         // Validate cron expression
         if let Err(msg) = validate_cron(&params.cron) {
             return Ok(ToolOutput::error(format!("Invalid cron expression: {}", msg)));

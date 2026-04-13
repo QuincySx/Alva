@@ -1,13 +1,13 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: FileEditTool
 // POS:    Performs string-replace-based file editing with unique match enforcement,
 //         replace_all mode, quote normalization, and staleness detection.
 //! file_edit — string-replace based file editing (like Claude Code's Edit tool)
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -38,19 +38,25 @@ fn normalize_quotes(text: &str) -> String {
         .replace('\u{2014}', "--")
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct SingleEdit {
+    /// Exact string to find in the file.
     old_str: String,
+    /// Replacement string.
     new_str: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// File path relative to workspace root.
     path: String,
+    /// Exact string to find (single edit mode).
     #[serde(default)]
     old_str: Option<String>,
+    /// Replacement string (single edit mode).
     #[serde(default)]
     new_str: Option<String>,
+    /// Array of {old_str, new_str} for batch editing (alternative to single edit).
     #[serde(default)]
     edits: Option<Vec<SingleEdit>>,
     /// Replace all occurrences of old_str (default false).
@@ -107,61 +113,22 @@ fn check_staleness(path: &str, current_content: &[u8]) -> Option<String> {
     }
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "file_edit",
+    description = "Edit a file by replacing exact string matches. Supports single edit (old_str+new_str), \
+        batch edits (edits[] array), and replace_all mode. Each old_str must be unique unless \
+        replace_all is true. Smart quotes are automatically normalized. Path is relative to workspace root.",
+    input = Input,
+)]
 pub struct FileEditTool;
 
-#[async_trait]
-impl Tool for FileEditTool {
-    fn name(&self) -> &str {
-        "file_edit"
-    }
-
-    fn description(&self) -> &str {
-        "Edit a file by replacing exact string matches. Supports single edit (old_str+new_str), \
-         batch edits (edits[] array), and replace_all mode. Each old_str must be unique unless \
-         replace_all is true. Smart quotes are automatically normalized. Path is relative to workspace root."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "File path relative to workspace root"
-                },
-                "old_str": {
-                    "type": "string",
-                    "description": "Exact string to find (single edit mode)"
-                },
-                "new_str": {
-                    "type": "string",
-                    "description": "Replacement string (single edit mode)"
-                },
-                "edits": {
-                    "type": "array",
-                    "description": "Array of {old_str, new_str} for batch editing (alternative to single edit)",
-                    "items": {
-                        "type": "object",
-                        "required": ["old_str", "new_str"],
-                        "properties": {
-                            "old_str": { "type": "string" },
-                            "new_str": { "type": "string" }
-                        }
-                    }
-                },
-                "replace_all": {
-                    "type": "boolean",
-                    "description": "Replace all occurrences of old_str (default false). When true, old_str does not need to be unique."
-                }
-            }
-        })
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: e.to_string() })?;
-
+impl FileEditTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let replace_all = params.replace_all.unwrap_or(false);
 
         // Normalize to Vec<SingleEdit>

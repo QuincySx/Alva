@@ -1,39 +1,30 @@
-// INPUT:  alva_types, async_trait, serde_json
+// INPUT:  alva_types, async_trait, schemars, serde
 // OUTPUT: ExitPlanModeTool
 // POS:    Exits planning mode, re-enabling destructive tools.
 //! exit_plan_mode — exit planning mode
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
-use serde_json::{json, Value};
+use schemars::JsonSchema;
+use serde::Deserialize;
 
+/// No parameters.
+#[derive(Debug, Deserialize, JsonSchema)]
+struct Input {}
+
+#[derive(Tool)]
+#[tool(
+    name = "exit_plan_mode",
+    description = "Exit planning mode and return to normal operation. Destructive tools \
+        will be available again.",
+    input = Input,
+    read_only,
+)]
 pub struct ExitPlanModeTool;
 
-#[async_trait]
-impl Tool for ExitPlanModeTool {
-    fn name(&self) -> &str {
-        "exit_plan_mode"
-    }
-
-    fn description(&self) -> &str {
-        "Exit planning mode and return to normal operation. Destructive tools \
-         will be available again."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {}
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(
+impl ExitPlanModeTool {
+    async fn execute_impl(
         &self,
-        _input: Value,
+        _params: Input,
         _ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
         // In a full implementation, this would clear the planning-mode flag

@@ -1,13 +1,13 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ExecuteShellTool
 // POS:    Executes shell commands via ToolFs with configurable timeout, working directory,
 //         environment variables, background execution, description, and git operation tracking.
 //! execute_shell — run shell commands via ToolFs
 
 use alva_types::{AgentError, ProgressEvent, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 
 use crate::local_fs::LocalToolFs;
@@ -17,12 +17,14 @@ const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 /// Maximum timeout in milliseconds (600 seconds / 10 minutes).
 const MAX_TIMEOUT_MS: u64 = 600_000;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Shell command to execute.
     command: String,
+    /// Working directory, defaults to workspace root.
     #[serde(default)]
     cwd: Option<String>,
-    /// Timeout in seconds (legacy parameter, use `timeout` for ms).
+    /// Timeout in seconds (legacy parameter, prefer `timeout` in ms).
     #[serde(default)]
     timeout_secs: Option<u64>,
     /// Timeout in milliseconds (default 120000, max 600000).
@@ -31,7 +33,7 @@ struct Input {
     /// Human-readable description of what the command does.
     #[serde(default)]
     description: Option<String>,
-    /// Spawn as background task and return immediately.
+    /// Spawn command as background task, return immediately (default false).
     #[serde(default)]
     run_in_background: Option<bool>,
     /// Additional environment variables to inject.
@@ -67,64 +69,24 @@ fn detect_git_operation(command: &str) -> Option<&'static str> {
     None
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "execute_shell",
+    description = "Execute a shell command and return stdout/stderr/exit_code. Use this for running programs, \
+        checking system state, or performing operations that require shell access. \
+        Supports timeout, background execution, environment variables, and git operation tracking.",
+    input = Input,
+)]
 pub struct ExecuteShellTool;
 
-#[async_trait]
-impl Tool for ExecuteShellTool {
-    fn name(&self) -> &str {
-        "execute_shell"
-    }
-
-    fn description(&self) -> &str {
-        "Execute a shell command and return stdout/stderr/exit_code. Use this for running programs, \
-         checking system state, or performing operations that require shell access. \
-         Supports timeout, background execution, environment variables, and git operation tracking."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["command"],
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Shell command to execute"
-                },
-                "cwd": {
-                    "type": "string",
-                    "description": "Working directory, defaults to workspace root"
-                },
-                "timeout_secs": {
-                    "type": "integer",
-                    "description": "Timeout in seconds (legacy, prefer timeout in ms)"
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Timeout in milliseconds (default 120000, max 600000)"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Human-readable description of what the command does"
-                },
-                "run_in_background": {
-                    "type": "boolean",
-                    "description": "Spawn command as background task, return immediately (default false)"
-                },
-                "env": {
-                    "type": "object",
-                    "description": "Additional environment variables to inject",
-                    "additionalProperties": { "type": "string" }
-                }
-            }
-        })
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: self.name().into(), message: e.to_string() })?;
-
+impl ExecuteShellTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "execute_shell".into(),
             message: "workspace context required".into(),
         })?;
         let fallback = LocalToolFs::new(workspace);
@@ -177,9 +139,6 @@ impl Tool for ExecuteShellTool {
         // Handle background execution
         if params.run_in_background.unwrap_or(false) {
             // For background: spawn the command but don't wait for it
-            // We use the ToolFs exec with a very short timeout to start it,
-            // but actually we need to spawn it differently.
-            // Use a simple nohup approach via the shell.
             let bg_command = format!("nohup sh -c '{}' > /dev/null 2>&1 & echo $!", effective_command);
             match fs.exec(&bg_command, cwd, 5000).await {
                 Ok(result) => {
@@ -199,7 +158,7 @@ impl Tool for ExecuteShellTool {
                 }
                 Err(e) => {
                     return Err(AgentError::ToolError {
-                        tool_name: self.name().into(),
+                        tool_name: "execute_shell".into(),
                         message: format!("Failed to start background command: {}", e),
                     });
                 }
@@ -279,7 +238,7 @@ impl Tool for ExecuteShellTool {
                 })
             }
             Err(e) => Err(AgentError::ToolError {
-                tool_name: self.name().into(),
+                tool_name: "execute_shell".into(),
                 message: format!("Failed to execute command: {}", e),
             }),
         }

@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, serde, serde_json
+// INPUT:  alva_types, async_trait, schemars, serde, serde_json
 // OUTPUT: TaskCreateTool
 // POS:    Creates a new task for tracking work progress.
 //! task_create — create a new tracked task
@@ -7,64 +7,37 @@ use alva_types::{
     AgentError, TaskType, Tool, ToolExecutionContext, ToolOutput,
     create_task_state,
 };
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Short title / subject of the task.
     subject: String,
+    /// Detailed description of the task.
     description: String,
+    /// Optional key-value metadata to attach to the task.
     #[serde(default)]
     metadata: Option<HashMap<String, Value>>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "task_create",
+    description = "Create a new task for tracking work progress. Returns the task ID and confirmation.",
+    input = Input,
+)]
 pub struct TaskCreateTool;
 
-#[async_trait]
-impl Tool for TaskCreateTool {
-    fn name(&self) -> &str {
-        "task_create"
-    }
-
-    fn description(&self) -> &str {
-        "Create a new task for tracking work progress. Returns the task ID and confirmation."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["subject", "description"],
-            "properties": {
-                "subject": {
-                    "type": "string",
-                    "description": "Short title / subject of the task"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Detailed description of the task"
-                },
-                "metadata": {
-                    "type": "object",
-                    "description": "Optional key-value metadata to attach to the task"
-                }
-            }
-        })
-    }
-
-    async fn execute(
+impl TaskCreateTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         let output_dir = ctx
             .workspace()
             .map(|w| w.join(".tasks"))

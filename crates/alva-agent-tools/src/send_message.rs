@@ -1,70 +1,39 @@
-// INPUT:  alva_types, async_trait, serde, serde_json
+// INPUT:  alva_types, async_trait, schemars, serde
 // OUTPUT: SendMessageTool
 // POS:    Sends messages between agents for inter-agent communication.
 //! send_message — send messages between agents
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Recipient agent name or ID.
     to: String,
+    /// Message content to send.
     message: String,
+    /// Optional short summary of the message for context.
     #[serde(default)]
     summary: Option<String>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "send_message",
+    description = "Send a message to another agent by name or ID. Used for inter-agent communication \
+        in multi-agent setups.",
+    input = Input,
+    read_only,
+)]
 pub struct SendMessageTool;
 
-#[async_trait]
-impl Tool for SendMessageTool {
-    fn name(&self) -> &str {
-        "send_message"
-    }
-
-    fn description(&self) -> &str {
-        "Send a message to another agent by name or ID. Used for inter-agent communication \
-         in multi-agent setups."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["to", "message"],
-            "properties": {
-                "to": {
-                    "type": "string",
-                    "description": "Recipient agent name or ID"
-                },
-                "message": {
-                    "type": "string",
-                    "description": "Message content to send"
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "Optional short summary of the message for context"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(
+impl SendMessageTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         _ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         let summary_info = params
             .summary
             .as_deref()

@@ -1,63 +1,35 @@
-// INPUT:  alva_types, async_trait, serde, serde_json
+// INPUT:  alva_types, async_trait, schemars, serde
 // OUTPUT: TaskGetTool
 // POS:    Retrieves full details of a tracked task by ID.
 //! task_get — retrieve task details
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// The task ID to look up.
     task_id: String,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "task_get",
+    description = "Retrieve the full details of a task by its ID, including status, description, \
+        and any output produced so far.",
+    input = Input,
+    read_only,
+    concurrency_safe,
+)]
 pub struct TaskGetTool;
 
-#[async_trait]
-impl Tool for TaskGetTool {
-    fn name(&self) -> &str {
-        "task_get"
-    }
-
-    fn description(&self) -> &str {
-        "Retrieve the full details of a task by its ID, including status, description, \
-         and any output produced so far."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["task_id"],
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "The task ID to look up"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    fn is_concurrency_safe(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(
+impl TaskGetTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         _ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
-
         // In a full implementation this would look up TaskState from a shared store.
         // For now, return a placeholder indicating the task ID was requested.
         Ok(ToolOutput::text(format!(

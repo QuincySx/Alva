@@ -1,21 +1,22 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, reqwest
+// INPUT:  alva_types, async_trait, reqwest, schemars, serde, serde_json
 // OUTPUT: InternetSearchTool
 // POS:    Searches the internet using DuckDuckGo Instant Answer API with domain filtering
 //         and progress tracking.
 //! internet_search — search the internet using DuckDuckGo Instant Answer API
 
 use alva_types::{AgentError, ProgressEvent, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// The search query.
     query: String,
-    /// Max number of results to return (default 5)
+    /// Maximum number of results to return (default: 5).
     #[serde(default)]
     max_results: Option<usize>,
-    /// Only return results from these domains.
+    /// Only return results from these domains (e.g., ['docs.rs', 'github.com']).
     #[serde(default)]
     allowed_domains: Option<Vec<String>>,
     /// Exclude results from these domains.
@@ -68,54 +69,22 @@ fn domain_matches(url: &str, domains: &[String]) -> bool {
     }
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "internet_search",
+    description = "Search the internet for information. Returns search results with titles, snippets, and URLs. \
+        Supports domain filtering (allowed/blocked) for focused searches.",
+    input = Input,
+    read_only,
+)]
 pub struct InternetSearchTool;
 
-#[async_trait]
-impl Tool for InternetSearchTool {
-    fn name(&self) -> &str {
-        "internet_search"
-    }
-
-    fn description(&self) -> &str {
-        "Search the internet for information. Returns search results with titles, snippets, and URLs. \
-         Supports domain filtering (allowed/blocked) for focused searches."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["query"],
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query"
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (default: 5)"
-                },
-                "allowed_domains": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Only return results from these domains (e.g., ['docs.rs', 'github.com'])"
-                },
-                "blocked_domains": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Exclude results from these domains"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: e.to_string() })?;
-
+impl InternetSearchTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let max_results = params.max_results.unwrap_or(5);
 
         // Report search start progress

@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, std::io
+// INPUT:  alva_types, async_trait, schemars, serde, serde_json, std::io
 // OUTPUT: AskHumanTool
 // POS:    Requests input from the human user via stdin in CLI mode.
 //         Supports structured questions with multiple choice options and metadata.
@@ -8,12 +8,12 @@
 //! In GUI mode (Tauri), the engine event WaitingForHuman would be used instead.
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// A choice option for structured questions.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct ChoiceOption {
     /// Display label for this option.
     label: String,
@@ -22,16 +22,17 @@ struct ChoiceOption {
     value: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// The question to ask the user.
     question: String,
-    /// Structured choice options (2-4 options).
+    /// Multiple choice options (2-4 items).
     #[serde(default)]
     options: Option<Vec<ChoiceOption>>,
-    /// Allow multiple selections (only with options).
+    /// Allow selecting multiple options (only with options, default false).
     #[serde(default)]
     multi_select: Option<bool>,
-    /// Header/context text displayed before the question.
+    /// Header or context text displayed before the question.
     #[serde(default)]
     header: Option<String>,
     /// Arbitrary metadata to pass through.
@@ -39,73 +40,23 @@ struct Input {
     metadata: Option<Value>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "ask_human",
+    description = "Ask the human user a question and wait for their response. \
+        Supports free-form questions and structured multiple choice (2-4 options). \
+        Use this when you need clarification, confirmation, or additional information.",
+    input = Input,
+    read_only,
+)]
 pub struct AskHumanTool;
 
-#[async_trait]
-impl Tool for AskHumanTool {
-    fn name(&self) -> &str {
-        "ask_human"
-    }
-
-    fn description(&self) -> &str {
-        "Ask the human user a question and wait for their response. \
-         Supports free-form questions and structured multiple choice (2-4 options). \
-         Use this when you need clarification, confirmation, or additional information."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["question"],
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "The question to ask the user"
-                },
-                "options": {
-                    "type": "array",
-                    "description": "Multiple choice options (2-4 items)",
-                    "items": {
-                        "type": "object",
-                        "required": ["label"],
-                        "properties": {
-                            "label": {
-                                "type": "string",
-                                "description": "Display label for this option"
-                            },
-                            "value": {
-                                "type": "string",
-                                "description": "Value returned if selected (defaults to label)"
-                            }
-                        }
-                    },
-                    "minItems": 2,
-                    "maxItems": 4
-                },
-                "multi_select": {
-                    "type": "boolean",
-                    "description": "Allow selecting multiple options (only with options, default false)"
-                },
-                "header": {
-                    "type": "string",
-                    "description": "Header or context text displayed before the question"
-                },
-                "metadata": {
-                    "type": "object",
-                    "description": "Arbitrary metadata to pass through"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "ask_human".into(), message: e.to_string() })?;
-
+impl AskHumanTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let multi_select = params.multi_select.unwrap_or(false);
 
         // Display header if provided

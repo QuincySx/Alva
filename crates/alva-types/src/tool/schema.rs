@@ -30,14 +30,24 @@ use serde_json::Value;
 ///    `description`. The tool's `Tool::description()` already carries
 ///    the human-facing prose; the LLM doesn't consume `$schema`/`title`.
 ///
-/// 2. **Strip `default` from properties** — harmless but bloat. LLM
-///    tool-calling APIs ignore `default`; the field's defaulted-ness
+/// 2. **Inline `$defs` + `$ref`** — schemars emits nested struct types
+///    as a top-level `$defs` map plus `$ref` pointers. LLM tool-calling
+///    APIs either don't support `$ref` or support it inconsistently,
+///    so we replace every `$ref: "#/$defs/Name"` with a deep copy of
+///    `$defs[Name]` and then delete `$defs` from the root.
+///
+/// 3. **Strip `default`** from every object node — harmless but bloat.
+///    LLM tool-calling APIs ignore `default`; the field's defaulted-ness
 ///    is already encoded in its absence from `required`.
 ///
-/// 3. **Collapse `type: ["T", "null"]` → `type: "T"`** on properties —
+/// 4. **Collapse `type: ["T", "null"]` → `type: "T"`** everywhere —
 ///    schemars emits the union form for `Option<T>` fields, but LLM
 ///    tool APIs prefer the simpler form. The field's optionality is
 ///    conveyed by absence from `required`, not by a null union.
+///
+/// Transforms 3 and 4 are applied recursively to every object node in
+/// the tree (not just the root `properties`), so they take effect on
+/// inlined subschemas as well as flat top-level fields.
 ///
 /// # Example
 ///
@@ -59,6 +69,19 @@ use serde_json::Value;
 /// assert!(schema["properties"]["name"].get("default").is_none());
 /// ```
 pub fn normalize_llm_tool_schema(schema: &mut Value) {
+    // Extract `$defs` from the root before walking so child `$ref`
+    // lookups can find them. Removing it now also ensures the final
+    // schema has no leftover `$defs` key regardless of whether any
+    // `$ref` actually resolved.
+    let defs = schema
+        .as_object_mut()
+        .and_then(|obj| obj.remove("$defs"))
+        .and_then(|v| match v {
+            Value::Object(map) => Some(map),
+            _ => None,
+        })
+        .unwrap_or_default();
+
     // Root-level cleanups.
     if let Some(obj) = schema.as_object_mut() {
         obj.remove("$schema");
@@ -66,28 +89,53 @@ pub fn normalize_llm_tool_schema(schema: &mut Value) {
         obj.remove("description");
     }
 
-    // Per-property cleanups.
-    if let Some(props) = schema
-        .pointer_mut("/properties")
-        .and_then(Value::as_object_mut)
-    {
-        for (_name, prop) in props.iter_mut() {
-            let Some(prop_obj) = prop.as_object_mut() else {
-                continue;
-            };
-            prop_obj.remove("default");
+    // Recursive transform: inline `$ref`s, strip `default`, collapse
+    // `Option<T>` type unions. Applied everywhere, not just root props.
+    normalize_node(schema, &defs);
+}
+
+/// Recursive walker — applied to every object/array node in the
+/// schema tree.
+fn normalize_node(node: &mut Value, defs: &serde_json::Map<String, Value>) {
+    match node {
+        Value::Object(obj) => {
+            // If this object is a `$ref`, replace the whole node with
+            // the deref target (a deep clone) and recurse into the
+            // new node so its nested `$ref`s get inlined too.
+            if let Some(Value::String(ref_path)) = obj.get("$ref").cloned() {
+                if let Some(name) = ref_path.strip_prefix("#/$defs/") {
+                    if let Some(target) = defs.get(name).cloned() {
+                        *node = target;
+                        normalize_node(node, defs);
+                        return;
+                    }
+                }
+            }
+
+            // Non-$ref object: clean up this level, then descend.
+            obj.remove("default");
 
             // Collapse `type: ["T", "null"]` → `type: "T"`.
-            if let Some(Value::Array(types)) = prop_obj.get("type").cloned() {
+            if let Some(Value::Array(types)) = obj.get("type").cloned() {
                 let non_null: Vec<Value> = types
                     .into_iter()
                     .filter(|t| t.as_str() != Some("null"))
                     .collect();
                 if non_null.len() == 1 {
-                    prop_obj.insert("type".into(), non_null.into_iter().next().unwrap());
+                    obj.insert("type".into(), non_null.into_iter().next().unwrap());
                 }
             }
+
+            for (_, v) in obj.iter_mut() {
+                normalize_node(v, defs);
+            }
         }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                normalize_node(v, defs);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -155,5 +203,70 @@ mod tests {
             schema["properties"]["either"]["type"],
             json!(["string", "integer"])
         );
+    }
+
+    #[test]
+    fn inlines_refs_and_removes_defs() {
+        // Schemars-style output with a nested struct type in `$defs`.
+        let mut schema = json!({
+            "$defs": {
+                "Option": {
+                    "type": "object",
+                    "properties": {
+                        "label": { "type": "string" },
+                        "value": { "type": ["string", "null"], "default": null }
+                    },
+                    "required": ["label"]
+                }
+            },
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/Option" }
+                }
+            },
+            "required": []
+        });
+        normalize_llm_tool_schema(&mut schema);
+
+        // $defs gone
+        assert!(schema.get("$defs").is_none());
+        // items now carries the inlined Option schema
+        let items = &schema["properties"]["options"]["items"];
+        assert_eq!(items["type"], "object");
+        assert_eq!(items["required"], json!(["label"]));
+        // Nested normalization also applied to the inlined content:
+        // - `default: null` stripped
+        // - `type: ["string","null"]` collapsed to `type: "string"`
+        assert_eq!(items["properties"]["label"]["type"], "string");
+        assert_eq!(items["properties"]["value"]["type"], "string");
+        assert!(items["properties"]["value"].get("default").is_none());
+    }
+
+    #[test]
+    fn inlines_refs_recursively() {
+        // `$defs/A` contains a `$ref` to `$defs/B`. Both should inline.
+        let mut schema = json!({
+            "$defs": {
+                "Inner": { "type": "object", "properties": { "x": { "type": "integer" } } },
+                "Outer": {
+                    "type": "object",
+                    "properties": { "inner": { "$ref": "#/$defs/Inner" } }
+                }
+            },
+            "type": "object",
+            "properties": {
+                "node": { "$ref": "#/$defs/Outer" }
+            }
+        });
+        normalize_llm_tool_schema(&mut schema);
+
+        assert!(schema.get("$defs").is_none());
+        let node = &schema["properties"]["node"];
+        assert_eq!(node["type"], "object");
+        let inner = &node["properties"]["inner"];
+        assert_eq!(inner["type"], "object");
+        assert_eq!(inner["properties"]["x"]["type"], "integer");
     }
 }

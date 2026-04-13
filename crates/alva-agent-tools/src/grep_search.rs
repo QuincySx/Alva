@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, regex, serde, serde_json, crate::local_fs::walk_dir_filtered, crate::truncate
+// INPUT:  alva_types, async_trait, regex, schemars, serde, serde_json, crate::local_fs::walk_dir_filtered, crate::truncate
 // OUTPUT: GrepSearchTool
 // POS:    Searches for regex patterns across workspace files with glob filtering,
 //         multiple output modes, context lines, pagination, multiline, type filters,
@@ -6,23 +6,22 @@
 //! grep_search — regex search across files
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
 use regex::Regex;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
 use crate::local_fs::walk_dir_filtered;
 use crate::truncate::{truncate_head, truncate_line, MAX_BYTES, MAX_LINES, MAX_LINE_LENGTH};
 
 /// Output mode for grep results.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum OutputMode {
-    /// Show matching lines with context (default for content)
+    /// Show matching lines with context (default for content).
     Content,
-    /// Show only file paths that contain matches (default)
+    /// Show only file paths that contain matches (default).
     FilesWithMatches,
-    /// Show match counts per file
+    /// Show match counts per file.
     Count,
 }
 
@@ -32,46 +31,53 @@ impl Default for OutputMode {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Regular expression pattern to search for.
     pattern: String,
+    /// Directory to search in, relative to workspace root.
+    #[serde(default)]
     path: Option<String>,
+    /// Glob pattern to filter files, e.g. '*.rs', '*.{ts,tsx}'.
     #[serde(default, alias = "file_pattern")]
     glob: Option<String>,
+    /// Case insensitive search (default false).
     #[serde(default, alias = "case_insensitive", rename = "-i")]
     case_insensitive_flag: Option<bool>,
+    /// Treat pattern as literal string instead of regex, default false.
     #[serde(default)]
     literal: Option<bool>,
-    /// Symmetric context lines (before + after). Legacy parameter.
+    /// Number of context lines before and after each match (legacy alias for -C).
     #[serde(default)]
     context: Option<usize>,
-    /// Lines of context before match (-B).
+    /// Number of lines to show before each match.
     #[serde(default, rename = "-B")]
     context_before: Option<usize>,
-    /// Lines of context after match (-A).
+    /// Number of lines to show after each match.
     #[serde(default, rename = "-A")]
     context_after: Option<usize>,
-    /// Symmetric context lines (-C). Alias for `context`.
+    /// Number of context lines before and after each match.
     #[serde(default, rename = "-C")]
     context_symmetric: Option<usize>,
-    /// Show line numbers (default true for content mode).
+    /// Show line numbers in output (default true for content mode).
     #[serde(default, rename = "-n")]
     line_numbers: Option<bool>,
+    /// Maximum number of matches to return, default 100.
     #[serde(default)]
     max_results: Option<usize>,
-    /// Output mode: "content", "files_with_matches", "count"
+    /// Output mode: "content", "files_with_matches" (default), "count".
     #[serde(default)]
     output_mode: Option<OutputMode>,
-    /// File type filter (e.g., "rs", "js", "py")
+    /// File type to search (e.g., 'js', 'py', 'rust', 'go', 'java').
     #[serde(default, rename = "type")]
     file_type: Option<String>,
-    /// Maximum entries to return (pagination)
+    /// Limit output to first N entries. Default 250.
     #[serde(default)]
     head_limit: Option<usize>,
-    /// Skip first N entries (pagination)
+    /// Skip first N entries before applying head_limit. Default 0.
     #[serde(default)]
     offset: Option<usize>,
-    /// Enable multiline matching
+    /// Enable multiline mode where . matches newlines. Default false.
     #[serde(default)]
     multiline: Option<bool>,
 }
@@ -116,101 +122,23 @@ fn is_excluded_path(rel_path: &str) -> bool {
     false
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "grep_search",
+    description = "Search for a regex pattern across files in the workspace. Supports multiple output modes, \
+        context lines, file type filtering, pagination, and multiline matching.",
+    input = Input,
+    read_only,
+    concurrency_safe,
+)]
 pub struct GrepSearchTool;
 
-#[async_trait]
-impl Tool for GrepSearchTool {
-    fn name(&self) -> &str {
-        "grep_search"
-    }
-
-    fn description(&self) -> &str {
-        "Search for a regex pattern across files in the workspace. Supports multiple output modes, \
-         context lines, file type filtering, pagination, and multiline matching."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["pattern"],
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Regular expression pattern to search for"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Directory to search in, relative to workspace root"
-                },
-                "glob": {
-                    "type": "string",
-                    "description": "Glob pattern to filter files, e.g. '*.rs', '*.{ts,tsx}'"
-                },
-                "-i": {
-                    "type": "boolean",
-                    "description": "Case insensitive search (default false)"
-                },
-                "literal": {
-                    "type": "boolean",
-                    "description": "Treat pattern as literal string instead of regex, default false"
-                },
-                "-B": {
-                    "type": "integer",
-                    "description": "Number of lines to show before each match"
-                },
-                "-A": {
-                    "type": "integer",
-                    "description": "Number of lines to show after each match"
-                },
-                "-C": {
-                    "type": "integer",
-                    "description": "Number of context lines before and after each match"
-                },
-                "context": {
-                    "type": "integer",
-                    "description": "Number of context lines before and after each match (legacy alias for -C)"
-                },
-                "-n": {
-                    "type": "boolean",
-                    "description": "Show line numbers in output (default true for content mode)"
-                },
-                "output_mode": {
-                    "type": "string",
-                    "enum": ["content", "files_with_matches", "count"],
-                    "description": "Output mode: 'content' shows matching lines, 'files_with_matches' shows file paths only (default), 'count' shows match counts"
-                },
-                "type": {
-                    "type": "string",
-                    "description": "File type to search (e.g., 'js', 'py', 'rust', 'go', 'java')"
-                },
-                "head_limit": {
-                    "type": "integer",
-                    "description": "Limit output to first N entries. Default 250."
-                },
-                "offset": {
-                    "type": "integer",
-                    "description": "Skip first N entries before applying head_limit. Default 0."
-                },
-                "multiline": {
-                    "type": "boolean",
-                    "description": "Enable multiline mode where . matches newlines. Default false."
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of matches to return, default 100"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: e.to_string() })?;
-
+impl GrepSearchTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
             tool_name: "grep_search".into(),
             message: "local filesystem context required".into(),

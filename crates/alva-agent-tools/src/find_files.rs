@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, glob, serde, serde_json, crate::local_fs::walk_dir_filtered
+// INPUT:  alva_types, async_trait, glob, schemars, serde, serde_json, crate::local_fs::walk_dir_filtered
 // OUTPUT: FindFilesTool
 // POS:    Search for files by glob pattern across the workspace, respecting .gitignore-like rules.
 //         Results sorted by modification time (most recent first) with configurable limits
@@ -6,22 +6,26 @@
 //! find_files — search file paths by glob pattern
 
 use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 /// Default maximum results returned.
 const DEFAULT_MAX_RESULTS: usize = 100;
 /// Hard cap on maximum results to prevent context overflow.
 const HARD_MAX_RESULTS: usize = 1000;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// Glob pattern to match file paths (e.g. '*.rs', 'src/**/*.ts', '*controller*').
     pattern: String,
+    /// Directory to search in, relative to workspace root. Default: workspace root.
+    #[serde(default)]
     path: Option<String>,
+    /// Maximum number of results to return (default: 100, max: 1000).
     #[serde(default)]
     max_results: Option<usize>,
-    /// Sort results by modification time (most recent first). Default: true.
+    /// Sort results by modification time, most recent first (default: true).
     #[serde(default)]
     sort_by_mtime: Option<bool>,
 }
@@ -33,62 +37,27 @@ struct FileEntry {
     mtime: Option<std::time::SystemTime>,
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "find_files",
+    description = "Search for files by glob pattern (e.g. '*.rs', 'src/**/*.ts', '*test*'). \
+        Returns matching file paths relative to the workspace root, \
+        sorted by modification time (most recent first). \
+        Respects .gitignore rules. Default limit: 100 files.",
+    input = Input,
+    read_only,
+    concurrency_safe,
+)]
 pub struct FindFilesTool;
 
-#[async_trait]
-impl Tool for FindFilesTool {
-    fn name(&self) -> &str {
-        "find_files"
-    }
-
-    fn description(&self) -> &str {
-        "Search for files by glob pattern (e.g. '*.rs', 'src/**/*.ts', '*test*'). \
-         Returns matching file paths relative to the workspace root, \
-         sorted by modification time (most recent first). \
-         Respects .gitignore rules. Default limit: 100 files."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["pattern"],
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Glob pattern to match file paths (e.g. '*.rs', 'src/**/*.ts', '*controller*')"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Directory to search in, relative to workspace root. Default: workspace root"
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (default: 100, max: 1000)"
-                },
-                "sort_by_mtime": {
-                    "type": "boolean",
-                    "description": "Sort results by modification time, most recent first (default: true)"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(
+impl FindFilesTool {
+    async fn execute_impl(
         &self,
-        input: Value,
+        params: Input,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input).map_err(|e| AgentError::ToolError {
-            tool_name: self.name().into(),
-            message: e.to_string(),
-        })?;
-
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "find_files".into(),
             message: "workspace required".into(),
         })?;
 
@@ -103,7 +72,7 @@ impl Tool for FindFilesTool {
 
         // Parse glob pattern
         let glob = glob::Pattern::new(&params.pattern).map_err(|e| AgentError::ToolError {
-            tool_name: self.name().into(),
+            tool_name: "find_files".into(),
             message: format!("Invalid glob pattern '{}': {}", params.pattern, e),
         })?;
 

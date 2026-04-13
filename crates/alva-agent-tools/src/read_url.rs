@@ -1,13 +1,13 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, reqwest, std::sync, std::time
+// INPUT:  alva_types, async_trait, reqwest, schemars, serde, serde_json, std::sync, std::time
 // OUTPUT: ReadUrlTool
 // POS:    Fetches a web page and returns content with HTML-to-markdown conversion,
 //         LRU cache with TTL, rate limiting per domain, and content size limiting.
 //! read_url — fetch a web page and return its content (HTML converted to markdown-like text)
 
 use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
-use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -21,13 +21,14 @@ const RATE_LIMIT_PER_DOMAIN: usize = 10;
 /// Rate limit window in seconds.
 const RATE_LIMIT_WINDOW_SECS: u64 = 60;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
+    /// The URL to fetch.
     url: String,
-    /// Maximum content length in characters (default: 50000)
+    /// Maximum content length in characters (default: 50000).
     #[serde(default)]
     max_length: Option<usize>,
-    /// Optional prompt for filtering/processing fetched content
+    /// Optional prompt for filtering or processing the fetched content.
     #[serde(default)]
     prompt: Option<String>,
 }
@@ -134,49 +135,23 @@ fn global_cache() -> &'static Mutex<UrlCache> {
     CACHE.get_or_init(|| Mutex::new(UrlCache::new()))
 }
 
+#[derive(Tool)]
+#[tool(
+    name = "read_url",
+    description = "Fetch a web page URL and return its content with HTML converted to readable text. \
+        Includes an LRU cache (15-minute TTL) and per-domain rate limiting. \
+        Useful for reading articles, documentation, or any web content.",
+    input = Input,
+    read_only,
+)]
 pub struct ReadUrlTool;
 
-#[async_trait]
-impl Tool for ReadUrlTool {
-    fn name(&self) -> &str {
-        "read_url"
-    }
-
-    fn description(&self) -> &str {
-        "Fetch a web page URL and return its content with HTML converted to readable text. \
-         Includes an LRU cache (15-minute TTL) and per-domain rate limiting. \
-         Useful for reading articles, documentation, or any web content."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["url"],
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "The URL to fetch"
-                },
-                "max_length": {
-                    "type": "integer",
-                    "description": "Maximum content length in characters (default: 50000)"
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "Optional prompt for filtering or processing the fetched content"
-                }
-            }
-        })
-    }
-
-    fn is_read_only(&self, _input: &Value) -> bool {
-        true
-    }
-
-    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
-        let params: Input =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: e.to_string() })?;
-
+impl ReadUrlTool {
+    async fn execute_impl(
+        &self,
+        params: Input,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let max_length = params.max_length.unwrap_or(50_000);
 
         // Extract domain for rate limiting
