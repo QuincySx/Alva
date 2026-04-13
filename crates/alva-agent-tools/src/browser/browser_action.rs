@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, chromiumoxide::cdp, schemars, serde, serde_json, super::browser_manager
+// INPUT:  alva_kernel_abi, async_trait, chromiumoxide::cdp, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserActionTool
 // POS:    Performs page interactions (click/type/press/scroll) via CSS selectors or coordinates.
 //! browser_action — page interaction: click, type, press, scroll
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
 };

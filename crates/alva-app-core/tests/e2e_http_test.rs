@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use alva_app_core::base_agent::BaseAgent;
 use alva_app_core::AgentEvent;
 use alva_llm_provider::{ProviderConfig, OpenAIChatProvider};
-use alva_types::{LanguageModel, StreamEvent};
+use alva_kernel_abi::{LanguageModel, StreamEvent};
 
 // ---------------------------------------------------------------------------
 // Mock OpenAI HTTP server
@@ -273,7 +273,7 @@ async fn e2e_http_tool_call_pipeline() {
 
     let mock_tool =
         alva_test::mock_tool::MockTool::new("my_http_tool")
-            .with_result(alva_types::ToolOutput::text("http tool result"));
+            .with_result(alva_kernel_abi::ToolOutput::text("http tool result"));
     let mock_tool_clone = mock_tool.clone();
 
     let tmp = tempfile::tempdir().expect("tempdir");

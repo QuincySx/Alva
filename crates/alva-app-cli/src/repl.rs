@@ -1,4 +1,4 @@
-// INPUT:  alva_app_core, alva_llm_provider, alva_agent_runtime, checkpoint, session_store, output, event_handler, commands
+// INPUT:  alva_app_core, alva_llm_provider, alva_host_native, checkpoint, session_store, output, event_handler, commands
 // OUTPUT: run_repl, restore_messages
 // POS:    Interactive REPL loop — session management, slash commands, and user input dispatch
 
@@ -6,7 +6,7 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use alva_app_core::{AgentMessage, AlvaPaths, BaseAgent, PermissionMode};
-use alva_agent_runtime::middleware::security::ApprovalRequest;
+use alva_host_native::middleware::security::ApprovalRequest;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 

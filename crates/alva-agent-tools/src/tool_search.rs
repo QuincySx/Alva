@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde
 // OUTPUT: ToolSearchTool
 // POS:    Searches available tools by query string.
 //! tool_search — search available tools
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 

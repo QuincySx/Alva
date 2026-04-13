@@ -1,4 +1,4 @@
-// INPUT:  alva_app_core, alva_agent_runtime, alva_llm_provider, checkpoint
+// INPUT:  alva_app_core, alva_host_native, alva_llm_provider, checkpoint
 // OUTPUT: CliCheckpointCallback, load_project_context, build_agent
 // POS:    Agent construction — config loading, provider wiring, checkpoint callback, and project context discovery
 
@@ -6,8 +6,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder};
-use alva_agent_runtime::middleware::checkpoint::CheckpointCallback;
-use alva_agent_runtime::middleware::security::ApprovalRequest;
+use alva_host_native::middleware::checkpoint::CheckpointCallback;
+use alva_host_native::middleware::security::ApprovalRequest;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 

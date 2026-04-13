@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use alva_types::{BusHandle, BusWriter, LanguageModel};
-use alva_types::tool::Tool;
+use alva_kernel_abi::{BusHandle, BusWriter, LanguageModel};
+use alva_kernel_abi::tool::Tool;
 
 /// Context provided to extensions during configure phase.
 pub struct ExtensionContext {

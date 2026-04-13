@@ -1,11 +1,11 @@
-// INPUT:  std::collections::HashMap, alva_engine_runtime::{RuntimeEvent, RuntimeUsage}, alva_types::{ContentBlock, MessageRole, StreamEvent, ToolResult}, crate::protocol
+// INPUT:  std::collections::HashMap, alva_engine_runtime::{RuntimeEvent, RuntimeUsage}, alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolResult}, crate::protocol
 // OUTPUT: pub(crate) struct EventMapper
 // POS:    Stateful mapper that converts bridge protocol messages into unified RuntimeEvent sequences.
 
 use std::collections::HashMap;
 
 use alva_engine_runtime::{RuntimeEvent, RuntimeUsage};
-use alva_types::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
+use alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
 
 use crate::protocol::{BridgeMessage, SdkContentBlock, SdkMessage};
 

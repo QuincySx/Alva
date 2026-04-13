@@ -1,4 +1,4 @@
-# alva-agent-bus 防破坏规则
+# alva-kernel-bus 防破坏规则
 
 > Bus 是跨层协调总线，不是万能通道。本文档定义它的边界，防止退化为 God Object。
 
@@ -7,27 +7,27 @@
 ### 新增 Rule 0
 
 ```
-Rule 0:  alva-agent-bus 零 workspace 依赖（与 alva-types 同级基础设施）
-Rule 1:  alva-types → alva-agent-bus only（原 "零依赖" 升级为 "仅依赖 bus"）
+Rule 0:  alva-kernel-bus 零 workspace 依赖（与 alva-kernel-abi 同级基础设施）
+Rule 1:  alva-kernel-abi → alva-kernel-bus only（原 "零依赖" 升级为 "仅依赖 bus"）
 ```
 
-其余 Rule 2-16 不变。bus 通过 alva-types 的传递依赖自动到达所有 crate，无需任何 crate 单独加 `alva-agent-bus` 依赖。
+其余 Rule 2-16 不变。bus 通过 alva-kernel-abi 的传递依赖自动到达所有 crate，无需任何 crate 单独加 `alva-kernel-bus` 依赖。
 
 ### CI 脚本变更
 
 ```bash
-# Rule 0: alva-agent-bus has ZERO workspace deps
-check_no_workspace_deps "alva-agent-bus"
+# Rule 0: alva-kernel-bus has ZERO workspace deps
+check_no_workspace_deps "alva-kernel-bus"
 
-# Rule 1: alva-types only depends on alva-agent-bus
-check_no_workspace_deps "alva-types" "alva-agent-bus"
+# Rule 1: alva-kernel-abi only depends on alva-kernel-bus
+check_no_workspace_deps "alva-kernel-abi" "alva-kernel-bus"
 ```
 
 ### 禁止反向依赖
 
 ```
-alva-agent-bus 不得依赖任何 alva-* crate。
-任何 crate 不得绕过 alva-types 直接依赖 alva-agent-bus。
+alva-kernel-bus 不得依赖任何 alva-* crate。
+任何 crate 不得绕过 alva-kernel-abi 直接依赖 alva-kernel-bus。
 ```
 
 违反以上两条的 PR 必须被 CI 拦截。
@@ -197,7 +197,7 @@ bus.subscribe::<SteeringMessage>()
 
 ---
 
-## 五、alva-agent-bus 自身的约束
+## 五、alva-kernel-bus 自身的约束
 
 ### 代码量上限
 
@@ -253,7 +253,7 @@ bus crate 自身必须包含以下测试：
 - [ ] 是否是跨 crate 通信？同一 crate 内不应使用 bus
 - [ ] Event 是否有文档注释（发送方 / 接收方 / 语义）？
 - [ ] 是否用 event 模拟了 RPC（发请求等回复）？如果是，改用 Caps
-- [ ] 新增的 Caps trait 是否定义在 alva-types 中？不允许定义在 bus crate 里
+- [ ] 新增的 Caps trait 是否定义在 alva-kernel-abi 中？不允许定义在 bus crate 里
 - [ ] event handler 里是否有 emit 同类事件的风险？
 - [ ] 是否持锁调用 emit？
 - [ ] 是否在运行时动态 provide 能力？只允许初始化阶段
@@ -264,9 +264,9 @@ bus crate 自身必须包含以下测试：
 ## 七、演进路径
 
 ```
-P0  创建 alva-agent-bus crate（~330行），更新 CI 脚本
+P0  创建 alva-kernel-bus crate（~330行），更新 CI 脚本
     ↓
-P1  alva-types 依赖 bus，ToolExecutionContext 加 bus() 方法
+P1  alva-kernel-abi 依赖 bus，ToolExecutionContext 加 bus() 方法
     AgentConfig 加 bus 字段，RuntimeExecutionContext 透传
     ↓
 P2  用 bus 实现一个跨层功能验证（如 token 监控 + 压缩通知）

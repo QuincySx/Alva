@@ -204,7 +204,7 @@ fn event_tool_start() {
 
 #[test]
 fn event_tool_end() {
-    let output = alva_types::ToolOutput::text("file.txt");
+    let output = alva_kernel_abi::ToolOutput::text("file.txt");
     let event = RuntimeEvent::ToolEnd {
         id: "t1".into(),
         name: "bash".into(),

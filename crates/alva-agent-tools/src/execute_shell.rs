@@ -1,10 +1,10 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ExecuteShellTool
 // POS:    Executes shell commands via ToolFs with configurable timeout, working directory,
 //         environment variables, background execution, description, and git operation tracking.
 //! execute_shell — run shell commands via ToolFs
 
-use alva_types::{AgentError, ProgressEvent, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, ProgressEvent, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

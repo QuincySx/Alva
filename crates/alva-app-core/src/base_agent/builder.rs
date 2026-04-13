@@ -1,18 +1,18 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_agent_core::middleware::{Middleware, MiddlewareStack};
-use alva_agent_core::state::{AgentConfig, AgentState};
-use alva_agent_core::shared::Extensions;
+use alva_kernel_core::middleware::{Middleware, MiddlewareStack};
+use alva_kernel_core::state::{AgentConfig, AgentState};
+use alva_kernel_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
-use alva_agent_runtime::middleware::security::{ApprovalNotifier, ApprovalRequest};
-use alva_agent_runtime::middleware::SecurityMiddleware;
+use alva_host_native::middleware::security::{ApprovalNotifier, ApprovalRequest};
+use alva_host_native::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
-use alva_types::{
+use alva_kernel_abi::{
     Bus, BusPlugin, CancellationToken, LanguageModel,
     PluginRegistrar, Tool, ToolRegistry,
 };
-use alva_types::session::{AgentSession, InMemorySession};
+use alva_kernel_abi::session::{AgentSession, InMemorySession};
 
 use crate::error::EngineError;
 
@@ -177,8 +177,8 @@ impl BaseAgentBuilder {
         let bus_writer = bus.writer();
         let bus_handle = bus.handle();
 
-        bus_writer.provide::<dyn alva_types::TokenCounter>(
-            Arc::new(alva_types::model::HeuristicTokenCounter::new(200_000))
+        bus_writer.provide::<dyn alva_kernel_abi::TokenCounter>(
+            Arc::new(alva_kernel_abi::model::HeuristicTokenCounter::new(200_000))
         );
 
         // 2. Collect tools from all extensions
@@ -235,7 +235,7 @@ impl BaseAgentBuilder {
 
         // Configure all middleware with shared infrastructure (bus, workspace).
         // Middleware that needs bus/workspace grabs it here via configure().
-        middleware_stack.configure_all(&alva_agent_core::middleware::MiddlewareContext {
+        middleware_stack.configure_all(&alva_kernel_core::middleware::MiddlewareContext {
             bus: Some(bus_handle.clone()),
             workspace: Some(workspace.clone()),
         });
@@ -279,9 +279,9 @@ impl BaseAgentBuilder {
         };
 
         // 9. Create PendingMessageQueue + AgentConfig
-        let pending_messages = Arc::new(alva_agent_core::pending_queue::PendingMessageQueue::new());
-        bus_writer.provide::<dyn alva_agent_core::pending_queue::AgentLoopHook>(
-            pending_messages.clone() as Arc<dyn alva_agent_core::pending_queue::AgentLoopHook>,
+        let pending_messages = Arc::new(alva_kernel_core::pending_queue::PendingMessageQueue::new());
+        bus_writer.provide::<dyn alva_kernel_core::pending_queue::AgentLoopHook>(
+            pending_messages.clone() as Arc<dyn alva_kernel_core::pending_queue::AgentLoopHook>,
         );
 
         // 9b. Create Arc-wrapped cancel token and bind to extension host
@@ -310,7 +310,7 @@ impl BaseAgentBuilder {
             middleware: middleware_stack,
             system_prompt: self.system_prompt,
             max_iterations: self.max_iterations,
-            model_config: alva_types::ModelConfig::default(),
+            model_config: alva_kernel_abi::ModelConfig::default(),
             context_window: self.context_window,
             workspace: Some(workspace.clone()),
             bus: Some(bus_handle.clone()),

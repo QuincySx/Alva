@@ -2,12 +2,12 @@
 name = "alva-engine-adapter-alva"
 version = "0.1.0"
 edition = "2021"
-description = "EngineRuntime adapter for the local alva-agent-core Agent"
+description = "EngineRuntime adapter for the local alva-kernel-core Agent"
 
 [dependencies]
 alva-engine-runtime = { path = "../alva-engine-runtime" }
-alva-agent-core = { path = "../alva-agent-core" }
-alva-types = { path = "../alva-types" }
+alva-kernel-core = { path = "../alva-kernel-core" }
+alva-kernel-abi = { path = "../alva-kernel-abi" }
 async-trait = "0.1"
 futures-core = "0.3"
 tokio = { version = "1", features = ["sync", "rt", "time"] }

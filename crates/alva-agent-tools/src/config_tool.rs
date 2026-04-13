@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, serde, serde_json
+// INPUT:  alva_kernel_abi, async_trait, serde, serde_json
 // OUTPUT: ConfigTool
 // POS:    Manages agent/session configuration values (get/set/list).
 //! config_tool — manage configuration settings
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};

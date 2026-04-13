@@ -27,7 +27,7 @@ impl Default for ExtractionConfig {
     fn default() -> Self {
         Self {
             memory_dir: PathBuf::from(".claude/memory"),
-            threshold: alva_types::constants::MEMORY_EXTRACTION_THRESHOLD,
+            threshold: alva_kernel_abi::constants::MEMORY_EXTRACTION_THRESHOLD,
         }
     }
 }
@@ -340,7 +340,7 @@ mod tests {
         let config = ExtractionConfig::default();
         assert_eq!(
             config.threshold,
-            alva_types::constants::MEMORY_EXTRACTION_THRESHOLD
+            alva_kernel_abi::constants::MEMORY_EXTRACTION_THRESHOLD
         );
     }
 }

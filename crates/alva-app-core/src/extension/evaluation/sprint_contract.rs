@@ -1,4 +1,4 @@
-// INPUT:  alva_agent_core::{middleware, state, shared}, alva_types::Message
+// INPUT:  alva_kernel_core::{middleware, state, shared}, alva_kernel_abi::Message
 // OUTPUT: SprintContract, SprintContractMiddleware
 // POS:    Middleware that injects sprint completion contracts into the LLM context.
 
@@ -24,9 +24,9 @@
 
 use std::fmt;
 
-use alva_agent_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
-use alva_agent_core::state::AgentState;
-use alva_types::Message;
+use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
+use alva_kernel_core::state::AgentState;
+use alva_kernel_abi::Message;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -149,7 +149,7 @@ impl Middleware for SprintContractMiddleware {
         let prompt_section = self.contract.to_prompt();
         let insert_pos = messages
             .iter()
-            .position(|m| m.role != alva_types::MessageRole::System)
+            .position(|m| m.role != alva_kernel_abi::MessageRole::System)
             .unwrap_or(messages.len());
         messages.insert(insert_pos, Message::system(&prompt_section));
         Ok(())
@@ -172,17 +172,17 @@ impl Middleware for SprintContractMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_agent_core::shared::Extensions;
-    use alva_types::session::InMemorySession;
+    use alva_kernel_core::shared::Extensions;
+    use alva_kernel_abi::session::InMemorySession;
     use std::sync::Arc;
 
     fn make_state() -> AgentState {
-        use alva_types::base::error::AgentError;
-        use alva_types::base::message::Message;
-        use alva_types::base::stream::StreamEvent;
-        use alva_types::model::{CompletionResponse, LanguageModel};
-        use alva_types::tool::Tool;
-        use alva_types::ModelConfig;
+        use alva_kernel_abi::base::error::AgentError;
+        use alva_kernel_abi::base::message::Message;
+        use alva_kernel_abi::base::stream::StreamEvent;
+        use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
+        use alva_kernel_abi::tool::Tool;
+        use alva_kernel_abi::ModelConfig;
 
         struct StubModel;
         #[async_trait]

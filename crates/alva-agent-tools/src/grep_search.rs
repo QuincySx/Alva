@@ -1,11 +1,11 @@
-// INPUT:  alva_types, async_trait, regex, schemars, serde, serde_json, crate::local_fs::walk_dir_filtered, crate::truncate
+// INPUT:  alva_kernel_abi, async_trait, regex, schemars, serde, serde_json, crate::local_fs::walk_dir_filtered, crate::truncate
 // OUTPUT: GrepSearchTool
 // POS:    Searches for regex patterns across workspace files with glob filtering,
 //         multiple output modes, context lines, pagination, multiline, type filters,
 //         and auto-excluded VCS directories.
 //! grep_search — regex search across files
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;

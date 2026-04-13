@@ -2,10 +2,10 @@
 
 use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
-use alva_agent_core::middleware::{Middleware, MiddlewarePriority};
-use alva_agent_core::shared::MiddlewareError;
-use alva_agent_core::state::AgentState;
-use alva_types::{ToolCall, ToolOutput};
+use alva_kernel_core::middleware::{Middleware, MiddlewarePriority};
+use alva_kernel_core::shared::MiddlewareError;
+use alva_kernel_core::state::AgentState;
+use alva_kernel_abi::{ToolCall, ToolOutput};
 use super::host::ExtensionHost;
 use super::events::{ExtensionEvent, EventResult};
 

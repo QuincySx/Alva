@@ -1,10 +1,10 @@
-// INPUT:  gpui, alva_app_core::alva_types (MessageRole, AgentMessage), crate::models (ChatModel, WorkspaceModel), crate::theme
+// INPUT:  gpui, alva_app_core::alva_kernel_abi (MessageRole, AgentMessage), crate::models (ChatModel, WorkspaceModel), crate::theme
 // OUTPUT: pub struct MessageList
 // POS:    Scrollable GPUI view rendering chat messages from alva-core.
 
 use gpui::{prelude::*, Context, Entity, Render, Window, div};
 
-use alva_app_core::alva_types::MessageRole;
+use alva_app_core::alva_kernel_abi::MessageRole;
 use alva_app_core::AgentMessage;
 
 use crate::models::{ChatModel, WorkspaceModel};

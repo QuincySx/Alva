@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json
 // OUTPUT: AgentTool
 // POS:    Spawns and manages sub-agents, optionally running them in the background.
 //! agent_tool — spawn and manage sub-agents
 
-use alva_types::{
+use alva_kernel_abi::{
     AgentError, Tool, ToolExecutionContext, ToolOutput,
     TaskType, create_task_state,
 };

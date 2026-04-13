@@ -1,11 +1,11 @@
-// INPUT:  alva_agent_core::AgentEvent, alva_types (AgentMessage, Message, ContentBlock, MessageRole, StreamEvent, ToolCall, ToolResult)
+// INPUT:  alva_kernel_core::AgentEvent, alva_kernel_abi (AgentMessage, Message, ContentBlock, MessageRole, StreamEvent, ToolCall, ToolResult)
 // OUTPUT: Vec<alva_engine_runtime::RuntimeEvent>
 // POS:    Stateful mapper that converts AgentEvent stream into RuntimeEvent stream for the EngineRuntime interface.
 use std::collections::HashMap;
 
-use alva_agent_core::AgentEvent;
+use alva_kernel_core::AgentEvent;
 use alva_engine_runtime::{RuntimeEvent, RuntimeUsage};
-use alva_types::{AgentMessage, ContentBlock};
+use alva_kernel_abi::{AgentMessage, ContentBlock};
 
 /// Stateful mapper — converts `AgentEvent` to `Vec<RuntimeEvent>`.
 ///
@@ -179,7 +179,7 @@ fn message_id(message: &AgentMessage) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::{Message, MessageRole, StreamEvent, ToolCall, ToolOutput};
+    use alva_kernel_abi::{Message, MessageRole, StreamEvent, ToolCall, ToolOutput};
 
     fn make_session_id() -> String {
         "test-session".to_string()

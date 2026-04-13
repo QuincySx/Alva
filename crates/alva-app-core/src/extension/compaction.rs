@@ -13,6 +13,6 @@ impl Extension for CompactionExtension {
     fn name(&self) -> &str { "compaction" }
     fn description(&self) -> &str { "Context compaction" }
     fn activate(&self, api: &HostAPI) {
-        api.middleware(Arc::new(alva_agent_runtime::middleware::CompactionMiddleware::default()));
+        api.middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()));
     }
 }

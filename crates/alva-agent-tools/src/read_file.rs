@@ -1,10 +1,10 @@
-// INPUT:  alva_types, async_trait, base64, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, base64, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ReadFileTool
 // POS:    Read file contents with offset/limit pagination, automatic image detection,
 //         encoding detection, PDF page support, and smart truncation.
 //! read_file — read text or image files with pagination and truncation
 
-use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

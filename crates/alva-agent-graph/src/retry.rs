@@ -1,13 +1,13 @@
-// INPUT:  std::time::Duration, alva_types::AgentError
+// INPUT:  std::time::Duration, alva_kernel_abi::AgentError
 // OUTPUT: pub struct RetryConfig
 // POS:    Exponential-backoff retry configuration with a customizable retryable-error predicate.
 use std::time::Duration;
 
-use alva_types::AgentError;
+use alva_kernel_abi::AgentError;
 
 /// Configuration for retry behaviour with exponential backoff.
 ///
-/// Used by [`AgentSession`](crate::AgentSession) to automatically retry
+/// Used by [`GraphRun`](crate::GraphRun) to automatically retry
 /// transient failures (e.g. LLM rate-limits or network errors).
 pub struct RetryConfig {
     /// Maximum number of retry attempts before giving up.

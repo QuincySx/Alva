@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use alva_types::AgentMessage;
+use alva_kernel_abi::AgentMessage;
 
 /// Metadata for one session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,7 +117,7 @@ impl SessionStore {
             if meta.summary.is_empty() {
                 if let Some(first_user) = messages.iter().find_map(|m| {
                     if let AgentMessage::Standard(msg) = m {
-                        if msg.role == alva_types::MessageRole::User {
+                        if msg.role == alva_kernel_abi::MessageRole::User {
                             return Some(msg.text_content());
                         }
                     }

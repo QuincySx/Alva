@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ExitWorktreeTool
 // POS:    Exits and optionally cleans up a git worktree.
 //! exit_worktree — exit and cleanup a git worktree
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};

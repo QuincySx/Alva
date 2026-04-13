@@ -61,7 +61,7 @@ impl AutoCompactState {
             &[],
             config,
             self.current_tokens,
-        ) || self.messages_since_compact > alva_types::constants::AUTO_COMPACT_MESSAGE_THRESHOLD
+        ) || self.messages_since_compact > alva_kernel_abi::constants::AUTO_COMPACT_MESSAGE_THRESHOLD
     }
 
     /// Mark that a reactive compaction attempt was made.

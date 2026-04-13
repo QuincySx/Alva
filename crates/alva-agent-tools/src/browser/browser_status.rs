@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, super::browser_manager
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserStatusTool
 // POS:    Queries browser instance status including running state, current URL, title, and open tabs.
 //! browser_status — query browser state (running?, URL, tabs)
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

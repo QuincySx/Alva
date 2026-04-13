@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, base64, schemars, serde, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, base64, schemars, serde, crate::local_fs::LocalToolFs
 // OUTPUT: ViewImageTool
 // POS:    Reads image files and returns base64-encoded content with MIME type detection.
 //! view_image — read an image file and return its base64-encoded content
 
-use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::Path;

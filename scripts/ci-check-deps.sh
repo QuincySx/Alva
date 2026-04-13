@@ -29,51 +29,51 @@ check_no_workspace_deps() {
     fi
 }
 
-# Rule 0: alva-agent-bus has ZERO workspace deps
-check_no_workspace_deps "alva-agent-bus"
+# Rule 0: alva-kernel-bus has ZERO workspace deps
+check_no_workspace_deps "alva-kernel-bus"
 
-# Rule 1: alva-types only depends on alva-agent-bus
-check_no_workspace_deps "alva-types" "alva-agent-bus"
+# Rule 1: alva-kernel-abi only depends on alva-kernel-bus
+check_no_workspace_deps "alva-kernel-abi" "alva-kernel-bus"
 
-# Rule 2: alva-agent-core only depends on alva-types
-check_no_workspace_deps "alva-agent-core" "alva-types"
+# Rule 2: alva-kernel-core only depends on alva-kernel-abi
+check_no_workspace_deps "alva-kernel-core" "alva-kernel-abi"
 
-# Rule 3: alva-agent-tools only depends on alva-types
-check_no_workspace_deps "alva-agent-tools" "alva-types"
+# Rule 3: alva-agent-tools only depends on alva-kernel-abi
+check_no_workspace_deps "alva-agent-tools" "alva-kernel-abi"
 
-# Rule 4: alva-agent-security only depends on alva-types
-check_no_workspace_deps "alva-agent-security" "alva-types"
+# Rule 4: alva-agent-security only depends on alva-kernel-abi
+check_no_workspace_deps "alva-agent-security" "alva-kernel-abi"
 
-# Rule 5: alva-agent-memory only depends on alva-types
-check_no_workspace_deps "alva-agent-memory" "alva-types"
+# Rule 5: alva-agent-memory only depends on alva-kernel-abi
+check_no_workspace_deps "alva-agent-memory" "alva-kernel-abi"
 
-# Rule 6: alva-agent-scope only depends on alva-types
-check_no_workspace_deps "alva-agent-scope" "alva-types"
+# Rule 6: alva-agent-scope only depends on alva-kernel-abi
+check_no_workspace_deps "alva-agent-scope" "alva-kernel-abi"
 
-# Rule 7: alva-agent-graph only depends on alva-types + alva-agent-core
-check_no_workspace_deps "alva-agent-graph" "alva-types|alva-agent-core"
+# Rule 7: alva-agent-graph only depends on alva-kernel-abi + alva-kernel-core
+check_no_workspace_deps "alva-agent-graph" "alva-kernel-abi|alva-kernel-core"
 
-# Rule 8: alva-agent-runtime only depends on foundation agent-* crates
-check_no_workspace_deps "alva-agent-runtime" "alva-types|alva-agent-core|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-graph"
+# Rule 8: alva-host-native only depends on foundation agent-* crates
+check_no_workspace_deps "alva-host-native" "alva-kernel-abi|alva-kernel-core|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-graph"
 
-# Rule 9: alva-engine-runtime only depends on alva-types
-check_no_workspace_deps "alva-engine-runtime" "alva-types"
+# Rule 9: alva-engine-runtime only depends on alva-kernel-abi
+check_no_workspace_deps "alva-engine-runtime" "alva-kernel-abi"
 
-# Rule 10: alva-engine-adapter-claude only depends on alva-types + alva-engine-runtime
-check_no_workspace_deps "alva-engine-adapter-claude" "alva-types|alva-engine-runtime"
+# Rule 10: alva-engine-adapter-claude only depends on alva-kernel-abi + alva-engine-runtime
+check_no_workspace_deps "alva-engine-adapter-claude" "alva-kernel-abi|alva-engine-runtime"
 
-# Rule 11: alva-engine-adapter-alva only depends on alva-types + alva-engine-runtime + alva-agent-core
-check_no_workspace_deps "alva-engine-adapter-alva" "alva-types|alva-engine-runtime|alva-agent-core"
+# Rule 11: alva-engine-adapter-alva only depends on alva-kernel-abi + alva-engine-runtime + alva-kernel-core
+check_no_workspace_deps "alva-engine-adapter-alva" "alva-kernel-abi|alva-engine-runtime|alva-kernel-core"
 
-# Rule 12: alva-provider only depends on alva-types
-check_no_workspace_deps "alva-provider" "alva-types"
+# Rule 12: alva-provider only depends on alva-kernel-abi
+check_no_workspace_deps "alva-provider" "alva-kernel-abi"
 
 # Rule 13: alva-environment has ZERO workspace deps
 check_no_workspace_deps "alva-environment"
 
 # Rule 14: protocol crates have strict dependencies
 check_no_workspace_deps "alva-protocol-skill"  # zero workspace deps
-check_no_workspace_deps "alva-protocol-mcp" "alva-types"  # only alva-types
+check_no_workspace_deps "alva-protocol-mcp" "alva-kernel-abi"  # only alva-kernel-abi
 check_no_workspace_deps "alva-protocol-acp"  # zero workspace deps
 
 # Rule 15: protocol crates don't depend on alva-app-*
@@ -91,7 +91,7 @@ done
 
 # Rule 16: alva-app must NOT directly depend on internal agent-* crates
 echo "Checking alva-app facade boundary..."
-app_deps=$(cargo tree -p alva-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-types|alva-agent-core|alva-agent-graph|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-runtime) " || true)
+app_deps=$(cargo tree -p alva-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-kernel-abi|alva-kernel-core|alva-agent-graph|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-host-native) " || true)
 if [ -n "$app_deps" ]; then
     echo -e "${RED}VIOLATION: alva-app directly depends on internal crates:${NC}"
     echo "$app_deps"

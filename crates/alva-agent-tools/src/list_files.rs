@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ListFilesTool
 // POS:    Lists directory contents with recursive traversal and hidden file filtering via ToolFs.
 //! list_files — list directory contents
 
-use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
@@ -34,7 +34,7 @@ struct Input {
 ///
 /// Uses `Box::pin` to allow async recursion.
 fn list_entries<'a>(
-    fs: &'a dyn alva_types::ToolFs,
+    fs: &'a dyn alva_kernel_abi::ToolFs,
     root: &'a str,
     prefix: &'a str,
     depth: usize,

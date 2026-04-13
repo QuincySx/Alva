@@ -1,19 +1,19 @@
-// INPUT:  std::sync, async_trait, serde_json, alva_types, crate::client, crate::types
+// INPUT:  std::sync, async_trait, serde_json, alva_kernel_abi, crate::client, crate::types
 // OUTPUT: McpToolAdapter, build_mcp_tools
-// POS:    Wraps individual MCP tools as alva-types Tool trait implementations with namespaced names (mcp:server:tool).
+// POS:    Wraps individual MCP tools as alva-kernel-abi Tool trait implementations with namespaced names (mcp:server:tool).
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 
-use alva_types::base::error::AgentError;
-use alva_types::tool::Tool;
-use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::base::error::AgentError;
+use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
 
 use crate::client::McpClient;
 use crate::types::McpToolInfo;
 
-/// Wraps a single MCP Tool as an alva-types Tool trait implementation.
+/// Wraps a single MCP Tool as an alva-kernel-abi Tool trait implementation.
 ///
 /// Tool name format: `mcp:<server_id>:<tool_name>`
 /// This way MCP tools coexist with built-in tools in a ToolRegistry,

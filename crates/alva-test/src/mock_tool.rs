@@ -1,4 +1,4 @@
-// INPUT:  alva_types::{Tool, ToolOutput, ToolExecutionContext, MinimalExecutionContext, AgentError}, Arc, Mutex, serde_json::Value
+// INPUT:  alva_kernel_abi::{Tool, ToolOutput, ToolExecutionContext, MinimalExecutionContext, AgentError}, Arc, Mutex, serde_json::Value
 // OUTPUT: MockTool — configurable mock for Tool with preset result/error and call recording
 // POS:    alva-test crate — provides a test double for Tool used in unit and integration tests
 
@@ -7,9 +7,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::Value;
 
-use alva_types::base::error::AgentError;
-use alva_types::tool::Tool;
-use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::base::error::AgentError;
+use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
 
 // ---------------------------------------------------------------------------
 // MockTool
@@ -109,7 +109,7 @@ impl Tool for MockTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::tool::execution::MinimalExecutionContext;
+    use alva_kernel_abi::tool::execution::MinimalExecutionContext;
 
     #[tokio::test]
     async fn test_mock_tool_returns_preset() {

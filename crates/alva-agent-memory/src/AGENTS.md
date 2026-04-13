@@ -2,7 +2,7 @@
 > FTS + vector 混合搜索记忆系统的源码实现层
 
 ## 地位
-`alva-agent-memory` crate 的全部源码。对外通过 `lib.rs` 的 re-exports 提供 MemoryService、MemoryBackend trait、MemorySqlite、EmbeddingProvider 等公共 API。被 `alva-agent-runtime` 在 native feature 下集成。
+`alva-agent-memory` crate 的全部源码。对外通过 `lib.rs` 的 re-exports 提供 MemoryService、MemoryBackend trait、MemorySqlite、EmbeddingProvider 等公共 API。被 `alva-host-native` 在 native feature 下集成。
 
 ## 逻辑
 1. `types.rs` 定义领域模型（MemoryFile / MemoryChunk / MemoryEntry / SyncReport）。

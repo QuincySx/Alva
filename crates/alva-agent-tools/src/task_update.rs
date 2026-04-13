@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json
 // OUTPUT: TaskUpdateTool
 // POS:    Updates an existing tracked task's fields.
 //! task_update — update an existing task
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;

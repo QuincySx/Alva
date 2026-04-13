@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde
 // OUTPUT: TaskStopTool
 // POS:    Stops/cancels a running task.
 //! task_stop — stop or cancel a running task
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 

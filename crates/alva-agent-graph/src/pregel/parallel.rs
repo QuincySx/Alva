@@ -2,7 +2,7 @@
 // OUTPUT: execute_sends() — JoinSet fan-out logic for Send-based dynamic routing
 // POS:    Parallel execution of Send targets with merge and recursive handling.
 
-use alva_types::AgentError;
+use alva_kernel_abi::AgentError;
 
 use crate::graph::NodeResult;
 

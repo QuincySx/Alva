@@ -2,7 +2,7 @@
 > Agent 内置工具实现层：文件操作、Shell 执行、搜索、浏览器自动化
 
 ## 地位
-`alva-agent-tools` crate 的全部源码。每个工具实现 `alva_types::Tool` trait，通过 `lib.rs` 的 `register_builtin_tools` / `register_all_tools` 注册到 `ToolRegistry`。被 `alva-agent-runtime` 的 Builder 在构建时统一注册。
+`alva-agent-tools` crate 的全部源码。每个工具实现 `alva_kernel_abi::Tool` trait，通过 `lib.rs` 的 `register_builtin_tools` / `register_all_tools` 注册到 `ToolRegistry`。被 `alva-host-native` 的 Builder 在构建时统一注册。
 
 ## 逻辑
 1. `lib.rs` 按 feature flag 分三档注册工具：
@@ -14,7 +14,7 @@
 4. `browser/` 子目录封装基于 CDP (Chrome DevTools Protocol) 的浏览器自动化工具组。
 
 ## 约束
-- 所有工具必须实现 `alva_types::Tool` trait（name / description / input_schema / execute）。
+- 所有工具必须实现 `alva_kernel_abi::Tool` trait（name / description / input_schema / execute）。
 - 文件类工具通过 `ToolContext.tool_fs` 访问文件系统，禁止直接调用 `std::fs`，以保证可测试性和沙箱隔离。
 - `internet_search` 和 `read_url` 需要网络访问，仅在 `native` feature 下编译。
 - `browser/` 工具需要 `chromiumoxide` 依赖，仅在 `browser` feature 下编译。

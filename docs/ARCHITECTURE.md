@@ -29,7 +29,7 @@ Alva 是一个**分层解耦的 AI Agent 平台**，三大组件完全独立：
 │  │  alva-app          — GPUI 桌面 GUI                       │    │
 │  │  alva-app-cli      — 终端 CLI                            │    │
 │  │  alva-app-core     — BaseAgent + Extension 系统           │    │
-│  │  alva-agent-eval   — Agent 测试/评测 playground          │    │
+│  │  alva-app-eval   — Agent 测试/评测 playground          │    │
 │  │  alva-app-debug    — 调试 HTTP API + traced! 宏          │    │
 │  │  alva-app-devtools-mcp — MCP 开发工具服务器              │    │
 │  └──────────────────────────────────────────────────────────┘    │
@@ -47,23 +47,23 @@ Alva 是一个**分层解耦的 AI Agent 平台**，三大组件完全独立：
 ### 依赖层级图
 
 ```
-┌─ alva-agent-bus ─────────────────────────────────────────────────┐
+┌─ alva-kernel-bus ─────────────────────────────────────────────────┐
 │  Bus, BusHandle, Caps, EventBus, BusEvent, StateCell             │
 │  （跨层协调总线，零 workspace 依赖）                                │
 └──────────────────────────────────────────────────────────────────┘
               ↑ 唯一依赖
-┌─ alva-types ─────────────────────────────────────────────────────┐
+┌─ alva-kernel-abi ─────────────────────────────────────────────────────┐
 │  Message, ContentBlock, Tool, LanguageModel, ToolFs              │
 │  AgentMessage, StreamEvent, ToolCall, ToolOutput                 │
 │  TokenCounter, ToolExecutionContext（含 bus() 方法）              │
 │  TokenBudgetExceeded, ContextCompacted, MemoryExtracted          │
 │  Bus, BusHandle, BusEvent, StateCell（re-export）                │
-│  （共享词汇表 — 所有 crate 通过依赖 alva-types 自动获得 bus）       │
+│  （共享词汇表 — 所有 crate 通过依赖 alva-kernel-abi 自动获得 bus）       │
 └──────────────────────────────────────────────────────────────────┘
               ↑ 依赖
 ┌─ 功能层（并行，互不依赖）─────────────────────────────────────────┐
 │  alva-agent-context  — 上下文管理 Hooks + ContextStore + 四层模型 │
-│  alva-agent-core     — Agent 循环引擎 + Middleware 洋葱模型       │
+│  alva-kernel-core     — Agent 循环引擎 + Middleware 洋葱模型       │
 │  alva-agent-tools    — 工具实现 + tool_presets 分组               │
 │  alva-agent-security — SecurityGuard + PermissionManager          │
 │  alva-agent-memory   — FTS + 向量搜索 + MemoryBackend trait       │
@@ -72,7 +72,7 @@ Alva 是一个**分层解耦的 AI Agent 平台**，三大组件完全独立：
 └──────────────────────────────────────────────────────────────────┘
               ↑ 依赖
 ┌─ 组装层 ─────────────────────────────────────────────────────────┐
-│  alva-agent-runtime  — 中间件实现（Security/Compaction/Checkpoint/│
+│  alva-host-native  — 中间件实现（Security/Compaction/Checkpoint/│
 │                         PlanMode）+ AgentRuntimeBuilder           │
 └──────────────────────────────────────────────────────────────────┘
               ↑ 依赖
@@ -572,23 +572,23 @@ Bus 提供三种机制，适用于不同场景：
 `scripts/ci-check-deps.sh` 自动检查边界规则：
 
 ```
-Rule 0:  alva-agent-bus 零 workspace 依赖
-Rule 1:  alva-types → alva-agent-bus only
-Rule 2:  alva-agent-context → alva-types only
-Rule 3:  alva-agent-core → alva-types only
-Rule 4:  alva-agent-tools → alva-types only
-Rule 5:  alva-agent-security → alva-types only
-Rule 6:  alva-agent-memory → alva-types only
-Rule 7:  alva-agent-runtime → foundation agent-* crates
-Rule 8:  alva-agent-graph → alva-types + alva-agent-core
-Rule 9:  alva-engine-runtime → alva-types only
-Rule 10: alva-engine-adapter-claude → alva-types + engine-runtime
-Rule 11: alva-engine-adapter-alva → alva-types + engine-runtime + agent-core
+Rule 0:  alva-kernel-bus 零 workspace 依赖
+Rule 1:  alva-kernel-abi → alva-kernel-bus only
+Rule 2:  alva-agent-context → alva-kernel-abi only
+Rule 3:  alva-kernel-core → alva-kernel-abi only
+Rule 4:  alva-agent-tools → alva-kernel-abi only
+Rule 5:  alva-agent-security → alva-kernel-abi only
+Rule 6:  alva-agent-memory → alva-kernel-abi only
+Rule 7:  alva-host-native → foundation agent-* crates
+Rule 8:  alva-agent-graph → alva-kernel-abi + alva-kernel-core
+Rule 9:  alva-engine-runtime → alva-kernel-abi only
+Rule 10: alva-engine-adapter-claude → alva-kernel-abi + engine-runtime
+Rule 11: alva-engine-adapter-alva → alva-kernel-abi + engine-runtime + agent-core
 Rule 12: protocol crates 不依赖 alva-app-*
 Rule 13: alva-app 不直接依赖 agent-* 内部 crate（通过 facade）
 ```
 
-**关键规则**：所有功能层 crate 只依赖 alva-types。它们通过 Bus 横向通信，不需要互相依赖。
+**关键规则**：所有功能层 crate 只依赖 alva-kernel-abi。它们通过 Bus 横向通信，不需要互相依赖。
 
 ---
 
@@ -599,7 +599,7 @@ Rule 13: alva-app 不直接依赖 agent-* 内部 crate（通过 facade）
 比如要加一个"代码索引服务"，让 tool 和 context 都能查询。
 
 ```rust
-// 1. 在 alva-types 定义 trait
+// 1. 在 alva-kernel-abi 定义 trait
 pub trait CodeIndex: Send + Sync {
     fn search(&self, query: &str) -> Vec<CodeMatch>;
 }
@@ -638,7 +638,7 @@ async fn before_llm_call(&self, state: &mut AgentState, messages: &mut Vec<Messa
 比如要通知"agent 开始执行工具"给 UI 和 metrics。
 
 ```rust
-// 1. 在 alva-types 定义事件
+// 1. 在 alva-kernel-abi 定义事件
 #[derive(Clone, Debug)]
 pub struct ToolExecutionStarted {
     pub tool_name: String,
@@ -663,7 +663,7 @@ tokio::spawn(async move {
 });
 ```
 
-**发送方不知道谁在听。接收方不知道谁在发。两边只共享 alva-types 里的事件定义。**
+**发送方不知道谁在听。接收方不知道谁在发。两边只共享 alva-kernel-abi 里的事件定义。**
 
 ### 场景 3：替换一个能力的实现
 
@@ -719,7 +719,7 @@ bus_handle.provide::<dyn TokenCounter>(Arc::new(TiktokenCounter::new("cl100k_bas
 Agent 工具通过 `ToolFs` trait 操作文件和执行命令，不直接调用系统 API：
 
 ```
-工具代码 → ToolFs trait (alva-types 中定义)
+工具代码 → ToolFs trait (alva-kernel-abi 中定义)
                 ↓
         ┌───────┴───────┐
     LocalToolFs      SandboxToolFs (alva-app-core 桥接)

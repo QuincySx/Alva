@@ -1,11 +1,11 @@
-// INPUT:  alva_app_core, alva_agent_runtime, alva_types, output
+// INPUT:  alva_app_core, alva_host_native, alva_kernel_abi, output
 // OUTPUT: run_print_mode, run_prompt, handle_approval
 // POS:    AgentEvent processing — streaming output, tool execution display, and interactive approval handling
 
 use std::io::{self, BufRead, Write};
 
 use alva_app_core::{AgentEvent, AgentMessage, BaseAgent, PermissionDecision};
-use alva_agent_runtime::middleware::security::ApprovalRequest;
+use alva_host_native::middleware::security::ApprovalRequest;
 use tokio::sync::mpsc;
 
 use crate::output;
@@ -19,7 +19,7 @@ pub(crate) async fn run_print_mode(agent: &BaseAgent, prompt: &str) -> i32 {
     while let Some(event) = rx.recv().await {
         match event {
             AgentEvent::MessageUpdate { delta, .. } => {
-                if let alva_types::StreamEvent::TextDelta { text } = &delta {
+                if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
                     print!("{}", text);
                     io::stdout().flush().ok();
                 }
@@ -59,7 +59,7 @@ pub(crate) async fn run_prompt(
                 match event {
                     Some(AgentEvent::MessageStart { .. }) => {}
                     Some(AgentEvent::MessageUpdate { delta, .. }) => {
-                        if let alva_types::StreamEvent::TextDelta { text } = &delta {
+                        if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
                             output::print_assistant_text(text);
                         }
                     }

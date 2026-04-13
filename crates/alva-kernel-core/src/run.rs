@@ -1,0 +1,775 @@
+// INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_kernel_abi::*, crate::pending_queue::AgentLoopHook
+// OUTPUT: pub async fn run_agent()
+// POS:    session-centric agent loop — uses bus-based AgentLoopHook for steering/follow-up injection.
+use std::sync::Arc;
+
+use alva_kernel_abi::model::LanguageModel;
+use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::{
+    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
+    ModelConfig, StreamEvent, ToolCall, ToolOutput,
+};
+use async_trait::async_trait;
+use serde_json::Value;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
+
+use crate::event::AgentEvent;
+use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
+use crate::runtime_context::RuntimeExecutionContext;
+use crate::state::{AgentConfig, AgentState};
+
+fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
+    AgentMessage::Standard(Message {
+        id: message_id.to_string(),
+        role: MessageRole::Assistant,
+        content: vec![],
+        tool_call_id: None,
+        usage: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// LlmCallFn / ToolCallFn adapters for wrap hooks
+// ---------------------------------------------------------------------------
+
+/// Wraps the actual LLM model call as a `LlmCallFn` so it can be passed
+/// into middleware `wrap_llm_call` as the `next` callback.
+///
+/// Internally uses `model.stream()` to emit `MessageUpdate` events in
+/// real-time, then assembles the final `Message` from accumulated chunks
+/// so the middleware chain still receives a complete `Message`.
+struct ActualLlmCall {
+    model: Arc<dyn LanguageModel>,
+    tools: Vec<Arc<dyn Tool>>,
+    model_config: ModelConfig,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+    message_id: String,
+}
+
+#[async_trait]
+impl LlmCallFn for ActualLlmCall {
+    async fn call(
+        &self,
+        _state: &mut AgentState,
+        messages: Vec<Message>,
+    ) -> Result<Message, AgentError> {
+        let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
+        let mut stream = self.model.stream(&messages, &tool_refs, &self.model_config);
+
+        let mut text_content = String::new();
+        let mut usage = None;
+        let mut last_tool_call_index = None;
+        let mut event_count: u32 = 0;
+
+        // Track in-progress tool calls in appearance order while allowing
+        // providers to repeat the same tool-call id across multiple deltas.
+        let mut tool_call_builders: Vec<(String, String, String)> = Vec::new();
+        let mut tool_call_indices: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+
+        while let Some(event) = stream.next().await {
+            event_count += 1;
+            // Build a placeholder message for the MessageUpdate envelope.
+            let agent_msg = AgentMessage::Standard(Message {
+                id: self.message_id.clone(),
+                role: MessageRole::Assistant,
+                content: vec![],
+                tool_call_id: None,
+                usage: None,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            });
+            let _ = self.event_tx.send(AgentEvent::MessageUpdate {
+                message: agent_msg,
+                delta: event.clone(),
+            });
+
+            match event {
+                StreamEvent::TextDelta { text } => {
+                    text_content.push_str(&text);
+                }
+                StreamEvent::ToolCallDelta {
+                    id,
+                    name,
+                    arguments_delta,
+                } => {
+                    let target_index = if !id.is_empty() {
+                        if let Some(existing_index) = tool_call_indices.get(&id).copied() {
+                            existing_index
+                        } else {
+                            let next_index = tool_call_builders.len();
+                            tool_call_builders.push((id.clone(), String::new(), String::new()));
+                            tool_call_indices.insert(id, next_index);
+                            next_index
+                        }
+                    } else if let Some(last_index) = last_tool_call_index {
+                        last_index
+                    } else {
+                        continue;
+                    };
+
+                    last_tool_call_index = Some(target_index);
+
+                    if let Some((_, existing_name, existing_arguments)) =
+                        tool_call_builders.get_mut(target_index)
+                    {
+                        if let Some(name) = name {
+                            if !name.is_empty() {
+                                *existing_name = name;
+                            }
+                        }
+                        existing_arguments.push_str(&arguments_delta);
+                    }
+                }
+                StreamEvent::Usage(u) => {
+                    usage = Some(u);
+                }
+                StreamEvent::Error(e) => {
+                    return Err(AgentError::LlmError(e));
+                }
+                StreamEvent::Start | StreamEvent::Done | StreamEvent::ReasoningDelta { .. } => {}
+            }
+        }
+
+        // Check if streaming produced anything useful
+        let text_len = text_content.len();
+        let tool_call_count = tool_call_builders.len();
+
+        if text_len == 0 && tool_call_count == 0 {
+            // Stream returned nothing — fallback to non-streaming complete()
+            tracing::warn!(
+                model = %self.model.model_id(),
+                stream_events = event_count,
+                "LLM stream produced empty response — falling back to non-streaming"
+            );
+
+            let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
+            match self.model.complete(&messages, &tool_refs, &self.model_config).await {
+                Ok(resp) => {
+                    let msg = resp.message;
+                    // Emit the fallback result as synthetic events so the UI still sees them
+                    for block in &msg.content {
+                        let delta = match block {
+                            ContentBlock::Text { text } => StreamEvent::TextDelta { text: text.clone() },
+                            ContentBlock::ToolUse { id, name, input } => StreamEvent::ToolCallDelta {
+                                id: id.clone(),
+                                name: Some(name.clone()),
+                                arguments_delta: input.to_string(),
+                            },
+                            _ => continue,
+                        };
+                        let agent_msg = AgentMessage::Standard(Message {
+                            id: self.message_id.clone(),
+                            role: MessageRole::Assistant,
+                            content: vec![],
+                            tool_call_id: None,
+                            usage: None,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                        });
+                        let _ = self.event_tx.send(AgentEvent::MessageUpdate {
+                            message: agent_msg,
+                            delta,
+                        });
+                    }
+
+                    tracing::info!(
+                        model = %self.model.model_id(),
+                        content_blocks = msg.content.len(),
+                        has_usage = msg.usage.is_some(),
+                        "non-streaming fallback succeeded"
+                    );
+                    return Ok(msg);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "non-streaming fallback also failed");
+                    return Err(e);
+                }
+            }
+        }
+
+        if usage.is_none() {
+            tracing::debug!(
+                model = %self.model.model_id(),
+                stream_events = event_count,
+                text_len,
+                "LLM stream completed without usage data"
+            );
+        }
+
+        // Assemble the final Message from accumulated stream chunks.
+        let mut content_blocks = Vec::new();
+        if !text_content.is_empty() {
+            content_blocks.push(ContentBlock::Text { text: text_content });
+        }
+
+        for (id, name, args_str) in tool_call_builders {
+            let input: Value = serde_json::from_str(&args_str).map_err(|error| {
+                AgentError::LlmError(format!(
+                    "invalid tool arguments for tool call '{id}' ({name}): {error}"
+                ))
+            })?;
+            content_blocks.push(ContentBlock::ToolUse { id, name, input });
+        }
+
+        Ok(Message {
+            id: self.message_id.clone(),
+            role: MessageRole::Assistant,
+            content: content_blocks,
+            tool_call_id: None,
+            usage,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        })
+    }
+}
+
+/// Wraps the actual tool execution as a `ToolCallFn` so it can be passed
+/// into middleware `wrap_tool_call` as the `next` callback.
+struct ActualToolCall {
+    tool: Arc<dyn Tool>,
+    cancel: CancellationToken,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+    session_id: String,
+    workspace: Option<std::path::PathBuf>,
+    bus: Option<BusHandle>,
+}
+
+#[async_trait]
+impl ToolCallFn for ActualToolCall {
+    async fn call(
+        &self,
+        _state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<ToolOutput, AgentError> {
+        // No timeout in the kernel — use ToolTimeoutMiddleware (wrap_tool_call) to add one.
+        let mut ctx = RuntimeExecutionContext::new(
+            self.cancel.clone(),
+            tool_call.id.clone(),
+            self.event_tx.clone(),
+            self.session_id.clone(),
+        );
+        if let Some(ref ws) = self.workspace {
+            ctx = ctx.with_workspace(ws.clone());
+        }
+        if let Some(ref bus) = self.bus {
+            ctx = ctx.with_bus(bus.clone());
+        }
+        self.tool.execute(tool_call.arguments.clone(), &ctx).await
+    }
+}
+
+/// agent loop — session-centric with middleware hooks.
+///
+/// Messages are never stored in local variables across iterations;
+/// instead, every iteration reads the full history from `state.session`.
+pub async fn run_agent(
+    state: &mut AgentState,
+    config: &AgentConfig,
+    cancel: CancellationToken,
+    input: Vec<AgentMessage>,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+) -> Result<(), AgentError> {
+    state.extensions.insert(cancel.clone());
+
+    // 1. Lifecycle: on_agent_start
+    config
+        .middleware
+        .run_on_agent_start(state)
+        .await
+        .map_err(MiddlewareError::into_agent_error)?;
+
+    // Emit AgentStart
+    let _ = event_tx.send(AgentEvent::AgentStart);
+
+    // 2. Store input messages in session
+    for msg in input {
+        state.session.append(msg);
+    }
+
+    // 3. Main loop
+    let mut error: Option<String> = None;
+    let result = run_loop(state, config, &cancel, &event_tx).await;
+
+    if let Err(ref e) = result {
+        error = Some(e.to_string());
+    }
+
+    // 4. Lifecycle: on_agent_end
+    if let Err(e) = config
+        .middleware
+        .run_on_agent_end(state, error.as_deref())
+        .await
+    {
+        tracing::warn!(error = %e, "on_agent_end middleware failed");
+    }
+
+    // 5. Emit AgentEnd
+    let _ = event_tx.send(AgentEvent::AgentEnd {
+        error: error.clone(),
+    });
+
+    result
+}
+
+/// Inner loop extracted so we can capture the error cleanly for lifecycle hooks.
+///
+/// Double-loop structure:
+/// - **Outer loop**: processes follow-up messages after the inner loop finishes naturally.
+/// - **Inner loop**: LLM calls + tool execution + steering injection.
+async fn run_loop(
+    state: &mut AgentState,
+    config: &AgentConfig,
+    cancel: &CancellationToken,
+    event_tx: &mpsc::UnboundedSender<AgentEvent>,
+) -> Result<(), AgentError> {
+    let mut total_iterations: u32 = 0;
+    let mut _session_input_tokens: u64 = 0;
+    let mut _session_output_tokens: u64 = 0;
+
+    // Outer loop: processes follow-up messages
+    'outer: loop {
+        // Inner loop: LLM calls + tool execution + steering checks
+        'inner: loop {
+            if cancel.is_cancelled() {
+                return Err(AgentError::Cancelled);
+            }
+            if total_iterations >= config.max_iterations {
+                tracing::warn!(
+                    max_iterations = config.max_iterations,
+                    "agent loop exhausted max_iterations without finishing"
+                );
+                return Err(AgentError::MaxIterations(config.max_iterations));
+            }
+            total_iterations += 1;
+
+            // Emit TurnStart
+            let _ = event_tx.send(AgentEvent::TurnStart);
+            let turn_start = std::time::Instant::now();
+
+            // 3a. Get messages from session (optionally windowed)
+            let session_messages = if config.context_window > 0 {
+                state.session.recent(config.context_window)
+            } else {
+                state.session.messages()
+            };
+
+            // 3b. Build LLM messages: [system_prompt] + session messages (only Standard)
+            let mut llm_messages = Vec::new();
+            if !config.system_prompt.is_empty() {
+                llm_messages.push(Message::system(&config.system_prompt));
+            }
+            for msg in &session_messages {
+                // Only Standard messages are sent to the LLM.
+                // Steering and FollowUp are normalized to Standard before
+                // entering the session (see delegate injection below).
+                if let AgentMessage::Standard(m) = msg {
+                    llm_messages.push(m.clone());
+                }
+            }
+
+            // 3c. Middleware: before_llm_call
+            config
+                .middleware
+                .run_before_llm_call(state, &mut llm_messages)
+                .await
+                .map_err(MiddlewareError::into_agent_error)?;
+
+            // 3d. Emit MessageStart before the LLM call
+            let message_id = uuid::Uuid::new_v4().to_string();
+            let placeholder_msg = placeholder_assistant_message(&message_id);
+            let _ = event_tx.send(AgentEvent::MessageStart {
+                message: placeholder_msg.clone(),
+            });
+
+            // 3e. Call LLM through wrap_llm_call middleware chain
+            let actual_call = ActualLlmCall {
+                model: state.model.clone(),
+                tools: state.tools.clone(),
+                model_config: config.model_config.clone(),
+                event_tx: event_tx.clone(),
+                message_id,
+            };
+            let mut response = match config
+                .middleware
+                .run_wrap_llm_call(state, llm_messages, &actual_call)
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    let agent_error = error.into_agent_error();
+                    let _ = event_tx.send(AgentEvent::MessageError {
+                        message: placeholder_msg.clone(),
+                        error: agent_error.to_string(),
+                    });
+                    return Err(agent_error);
+                }
+            };
+
+            // 3f. Middleware: after_llm_call
+            if let Err(error) = config
+                .middleware
+                .run_after_llm_call(state, &mut response)
+                .await
+            {
+                let agent_error = error.into_agent_error();
+                let _ = event_tx.send(AgentEvent::MessageError {
+                    message: AgentMessage::Standard(response.clone()),
+                    error: agent_error.to_string(),
+                });
+                return Err(agent_error);
+            }
+
+            // 3g. Store response in session
+            state
+                .session
+                .append(AgentMessage::Standard(response.clone()));
+
+            // 3h. Track token usage from this turn
+            if let Some(ref usage) = response.usage {
+                _session_input_tokens += usage.input_tokens as u64;
+                _session_output_tokens += usage.output_tokens as u64;
+            }
+
+            // 3i. Emit MessageEnd with the complete response
+            // (MessageStart was emitted before the LLM call; MessageUpdate
+            // events were emitted during streaming inside ActualLlmCall.)
+            let agent_msg = AgentMessage::Standard(response.clone());
+            let _ = event_tx.send(AgentEvent::MessageEnd { message: agent_msg });
+
+            // 3i. Extract tool_calls from response
+            let tool_calls: Vec<ToolCall> = response
+                .content
+                .iter()
+                .filter_map(|block| {
+                    if let ContentBlock::ToolUse { id, name, input } = block {
+                        Some(ToolCall {
+                            id: id.clone(),
+                            name: name.clone(),
+                            arguments: input.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // 3j. If no tool_calls, emit TurnEnd and break inner (natural finish — check follow-ups)
+            if tool_calls.is_empty() {
+                tracing::info!(
+                    turn = total_iterations,
+                    duration_ms = turn_start.elapsed().as_millis() as u64,
+                    tool_calls = 0,
+                    "turn completed (no tool calls)"
+                );
+                let _ = event_tx.send(AgentEvent::TurnEnd);
+                break 'inner;
+            }
+
+            // 3k. Execute each tool_call sequentially.
+            // NOTE: concurrent execution for is_concurrency_safe() tools is
+            // deferred — it requires refactoring tool execution to not hold
+            // &mut AgentState across the await boundary.
+            for tool_call in &tool_calls {
+                if cancel.is_cancelled() {
+                    return Err(AgentError::Cancelled);
+                }
+
+                // Emit ToolExecutionStart
+                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
+                    tool_call: tool_call.clone(),
+                });
+                let tool_start = std::time::Instant::now();
+
+                // Find tool by name — clone the Arc so we don't hold an immutable
+                // borrow on state.tools across the mutable middleware calls.
+                let tool = state
+                    .tools
+                    .iter()
+                    .find(|t| t.name() == tool_call.name)
+                    .cloned();
+
+                // Middleware: before_tool_call
+                let before_result = config
+                    .middleware
+                    .run_before_tool_call(state, tool_call)
+                    .await;
+
+                let mut result = match before_result {
+                    Err(MiddlewareError::Blocked { reason }) => {
+                        // If blocked, make an error result
+                        ToolOutput::error(format!("Tool call blocked: {}", reason))
+                    }
+                    Err(e) => {
+                        return Err(e.into_agent_error());
+                    }
+                    Ok(()) => {
+                        // Execute the tool through wrap_tool_call middleware chain (with timeout)
+                        match tool {
+                            Some(ref t) => {
+                                let actual_tool_call = ActualToolCall {
+                                    tool: t.clone(),
+                                    cancel: cancel.clone(),
+                                    event_tx: event_tx.clone(),
+                                    session_id: state.session.id().to_string(),
+                                    workspace: config.workspace.clone(),
+                                    bus: config.bus.clone(),
+                                };
+                                config
+                                    .middleware
+                                    .run_wrap_tool_call(state, tool_call, &actual_tool_call)
+                                    .await
+                                    .map_err(MiddlewareError::into_agent_error)?
+                            }
+                            None => {
+                                ToolOutput::error(format!("Tool not found: {}", tool_call.name))
+                            }
+                        }
+                    }
+                };
+
+                // Middleware: after_tool_call
+                config
+                    .middleware
+                    .run_after_tool_call(state, tool_call, &mut result)
+                    .await
+                    .map_err(MiddlewareError::into_agent_error)?;
+
+                // Build Tool message and append to session
+                let tool_message = Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    role: MessageRole::Tool,
+                    content: vec![ContentBlock::ToolResult {
+                        id: tool_call.id.clone(),
+                        content: result.content.clone(),
+                        is_error: result.is_error,
+                    }],
+                    tool_call_id: Some(tool_call.id.clone()),
+                    usage: None,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                };
+                state.session.append(AgentMessage::Standard(tool_message));
+
+                let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
+                tracing::info!(
+                    tool = %tool_call.name,
+                    duration_ms = tool_duration_ms,
+                    is_error = result.is_error,
+                    result_len = result.model_text().len(),
+                    "tool execution completed"
+                );
+
+                // Emit ToolExecutionEnd
+                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
+                    tool_call: tool_call.clone(),
+                    result,
+                });
+            }
+
+            // 3l. Emit TurnEnd
+            tracing::info!(
+                turn = total_iterations,
+                duration_ms = turn_start.elapsed().as_millis() as u64,
+                tool_calls = tool_calls.len(),
+                "turn completed (with tool calls)"
+            );
+            let _ = event_tx.send(AgentEvent::TurnEnd);
+
+            // Steering check: after tool execution, before next LLM call
+            if let Some(bus) = &config.bus {
+                if let Some(hook) = bus.get::<dyn crate::pending_queue::AgentLoopHook>() {
+                    if let Some(steering_msg) = hook.take_steering() {
+                        // Convert to Standard — steering is an injection method, not a message type.
+                        // The session should only contain Standard messages for persistence.
+                        let msg = match steering_msg {
+                            AgentMessage::Steering(m) => AgentMessage::Standard(m),
+                            other => other,
+                        };
+                        state.session.append(msg);
+                        continue 'inner;
+                    }
+                }
+            }
+        }
+
+        // Follow-up check: when inner loop ends naturally
+        let follow_ups = config
+            .bus
+            .as_ref()
+            .and_then(|b| b.get::<dyn crate::pending_queue::AgentLoopHook>())
+            .map(|h| h.take_follow_ups())
+            .unwrap_or_default();
+        if follow_ups.is_empty() {
+            break 'outer; // Truly done
+        }
+        for msg in follow_ups {
+            // Convert to Standard — follow-up is an injection method, not a message type.
+            // The session should only contain Standard messages for persistence.
+            let msg = match msg {
+                AgentMessage::FollowUp(m) => AgentMessage::Standard(m),
+                other => other,
+            };
+            state.session.append(msg);
+        }
+        // Continue outer loop — process follow-ups
+    }
+
+    Ok(())
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_kernel_abi::*;
+    use std::sync::Arc;
+
+    struct EchoModel;
+    #[async_trait::async_trait]
+    impl LanguageModel for EchoModel {
+        async fn complete(
+            &self,
+            messages: &[Message],
+            _: &[&dyn Tool],
+            _: &ModelConfig,
+        ) -> Result<CompletionResponse, AgentError> {
+            let last = messages
+                .last()
+                .map(|m| m.text_content())
+                .unwrap_or_default();
+            Ok(CompletionResponse::from_message(Message {
+                id: uuid::Uuid::new_v4().to_string(),
+                role: MessageRole::Assistant,
+                content: vec![ContentBlock::Text {
+                    text: format!("Echo: {}", last),
+                }],
+                tool_call_id: None,
+                usage: None,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            }))
+        }
+        fn stream(
+            &self,
+            messages: &[Message],
+            _: &[&dyn Tool],
+            _: &ModelConfig,
+        ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+            let last = messages
+                .last()
+                .map(|m| m.text_content())
+                .unwrap_or_default();
+            let text = format!("Echo: {}", last);
+            Box::pin(tokio_stream::iter(vec![
+                StreamEvent::Start,
+                StreamEvent::TextDelta { text },
+                StreamEvent::Done,
+            ]))
+        }
+        fn model_id(&self) -> &str {
+            "echo"
+        }
+    }
+
+    fn make_state() -> AgentState {
+        AgentState {
+            model: Arc::new(EchoModel),
+            tools: vec![],
+            session: Arc::new(InMemorySession::new()),
+            extensions: crate::shared::Extensions::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn simple_echo() {
+        let mut state = make_state();
+        let config = AgentConfig {
+            middleware: crate::middleware::MiddlewareStack::new(),
+            system_prompt: "Echo bot.".to_string(),
+            max_iterations: 100,
+            model_config: ModelConfig::default(),
+            context_window: 0,
+            workspace: None,
+            bus: None,
+        };
+        let cancel = CancellationToken::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        run_agent(
+            &mut state,
+            &config,
+            cancel,
+            vec![AgentMessage::Standard(Message::user("hello"))],
+            tx,
+        )
+        .await
+        .unwrap();
+
+        // Session should have user + assistant
+        assert_eq!(state.session.messages().len(), 2);
+
+        // Events
+        let mut events = vec![];
+        while let Ok(e) = rx.try_recv() {
+            events.push(e);
+        }
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::AgentStart)));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::MessageEnd { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })));
+    }
+
+    #[tokio::test]
+    async fn cancellation_stops_loop() {
+        let mut state = make_state();
+        let config = AgentConfig {
+            middleware: crate::middleware::MiddlewareStack::new(),
+            system_prompt: "Test.".to_string(),
+            max_iterations: 100,
+            model_config: ModelConfig::default(),
+            context_window: 0,
+            workspace: None,
+            bus: None,
+        };
+        let cancel = CancellationToken::new();
+        cancel.cancel(); // Cancel immediately
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let result = run_agent(
+            &mut state,
+            &config,
+            cancel,
+            vec![AgentMessage::Standard(Message::user("hi"))],
+            tx,
+        )
+        .await;
+        assert!(matches!(result, Err(AgentError::Cancelled)));
+    }
+
+    #[tokio::test]
+    async fn empty_input() {
+        let mut state = make_state();
+        let config = AgentConfig {
+            middleware: crate::middleware::MiddlewareStack::new(),
+            system_prompt: "Test.".to_string(),
+            max_iterations: 100,
+            model_config: ModelConfig::default(),
+            context_window: 0,
+            workspace: None,
+            bus: None,
+        };
+        let cancel = CancellationToken::new();
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+
+        // Empty input — LLM gets only system prompt, responds once, done
+        run_agent(&mut state, &config, cancel, vec![], tx)
+            .await
+            .unwrap();
+        // Session has 1 message (assistant response to empty context)
+        assert_eq!(state.session.messages().len(), 1);
+    }
+}

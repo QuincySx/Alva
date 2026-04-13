@@ -1,4 +1,4 @@
-// INPUT:  std::collections::HashMap, alva_types::AgentError, crate::graph::*, crate::checkpoint::CheckpointSaver
+// INPUT:  std::collections::HashMap, alva_kernel_abi::AgentError, crate::graph::*, crate::checkpoint::CheckpointSaver
 // OUTPUT: pub struct CompiledGraph, pub enum GraphEvent, pub struct InvokeConfig
 // POS:    Type definitions for the Pregel execution engine.
 

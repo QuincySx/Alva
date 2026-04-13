@@ -1,7 +1,7 @@
-// INPUT:  alva_types::AgentMessage
+// INPUT:  alva_kernel_abi::AgentMessage
 // OUTPUT: pub trait ContextTransform, pub struct TransformPipeline
 // POS:    Ordered pipeline of message transforms applied to agent context before model invocation.
-use alva_types::AgentMessage;
+use alva_kernel_abi::AgentMessage;
 
 /// A single transformation over the agent's message context.
 ///
@@ -57,7 +57,7 @@ impl Default for TransformPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::Message;
+    use alva_kernel_abi::Message;
 
     /// Test transform that appends a marker message.
     struct AppendMarker {

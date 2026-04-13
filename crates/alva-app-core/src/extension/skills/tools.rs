@@ -1,4 +1,4 @@
-// INPUT:  std::sync, alva_types, crate::extension::skills::{loader, store}, async_trait, serde, serde_json
+// INPUT:  std::sync, alva_kernel_abi, crate::extension::skills::{loader, store}, async_trait, serde, serde_json
 // OUTPUT: SearchSkillsTool, UseSkillTool
 // POS:    Agent-facing meta-tools for discovering and activating Skills at runtime.
 //! Skill meta-tools: search_skills and use_skill
@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use crate::extension::skills::loader::SkillLoader;
 use crate::extension::skills::store::SkillStore;
 use async_trait::async_trait;

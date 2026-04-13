@@ -1,12 +1,12 @@
-// INPUT:  alva_types::context (SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch), async_trait, tokio::sync::Mutex
+// INPUT:  alva_kernel_abi::context (SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch), async_trait, tokio::sync::Mutex
 // OUTPUT: re-exports SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch; provides InMemorySession
-// POS:    Re-exports session traits/types from alva_types::context and provides the InMemorySession implementation.
-//! Session storage — trait re-exported from `alva_types::context`, with InMemorySession implementation.
+// POS:    Re-exports session traits/types from alva_kernel_abi::context and provides the InMemorySession implementation.
+//! Session storage — trait re-exported from `alva_kernel_abi::context`, with InMemorySession implementation.
 
 use async_trait::async_trait;
 
-// Re-export traits and types from alva_types::context
-pub use alva_types::context::{
+// Re-export traits and types from alva_kernel_abi::context
+pub use alva_kernel_abi::context::{
     EventMatch, EventQuery, SessionAccess, SessionEvent, SessionMessage,
 };
 

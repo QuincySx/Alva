@@ -1,4 +1,4 @@
-// INPUT:  serde_json, std::path, alva_types, crate::{authorized_roots, cache, classifier, modes, permission, rules, sandbox, sensitive_paths}
+// INPUT:  serde_json, std::path, alva_kernel_abi, crate::{authorized_roots, cache, classifier, modes, permission, rules, sandbox, sensitive_paths}
 // OUTPUT: SecurityDecision, SecurityGuard
 // POS:    Unified security gate composing sensitive-path filtering, authorized-root checking,
 //         HITL permission management, permission rules, caching, modes, and bash classification.
@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-use alva_types::ToolExecutionContext;
+use alva_kernel_abi::ToolExecutionContext;
 
 use crate::authorized_roots::AuthorizedRoots;
 use crate::cache::{CachedDecision, PermissionCache};
@@ -468,11 +468,11 @@ mod tests {
 
     struct TestToolContext {
         workspace: PathBuf,
-        cancel: alva_types::CancellationToken,
+        cancel: alva_kernel_abi::CancellationToken,
     }
 
-    impl alva_types::ToolExecutionContext for TestToolContext {
-        fn cancel_token(&self) -> &alva_types::CancellationToken { &self.cancel }
+    impl alva_kernel_abi::ToolExecutionContext for TestToolContext {
+        fn cancel_token(&self) -> &alva_kernel_abi::CancellationToken { &self.cancel }
         fn session_id(&self) -> &str { "test-session" }
         fn workspace(&self) -> Option<&std::path::Path> { Some(&self.workspace) }
         fn as_any(&self) -> &dyn std::any::Any { self }
@@ -481,7 +481,7 @@ mod tests {
     fn test_ctx() -> TestToolContext {
         TestToolContext {
             workspace: PathBuf::from("/projects/myapp"),
-            cancel: alva_types::CancellationToken::new(),
+            cancel: alva_kernel_abi::CancellationToken::new(),
         }
     }
 

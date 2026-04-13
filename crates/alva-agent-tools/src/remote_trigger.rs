@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, serde, serde_json
+// INPUT:  alva_kernel_abi, async_trait, serde, serde_json
 // OUTPUT: RemoteTriggerTool
 // POS:    Manages remote agent triggers (list/get/create/update/run).
 //! remote_trigger — manage remote agent triggers
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -90,7 +90,7 @@ impl Tool for RemoteTriggerTool {
                 let body = params.body.unwrap_or(json!({}));
                 let trigger_id = format!(
                     "trigger-{}",
-                    &alva_types::generate_task_id(&alva_types::TaskType::RemoteAgent)[1..9]
+                    &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::RemoteAgent)[1..9]
                 );
                 Ok(ToolOutput::text(format!(
                     "Remote trigger created.\n  ID: {}\n  Config: {}",

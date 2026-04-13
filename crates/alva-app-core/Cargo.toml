@@ -10,12 +10,12 @@ path = "src/lib.rs"
 
 [dependencies]
 # Extracted agent crates
-alva-types = { path = "../alva-types" }
-alva-agent-core = { path = "../alva-agent-core" }
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-kernel-core = { path = "../alva-kernel-core" }
 alva-agent-tools = { path = "../alva-agent-tools", default-features = false, features = ["native"] }
 alva-agent-security = { path = "../alva-agent-security" }
 alva-agent-memory = { path = "../alva-agent-memory" }
-alva-agent-runtime = { path = "../alva-agent-runtime" }
+alva-host-native = { path = "../alva-host-native" }
 alva-agent-graph = { path = "../alva-agent-graph" }
 alva-agent-scope = { path = "../alva-agent-scope" }
 alva-protocol-acp = { path = "../alva-protocol-acp" }

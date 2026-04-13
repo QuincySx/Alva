@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use alva_types::{AgentMessage, CancellationToken, Message};
+use alva_kernel_abi::{AgentMessage, CancellationToken, Message};
 use super::events::{ExtensionEvent, EventResult};
 
 type HandlerFn = Box<dyn Fn(&ExtensionEvent) -> EventResult + Send + Sync>;
@@ -17,9 +17,9 @@ pub struct RegisteredCommand {
 /// Runtime container for extension event handlers, middleware, and commands.
 pub struct ExtensionHost {
     handlers: HashMap<&'static str, Vec<(String, HandlerFn)>>,  // (extension_name, handler)
-    middlewares: Vec<Arc<dyn alva_agent_core::middleware::Middleware>>,
+    middlewares: Vec<Arc<dyn alva_kernel_core::middleware::Middleware>>,
     commands: Vec<RegisteredCommand>,
-    pending_messages: Option<Arc<alva_agent_core::pending_queue::PendingMessageQueue>>,
+    pending_messages: Option<Arc<alva_kernel_core::pending_queue::PendingMessageQueue>>,
     cancel_token: Option<Arc<std::sync::Mutex<CancellationToken>>>,
 }
 
@@ -38,12 +38,12 @@ impl ExtensionHost {
         self.handlers.entry(event_type).or_default().push((source, handler));
     }
 
-    pub fn register_middleware(&mut self, mw: Arc<dyn alva_agent_core::middleware::Middleware>) {
+    pub fn register_middleware(&mut self, mw: Arc<dyn alva_kernel_core::middleware::Middleware>) {
         self.middlewares.push(mw);
     }
 
     /// Take all registered middleware (drains the collection).
-    pub fn take_middlewares(&mut self) -> Vec<Arc<dyn alva_agent_core::middleware::Middleware>> {
+    pub fn take_middlewares(&mut self) -> Vec<Arc<dyn alva_kernel_core::middleware::Middleware>> {
         std::mem::take(&mut self.middlewares)
     }
 
@@ -88,7 +88,7 @@ impl ExtensionHost {
 
     pub fn bind_agent(
         &mut self,
-        pending: Arc<alva_agent_core::pending_queue::PendingMessageQueue>,
+        pending: Arc<alva_kernel_core::pending_queue::PendingMessageQueue>,
         cancel: Arc<std::sync::Mutex<CancellationToken>>,
     ) {
         self.pending_messages = Some(pending);
@@ -118,7 +118,7 @@ impl HostAPI {
     }
 
     /// Register a middleware. Called during activate(), collected by the builder.
-    pub fn middleware(&self, mw: Arc<dyn alva_agent_core::middleware::Middleware>) {
+    pub fn middleware(&self, mw: Arc<dyn alva_kernel_core::middleware::Middleware>) {
         let mut host = self.host.write().unwrap();
         host.register_middleware(mw);
     }

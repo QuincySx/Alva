@@ -19,12 +19,12 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_types::base::error::AgentError;
-use alva_types::base::message::{Message, MessageRole, UsageMetadata};
-use alva_types::base::stream::StreamEvent;
-use alva_types::model::{CompletionResponse, LanguageModel, ModelConfig};
-use alva_types::tool::Tool;
-use alva_types::ContentBlock;
+use alva_kernel_abi::base::error::AgentError;
+use alva_kernel_abi::base::message::{Message, MessageRole, UsageMetadata};
+use alva_kernel_abi::base::stream::StreamEvent;
+use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
+use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::ContentBlock;
 
 use crate::config::ProviderConfig;
 use crate::rate_limit::RateLimitState;

@@ -1,4 +1,4 @@
-// INPUT:  alva_types::{AgentMessage, Message, MessageRole, ContentBlock}, crate::store::estimate_tokens
+// INPUT:  alva_kernel_abi::{AgentMessage, Message, MessageRole, ContentBlock}, crate::store::estimate_tokens
 // OUTPUT: CompactionResult, CompactionConfig, should_compact(), compact_messages()
 // POS:    Message compaction service matching Claude Code's compact/ — triggers on token/count thresholds,
 //         replaces older messages with a summary while preserving recent context.
@@ -10,7 +10,7 @@
 //! - Replace older messages with a single summary message
 //! - Optionally preserve thinking/reasoning blocks
 
-use alva_types::{AgentMessage, ContentBlock, Message, MessageRole};
+use alva_kernel_abi::{AgentMessage, ContentBlock, Message, MessageRole};
 
 use crate::store::estimate_tokens;
 
@@ -44,7 +44,7 @@ impl Default for CompactionConfig {
     fn default() -> Self {
         Self {
             max_tokens: 200_000,
-            trigger_threshold: alva_types::constants::AUTO_COMPACT_TOKEN_THRESHOLD_PERCENT,
+            trigger_threshold: alva_kernel_abi::constants::AUTO_COMPACT_TOKEN_THRESHOLD_PERCENT,
             preserve_recent: 10,
             preserve_thinking: true,
         }
@@ -63,7 +63,7 @@ pub fn should_compact(
 ) -> bool {
     let threshold = (config.max_tokens as f64 * config.trigger_threshold) as usize;
     current_tokens > threshold
-        || messages.len() > alva_types::constants::AUTO_COMPACT_MESSAGE_THRESHOLD
+        || messages.len() > alva_kernel_abi::constants::AUTO_COMPACT_MESSAGE_THRESHOLD
 }
 
 /// Compact messages by replacing older messages with a summary.

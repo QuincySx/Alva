@@ -1,11 +1,11 @@
-// INPUT:  alva_types, async_trait, glob, schemars, serde, serde_json, crate::local_fs::walk_dir_filtered
+// INPUT:  alva_kernel_abi, async_trait, glob, schemars, serde, serde_json, crate::local_fs::walk_dir_filtered
 // OUTPUT: FindFilesTool
 // POS:    Search for files by glob pattern across the workspace, respecting .gitignore-like rules.
 //         Results sorted by modification time (most recent first) with configurable limits
 //         and relative path output.
 //! find_files — search file paths by glob pattern
 
-use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

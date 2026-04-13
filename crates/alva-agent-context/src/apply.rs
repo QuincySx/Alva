@@ -1,14 +1,14 @@
-// INPUT:  alva_types::scope::context::*, alva_types::AgentMessage, alva_types::Message
+// INPUT:  alva_kernel_abi::scope::context::*, alva_kernel_abi::AgentMessage, alva_kernel_abi::Message
 // OUTPUT: pub fn apply_injections, pub async fn apply_compressions
 // POS:    Runtime helpers for applying context hook results to agent state.
-//         Moved from alva_types::context::apply — types crate should not contain runtime logic.
+//         Moved from alva_kernel_abi::context::apply — types crate should not contain runtime logic.
 
-use alva_types::base::content::ContentBlock;
-use alva_types::base::message::{Message, MessageRole};
-use alva_types::scope::context::{
+use alva_kernel_abi::base::content::ContentBlock;
+use alva_kernel_abi::base::message::{Message, MessageRole};
+use alva_kernel_abi::scope::context::{
     CompressAction, ContextHandle, Injection, InjectionContent, MessageSelector,
 };
-use alva_types::AgentMessage;
+use alva_kernel_abi::AgentMessage;
 use tracing::debug;
 
 /// Apply a list of Injections to system_prompt and messages.

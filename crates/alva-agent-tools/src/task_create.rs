@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json
 // OUTPUT: TaskCreateTool
 // POS:    Creates a new task for tracking work progress.
 //! task_create — create a new tracked task
 
-use alva_types::{
+use alva_kernel_abi::{
     AgentError, TaskType, Tool, ToolExecutionContext, ToolOutput,
     create_task_state,
 };

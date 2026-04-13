@@ -1,10 +1,10 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: FileEditTool
 // POS:    Performs string-replace-based file editing with unique match enforcement,
 //         replace_all mode, quote normalization, and staleness detection.
 //! file_edit — string-replace based file editing (like Claude Code's Edit tool)
 
-use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
@@ -372,7 +372,7 @@ mod tests {
 
     use super::*;
     use crate::MockToolFs;
-    use alva_types::{CancellationToken, ToolExecutionContext, ToolFs};
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext, ToolFs};
 
     struct TestContext {
         workspace: PathBuf,
@@ -393,7 +393,7 @@ mod tests {
             Some(&self.workspace)
         }
 
-        fn tool_fs(&self) -> Option<&dyn alva_types::ToolFs> {
+        fn tool_fs(&self) -> Option<&dyn alva_kernel_abi::ToolFs> {
             Some(&self.fs)
         }
 

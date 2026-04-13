@@ -1,4 +1,4 @@
-// INPUT:  alva_types::{LanguageModel, Message, ModelConfig, StreamEvent, AgentError, Tool}, Arc, Mutex
+// INPUT:  alva_kernel_abi::{LanguageModel, Message, ModelConfig, StreamEvent, AgentError, Tool}, Arc, Mutex
 // OUTPUT: MockLanguageModel — configurable mock for LanguageModel with preset responses, error queuing, stream events, and call recording
 // POS:    alva-test crate — provides a test double for LanguageModel used in unit and integration tests
 
@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
 
-use alva_types::{AgentError, CompletionResponse, LanguageModel, Message, ModelConfig, StreamEvent};
-use alva_types::tool::Tool;
+use alva_kernel_abi::{AgentError, CompletionResponse, LanguageModel, Message, ModelConfig, StreamEvent};
+use alva_kernel_abi::tool::Tool;
 
 /// A queued response entry: either a successful Message or an error.
 enum QueuedResponse {
@@ -162,10 +162,10 @@ impl LanguageModel for MockLanguageModel {
                 let mut events = vec![StreamEvent::Start];
                 for block in &msg.content {
                     match block {
-                        alva_types::ContentBlock::Text { text } => {
+                        alva_kernel_abi::ContentBlock::Text { text } => {
                             events.push(StreamEvent::TextDelta { text: text.clone() });
                         }
-                        alva_types::ContentBlock::ToolUse { id, name, input } => {
+                        alva_kernel_abi::ContentBlock::ToolUse { id, name, input } => {
                             events.push(StreamEvent::ToolCallDelta {
                                 id: id.clone(),
                                 name: Some(name.clone()),
@@ -192,7 +192,7 @@ impl LanguageModel for MockLanguageModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::{ContentBlock, Message, MessageRole, ModelConfig};
+    use alva_kernel_abi::{ContentBlock, Message, MessageRole, ModelConfig};
 
     #[tokio::test]
     async fn test_mock_returns_preset_response() {

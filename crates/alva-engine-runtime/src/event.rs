@@ -1,8 +1,8 @@
-// INPUT:  alva_types::{ContentBlock, MessageRole, StreamEvent, ToolResult}, serde::{Deserialize, Serialize}, serde_json::Value
+// INPUT:  alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolResult}, serde::{Deserialize, Serialize}, serde_json::Value
 // OUTPUT: pub enum RuntimeEvent, pub struct RuntimeUsage, pub struct RuntimeCapabilities, pub enum PermissionDecision
 // POS:    Defines the unified event, usage, capability, and permission types emitted by all engine adapters.
 
-use alva_types::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
+use alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
 use serde::{Deserialize, Serialize};
 
 /// Unified event type emitted by all engine adapters.
@@ -31,7 +31,7 @@ pub enum RuntimeEvent {
         content: Vec<ContentBlock>,
     },
 
-    /// Streaming delta (reuses alva_types::StreamEvent).
+    /// Streaming delta (reuses alva_kernel_abi::StreamEvent).
     MessageDelta {
         id: String,
         delta: StreamEvent,

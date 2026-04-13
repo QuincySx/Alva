@@ -1,4 +1,4 @@
-// INPUT:  async_trait, std::collections::HashMap, tokio::sync::Mutex, serde_json::Value, alva_types::AgentError
+// INPUT:  async_trait, std::collections::HashMap, tokio::sync::Mutex, serde_json::Value, alva_kernel_abi::AgentError
 // OUTPUT: pub trait CheckpointSaver, pub struct InMemoryCheckpointSaver
 // POS:    Checkpoint persistence trait and in-memory implementation for saving/loading agent session state.
 use async_trait::async_trait;
@@ -12,16 +12,16 @@ use tokio::sync::Mutex;
 #[async_trait]
 pub trait CheckpointSaver: Send + Sync {
     /// Save checkpoint data under the given id, overwriting any previous value.
-    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), alva_types::AgentError>;
+    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), alva_kernel_abi::AgentError>;
 
     /// Load checkpoint data by id. Returns `None` if no checkpoint exists.
-    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, alva_types::AgentError>;
+    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, alva_kernel_abi::AgentError>;
 
     /// List all checkpoint ids.
-    async fn list(&self) -> Result<Vec<String>, alva_types::AgentError>;
+    async fn list(&self) -> Result<Vec<String>, alva_kernel_abi::AgentError>;
 
     /// Delete a checkpoint by id. No-op if it does not exist.
-    async fn delete(&self, id: &str) -> Result<(), alva_types::AgentError>;
+    async fn delete(&self, id: &str) -> Result<(), alva_kernel_abi::AgentError>;
 }
 
 /// A simple in-memory checkpoint saver backed by a `HashMap`.
@@ -48,20 +48,20 @@ impl Default for InMemoryCheckpointSaver {
 
 #[async_trait]
 impl CheckpointSaver for InMemoryCheckpointSaver {
-    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), alva_types::AgentError> {
+    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), alva_kernel_abi::AgentError> {
         self.store.lock().await.insert(id.to_string(), data);
         Ok(())
     }
 
-    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, alva_types::AgentError> {
+    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, alva_kernel_abi::AgentError> {
         Ok(self.store.lock().await.get(id).cloned())
     }
 
-    async fn list(&self) -> Result<Vec<String>, alva_types::AgentError> {
+    async fn list(&self) -> Result<Vec<String>, alva_kernel_abi::AgentError> {
         Ok(self.store.lock().await.keys().cloned().collect())
     }
 
-    async fn delete(&self, id: &str) -> Result<(), alva_types::AgentError> {
+    async fn delete(&self, id: &str) -> Result<(), alva_kernel_abi::AgentError> {
         self.store.lock().await.remove(id);
         Ok(())
     }

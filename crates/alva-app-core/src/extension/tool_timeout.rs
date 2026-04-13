@@ -13,6 +13,6 @@ impl Extension for ToolTimeoutExtension {
     fn name(&self) -> &str { "tool-timeout" }
     fn description(&self) -> &str { "120s timeout per tool execution" }
     fn activate(&self, api: &HostAPI) {
-        api.middleware(Arc::new(alva_agent_core::builtins::ToolTimeoutMiddleware::default()));
+        api.middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()));
     }
 }

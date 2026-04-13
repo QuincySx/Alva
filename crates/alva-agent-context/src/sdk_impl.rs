@@ -1,4 +1,4 @@
-// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_types::{AgentMessage, BusHandle, TokenCounter}, crate::sdk::ContextHandle, crate::store::{ContextStore, estimate_tokens}, crate::types
+// INPUT:  std::sync::{Arc, Mutex}, async_trait, alva_kernel_abi::{AgentMessage, BusHandle, TokenCounter}, crate::sdk::ContextHandle, crate::store::{ContextStore, estimate_tokens}, crate::types
 // OUTPUT: ContextHandleImpl, MemoryBackend (trait), Summarizer (trait), SummarizeFn
 // POS:    Concrete ContextHandle backed by ContextStore — uses bus TokenCounter/MemoryBackend/Summarizer for bus-driven capability discovery.
 //! Concrete implementation of ContextHandle backed by ContextStore.
@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
-use alva_types::AgentMessage;
+use alva_kernel_abi::AgentMessage;
 
 use crate::sdk::ContextHandle;
 use crate::store::{ContextStore, estimate_tokens};
@@ -51,7 +51,7 @@ pub struct ContextHandleImpl {
     store: Arc<Mutex<ContextStore>>,
     memory: Option<Arc<dyn MemoryBackend>>,
     summarizer: Option<SummarizeFn>,
-    bus: Option<alva_types::BusHandle>,
+    bus: Option<alva_kernel_abi::BusHandle>,
 }
 
 impl ContextHandleImpl {
@@ -77,7 +77,7 @@ impl ContextHandleImpl {
     }
 
     /// Attach a bus handle for bus-aware token counting.
-    pub fn with_bus(mut self, bus: alva_types::BusHandle) -> Self {
+    pub fn with_bus(mut self, bus: alva_kernel_abi::BusHandle) -> Self {
         self.bus = Some(bus);
         self
     }
@@ -116,7 +116,7 @@ impl ContextHandleImpl {
     /// Count tokens using bus TokenCounter if available, fallback to chars/4.
     fn count_tokens(&self, text: &str) -> usize {
         if let Some(ref bus) = self.bus {
-            if let Some(counter) = bus.get::<dyn alva_types::TokenCounter>() {
+            if let Some(counter) = bus.get::<dyn alva_kernel_abi::TokenCounter>() {
                 return counter.count_tokens(text);
             }
         }
@@ -217,10 +217,10 @@ impl ContextHandle for ContextHandleImpl {
         let tokens = self.count_tokens(&text);
         let entry = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
-            message: AgentMessage::Standard(alva_types::Message {
+            message: AgentMessage::Standard(alva_kernel_abi::Message {
                 id: uuid::Uuid::new_v4().to_string(),
-                role: alva_types::MessageRole::System,
-                content: vec![alva_types::ContentBlock::Text {
+                role: alva_kernel_abi::MessageRole::System,
+                content: vec![alva_kernel_abi::ContentBlock::Text {
                     text: format!("<file path=\"{}\">\n{}\n</file>", path, text),
                 }],
                 tool_call_id: None,
@@ -341,7 +341,7 @@ impl ContextHandle for ContextHandleImpl {
         store.remove_range(from, to);
         let placeholder = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
-            message: AgentMessage::Standard(alva_types::Message::system(
+            message: AgentMessage::Standard(alva_kernel_abi::Message::system(
                 &format!("[Externalized {} entries to {}]", count, path)
             )),
             metadata: ContextMetadata::new(ContextLayer::RuntimeInject)

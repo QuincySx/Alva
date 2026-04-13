@@ -1,4 +1,4 @@
-// INPUT:  AlvaAdapterConfig, EventMapper, alva_agent_core, alva_engine_runtime::*
+// INPUT:  AlvaAdapterConfig, EventMapper, alva_kernel_core, alva_engine_runtime::*
 // OUTPUT: AlvaAdapter — EngineRuntime implementation that wraps agent engine
 // POS:    Core adapter bridging the agent engine to the unified EngineRuntime interface.
 
@@ -13,17 +13,17 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::debug;
 
-use alva_agent_core::middleware::MiddlewareStack;
-use alva_agent_core::run::run_agent;
-use alva_agent_core::shared::Extensions;
-use alva_agent_core::state::{AgentConfig, AgentState};
-use alva_agent_core::AgentMessage;
+use alva_kernel_core::middleware::MiddlewareStack;
+use alva_kernel_core::run::run_agent;
+use alva_kernel_core::shared::Extensions;
+use alva_kernel_core::state::{AgentConfig, AgentState};
+use alva_kernel_core::AgentMessage;
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
     RuntimeRequest,
 };
-use alva_types::session::InMemorySession;
-use alva_types::{CancellationToken, ContentBlock, Message, MessageRole};
+use alva_kernel_abi::session::InMemorySession;
+use alva_kernel_abi::{CancellationToken, ContentBlock, Message, MessageRole};
 
 use crate::config::AlvaAdapterConfig;
 use crate::mapping::EventMapper;
@@ -85,7 +85,7 @@ impl EngineRuntime for AlvaAdapter {
             .unwrap_or_else(|| self.config.system_prompt.clone());
 
         // 3. Build AgentState.
-        let session: Arc<dyn alva_types::session::AgentSession> = Arc::new(InMemorySession::new());
+        let session: Arc<dyn alva_kernel_abi::session::AgentSession> = Arc::new(InMemorySession::new());
         let state = AgentState {
             model: self.config.model.clone(),
             tools: self.config.tools.clone(),
@@ -98,7 +98,7 @@ impl EngineRuntime for AlvaAdapter {
             middleware: MiddlewareStack::new(),
             system_prompt,
             max_iterations,
-            model_config: alva_types::ModelConfig::default(),
+            model_config: alva_kernel_abi::ModelConfig::default(),
             context_window: 0,
             workspace: request.working_directory,
             bus: self.config.bus.clone(),
@@ -235,7 +235,7 @@ mod tests {
     use super::*;
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
-    use alva_types::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
+    use alva_kernel_abi::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
     use async_trait::async_trait;
     use serde_json::json;
     use std::path::Path;

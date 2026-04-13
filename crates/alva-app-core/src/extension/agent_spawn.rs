@@ -1,4 +1,4 @@
-// INPUT:  alva_types, alva_agent_core::run_child, alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
+// INPUT:  alva_kernel_abi, alva_kernel_core::run_child, alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentExtension, ChildRunRecording
 // POS:    AI-driven sub-agent spawning — dynamic roles, optional Blackboard communication.
 
@@ -24,13 +24,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_agent_core::middleware::MiddlewareStack;
-use alva_agent_core::run_child::{run_child_agent, ChildAgentParams};
-use alva_types::base::cancel::CancellationToken;
-use alva_types::base::error::AgentError;
-use alva_types::scope::{ChildScopeConfig, ScopeError};
-use alva_types::tool::Tool;
-use alva_types::tool::execution::{ToolExecutionContext, ToolOutput};
+use alva_kernel_core::middleware::MiddlewareStack;
+use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
+use alva_kernel_abi::base::cancel::CancellationToken;
+use alva_kernel_abi::base::error::AgentError;
+use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
+use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
 
 use alva_agent_scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
 use alva_agent_scope::board_registry::BoardRegistry;
@@ -135,7 +135,7 @@ struct SpawnInput {
 // AgentSpawnTool
 // ---------------------------------------------------------------------------
 
-#[derive(alva_types::Tool)]
+#[derive(alva_kernel_abi::Tool)]
 #[tool(
     name = "agent",
     description = "Spawn a sub-agent to handle a specific task. The sub-agent runs independently \
@@ -417,7 +417,7 @@ impl Extension for SubAgentExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::tool::schema::normalize_llm_tool_schema;
+    use alva_kernel_abi::tool::schema::normalize_llm_tool_schema;
 
     /// Snapshot-style: print the normalized LLM-facing schema so we
     /// can eyeball it. Run with:

@@ -1,0 +1,24 @@
+[package]
+name = "alva-kernel-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+futures-core = "0.3"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+tokio-stream = "0.1"
+
+[dev-dependencies]
+alva-test = { path = "../alva-test" }
+futures = "0.3"
+
+[[example]]
+name = "middleware_basic"

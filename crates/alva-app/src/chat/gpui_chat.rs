@@ -1,4 +1,4 @@
-// INPUT:  gpui, alva_app_core (AgentState, AgentConfig, run_agent), alva_types, tokio, std::sync::Arc, std::pin::Pin
+// INPUT:  gpui, alva_app_core (AgentState, AgentConfig, run_agent), alva_kernel_abi, tokio, std::sync::Arc, std::pin::Pin
 // OUTPUT: pub struct GpuiChat, pub struct GpuiChatConfig, pub enum GpuiChatEvent, pub struct SharedRuntime
 // POS:    GPUI Entity wrapping agent engine that bridges async agent events to GPUI's sync UI thread.
 use std::pin::Pin;
@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use gpui::{Context, EventEmitter};
 use tokio::sync::mpsc;
 
-use alva_app_core::alva_types::{
+use alva_app_core::alva_kernel_abi::{
     AgentError, CompletionResponse, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig,
     StreamEvent, Tool,
 };
@@ -91,7 +91,7 @@ impl LanguageModel for PlaceholderModel {
 pub struct GpuiChat {
     state: Arc<tokio::sync::Mutex<alva_app_core::AgentState>>,
     config: Arc<alva_app_core::AgentConfig>,
-    cancel: alva_app_core::alva_types::CancellationToken,
+    cancel: alva_app_core::alva_kernel_abi::CancellationToken,
     /// Local snapshot of messages for synchronous UI reads.
     messages: Vec<AgentMessage>,
     is_running: bool,
@@ -117,8 +117,8 @@ impl GpuiChat {
 
         // Build AgentState
         let model: Arc<dyn LanguageModel> = Arc::new(PlaceholderModel);
-        let session: Arc<dyn alva_app_core::alva_types::session::AgentSession> =
-            Arc::new(alva_app_core::alva_types::session::InMemorySession::new());
+        let session: Arc<dyn alva_app_core::alva_kernel_abi::session::AgentSession> =
+            Arc::new(alva_app_core::alva_kernel_abi::session::InMemorySession::new());
         let state = alva_app_core::AgentState {
             model,
             tools: vec![],
@@ -131,13 +131,13 @@ impl GpuiChat {
             middleware: alva_app_core::MiddlewareStack::new(),
             system_prompt: "You are a helpful assistant.".to_string(),
             max_iterations: 100,
-            model_config: alva_app_core::alva_types::ModelConfig::default(),
+            model_config: alva_app_core::alva_kernel_abi::ModelConfig::default(),
             context_window: 0,
             workspace: None,
             bus: None,
         };
 
-        let cancel = alva_app_core::alva_types::CancellationToken::new();
+        let cancel = alva_app_core::alva_kernel_abi::CancellationToken::new();
 
         // Register this component in the debug ActionRegistry for HTTP inspection.
         #[cfg(debug_assertions)]

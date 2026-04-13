@@ -82,7 +82,7 @@ pub use lsp::LspExtension;
 
 use std::sync::Arc;
 use async_trait::async_trait;
-use alva_types::tool::Tool;
+use alva_kernel_abi::tool::Tool;
 
 /// A capability package that participates in agent construction and runtime.
 ///

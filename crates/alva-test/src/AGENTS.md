@@ -2,7 +2,7 @@
 > 项目级测试基础设施 crate，提供 Mock 对象和工厂方法，供其他 crate 的单元/集成测试使用
 
 ## 地位
-开发时依赖（dev-dependency）。为 alva-types 中定义的核心 trait（LanguageModel、Tool）提供可配置的 Mock 实现，以及常用 Message 固定数据的工厂函数。所有需要测试 Agent 循环、工具调用、Provider 交互的 crate 都应依赖此 crate 而非自行编写 Mock。
+开发时依赖（dev-dependency）。为 alva-kernel-abi 中定义的核心 trait（LanguageModel、Tool）提供可配置的 Mock 实现，以及常用 Message 固定数据的工厂函数。所有需要测试 Agent 循环、工具调用、Provider 交互的 crate 都应依赖此 crate 而非自行编写 Mock。
 
 ## 逻辑
 - **MockLanguageModel** — 通过 builder 模式队列化预设响应（成功/错误），支持流式事件注入，自动记录每次 `complete` 调用的参数以供断言。内部使用 `Arc<Mutex>` 确保克隆后状态共享。

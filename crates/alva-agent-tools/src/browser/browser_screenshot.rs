@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, base64, chromiumoxide::cdp, schemars, serde, serde_json, super::browser_manager
+// INPUT:  alva_kernel_abi, async_trait, base64, chromiumoxide::cdp, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserScreenshotTool
 // POS:    Captures page screenshots (viewport, full-page, or element) and saves to file.
 //! browser_screenshot — capture page screenshot
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams,
 };

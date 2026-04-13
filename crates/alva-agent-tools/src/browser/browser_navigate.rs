@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, super::browser_manager
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserNavigateTool
 // POS:    Navigates the browser to a URL, waits for load, and returns the final URL and title.
 //! browser_navigate — navigate to a URL
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

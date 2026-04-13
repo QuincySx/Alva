@@ -19,7 +19,7 @@
 //! └─────────────────────────────────────────────┘
 //! ```
 //!
-//! Traits and value types are defined in `alva_types::context`. This crate provides
+//! Traits and value types are defined in `alva_kernel_abi::context`. This crate provides
 //! the concrete implementations: `RulesContextHooks`, `DefaultContextHooks`,
 //! `ContextHooksChain`, `ContextHandleImpl`, `ContextStore`, `InMemorySession`.
 

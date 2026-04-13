@@ -1,4 +1,4 @@
-// INPUT:  std::collections::HashMap, std::sync::Mutex, alva_types::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult}, async_trait
+// INPUT:  std::collections::HashMap, std::sync::Mutex, alva_kernel_abi::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult}, async_trait
 // OUTPUT: MockToolFs — in-memory ToolFs for testing tools without real filesystem access
 // POS:    Test-only ToolFs implementation that stores files in memory and serves pre-queued exec responses.
 
@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use alva_types::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
+use alva_kernel_abi::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
 
 // ---------------------------------------------------------------------------
 // MockToolFs

@@ -6,9 +6,9 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 
-use alva_agent_core::middleware::Middleware;
-use alva_types::ToolCall;
-use alva_types::tool::execution::ToolOutput;
+use alva_kernel_core::middleware::Middleware;
+use alva_kernel_abi::ToolCall;
+use alva_kernel_abi::tool::execution::ToolOutput;
 
 use crate::extension::{Extension, HostAPI};
 use crate::extension::hooks::{HookEvent, HookExecutor, HookInput};
@@ -49,7 +49,7 @@ struct HooksMiddleware {
 impl Middleware for HooksMiddleware {
     fn name(&self) -> &str { "hooks" }
 
-    fn configure(&self, ctx: &alva_agent_core::middleware::MiddlewareContext) {
+    fn configure(&self, ctx: &alva_kernel_core::middleware::MiddlewareContext) {
         if let Some(ref ws) = ctx.workspace {
             let _ = self.workspace.set(ws.clone());
         }
@@ -57,16 +57,16 @@ impl Middleware for HooksMiddleware {
 
     fn priority(&self) -> i32 {
         // Run after security but before guardrails and most other middleware
-        alva_agent_core::shared::MiddlewarePriority::HOOKS
+        alva_kernel_core::shared::MiddlewarePriority::HOOKS
     }
 
-    async fn on_agent_start(&self, _state: &mut alva_agent_core::state::AgentState) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+    async fn on_agent_start(&self, _state: &mut alva_kernel_core::state::AgentState) -> Result<(), alva_kernel_core::shared::MiddlewareError> {
         if let Some(ws) = self.workspace.get() {
             let executor = HookExecutor::new(ws, "session"); // TODO: real session_id
             let input = HookInput::lifecycle(HookEvent::SessionStart, "session", ws);
             let result = executor.run(&self.settings, HookEvent::SessionStart, None, input).await;
             if result.is_blocked() {
-                return Err(alva_agent_core::shared::MiddlewareError::Blocked {
+                return Err(alva_kernel_core::shared::MiddlewareError::Blocked {
                     reason: result.blocking_messages().join("; "),
                 });
             }
@@ -76,9 +76,9 @@ impl Middleware for HooksMiddleware {
 
     async fn on_agent_end(
         &self,
-        _state: &mut alva_agent_core::state::AgentState,
+        _state: &mut alva_kernel_core::state::AgentState,
         _error: Option<&str>,
-    ) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+    ) -> Result<(), alva_kernel_core::shared::MiddlewareError> {
         if let Some(ws) = self.workspace.get() {
             let executor = HookExecutor::new(ws, "session");
             let input = HookInput::lifecycle(HookEvent::SessionEnd, "session", ws);
@@ -89,9 +89,9 @@ impl Middleware for HooksMiddleware {
 
     async fn before_tool_call(
         &self,
-        _state: &mut alva_agent_core::state::AgentState,
+        _state: &mut alva_kernel_core::state::AgentState,
         tool_call: &ToolCall,
-    ) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+    ) -> Result<(), alva_kernel_core::shared::MiddlewareError> {
         if let Some(ws) = self.workspace.get() {
             let executor = HookExecutor::new(ws, "session");
             let input = HookInput::pre_tool_use(
@@ -107,7 +107,7 @@ impl Middleware for HooksMiddleware {
                 input,
             ).await;
             if result.is_blocked() {
-                return Err(alva_agent_core::shared::MiddlewareError::Blocked {
+                return Err(alva_kernel_core::shared::MiddlewareError::Blocked {
                     reason: result.blocking_messages().join("; "),
                 });
             }
@@ -117,10 +117,10 @@ impl Middleware for HooksMiddleware {
 
     async fn after_tool_call(
         &self,
-        _state: &mut alva_agent_core::state::AgentState,
+        _state: &mut alva_kernel_core::state::AgentState,
         tool_call: &ToolCall,
         tool_output: &mut ToolOutput,
-    ) -> Result<(), alva_agent_core::shared::MiddlewareError> {
+    ) -> Result<(), alva_kernel_core::shared::MiddlewareError> {
         if let Some(ws) = self.workspace.get() {
             let executor = HookExecutor::new(ws, "session");
             let response_text = tool_output.model_text();

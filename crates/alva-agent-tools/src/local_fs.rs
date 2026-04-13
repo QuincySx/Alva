@@ -1,4 +1,4 @@
-// INPUT:  tokio::fs, tokio::process, tokio::time, alva_types::{ToolFs, ToolFsDirEntry, ToolFsExecResult, AgentError}
+// INPUT:  tokio::fs, tokio::process, tokio::time, alva_kernel_abi::{ToolFs, ToolFsDirEntry, ToolFsExecResult, AgentError}
 // OUTPUT: LocalToolFs (ToolFs impl backed by local OS), walk_dir (recursive helper)
 // POS:    Concrete ToolFs implementation for the local filesystem and shell execution.
 
@@ -8,7 +8,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use std::time::Duration;
 
-use alva_types::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
+use alva_kernel_abi::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
 
 // ---------------------------------------------------------------------------
 // LocalToolFs

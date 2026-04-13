@@ -1,4 +1,4 @@
-// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_types::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextHandle, crate::store::estimate_tokens, crate::types
+// INPUT:  std::future::Future, std::pin::Pin, std::sync::Arc, alva_kernel_abi::AgentMessage, async_trait, tokio::sync::Mutex, crate::plugin (ContextError, ContextHooks), crate::sdk::ContextHandle, crate::store::estimate_tokens, crate::types
 // OUTPUT: pub type DefaultSummarizeFn, pub type ExtractMemoryFn, pub struct MemoryCandidate, pub struct DefaultHooksConfig, pub struct DefaultContextHooks
 // POS:    Built-in production context plugin combining deterministic rules with optional LLM callbacks for summarization and memory extraction.
 //! DefaultContextHooks — the built-in production plugin.
@@ -16,7 +16,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use alva_types::AgentMessage;
+use alva_kernel_abi::AgentMessage;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -150,7 +150,7 @@ impl DefaultContextHooks {
     /// Check if a message is a tool result.
     fn is_tool_result(msg: &AgentMessage) -> bool {
         match msg {
-            AgentMessage::Standard(m) => m.role == alva_types::MessageRole::Tool,
+            AgentMessage::Standard(m) => m.role == alva_kernel_abi::MessageRole::Tool,
             _ => false,
         }
     }
@@ -369,10 +369,10 @@ impl ContextHooks for DefaultContextHooks {
                 let summary = Self::compact_tool_result(&entry.message);
                 let summary_tokens = estimate_tokens(&summary);
                 total_tokens = total_tokens - msg_tokens + summary_tokens;
-                let new_msg = AgentMessage::Standard(alva_types::Message {
+                let new_msg = AgentMessage::Standard(alva_kernel_abi::Message {
                     id: uuid::Uuid::new_v4().to_string(),
-                    role: alva_types::MessageRole::Tool,
-                    content: vec![alva_types::ContentBlock::Text { text: summary }],
+                    role: alva_kernel_abi::MessageRole::Tool,
+                    content: vec![alva_kernel_abi::ContentBlock::Text { text: summary }],
                     tool_call_id: Self::extract_tool_call_id(&entry.message),
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
@@ -391,12 +391,12 @@ impl ContextHooks for DefaultContextHooks {
                 total_tokens = total_tokens - msg_tokens + summary_tokens;
                 let role = match &entry.message {
                     AgentMessage::Standard(m) => m.role.clone(),
-                    _ => alva_types::MessageRole::User,
+                    _ => alva_kernel_abi::MessageRole::User,
                 };
-                let new_msg = AgentMessage::Standard(alva_types::Message {
+                let new_msg = AgentMessage::Standard(alva_kernel_abi::Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     role,
-                    content: vec![alva_types::ContentBlock::Text {
+                    content: vec![alva_kernel_abi::ContentBlock::Text {
                         text: format!("[summarized] {}", summary),
                     }],
                     tool_call_id: None,
@@ -596,9 +596,9 @@ impl ContextHooks for DefaultContextHooks {
         if !text.is_empty() {
             let role = match &entry.message {
                 AgentMessage::Standard(m) => match m.role {
-                    alva_types::MessageRole::User => "User",
-                    alva_types::MessageRole::Assistant => "Assistant",
-                    alva_types::MessageRole::Tool => "Tool",
+                    alva_kernel_abi::MessageRole::User => "User",
+                    alva_kernel_abi::MessageRole::Assistant => "Assistant",
+                    alva_kernel_abi::MessageRole::Tool => "Tool",
                     _ => "System",
                 },
                 _ => "Extension",
@@ -672,7 +672,7 @@ mod tests {
     use crate::plugin::ContextHooks;
     use crate::sdk_impl::ContextHandleImpl;
     use crate::store::ContextStore;
-    use alva_types::{ContentBlock, Message, MessageRole};
+    use alva_kernel_abi::{ContentBlock, Message, MessageRole};
     use std::sync::{Arc, Mutex};
 
     /// Create a real SDK backed by a ContextStore for testing.

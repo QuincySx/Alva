@@ -42,7 +42,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, PermissionDecision};
-use alva_agent_runtime::middleware::security::ApprovalRequest;
+use alva_host_native::middleware::security::ApprovalRequest;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
@@ -982,7 +982,7 @@ fn handle_agent_event(app: &mut TuiApp, event: AgentEvent) {
             app.begin_streaming();
         }
         AgentEvent::MessageUpdate { delta, .. } => {
-            if let alva_types::StreamEvent::TextDelta { text } = &delta {
+            if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
                 app.append_streaming_text(text);
             }
         }

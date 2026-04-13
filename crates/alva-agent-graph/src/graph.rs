@@ -1,4 +1,4 @@
-// INPUT:  std::collections::HashMap, std::future::Future, std::pin::Pin, alva_types::AgentError, crate::pregel::CompiledGraph
+// INPUT:  std::collections::HashMap, std::future::Future, std::pin::Pin, alva_kernel_abi::AgentError, crate::pregel::CompiledGraph
 // OUTPUT: pub const START, pub const END, pub struct StateGraph, pub enum NodeResult, pub struct Send
 // POS:    StateGraph builder with Send/Command-style dynamic routing support.
 
@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use alva_types::AgentError;
+use alva_kernel_abi::AgentError;
 
 use crate::pregel::CompiledGraph;
 

@@ -10,9 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 alva-app-core = { path = "../alva-app-core" }
-alva-agent-core = { path = "../alva-agent-core" }
-alva-agent-runtime = { path = "../alva-agent-runtime" }
-alva-types = { path = "../alva-types" }
+alva-kernel-core = { path = "../alva-kernel-core" }
+alva-host-native = { path = "../alva-host-native" }
+alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 tokio = { version = "1", features = ["full"] }
 crossterm = "0.28"

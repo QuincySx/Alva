@@ -1,6 +1,6 @@
 // INPUT:  crate::checkpoint::CheckpointSaver, crate::compaction::CompactionConfig, crate::pregel::CompiledGraph, crate::retry::RetryConfig
-// OUTPUT: pub struct AgentSession
-// POS:    High-level session wrapper bundling a compiled graph with retry, compaction, and checkpointing.
+// OUTPUT: pub struct GraphRun
+// POS:    High-level session run wrapper bundling a compiled graph with retry, compaction, and checkpointing.
 //         Note: linear agent support removed — use run_agent directly for single-agent flows.
 
 use crate::checkpoint::CheckpointSaver;
@@ -14,18 +14,18 @@ use crate::retry::RetryConfig;
 /// # Example
 ///
 /// ```ignore
-/// let session = AgentSession::from_graph(compiled_graph)
+/// let session = GraphRun::from_graph(compiled_graph)
 ///     .with_retry(RetryConfig::default())
 ///     .with_checkpoint(Box::new(InMemoryCheckpointSaver::new()));
 /// ```
-pub struct AgentSession {
+pub struct GraphRun {
     _graph: CompiledGraph<serde_json::Value>,
     retry_config: Option<RetryConfig>,
     compaction_config: Option<CompactionConfig>,
     checkpoint_saver: Option<Box<dyn CheckpointSaver>>,
 }
 
-impl AgentSession {
+impl GraphRun {
     /// Create a session backed by a compiled graph.
     pub fn from_graph(graph: CompiledGraph<serde_json::Value>) -> Self {
         Self {

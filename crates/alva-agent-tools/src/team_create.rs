@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde
 // OUTPUT: TeamCreateTool
 // POS:    Creates a multi-agent team with a unique name.
 //! team_create — create a multi-agent team
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 

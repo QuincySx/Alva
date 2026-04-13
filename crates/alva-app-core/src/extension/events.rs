@@ -1,7 +1,7 @@
 //! Events that extensions can subscribe to via HostAPI::on().
 
 use serde_json::Value;
-use alva_types::tool::execution::ToolOutput;
+use alva_kernel_abi::tool::execution::ToolOutput;
 
 /// Events that extensions can subscribe to via HostAPI::on().
 #[derive(Debug, Clone)]

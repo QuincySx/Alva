@@ -1,10 +1,10 @@
-// INPUT:  std::sync::Arc, alva_types::{AgentError, LanguageModel, AgentMessage}
+// INPUT:  std::sync::Arc, alva_kernel_abi::{AgentError, LanguageModel, AgentMessage}
 // OUTPUT: pub struct CompactionConfig, pub fn estimate_tokens, pub fn should_compact, pub fn compact_messages
 // POS:    Context-window compaction via token estimation and message truncation to stay within model limits.
 use std::sync::Arc;
 
-use alva_types::{AgentError, LanguageModel};
-use alva_types::AgentMessage;
+use alva_kernel_abi::{AgentError, LanguageModel};
+use alva_kernel_abi::AgentMessage;
 
 /// Configuration for context-window compaction.
 ///
@@ -64,7 +64,7 @@ pub async fn compact_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::Message;
+    use alva_kernel_abi::Message;
 
     fn make_message(text: &str) -> AgentMessage {
         AgentMessage::Standard(Message::user(text))
@@ -96,7 +96,7 @@ mod tests {
 
     #[tokio::test]
     async fn compact_truncates_to_keep_recent() {
-        use alva_types::*;
+        use alva_kernel_abi::*;
         use async_trait::async_trait;
         use futures_core::Stream;
         use std::pin::Pin;

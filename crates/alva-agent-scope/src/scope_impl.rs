@@ -6,9 +6,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alva_types::model::LanguageModel;
-use alva_types::scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
-use alva_types::tool::Tool;
+use alva_kernel_abi::model::LanguageModel;
+use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
+use alva_kernel_abi::tool::Tool;
 
 use crate::session_tracker::SessionTracker;
 
@@ -214,10 +214,10 @@ impl SpawnScopeImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::base::error::AgentError;
-    use alva_types::base::message::Message;
-    use alva_types::model::{CompletionResponse, ModelConfig};
-    use alva_types::base::stream::StreamEvent;
+    use alva_kernel_abi::base::error::AgentError;
+    use alva_kernel_abi::base::message::Message;
+    use alva_kernel_abi::model::{CompletionResponse, ModelConfig};
+    use alva_kernel_abi::base::stream::StreamEvent;
     use async_trait::async_trait;
     use futures::stream;
     use futures::Stream;

@@ -1,10 +1,10 @@
-// INPUT:  alva_types, async_trait, reqwest, schemars, serde, serde_json
+// INPUT:  alva_kernel_abi, async_trait, reqwest, schemars, serde, serde_json
 // OUTPUT: InternetSearchTool
 // POS:    Searches the internet using DuckDuckGo Instant Answer API with domain filtering
 //         and progress tracking.
 //! internet_search — search the internet using DuckDuckGo Instant Answer API
 
-use alva_types::{AgentError, ProgressEvent, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, ProgressEvent, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};

@@ -1,8 +1,8 @@
-// INPUT:  std::sync::Arc, alva_types::{LanguageModel, Tool, BusHandle}
+// INPUT:  std::sync::Arc, alva_kernel_abi::{LanguageModel, Tool, BusHandle}
 // OUTPUT: pub struct AlvaAdapterConfig
 // POS:    Configuration for the Alva native engine adapter using agent types.
 
-use alva_types::{BusHandle, LanguageModel, Tool};
+use alva_kernel_abi::{BusHandle, LanguageModel, Tool};
 use std::sync::Arc;
 
 /// Configuration for the Alva engine adapter.

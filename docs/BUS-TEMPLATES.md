@@ -10,7 +10,7 @@
 
 ### 第一步：定义 trait
 
-位置：`crates/alva-types/src/` 对应模块
+位置：`crates/alva-kernel-abi/src/` 对应模块
 
 ```rust
 /// [一句话说明这个服务做什么]
@@ -22,7 +22,7 @@ pub trait MyService: Send + Sync {
 }
 ```
 
-在 `crates/alva-types/src/lib.rs` 添加 re-export：
+在 `crates/alva-kernel-abi/src/lib.rs` 添加 re-export：
 
 ```rust
 pub use 模块路径::MyService;
@@ -89,8 +89,8 @@ if let Some(svc) = ctx.bus().and_then(|b| b.get::<dyn MyService>()) {
 
 ### 检查清单
 
-- [ ] trait 定义在 alva-types（不在实现 crate）
-- [ ] re-export 到 alva-types/src/lib.rs
+- [ ] trait 定义在 alva-kernel-abi（不在实现 crate）
+- [ ] re-export 到 alva-kernel-abi/src/lib.rs
 - [ ] provide() 在 BaseAgent::build() 里
 - [ ] 消费方用 get() 不用 require()（除非服务必须存在）
 - [ ] 没有改任何函数签名
@@ -103,7 +103,7 @@ if let Some(svc) = ctx.bus().and_then(|b| b.get::<dyn MyService>()) {
 
 ### 第一步：定义事件
 
-位置：`crates/alva-types/src/` 对应模块
+位置：`crates/alva-kernel-abi/src/` 对应模块
 
 ```rust
 /// [一句话说明这个事件代表什么]
@@ -116,10 +116,10 @@ pub struct SomethingHappened {
     pub session_id: String,
     pub detail: String,
 }
-impl alva_agent_bus::BusEvent for SomethingHappened {}
+impl alva_kernel_bus::BusEvent for SomethingHappened {}
 ```
 
-在 `crates/alva-types/src/lib.rs` 添加 re-export：
+在 `crates/alva-kernel-abi/src/lib.rs` 添加 re-export：
 
 ```rust
 pub use 模块路径::SomethingHappened;

@@ -1,8 +1,8 @@
 # alva-engine-adapter-alva
-> 本地 Agent 引擎的 EngineRuntime 适配器，将 alva-agent-core 的 Agent 包装为统一运行时接口。
+> 本地 Agent 引擎的 EngineRuntime 适配器，将 alva-kernel-core 的 Agent 包装为统一运行时接口。
 
 ## 地位
-作为 alva-engine-runtime 的具体实现之一，本模块将内置的 alva-agent-core Agent 引擎适配为统一的 `EngineRuntime` trait。上层消费者仅依赖 `EngineRuntime`，无需感知底层引擎细节。属于"多引擎架构"中的本地引擎适配层。
+作为 alva-engine-runtime 的具体实现之一，本模块将内置的 alva-kernel-core Agent 引擎适配为统一的 `EngineRuntime` trait。上层消费者仅依赖 `EngineRuntime`，无需感知底层引擎细节。属于"多引擎架构"中的本地引擎适配层。
 
 ## 逻辑
 1. `AlvaAdapter::new()` 接收 `AlvaAdapterConfig`（含 LLM model、工具集、执行模式等），构建适配器实例并初始化空的 session map。

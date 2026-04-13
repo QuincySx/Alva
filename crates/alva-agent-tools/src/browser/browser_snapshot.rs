@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, super::browser_manager
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserSnapshotTool
 // POS:    Extracts page content in text, HTML, or readability (article-extraction) mode.
 //! browser_snapshot — extract page content (text, HTML, readability)
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

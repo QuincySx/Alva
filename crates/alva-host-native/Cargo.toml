@@ -1,0 +1,32 @@
+[package]
+name = "alva-host-native"
+version = "0.1.0"
+edition = "2021"
+description = "Batteries-included agent runtime — composes core, tools, security, and memory"
+
+[dependencies]
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-kernel-core = { path = "../alva-kernel-core" }
+alva-agent-tools = { path = "../alva-agent-tools", default-features = false }
+alva-agent-security = { path = "../alva-agent-security", default-features = false }
+alva-agent-memory = { path = "../alva-agent-memory", optional = true }
+alva-agent-graph = { path = "../alva-agent-graph" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+futures-core = "0.3"
+tokio-stream = "0.1"
+
+[features]
+default = ["native"]
+native = [
+    "alva-agent-tools/default",
+    "alva-agent-security/native",
+    "alva-agent-memory",
+]
+browser = ["alva-agent-tools/browser"]
+
+[[example]]
+name = "runtime_basic"

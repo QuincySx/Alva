@@ -11,7 +11,7 @@
 4. `checkpoint.rs` 和 `retry.rs` 提供 checkpoint saver、retry config 等编排辅助能力。
 5. `compaction.rs` 提供消息压缩相关 utility：token estimation、是否需要压缩、简单 compact helper。
 6. `context_transform.rs` 提供 `ContextTransform` 与 `TransformPipeline`，用于图执行前后的上下文改写。
-7. `session.rs` 提供 `AgentSession` 高层包装器，用于把 compiled graph 与 retry/compaction/checkpoint 配置组合在一起。
+7. `session.rs` 提供 `GraphRun` 高层包装器，用于把 compiled graph 与 retry/compaction/checkpoint 配置组合在一起。
 
 ## 约束
 - graph 执行主入口是 `CompiledGraph::invoke()` / `invoke_with_config()`。
@@ -30,4 +30,4 @@
 | Retry | `retry.rs` | `RetryConfig` |
 | Compaction Utility | `compaction.rs` | `CompactionConfig`、`estimate_tokens()`、`should_compact()`、`compact_messages()` |
 | Context Transform | `context_transform.rs` | `ContextTransform`、`TransformPipeline` |
-| Session Wrapper | `session.rs` | `AgentSession` 配置包装器 |
+| Session Wrapper | `session.rs` | `GraphRun` 配置包装器 |

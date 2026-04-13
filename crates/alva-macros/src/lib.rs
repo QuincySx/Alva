@@ -11,7 +11,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use alva_types::Tool;
+//! use alva_kernel_abi::Tool;
 //! use schemars::JsonSchema;
 //! use serde::Deserialize;
 //!
@@ -36,8 +36,8 @@
 //!     async fn execute_impl(
 //!         &self,
 //!         input: ReadFileInput,
-//!         ctx: &dyn alva_types::tool::execution::ToolExecutionContext,
-//!     ) -> Result<alva_types::tool::execution::ToolOutput, alva_types::base::error::AgentError>
+//!         ctx: &dyn alva_kernel_abi::tool::execution::ToolExecutionContext,
+//!     ) -> Result<alva_kernel_abi::tool::execution::ToolOutput, alva_kernel_abi::base::error::AgentError>
 //!     {
 //!         // ... user logic, already has parsed input
 //!     }
@@ -160,7 +160,7 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
     // into the local namespace.
     let expanded = quote! {
         #[::async_trait::async_trait]
-        impl #impl_generics ::alva_types::tool::Tool for #struct_ident #ty_generics #where_clause {
+        impl #impl_generics ::alva_kernel_abi::tool::Tool for #struct_ident #ty_generics #where_clause {
             fn name(&self) -> &str {
                 #name_lit
             }
@@ -179,7 +179,7 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
                     ::schemars::schema_for!(#input_ty)
                 ).expect("schemars::schema_for always produces valid JSON");
 
-                ::alva_types::tool::schema::normalize_llm_tool_schema(&mut schema);
+                ::alva_kernel_abi::tool::schema::normalize_llm_tool_schema(&mut schema);
 
                 // Plain method call — Rust's method resolution prefers
                 // an inherent method with the same name if the type
@@ -196,13 +196,13 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
             async fn execute(
                 &self,
                 input: ::serde_json::Value,
-                ctx: &dyn ::alva_types::tool::execution::ToolExecutionContext,
+                ctx: &dyn ::alva_kernel_abi::tool::execution::ToolExecutionContext,
             ) -> ::std::result::Result<
-                ::alva_types::tool::execution::ToolOutput,
-                ::alva_types::base::error::AgentError,
+                ::alva_kernel_abi::tool::execution::ToolOutput,
+                ::alva_kernel_abi::base::error::AgentError,
             > {
                 let parsed: #input_ty = ::serde_json::from_value(input).map_err(|e| {
-                    ::alva_types::base::error::AgentError::ToolError {
+                    ::alva_kernel_abi::base::error::AgentError::ToolError {
                         tool_name: #name_lit.to_string(),
                         message: format!("invalid input: {}", e),
                     }

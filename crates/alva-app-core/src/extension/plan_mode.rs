@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use alva_agent_runtime::middleware::{PlanModeControl, PlanModeMiddleware};
+use alva_host_native::middleware::{PlanModeControl, PlanModeMiddleware};
 
 use super::{Extension, ExtensionContext, HostAPI};
 

@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, crate::local_fs::LocalToolFs
 // OUTPUT: EnterWorktreeTool
 // POS:    Creates an isolated git worktree for safe parallel development.
 //! enter_worktree — create an isolated git worktree
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -42,7 +42,7 @@ impl EnterWorktreeTool {
 
         // Generate worktree name
         let wt_name = params.name.unwrap_or_else(|| {
-            format!("wt-{}", &alva_types::generate_task_id(&alva_types::TaskType::LocalAgent)[1..9])
+            format!("wt-{}", &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::LocalAgent)[1..9])
         });
         let branch_name = format!("worktree/{}", wt_name);
         let wt_path = workspace.parent().unwrap_or(workspace).join(&wt_name);

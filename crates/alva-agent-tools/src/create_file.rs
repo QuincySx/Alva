@@ -1,10 +1,10 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: CreateFileTool
 // POS:    Creates or overwrites a file with auto-creation of parent directories,
 //         line ending preservation, and staleness detection.
 //! create_file — create or overwrite a file (FileWriteTool behavior)
 
-use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

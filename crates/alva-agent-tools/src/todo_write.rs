@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, crate::local_fs::LocalToolFs
 // OUTPUT: TodoWriteTool
 // POS:    Writes progress notes to a file (defaults to CLAUDE.md).
 //! todo_write — write progress notes
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 

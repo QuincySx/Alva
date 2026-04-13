@@ -2,7 +2,7 @@
 // OUTPUT: invoke(), invoke_with_config(), resolve_next_nodes()
 // POS:    Pregel-style BSP superstep loop and edge resolution.
 
-use alva_types::AgentError;
+use alva_kernel_abi::AgentError;
 
 use crate::graph::{Edge, NodeResult, END};
 

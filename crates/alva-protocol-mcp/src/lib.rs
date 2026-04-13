@@ -11,7 +11,7 @@
 //! - **transport_sse**: SSE and WebSocket transport configurations
 //! - **client**: Multi-server lifecycle manager (connect, disconnect, list/call tools)
 //! - **config**: JSON config file reader/writer for `mcpServerConfig.json`
-//! - **tool_adapter**: Adapts MCP tools to `alva_types::Tool` trait
+//! - **tool_adapter**: Adapts MCP tools to `alva_kernel_abi::Tool` trait
 //! - **resources**: MCP resource types (URIs, content, templates)
 //! - **prompts**: MCP prompt templates and rendering
 //! - **elicitation**: Server-to-client information requests

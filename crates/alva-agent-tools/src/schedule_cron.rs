@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde
 // OUTPUT: ScheduleCronTool
 // POS:    Creates cron-based schedules for recurring agent tasks.
 //! schedule_cron — create cron schedules
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -53,7 +53,7 @@ impl ScheduleCronTool {
         let recurring = params.recurring.unwrap_or(true);
         let schedule_id = format!(
             "sched-{}",
-            &alva_types::generate_task_id(&alva_types::TaskType::LocalWorkflow)[1..9]
+            &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::LocalWorkflow)[1..9]
         );
 
         Ok(ToolOutput::text(format!(

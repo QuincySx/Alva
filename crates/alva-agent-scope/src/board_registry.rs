@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use alva_types::scope::ScopeId;
+use alva_kernel_abi::scope::ScopeId;
 use crate::blackboard::Blackboard;
 
 /// Manages Blackboard instances scoped to SpawnScope IDs.

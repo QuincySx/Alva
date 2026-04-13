@@ -2,7 +2,7 @@
 > GPUI Entity 绑定层，将 alva-core 的异步 Agent 事件桥接到 GPUI 同步 UI 线程。
 
 ## 地位
-位于 `alva-app` 应用层，是 alva-core Agent 与 GPUI 渲染框架之间的唯一桥梁。上游依赖 `alva-app-core`（Agent、AgentHooks、AgentMessage 等）和 `alva-types`（Message、StreamEvent 等），下游被 views 层的 chat_panel 消费。
+位于 `alva-app` 应用层，是 alva-core Agent 与 GPUI 渲染框架之间的唯一桥梁。上游依赖 `alva-app-core`（Agent、AgentHooks、AgentMessage 等）和 `alva-kernel-abi`（Message、StreamEvent 等），下游被 views 层的 chat_panel 消费。
 
 ## 逻辑
 1. `GpuiChat` 是核心 Entity，包装 alva-core 的 Agent，通过 `tokio::sync::mpsc` 将异步 agent 事件转发到 GPUI 的 `EventEmitter` 机制。

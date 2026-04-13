@@ -1,4 +1,4 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, std::io
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, std::io
 // OUTPUT: AskHumanTool
 // POS:    Requests input from the human user via stdin in CLI mode.
 //         Supports structured questions with multiple choice options and metadata.
@@ -7,7 +7,7 @@
 //! In CLI mode, this reads from stdin.
 //! In GUI mode (Tauri), the engine event WaitingForHuman would be used instead.
 
-use alva_types::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};

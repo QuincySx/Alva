@@ -13,14 +13,14 @@ use alva_app_core::AgentEvent;
 use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
 use alva_test::mock_tool::MockTool;
-use alva_types::{ContentBlock, Message, MessageRole, StreamEvent, ToolOutput, UsageMetadata};
+use alva_kernel_abi::{ContentBlock, Message, MessageRole, StreamEvent, ToolOutput, UsageMetadata};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /// Build a minimal BaseAgent with a mock model, no browser, temp workspace.
-async fn build_agent(model: Arc<dyn alva_types::LanguageModel>) -> (BaseAgent, tempfile::TempDir) {
+async fn build_agent(model: Arc<dyn alva_kernel_abi::LanguageModel>) -> (BaseAgent, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("failed to create tempdir");
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
@@ -552,7 +552,7 @@ async fn e2e_new_session_clears_history() {
 async fn e2e_llm_error_propagated() {
     let model = Arc::new(
         MockLanguageModel::new()
-            .with_error(alva_types::AgentError::LlmError("model exploded".into())),
+            .with_error(alva_kernel_abi::AgentError::LlmError("model exploded".into())),
     );
 
     let (agent, _tmp) = build_agent(model).await;
@@ -580,7 +580,7 @@ async fn e2e_llm_error_propagated() {
 /// Build a BaseAgent with all builtin tools registered (no browser), pointing
 /// at the given temp directory as the workspace.
 async fn build_agent_with_workspace(
-    model: Arc<dyn alva_types::LanguageModel>,
+    model: Arc<dyn alva_kernel_abi::LanguageModel>,
     workspace: &std::path::Path,
 ) -> BaseAgent {
     BaseAgent::builder()
@@ -1024,7 +1024,7 @@ async fn e2e_multi_turn_tool_loop() {
 
 #[tokio::test]
 async fn e2e_checkpoint_created_on_file_edit() {
-    use alva_agent_runtime::middleware::CheckpointCallback;
+    use alva_host_native::middleware::CheckpointCallback;
     use std::sync::Mutex as StdMutex;
 
     /// In-test checkpoint callback that records calls.
@@ -1171,13 +1171,13 @@ async fn e2e_session_message_flow() {
     );
 
     // Verify message roles in order
-    if let alva_types::AgentMessage::Standard(m) = &messages[0] {
+    if let alva_kernel_abi::AgentMessage::Standard(m) = &messages[0] {
         assert_eq!(m.role, MessageRole::User, "message[0] should be User");
     } else {
         panic!("message[0] should be Standard");
     }
 
-    if let alva_types::AgentMessage::Standard(m) = &messages[1] {
+    if let alva_kernel_abi::AgentMessage::Standard(m) = &messages[1] {
         assert_eq!(m.role, MessageRole::Assistant, "message[1] should be Assistant");
         // Should contain a ToolUse block
         let has_tool_use = m.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
@@ -1186,7 +1186,7 @@ async fn e2e_session_message_flow() {
         panic!("message[1] should be Standard");
     }
 
-    if let alva_types::AgentMessage::Standard(m) = &messages[2] {
+    if let alva_kernel_abi::AgentMessage::Standard(m) = &messages[2] {
         // Tool result is stored with role=Tool and ToolResult content block
         assert_eq!(m.role, MessageRole::Tool, "message[2] should be Tool (tool result)");
         let has_tool_result = m.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }));
@@ -1195,7 +1195,7 @@ async fn e2e_session_message_flow() {
         panic!("message[2] should be Standard");
     }
 
-    if let alva_types::AgentMessage::Standard(m) = &messages[3] {
+    if let alva_kernel_abi::AgentMessage::Standard(m) = &messages[3] {
         assert_eq!(m.role, MessageRole::Assistant, "message[3] should be Assistant");
         let has_text = m.content.iter().any(|b| matches!(b, ContentBlock::Text { .. }));
         assert!(has_text, "message[3] should contain Text block");

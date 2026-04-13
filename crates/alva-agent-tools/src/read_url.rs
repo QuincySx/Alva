@@ -1,10 +1,10 @@
-// INPUT:  alva_types, async_trait, reqwest, schemars, serde, serde_json, std::sync, std::time
+// INPUT:  alva_kernel_abi, async_trait, reqwest, schemars, serde, serde_json, std::sync, std::time
 // OUTPUT: ReadUrlTool
 // POS:    Fetches a web page and returns content with HTML-to-markdown conversion,
 //         LRU cache with TTL, rate limiting per domain, and content size limiting.
 //! read_url — fetch a web page and return its content (HTML converted to markdown-like text)
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

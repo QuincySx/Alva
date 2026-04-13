@@ -13,6 +13,6 @@ impl Extension for LoopDetectionExtension {
     fn name(&self) -> &str { "loop-detection" }
     fn description(&self) -> &str { "Detect repeated tool calls and break loops" }
     fn activate(&self, api: &HostAPI) {
-        api.middleware(Arc::new(alva_agent_core::builtins::LoopDetectionMiddleware::new()));
+        api.middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()));
     }
 }

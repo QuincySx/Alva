@@ -1,11 +1,11 @@
-// INPUT:  std::collections::HashMap, alva_types::{AgentMessage, TokenCounter}, crate::types (ContextEntry, ContextLayer, ContextMetadata, Priority, ContextSnapshot, EntrySnapshot, BudgetInfo, ToolPattern, LayerStats)
+// INPUT:  std::collections::HashMap, alva_kernel_abi::{AgentMessage, TokenCounter}, crate::types (ContextEntry, ContextLayer, ContextMetadata, Priority, ContextSnapshot, EntrySnapshot, BudgetInfo, ToolPattern, LayerStats)
 // OUTPUT: ContextStore, estimate_tokens(), count_tokens_via()
 // POS:    Per-agent context container providing four-layer CRUD, token tracking, and count_tokens_via() for bus-based token counting.
 //! ContextStore — per-agent context container with four-layer management.
 
 use std::collections::HashMap;
 
-use alva_types::AgentMessage;
+use alva_kernel_abi::AgentMessage;
 
 use crate::types::*;
 
@@ -216,10 +216,10 @@ impl ContextStore {
             // in context (visible to LLM via build_llm_messages and counted in
             // total_tokens). `compacted = true` means "fully externalized, do not
             // include in LLM context" — which is wrong for a summary replacement.
-            entry.message = AgentMessage::Standard(alva_types::Message {
+            entry.message = AgentMessage::Standard(alva_kernel_abi::Message {
                 id: entry.id.clone(),
-                role: alva_types::MessageRole::Tool,
-                content: vec![alva_types::ContentBlock::Text {
+                role: alva_kernel_abi::MessageRole::Tool,
+                content: vec![alva_kernel_abi::ContentBlock::Text {
                     text: summary.to_string(),
                 }],
                 tool_call_id: None,
@@ -328,7 +328,7 @@ pub fn estimate_tokens(text: &str) -> usize {
 }
 
 /// Count tokens using a real TokenCounter (from bus capability).
-pub fn count_tokens_via(text: &str, counter: &dyn alva_types::TokenCounter) -> usize {
+pub fn count_tokens_via(text: &str, counter: &dyn alva_kernel_abi::TokenCounter) -> usize {
     counter.count_tokens(text)
 }
 
@@ -353,7 +353,7 @@ fn preview_message(msg: &AgentMessage, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::{ContentBlock, Message, MessageRole};
+    use alva_kernel_abi::{ContentBlock, Message, MessageRole};
 
     /// Create a ContextStore with a 10_000 token model window and 8_000 budget.
     fn test_store() -> ContextStore {

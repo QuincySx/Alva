@@ -35,4 +35,4 @@ pub use pregel::{CompiledGraph, GraphEvent, InvokeConfig};
 pub use retry::RetryConfig;
 
 // Session
-pub use session::AgentSession;
+pub use session::GraphRun;

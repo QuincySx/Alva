@@ -3,17 +3,17 @@
 
 ## Role
 `alva-app-core` is the central crate that re-exports public APIs from extracted
-crates (`alva-types`, `alva-agent-core`, `alva-agent-tools`, `alva-agent-security`,
-`alva-agent-memory`, `alva-agent-runtime`) and keeps modules that have not yet been
+crates (`alva-kernel-abi`, `alva-kernel-core`, `alva-agent-tools`, `alva-agent-security`,
+`alva-agent-memory`, `alva-host-native`) and keeps modules that have not yet been
 extracted: ACP client, skills, MCP, environment runtime, domain models, and
 DDD ports/adapters.
 
 ## Architecture
 - **Facade re-exports** (`lib.rs`) — re-exports `Agent`, `AgentHooks`,
-  `AgentEvent`, `AgentMessage` from `alva-agent-core`; type vocabulary from
-  `alva-types`; tool registrations from `alva-agent-tools`; security from
+  `AgentEvent`, `AgentMessage` from `alva-kernel-core`; type vocabulary from
+  `alva-kernel-abi`; tool registrations from `alva-agent-tools`; security from
   `alva-agent-security`; memory from `alva-agent-memory`; runtime builder from
-  `alva-agent-runtime`.
+  `alva-host-native`.
 - **Kept modules**:
   - `agent/` — ACP client (`agent_client/`), session management, persistence.
   - `skills/` — Skill system (loader, store, injector, agent templates).

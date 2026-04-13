@@ -13,6 +13,6 @@ impl Extension for CheckpointExtension {
     fn name(&self) -> &str { "checkpoint" }
     fn description(&self) -> &str { "File checkpoint before tool execution" }
     fn activate(&self, api: &HostAPI) {
-        api.middleware(Arc::new(alva_agent_runtime::middleware::CheckpointMiddleware::new()));
+        api.middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()));
     }
 }

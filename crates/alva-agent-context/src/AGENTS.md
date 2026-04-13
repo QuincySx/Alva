@@ -2,7 +2,7 @@
 > Agent 上下文管理源码：hooks、handle、store、session access 与运行时 apply helper。
 
 ## 地位
-此目录是 `alva-agent-context` 的全部实现层。它围绕 `alva-types::context` 的 trait 和 value types，提供可直接接入 agent/runtime 的默认实现。
+此目录是 `alva-agent-context` 的全部实现层。它围绕 `alva-kernel-abi::context` 的 trait 和 value types，提供可直接接入 agent/runtime 的默认实现。
 
 ## 逻辑
 1. `plugin.rs` re-export `ContextHooks` 与 `ContextError`；具体策略实现位于 `rules_plugin.rs` 和 `default_plugin.rs`。
@@ -14,7 +14,7 @@
 7. `types.rs` re-export context 相关共享类型，保证外部 crate 通过本 crate 也能拿到完整上下文值对象。
 
 ## 约束
-- `ContextHooks` / `ContextHandle` / `ContextSystem` 的 trait 或结构定义不在本目录声明，而是来自 `alva-types::context`。
+- `ContextHooks` / `ContextHandle` / `ContextSystem` 的 trait 或结构定义不在本目录声明，而是来自 `alva-kernel-abi::context`。
 - 文档中不再使用已删除的 `message_store.rs` 名称；会话持久化当前位于 `session.rs`。
 - `ContextStore` 当前是四层模型，不写成“五层”。
 - `DefaultContextHooks` 允许通过回调接入 LLM 能力，但必须保留 deterministic fallback。

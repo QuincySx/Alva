@@ -1,6 +1,6 @@
 //! Human interaction tool (ask_human).
 
-use alva_types::tool::Tool;
+use alva_kernel_abi::tool::Tool;
 use alva_agent_tools::tool_presets;
 use async_trait::async_trait;
 

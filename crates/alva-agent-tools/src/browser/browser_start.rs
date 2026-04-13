@@ -1,9 +1,9 @@
-// INPUT:  alva_types, async_trait, schemars, serde, serde_json, super::browser_manager
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, super::browser_manager
 // OUTPUT: BrowserStartTool
 // POS:    Launches a Chrome browser instance with configurable headless mode, profile, and proxy.
 //! browser_start — launch a Chrome instance
 
-use alva_types::{AgentError, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

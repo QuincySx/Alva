@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use alva_agent_core::run::run_agent;
-use alva_agent_core::event::AgentEvent;
-use alva_agent_core::state::{AgentConfig, AgentState};
+use alva_kernel_core::run::run_agent;
+use alva_kernel_core::event::AgentEvent;
+use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_agent_memory::MemoryService;
-use alva_agent_runtime::middleware::PlanModeControl;
-use alva_types::{
+use alva_host_native::middleware::PlanModeControl;
+use alva_kernel_abi::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
 
@@ -40,7 +40,7 @@ pub struct BaseAgent {
     pub(super) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
     /// Pending messages queue — bridges external steer/follow_up calls
     /// to the agent loop via AgentLoopHook.
-    pub(super) pending_messages: Arc<alva_agent_core::pending_queue::PendingMessageQueue>,
+    pub(super) pending_messages: Arc<alva_kernel_core::pending_queue::PendingMessageQueue>,
     /// Init-phase bus writer — retained for post-init registration (e.g., checkpoint callback).
     pub(super) bus_writer: BusWriter,
     /// Cross-layer coordination bus handle (read-only).
@@ -173,7 +173,7 @@ impl BaseAgent {
     }
 
     /// Switch the language model. Takes effect on the next prompt.
-    pub async fn set_model(&self, model: Arc<dyn alva_types::LanguageModel>) {
+    pub async fn set_model(&self, model: Arc<dyn alva_kernel_abi::LanguageModel>) {
         let mut st = self.state.lock().await;
         st.model = model;
     }
@@ -225,10 +225,10 @@ impl BaseAgent {
     /// Register a checkpoint callback for auto-checkpointing before file writes.
     pub fn set_checkpoint_callback(
         &self,
-        callback: Arc<dyn alva_agent_runtime::middleware::CheckpointCallback>,
+        callback: Arc<dyn alva_host_native::middleware::CheckpointCallback>,
     ) {
         self.bus_writer.provide(Arc::new(
-            alva_agent_runtime::middleware::CheckpointCallbackRef(callback),
+            alva_host_native::middleware::CheckpointCallbackRef(callback),
         ));
     }
 }
@@ -246,7 +246,7 @@ mod tests {
     use alva_test::mock_provider::MockLanguageModel;
 
     /// Helper: build a BaseAgent with minimal config using a mock model.
-    async fn build_test_agent(model: Arc<dyn alva_types::LanguageModel>) -> BaseAgent {
+    async fn build_test_agent(model: Arc<dyn alva_kernel_abi::LanguageModel>) -> BaseAgent {
         let tmp = tempfile::tempdir().expect("failed to create tempdir");
         BaseAgent::builder()
             .workspace(tmp.path())
@@ -342,7 +342,7 @@ mod tests {
     async fn test_base_agent_with_custom_tool() {
         use alva_test::mock_tool::MockTool;
         use alva_test::fixtures::make_tool_call_message;
-        use alva_types::ToolOutput;
+        use alva_kernel_abi::ToolOutput;
 
         // The model will first return a tool call, then a final text response.
         let tool_call_resp = make_tool_call_message(

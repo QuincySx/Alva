@@ -1,4 +1,4 @@
-// INPUT:  alva_types::ToolRegistry, all tool modules
+// INPUT:  alva_kernel_abi::ToolRegistry, all tool modules
 // OUTPUT: register_builtin_tools, register_all_tools
 // POS:    Crate root — declares tool modules and provides registration functions.
 //! Built-in tool implementations for the agent framework.
@@ -65,8 +65,8 @@ pub mod read_url;
 #[cfg(feature = "browser")]
 pub mod browser;
 
-use alva_types::tool::Tool;
-use alva_types::ToolRegistry;
+use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::ToolRegistry;
 
 /// Batch-register tools into a ToolRegistry.
 #[macro_export]

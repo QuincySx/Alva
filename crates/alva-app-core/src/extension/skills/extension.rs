@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_types::tool::Tool;
+use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 
 use crate::extension::{Extension, ExtensionContext, HostAPI};

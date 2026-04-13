@@ -15,11 +15,11 @@
 
 // ── Facade re-exports from extracted crates ──────────────────────────
 
-pub use alva_types;
+pub use alva_kernel_abi;
 
-pub use alva_agent_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, PendingMessageQueue};
-pub use alva_agent_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
-pub use alva_agent_core::run_agent;
+pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, PendingMessageQueue};
+pub use alva_kernel_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
+pub use alva_kernel_core::run_agent;
 
 pub use alva_agent_tools::tool_presets;
 
@@ -33,8 +33,8 @@ pub use alva_agent_security::{
 pub use alva_agent_memory::{MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, MemoryError};
 pub use alva_agent_memory::{EmbeddingProvider, NoopEmbeddingProvider, MemorySqlite};
 
-pub use alva_agent_runtime::{AgentRuntime, AgentRuntimeBuilder};
-pub use alva_agent_runtime::model;
+pub use alva_host_native::{AgentRuntime, AgentRuntimeBuilder};
+pub use alva_host_native::model;
 
 pub use alva_protocol_acp;
 pub use alva_protocol_mcp;

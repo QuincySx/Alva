@@ -69,7 +69,7 @@ impl ContextHooks for ContextHooksChain {
         &self,
         handle: &dyn ContextHandle,
         agent_id: &str,
-        message: &alva_types::AgentMessage,
+        message: &alva_kernel_abi::AgentMessage,
     ) -> Vec<Injection> {
         let mut all = Vec::new();
         for p in &self.plugins {
@@ -149,7 +149,7 @@ impl ContextHooks for ContextHooksChain {
 mod tests {
     use super::*;
     use crate::plugin::ContextHooks;
-    use alva_types::{AgentMessage, ContentBlock, Message, MessageRole};
+    use alva_kernel_abi::{AgentMessage, ContentBlock, Message, MessageRole};
 
     struct InjectPlugin {
         skill_name: String,
