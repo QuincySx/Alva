@@ -6,19 +6,26 @@ edition = "2021"
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 async-trait = "0.1"
-tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", default-features = false, features = ["sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 futures-core = "0.3"
 uuid = { version = "1", features = ["v4"] }
-chrono = "0.4"
-tokio-stream = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
+tokio-stream = { version = "0.1", default-features = false }
+# web-time provides std::time::Instant on native and Performance.now() on wasm32
+# with an identical API surface — used for monotonic duration measurement in
+# the run loop and middleware. Drop-in replacement, zero behavior change on native.
+web-time = "1"
 
 [dev-dependencies]
 alva-test = { path = "../alva-test" }
 futures = "0.3"
+# tokio macros + multi-threaded runtime are only needed at test time
+# (#[tokio::test] and explicit runtime construction in examples).
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [[example]]
 name = "middleware_basic"

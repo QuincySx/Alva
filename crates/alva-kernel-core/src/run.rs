@@ -457,7 +457,7 @@ async fn run_loop(
 
             // Emit TurnStart
             let _ = event_tx.send(AgentEvent::TurnStart);
-            let turn_start = std::time::Instant::now();
+            let turn_start = web_time::Instant::now();
 
             // 3a. Get messages from session (optionally windowed)
             let session_messages = if config.context_window > 0 {
@@ -653,7 +653,7 @@ async fn run_loop(
                 let _ = event_tx.send(AgentEvent::ToolExecutionStart {
                     tool_call: tool_call.clone(),
                 });
-                let tool_start = std::time::Instant::now();
+                let tool_start = web_time::Instant::now();
 
                 // Find tool by name — clone the Arc so we don't hold an immutable
                 // borrow on state.tools across the mutable middleware calls.

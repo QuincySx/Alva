@@ -85,10 +85,7 @@ pub fn create_task_state(
     output_file: PathBuf,
 ) -> TaskState {
     let id = generate_task_id(&task_type);
-    let start_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let start_time = chrono::Utc::now().timestamp() as u64;
     TaskState {
         id,
         task_type,
@@ -109,10 +106,9 @@ pub fn create_task_state(
 // ---------------------------------------------------------------------------
 
 fn timestamp_nanos() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    // chrono works on wasm32 with the wasmbind feature; SystemTime::now()
+    // panics on wasm32. Use chrono for portability.
+    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64
 }
 
 fn rand_u64() -> u64 {
