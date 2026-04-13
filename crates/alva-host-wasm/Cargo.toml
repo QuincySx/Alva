@@ -7,3 +7,12 @@ description = "wasm32 host assembly for the alva agent kernel — the wasm-side 
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 async-trait = "0.1"
+# tokio is already a transitive dep via alva-kernel-abi; we only need its
+# oneshot channel from the sync feature, which is wasm32-safe.
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
+# wasm-only deps. On native targets these are skipped, so the WasmSleeper
+# module is also gated on cfg(target_family = "wasm").
+[target.'cfg(target_family = "wasm")'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+wasm-bindgen-futures = "0.4"
