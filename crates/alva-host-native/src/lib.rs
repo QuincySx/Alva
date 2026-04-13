@@ -10,9 +10,11 @@ pub mod builder;
 pub mod graph;
 pub mod init;
 pub mod middleware;
+pub mod sleeper;
 
 pub use builder::{AgentRuntime, AgentRuntimeBuilder};
 pub use init::model;
+pub use sleeper::TokioSleeper;
 
 // Re-export key types for convenience
 pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, run_agent};

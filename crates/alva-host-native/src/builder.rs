@@ -246,7 +246,10 @@ impl AgentRuntimeBuilder {
             middleware.push_sorted(Arc::new(security_mw));
             middleware.push_sorted(Arc::new(DanglingToolCallMiddleware::new()));
             middleware.push_sorted(Arc::new(LoopDetectionMiddleware::new()));
-            middleware.push_sorted(Arc::new(ToolTimeoutMiddleware::default()));
+            middleware.push_sorted(Arc::new(ToolTimeoutMiddleware::with_sleeper(
+                std::time::Duration::from_secs(120),
+                Arc::new(crate::sleeper::TokioSleeper),
+            )));
             middleware.push_sorted(Arc::new(
                 CompactionMiddleware::default().with_bus(bus.clone()),
             ));
