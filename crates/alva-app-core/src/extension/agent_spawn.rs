@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -97,21 +98,91 @@ pub trait ChildRunRecording: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// Schema normalization — schemars output → LLM tool-calling spec
+// ---------------------------------------------------------------------------
+
+/// Normalize a `schemars`-generated JSON Schema in-place so it matches
+/// the shape LLM tool-calling APIs (OpenAI function calling, Anthropic
+/// tools) expect.
+///
+/// The transformations are:
+/// 1. **Strip root meta fields**: `$schema`, `title`, root-level
+///    `description` — the tool already exposes `name()` / `description()`
+///    separately, and the LLM doesn't use `$schema`/`title`.
+/// 2. **Strip `default` from properties**: harmless but bloat; LLM
+///    ignores them.
+/// 3. **Collapse `type: ["T", "null"]` → `type: "T"`** on properties:
+///    schemars emits the union form for `Option<T>` fields, but LLM
+///    tool APIs prefer the simpler form (the field's optionality is
+///    already conveyed by its absence from `required`).
+///
+/// This function is the core transform that the future
+/// `#[derive(Tool)]` macro will call on every tool's input schema.
+/// Keeping it as a free function makes it trivially reusable and
+/// unit-testable.
+pub(crate) fn normalize_llm_tool_schema(schema: &mut Value) {
+    // Root-level cleanups.
+    if let Some(obj) = schema.as_object_mut() {
+        obj.remove("$schema");
+        obj.remove("title");
+        obj.remove("description");
+    }
+
+    // Per-property cleanups.
+    if let Some(props) = schema
+        .pointer_mut("/properties")
+        .and_then(Value::as_object_mut)
+    {
+        for (_name, prop) in props.iter_mut() {
+            let Some(prop_obj) = prop.as_object_mut() else {
+                continue;
+            };
+            prop_obj.remove("default");
+
+            // Collapse `type: ["T", "null"]` → `type: "T"`.
+            if let Some(Value::Array(types)) = prop_obj.get("type").cloned() {
+                let non_null: Vec<Value> = types
+                    .into_iter()
+                    .filter(|t| t.as_str() != Some("null"))
+                    .collect();
+                if non_null.len() == 1 {
+                    prop_obj.insert("type".into(), non_null.into_iter().next().unwrap());
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tool input
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Input arguments for the `agent` spawn tool.
+///
+/// `schemars` derives the JSON Schema from this struct's fields and
+/// their doc comments — the tool's `parameters_schema` just calls
+/// `schema_for!(SpawnInput)` and post-processes the result to inject
+/// the runtime-dependent `tools.items.enum` list (see
+/// `AgentSpawnTool::parameters_schema`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct SpawnInput {
+    /// Complete task description for the sub-agent.
     task: String,
+    /// Short role name (e.g. 'planner', 'coder', 'reviewer').
     role: String,
+    /// System prompt for the sub-agent. If empty, a default is
+    /// generated from the role.
     #[serde(default)]
     system_prompt: String,
-    /// Tool names the parent grants to this sub-agent. Must be a subset
-    /// of the parent's own tool set — unknown names are silently dropped.
-    /// Empty means the sub-agent can only reason (and spawn further
-    /// sub-agents via its own `agent` tool).
+    /// Tool names to grant to the sub-agent. Pick exactly what the
+    /// sub-task needs from the parent's own tool set (the exact valid
+    /// names are enumerated at runtime in this field's `items.enum`).
+    /// Empty means the sub-agent can only reason and spawn further
+    /// sub-agents.
     #[serde(default)]
     tools: Vec<String>,
+    /// Shared board ID for multi-agent communication. Agents on the
+    /// same board see each other's output.
     #[serde(default)]
     board: Option<String>,
 }
@@ -162,42 +233,30 @@ impl Tool for AgentSpawnTool {
     }
 
     fn parameters_schema(&self) -> Value {
-        // Enumerate the parent's tool names so the LLM can only pick
-        // from what actually exists. Name-based, but the names are
-        // the same public identifiers the LLM already sees for its
-        // own tools — no private convention is being introduced.
-        let available_tools = self.scope.parent_tool_names();
+        // Start from the schemars-derived schema for SpawnInput. Every
+        // static field (type + description) comes from the struct's
+        // doc comments — no hand-written JSON for those.
+        let mut schema = serde_json::to_value(schemars::schema_for!(SpawnInput))
+            .expect("SpawnInput schema serializes to JSON");
 
-        serde_json::json!({
-            "type": "object",
-            "required": ["task", "role"],
-            "properties": {
-                "task": {
-                    "type": "string",
-                    "description": "Complete task description for the sub-agent"
-                },
-                "role": {
-                    "type": "string",
-                    "description": "Short role name (e.g. 'planner', 'coder', 'reviewer')"
-                },
-                "system_prompt": {
-                    "type": "string",
-                    "description": "System prompt for the sub-agent. If empty, a default is generated from the role."
-                },
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": available_tools,
-                    },
-                    "description": "Tool names to grant to the sub-agent. Pick exactly what the sub-task needs from the parent's own tool set (listed in the enum). Empty means the sub-agent can only reason and spawn further sub-agents."
-                },
-                "board": {
-                    "type": "string",
-                    "description": "Shared board ID for multi-agent communication. Agents on the same board see each other's output."
-                }
-            }
-        })
+        // Normalize to LLM tool-calling conventions.
+        normalize_llm_tool_schema(&mut schema);
+
+        // Inject the runtime-dependent enum for `tools.items`: the exact
+        // set of tool names the parent agent can hand down. schemars
+        // can't know this at compile time — it's per-spawn.
+        let available_tools = self.scope.parent_tool_names();
+        if let Some(items) = schema
+            .pointer_mut("/properties/tools/items")
+            .and_then(Value::as_object_mut)
+        {
+            items.insert(
+                "enum".into(),
+                Value::Array(available_tools.into_iter().map(Value::String).collect()),
+            );
+        }
+
+        schema
     }
 
     async fn execute(
@@ -423,5 +482,86 @@ impl Extension for SubAgentExtension {
         ));
         let spawn_tool = create_agent_spawn_tool(root_scope);
         vec![Arc::from(spawn_tool)]
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Snapshot-style: print the normalized LLM-facing schema so we
+    /// can eyeball it. Run with:
+    /// `cargo test -p alva-app-core print_spawn_input_schema -- --nocapture`.
+    #[test]
+    fn print_spawn_input_schema() {
+        let mut schema = serde_json::to_value(schemars::schema_for!(SpawnInput)).unwrap();
+        normalize_llm_tool_schema(&mut schema);
+        println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+    }
+
+    #[test]
+    fn spawn_input_schema_shape() {
+        let mut schema = serde_json::to_value(schemars::schema_for!(SpawnInput)).unwrap();
+        normalize_llm_tool_schema(&mut schema);
+
+        assert_eq!(schema["type"], "object");
+        assert!(schema["properties"]["task"].is_object());
+        assert!(schema["properties"]["role"].is_object());
+        assert!(schema["properties"]["tools"].is_object());
+        assert_eq!(schema["properties"]["tools"]["type"], "array");
+
+        // Descriptions survived from doc comments.
+        assert!(schema["properties"]["task"]["description"]
+            .as_str()
+            .map(|s| s.contains("task"))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn normalize_strips_root_meta() {
+        let mut schema = serde_json::json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Foo",
+            "description": "struct-level doc",
+            "type": "object",
+            "properties": {}
+        });
+        normalize_llm_tool_schema(&mut schema);
+        assert!(schema.get("$schema").is_none());
+        assert!(schema.get("title").is_none());
+        assert!(schema.get("description").is_none());
+        assert_eq!(schema["type"], "object");
+    }
+
+    #[test]
+    fn normalize_collapses_option_union() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": ["string", "null"] },
+                "count": { "type": "integer" }
+            }
+        });
+        normalize_llm_tool_schema(&mut schema);
+        assert_eq!(schema["properties"]["name"]["type"], "string");
+        assert_eq!(schema["properties"]["count"]["type"], "integer");
+    }
+
+    #[test]
+    fn normalize_strips_property_defaults() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "foo": { "type": "string", "default": "hi" },
+                "bar": { "type": "array", "default": [] }
+            }
+        });
+        normalize_llm_tool_schema(&mut schema);
+        assert!(schema["properties"]["foo"].get("default").is_none());
+        assert!(schema["properties"]["bar"].get("default").is_none());
     }
 }
