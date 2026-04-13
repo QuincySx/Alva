@@ -1,4 +1,4 @@
-// INPUT:  plugin, sdk, sdk_impl, store, rules_plugin, default_plugin, session, types, chain, context_system, apply
+// INPUT:  plugin, sdk, sdk_impl, store, rules_plugin, default_plugin, session, types, chain, context_system
 // OUTPUT: re-exports ContextHooks, ContextHandle, ContextHandleImpl, ContextStore, RulesContextHooks, DefaultContextHooks, DefaultHooksConfig, SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession, ContextSystem, default_context_system
 // POS:    Crate root that declares submodules and re-exports all public types for the context management system.
 //! alva-agent-context — Context management hooks, session storage, and plugin system.
@@ -31,7 +31,6 @@ pub mod store;
 pub mod session;
 pub mod chain;
 pub mod context_system;
-pub mod apply;
 pub mod rules_plugin;
 pub mod default_plugin;
 pub mod compact;

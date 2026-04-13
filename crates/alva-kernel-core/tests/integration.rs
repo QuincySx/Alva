@@ -1096,6 +1096,7 @@ async fn context_hooks_fire_at_lifecycle_points() {
     struct Counters {
         bootstrap: AtomicUsize,
         on_message: AtomicUsize,
+        assemble: AtomicUsize,
         after_turn: AtomicUsize,
         dispose: AtomicUsize,
     }
@@ -1125,6 +1126,17 @@ async fn context_hooks_fire_at_lifecycle_points() {
         ) -> Vec<Injection> {
             self.c.on_message.fetch_add(1, Ordering::SeqCst);
             vec![]
+        }
+
+        async fn assemble(
+            &self,
+            _sdk: &dyn ContextHandle,
+            _agent_id: &str,
+            entries: Vec<alva_kernel_abi::scope::context::ContextEntry>,
+            _token_budget: usize,
+        ) -> Vec<alva_kernel_abi::scope::context::ContextEntry> {
+            self.c.assemble.fetch_add(1, Ordering::SeqCst);
+            entries
         }
 
         async fn after_turn(&self, _sdk: &dyn ContextHandle, _agent_id: &str) {
@@ -1178,8 +1190,141 @@ async fn context_hooks_fire_at_lifecycle_points() {
     assert_eq!(counters.dispose.load(Ordering::SeqCst), 1, "dispose");
     // EchoModel returns text-only with no tool calls → exactly 1 turn → after_turn fires once.
     assert_eq!(counters.after_turn.load(Ordering::SeqCst), 1, "after_turn");
+    // assemble fires once per LLM call → exactly 1 here.
+    assert_eq!(counters.assemble.load(Ordering::SeqCst), 1, "assemble");
     // on_message fires for the input user message + the LLM assistant response = 2.
     assert_eq!(counters.on_message.load(Ordering::SeqCst), 2, "on_message");
+}
+
+#[tokio::test]
+async fn assemble_can_inject_extra_message() {
+    // Proves the assemble hook can ADD entries that reach the LLM call,
+    // by adding an extra user message and asserting the captured model
+    // input contains it.
+    use alva_kernel_abi::scope::context::{
+        ContextEntry, ContextHandle, ContextHooks, ContextLayer, ContextMetadata, ContextSystem,
+        Injection, NoopContextHandle,
+    };
+
+    struct InjectingHooks;
+
+    #[async_trait]
+    impl ContextHooks for InjectingHooks {
+        fn name(&self) -> &str { "injecting" }
+
+        async fn assemble(
+            &self,
+            _sdk: &dyn ContextHandle,
+            _agent_id: &str,
+            mut entries: Vec<ContextEntry>,
+            _token_budget: usize,
+        ) -> Vec<ContextEntry> {
+            entries.push(ContextEntry {
+                id: "smuggled".into(),
+                message: AgentMessage::Standard(Message::user("smuggled-by-assemble")),
+                metadata: ContextMetadata::new(ContextLayer::RuntimeInject),
+            });
+            entries
+        }
+
+        async fn on_message(
+            &self,
+            _sdk: &dyn ContextHandle,
+            _agent_id: &str,
+            _message: &AgentMessage,
+        ) -> Vec<Injection> {
+            Vec::new()
+        }
+    }
+
+    // Model that records every set of messages it's asked to complete on.
+    #[derive(Default)]
+    struct CapturingModel {
+        captured: std::sync::Mutex<Vec<Vec<Message>>>,
+    }
+    #[async_trait]
+    impl LanguageModel for CapturingModel {
+        async fn complete(
+            &self,
+            messages: &[Message],
+            _: &[&dyn Tool],
+            _: &ModelConfig,
+        ) -> Result<CompletionResponse, AgentError> {
+            self.captured.lock().unwrap().push(messages.to_vec());
+            Ok(CompletionResponse::from_message(Message {
+                id: uuid::Uuid::new_v4().to_string(),
+                role: MessageRole::Assistant,
+                content: vec![ContentBlock::Text { text: "ok".into() }],
+                tool_call_id: None,
+                usage: None,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            }))
+        }
+        fn stream(
+            &self,
+            messages: &[Message],
+            _: &[&dyn Tool],
+            _: &ModelConfig,
+        ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+            self.captured.lock().unwrap().push(messages.to_vec());
+            Box::pin(futures::stream::iter(vec![
+                StreamEvent::TextDelta { text: "ok".into() },
+                StreamEvent::Done,
+            ]))
+        }
+        fn model_id(&self) -> &str { "capturing" }
+    }
+
+    let model = Arc::new(CapturingModel::default());
+    let captured_handle = model.clone();
+
+    let hooks: Arc<dyn ContextHooks> = Arc::new(InjectingHooks);
+    let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
+    let cs = Arc::new(ContextSystem::new(hooks, handle));
+
+    let mut state = AgentState {
+        model,
+        tools: vec![],
+        session: Arc::new(InMemorySession::new()),
+        extensions: alva_kernel_core::shared::Extensions::new(),
+    };
+    let config = AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: String::new(),
+        max_iterations: 5,
+        model_config: ModelConfig::default(),
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: Some(cs),
+    };
+
+    let cancel = CancellationToken::new();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let result = run_agent(
+        &mut state,
+        &config,
+        cancel,
+        vec![AgentMessage::Standard(Message::user("user-input"))],
+        tx,
+    )
+    .await;
+    assert!(result.is_ok(), "run_agent should succeed: {:?}", result);
+
+    let captured = captured_handle.captured.lock().unwrap();
+    assert_eq!(captured.len(), 1, "exactly one LLM call");
+    let messages = &captured[0];
+    let texts: Vec<String> = messages.iter().map(|m| m.text_content()).collect();
+    assert!(
+        texts.iter().any(|t| t.contains("user-input")),
+        "should still contain user input: {:?}",
+        texts
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("smuggled-by-assemble")),
+        "assemble hook should have injected an extra message: {:?}",
+        texts
+    );
 }
 
 #[tokio::test]

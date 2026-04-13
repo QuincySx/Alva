@@ -3,12 +3,12 @@
 // POS:    Runtime helpers for applying context hook results to agent state.
 //         Moved from alva_kernel_abi::context::apply — types crate should not contain runtime logic.
 
-use alva_kernel_abi::base::content::ContentBlock;
-use alva_kernel_abi::base::message::{Message, MessageRole};
-use alva_kernel_abi::scope::context::{
+use crate::base::content::ContentBlock;
+use crate::base::message::{Message, MessageRole};
+use crate::scope::context::{
     CompressAction, ContextHandle, Injection, InjectionContent, MessageSelector,
 };
-use alva_kernel_abi::AgentMessage;
+use crate::AgentMessage;
 use tracing::debug;
 
 /// Apply a list of Injections to system_prompt and messages.

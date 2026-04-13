@@ -11,17 +11,19 @@
 //! By placing traits and types here in `alva-kernel-abi`, the core agent crate can depend on
 //! types alone, making the full context system an optional plugin.
 
+mod apply;
 mod error;
-mod types;
-mod traits;
-mod system;
-mod noop;
 mod events;
+mod noop;
+mod system;
+mod traits;
+mod types;
 
 // Re-export everything so `alva_kernel_abi::scope::context::*` continues to work.
+pub use apply::{apply_compressions, apply_injections};
 pub use error::*;
-pub use types::*;
-pub use traits::*;
-pub use system::*;
-pub use noop::*;
 pub use events::*;
+pub use noop::*;
+pub use system::*;
+pub use traits::*;
+pub use types::*;
