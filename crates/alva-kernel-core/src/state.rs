@@ -50,12 +50,18 @@ pub struct AgentConfig {
     /// Cross-layer coordination bus. None when bus is not wired.
     pub bus: Option<BusHandle>,
     /// Optional context plugin system. When set, the run loop calls
-    /// ContextHooks (`bootstrap` / `on_message` / `after_turn` / `dispose`)
-    /// at the matching lifecycle points, letting plugins observe and react
-    /// to the message stream. `assemble` and `on_budget_exceeded` are not
-    /// wired yet — they require a ContextEntry ↔ Message translation layer.
-    /// None means no context plugins, run loop behavior unchanged.
+    /// ContextHooks at the matching lifecycle points (bootstrap / on_message
+    /// / assemble / on_budget_exceeded / after_turn / dispose). None means
+    /// no context plugins, run loop behavior unchanged.
     pub context_system: Option<Arc<ContextSystem>>,
+    /// Token budget that triggers `ContextHooks::on_budget_exceeded`. When
+    /// `Some(n)`, before each LLM call the kernel estimates the working
+    /// message tokens (via `bus.TokenCounter` if available, else a crude
+    /// 4-chars-per-token heuristic) and fires the hook + applies returned
+    /// `CompressAction`s when the estimate exceeds `n`. When `None`, no
+    /// budget check happens. Only meaningful when `context_system` is also
+    /// set; ignored otherwise.
+    pub context_token_budget: Option<usize>,
 }
 
 #[cfg(test)]
@@ -84,6 +90,7 @@ mod tests {
             workspace: None,
             bus: None,
             context_system: None,
+            context_token_budget: None,
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");

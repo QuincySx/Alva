@@ -80,6 +80,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
         workspace: params.workspace,
         bus: params.bus,
         context_system: None,
+        context_token_budget: None,
     };
 
     let user_msg = AgentMessage::Standard(Message::user(&params.task));

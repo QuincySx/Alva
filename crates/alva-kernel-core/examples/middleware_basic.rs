@@ -232,6 +232,7 @@ fn main() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
 
     println!(

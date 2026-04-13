@@ -315,6 +315,7 @@ impl BaseAgentBuilder {
             workspace: Some(workspace.clone()),
             bus: Some(bus_handle.clone()),
             context_system: None,
+            context_token_budget: None,
         };
 
         // 10. Optionally create MemoryService

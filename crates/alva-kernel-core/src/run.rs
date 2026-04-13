@@ -64,6 +64,55 @@ async fn fire_context_dispose(config: &AgentConfig) {
     }
 }
 
+/// Estimate total tokens for a working message list. Uses a bus-registered
+/// `TokenCounter` if available, otherwise a 4-chars-per-token heuristic.
+/// 4 token of overhead per message accounts for role / separator framing.
+fn estimate_message_tokens(
+    messages: &[AgentMessage],
+    bus: Option<&alva_kernel_abi::BusHandle>,
+) -> usize {
+    let counter = bus.and_then(|b| b.get::<dyn alva_kernel_abi::TokenCounter>());
+    messages
+        .iter()
+        .map(|m| {
+            let text = match m {
+                AgentMessage::Standard(msg) => msg.text_content(),
+                AgentMessage::Steering(msg) => msg.text_content(),
+                AgentMessage::FollowUp(msg) => msg.text_content(),
+                AgentMessage::Marker(_) => String::new(),
+                AgentMessage::Extension { data, .. } => data.to_string(),
+            };
+            let tokens = match &counter {
+                Some(c) => c.count_tokens(&text),
+                None => text.len() / 4,
+            };
+            tokens + 4
+        })
+        .sum()
+}
+
+/// Build a synthetic `ContextSnapshot` to hand to `on_budget_exceeded`
+/// when the kernel itself decided the budget was exceeded (rather than
+/// the ContextStore tracking it).
+fn build_budget_snapshot(
+    total_tokens: usize,
+    budget: usize,
+) -> alva_kernel_abi::scope::context::ContextSnapshot {
+    alva_kernel_abi::scope::context::ContextSnapshot {
+        total_tokens,
+        budget_tokens: budget,
+        model_window: budget,
+        usage_ratio: if budget == 0 {
+            1.0
+        } else {
+            total_tokens as f32 / budget as f32
+        },
+        layer_breakdown: std::collections::HashMap::new(),
+        entries: Vec::new(),
+        recent_tool_patterns: Vec::new(),
+    }
+}
+
 fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
     AgentMessage::Standard(Message {
         id: message_id.to_string(),
@@ -452,6 +501,30 @@ async fn run_loop(
                 working_messages = assembled.into_iter().map(|e| e.message).collect();
             }
 
+            // 3a***. ContextHooks: token-budget check + on_budget_exceeded.
+            //        Only runs when both context_system and context_token_budget
+            //        are set. Estimate uses bus TokenCounter when available, else
+            //        a 4-chars-per-token heuristic.
+            if let (Some(cs), Some(budget)) =
+                (config.context_system.as_ref(), config.context_token_budget)
+            {
+                let total_tokens = estimate_message_tokens(&working_messages, config.bus.as_ref());
+                if total_tokens > budget {
+                    let snapshot = build_budget_snapshot(total_tokens, budget);
+                    let actions = cs
+                        .hooks()
+                        .on_budget_exceeded(cs.handle(), &agent_id, &snapshot)
+                        .await;
+                    alva_kernel_abi::scope::context::apply_compressions(
+                        actions,
+                        &mut working_messages,
+                        cs.handle(),
+                        &agent_id,
+                    )
+                    .await;
+                }
+            }
+
             // 3b. Build LLM messages: [system_prompt] + working_messages (only Standard)
             let mut llm_messages = Vec::new();
             if !system_prompt_buf.is_empty() {
@@ -806,6 +879,7 @@ mod tests {
             workspace: None,
             bus: None,
             context_system: None,
+            context_token_budget: None,
         };
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -849,6 +923,7 @@ mod tests {
             workspace: None,
             bus: None,
             context_system: None,
+            context_token_budget: None,
         };
         let cancel = CancellationToken::new();
         cancel.cancel(); // Cancel immediately
@@ -877,6 +952,7 @@ mod tests {
             workspace: None,
             bus: None,
             context_system: None,
+            context_token_budget: None,
         };
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();

@@ -103,6 +103,7 @@ impl EngineRuntime for AlvaAdapter {
             workspace: request.working_directory,
             bus: self.config.bus.clone(),
             context_system: None,
+            context_token_budget: None,
         };
 
         // 5. Build the user message from request.prompt.

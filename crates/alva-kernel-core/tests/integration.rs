@@ -108,6 +108,7 @@ async fn simple_echo_run() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -174,6 +175,7 @@ async fn run_with_middleware() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -209,6 +211,7 @@ async fn cancellation_mid_run() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     cancel.cancel(); // Cancel immediately before run
@@ -252,6 +255,7 @@ async fn session_persists_across_check() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
 
     // First run
@@ -345,6 +349,7 @@ async fn follow_up_continues_after_natural_stop() {
         workspace: None,
         bus: Some(bus_handle),
         context_system: None,
+        context_token_budget: None,
     };
 
     let cancel = CancellationToken::new();
@@ -429,6 +434,7 @@ async fn no_follow_up_means_single_pass() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
 
     let cancel = CancellationToken::new();
@@ -464,6 +470,7 @@ async fn message_events_share_the_same_message_id() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -587,6 +594,7 @@ async fn claude_style_tool_call_deltas_merge_into_one_tool_use() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -683,6 +691,7 @@ async fn malformed_tool_arguments_fail_fast() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -777,6 +786,7 @@ async fn stream_error_emits_message_error_event() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -876,6 +886,7 @@ async fn after_llm_call_failure_emits_message_error_event() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1060,6 +1071,7 @@ async fn cancellation_between_tool_calls_stops_remaining_tools() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1169,6 +1181,7 @@ async fn context_hooks_fire_at_lifecycle_points() {
         workspace: None,
         bus: None,
         context_system: Some(cs),
+        context_token_budget: None,
     };
 
     let cancel = CancellationToken::new();
@@ -1297,6 +1310,7 @@ async fn assemble_can_inject_extra_message() {
         workspace: None,
         bus: None,
         context_system: Some(cs),
+        context_token_budget: None,
     };
 
     let cancel = CancellationToken::new();
@@ -1328,6 +1342,141 @@ async fn assemble_can_inject_extra_message() {
 }
 
 #[tokio::test]
+async fn on_budget_exceeded_sliding_window_drops_old_messages() {
+    // Pre-populate session with 30 messages, set a budget that triggers
+    // immediately, and assert the LLM only sees the sliding-window keep_recent.
+    use alva_kernel_abi::scope::context::{
+        CompressAction, ContextHandle, ContextHooks, ContextSnapshot, ContextSystem, Injection,
+        NoopContextHandle,
+    };
+
+    struct WindowHooks {
+        keep: usize,
+        fired: Arc<AtomicUsize>,
+    }
+    #[async_trait]
+    impl ContextHooks for WindowHooks {
+        fn name(&self) -> &str { "window" }
+
+        async fn on_budget_exceeded(
+            &self,
+            _sdk: &dyn ContextHandle,
+            _agent_id: &str,
+            _snapshot: &ContextSnapshot,
+        ) -> Vec<CompressAction> {
+            self.fired.fetch_add(1, Ordering::SeqCst);
+            vec![CompressAction::SlidingWindow { keep_recent: self.keep }]
+        }
+
+        async fn on_message(
+            &self,
+            _sdk: &dyn ContextHandle,
+            _agent_id: &str,
+            _message: &AgentMessage,
+        ) -> Vec<Injection> {
+            Vec::new()
+        }
+    }
+
+    #[derive(Default)]
+    struct CapturingModel {
+        captured: std::sync::Mutex<Vec<Vec<Message>>>,
+    }
+    #[async_trait]
+    impl LanguageModel for CapturingModel {
+        async fn complete(
+            &self,
+            messages: &[Message],
+            _: &[&dyn Tool],
+            _: &ModelConfig,
+        ) -> Result<CompletionResponse, AgentError> {
+            self.captured.lock().unwrap().push(messages.to_vec());
+            Ok(CompletionResponse::from_message(Message {
+                id: uuid::Uuid::new_v4().to_string(),
+                role: MessageRole::Assistant,
+                content: vec![ContentBlock::Text { text: "ok".into() }],
+                tool_call_id: None,
+                usage: None,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            }))
+        }
+        fn stream(
+            &self,
+            messages: &[Message],
+            _: &[&dyn Tool],
+            _: &ModelConfig,
+        ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+            self.captured.lock().unwrap().push(messages.to_vec());
+            Box::pin(futures::stream::iter(vec![
+                StreamEvent::TextDelta { text: "ok".into() },
+                StreamEvent::Done,
+            ]))
+        }
+        fn model_id(&self) -> &str { "capturing" }
+    }
+
+    let fired = Arc::new(AtomicUsize::new(0));
+    let hooks: Arc<dyn ContextHooks> = Arc::new(WindowHooks {
+        keep: 5,
+        fired: fired.clone(),
+    });
+    let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
+    let cs = Arc::new(ContextSystem::new(hooks, handle));
+
+    let session = Arc::new(InMemorySession::new());
+    {
+        let s: &dyn alva_kernel_abi::session::AgentSession = session.as_ref();
+        for i in 0..30 {
+            s.append(AgentMessage::Standard(Message::user(&format!(
+                "msg-{}-with-some-padding-text-to-pump-up-the-token-estimate",
+                i
+            ))));
+        }
+    }
+
+    let model = Arc::new(CapturingModel::default());
+    let captured_handle = model.clone();
+
+    let mut state = AgentState {
+        model,
+        tools: vec![],
+        session,
+        extensions: alva_kernel_core::shared::Extensions::new(),
+    };
+    let config = AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: String::new(),
+        max_iterations: 5,
+        model_config: ModelConfig::default(),
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: Some(cs),
+        context_token_budget: Some(50),
+    };
+
+    let cancel = CancellationToken::new();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let result = run_agent(&mut state, &config, cancel, vec![], tx).await;
+    assert!(result.is_ok(), "run_agent should succeed: {:?}", result);
+
+    assert_eq!(fired.load(Ordering::SeqCst), 1, "on_budget_exceeded fired once");
+
+    let captured = captured_handle.captured.lock().unwrap();
+    assert_eq!(captured.len(), 1, "exactly one LLM call");
+    let llm_msgs = &captured[0];
+    assert_eq!(
+        llm_msgs.len(),
+        5,
+        "sliding window should have kept 5 messages, got {}",
+        llm_msgs.len()
+    );
+    let texts: Vec<String> = llm_msgs.iter().map(|m| m.text_content()).collect();
+    assert!(texts[0].contains("msg-25"), "first kept = msg-25, got {}", texts[0]);
+    assert!(texts[4].contains("msg-29"), "last kept = msg-29, got {}", texts[4]);
+}
+
+#[tokio::test]
 async fn context_hooks_disabled_by_default() {
     // Sanity: when context_system is None, run_agent still works as before.
     let mut state = AgentState {
@@ -1345,6 +1494,7 @@ async fn context_hooks_disabled_by_default() {
         workspace: None,
         bus: None,
         context_system: None,
+        context_token_budget: None,
     };
 
     let cancel = CancellationToken::new();
