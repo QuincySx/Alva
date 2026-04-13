@@ -133,11 +133,12 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
     check_wasm "alva-kernel-bus"
     check_wasm "alva-kernel-abi"
     check_wasm "alva-kernel-core"
+    check_wasm "alva-host-wasm"
     if [ "$WASM_OK" != "true" ]; then
-        echo -e "${RED}FAILED: kernel wasm32 invariant broken${NC}"
+        echo -e "${RED}FAILED: wasm32 invariant broken${NC}"
         exit 1
     fi
-    echo -e "${GREEN}PASSED: all 3 kernel layers wasm32-clean${NC}"
+    echo -e "${GREEN}PASSED: 3 kernel layers + host-wasm all wasm32-clean${NC}"
 else
     echo -e "${GREEN}SKIPPED: wasm32-unknown-unknown target not installed${NC}"
     echo "         install with: rustup target add wasm32-unknown-unknown"
