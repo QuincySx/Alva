@@ -236,7 +236,8 @@ impl Middleware for CompactionMiddleware {
                 },
             )
             .await
-            .map_err(|e| MiddlewareError::Other(format!("compaction LLM call failed: {}", e)))?;
+            .map_err(|e| MiddlewareError::Other(format!("compaction LLM call failed: {}", e)))?
+            .message;
 
         let summary_text = summary_result.text_content();
         if summary_text.is_empty() {
@@ -472,8 +473,10 @@ mod tests {
             _messages: &[Message],
             _tools: &[&dyn alva_types::tool::Tool],
             _config: &ModelConfig,
-        ) -> Result<Message, alva_types::base::error::AgentError> {
-            Ok(make_assistant_msg("Summary of prior conversation."))
+        ) -> Result<alva_types::CompletionResponse, alva_types::base::error::AgentError> {
+            Ok(alva_types::CompletionResponse::from_message(
+                make_assistant_msg("Summary of prior conversation."),
+            ))
         }
 
         fn stream(

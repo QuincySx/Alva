@@ -298,7 +298,7 @@ impl Default for AgentRuntimeBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_types::{AgentError, BusPlugin, Message, ModelConfig, StreamEvent};
+    use alva_types::{AgentError, BusPlugin, CompletionResponse, Message, ModelConfig, StreamEvent};
     use async_trait::async_trait;
     use futures_core::Stream;
     use std::pin::Pin;
@@ -314,7 +314,7 @@ mod tests {
             _messages: &[Message],
             _tools: &[&dyn Tool],
             _config: &ModelConfig,
-        ) -> Result<Message, AgentError> {
+        ) -> Result<CompletionResponse, AgentError> {
             Err(AgentError::Other("not used in builder tests".into()))
         }
 

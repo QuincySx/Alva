@@ -19,8 +19,8 @@ use alva_agent_core::middleware::{Middleware, MiddlewareError};
 use alva_agent_core::state::AgentState;
 use alva_agent_core::run::run_agent;
 use alva_types::{
-    AgentError, CancellationToken, LanguageModel, Message, ModelConfig, Provider, ProviderError,
-    ProviderRegistry, StreamEvent, Tool, AgentMessage,
+    AgentError, CancellationToken, CompletionResponse, LanguageModel, Message, ModelConfig,
+    Provider, ProviderError, ProviderRegistry, StreamEvent, Tool, AgentMessage,
 };
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -38,8 +38,8 @@ impl LanguageModel for StubModel {
         _messages: &[Message],
         _tools: &[&dyn Tool],
         _config: &ModelConfig,
-    ) -> Result<Message, AgentError> {
-        Ok(Message {
+    ) -> Result<CompletionResponse, AgentError> {
+        Ok(CompletionResponse::from_message(Message {
             id: "stub-msg-1".to_string(),
             role: alva_types::MessageRole::Assistant,
             content: vec![alva_types::ContentBlock::Text {
@@ -52,7 +52,7 @@ impl LanguageModel for StubModel {
                 total_tokens: 18,
             }),
             timestamp: 0,
-        })
+        }))
     }
 
     fn stream(

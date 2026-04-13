@@ -135,13 +135,13 @@ mod tests {
     fn make_state_with_tools(tools: Vec<Arc<dyn Tool>>) -> AgentState {
         use alva_types::base::message::Message;
         use alva_types::base::stream::StreamEvent;
-        use alva_types::model::LanguageModel;
+        use alva_types::model::{CompletionResponse, LanguageModel};
         use alva_types::ModelConfig;
 
         struct StubModel;
         #[async_trait]
         impl LanguageModel for StubModel {
-            async fn complete(&self, _: &[Message], _: &[&dyn Tool], _: &ModelConfig) -> Result<Message, AgentError> { unreachable!() }
+            async fn complete(&self, _: &[Message], _: &[&dyn Tool], _: &ModelConfig) -> Result<CompletionResponse, AgentError> { unreachable!() }
             fn stream(&self, _: &[Message], _: &[&dyn Tool], _: &ModelConfig) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> { Box::pin(tokio_stream::empty()) }
             fn model_id(&self) -> &str { "stub" }
         }

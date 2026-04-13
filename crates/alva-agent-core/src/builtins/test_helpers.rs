@@ -9,7 +9,7 @@ pub(crate) mod helpers {
     use alva_types::base::error::AgentError;
     use alva_types::base::message::Message;
     use alva_types::base::stream::StreamEvent;
-    use alva_types::model::LanguageModel;
+    use alva_types::model::{CompletionResponse, LanguageModel};
     use alva_types::session::InMemorySession;
     use alva_types::tool::Tool;
     use alva_types::ModelConfig;
@@ -29,7 +29,7 @@ pub(crate) mod helpers {
             _: &[Message],
             _: &[&dyn Tool],
             _: &ModelConfig,
-        ) -> Result<Message, AgentError> {
+        ) -> Result<CompletionResponse, AgentError> {
             unreachable!()
         }
 

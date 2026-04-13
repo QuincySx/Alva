@@ -14,7 +14,7 @@ use alva_types::base::content::ContentBlock;
 use alva_types::base::error::AgentError;
 use alva_types::base::message::{Message, MessageRole};
 use alva_types::base::stream::StreamEvent;
-use alva_types::model::LanguageModel;
+use alva_types::model::{CompletionResponse, LanguageModel};
 use alva_types::session::InMemorySession;
 use alva_types::tool::Tool;
 use alva_types::{
@@ -35,12 +35,12 @@ impl LanguageModel for EchoModel {
         messages: &[Message],
         _: &[&dyn Tool],
         _: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         let last = messages
             .last()
             .map(|m| m.text_content())
             .unwrap_or_default();
-        Ok(Message {
+        Ok(CompletionResponse::from_message(Message {
             id: uuid::Uuid::new_v4().to_string(),
             role: MessageRole::Assistant,
             content: vec![ContentBlock::Text {
@@ -49,7 +49,7 @@ impl LanguageModel for EchoModel {
             tool_call_id: None,
             usage: None,
             timestamp: chrono::Utc::now().timestamp_millis(),
-        })
+        }))
     }
 
     fn stream(
@@ -523,7 +523,7 @@ impl LanguageModel for ClaudeStyleToolDeltaModel {
         _messages: &[Message],
         _: &[&dyn Tool],
         _: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         unreachable!("tests use stream() only")
     }
 
@@ -637,7 +637,7 @@ impl LanguageModel for MalformedToolDeltaModel {
         _messages: &[Message],
         _: &[&dyn Tool],
         _: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         unreachable!("tests use stream() only")
     }
 
@@ -732,7 +732,7 @@ impl LanguageModel for StreamErrorModel {
         _messages: &[Message],
         _: &[&dyn Tool],
         _: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         unreachable!("tests use stream() only")
     }
 
@@ -938,7 +938,7 @@ impl LanguageModel for MultiToolCancelModel {
         _messages: &[Message],
         _: &[&dyn Tool],
         _: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         unreachable!("tests use stream() only")
     }
 

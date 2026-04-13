@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use alva_types::base::error::AgentError;
 use alva_types::base::message::{Message, MessageRole, UsageMetadata};
-use alva_types::model::{LanguageModel, ModelConfig};
+use alva_types::model::{CompletionResponse, LanguageModel, ModelConfig};
 use alva_types::base::stream::StreamEvent;
 use alva_types::tool::Tool;
 use alva_types::ContentBlock;
@@ -58,7 +58,7 @@ impl LanguageModel for OpenAIChatProvider {
         messages: &[Message],
         tools: &[&dyn Tool],
         config: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
         let oai_messages = to_oai_messages(messages);
         let oai_tools = to_oai_tools(tools);
@@ -131,10 +131,17 @@ impl LanguageModel for OpenAIChatProvider {
             )));
         }
 
-        let oai_resp: OaiResponse = serde_json::from_str(&resp_text)
+        // Parse into a raw Value first so we can expose it to callers via
+        // CompletionResponse.raw; then into the typed OaiResponse for
+        // normalization. One parse, one struct-conversion — negligible
+        // overhead vs directly parsing to the typed form.
+        let raw_value: serde_json::Value = serde_json::from_str(&resp_text)
             .map_err(|e| AgentError::LlmError(format!("parse response: {} — raw: {}", e, resp_text)))?;
+        let oai_resp: OaiResponse = serde_json::from_value(raw_value.clone())
+            .map_err(|e| AgentError::LlmError(format!("typed parse: {} — raw: {}", e, resp_text)))?;
 
-        from_oai_response(oai_resp)
+        let message = from_oai_response(oai_resp)?;
+        Ok(CompletionResponse { message, raw: Some(raw_value) })
     }
 
     fn stream(

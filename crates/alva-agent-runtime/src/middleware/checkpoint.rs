@@ -153,7 +153,7 @@ mod tests {
     fn make_state_with_tools(tools: Vec<Arc<dyn Tool>>) -> AgentState {
         use alva_types::base::message::Message;
         use alva_types::base::stream::StreamEvent;
-        use alva_types::model::LanguageModel;
+        use alva_types::model::{CompletionResponse, LanguageModel};
         use alva_types::ModelConfig;
 
         struct StubModel;
@@ -164,7 +164,7 @@ mod tests {
                 _: &[Message],
                 _: &[&dyn Tool],
                 _: &ModelConfig,
-            ) -> Result<Message, AgentError> {
+            ) -> Result<CompletionResponse, AgentError> {
                 unreachable!()
             }
             fn stream(

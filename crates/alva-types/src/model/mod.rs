@@ -18,6 +18,38 @@ pub struct ModelConfig {
     pub top_p: Option<f32>,
 }
 
+/// Result of a `LanguageModel::complete` call.
+///
+/// Carries both the framework-normalized `Message` and the raw provider
+/// response JSON. Most callers only need `.message`; the `raw` field is
+/// for consumers that want provider-specific fields the normalization
+/// layer doesn't model (Anthropic's full `stop_reason` enum, OpenAI's
+/// `logprobs`, `system_fingerprint`, per-token timing, etc.).
+///
+/// `raw` is `Option<Value>` so mock and test providers that don't have
+/// a "real" wire response can return `None` instead of a synthetic blob.
+#[derive(Debug, Clone)]
+pub struct CompletionResponse {
+    /// Framework-normalized message.
+    pub message: Message,
+    /// The provider's raw JSON response, if it has one. Populated by
+    /// real HTTP providers, left `None` by mocks and synthetic sources.
+    pub raw: Option<serde_json::Value>,
+}
+
+impl CompletionResponse {
+    /// Convenience constructor for mocks / tests where there's no raw JSON.
+    pub fn from_message(message: Message) -> Self {
+        Self { message, raw: None }
+    }
+}
+
+impl From<Message> for CompletionResponse {
+    fn from(message: Message) -> Self {
+        Self::from_message(message)
+    }
+}
+
 #[async_trait]
 pub trait LanguageModel: Send + Sync {
     async fn complete(
@@ -25,7 +57,7 @@ pub trait LanguageModel: Send + Sync {
         messages: &[Message],
         tools: &[&dyn Tool],
         config: &ModelConfig,
-    ) -> Result<Message, AgentError>;
+    ) -> Result<CompletionResponse, AgentError>;
 
     fn stream(
         &self,

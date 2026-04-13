@@ -114,7 +114,7 @@ mod tests {
                 _messages: &[Message],
                 _tools: &[&dyn Tool],
                 _config: &ModelConfig,
-            ) -> Result<Message, AgentError> {
+            ) -> Result<CompletionResponse, AgentError> {
                 unimplemented!()
             }
             fn stream(

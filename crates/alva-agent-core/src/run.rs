@@ -146,7 +146,8 @@ impl LlmCallFn for ActualLlmCall {
 
             let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
             match self.model.complete(&messages, &tool_refs, &self.model_config).await {
-                Ok(msg) => {
+                Ok(resp) => {
+                    let msg = resp.message;
                     // Emit the fallback result as synthetic events so the UI still sees them
                     for block in &msg.content {
                         let delta = match block {
@@ -633,12 +634,12 @@ mod tests {
             messages: &[Message],
             _: &[&dyn Tool],
             _: &ModelConfig,
-        ) -> Result<Message, AgentError> {
+        ) -> Result<CompletionResponse, AgentError> {
             let last = messages
                 .last()
                 .map(|m| m.text_content())
                 .unwrap_or_default();
-            Ok(Message {
+            Ok(CompletionResponse::from_message(Message {
                 id: uuid::Uuid::new_v4().to_string(),
                 role: MessageRole::Assistant,
                 content: vec![ContentBlock::Text {
@@ -647,7 +648,7 @@ mod tests {
                 tool_call_id: None,
                 usage: None,
                 timestamp: chrono::Utc::now().timestamp_millis(),
-            })
+            }))
         }
         fn stream(
             &self,

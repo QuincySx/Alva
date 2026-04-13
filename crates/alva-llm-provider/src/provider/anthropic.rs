@@ -22,7 +22,7 @@ use serde_json::Value;
 use alva_types::base::error::AgentError;
 use alva_types::base::message::{Message, MessageRole, UsageMetadata};
 use alva_types::base::stream::StreamEvent;
-use alva_types::model::{LanguageModel, ModelConfig};
+use alva_types::model::{CompletionResponse, LanguageModel, ModelConfig};
 use alva_types::tool::Tool;
 use alva_types::ContentBlock;
 
@@ -79,7 +79,7 @@ impl LanguageModel for AnthropicProvider {
         messages: &[Message],
         tools: &[&dyn Tool],
         config: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         let url = format!(
             "{}/v1/messages",
             self.base_url.trim_end_matches('/')
@@ -180,11 +180,18 @@ impl LanguageModel for AnthropicProvider {
             )));
         }
 
-        let api_resp: AnthropicResponse = serde_json::from_str(&resp_text).map_err(|e| {
+        // Parse into Value first, keep it for CompletionResponse.raw;
+        // then convert to the typed AnthropicResponse for normalization.
+        let raw_value: serde_json::Value = serde_json::from_str(&resp_text).map_err(|e| {
             AgentError::LlmError(format!("parse response: {} -- raw: {}", e, resp_text))
         })?;
+        let api_resp: AnthropicResponse = serde_json::from_value(raw_value.clone())
+            .map_err(|e| {
+                AgentError::LlmError(format!("typed parse: {} -- raw: {}", e, resp_text))
+            })?;
 
-        from_anthropic_response(api_resp)
+        let message = from_anthropic_response(api_resp)?;
+        Ok(CompletionResponse { message, raw: Some(raw_value) })
     }
 
     fn stream(

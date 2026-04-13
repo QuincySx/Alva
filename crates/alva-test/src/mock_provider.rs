@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
 
-use alva_types::{AgentError, LanguageModel, Message, ModelConfig, StreamEvent};
+use alva_types::{AgentError, CompletionResponse, LanguageModel, Message, ModelConfig, StreamEvent};
 use alva_types::tool::Tool;
 
 /// A queued response entry: either a successful Message or an error.
@@ -103,7 +103,7 @@ impl LanguageModel for MockLanguageModel {
         messages: &[Message],
         _tools: &[&dyn Tool],
         _config: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         let mut state = self.state.lock().unwrap();
 
         // Record this call.
@@ -119,7 +119,7 @@ impl LanguageModel for MockLanguageModel {
         state.call_index += 1;
 
         match &state.response_queue[index] {
-            QueuedResponse::Ok(msg) => Ok(msg.clone()),
+            QueuedResponse::Ok(msg) => Ok(CompletionResponse::from_message(msg.clone())),
             QueuedResponse::Err(err) => Err(AgentError::LlmError(err.to_string())),
         }
     }
@@ -209,7 +209,8 @@ mod tests {
         let result = mock
             .complete(&[], &[], &ModelConfig::default())
             .await
-            .unwrap();
+            .unwrap()
+            .message;
         assert_eq!(result.content.len(), response.content.len());
         match (&result.content[0], &response.content[0]) {
             (ContentBlock::Text { text: a }, ContentBlock::Text { text: b }) => {
@@ -271,11 +272,13 @@ mod tests {
         let res1 = mock
             .complete(&[], &[], &ModelConfig::default())
             .await
-            .unwrap();
+            .unwrap()
+            .message;
         let res2 = mock
             .complete(&[], &[], &ModelConfig::default())
             .await
-            .unwrap();
+            .unwrap()
+            .message;
 
         match &res1.content[0] {
             ContentBlock::Text { text } => assert_eq!(text, "first"),

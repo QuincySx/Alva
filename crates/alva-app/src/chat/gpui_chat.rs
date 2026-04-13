@@ -9,7 +9,8 @@ use gpui::{Context, EventEmitter};
 use tokio::sync::mpsc;
 
 use alva_app_core::alva_types::{
-    AgentError, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig, StreamEvent, Tool,
+    AgentError, CompletionResponse, ContentBlock, LanguageModel, Message, MessageRole, ModelConfig,
+    StreamEvent, Tool,
 };
 use alva_app_core::{AgentEvent, AgentMessage};
 
@@ -43,7 +44,7 @@ impl LanguageModel for PlaceholderModel {
         messages: &[Message],
         _tools: &[&dyn Tool],
         _config: &ModelConfig,
-    ) -> Result<Message, AgentError> {
+    ) -> Result<CompletionResponse, AgentError> {
         let last_user = messages
             .iter()
             .rev()
@@ -51,7 +52,7 @@ impl LanguageModel for PlaceholderModel {
             .map(|m| m.text_content())
             .unwrap_or_default();
 
-        Ok(Message {
+        Ok(CompletionResponse::from_message(Message {
             id: uuid::Uuid::new_v4().to_string(),
             role: MessageRole::Assistant,
             content: vec![ContentBlock::Text {
@@ -60,7 +61,7 @@ impl LanguageModel for PlaceholderModel {
             tool_call_id: None,
             usage: None,
             timestamp: chrono::Utc::now().timestamp_millis(),
-        })
+        }))
     }
 
     fn stream(

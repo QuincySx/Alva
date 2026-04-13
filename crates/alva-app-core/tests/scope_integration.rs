@@ -11,7 +11,7 @@ use alva_agent_scope::BoardMessage;
 use alva_agent_scope::SpawnScopeImpl;
 use alva_types::base::error::AgentError;
 use alva_types::base::message::Message;
-use alva_types::model::{LanguageModel, ModelConfig};
+use alva_types::model::{CompletionResponse, LanguageModel, ModelConfig};
 use alva_types::scope::{ChildScopeConfig, ScopeError};
 use alva_types::base::stream::StreamEvent;
 use alva_types::tool::Tool;
@@ -30,8 +30,8 @@ impl LanguageModel for MockModel {
         _messages: &[Message],
         _tools: &[&dyn Tool],
         _config: &ModelConfig,
-    ) -> Result<Message, AgentError> {
-        Ok(Message::system("mock"))
+    ) -> Result<CompletionResponse, AgentError> {
+        Ok(CompletionResponse::from_message(Message::system("mock")))
     }
 
     fn stream(

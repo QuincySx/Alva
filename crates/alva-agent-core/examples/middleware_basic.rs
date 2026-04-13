@@ -163,8 +163,8 @@ impl alva_types::LanguageModel for StubModel {
         _: &[Message],
         _: &[&dyn alva_types::Tool],
         _: &alva_types::ModelConfig,
-    ) -> Result<Message, alva_types::AgentError> {
-        Ok(Message {
+    ) -> Result<alva_types::CompletionResponse, alva_types::AgentError> {
+        Ok(alva_types::CompletionResponse::from_message(Message {
             id: "stub".to_string(),
             role: alva_types::MessageRole::Assistant,
             content: vec![alva_types::ContentBlock::Text {
@@ -173,7 +173,7 @@ impl alva_types::LanguageModel for StubModel {
             tool_call_id: None,
             usage: None,
             timestamp: 0,
-        })
+        }))
     }
     fn stream(
         &self,

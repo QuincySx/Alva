@@ -216,7 +216,7 @@ mod tests {
     use super::*;
     use alva_types::base::error::AgentError;
     use alva_types::base::message::Message;
-    use alva_types::model::ModelConfig;
+    use alva_types::model::{CompletionResponse, ModelConfig};
     use alva_types::base::stream::StreamEvent;
     use async_trait::async_trait;
     use futures::stream;
@@ -232,8 +232,8 @@ mod tests {
             _messages: &[Message],
             _tools: &[&dyn Tool],
             _config: &ModelConfig,
-        ) -> Result<Message, AgentError> {
-            Ok(Message::system("mock"))
+        ) -> Result<CompletionResponse, AgentError> {
+            Ok(CompletionResponse::from_message(Message::system("mock")))
         }
 
         fn stream(
