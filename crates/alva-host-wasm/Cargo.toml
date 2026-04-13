@@ -13,6 +13,9 @@ futures-core = "0.3"
 # sync feature for the oneshot channel + mpsc, both of which are wasm32-safe.
 tokio = { version = "1", default-features = false, features = ["sync"] }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
 # wasm-only deps. On native targets these are skipped, so the WasmSleeper
 # module is also gated on cfg(target_family = "wasm").
 [target.'cfg(target_family = "wasm")'.dependencies]

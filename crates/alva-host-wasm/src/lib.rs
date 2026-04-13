@@ -23,6 +23,12 @@ mod sleeper;
 #[cfg(target_family = "wasm")]
 pub use sleeper::WasmSleeper;
 
+// Consumer-facing facade: a minimal `WasmAgent` struct that bundles
+// AgentState + AgentConfig + run_agent into one type. Compiles on every
+// target (native + wasm) so apps and tests share the same API.
+mod agent;
+pub use agent::WasmAgent;
+
 // Compile-time probe — type-checks the full kernel API surface against
 // wasm32 to catch regressions. The probe function is dead code; its purpose
 // is to force `cargo check --target wasm32` to exercise `run_agent` from a
