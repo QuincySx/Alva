@@ -109,3 +109,36 @@ if [ $VIOLATIONS -gt 0 ]; then
 else
     echo -e "${GREEN}PASSED: All dependency boundaries are clean${NC}"
 fi
+
+# ---------------------------------------------------------------------------
+# Phase 5 invariant: kernel layers must compile for wasm32-unknown-unknown
+# without any host-specific deps.
+# ---------------------------------------------------------------------------
+echo ""
+echo "Checking kernel wasm32 compilability..."
+
+WASM_OK=true
+check_wasm() {
+    local crate=$1
+    if cargo check --target wasm32-unknown-unknown -p "$crate" >/dev/null 2>&1; then
+        echo -e "${GREEN}OK: $crate compiles for wasm32${NC}"
+    else
+        echo -e "${RED}VIOLATION: $crate does NOT compile for wasm32${NC}"
+        WASM_OK=false
+    fi
+}
+
+# Skip if wasm32 target is not installed — the dep check still runs.
+if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+    check_wasm "alva-kernel-bus"
+    check_wasm "alva-kernel-abi"
+    check_wasm "alva-kernel-core"
+    if [ "$WASM_OK" != "true" ]; then
+        echo -e "${RED}FAILED: kernel wasm32 invariant broken${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}PASSED: all 3 kernel layers wasm32-clean${NC}"
+else
+    echo -e "${GREEN}SKIPPED: wasm32-unknown-unknown target not installed${NC}"
+    echo "         install with: rustup target add wasm32-unknown-unknown"
+fi
