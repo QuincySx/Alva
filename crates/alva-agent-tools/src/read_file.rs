@@ -57,14 +57,12 @@ fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
 }
 
 /// Check if a file is a PDF based on magic bytes.
-#[allow(unused)]
 fn is_pdf(data: &[u8]) -> bool {
     data.len() >= 5 && data.starts_with(b"%PDF-")
 }
 
 /// Detect text encoding from BOM or content analysis.
 /// Returns detected encoding name and the byte offset to skip BOM.
-#[allow(unused)]
 fn detect_encoding(data: &[u8]) -> (&'static str, usize) {
     // Check BOM
     if data.len() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
@@ -91,7 +89,6 @@ fn add_line_numbers(text: &str, start_line: usize) -> String {
 
 /// Parse a page range string like "1-5", "3", "10-20".
 /// Returns (start_page, end_page) 1-indexed, clamped to max 20 pages.
-#[allow(unused)]
 fn parse_page_range(range: &str) -> Result<(usize, usize), String> {
     let range = range.trim();
     if range.contains('-') {
@@ -292,7 +289,6 @@ impl ReadFileTool {
     /// Handle PDF files by returning metadata and page info.
     /// Full PDF text extraction would require a dedicated library;
     /// for now we provide file info and suggest the pages parameter.
-    #[allow(unused)]
     fn handle_pdf(
         &self,
         path: &str,

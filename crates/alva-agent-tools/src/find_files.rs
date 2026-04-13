@@ -33,7 +33,6 @@ struct Input {
 /// File path with modification time metadata.
 struct FileEntry {
     rel_path: String,
-    #[allow(unused)]
     mtime: Option<std::time::SystemTime>,
 }
 

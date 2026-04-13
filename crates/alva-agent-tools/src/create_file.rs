@@ -24,7 +24,6 @@ struct Input {
 
 /// Detect the dominant line ending style in existing content.
 /// Returns `"\r\n"` if CRLF is dominant, otherwise `"\n"`.
-#[allow(unused)]
 fn detect_line_ending(existing: &str) -> &'static str {
     let crlf_count = existing.matches("\r\n").count();
     let lf_only_count = existing.matches('\n').count().saturating_sub(crlf_count);
@@ -36,7 +35,6 @@ fn detect_line_ending(existing: &str) -> &'static str {
 }
 
 /// Normalize all line endings in `content` to `target_ending`.
-#[allow(unused)]
 fn normalize_line_endings(content: &str, target_ending: &str) -> String {
     // First normalize everything to LF, then convert to target
     let normalized = content.replace("\r\n", "\n");
