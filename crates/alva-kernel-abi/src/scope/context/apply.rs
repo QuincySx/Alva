@@ -93,27 +93,15 @@ pub async fn apply_compressions(
                 let to_idx = resolve_selector(&range.to, messages, msg_len);
 
                 if from_idx < to_idx && to_idx <= msg_len {
-                    let range_text = serialize_range(&messages[from_idx..to_idx], from_idx);
-
-                    let summary_result = tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        handle.summarize(session_id, range.clone(), &hints),
-                    )
-                    .await;
-
-                    let summary_text = match summary_result {
-                        Ok(s) => s,
-                        Err(_) => {
-                            tracing::warn!(
-                                "budget: summarize timed out, falling back to truncation"
-                            );
-                            let truncated: String = range_text.chars().take(2000).collect();
-                            format!(
-                                "{}\n\n[... summarization timed out, truncated]",
-                                truncated
-                            )
-                        }
-                    };
+                    // The kernel does not enforce a timeout here — that is the
+                    // ContextHandle implementation's responsibility. A real impl
+                    // (e.g., LLM-backed) should bound its own latency; a noop or
+                    // synchronous impl returns immediately. This keeps kernel-abi
+                    // free of any tokio::time dependency.
+                    let _range_text =
+                        serialize_range(&messages[from_idx..to_idx], from_idx);
+                    let summary_text =
+                        handle.summarize(session_id, range.clone(), &hints).await;
 
                     let summary_msg = AgentMessage::Standard(Message {
                         id: uuid::Uuid::new_v4().to_string(),
