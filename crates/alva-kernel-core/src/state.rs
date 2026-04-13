@@ -1,9 +1,10 @@
-// INPUT:  std::sync::Arc, alva_kernel_abi::{LanguageModel, AgentSession, Tool, BusHandle, ModelConfig}, crate::shared::Extensions
+// INPUT:  std::sync::Arc, alva_kernel_abi::{LanguageModel, AgentSession, Tool, BusHandle, ModelConfig, ContextSystem}, crate::shared::Extensions
 // OUTPUT: AgentState, AgentConfig
-// POS:    mutable state and immutable config — AgentConfig carries optional BusHandle for cross-layer coordination.
+// POS:    mutable state and immutable config — AgentConfig carries optional BusHandle and optional ContextSystem.
 use std::sync::Arc;
 
 use alva_kernel_abi::model::LanguageModel;
+use alva_kernel_abi::scope::context::ContextSystem;
 use alva_kernel_abi::session::AgentSession;
 use alva_kernel_abi::tool::Tool;
 
@@ -48,6 +49,13 @@ pub struct AgentConfig {
     pub workspace: Option<std::path::PathBuf>,
     /// Cross-layer coordination bus. None when bus is not wired.
     pub bus: Option<BusHandle>,
+    /// Optional context plugin system. When set, the run loop calls
+    /// ContextHooks (`bootstrap` / `on_message` / `after_turn` / `dispose`)
+    /// at the matching lifecycle points, letting plugins observe and react
+    /// to the message stream. `assemble` and `on_budget_exceeded` are not
+    /// wired yet — they require a ContextEntry ↔ Message translation layer.
+    /// None means no context plugins, run loop behavior unchanged.
+    pub context_system: Option<Arc<ContextSystem>>,
 }
 
 #[cfg(test)]
@@ -75,6 +83,7 @@ mod tests {
             context_window: 0,
             workspace: None,
             bus: None,
+            context_system: None,
         };
 
         assert_eq!(config.system_prompt, "You are a helpful assistant.");

@@ -50,6 +50,7 @@ pub struct AgentRuntimeBuilder {
     approval_notifier: Option<ApprovalNotifier>,
     bus_plugins: Vec<Box<dyn BusPlugin>>,
     standard_agent_stack: Option<SandboxMode>,
+    context_system: Option<Arc<alva_kernel_abi::scope::context::ContextSystem>>,
 }
 
 impl AgentRuntimeBuilder {
@@ -69,7 +70,20 @@ impl AgentRuntimeBuilder {
             approval_notifier: None,
             bus_plugins: Vec::new(),
             standard_agent_stack: None,
+            context_system: None,
         }
+    }
+
+    /// Attach a `ContextSystem` to the runtime. When set, the kernel's
+    /// `run_agent` loop fires `ContextHooks::{bootstrap, on_message,
+    /// after_turn, dispose}` at the matching lifecycle points. None means
+    /// no context plugins are wired (default).
+    pub fn with_context_system(
+        mut self,
+        cs: Arc<alva_kernel_abi::scope::context::ContextSystem>,
+    ) -> Self {
+        self.context_system = Some(cs);
+        self
     }
 
     /// Set the system prompt for the agent.
@@ -267,6 +281,7 @@ impl AgentRuntimeBuilder {
             context_window: self.context_window,
             workspace: self.workspace,
             bus: Some(bus.clone()),
+            context_system: self.context_system,
         };
 
         AgentRuntime {

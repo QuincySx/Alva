@@ -107,6 +107,7 @@ async fn simple_echo_run() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -172,6 +173,7 @@ async fn run_with_middleware() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -206,6 +208,7 @@ async fn cancellation_mid_run() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     cancel.cancel(); // Cancel immediately before run
@@ -248,6 +251,7 @@ async fn session_persists_across_check() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
 
     // First run
@@ -340,6 +344,7 @@ async fn follow_up_continues_after_natural_stop() {
         context_window: 0,
         workspace: None,
         bus: Some(bus_handle),
+        context_system: None,
     };
 
     let cancel = CancellationToken::new();
@@ -423,6 +428,7 @@ async fn no_follow_up_means_single_pass() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
 
     let cancel = CancellationToken::new();
@@ -457,6 +463,7 @@ async fn message_events_share_the_same_message_id() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -579,6 +586,7 @@ async fn claude_style_tool_call_deltas_merge_into_one_tool_use() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -674,6 +682,7 @@ async fn malformed_tool_arguments_fail_fast() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -767,6 +776,7 @@ async fn stream_error_emits_message_error_event() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -865,6 +875,7 @@ async fn after_llm_call_failure_emits_message_error_event() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1048,6 +1059,7 @@ async fn cancellation_between_tool_calls_stops_remaining_tools() {
         context_window: 0,
         workspace: None,
         bus: None,
+        context_system: None,
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1068,4 +1080,138 @@ async fn cancellation_between_tool_calls_stops_remaining_tools() {
         0,
         "tool_b should not execute after tool_a cancels the run"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: ContextHooks integration — proves run_agent fires the wired hooks
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn context_hooks_fire_at_lifecycle_points() {
+    use alva_kernel_abi::scope::context::{
+        ContextHandle, ContextHooks, ContextSystem, Injection, NoopContextHandle,
+    };
+
+    #[derive(Default)]
+    struct Counters {
+        bootstrap: AtomicUsize,
+        on_message: AtomicUsize,
+        after_turn: AtomicUsize,
+        dispose: AtomicUsize,
+    }
+
+    struct CountingHooks {
+        c: Arc<Counters>,
+    }
+
+    #[async_trait]
+    impl ContextHooks for CountingHooks {
+        fn name(&self) -> &str { "counting" }
+
+        async fn bootstrap(
+            &self,
+            _sdk: &dyn ContextHandle,
+            _agent_id: &str,
+        ) -> Result<(), alva_kernel_abi::scope::context::ContextError> {
+            self.c.bootstrap.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn on_message(
+            &self,
+            _sdk: &dyn ContextHandle,
+            _agent_id: &str,
+            _message: &AgentMessage,
+        ) -> Vec<Injection> {
+            self.c.on_message.fetch_add(1, Ordering::SeqCst);
+            vec![]
+        }
+
+        async fn after_turn(&self, _sdk: &dyn ContextHandle, _agent_id: &str) {
+            self.c.after_turn.fetch_add(1, Ordering::SeqCst);
+        }
+
+        async fn dispose(&self) -> Result<(), alva_kernel_abi::scope::context::ContextError> {
+            self.c.dispose.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    let counters = Arc::new(Counters::default());
+    let hooks: Arc<dyn ContextHooks> = Arc::new(CountingHooks { c: counters.clone() });
+    let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
+    let cs = Arc::new(ContextSystem::new(hooks, handle));
+
+    let mut state = AgentState {
+        model: Arc::new(EchoModel),
+        tools: vec![],
+        session: Arc::new(InMemorySession::new()),
+        extensions: alva_kernel_core::shared::Extensions::new(),
+    };
+    let config = AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: String::new(),
+        max_iterations: 5,
+        model_config: ModelConfig::default(),
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: Some(cs),
+    };
+
+    let cancel = CancellationToken::new();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let result = run_agent(
+        &mut state,
+        &config,
+        cancel,
+        vec![AgentMessage::Standard(Message::user("hi"))],
+        tx,
+    )
+    .await;
+    assert!(result.is_ok(), "run_agent should succeed: {:?}", result);
+
+    // bootstrap fires exactly once at the start.
+    assert_eq!(counters.bootstrap.load(Ordering::SeqCst), 1, "bootstrap");
+    // dispose fires exactly once at the end.
+    assert_eq!(counters.dispose.load(Ordering::SeqCst), 1, "dispose");
+    // EchoModel returns text-only with no tool calls → exactly 1 turn → after_turn fires once.
+    assert_eq!(counters.after_turn.load(Ordering::SeqCst), 1, "after_turn");
+    // on_message fires for the input user message + the LLM assistant response = 2.
+    assert_eq!(counters.on_message.load(Ordering::SeqCst), 2, "on_message");
+}
+
+#[tokio::test]
+async fn context_hooks_disabled_by_default() {
+    // Sanity: when context_system is None, run_agent still works as before.
+    let mut state = AgentState {
+        model: Arc::new(EchoModel),
+        tools: vec![],
+        session: Arc::new(InMemorySession::new()),
+        extensions: alva_kernel_core::shared::Extensions::new(),
+    };
+    let config = AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: String::new(),
+        max_iterations: 5,
+        model_config: ModelConfig::default(),
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: None,
+    };
+
+    let cancel = CancellationToken::new();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let result = run_agent(
+        &mut state,
+        &config,
+        cancel,
+        vec![AgentMessage::Standard(Message::user("hi"))],
+        tx,
+    )
+    .await;
+    assert!(result.is_ok());
 }

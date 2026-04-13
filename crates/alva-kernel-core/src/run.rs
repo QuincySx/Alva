@@ -19,6 +19,52 @@ use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
 use crate::runtime_context::RuntimeExecutionContext;
 use crate::state::{AgentConfig, AgentState};
 
+// ---------------------------------------------------------------------------
+// ContextHooks integration helpers (Phase 4)
+//
+// These free functions are no-ops when `config.context_system` is None,
+// so the run loop's behavior is unchanged for callers that don't opt in.
+// `assemble` and `on_budget_exceeded` are intentionally NOT wired here —
+// they require a ContextEntry ↔ Message translation layer that hasn't been
+// designed yet. Only the hooks that operate directly on AgentMessage or
+// pure lifecycle events are wired.
+// ---------------------------------------------------------------------------
+
+async fn fire_context_bootstrap(config: &AgentConfig, agent_id: &str) {
+    if let Some(cs) = config.context_system.as_ref() {
+        if let Err(e) = cs.hooks().bootstrap(cs.handle(), agent_id).await {
+            tracing::warn!(error = ?e, "context bootstrap failed");
+        }
+    }
+}
+
+async fn fire_context_on_message(
+    config: &AgentConfig,
+    agent_id: &str,
+    message: &AgentMessage,
+) {
+    if let Some(cs) = config.context_system.as_ref() {
+        // Returned Injections are observed by ContextStore via the SDK callbacks
+        // the plugin runs inside on_message; the returned Vec is discarded here
+        // because the assemble pipeline isn't wired yet.
+        let _ = cs.hooks().on_message(cs.handle(), agent_id, message).await;
+    }
+}
+
+async fn fire_context_after_turn(config: &AgentConfig, agent_id: &str) {
+    if let Some(cs) = config.context_system.as_ref() {
+        cs.hooks().after_turn(cs.handle(), agent_id).await;
+    }
+}
+
+async fn fire_context_dispose(config: &AgentConfig) {
+    if let Some(cs) = config.context_system.as_ref() {
+        if let Err(e) = cs.hooks().dispose().await {
+            tracing::warn!(error = ?e, "context dispose failed");
+        }
+    }
+}
+
 fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
     AgentMessage::Standard(Message {
         id: message_id.to_string(),
@@ -278,12 +324,17 @@ pub async fn run_agent(
         .await
         .map_err(MiddlewareError::into_agent_error)?;
 
+    // 1b. ContextHooks: bootstrap (no-op when context_system is None)
+    let agent_id = state.session.id().to_string();
+    fire_context_bootstrap(config, &agent_id).await;
+
     // Emit AgentStart
     let _ = event_tx.send(AgentEvent::AgentStart);
 
-    // 2. Store input messages in session
+    // 2. Store input messages in session + fire on_message for each
     for msg in input {
-        state.session.append(msg);
+        state.session.append(msg.clone());
+        fire_context_on_message(config, &agent_id, &msg).await;
     }
 
     // 3. Main loop
@@ -302,6 +353,9 @@ pub async fn run_agent(
     {
         tracing::warn!(error = %e, "on_agent_end middleware failed");
     }
+
+    // 4b. ContextHooks: dispose (no-op when context_system is None)
+    fire_context_dispose(config).await;
 
     // 5. Emit AgentEnd
     let _ = event_tx.send(AgentEvent::AgentEnd {
@@ -325,6 +379,10 @@ async fn run_loop(
     let mut total_iterations: u32 = 0;
     let mut _session_input_tokens: u64 = 0;
     let mut _session_output_tokens: u64 = 0;
+    // Stable identifier handed to ContextHooks. Same string for the entire run
+    // so plugins can correlate hook calls. Cloned because we'll borrow `state`
+    // mutably later for middleware.
+    let agent_id = state.session.id().to_string();
 
     // Outer loop: processes follow-up messages
     'outer: loop {
@@ -419,10 +477,10 @@ async fn run_loop(
                 return Err(agent_error);
             }
 
-            // 3g. Store response in session
-            state
-                .session
-                .append(AgentMessage::Standard(response.clone()));
+            // 3g. Store response in session + fire ContextHooks::on_message
+            let response_msg = AgentMessage::Standard(response.clone());
+            state.session.append(response_msg.clone());
+            fire_context_on_message(config, &agent_id, &response_msg).await;
 
             // 3h. Track token usage from this turn
             if let Some(ref usage) = response.usage {
@@ -462,6 +520,7 @@ async fn run_loop(
                     "turn completed (no tool calls)"
                 );
                 let _ = event_tx.send(AgentEvent::TurnEnd);
+                fire_context_after_turn(config, &agent_id).await;
                 break 'inner;
             }
 
@@ -547,7 +606,9 @@ async fn run_loop(
                     usage: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
-                state.session.append(AgentMessage::Standard(tool_message));
+                let tool_msg = AgentMessage::Standard(tool_message);
+                state.session.append(tool_msg.clone());
+                fire_context_on_message(config, &agent_id, &tool_msg).await;
 
                 let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
                 tracing::info!(
@@ -565,7 +626,7 @@ async fn run_loop(
                 });
             }
 
-            // 3l. Emit TurnEnd
+            // 3l. Emit TurnEnd + ContextHooks::after_turn
             tracing::info!(
                 turn = total_iterations,
                 duration_ms = turn_start.elapsed().as_millis() as u64,
@@ -573,6 +634,7 @@ async fn run_loop(
                 "turn completed (with tool calls)"
             );
             let _ = event_tx.send(AgentEvent::TurnEnd);
+            fire_context_after_turn(config, &agent_id).await;
 
             // Steering check: after tool execution, before next LLM call
             if let Some(bus) = &config.bus {
@@ -584,7 +646,8 @@ async fn run_loop(
                             AgentMessage::Steering(m) => AgentMessage::Standard(m),
                             other => other,
                         };
-                        state.session.append(msg);
+                        state.session.append(msg.clone());
+                        fire_context_on_message(config, &agent_id, &msg).await;
                         continue 'inner;
                     }
                 }
@@ -608,7 +671,8 @@ async fn run_loop(
                 AgentMessage::FollowUp(m) => AgentMessage::Standard(m),
                 other => other,
             };
-            state.session.append(msg);
+            state.session.append(msg.clone());
+            fire_context_on_message(config, &agent_id, &msg).await;
         }
         // Continue outer loop — process follow-ups
     }
@@ -692,6 +756,7 @@ mod tests {
             context_window: 0,
             workspace: None,
             bus: None,
+            context_system: None,
         };
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -734,6 +799,7 @@ mod tests {
             context_window: 0,
             workspace: None,
             bus: None,
+            context_system: None,
         };
         let cancel = CancellationToken::new();
         cancel.cancel(); // Cancel immediately
@@ -761,6 +827,7 @@ mod tests {
             context_window: 0,
             workspace: None,
             bus: None,
+            context_system: None,
         };
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
