@@ -307,6 +307,7 @@ impl AgentSpawnTool {
             context_window: 0,
             workspace: ctx.workspace().map(|p| p.to_path_buf()),
             bus: ctx.bus().cloned(),
+            sleeper: None,
         })
         .await;
 

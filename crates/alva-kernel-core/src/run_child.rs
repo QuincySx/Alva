@@ -12,7 +12,7 @@ use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::session::{AgentSession, InMemorySession};
 use alva_kernel_abi::tool::Tool;
-use alva_kernel_abi::{AgentMessage, BusHandle, ModelConfig};
+use alva_kernel_abi::{AgentMessage, BusHandle, ModelConfig, NoopSleeper, Sleeper};
 
 use crate::event::AgentEvent;
 use crate::middleware::MiddlewareStack;
@@ -42,6 +42,11 @@ pub struct ChildAgentParams {
     pub workspace: Option<PathBuf>,
     /// Cross-layer coordination bus — inherited from parent so child middleware/tools can use it.
     pub bus: Option<BusHandle>,
+    /// Sleeper used to enforce `timeout`. When `None`, defaults to a
+    /// `NoopSleeper` (timeout never fires — the child runs as long as
+    /// the cancel token allows). Production callers should pass a real
+    /// runtime impl such as `alva-host-native::TokioSleeper`.
+    pub sleeper: Option<Arc<dyn Sleeper>>,
 }
 
 /// Output from a completed child agent run.
@@ -86,8 +91,14 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
     let user_msg = AgentMessage::Standard(Message::user(&params.task));
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    // Run with timeout
-    let result = tokio::time::timeout(params.timeout, async {
+    // Run with timeout — uses an injected Sleeper so the kernel does not
+    // depend on tokio::time. NoopSleeper means "no timeout enforcement";
+    // production hosts (alva-host-native) inject TokioSleeper.
+    let sleeper: Arc<dyn Sleeper> = params
+        .sleeper
+        .clone()
+        .unwrap_or_else(|| Arc::new(NoopSleeper));
+    let result = alva_kernel_abi::timeout(sleeper.as_ref(), params.timeout, async {
         run_agent(
             &mut state,
             &config,
