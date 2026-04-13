@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi, alva_kernel_core::run_child, alva_agent_scope::blackboard, alva_agent_scope::SpawnScopeImpl
+// INPUT:  alva_kernel_abi, alva_kernel_core::run_child, alva_agent_context::scope::blackboard, alva_agent_context::scope::SpawnScopeImpl
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentExtension, ChildRunRecording
 // POS:    AI-driven sub-agent spawning — dynamic roles, optional Blackboard communication.
 
@@ -32,9 +32,9 @@ use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
 
-use alva_agent_scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
-use alva_agent_scope::board_registry::BoardRegistry;
-use alva_agent_scope::SpawnScopeImpl;
+use alva_agent_context::scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
+use alva_agent_context::scope::board_registry::BoardRegistry;
+use alva_agent_context::scope::SpawnScopeImpl;
 
 // ---------------------------------------------------------------------------
 // Child-run recording contract (optional observer hook)
@@ -395,7 +395,7 @@ impl Extension for SubAgentExtension {
             .cloned()
             .collect();
 
-        let root_scope = Arc::new(alva_agent_scope::SpawnScopeImpl::root(
+        let root_scope = Arc::new(alva_agent_context::scope::SpawnScopeImpl::root(
             ctx.model.clone(),
             tools_without_agent,
             // 15-minute budget per sub-agent. The parent's ToolTimeoutMiddleware

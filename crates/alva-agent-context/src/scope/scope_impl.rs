@@ -10,7 +10,7 @@ use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 use alva_kernel_abi::tool::Tool;
 
-use crate::session_tracker::SessionTracker;
+use super::session_tracker::SessionTracker;
 
 /// Concrete SpawnScope implementation.
 ///

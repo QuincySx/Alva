@@ -38,6 +38,7 @@ pub mod compact;
 pub mod auto_compact;
 pub mod system_context;
 pub mod middleware;
+pub mod scope;
 
 pub use middleware::CompactionMiddleware;
 

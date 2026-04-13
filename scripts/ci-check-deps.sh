@@ -48,9 +48,6 @@ check_no_workspace_deps "alva-agent-security" "alva-kernel-abi|alva-kernel-core"
 # Rule 5: alva-agent-memory only depends on alva-kernel-abi
 check_no_workspace_deps "alva-agent-memory" "alva-kernel-abi"
 
-# Rule 6: alva-agent-scope only depends on alva-kernel-abi
-check_no_workspace_deps "alva-agent-scope" "alva-kernel-abi"
-
 # Rule 7: alva-agent-graph only depends on alva-kernel-abi + alva-kernel-core
 check_no_workspace_deps "alva-agent-graph" "alva-kernel-abi|alva-kernel-core"
 

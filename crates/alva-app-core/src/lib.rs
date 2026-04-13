@@ -43,8 +43,8 @@ pub use alva_protocol_skill;
 pub use alva_environment;
 pub use alva_environment::environment;
 
-pub use alva_agent_scope;
-pub use alva_agent_scope::scope_impl as scope;
+pub use alva_agent_context::scope as alva_agent_scope;
+pub use alva_agent_context::scope::scope_impl as scope;
 
 // ── Crate modules ────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 # Alva
 
 > Rust 实现的分层架构 AI Agent 框架。
-> `alva-kernel-bus`（L0 leaf）→ `alva-kernel-abi`（L1 纯契约）→ `alva-kernel-core`（L2 kernel 循环）→ 5 个 L3 功能 Box：`tools` / `security` / `context` / `memory` / `graph`（`scope` 计划合入 `context`）→ `alva-host-native`（L4 装配）→ `alva-engine-*`（L4.5 引擎桥）→ `alva-app-*`（L5 应用）
+> `alva-kernel-bus`（L0 leaf）→ `alva-kernel-abi`（L1 纯契约）→ `alva-kernel-core`（L2 kernel 循环）→ 5 个 L3 功能 Box：`tools` / `security` / `context` / `memory` / `graph`→ `alva-host-native`（L4 装配）→ `alva-engine-*`（L4.5 引擎桥）→ `alva-app-*`（L5 应用）
 
 > **⚠ 本项目采用分形文档协议，必须严格遵守 [FRACTAL-DOCS.md](./FRACTAL-DOCS.md) 中定义的三层文档规范。**
 
@@ -34,9 +34,8 @@
 | `alva-agent-tools` | **干活** | 40+ 个 `Tool` 实现，按 `tool_presets::*` 分组：`file_io`（read / create / file_edit / list / find / grep / view_image）、`shell`（execute_shell）、`interaction`（ask_human）、`task_management`（create / update / get / list / output / stop）、`team`（create / delete / send_message）、`planning`（enter/exit_plan_mode / todo_write）、`worktree`（enter / exit）、`utility`（sleep / config / notebook_edit / skill / tool_search / schedule_cron / remote_trigger）、`web`（internet_search / read_url，`feature = "native"`）、`browser_tools`（7 个 CDP 操作，`feature = "browser"`）。`LocalToolFs` 实现 `ToolFs` trait（`#[cfg(not(target_family = "wasm"))]`），`MockToolFs` 测试替身 |
 | `alva-agent-security` | **守规矩** | `SecurityGuard`（路径过滤 + 授权根 + HITL 权限统一闸门）/ `PermissionManager`（session 级审批 + always-allow/deny 缓存 + async 审批流）/ `SensitivePathFilter`（密钥 / 证书 / 私有配置，dirs + 扩展名 + 文件名 + 正则）/ `AuthorizedRoots` / `SandboxConfig`（macOS Seatbelt profile）/ `PermissionRules` + `PermissionCache` + `PermissionMode` / `BashClassifier`（命令分类）/ `middleware/`：`SecurityMiddleware` + `PlanModeMiddleware` |
 | `alva-agent-memory` | **记得住** | `MemoryBackend` trait + `MemorySqlite` 默认 impl（FTS5 全文 + 暴力向量检索 + embedding 缓存 + 文件/块 CRUD）/ `EmbeddingProvider` trait + `NoopEmbeddingProvider` / `MemoryService`（FTS + 向量混合检索，加权分数融合）/ workspace 扫描：`sync.rs` 扫 `MEMORY.md` / 切块 / 算 embedding / 索引 / `extract.rs` 提取 `ExtractedMemory` |
-| `alva-agent-context` | **控制 prompt + 多 agent 协作** | **契约在 `alva-kernel-abi::scope::context`，实现在这里**：`ContextHooks` 8 钩子生命周期（bootstrap / on_message / on_budget_exceeded / assemble / ingest / after_turn / dispose）/ `ContextStore` **四层**容器（AlwaysPresent / OnDemand / RuntimeInject / Memory）/ `ContextHandle` SDK（snapshot / budget / inject_message / inject_memory / inject_from_file / remove / rewrite / clear_layer / compression shortcut）/ `ContextHooksChain`（多插件顺序组合）/ `RulesContextHooks`（规则策略）/ `DefaultContextHooks`（LLM 回调 + deterministic fallback）/ `apply.rs`（把 `Injection` / `CompressAction` 落到真实 message）/ `compact.rs` + `auto_compact.rs` / `default_context_system()` 默认装配 / `middleware.rs`：`CompactionMiddleware`（过渡版，等 ContextSystem 接入 run loop 后由 on_budget_exceeded 取代）。**⚠ ContextHooks 整套已实现但从未接入 `run.rs`**，是最大的半成品。**计划吸收**：整个 `alva-agent-scope` |
+| `alva-agent-context` | **控制 prompt + 多 agent 协作** | **契约在 `alva-kernel-abi::scope::context`，实现在这里**。**核心 context 插件系统**：`ContextHooks` 8 钩子生命周期（bootstrap / on_message / on_budget_exceeded / assemble / ingest / after_turn / dispose）/ `ContextStore` **四层**容器（AlwaysPresent / OnDemand / RuntimeInject / Memory）/ `ContextHandle` SDK / `ContextHooksChain` / `RulesContextHooks` / `DefaultContextHooks`（LLM 回调 + deterministic fallback）/ `apply.rs` / `compact.rs` + `auto_compact.rs` / `default_context_system()`。**`middleware.rs`**：`CompactionMiddleware`（过渡版，等 ContextSystem 接入 run loop 后由 on_budget_exceeded 取代）。**`scope/` 子模块**（Phase 3 从原 `alva-agent-scope` 合入）：`Blackboard`（共享消息板 / @mention 风格协作）+ `BoardMessage` / `MessageKind` / `TaskPhase` + `AgentProfile` + `BlackboardPlugin`（实现 `ContextHooks`：bootstrap 注册 profile、assemble 注入最近 board 消息、after_turn 同步输出）+ `BoardRegistry`（按 `SpawnScope` ID 隔离多个 Blackboard）+ `SessionTracker`（spawn 树父子关系）+ `SpawnScopeImpl`。**⚠ ContextHooks 整套已实现但从未接入 `run.rs`**，是最大的半成品 |
 | `alva-agent-graph` | **多步骤工作流编排** | LangGraph 风格：`StateGraph<S>` builder（nodes / edges / conditional router / dynamic `SendTo` fan-out / merge fn）+ `CompiledGraph::invoke_with_config` Pregel BSP superstep executor（支持 checkpoint / retry / event streaming）+ `NodeResult::Update / Sends` + Channel 类型（`LastValue` / `EphemeralValue` / `BinaryOperatorAggregate`）+ `CheckpointSaver` + `InMemoryCheckpointSaver` + `RetryConfig` + 独立 `CompactionConfig` + `compact_messages` / `estimate_tokens`（按 AGENTS.md 明确声明是 standalone utility）+ `ContextTransform` / `TransformPipeline` + `GraphRun` wrapper struct（与 L1 的 `AgentSession` trait 区分） |
-| `alva-agent-scope` ⚠ 计划合入 context | (同 context：多 agent 协作) | 整个 crate **计划合入 `alva-agent-context`**。内容：`Blackboard`（共享消息板 / @mention 风格协作）+ `BoardMessage` / `MessageKind` / `TaskPhase` + `AgentProfile`（角色描述 + 依赖关系）+ **`BlackboardPlugin`（实现 `ContextHooks`：bootstrap 注册 profile + 注入 team prompt、assemble 注入最近 board 消息、after_turn 同步输出回 board）** + `BoardRegistry`（按 `SpawnScope` ID 隔离多个 Blackboard）+ `SessionTracker`（spawn 树父子关系）+ `SpawnScopeImpl` |
 
 ### 平台装配（L4）
 
@@ -82,7 +81,7 @@
 | `scripts/ci-check-deps.sh` | CI 强制 crate 边界规则，防止分层被破坏 |
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object） |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app |
-| `Cargo.toml` | Rust workspace，管理 26 个 crate |
+| `Cargo.toml` | Rust workspace，管理 25 个 crate |
 
 # 项目架构
 

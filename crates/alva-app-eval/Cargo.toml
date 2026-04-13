@@ -13,7 +13,6 @@ path = "src/main.rs"
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-agent-tools = { path = "../alva-agent-tools", default-features = false, features = ["native"] }
-alva-agent-scope = { path = "../alva-agent-scope" }
 alva-host-native = { path = "../alva-host-native" }
 alva-agent-security = { path = "../alva-agent-security" }
 alva-app-core = { path = "../alva-app-core" }
