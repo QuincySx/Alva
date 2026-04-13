@@ -1,0 +1,9 @@
+[package]
+name = "alva-host-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "wasm32 host assembly for the alva agent kernel — the wasm-side counterpart of alva-host-native"
+
+[dependencies]
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+async-trait = "0.1"
