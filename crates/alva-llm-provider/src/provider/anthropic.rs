@@ -289,6 +289,19 @@ impl LanguageModel for AnthropicProvider {
             let mut byte_stream = resp.bytes_stream();
             let mut buffer = String::new();
 
+            // Track the id/name of the most recently started tool_use
+            // content_block. Anthropic's protocol emits
+            // `content_block_start` (carrying the id + name) and then a
+            // run of `input_json_delta` events for that same block.
+            // Anthropic's wire format puts an `index` field on both,
+            // but we don't parse it — and the next `content_block_start`
+            // always supersedes the last, so we can safely carry the id
+            // forward on every delta by tracking the "current" tool-use
+            // block locally. This makes every `StreamEvent::ToolCallDelta`
+            // we emit self-contained (id always populated), instead of
+            // relying on the consumer's "most recent id" heuristic.
+            let mut current_tool_id: Option<String> = None;
+
             while let Some(chunk) = futures::StreamExt::next(&mut byte_stream).await {
                 let chunk = match chunk {
                     Ok(c) => c,
@@ -332,11 +345,19 @@ impl LanguageModel for AnthropicProvider {
                                             }
                                             Some("input_json_delta") => {
                                                 if let Some(partial) = delta.partial_json {
-                                                    yield StreamEvent::ToolCallDelta {
-                                                        id: String::new(),
-                                                        name: None,
-                                                        arguments_delta: partial,
-                                                    };
+                                                    // Carry the id from the most recent
+                                                    // content_block_start so the delta is
+                                                    // self-contained. If no tool_use block is
+                                                    // currently open we skip — a stray
+                                                    // input_json_delta without a preceding
+                                                    // tool_use start is a protocol error.
+                                                    if let Some(id) = current_tool_id.clone() {
+                                                        yield StreamEvent::ToolCallDelta {
+                                                            id,
+                                                            name: None,
+                                                            arguments_delta: partial,
+                                                        };
+                                                    }
                                                 }
                                             }
                                             Some("thinking") => {
@@ -351,11 +372,20 @@ impl LanguageModel for AnthropicProvider {
                                 "content_block_start" => {
                                     if let Some(content_block) = event.content_block {
                                         if content_block.block_type == "tool_use" {
+                                            // Remember this block's id so subsequent
+                                            // input_json_delta events can reference it.
+                                            let id = content_block.id.unwrap_or_default();
+                                            current_tool_id = Some(id.clone());
                                             yield StreamEvent::ToolCallDelta {
-                                                id: content_block.id.unwrap_or_default(),
+                                                id,
                                                 name: content_block.name,
                                                 arguments_delta: String::new(),
                                             };
+                                        } else {
+                                            // Non-tool_use block starting — clear the
+                                            // current tool tracker so stray deltas can't
+                                            // attribute themselves to the previous tool.
+                                            current_tool_id = None;
                                         }
                                     }
                                 }
