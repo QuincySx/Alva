@@ -146,10 +146,16 @@ impl SpawnScopeImpl {
 
     /// Names of all parent tools available to hand down to a child scope.
     ///
-    /// Excludes the `agent` spawn tool itself — child scopes always
-    /// receive a freshly constructed spawn tool via `AgentSpawnTool` so
-    /// the recursive self-spawning loop is broken at the type level,
-    /// not at the name-match level.
+    /// Excludes the `agent` spawn tool. **Not** to prevent recursion
+    /// (recursive spawning is allowed — `A → A' → A'' → …` up to
+    /// `max_depth`). The exclusion is because the parent's `agent`
+    /// tool instance is bound to the parent's scope (parent's depth),
+    /// so if a child were to inherit and dispatch it, the child's
+    /// "spawn a grandchild" call would actually create a sibling at
+    /// parent-depth instead of a grandchild at child-depth — silently
+    /// flattening the tree and bypassing `max_depth`. The child always
+    /// receives a freshly-built `AgentSpawnTool` bound to its own
+    /// `child_scope` (see `AgentSpawnTool::execute`).
     ///
     /// Used by `AgentSpawnTool::parameters_schema` to expose the valid
     /// tool names as an enum so the parent LLM knows what it can grant.
@@ -163,12 +169,16 @@ impl SpawnScopeImpl {
 
     /// Return the subset of parent tools whose names appear in `allowed`.
     ///
-    /// The `agent` spawn tool is always excluded — the caller is expected
-    /// to add its own freshly-built spawn tool after this call.
+    /// The `agent` spawn tool is always excluded regardless of the
+    /// whitelist — see `parent_tool_names` for the full explanation.
+    /// In short: the parent's spawn tool is bound to the parent's
+    /// scope, so inheriting it would corrupt depth tracking. The
+    /// caller is expected to push a freshly-built `AgentSpawnTool`
+    /// bound to the child scope after this call.
     ///
-    /// Names that don't match any parent tool are silently skipped, so a
-    /// mistyped or stale name from an LLM spawn call does not abort the
-    /// sub-agent — it just runs with fewer tools.
+    /// Names that don't match any parent tool are silently skipped, so
+    /// a mistyped or stale name from an LLM spawn call does not abort
+    /// the sub-agent — it just runs with fewer tools.
     pub fn tools_by_names(&self, allowed: &[String]) -> Vec<Arc<dyn Tool>> {
         use std::collections::HashSet;
         let allowed: HashSet<&str> = allowed.iter().map(String::as_str).collect();

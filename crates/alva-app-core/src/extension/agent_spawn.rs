@@ -263,10 +263,21 @@ impl Tool for AgentSpawnTool {
             }
         }
 
-        // Build child tools — parent-granted whitelist + child's own
-        // spawn tool (always available so further delegation is possible).
-        // `tools_by_names` already excludes "agent" from the whitelist so
-        // recursive spawn tool inheritance is broken at the plugin level.
+        // Build child tools = whitelisted parent tools + a freshly
+        // built spawn tool bound to child_scope.
+        //
+        // Recursive spawning is **allowed** — the child agent gets its
+        // own `agent` tool and can spawn grandchildren up to
+        // `max_depth`. The new instance is pushed below, bound to
+        // `child_scope` so its depth starts at child.depth+1.
+        //
+        // `tools_by_names` drops any `agent` entry from the whitelist
+        // so the parent's own spawn tool (bound to parent scope,
+        // wrong depth) doesn't end up in the list alongside ours.
+        // Without that, dispatch's first-match find would route the
+        // child's recursive spawn calls to the parent-scoped instance,
+        // creating siblings at parent-depth instead of grandchildren
+        // at child-depth — silently bypassing max_depth.
         let mut child_tools = child_scope.tools_by_names(&input.tools);
         child_tools.push(Arc::new(AgentSpawnTool {
             scope: child_scope.clone(),
