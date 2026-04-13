@@ -144,20 +144,39 @@ impl SpawnScopeImpl {
 
     // ── Tools ────────────────────────────────────────────────────────────
 
-    /// Get the tools available to this scope.
+    /// Names of all parent tools available to hand down to a child scope.
     ///
-    /// When `inherit` is true, parent tools are included but the "agent" tool
-    /// is filtered out to avoid recursive self-spawning loops.
-    pub fn tools(&self, inherit: bool) -> Vec<Arc<dyn Tool>> {
-        if inherit {
-            self.parent_tools
-                .iter()
-                .filter(|t| t.name() != "agent")
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        }
+    /// Excludes the `agent` spawn tool itself — child scopes always
+    /// receive a freshly constructed spawn tool via `AgentSpawnTool` so
+    /// the recursive self-spawning loop is broken at the type level,
+    /// not at the name-match level.
+    ///
+    /// Used by `AgentSpawnTool::parameters_schema` to expose the valid
+    /// tool names as an enum so the parent LLM knows what it can grant.
+    pub fn parent_tool_names(&self) -> Vec<String> {
+        self.parent_tools
+            .iter()
+            .filter(|t| t.name() != "agent")
+            .map(|t| t.name().to_string())
+            .collect()
+    }
+
+    /// Return the subset of parent tools whose names appear in `allowed`.
+    ///
+    /// The `agent` spawn tool is always excluded — the caller is expected
+    /// to add its own freshly-built spawn tool after this call.
+    ///
+    /// Names that don't match any parent tool are silently skipped, so a
+    /// mistyped or stale name from an LLM spawn call does not abort the
+    /// sub-agent — it just runs with fewer tools.
+    pub fn tools_by_names(&self, allowed: &[String]) -> Vec<Arc<dyn Tool>> {
+        use std::collections::HashSet;
+        let allowed: HashSet<&str> = allowed.iter().map(String::as_str).collect();
+        self.parent_tools
+            .iter()
+            .filter(|t| t.name() != "agent" && allowed.contains(t.name()))
+            .cloned()
+            .collect()
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────
@@ -353,10 +372,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_empty_when_not_inheriting() {
+    async fn tools_by_names_empty_when_whitelist_empty() {
         let root = test_root(3);
-        let tools = root.tools(false);
-        assert!(tools.is_empty());
+        // `test_root` passes an empty parent_tools vec, so both the
+        // names list and any whitelist resolve to empty.
+        assert!(root.parent_tool_names().is_empty());
+        assert!(root.tools_by_names(&[]).is_empty());
+        assert!(root.tools_by_names(&["nonexistent".to_string()]).is_empty());
     }
 
     #[tokio::test]

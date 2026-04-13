@@ -27,11 +27,16 @@ impl fmt::Display for ScopeId {
 }
 
 /// Builder for creating a child scope with specific configuration.
+///
+/// Tool inheritance is **no longer** a scope-level config: the parent
+/// agent's LLM picks which tools to grant per-spawn by passing their
+/// names in the `agent` tool call (see `AgentSpawnTool`). The whitelist
+/// is filtered against the parent's own tool set, so a child can never
+/// get a tool the parent doesn't already have.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChildScopeConfig {
     pub role: String,
     pub system_prompt: String,
-    pub inherit_tools: bool,
     #[serde(with = "optional_duration_millis")]
     pub timeout: Option<Duration>,
     pub max_iterations: Option<u32>,
@@ -42,7 +47,6 @@ impl ChildScopeConfig {
         Self {
             role: role.into(),
             system_prompt: String::new(),
-            inherit_tools: false,
             timeout: None,
             max_iterations: None,
         }
@@ -50,11 +54,6 @@ impl ChildScopeConfig {
 
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = prompt.into();
-        self
-    }
-
-    pub fn inherit_tools(mut self, inherit: bool) -> Self {
-        self.inherit_tools = inherit;
         self
     }
 
@@ -141,18 +140,16 @@ mod tests {
         let config = ChildScopeConfig::new("planner")
             .with_system_prompt("You plan.")
             .with_timeout(std::time::Duration::from_secs(120))
-            .inherit_tools(true)
             .with_max_iterations(30);
         assert_eq!(config.role, "planner");
-        assert!(config.inherit_tools);
         assert_eq!(config.max_iterations, Some(30));
     }
 
     #[test]
     fn child_config_defaults() {
         let config = ChildScopeConfig::new("worker");
-        assert!(!config.inherit_tools);
         assert!(config.timeout.is_none());
+        assert!(config.max_iterations.is_none());
     }
 
     #[test]

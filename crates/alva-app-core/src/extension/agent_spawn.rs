@@ -106,8 +106,12 @@ struct SpawnInput {
     role: String,
     #[serde(default)]
     system_prompt: String,
+    /// Tool names the parent grants to this sub-agent. Must be a subset
+    /// of the parent's own tool set — unknown names are silently dropped.
+    /// Empty means the sub-agent can only reason (and spawn further
+    /// sub-agents via its own `agent` tool).
     #[serde(default)]
-    inherit_tools: bool,
+    tools: Vec<String>,
     #[serde(default)]
     board: Option<String>,
 }
@@ -158,6 +162,12 @@ impl Tool for AgentSpawnTool {
     }
 
     fn parameters_schema(&self) -> Value {
+        // Enumerate the parent's tool names so the LLM can only pick
+        // from what actually exists. Name-based, but the names are
+        // the same public identifiers the LLM already sees for its
+        // own tools — no private convention is being introduced.
+        let available_tools = self.scope.parent_tool_names();
+
         serde_json::json!({
             "type": "object",
             "required": ["task", "role"],
@@ -174,9 +184,13 @@ impl Tool for AgentSpawnTool {
                     "type": "string",
                     "description": "System prompt for the sub-agent. If empty, a default is generated from the role."
                 },
-                "inherit_tools": {
-                    "type": "boolean",
-                    "description": "Whether the sub-agent inherits tools (shell, file, etc). Default: false (reasoning only)."
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": available_tools,
+                    },
+                    "description": "Tool names to grant to the sub-agent. Pick exactly what the sub-task needs from the parent's own tool set (listed in the enum). Empty means the sub-agent can only reason and spawn further sub-agents."
                 },
                 "board": {
                     "type": "string",
@@ -207,10 +221,11 @@ impl Tool for AgentSpawnTool {
             input.system_prompt
         };
 
-        // Build child scope — spawn_child() enforces the depth limit
+        // Build child scope — spawn_child() enforces the depth limit.
+        // Tool whitelisting happens below via `tools_by_names`; the scope
+        // itself no longer carries an inherit_tools flag.
         let child_config = ChildScopeConfig::new(&input.role)
-            .with_system_prompt(&system_prompt)
-            .inherit_tools(input.inherit_tools);
+            .with_system_prompt(&system_prompt);
 
         let child_scope = match self.scope.spawn_child(child_config).await {
             Ok(s) => s,
@@ -248,8 +263,11 @@ impl Tool for AgentSpawnTool {
             }
         }
 
-        // Build child tools — from scope + give child its own spawn tool (sharing board_registry)
-        let mut child_tools = child_scope.tools(input.inherit_tools);
+        // Build child tools — parent-granted whitelist + child's own
+        // spawn tool (always available so further delegation is possible).
+        // `tools_by_names` already excludes "agent" from the whitelist so
+        // recursive spawn tool inheritance is broken at the plugin level.
+        let mut child_tools = child_scope.tools_by_names(&input.tools);
         child_tools.push(Arc::new(AgentSpawnTool {
             scope: child_scope.clone(),
             board_registry: self.board_registry.clone(),
@@ -260,7 +278,7 @@ impl Tool for AgentSpawnTool {
             sub_agent_role = %input.role,
             depth = child_scope.depth(),
             parent_scope_id = %self.scope.id(),
-            inherit_tools = input.inherit_tools,
+            granted_tools = ?input.tools,
             tool_count = child_tools.len(),
             "sub-agent spawned"
         );
