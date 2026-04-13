@@ -1,12 +1,13 @@
-// INPUT:  security, plan_mode, checkpoint
-// OUTPUT: SecurityMiddleware, PlanModeMiddleware, CheckpointMiddleware
-// POS:    Domain-specific middleware implementations — lives here because they depend on domain crates.
+// INPUT:  checkpoint (host-local), alva_agent_security::middleware, alva_agent_context::middleware
+// OUTPUT: CheckpointMiddleware, SecurityMiddleware, PlanModeMiddleware, CompactionMiddleware (re-exported)
+// POS:    Host-native middleware aggregation — checkpoint stays here (host-level persistence);
+//         security/plan_mode/compaction are owned by their respective L3 boxes and re-exported for ergonomic access.
 pub mod checkpoint;
-pub mod compaction;
-pub mod plan_mode;
-pub mod security;
 
 pub use checkpoint::{CheckpointCallback, CheckpointCallbackRef, CheckpointMiddleware};
-pub use compaction::{CompactionConfig, CompactionMiddleware};
-pub use plan_mode::{PlanModeControl, PlanModeMiddleware};
-pub use security::{ApprovalNotifier, ApprovalRequest, SecurityMiddleware};
+
+// Re-exports from L3 boxes — keeps `crate::middleware::SecurityMiddleware` etc. callsites working.
+pub use alva_agent_context::middleware::CompactionMiddleware;
+pub use alva_agent_security::middleware::{
+    ApprovalNotifier, ApprovalRequest, PlanModeControl, PlanModeMiddleware, SecurityMiddleware,
+};

@@ -6,7 +6,7 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use alva_app_core::{AgentMessage, AlvaPaths, BaseAgent, PermissionMode};
-use alva_host_native::middleware::security::ApprovalRequest;
+use alva_host_native::middleware::ApprovalRequest;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 

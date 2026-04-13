@@ -1,7 +1,8 @@
-// INPUT:  guard, permission, sensitive_paths, authorized_roots, sandbox, rules, cache, modes, classifier
+// INPUT:  guard, permission, sensitive_paths, authorized_roots, sandbox, rules, cache, modes, classifier, middleware
 // OUTPUT: SecurityGuard, SecurityDecision, PermissionManager, PermissionDecision, SensitivePathFilter,
 //         AuthorizedRoots, SandboxConfig, SandboxMode, PermissionRules, RuleDecision, PermissionRule,
-//         PermissionCache, CachedDecision, PermissionMode, BashClassifier, CommandClassification
+//         PermissionCache, CachedDecision, PermissionMode, BashClassifier, CommandClassification,
+//         SecurityMiddleware, ApprovalNotifier, ApprovalRequest, PlanModeMiddleware, PlanModeControl
 // POS:    Crate root — declares security modules and re-exports the public API.
 
 pub mod guard;
@@ -13,6 +14,7 @@ pub mod rules;
 pub mod cache;
 pub mod modes;
 pub mod classifier;
+pub mod middleware;
 pub(crate) mod path_utils;
 
 pub use guard::{SecurityGuard, SecurityDecision};
@@ -24,3 +26,6 @@ pub use rules::{PermissionRule, PermissionRules, RuleDecision};
 pub use cache::{PermissionCache, CachedDecision};
 pub use modes::PermissionMode;
 pub use classifier::{BashClassifier, CommandClassification};
+pub use middleware::{
+    ApprovalNotifier, ApprovalRequest, PlanModeControl, PlanModeMiddleware, SecurityMiddleware,
+};

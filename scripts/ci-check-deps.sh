@@ -41,8 +41,9 @@ check_no_workspace_deps "alva-kernel-core" "alva-kernel-abi"
 # Rule 3: alva-agent-tools only depends on alva-kernel-abi
 check_no_workspace_deps "alva-agent-tools" "alva-kernel-abi"
 
-# Rule 4: alva-agent-security only depends on alva-kernel-abi
-check_no_workspace_deps "alva-agent-security" "alva-kernel-abi"
+# Rule 4: alva-agent-security depends on alva-kernel-abi + alva-kernel-core
+#         (core is needed because security owns SecurityMiddleware + PlanModeMiddleware)
+check_no_workspace_deps "alva-agent-security" "alva-kernel-abi|alva-kernel-core"
 
 # Rule 5: alva-agent-memory only depends on alva-kernel-abi
 check_no_workspace_deps "alva-agent-memory" "alva-kernel-abi"
@@ -53,8 +54,12 @@ check_no_workspace_deps "alva-agent-scope" "alva-kernel-abi"
 # Rule 7: alva-agent-graph only depends on alva-kernel-abi + alva-kernel-core
 check_no_workspace_deps "alva-agent-graph" "alva-kernel-abi|alva-kernel-core"
 
-# Rule 8: alva-host-native only depends on foundation agent-* crates
-check_no_workspace_deps "alva-host-native" "alva-kernel-abi|alva-kernel-core|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-agent-graph"
+# Rule 7b: alva-agent-context depends on alva-kernel-abi + alva-kernel-core
+#          (core is needed because context owns CompactionMiddleware)
+check_no_workspace_deps "alva-agent-context" "alva-kernel-abi|alva-kernel-core"
+
+# Rule 8: alva-host-native only depends on foundation crates
+check_no_workspace_deps "alva-host-native" "alva-kernel-abi|alva-kernel-core|alva-agent-tools|alva-agent-security|alva-agent-context|alva-agent-memory|alva-agent-graph"
 
 # Rule 9: alva-engine-runtime only depends on alva-kernel-abi
 check_no_workspace_deps "alva-engine-runtime" "alva-kernel-abi"

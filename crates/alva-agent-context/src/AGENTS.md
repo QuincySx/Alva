@@ -12,6 +12,7 @@
 5. `chain.rs` 把多个 `ContextHooks` 组合成顺序执行的 pipeline；`apply.rs` 把 `Injection` / `CompressAction` 应用到运行时 system prompt 与 message 列表。
 6. `context_system.rs` 提供 `ContextSystem` re-export 与 `default_context_system()` 默认装配入口。
 7. `types.rs` re-export context 相关共享类型，保证外部 crate 通过本 crate 也能拿到完整上下文值对象。
+8. `middleware.rs` 提供 `CompactionMiddleware`（Phase 2 从 host-native 搬来）：基于 bus `TokenCounter` 估算 token，超限时触发 LLM 摘要并发出 bus 事件。**过渡实现**——等 `ContextSystem` 正式接入 run loop 后将由 `on_budget_exceeded` 钩子取代。
 
 ## 约束
 - `ContextHooks` / `ContextHandle` / `ContextSystem` 的 trait 或结构定义不在本目录声明，而是来自 `alva-kernel-abi::context`。
@@ -34,3 +35,4 @@
 | 规则策略 | `rules_plugin.rs` | `RulesContextHooks` |
 | 默认策略 | `default_plugin.rs` | `DefaultContextHooks`、`DefaultHooksConfig` |
 | 类型导出 | `types.rs` | context 相关共享值对象 re-export |
+| 中间件 | `middleware.rs` | `CompactionMiddleware`（过渡版，bus TokenCounter 驱动） |

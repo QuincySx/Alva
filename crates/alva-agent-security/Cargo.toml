@@ -6,17 +6,21 @@ description = "Security subsystem for the agent framework"
 
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-kernel-core = { path = "../alva-kernel-core" }
+async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 dirs = { version = "5", optional = true }
 regex = "1"
 tracing = "0.1"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time", "macros"] }
 
 [features]
 default = ["native"]
 native = ["dirs"]
 
 [dev-dependencies]
+futures-core = "0.3"
 tokio = { version = "1", features = ["macros", "rt"] }
+tokio-stream = "0.1"

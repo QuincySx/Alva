@@ -5,7 +5,7 @@ use alva_kernel_core::middleware::{Middleware, MiddlewareStack};
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::shared::Extensions;
 use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
-use alva_host_native::middleware::security::{ApprovalNotifier, ApprovalRequest};
+use alva_host_native::middleware::{ApprovalNotifier, ApprovalRequest};
 use alva_host_native::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
 use alva_kernel_abi::{

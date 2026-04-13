@@ -9,6 +9,7 @@ alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-agent-tools = { path = "../alva-agent-tools", default-features = false }
 alva-agent-security = { path = "../alva-agent-security", default-features = false }
+alva-agent-context = { path = "../alva-agent-context" }
 alva-agent-memory = { path = "../alva-agent-memory", optional = true }
 alva-agent-graph = { path = "../alva-agent-graph" }
 async-trait = "0.1"

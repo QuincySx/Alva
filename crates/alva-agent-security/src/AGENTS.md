@@ -2,7 +2,7 @@
 > Agent 安全子系统的源码实现层：路径过滤、授权根目录、HITL 权限管理、macOS 沙箱配置
 
 ## 地位
-`alva-agent-security` crate 的全部源码。对外通过 `lib.rs` 的 re-exports 提供 SecurityGuard、PermissionManager、SensitivePathFilter、AuthorizedRoots、SandboxConfig 等公共 API。被 `alva-host-native` 的 `SecurityMiddleware` 包装后作为中间件接入 Agent 执行管线。
+`alva-agent-security` crate 的全部源码。对外通过 `lib.rs` 的 re-exports 提供 SecurityGuard、PermissionManager、SensitivePathFilter、AuthorizedRoots、SandboxConfig 等公共 API；以及 `middleware/` 子模块下的 `SecurityMiddleware` + `PlanModeMiddleware`（Phase 2 从 host-native 搬来），将这些安全组件适配为 `alva-kernel-core::middleware::Middleware` trait 实现，直接接入 Agent 执行管线。
 
 ## 逻辑
 1. `guard.rs` 组合所有安全组件为统一安全门（SecurityGuard），工具执行前依次检查：
@@ -24,6 +24,7 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | Crate Root | lib.rs | 声明所有安全模块并 re-export 公共 API |
+| Middleware Module | middleware/ | `SecurityMiddleware` + `PlanModeMiddleware`：把安全策略适配为 kernel `Middleware` trait |
 | SecurityGuard | guard.rs | 统一安全门：组合敏感路径过滤、授权根校验、HITL 权限管理 |
 | PermissionManager | permission.rs | 会话级 HITL 权限管理器，缓存 allow/deny 决策，异步审批流 |
 | SensitivePathFilter | sensitive_paths.rs | 敏感路径过滤：目录黑名单、扩展名、文件名、正则模式四级匹配 |

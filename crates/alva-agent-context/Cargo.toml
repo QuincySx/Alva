@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-kernel-core = { path = "../alva-kernel-core" }
 
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }

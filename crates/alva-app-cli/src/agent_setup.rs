@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder};
 use alva_host_native::middleware::checkpoint::CheckpointCallback;
-use alva_host_native::middleware::security::ApprovalRequest;
+use alva_host_native::middleware::ApprovalRequest;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 

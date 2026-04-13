@@ -37,6 +37,9 @@ pub mod default_plugin;
 pub mod compact;
 pub mod auto_compact;
 pub mod system_context;
+pub mod middleware;
+
+pub use middleware::CompactionMiddleware;
 
 pub use plugin::{ContextError, ContextHooks};
 pub use sdk::ContextHandle;

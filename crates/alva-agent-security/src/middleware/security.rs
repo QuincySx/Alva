@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_core::middleware, alva_agent_security, alva_kernel_abi::{BusHandle, ToolCall}, async_trait, tokio::sync::Mutex
+// INPUT:  alva_kernel_core::middleware, crate::{SecurityGuard, SandboxMode, SecurityDecision, PermissionDecision}, alva_kernel_abi::{BusHandle, ToolCall}, async_trait, tokio::sync::Mutex
 // OUTPUT: SecurityMiddleware, ApprovalRequest, ApprovalNotifier
 // POS:    Wraps SecurityGuard as async Middleware — reads ApprovalNotifier from bus to route interactive permission prompts.
 
@@ -8,7 +8,7 @@ use std::time::Duration;
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::state::AgentState;
 use alva_kernel_core::shared::MiddlewarePriority;
-use alva_agent_security::{SandboxMode, SecurityDecision, SecurityGuard};
+use crate::{SandboxMode, SecurityDecision, SecurityGuard};
 use alva_kernel_abi::{BusHandle, CancellationToken, MinimalExecutionContext, ToolCall};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -116,7 +116,7 @@ impl Middleware for SecurityMiddleware {
                         }
 
                         enum ApprovalWaitOutcome {
-                            Decision(Result<alva_agent_security::PermissionDecision, tokio::sync::oneshot::error::RecvError>),
+                            Decision(Result<crate::PermissionDecision, tokio::sync::oneshot::error::RecvError>),
                             Cancelled,
                             TimedOut,
                         }
@@ -140,7 +140,7 @@ impl Middleware for SecurityMiddleware {
 
                         match wait_outcome {
                             ApprovalWaitOutcome::Decision(Ok(perm)) => {
-                                use alva_agent_security::PermissionDecision;
+                                use crate::PermissionDecision;
                                 match perm {
                                     PermissionDecision::AllowOnce
                                     | PermissionDecision::AllowAlways => Ok(()),
@@ -322,7 +322,7 @@ mod tests {
             g.resolve_permission(
                 &req.request_id,
                 "execute_shell",
-                alva_agent_security::PermissionDecision::AllowOnce,
+                crate::PermissionDecision::AllowOnce,
             );
         });
 
@@ -363,7 +363,7 @@ mod tests {
             g.resolve_permission(
                 &req.request_id,
                 "execute_shell",
-                alva_agent_security::PermissionDecision::RejectOnce,
+                crate::PermissionDecision::RejectOnce,
             );
         });
 

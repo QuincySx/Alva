@@ -5,7 +5,7 @@
 use std::io::{self, BufRead, Write};
 
 use alva_app_core::{AgentEvent, AgentMessage, BaseAgent, PermissionDecision};
-use alva_host_native::middleware::security::ApprovalRequest;
+use alva_host_native::middleware::ApprovalRequest;
 use tokio::sync::mpsc;
 
 use crate::output;
