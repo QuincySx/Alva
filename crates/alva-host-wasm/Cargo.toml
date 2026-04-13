@@ -6,9 +6,11 @@ description = "wasm32 host assembly for the alva agent kernel — the wasm-side 
 
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-kernel-core = { path = "../alva-kernel-core" }
 async-trait = "0.1"
+futures-core = "0.3"
 # tokio is already a transitive dep via alva-kernel-abi; we only need its
-# oneshot channel from the sync feature, which is wasm32-safe.
+# sync feature for the oneshot channel + mpsc, both of which are wasm32-safe.
 tokio = { version = "1", default-features = false, features = ["sync"] }
 
 # wasm-only deps. On native targets these are skipped, so the WasmSleeper

@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi::Sleeper, gloo-timers + wasm-bindgen-futures (wasm only), tokio::sync::oneshot
+// INPUT:  alva_kernel_abi::Sleeper, alva_kernel_core::run_agent, gloo-timers + wasm-bindgen-futures (wasm only), tokio::sync::oneshot
 // OUTPUT: WasmSleeper (wasm only)
 // POS:    Crate root — wasm32 host assembly for alva-kernel.
 
@@ -22,3 +22,10 @@ mod sleeper;
 
 #[cfg(target_family = "wasm")]
 pub use sleeper::WasmSleeper;
+
+// Compile-time probe — type-checks the full kernel API surface against
+// wasm32 to catch regressions. The probe function is dead code; its purpose
+// is to force `cargo check --target wasm32` to exercise `run_agent` from a
+// downstream host's perspective. Compiled on every target so native check
+// also benefits from the type-level coverage.
+mod smoke;
