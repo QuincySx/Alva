@@ -1,136 +1,226 @@
-//! Integration tests for `BaseAgentBuilder`'s override hooks.
+//! Integration tests for the extension-replacement contract on
+//! `BaseAgentBuilder`.
 //!
-//! Verifies that:
-//! 1. `.memory_service(custom)` actually wires the caller-supplied
-//!    `MemoryService` into the resulting `BaseAgent`, instead of
-//!    constructing the default `InMemoryBackend`-backed one.
-//! 2. `.security_middleware(custom)` actually replaces the default
-//!    `SecurityMiddleware` in the middleware stack — proven by the
-//!    custom middleware's `on_agent_start` hook firing during a prompt.
+//! `BaseAgentBuilder` no longer exposes `with_memory` / `memory_service` /
+//! `security_middleware` setters. Memory and security ship as default
+//! Extensions (`MemoryExtension`, `SecurityExtension` from
+//! `alva-agent-extension-builtin`) and the only customization mechanism is
+//! to register your own extension with the same `name()` — the builder
+//! detects the duplicate and skips its default. These tests pin that
+//! contract.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 
+use alva_agent_core::extension::{Extension, ExtensionContext};
 use alva_agent_memory::{InMemoryBackend, MemoryService, NoopEmbeddingProvider};
+use alva_agent_security::SecurityGuard;
 use alva_app_core::base_agent::BaseAgent;
-use alva_app_core::AgentEvent;
-use alva_kernel_core::middleware::Middleware;
-use alva_kernel_core::shared::MiddlewareError;
-use alva_kernel_core::state::AgentState;
+use alva_kernel_abi::tool::Tool;
 use alva_test::fixtures::make_assistant_message;
 use alva_test::mock_provider::MockLanguageModel;
+use tokio::sync::Mutex;
 
 // ---------------------------------------------------------------------------
-// Test 1: memory_service override
+// Test 1: default MemoryExtension is wired and publishes MemoryService on bus
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn memory_service_override_is_used() {
-    // Build a custom MemoryService backed by the pure in-memory backend, and
-    // seed it with a known sentinel entry.
-    let backend = InMemoryBackend::new();
-    let embedder = Box::new(NoopEmbeddingProvider::new());
-    let custom = MemoryService::with_backend(Arc::new(backend), embedder);
-
-    custom
-        .store_entry(
-            "override-sentinel-key",
-            "sentinel content from custom memory service",
-            "test",
-        )
-        .await
-        .expect("seed sentinel entry");
-
-    // Build the agent with the custom MemoryService injected.
+async fn default_memory_extension_is_wired() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let model: Arc<dyn alva_kernel_abi::LanguageModel> =
         Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
 
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
-        .memory_service(custom)
         .build(model)
         .await
         .expect("build should succeed");
 
-    // The agent should expose *our* MemoryService — confirm by querying for
-    // the sentinel content. A freshly-constructed default InMemoryBackend would
-    // have no entries, so a non-empty result proves we got the override.
-    let memory = agent.memory().expect("memory should be wired");
-    let results = memory
-        .search("sentinel", 10)
-        .await
-        .expect("search should succeed");
+    let svc = agent
+        .bus()
+        .get::<MemoryService>()
+        .expect("default MemoryExtension should publish MemoryService on the bus");
 
+    // Functional sanity check: the default service is empty and writeable.
+    svc.store_entry("default-key", "default content", "test")
+        .await
+        .expect("store_entry on default service");
+    let results = svc.search("default", 10).await.expect("search");
     assert!(
-        !results.is_empty(),
-        "expected the seeded sentinel entry, got empty results — \
-         this means the override was ignored and a fresh service was built"
+        results.iter().any(|e| e.path == "default-key"),
+        "default MemoryService should be writable and queryable"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test 2: a user-registered "memory" extension replaces the default
+// ---------------------------------------------------------------------------
+
+/// Counts how many times `configure()` is called and seeds a marker entry
+/// in its own MemoryService, so the test can detect the override took.
+struct CustomMemoryExt {
+    service: Arc<MemoryService>,
+    activations: Arc<AtomicUsize>,
+}
+
+impl CustomMemoryExt {
+    fn new(activations: Arc<AtomicUsize>) -> Self {
+        let backend = Arc::new(InMemoryBackend::new());
+        let embedder = Box::new(NoopEmbeddingProvider::new());
+        Self {
+            service: Arc::new(MemoryService::with_backend(backend, embedder)),
+            activations,
+        }
+    }
+}
+
+#[async_trait]
+impl Extension for CustomMemoryExt {
+    fn name(&self) -> &str {
+        "memory"
+    }
+
+    async fn tools(&self) -> Vec<Box<dyn Tool>> {
+        Vec::new()
+    }
+
+    async fn configure(&self, ctx: &ExtensionContext) {
+        self.activations.fetch_add(1, Ordering::SeqCst);
+        // Seed a sentinel BEFORE publishing so the assertion below can
+        // distinguish our service from a freshly-built default.
+        self.service
+            .store_entry("custom-sentinel", "from custom ext", "test")
+            .await
+            .expect("seed sentinel");
+        ctx.bus_writer
+            .provide::<MemoryService>(self.service.clone());
+    }
+}
+
+#[tokio::test]
+async fn custom_memory_extension_replaces_default() {
+    let activations = Arc::new(AtomicUsize::new(0));
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let model: Arc<dyn alva_kernel_abi::LanguageModel> =
+        Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
+
+    let agent = BaseAgent::builder()
+        .workspace(tmp.path())
+        .extension(Box::new(CustomMemoryExt::new(activations.clone())))
+        .build(model)
+        .await
+        .expect("build should succeed");
+
+    assert_eq!(
+        activations.load(Ordering::SeqCst),
+        1,
+        "custom MemoryExtension's configure() should have run exactly once"
+    );
+
+    let svc = agent
+        .bus()
+        .get::<MemoryService>()
+        .expect("custom MemoryExtension should publish MemoryService on the bus");
+    let results = svc.search("sentinel", 10).await.expect("search");
     assert!(
-        results
-            .iter()
-            .any(|e| e.path == "override-sentinel-key"),
-        "expected to find the sentinel entry by path; results: {:?}",
+        results.iter().any(|e| e.path == "custom-sentinel"),
+        "expected the custom sentinel entry — instead got: {:?}",
         results.iter().map(|e| &e.path).collect::<Vec<_>>()
     );
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: security_middleware override
+// Test 3: default SecurityExtension is wired and publishes SecurityGuard on bus
 // ---------------------------------------------------------------------------
 
-/// A minimal `Middleware` that counts how often `on_agent_start` is invoked.
-/// Used as a stand-in for a custom security middleware so we can assert the
-/// builder actually wired it into the stack.
-#[derive(Default)]
-struct CountingMiddleware {
-    starts: Arc<AtomicUsize>,
-}
-
-#[async_trait]
-impl Middleware for CountingMiddleware {
-    async fn on_agent_start(&self, _state: &mut AgentState) -> Result<(), MiddlewareError> {
-        self.starts.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-}
-
 #[tokio::test]
-async fn security_middleware_override_is_used() {
-    let starts = Arc::new(AtomicUsize::new(0));
-    let custom_mw = Arc::new(CountingMiddleware {
-        starts: starts.clone(),
-    });
-
+async fn default_security_extension_is_wired() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let model: Arc<dyn alva_kernel_abi::LanguageModel> = Arc::new(
-        MockLanguageModel::new().with_response(make_assistant_message("hello from mock")),
-    );
+    let model: Arc<dyn alva_kernel_abi::LanguageModel> =
+        Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
 
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
-        .security_middleware(custom_mw.clone())
         .build(model)
         .await
         .expect("build should succeed");
 
-    // Drive a single prompt through the agent loop. This should trigger
-    // `on_agent_start` on every middleware in the stack — including ours.
-    let mut rx = agent.prompt_text("hi");
-    while let Some(event) = rx.recv().await {
-        if matches!(event, AgentEvent::AgentEnd { .. }) {
-            break;
-        }
+    let guard = agent
+        .bus()
+        .get::<Mutex<SecurityGuard>>()
+        .expect("default SecurityExtension should publish SecurityGuard on the bus");
+    // Just hold the lock briefly to make sure it's a real, usable handle.
+    let _g = guard.lock().await;
+}
+
+// ---------------------------------------------------------------------------
+// Test 4: a user-registered "security" extension replaces the default
+// ---------------------------------------------------------------------------
+
+/// A custom "security" extension that does NOT register a SecurityGuard on
+/// the bus (it stores a marker instead). If the override mechanism works,
+/// the bus will not have a SecurityGuard published — proving the default
+/// SecurityExtension was skipped.
+struct CustomSecurityExt {
+    activations: Arc<AtomicUsize>,
+    marker: Arc<StdMutex<bool>>,
+}
+
+impl CustomSecurityExt {
+    fn new(activations: Arc<AtomicUsize>, marker: Arc<StdMutex<bool>>) -> Self {
+        Self { activations, marker }
+    }
+}
+
+#[async_trait]
+impl Extension for CustomSecurityExt {
+    fn name(&self) -> &str {
+        "security"
     }
 
-    let count = starts.load(Ordering::SeqCst);
+    async fn tools(&self) -> Vec<Box<dyn Tool>> {
+        Vec::new()
+    }
+
+    async fn configure(&self, _ctx: &ExtensionContext) {
+        self.activations.fetch_add(1, Ordering::SeqCst);
+        *self.marker.lock().unwrap() = true;
+    }
+}
+
+#[tokio::test]
+async fn custom_security_extension_replaces_default() {
+    let activations = Arc::new(AtomicUsize::new(0));
+    let marker = Arc::new(StdMutex::new(false));
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let model: Arc<dyn alva_kernel_abi::LanguageModel> =
+        Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
+
+    let agent = BaseAgent::builder()
+        .workspace(tmp.path())
+        .extension(Box::new(CustomSecurityExt::new(
+            activations.clone(),
+            marker.clone(),
+        )))
+        .build(model)
+        .await
+        .expect("build should succeed");
+
+    assert_eq!(
+        activations.load(Ordering::SeqCst),
+        1,
+        "custom SecurityExtension's configure() should have run exactly once"
+    );
     assert!(
-        count >= 1,
-        "expected the custom security middleware to be called at least once \
-         (on_agent_start), got {count}. This means the override was not wired \
-         into the middleware stack."
+        *marker.lock().unwrap(),
+        "custom SecurityExtension marker should be set"
+    );
+    assert!(
+        agent.bus().get::<Mutex<SecurityGuard>>().is_none(),
+        "the default SecurityExtension must NOT have been wired \
+         when the user registered their own 'security' extension"
     );
 }

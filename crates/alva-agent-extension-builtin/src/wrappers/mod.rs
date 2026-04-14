@@ -2,7 +2,9 @@
 
 pub mod core;
 pub mod interaction;
+pub mod memory;
 pub mod planning;
+pub mod security;
 pub mod shell;
 pub mod task;
 pub mod team;
@@ -13,7 +15,9 @@ pub mod browser;
 
 pub use self::core::CoreExtension;
 pub use interaction::InteractionExtension;
+pub use memory::MemoryExtension;
 pub use planning::PlanningExtension;
+pub use security::SecurityExtension;
 pub use shell::ShellExtension;
 pub use task::TaskExtension;
 pub use team::TeamExtension;

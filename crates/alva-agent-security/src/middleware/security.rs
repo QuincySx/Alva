@@ -2,10 +2,10 @@
 // OUTPUT: SecurityMiddleware, ApprovalRequest, ApprovalNotifier
 // POS:    Wraps SecurityGuard as async Middleware — reads ApprovalNotifier from bus to route interactive permission prompts.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use alva_kernel_core::middleware::{Middleware, MiddlewareError};
+use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
 use alva_kernel_core::state::AgentState;
 use alva_kernel_core::shared::MiddlewarePriority;
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
@@ -30,7 +30,7 @@ pub struct ApprovalNotifier {
 
 pub struct SecurityMiddleware {
     guard: Arc<Mutex<SecurityGuard>>,
-    bus: Option<BusHandle>,
+    bus: OnceLock<BusHandle>,
     approval_timeout: Duration,
 }
 
@@ -38,7 +38,7 @@ impl SecurityMiddleware {
     pub fn new(guard: SecurityGuard) -> Self {
         Self {
             guard: Arc::new(Mutex::new(guard)),
-            bus: None,
+            bus: OnceLock::new(),
             approval_timeout: Duration::from_secs(300),
         }
     }
@@ -48,8 +48,11 @@ impl SecurityMiddleware {
     }
 
     /// Attach a bus handle so the middleware can look up capabilities (e.g. ApprovalNotifier).
-    pub fn with_bus(mut self, bus: BusHandle) -> Self {
-        self.bus = Some(bus);
+    ///
+    /// Can also be wired lazily by `Middleware::configure()`; the first
+    /// caller wins (subsequent calls are ignored).
+    pub fn with_bus(self, bus: BusHandle) -> Self {
+        let _ = self.bus.set(bus);
         self
     }
 
@@ -93,7 +96,7 @@ impl Middleware for SecurityMiddleware {
             SecurityDecision::Deny { reason } => Err(MiddlewareError::Blocked { reason }),
             SecurityDecision::NeedHumanApproval { request_id } => {
                 // Try to get the approval notifier from the bus
-                let notifier = self.bus.as_ref()
+                let notifier = self.bus.get()
                     .and_then(|b| b.get::<ApprovalNotifier>())
                     .map(|arc| (*arc).clone());
 
@@ -205,6 +208,12 @@ impl Middleware for SecurityMiddleware {
 
     fn priority(&self) -> i32 {
         MiddlewarePriority::SECURITY
+    }
+
+    fn configure(&self, ctx: &MiddlewareContext) {
+        if let Some(bus) = &ctx.bus {
+            let _ = self.bus.set(bus.clone());
+        }
     }
 }
 

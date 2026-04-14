@@ -2,9 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use alva_kernel_core::middleware::Middleware;
-use alva_agent_memory::{MemoryService, NoopEmbeddingProvider};
 use alva_host_native::middleware::{ApprovalNotifier, ApprovalRequest};
-use alva_host_native::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
 use alva_kernel_abi::{Bus, BusPlugin, CancellationToken, LanguageModel, PluginRegistrar, Tool};
 
@@ -18,16 +16,18 @@ use crate::extension::Extension;
 
 /// Builder for constructing a [`BaseAgent`].
 ///
-/// By default, `build()` only adds `SecurityMiddleware`. All other tools
-/// and middleware come from registered Extensions via `.extension()`.
+/// All capabilities — including memory and the security sandbox — are
+/// expressed as Extensions. The builder ships sensible defaults
+/// (`MemoryExtension`, `SecurityExtension`) which are wired in
+/// automatically unless the caller registers an extension with the same
+/// `name()`. That is the only customization mechanism: there are no
+/// `with_memory` / `memory_service` / `security_middleware` setters.
 ///
 /// ```rust,ignore
 /// BaseAgent::builder()
 ///     .workspace(path)
 ///     .extension(Box::new(CoreExtension))
 ///     .extension(Box::new(ShellExtension))
-///     .extension(Box::new(LoopDetectionExtension))
-///     .extension(Box::new(CompactionExtension))
 ///     .build(model).await?;
 /// ```
 pub struct BaseAgentBuilder {
@@ -40,9 +40,6 @@ pub struct BaseAgentBuilder {
     // Direct tool/middleware (for special cases beyond extensions)
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
-    pub(crate) enable_memory: bool,
-    pub(crate) memory_service_override: Option<MemoryService>,
-    pub(crate) security_middleware_override: Option<Arc<dyn Middleware>>,
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
@@ -59,9 +56,6 @@ impl BaseAgentBuilder {
             extensions: Vec::new(),
             extra_tools: Vec::new(),
             extra_middleware: Vec::new(),
-            enable_memory: false,
-            memory_service_override: None,
-            security_middleware_override: None,
             max_iterations: 100,
             context_window: 0,
             approval_notifier: None,
@@ -126,31 +120,6 @@ impl BaseAgentBuilder {
 
     // -- Features -------------------------------------------------------------
 
-    /// Enable the memory subsystem with the default pure in-memory backend.
-    /// Use `.memory_service(...)` to swap in a persistent backend.
-    pub fn with_memory(mut self) -> Self {
-        self.enable_memory = true;
-        self
-    }
-
-    /// Inject a pre-constructed `MemoryService` (overrides the default
-    /// `InMemoryBackend`-backed construction). Implies `enable_memory = true`.
-    pub fn memory_service(mut self, service: MemoryService) -> Self {
-        self.memory_service_override = Some(service);
-        self.enable_memory = true;
-        self
-    }
-
-    /// Inject a custom middleware in place of the default
-    /// `SecurityMiddleware::for_workspace(workspace, sandbox_mode)`. Use this
-    /// when you want fine-grained control over sandboxing or are running in
-    /// an environment where the built-in sandbox doesn't apply (tests,
-    /// in-process harness, etc).
-    pub fn security_middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
-        self.security_middleware_override = Some(mw);
-        self
-    }
-
     /// Set the max iterations for the agent loop (default: 100).
     pub fn max_iterations(mut self, n: u32) -> Self {
         self.max_iterations = n;
@@ -182,11 +151,13 @@ impl BaseAgentBuilder {
     ///
     /// # Errors
     ///
-    /// Returns `EngineError` if workspace is not set or if memory initialization fails.
-    pub async fn build(self, model: Arc<dyn LanguageModel>) -> Result<BaseAgent, EngineError> {
+    /// Returns `EngineError` if workspace is not set or if the inner
+    /// `Agent::build()` fails.
+    pub async fn build(mut self, model: Arc<dyn LanguageModel>) -> Result<BaseAgent, EngineError> {
         // 1. Validate workspace.
         let workspace = self
             .workspace
+            .clone()
             .ok_or_else(|| EngineError::ToolExecution("workspace is required".into()))?;
 
         // 2. Create the coordination bus. We keep our own writer alive for
@@ -206,7 +177,7 @@ impl BaseAgentBuilder {
         ));
 
         // 3b. Approval notifier (only if the caller wired one).
-        if let Some(notifier) = self.approval_notifier {
+        if let Some(notifier) = self.approval_notifier.take() {
             bus_writer.provide(Arc::new(notifier));
         }
 
@@ -218,18 +189,29 @@ impl BaseAgentBuilder {
             pending_messages.clone() as Arc<dyn alva_kernel_core::pending_queue::AgentLoopHook>,
         );
 
-        // 4. Build the security middleware (harness preset, overridable).
-        //    It needs to see the bus_handle so its guard can publish events.
-        let mut security_guard = None;
-        let security_mw: Arc<dyn Middleware> = match self.security_middleware_override {
-            Some(mw) => mw,
-            None => {
-                let default = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
-                    .with_bus(bus_handle.clone());
-                security_guard = Some(default.guard());
-                Arc::new(default)
-            }
-        };
+        // 4. Auto-wire default extensions for memory + security if the
+        //    caller hasn't already registered an extension under the same
+        //    name. This is the ENTIRE opt-out mechanism: register your own
+        //    "memory" / "security" extension and ours is skipped.
+        let has_memory = self.extensions.iter().any(|e| e.name() == "memory");
+        if !has_memory {
+            self.extensions.insert(
+                0,
+                Box::new(alva_agent_extension_builtin::wrappers::MemoryExtension::default()),
+            );
+        }
+        let has_security = self.extensions.iter().any(|e| e.name() == "security");
+        if !has_security {
+            self.extensions.insert(
+                0,
+                Box::new(
+                    alva_agent_extension_builtin::wrappers::SecurityExtension::for_workspace(
+                        &workspace,
+                        self.sandbox_mode.clone(),
+                    ),
+                ),
+            );
+        }
 
         // 5. Compose the inner alva_agent_core::AgentBuilder. The generic
         //    extension lifecycle (tools/activate/configure/finalize),
@@ -254,10 +236,8 @@ impl BaseAgentBuilder {
             agent_builder = agent_builder.tool(tool);
         }
 
-        // 5c. Security middleware first, then any caller-supplied extras.
-        //     The inner builder uses `push_sorted`, so global ordering still
-        //     respects each middleware's `priority()`.
-        agent_builder = agent_builder.middleware(security_mw);
+        // 5c. Caller-supplied extra middleware (security middleware now
+        //     comes from the SecurityExtension in the extension stack).
         for mw in self.extra_middleware {
             agent_builder = agent_builder.middleware(mw);
         }
@@ -300,28 +280,12 @@ impl BaseAgentBuilder {
             tool_registry.register_arc(tool.clone());
         }
 
-        // 10. Optionally create MemoryService (harness concern).
-        let memory = if let Some(service) = self.memory_service_override {
-            Some(service)
-        } else if self.enable_memory {
-            // Default: pure in-memory backend. Zero external deps, no filesystem.
-            // Users who want SQLite (or any other backend) should call
-            // `.memory_service(...)` with their own MemoryService.
-            let store = alva_agent_memory::InMemoryBackend::new();
-            let embedder = Box::new(NoopEmbeddingProvider::new());
-            Some(MemoryService::with_backend(std::sync::Arc::new(store), embedder))
-        } else {
-            None
-        };
-
-        // 11. Return BaseAgent wrapping the inner Agent.
+        // 10. Return BaseAgent wrapping the inner Agent.
         Ok(BaseAgent {
             inner: Arc::new(inner),
             current_cancel,
             permission_mode: std::sync::Mutex::new(PermissionMode::Ask),
             tool_registry,
-            memory,
-            security_guard,
             pending_messages,
             bus_writer,
         })
@@ -355,7 +319,7 @@ mod tests {
     fn builder_defaults() {
         let builder = BaseAgentBuilder::new();
         assert!(builder.workspace.is_none());
-        assert!(!builder.enable_memory);
+        assert!(builder.extensions.is_empty());
         assert_eq!(builder.max_iterations, 100);
         assert_eq!(builder.system_prompt, "You are a helpful AI assistant.");
     }
@@ -366,12 +330,10 @@ mod tests {
             .workspace("/tmp/test")
             .system_prompt("Custom prompt")
             .sandbox_mode(SandboxMode::RestrictiveOpen)
-            .with_memory()
             .max_iterations(200);
 
         assert_eq!(builder.workspace, Some(PathBuf::from("/tmp/test")));
         assert_eq!(builder.system_prompt, "Custom prompt");
-        assert!(builder.enable_memory);
         assert_eq!(builder.max_iterations, 200);
     }
 

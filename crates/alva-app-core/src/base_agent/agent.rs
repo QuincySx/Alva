@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use alva_agent_core::Agent;
-use alva_agent_memory::MemoryService;
 use alva_host_native::middleware::PlanModeControl;
 use alva_kernel_abi::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
@@ -9,7 +8,7 @@ use alva_kernel_abi::{
 use alva_kernel_core::event::AgentEvent;
 use alva_kernel_core::run::run_agent;
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 use super::builder::BaseAgentBuilder;
 use super::permission::PermissionMode;
@@ -38,8 +37,6 @@ pub struct BaseAgent {
     pub(super) permission_mode: std::sync::Mutex<PermissionMode>,
     /// Snapshot of the registered tools, exposed via `tool_registry()`.
     pub(super) tool_registry: ToolRegistry,
-    pub(super) memory: Option<MemoryService>,
-    pub(super) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
     /// Pending messages queue — bridges external steer/follow_up calls
     /// to the agent loop via AgentLoopHook.
     pub(super) pending_messages: Arc<alva_kernel_core::pending_queue::PendingMessageQueue>,
@@ -181,11 +178,6 @@ impl BaseAgent {
         st.model.model_id().to_string()
     }
 
-    /// Access the memory service (if enabled).
-    pub fn memory(&self) -> Option<&MemoryService> {
-        self.memory.as_ref()
-    }
-
     /// Access the cross-layer coordination bus.
     pub fn bus(&self) -> &BusHandle {
         self.inner.bus()
@@ -207,13 +199,20 @@ impl BaseAgent {
     }
 
     /// Resolve a pending permission request. Called by the UI layer (CLI/GUI).
+    ///
+    /// The `SecurityGuard` handle is looked up on the bus where the
+    /// `SecurityExtension` (or any user-provided replacement) publishes it.
     pub async fn resolve_permission(
         &self,
         request_id: &str,
         tool_name: &str,
         decision: alva_agent_security::PermissionDecision,
     ) {
-        if let Some(guard) = &self.security_guard {
+        if let Some(guard) = self
+            .inner
+            .bus()
+            .get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+        {
             let mut g = guard.lock().await;
             g.resolve_permission(request_id, tool_name, decision);
         }
