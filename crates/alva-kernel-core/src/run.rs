@@ -618,6 +618,23 @@ async fn run_loop(
                 }
             }
 
+            // Session skeleton: llm_call_start — emitted BEFORE before_llm_call
+            // middleware so that any events emitted by middleware (loop_detection,
+            // compaction, etc.) land between llm_call_start and llm_call_end in
+            // causal order (spec §9 timing contract).
+            // message_count reflects the pre-middleware message list; the
+            // middleware may shrink or grow llm_messages, but the skeleton event
+            // records the count at the point the LLM turn was initiated.
+            let llm_start_uuid = emit_runtime_event(
+                &state.session,
+                "llm_call_start",
+                Some(iteration_start_uuid.clone()),
+                Some(serde_json::json!({
+                    "iteration": total_iterations,
+                    "message_count": llm_messages.len(),
+                })),
+            ).await;
+
             // 3c. Middleware: before_llm_call
             config
                 .middleware
@@ -631,17 +648,6 @@ async fn run_loop(
             let _ = event_tx.send(AgentEvent::MessageStart {
                 message: placeholder_msg.clone(),
             });
-
-            // Session skeleton: llm_call_start
-            let llm_start_uuid = emit_runtime_event(
-                &state.session,
-                "llm_call_start",
-                Some(iteration_start_uuid.clone()),
-                Some(serde_json::json!({
-                    "iteration": total_iterations,
-                    "message_count": llm_messages.len(),
-                })),
-            ).await;
 
             // 3e. Call LLM through wrap_llm_call middleware chain
             let actual_call = ActualLlmCall {
