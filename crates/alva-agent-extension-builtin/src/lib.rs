@@ -68,3 +68,10 @@ pub mod skill_tool;
 pub mod tool_search;
 #[cfg(all(feature = "utility", not(target_family = "wasm")))]
 pub mod sleep_tool;
+
+// ---- web feature tools ----
+
+#[cfg(all(feature = "web", not(target_family = "wasm")))]
+pub mod internet_search;
+#[cfg(all(feature = "web", not(target_family = "wasm")))]
+pub mod read_url;
