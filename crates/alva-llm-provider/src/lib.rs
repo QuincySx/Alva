@@ -1,4 +1,19 @@
+#![cfg(not(target_family = "wasm"))]
+
 //! LLM provider implementations for alva agent framework.
+//!
+//! **Native-only by design.** This crate uses `reqwest` directly, whose
+//! wasm32 futures are not `Send` — at odds with the `Send + Sync` bounds
+//! of `alva_kernel_abi::LanguageModel`. Wasm consumers should implement
+//! their own `LanguageModel` over `gloo-net::http` or `web_sys::fetch`
+//! with the spawn_local + oneshot bridging pattern (see
+//! `alva-host-wasm::sleeper::WasmSleeper` for the template) and bypass
+//! this crate entirely.
+//!
+//! The entire crate body is gated on `cfg(not(target_family = "wasm"))`
+//! so it compiles to an empty library on wasm32 targets, keeping
+//! `cargo check --target wasm32 --workspace` green without forcing
+//! every consumer to feature-flag this crate.
 //!
 //! Supports multiple provider backends:
 //! - **OpenAI Chat Completions**: Any service with an OpenAI-compatible `/chat/completions` API
