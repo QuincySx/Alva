@@ -612,52 +612,60 @@ impl InMemoryAgentSession {
         }
     }
 
-    /// Translate an `AgentMessage` into a `SessionEvent`. Used by
-    /// `append_message`. The resulting event has `emitter = Runtime`.
-    fn message_to_event(msg: &AgentMessage) -> SessionEvent {
+    /// Classify an `AgentMessage` into an `event_type` string and an optional
+    /// `SessionMessage` for display. Used by `append_message` when building
+    /// the corresponding `SessionEvent`.
+    ///
+    /// The full original `AgentMessage` is NOT represented here — it gets
+    /// serialized into the event's `data` field by `append_message` for
+    /// perfect round-trip on rollback. This method only produces what
+    /// `query` / preview consumers need for display.
+    fn classify_message(msg: &AgentMessage) -> (String, Option<SessionMessage>) {
         use crate::base::message::MessageRole;
 
-        let (role, content) = match msg {
-            AgentMessage::Standard(m) => {
-                let role_str = match m.role {
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::System => "system",
-                };
-                let content = serde_json::to_value(&m.content).unwrap_or_else(|_| serde_json::json!([]));
-                (role_str, content)
+        // Derive event_type per variant.
+        let event_type = match msg {
+            AgentMessage::Standard(m) => match m.role {
+                MessageRole::User => "user",
+                MessageRole::Assistant => "assistant",
+                MessageRole::System => "system",
+                MessageRole::Tool => "tool_result",
+            },
+            AgentMessage::Steering(_) => "user_steering",
+            AgentMessage::FollowUp(_) => "system_followup",
+            AgentMessage::Marker(_) => "marker",
+            AgentMessage::Extension { type_name, .. } => {
+                // Extension events carry no SessionMessage.
+                return (format!("extension:{}", type_name), None);
             }
-            AgentMessage::ToolResult(tr) => {
-                let content = serde_json::to_value(&tr.content).unwrap_or_else(|_| serde_json::json!([]));
-                ("tool", content)
-            }
+        };
+
+        // Extract the inner Message for the three variants that have one.
+        let m = match msg {
+            AgentMessage::Standard(m)
+            | AgentMessage::Steering(m)
+            | AgentMessage::FollowUp(m) => m,
             AgentMessage::Marker(_) => {
-                // Markers carry no role; emit as a system event with empty content.
-                ("system", serde_json::json!(null))
+                // Markers carry no message content.
+                return (event_type.to_string(), None);
             }
+            AgentMessage::Extension { .. } => unreachable!("handled above"),
         };
 
-        let event_type = match role {
-            "user" => "user",
-            "assistant" => "assistant",
-            "tool" => "tool_result",
-            _ => "system",
+        let role_str = match m.role {
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+            MessageRole::System => "system",
+            MessageRole::Tool => "tool",
         };
-
-        let mut ev = SessionEvent::new(event_type);
-        ev.message = Some(SessionMessage {
-            role: role.to_string(),
+        let content = serde_json::to_value(&m.content)
+            .unwrap_or_else(|_| serde_json::json!([]));
+        let session_msg = SessionMessage {
+            role: role_str.to_string(),
             content,
-        });
-        ev
-    }
+        };
 
-    /// Whether a given event carries a message payload we should cache.
-    fn event_carries_message(event: &SessionEvent) -> bool {
-        matches!(
-            event.event_type.as_str(),
-            "user" | "assistant" | "tool_result"
-        )
+        (event_type.to_string(), Some(session_msg))
     }
 }
 
@@ -674,7 +682,7 @@ impl Default for InMemoryAgentSession {
 cargo build -p alva-kernel-abi
 ```
 
-Expected: success, with warnings about unused methods. If compile fails, check that `AgentMessage` is in scope and that `MessageRole` variants match the ones used in the project (read `crates/alva-kernel-abi/src/base/message.rs` to confirm).
+Expected: success, with warnings about unused methods. `AgentMessage` is re-exported from `crate::base::message` which is already in scope via `use crate::base::message::AgentMessage` at the top of the file. The `MessageRole` variants used are `User`, `Assistant`, `System`, `Tool` — these match the real enum in `crates/alva-kernel-abi/src/base/message.rs:11-16`.
 
 - [ ] **Step 4.3: Commit**
 
@@ -683,8 +691,9 @@ git add crates/alva-kernel-abi/src/agent_session.rs
 git commit -m "feat(kernel-abi): add InMemoryAgentSession struct with constructors
 
 Skeleton for the in-memory backend: atomic seq counter, events log,
-message cache, snapshot slot. message_to_event translates AgentMessage
-into the appropriate SessionEvent. No trait impl yet."
+message cache, snapshot slot. classify_message derives the event_type
+and SessionMessage display payload from any AgentMessage variant
+(Standard/Steering/FollowUp/Marker/Extension). No trait impl yet."
 ```
 
 ---
@@ -710,31 +719,29 @@ impl AgentSession for InMemoryAgentSession {
     }
 
     async fn append(&self, mut event: SessionEvent) {
-        // Assign seq atomically. This is the only place seq is assigned.
+        // Assign seq atomically. This is the only place seq is assigned
+        // on the raw-event write path.
         event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
-
-        // If the event carries a message, update the cache. We do this
-        // outside the events lock to avoid holding two locks.
-        let cached_msg: Option<AgentMessage> = if Self::event_carries_message(&event) {
-            event_to_message(&event)
-        } else {
-            None
-        };
-
-        // Write the event.
+        // Raw events go into the event log ONLY. Message-bearing events
+        // should use append_message so that both the log and the cache
+        // stay consistent.
         self.events.write().await.push(event);
-
-        // Update the message cache if we extracted one.
-        if let Some(m) = cached_msg {
-            self.messages.write().await.push_back(m);
-        }
     }
 
     async fn append_message(&self, msg: AgentMessage) {
-        // Translate then delegate to append so that seq assignment,
-        // event log write, and cache update all share the same code path.
-        let event = Self::message_to_event(&msg);
-        self.append(event).await;
+        // Classify for display, serialize for perfect round-trip.
+        let (event_type, session_msg) = Self::classify_message(&msg);
+        let mut event = SessionEvent::new(event_type);
+        event.message = session_msg;
+        event.data = Some(
+            serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null),
+        );
+        event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+
+        // Push to events log and directly to the message cache.
+        // The cache holds the original AgentMessage — no round-trip.
+        self.events.write().await.push(event);
+        self.messages.write().await.push_back(msg);
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
@@ -794,31 +801,33 @@ impl AgentSession for InMemoryAgentSession {
 
     async fn rollback_after(&self, uuid: &str) -> usize {
         let mut events = self.events.write().await;
-        if let Some(pos) = events.iter().position(|e| e.uuid == *uuid) {
-            let removed = events.len() - pos - 1;
-            events.truncate(pos + 1);
+        let Some(pos) = events.iter().position(|e| e.uuid == *uuid) else {
+            return 0;
+        };
 
-            // Rebuild the message cache from the surviving events.
-            // We drop the events lock before rebuilding the cache to avoid
-            // holding two write locks; we briefly reacquire a read guard
-            // on events by cloning the surviving slice.
-            let surviving: Vec<SessionEvent> = events.iter().cloned().collect();
-            drop(events);
+        let removed = events.len() - pos - 1;
+        events.truncate(pos + 1);
 
-            let mut msgs = self.messages.write().await;
-            msgs.clear();
-            for ev in &surviving {
-                if Self::event_carries_message(ev) {
-                    if let Some(m) = event_to_message(ev) {
-                        msgs.push_back(m);
-                    }
+        // Clone the surviving events for cache rebuild, then drop the
+        // events lock before acquiring the messages lock.
+        let surviving: Vec<SessionEvent> = events.iter().cloned().collect();
+        drop(events);
+
+        // Rebuild the message cache by deserializing the AgentMessage
+        // from each surviving event's `data` field. Events without a
+        // serialized AgentMessage in `data` (progress, hooks, skeleton
+        // events) are skipped — they were never in the cache.
+        let mut msgs = self.messages.write().await;
+        msgs.clear();
+        for ev in &surviving {
+            if let Some(data) = &ev.data {
+                if let Ok(m) = serde_json::from_value::<AgentMessage>(data.clone()) {
+                    msgs.push_back(m);
                 }
             }
-
-            removed
-        } else {
-            0
         }
+
+        removed
     }
 
     async fn save_snapshot(&self, data: &[u8]) {
@@ -913,34 +922,12 @@ fn make_preview(event: &SessionEvent) -> String {
     }
 }
 
-/// Project a `SessionEvent` back into an `AgentMessage`, if the event carries
-/// a message payload. Used by the in-memory message cache and by rollback.
-fn event_to_message(event: &SessionEvent) -> Option<AgentMessage> {
-    use crate::base::message::{Message, MessageRole};
-
-    let msg = event.message.as_ref()?;
-    let role = match msg.role.as_str() {
-        "user" => MessageRole::User,
-        "assistant" => MessageRole::Assistant,
-        "system" => MessageRole::System,
-        "tool" => {
-            // tool_result events — reconstruct as an AgentMessage::ToolResult.
-            // For the in-memory cache we project it into a Standard user
-            // message with the tool content, because that's what the LLM
-            // input assembly expects. If ToolResult reconstruction is needed
-            // in the future, handle the "tool" branch explicitly.
-            MessageRole::User
-        }
-        _ => return None,
-    };
-
-    let content = serde_json::from_value(msg.content.clone()).unwrap_or_default();
-    Some(AgentMessage::Standard(Message {
-        role,
-        content,
-        usage: None,
-    }))
-}
+// Note: no `event_to_message` helper is needed. `append_message` serializes
+// the full `AgentMessage` into `event.data`, and `rollback_after` deserializes
+// it back during cache rebuild. The message cache holds the original
+// `AgentMessage` values as they were passed in by the caller — no round-trip
+// through `SessionMessage` is required, preserving variant information
+// (`Steering`, `FollowUp`, `Marker`, `Extension`) perfectly.
 ```
 
 - [ ] **Step 5.2: Verify compile**
@@ -949,7 +936,7 @@ fn event_to_message(event: &SessionEvent) -> Option<AgentMessage> {
 cargo build -p alva-kernel-abi
 ```
 
-Expected: success. If you hit compile errors around `Message { role, content, usage }`, the struct layout may have changed — open `crates/alva-kernel-abi/src/base/message.rs` and match the current field list, then adjust `event_to_message`.
+Expected: success. The trait impl uses `serde_json::to_value(&msg)` and `serde_json::from_value::<AgentMessage>(data)` for the round-trip — `AgentMessage` derives both `Serialize` and `Deserialize` (verified at `crates/alva-kernel-abi/src/base/message.rs:79`), so this works without changes.
 
 - [ ] **Step 5.3: Commit**
 
@@ -957,11 +944,12 @@ Expected: success. If you hit compile errors around `Message { role, content, us
 git add crates/alva-kernel-abi/src/agent_session.rs
 git commit -m "feat(kernel-abi): implement AgentSession for InMemoryAgentSession
 
-Full trait impl: atomic seq assignment, event log + message cache write-through,
-query/count with filter, rollback_after that rebuilds the cache from surviving
-events, snapshot save/load, lifecycle no-ops (clear actually resets). Helper
-functions for filter matching, preview truncation (unicode-safe), and
-event-to-message projection."
+Full trait impl. append_message serializes the full AgentMessage into
+event.data and pushes the original to the message cache directly —
+no round-trip through SessionMessage, so Steering/FollowUp/Marker/Extension
+variants survive. Raw append() does not touch the cache. rollback_after
+rebuilds the cache by deserializing surviving events' data field.
+Lifecycle methods are no-ops; clear() actually resets all state."
 ```
 
 ---
@@ -983,16 +971,13 @@ Append to the end of `crates/alva-kernel-abi/src/agent_session.rs`:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::base::message::{Message, MessageRole};
+    use crate::base::message::Message;
 
     fn user_msg(text: &str) -> AgentMessage {
-        AgentMessage::Standard(Message {
-            role: MessageRole::User,
-            content: vec![crate::base::content::ContentBlock::Text {
-                text: text.to_string(),
-            }],
-            usage: None,
-        })
+        // Use the `Message::user` factory — the `Message` struct has 6 fields
+        // (id, role, content, tool_call_id, usage, timestamp) and the factory
+        // fills them sensibly.
+        AgentMessage::Standard(Message::user(text))
     }
 
     #[tokio::test]
@@ -1213,7 +1198,7 @@ mod tests {
 cargo test -p alva-kernel-abi --lib agent_session::tests
 ```
 
-Expected: all tests pass. If any fail, read the failure output carefully and fix either the test or the impl (tests are more likely to be buggy; the impl has been designed). A common issue: the `text_content()` method on `Message` may not exist — if so, inspect the response, switch the assertion to inspect `content` directly.
+Expected: all tests pass. `text_content()` is defined on `Message` at `crates/alva-kernel-abi/src/base/message.rs:64-70` and returns `String`, so the assertion in `recent_messages_returns_last_n_from_cache` will work. If any test fails, read the failure carefully and fix the test (the impl has been designed against the verified message types).
 
 - [ ] **Step 6.3: Commit**
 
@@ -1329,22 +1314,58 @@ session stamped with EmitterKind::Tool and the tool's id."
 
 This is the big commit that flips `AgentState.session` from the old trait to the new one. All message-append call sites become `.await`-based. The old trait file still exists after this commit; Task 9 deletes it.
 
-- [ ] **Step 8.1: Find every file that imports the old `InMemorySession`**
+- [ ] **Step 8.1: Files that must be updated in this commit**
 
-Run:
+The authoritative list (confirmed via grep at plan-write time):
+
+**Production imports** (update `use` statement + call sites):
+- `crates/alva-agent-core/src/agent_builder.rs` (lines 7, 245)
+- `crates/alva-kernel-core/src/state.rs` (line 8 — the main `use` for AgentSession)
+- `crates/alva-kernel-core/src/run_child.rs` (lines 13, 68, 69) — **note**: uses `InMemorySession::with_parent(parent_id)`. The new type has the same method name: `InMemoryAgentSession::with_parent(parent_id)`.
+- `crates/alva-engine-adapter-alva/src/adapter.rs` (lines 25, 88)
+- `crates/alva-host-native/src/builder.rs` (lines 17, 273)
+- `crates/alva-host-wasm/src/agent.rs` (lines 28, 65, 184, 192) — **non-test production code**, and includes doc comments at lines 13 and 72 that reference the old type name; update those too
+- `crates/alva-host-wasm/src/smoke.rs` (lines 29, 46)
+- `crates/alva-app/src/chat/gpui_chat.rs` (lines 120-121) — **note the unusual re-export path** `alva_app_core::alva_kernel_abi::session::InMemorySession`. This means `alva-app-core` re-exports `alva_kernel_abi`. After Task 9 the path becomes `alva_app_core::alva_kernel_abi::agent_session::InMemoryAgentSession`. Verify the re-export in `alva-app-core/src/lib.rs` still works after Task 9; it should, because `alva_kernel_abi` exports `agent_session` as a module.
+
+**Test blocks and test helpers** (same migration, but inside `#[cfg(test)] mod` blocks):
+- `crates/alva-kernel-core/src/builtins/test_helpers.rs` (lines 13, 55) — the `make_state` helper
+- `crates/alva-kernel-core/src/state.rs` (lines 71, 109) — test block at bottom of state.rs
+- `crates/alva-kernel-core/src/run.rs` (line 865) — inline `#[cfg(test)]` block inside run.rs
+- `crates/alva-kernel-core/tests/integration.rs` (lines 18, 90, 1172, 1301, 1426, 1428, 1485) — **multiple sites** including one that uses `&dyn alva_kernel_abi::session::AgentSession` at line 1428
+- `crates/alva-kernel-core/examples/middleware_basic.rs` (lines 17, 218)
+- `crates/alva-agent-context/src/middleware.rs` (lines 500, 505) — **test block only** (this file has production content that uses the `SessionAccess` trait, which is unrelated — leave that alone; only update the test block that uses `alva_kernel_abi::session::InMemorySession`)
+- `crates/alva-agent-security/src/middleware/security.rs` (lines 224, 262) — test block
+- `crates/alva-agent-security/src/middleware/plan_mode.rs` (lines 130, 152) — test block
+- `crates/alva-host-native/src/middleware/checkpoint.rs` (lines 148, 186) — test block
+- `crates/alva-app-core/src/extension/evaluation/sprint_contract.rs` (lines 176, 214) — test block
+
+**Crate root re-exports** (update in Task 9, not Task 8):
+- `crates/alva-kernel-abi/src/lib.rs` (line 60): `pub use session::{AgentSession, InMemorySession};` → leave for Task 9.
+
+**DO NOT TOUCH these files** — they refer to a different `InMemorySession` that implements the `SessionAccess` trait in the context module, which is a separate concern from this migration:
+- `crates/alva-agent-context/src/session.rs` — the whole file is the `SessionAccess`-backed `InMemorySession`, unrelated to the kernel-abi session trait being deleted
+- `crates/alva-agent-context/src/lib.rs` (lines 2, 24, 56) — re-exports the context `InMemorySession`, leave alone
+- `crates/alva-kernel-abi/src/scope/context/traits.rs` (line 103) — doc comment in the other trait, leave alone
+- `crates/alva-kernel-abi/src/scope/context/mod.rs` (line 9) — ditto
+
+**The transformation pattern for each updated file:**
+
+1. `use alva_kernel_abi::session::{AgentSession, InMemorySession};` → `use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};`
+2. `use alva_kernel_abi::session::AgentSession;` → `use alva_kernel_abi::agent_session::AgentSession;`
+3. `use alva_kernel_abi::session::InMemorySession;` → `use alva_kernel_abi::agent_session::InMemoryAgentSession;`
+4. `InMemorySession::new()` → `InMemoryAgentSession::new()`
+5. `InMemorySession::with_parent(x)` → `InMemoryAgentSession::with_parent(x)`
+6. `Arc<dyn alva_kernel_abi::session::AgentSession>` → `Arc<dyn alva_kernel_abi::agent_session::AgentSession>`
+7. `&dyn alva_kernel_abi::session::AgentSession` → `&dyn alva_kernel_abi::agent_session::AgentSession`
+
+After replacing the type names, you ALSO need to convert sync call sites (`session.append(msg)`, `session.messages()`, `session.recent(n)`) to async (`.append_message(msg).await`, `.messages().await`, `.recent_messages(n).await`) per the steps below. The type rename alone will not compile — the trait signatures changed from sync to async.
+
+**Verification grep** — after your edits, run this and expect zero matches:
 
 ```bash
-grep -rn --include='*.rs' 'alva_kernel_abi::session::InMemorySession\|use alva_kernel_abi::session\|session::AgentSession' crates/ | grep -v 'kernel-abi/src/session.rs'
+grep -rn --include='*.rs' 'alva_kernel_abi::session::' crates/ | grep -v 'alva-kernel-abi/src/session.rs'
 ```
-
-Record the output. These are the files you need to update. Expected matches include at least:
-- `crates/alva-kernel-core/src/builtins/test_helpers.rs`
-- `crates/alva-kernel-core/tests/integration.rs`
-- `crates/alva-kernel-core/src/state.rs` (test block)
-- possibly `crates/alva-kernel-core/examples/middleware_basic.rs`
-- possibly `crates/alva-app-core/*`, `crates/alva-host-*`, `crates/alva-agent-core/*`
-
-For each file: replace `use alva_kernel_abi::session::InMemorySession` with `use alva_kernel_abi::agent_session::InMemoryAgentSession`, and replace `InMemorySession::new()` with `InMemoryAgentSession::new()`.
 
 - [ ] **Step 8.2: Update `AgentState.session` type in `state.rs`**
 
