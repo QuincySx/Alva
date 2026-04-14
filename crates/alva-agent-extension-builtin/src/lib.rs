@@ -111,3 +111,10 @@ pub mod task_list;
 pub mod task_output;
 #[cfg(feature = "task")]
 pub mod task_stop;
+
+// ---- schedule feature tools ----
+
+#[cfg(feature = "schedule")]
+pub mod schedule_cron;
+#[cfg(feature = "schedule")]
+pub mod remote_trigger;
