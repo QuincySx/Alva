@@ -75,3 +75,8 @@ pub mod sleep_tool;
 pub mod internet_search;
 #[cfg(all(feature = "web", not(target_family = "wasm")))]
 pub mod read_url;
+
+// ---- notebook feature tool ----
+
+#[cfg(all(feature = "notebook", not(target_family = "wasm")))]
+pub mod notebook_edit;
