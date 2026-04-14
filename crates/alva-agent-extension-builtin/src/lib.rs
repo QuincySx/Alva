@@ -118,3 +118,200 @@ pub mod task_stop;
 pub mod schedule_cron;
 #[cfg(feature = "schedule")]
 pub mod remote_trigger;
+
+// ---------------------------------------------------------------------------
+// Tool presets — grouped by capability domain
+// ---------------------------------------------------------------------------
+
+/// Pre-built tool sets for common use cases. Each preset returns only the
+/// tools whose feature is currently enabled; disabled groups return an
+/// empty Vec, so callers can unconditionally compose `all_standard()`
+/// regardless of feature selection.
+pub mod tool_presets {
+    use alva_kernel_abi::tool::Tool;
+
+    /// Core file tools: read, write, edit, search, list, view image.
+    pub fn file_io() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::read_file::ReadFileTool));
+            tools.push(Box::new(crate::create_file::CreateFileTool));
+            tools.push(Box::new(crate::file_edit::FileEditTool));
+            tools.push(Box::new(crate::list_files::ListFilesTool));
+            tools.push(Box::new(crate::find_files::FindFilesTool));
+            tools.push(Box::new(crate::grep_search::GrepSearchTool));
+            tools.push(Box::new(crate::view_image::ViewImageTool));
+        }
+        tools
+    }
+
+    /// Shell execution.
+    pub fn shell() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::execute_shell::ExecuteShellTool));
+        }
+        tools
+    }
+
+    /// Human interaction (stdin).
+    pub fn interaction() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::ask_human::AskHumanTool));
+        }
+        tools
+    }
+
+    /// Git worktree tools.
+    pub fn worktree() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(all(feature = "worktree", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::enter_worktree::EnterWorktreeTool));
+            tools.push(Box::new(crate::exit_worktree::ExitWorktreeTool));
+        }
+        tools
+    }
+
+    /// Task management: create, update, get, list, output, stop.
+    pub fn task_management() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(feature = "task")]
+        {
+            tools.push(Box::new(crate::task_create::TaskCreateTool));
+            tools.push(Box::new(crate::task_update::TaskUpdateTool));
+            tools.push(Box::new(crate::task_get::TaskGetTool));
+            tools.push(Box::new(crate::task_list::TaskListTool));
+            tools.push(Box::new(crate::task_output::TaskOutputTool));
+            tools.push(Box::new(crate::task_stop::TaskStopTool));
+        }
+        tools
+    }
+
+    /// Team / multi-agent coordination.
+    pub fn team() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(feature = "team")]
+        {
+            tools.push(Box::new(crate::team_create::TeamCreateTool));
+            tools.push(Box::new(crate::team_delete::TeamDeleteTool));
+            tools.push(Box::new(crate::send_message::SendMessageTool));
+        }
+        tools
+    }
+
+    /// Planning and mode switching. `todo_write` is native-only; the rest
+    /// are pure mode signaling (wasm-safe).
+    pub fn planning() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(feature = "core")]
+        {
+            tools.push(Box::new(crate::enter_plan_mode::EnterPlanModeTool));
+            tools.push(Box::new(crate::exit_plan_mode::ExitPlanModeTool));
+        }
+        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::todo_write::TodoWriteTool));
+        }
+        tools
+    }
+
+    /// Utility tools: config, skill, tool_search, sleep.
+    pub fn utility() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(feature = "utility")]
+        {
+            tools.push(Box::new(crate::config_tool::ConfigTool));
+            tools.push(Box::new(crate::skill_tool::SkillTool));
+            tools.push(Box::new(crate::tool_search::ToolSearchTool));
+        }
+        #[cfg(all(feature = "utility", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::sleep_tool::SleepTool));
+        }
+        tools
+    }
+
+    /// Web tools: internet search, URL fetching.
+    pub fn web() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(all(feature = "web", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::internet_search::InternetSearchTool));
+            tools.push(Box::new(crate::read_url::ReadUrlTool));
+        }
+        tools
+    }
+
+    /// Notebook tools.
+    pub fn notebook() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(all(feature = "notebook", not(target_family = "wasm")))]
+        {
+            tools.push(Box::new(crate::notebook_edit::NotebookEditTool));
+        }
+        tools
+    }
+
+    /// Schedule/remote trigger tools.
+    pub fn schedule() -> Vec<Box<dyn Tool>> {
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        #[cfg(feature = "schedule")]
+        {
+            tools.push(Box::new(crate::schedule_cron::ScheduleCronTool));
+            tools.push(Box::new(crate::remote_trigger::RemoteTriggerTool));
+        }
+        tools
+    }
+
+    /// All standard tools available under the currently enabled features.
+    /// Browser is never included — depend on `alva-app-extension-browser`
+    /// for that.
+    pub fn all_standard() -> Vec<Box<dyn Tool>> {
+        let mut tools = Vec::new();
+        tools.extend(file_io());
+        tools.extend(shell());
+        tools.extend(interaction());
+        tools.extend(task_management());
+        tools.extend(team());
+        tools.extend(planning());
+        tools.extend(worktree());
+        tools.extend(utility());
+        tools.extend(web());
+        tools.extend(notebook());
+        tools.extend(schedule());
+        tools
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy registration shim
+// ---------------------------------------------------------------------------
+
+/// Register all built-in tools into a `ToolRegistry`. Mirrors the legacy
+/// `alva_agent_tools::register_builtin_tools` signature so host-native
+/// can migrate gradually.
+pub fn register_builtin_tools(registry: &mut alva_kernel_abi::ToolRegistry) {
+    for tool in tool_presets::all_standard() {
+        registry.register(tool);
+    }
+    #[cfg(feature = "core")]
+    {
+        registry.register(Box::new(crate::agent_tool::AgentTool));
+    }
+}
