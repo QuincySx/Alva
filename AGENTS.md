@@ -1,7 +1,7 @@
 # Alva
 
 > Rust 实现的分层架构 AI Agent 框架。
-> `alva-kernel-bus`（L0 leaf）→ `alva-kernel-abi`（L1 纯契约）→ `alva-kernel-core`（L2 kernel 循环）→ 5 个 L3 功能 Box：`tools` / `security` / `context` / `memory` / `graph`→ `alva-host-native`（L4 装配）→ `alva-engine-*`（L4.5 引擎桥）→ `alva-app-*`（L5 应用）
+> `alva-kernel-bus`（L0 leaf）→ `alva-kernel-abi`（L1 纯契约）→ `alva-kernel-core`（L2 kernel 循环）→ 5 个 L3 功能 Box：`tools` / `security` / `context` / `memory` / `graph`→ `alva-host-native` / `alva-host-wasm`（L4 装配，每目标一个）→ `alva-engine-*`（L4.5 引擎桥）→ `alva-app-*`（L5 应用）
 
 > **⚠ 本项目采用分形文档协议，必须严格遵守 [FRACTAL-DOCS.md](./FRACTAL-DOCS.md) 中定义的三层文档规范。**
 
@@ -41,7 +41,8 @@
 
 | crate | 职责 |
 |------|------|
-| `alva-host-native` | Batteries-included 装配层：`AgentRuntimeBuilder` + `with_standard_agent_stack(SandboxMode)` 一键装配：`HeuristicTokenCounter` 注入 bus / `PendingMessageQueue` 作为 `AgentLoopHook` / 遍历 `BusPlugin::register` + `start` / 顺序装载 7 个 middleware / 注册 tool registry / 构造 `AgentState` + `AgentConfig` + `AgentRuntime`。`init::model("provider/id")` 一句话初始化 `LanguageModel`。middleware/：`CheckpointMiddleware`（host 持久化）+ 从 box 转发的 `SecurityMiddleware` / `PlanModeMiddleware`（来自 `alva-agent-security`）/ `CompactionMiddleware`（来自 `alva-agent-context`） |
+| `alva-host-native` | Batteries-included 装配层（native 目标）：`AgentRuntimeBuilder` + `with_standard_agent_stack(SandboxMode)` 一键装配：`HeuristicTokenCounter` 注入 bus / `PendingMessageQueue` 作为 `AgentLoopHook` / 遍历 `BusPlugin::register` + `start` / 顺序装载 7 个 middleware / 注册 tool registry / 构造 `AgentState` + `AgentConfig` + `AgentRuntime`。`init::model("provider/id")` 一句话初始化 `LanguageModel`。`TokioSleeper` 作为 `Sleeper` 的 native impl，注入 `ToolTimeoutMiddleware`。middleware/：`CheckpointMiddleware`（host 持久化）+ 从 box 转发的 `SecurityMiddleware` / `PlanModeMiddleware`（来自 `alva-agent-security`）/ `CompactionMiddleware`（来自 `alva-agent-context`） |
+| `alva-host-wasm` | 装配层（wasm32 目标）：`WasmAgent` facade（`new` / `run` / `run_simple` / `state` / `config_mut`）+ `WasmSleeper`（`spawn_local + oneshot` 桥接 non-Send `gloo_timers` future）+ `smoke::_wasm_smoke_probe` 编译期探针，强制 `cargo check --target wasm32` 穿透整条 kernel API 表面。**共享同一份 `alva-kernel-core`——kernel 一行不用动**。Phase 5 交付物，证明 "kernel 平台无关" 在实践上成立 |
 
 ### 引擎桥接层（L4.5 — 给 app 层用的统一引擎接口）
 
@@ -81,7 +82,7 @@
 | `scripts/ci-check-deps.sh` | CI 强制 crate 边界规则，防止分层被破坏 |
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object） |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app |
-| `Cargo.toml` | Rust workspace，管理 25 个 crate |
+| `Cargo.toml` | Rust workspace，管理 26 个 crate |
 
 # 项目架构
 
