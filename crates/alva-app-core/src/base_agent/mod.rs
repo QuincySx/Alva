@@ -7,6 +7,6 @@ mod permission;
 mod agent;
 pub mod builder;
 
-pub use permission::PermissionMode;
+pub use permission::{PermissionMode, PermissionModeService};
 pub use agent::BaseAgent;
 pub use builder::BaseAgentBuilder;

@@ -71,9 +71,12 @@ pub(crate) async fn build_agent(
     );
 
     let model = Arc::new(OpenAIChatProvider::new(config.clone()));
-    let mut builder = BaseAgentBuilder::new()
+    let (approval_ext, approval_rx) =
+        alva_app_core::extension::ApprovalExtension::with_channel();
+    let builder = BaseAgentBuilder::new()
         .workspace(workspace)
         .system_prompt(&system_prompt)
+        .extension(Box::new(approval_ext))
         .extension(Box::new(alva_app_core::extension::SkillsExtension::new(vec![
             paths.project_skills_dir(),
             paths.global_skills_dir(),
@@ -100,7 +103,6 @@ pub(crate) async fn build_agent(
         .extension(Box::new(alva_app_core::extension::HooksExtension::new(
             alva_app_core::settings::HooksSettings::default(),
         )));
-    let approval_rx = builder.with_approval_channel();
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback

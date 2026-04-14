@@ -2,16 +2,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use alva_kernel_core::middleware::Middleware;
-use alva_host_native::middleware::{ApprovalNotifier, ApprovalRequest};
 use alva_agent_security::SandboxMode;
 use alva_kernel_abi::{Bus, BusPlugin, CancellationToken, LanguageModel, PluginRegistrar, Tool};
 
 use crate::error::EngineError;
 
-use tokio::sync::mpsc;
-
 use super::agent::BaseAgent;
-use super::permission::PermissionMode;
 use crate::extension::Extension;
 
 /// Builder for constructing a [`BaseAgent`].
@@ -42,7 +38,6 @@ pub struct BaseAgentBuilder {
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
-    pub(crate) approval_notifier: Option<ApprovalNotifier>,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
 }
 
@@ -58,7 +53,6 @@ impl BaseAgentBuilder {
             extra_middleware: Vec::new(),
             max_iterations: 100,
             context_window: 0,
-            approval_notifier: None,
             bus_plugins: Vec::new(),
         }
     }
@@ -132,13 +126,6 @@ impl BaseAgentBuilder {
         self
     }
 
-    /// Set up an approval channel for interactive permission prompts.
-    pub fn with_approval_channel(&mut self) -> mpsc::UnboundedReceiver<ApprovalRequest> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        self.approval_notifier = Some(ApprovalNotifier { tx });
-        rx
-    }
-
     /// Add a bus plugin that will register capabilities during build.
     pub fn bus_plugin(mut self, plugin: Box<dyn BusPlugin>) -> Self {
         self.bus_plugins.push(plugin);
@@ -176,12 +163,7 @@ impl BaseAgentBuilder {
             alva_kernel_abi::model::HeuristicTokenCounter::new(200_000),
         ));
 
-        // 3b. Approval notifier (only if the caller wired one).
-        if let Some(notifier) = self.approval_notifier.take() {
-            bus_writer.provide(Arc::new(notifier));
-        }
-
-        // 3c. PendingMessageQueue + AgentLoopHook. We need to keep
+        // 3b. PendingMessageQueue + AgentLoopHook. We need to keep
         //     `pending_messages` outside the builder because BaseAgent's
         //     `steer()` / `follow_up()` push into it directly.
         let pending_messages = Arc::new(alva_kernel_core::pending_queue::PendingMessageQueue::new());
@@ -272,20 +254,10 @@ impl BaseAgentBuilder {
             plugin.start(&bus_handle);
         }
 
-        // 9. Build a tool registry snapshot for `BaseAgent::tool_registry()`.
-        //    The inner Agent already cached the tools list, but downstream
-        //    callers expect the `ToolRegistry` shape (definitions/list).
-        let mut tool_registry = alva_kernel_abi::ToolRegistry::new();
-        for tool in inner.tools() {
-            tool_registry.register_arc(tool.clone());
-        }
-
-        // 10. Return BaseAgent wrapping the inner Agent.
+        // 9. Return BaseAgent wrapping the inner Agent.
         Ok(BaseAgent {
             inner: Arc::new(inner),
             current_cancel,
-            permission_mode: std::sync::Mutex::new(PermissionMode::Ask),
-            tool_registry,
             pending_messages,
             bus_writer,
         })

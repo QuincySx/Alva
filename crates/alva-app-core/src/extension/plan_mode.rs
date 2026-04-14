@@ -9,6 +9,8 @@ use async_trait::async_trait;
 
 use alva_host_native::middleware::{PlanModeControl, PlanModeMiddleware};
 
+use crate::base_agent::{PermissionMode, PermissionModeService};
+
 use super::{Extension, ExtensionContext, HostAPI};
 
 pub struct PlanModeExtension {
@@ -40,6 +42,16 @@ impl Extension for PlanModeExtension {
 
     async fn configure(&self, ctx: &ExtensionContext) {
         // Register PlanModeControl on bus for runtime toggle
-        ctx.bus_writer.provide::<dyn PlanModeControl>(self.middleware.clone());
+        ctx.bus_writer
+            .provide::<dyn PlanModeControl>(self.middleware.clone());
+
+        // Publish a PermissionModeService that owns the current permission
+        // mode for the whole agent. It wraps our PlanModeMiddleware so mode
+        // changes transparently toggle plan-mode enforcement.
+        let service = Arc::new(PermissionModeService::new(
+            PermissionMode::Ask,
+            Some(self.middleware.clone() as Arc<dyn PlanModeControl>),
+        ));
+        ctx.bus_writer.provide(service);
     }
 }

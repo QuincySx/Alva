@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use alva_agent_core::Agent;
-use alva_host_native::middleware::PlanModeControl;
 use alva_kernel_abi::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
@@ -11,7 +10,7 @@ use alva_kernel_core::run::run_agent;
 use tokio::sync::mpsc;
 
 use super::builder::BaseAgentBuilder;
-use super::permission::PermissionMode;
+use super::permission::{PermissionMode, PermissionModeService};
 
 /// Pre-wired, batteries-included agent (engine) that automatically composes
 /// tools, security, and skill injection.
@@ -34,9 +33,6 @@ pub struct BaseAgent {
     /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
     /// Wrapped in Arc so the ExtensionHost can also hold a reference for shutdown().
     pub(super) current_cancel: Arc<std::sync::Mutex<CancellationToken>>,
-    pub(super) permission_mode: std::sync::Mutex<PermissionMode>,
-    /// Snapshot of the registered tools, exposed via `tool_registry()`.
-    pub(super) tool_registry: ToolRegistry,
     /// Pending messages queue — bridges external steer/follow_up calls
     /// to the agent loop via AgentLoopHook.
     pub(super) pending_messages: Arc<alva_kernel_core::pending_queue::PendingMessageQueue>,
@@ -136,33 +132,48 @@ impl BaseAgent {
         }
     }
 
-    /// Access the tool registry (for name-based lookup of registered tools).
-    pub fn tool_registry(&self) -> &ToolRegistry {
-        &self.tool_registry
+    /// Build a fresh [`ToolRegistry`] snapshot from the currently-registered
+    /// tools. The registry is constructed on demand — `BaseAgent` does not
+    /// cache it, because the inner agent already owns the authoritative
+    /// tools list.
+    pub fn tool_registry(&self) -> ToolRegistry {
+        let mut reg = ToolRegistry::new();
+        for tool in self.inner.tools() {
+            reg.register_arc(tool.clone());
+        }
+        reg
     }
 
     /// Get the names of all registered tools.
     pub fn tool_names(&self) -> Vec<String> {
-        self.tool_registry.list().iter().map(|t| t.name().to_string()).collect()
+        self.inner
+            .tools()
+            .iter()
+            .map(|t| t.name().to_string())
+            .collect()
     }
 
     /// Get the current permission mode.
+    ///
+    /// Reads the value from the bus-published [`PermissionModeService`].
+    /// If no service is registered (e.g. `PlanModeExtension` was not added),
+    /// falls back to the default.
     pub fn permission_mode(&self) -> PermissionMode {
-        *self.permission_mode.lock().unwrap_or_else(|e| e.into_inner())
+        self.inner
+            .bus()
+            .get::<PermissionModeService>()
+            .map(|s| s.get())
+            .unwrap_or_default()
     }
 
     /// Set the permission mode.
     ///
-    /// When switching to [`PermissionMode::Plan`], the `PlanModeMiddleware` is
-    /// enabled so that write/execute tools are blocked.  Switching to any other
-    /// mode disables it.
+    /// Writes through to the bus-published [`PermissionModeService`], which
+    /// in turn toggles `PlanModeMiddleware` when entering/leaving
+    /// [`PermissionMode::Plan`]. A no-op if no service is registered.
     pub fn set_permission_mode(&self, mode: PermissionMode) {
-        let mut m = self.permission_mode.lock().unwrap_or_else(|e| e.into_inner());
-        *m = mode;
-
-        // Toggle plan mode via bus — PlanModeExtension registers PlanModeControl
-        if let Some(ctrl) = self.inner.bus().get::<dyn PlanModeControl>() {
-            ctrl.set_enabled(mode == PermissionMode::Plan);
+        if let Some(service) = self.inner.bus().get::<PermissionModeService>() {
+            service.set(mode);
         }
     }
 

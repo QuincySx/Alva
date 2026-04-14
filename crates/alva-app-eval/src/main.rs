@@ -308,11 +308,16 @@ async fn create_run(
         vec![],                  // middleware_names (no longer separate)
     );
 
+    // -- Approval handler: auto-approve with logging ---------------------------
+    let (approval_ext, mut approval_rx) =
+        alva_app_core::extension::ApprovalExtension::with_channel();
+
     // -- Build agent via extensions -------------------------------------------
     let mut builder = alva_app_core::BaseAgent::builder()
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
         .max_iterations(max_iterations)
+        .extension(Box::new(approval_ext))
         .middleware(rec.clone()); // Recorder is always added
 
     for name in &extension_names {
@@ -324,9 +329,6 @@ async fn create_run(
     if req.enable_sub_agents.unwrap_or(false) {
         builder = builder.extension(Box::new(alva_app_core::extension::SubAgentExtension::new(3)));
     }
-
-    // -- Approval handler: auto-approve with logging ---------------------------
-    let mut approval_rx = builder.with_approval_channel();
 
     let agent = builder
         .build(model)

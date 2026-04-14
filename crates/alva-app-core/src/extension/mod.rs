@@ -17,6 +17,7 @@ pub mod evaluation;
 pub mod agent_spawn;
 
 // Flat built-in extensions (one plugin per file)
+mod approval;
 mod loop_detection;
 mod dangling_tool_call;
 mod tool_timeout;
@@ -39,6 +40,7 @@ pub use alva_agent_extension_builtin::wrappers::{
     BrowserExtension, CoreExtension, InteractionExtension, PlanningExtension, ShellExtension,
     TaskExtension, TeamExtension, UtilityExtension, WebExtension,
 };
+pub use approval::ApprovalExtension;
 pub use loop_detection::LoopDetectionExtension;
 pub use dangling_tool_call::DanglingToolCallExtension;
 pub use tool_timeout::ToolTimeoutExtension;
