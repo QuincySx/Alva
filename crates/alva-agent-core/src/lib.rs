@@ -7,3 +7,9 @@
 
 pub mod mock_fs;
 pub use mock_fs::MockToolFs;
+
+pub mod extension;
+pub use extension::{
+    Extension, ExtensionBridgeMiddleware, ExtensionContext, ExtensionEvent, ExtensionHost,
+    EventResult, FinalizeContext, HostAPI, RegisteredCommand,
+};
