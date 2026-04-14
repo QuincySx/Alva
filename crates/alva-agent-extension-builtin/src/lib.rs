@@ -8,3 +8,8 @@
 
 // Tool implementations and Extension wrappers are added task-by-task
 // during the rest of the refactor.
+
+pub mod truncate;
+
+#[cfg(not(target_family = "wasm"))]
+pub mod walkdir;
