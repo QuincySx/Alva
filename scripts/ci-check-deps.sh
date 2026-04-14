@@ -99,6 +99,48 @@ else
     echo -e "${GREEN}OK: alva-app uses facade only${NC}"
 fi
 
+# Rule 17: Hard SDK boundary — no SDK crate (kernel / agent / protocol / engine /
+#          macros / llm-provider / environment) may (transitively) depend on any
+#          alva-app-* or alva-host-* crate. This is the single most important
+#          layering rule: SDK is consumed by third parties building their own
+#          harness, so it must not accidentally pull in our opinionated harness.
+echo ""
+echo "Checking hard SDK → app/host boundary (transitive)..."
+
+SDK_CRATES=(
+    alva-kernel-abi
+    alva-kernel-bus
+    alva-kernel-core
+    alva-agent-context
+    alva-agent-core
+    alva-agent-extension-builtin
+    alva-agent-graph
+    alva-agent-memory
+    alva-agent-security
+    alva-engine-adapter-alva
+    alva-engine-adapter-claude
+    alva-engine-runtime
+    alva-environment
+    alva-llm-provider
+    alva-macros
+    alva-protocol-acp
+    alva-protocol-mcp
+    alva-protocol-skill
+)
+
+for crate in "${SDK_CRATES[@]}"; do
+    bad=$(cargo tree -p "$crate" --prefix none 2>/dev/null \
+        | grep -E "^alva-(app|host)" \
+        || true)
+    if [ -n "$bad" ]; then
+        echo -e "${RED}VIOLATION: SDK crate $crate transitively depends on app/host:${NC}"
+        echo "$bad" | sed 's/^/    /'
+        VIOLATIONS=$((VIOLATIONS + 1))
+    else
+        echo -e "${GREEN}OK: $crate${NC}"
+    fi
+done
+
 echo ""
 if [ $VIOLATIONS -gt 0 ]; then
     echo -e "${RED}FAILED: $VIOLATIONS dependency violation(s) found${NC}"
