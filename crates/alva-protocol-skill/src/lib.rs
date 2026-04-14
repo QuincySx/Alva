@@ -9,6 +9,9 @@ pub mod repository;
 pub mod loader;
 pub mod injector;
 pub mod store;
-#[cfg(feature = "fs")]
+// fs module uses tokio::fs + walkdir — gated to non-wasm as well as the
+// `fs` feature. Wasm callers should implement skill loading over their
+// own storage (fetch + browser cache, etc.).
+#[cfg(all(feature = "fs", not(target_family = "wasm")))]
 pub mod fs;
 pub mod memory;

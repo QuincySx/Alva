@@ -1,3 +1,8 @@
+// Native-only: this crate manages binary tool installation (Node.js,
+// Python, etc.) which has no meaning in a browser. Gated to non-wasm
+// so `cargo check --workspace --target wasm32` stays green.
+#![cfg(not(target_family = "wasm"))]
+
 pub mod environment;
 
 pub use environment::{EnvironmentManager, EnvironmentError};

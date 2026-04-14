@@ -2,9 +2,12 @@
 name = "alva-protocol-acp"
 version = "0.1.0"
 edition = "2021"
-description = "Standalone ACP (Agent Client Protocol) crate: protocol types, process management, session, and delegate"
+description = "Standalone ACP (Agent Client Protocol) crate: protocol types, process management, session, and delegate. NATIVE ONLY — uses tokio::process for external agent subprocess management, which pulls mio (not wasm32-compatible)."
 
-[dependencies]
+# Native-only. The lib.rs body is also gated via #![cfg(not(target_family
+# = "wasm"))] so the crate compiles to an empty lib on wasm32.
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

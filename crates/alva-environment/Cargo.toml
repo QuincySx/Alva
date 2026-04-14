@@ -2,13 +2,20 @@
 name = "alva-environment"
 version = "0.1.0"
 edition = "2021"
-description = "Runtime environment management: install, version-track, and resolve Bun/Node/Python/Chromium executables"
+description = "Runtime environment management: install, version-track, and resolve Bun/Node/Python/Chromium executables. Native-only."
+
+# Native-only crate: installs binary toolchains (bun/node/python/chromium)
+# from the internet into $HOME — has no meaning on wasm32. All real deps
+# are gated to non-wasm targets so the crate compiles to an empty lib on
+# wasm and doesn't block `cargo check --workspace --target wasm32`.
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 thiserror = "2"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 dirs = "5"
 zip = "2"
 tar = "0.4"
@@ -20,6 +27,6 @@ reqwest = { version = "0.12", features = ["stream"], default-features = false, o
 default = ["download"]
 download = ["dep:reqwest"]
 
-[dev-dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["full"] }
