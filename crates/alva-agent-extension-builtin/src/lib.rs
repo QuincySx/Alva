@@ -57,3 +57,14 @@ pub mod exit_plan_mode;
 // Placeholder agent_tool — pure struct, wasm-safe.
 #[cfg(feature = "core")]
 pub mod agent_tool;
+
+// ---- utility feature tools ----
+
+#[cfg(feature = "utility")]
+pub mod config_tool;
+#[cfg(feature = "utility")]
+pub mod skill_tool;
+#[cfg(feature = "utility")]
+pub mod tool_search;
+#[cfg(all(feature = "utility", not(target_family = "wasm")))]
+pub mod sleep_tool;
