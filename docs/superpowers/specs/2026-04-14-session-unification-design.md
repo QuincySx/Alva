@@ -67,6 +67,19 @@ The real migration surface is small: 7 call sites in `run.rs`, one file to delet
 6. **Pluggable backends** — in-memory default, SQLite for desktop persistence, easy path to file/remote backends later. Backends decide cache strategy; the trait defines only the contract.
 7. **Delete, don't layer.** #1 and #3/#4/#5/#6 all go away. The trait exposed to runtime is the new unified `AgentSession`, full stop.
 
+### Responsibility split — what core owns, what consumers own
+
+This spec's central principle is **"recording is core, storage is a consumer choice."**
+
+- **Core owns the recording.** The event model (`SessionEvent`, `EventEmitter`, `EmitterKind`), the runtime skeleton-event writes, the parent/child linkage, the monotonic `seq` ordering, the lifecycle contract — these are defined in the kernel and applied identically to every agent. A third-party consumer never writes its own recording code; it inherits recording for free.
+- **Consumers choose their storage.** Core ships `InMemoryAgentSession` (default, tests) and `SqliteAgentSession` (persistent, ready to use) as backends. Any other backend — JSON files, a custom binary format, a remote service, an in-process event bus — is the consumer's own implementation, not shipped by core.
+- **Core provides two extension points** so consumers don't reinvent recording when they just want custom storage or custom observation: (a) implementing the full `AgentSession` trait, for consumers that want their own authoritative storage; (b) implementing `SessionEventSink`, for consumers that just want to observe the event stream without owning storage. See §4.8.
+
+### Why the eval vs CLI distinction matters
+
+- **eval's current design is wrong in both dimensions.** It invented its own recording (`RecorderMiddleware` + `RunRecord`) AND its own storage (`RunStore` SQLite). The recording was wrong because it duplicated core's job. The storage was wrong because core already ships `SqliteAgentSession`. After migration, eval has zero persistence code and zero recording code — it is a pure projection frontend over `AgentSession`.
+- **CLI's current design is half wrong.** The recording part (inventing its own `AgentMessage`-only session model) duplicated core's job and is wrong. But the storage choice (JSON files under `.alva/sessions/`) is a legitimate product decision for CLI. After migration, CLI's recording comes from core (via the unified event stream), and CLI continues to use JSON by implementing its own `JsonFileAgentSession` backend — which is a small extension over core's `AgentSession` trait, not a reinvention of anything.
+
 ### Non-goals
 
 - **Not a logging replacement.** Tracing logs (structured text for humans) are a separate concern handled by `tracing` subscribers; they are not going through `AgentSession`. eval's `log_capture` module stays as-is.
@@ -351,6 +364,77 @@ impl ScopedSession {
 }
 ```
 
+### 4.8 `SessionEventSink` — lightweight observation extension point
+
+For consumers who want to observe the event stream without owning storage (analytics exporters, live UIs subscribing to events, third-party loggers), the full `AgentSession` trait is overkill. They do not need to implement `query` / `rollback_after` / `save_snapshot` / the full lifecycle — they just want "events as they happen."
+
+```rust
+#[async_trait]
+pub trait SessionEventSink: Send + Sync {
+    /// Called for every event appended to the wrapped session.
+    /// The sink MUST NOT block; long-running work should be dispatched
+    /// to a background task.
+    async fn on_event(&self, session_id: &str, event: &SessionEvent);
+
+    /// Called when the wrapped session's `flush()` is called. The sink
+    /// should treat this as a hint to persist any buffered data it holds.
+    async fn on_flush(&self, session_id: &str) {}
+
+    /// Called when the wrapped session is closed.
+    async fn on_close(&self, session_id: &str) {}
+}
+```
+
+Core provides a wrapper that tees appends to any number of registered sinks:
+
+```rust
+pub struct TeeAgentSession {
+    inner: Arc<dyn AgentSession>,
+    sinks: Vec<Arc<dyn SessionEventSink>>,
+}
+
+impl TeeAgentSession {
+    pub fn new(inner: Arc<dyn AgentSession>, sinks: Vec<Arc<dyn SessionEventSink>>) -> Self { ... }
+}
+
+#[async_trait]
+impl AgentSession for TeeAgentSession {
+    async fn append(&self, event: SessionEvent) {
+        self.inner.append(event.clone()).await;
+        for sink in &self.sinks {
+            sink.on_event(self.inner.session_id(), &event).await;
+        }
+    }
+
+    async fn append_message(&self, msg: AgentMessage) {
+        // Delegates to `append` via the inner session's translation;
+        // sinks see the resulting SessionEvent.
+        self.inner.append_message(msg).await;
+        // Note: this one's slightly trickier — inner translated without
+        // notifying sinks. The concrete impl will either re-read the
+        // just-appended event by seq and notify sinks, or route through
+        // append() explicitly. Detail for the implementation PR.
+    }
+
+    async fn flush(&self) -> Result<(), SessionError> {
+        self.inner.flush().await?;
+        for sink in &self.sinks { sink.on_flush(self.inner.session_id()).await; }
+        Ok(())
+    }
+
+    // ... other methods delegate to inner and notify sinks where appropriate ...
+}
+```
+
+When to use which extension point:
+
+| Need | Use |
+|---|---|
+| "I just want to see the events and do X with each" | Implement `SessionEventSink`. Wrap the agent's session with `TeeAgentSession::new(base, vec![my_sink])`. |
+| "I own the storage — events live in MY database/files/service" | Implement `AgentSession` directly. Use `InMemoryAgentSession` / `SqliteAgentSession` as reference templates. |
+| "I want persistence with zero code" | Use `SqliteAgentSession` as-is. Ships with core. |
+| "I want no persistence" | Use `InMemoryAgentSession` as-is. Ships with core. |
+
 ### 4.7 Other types (moved from existing `scope/context` unchanged)
 
 `SessionMessage`, `EventQuery`, `EventMatch`, and the `SessionEvent` constructors (`user_message`, `assistant_message`, `tool_result`, `progress`, `system`) move from `alva-kernel-abi/src/scope/context/types.rs` to the new `alva-kernel-abi/src/agent_session.rs`. Their signatures are unchanged except that the constructors now take an `EventEmitter` parameter (to match §4.1) — in practice, callers will use the `ScopedSession.append(event)` helper, which fills emitter automatically, so most call sites that currently build events by hand will go away.
@@ -466,9 +550,9 @@ No registration, no middleware stack position, no discovery. The tool doesn't kn
 | 1 | `alva-kernel-abi/src/session.rs` (old `AgentSession` + old `InMemorySession`) | **Delete entire file** | 7 call sites in `run.rs` migrate to the new trait (see §8 step 5). No other impls exist. |
 | 2 | `SessionAccess` trait + `SessionEvent` types in `alva-kernel-abi/src/scope/context/` + `InMemorySession` in `alva-agent-context/src/session.rs` | **Move and rename** | Move to `alva-kernel-abi/src/agent_session.rs`. `SessionAccess` → `AgentSession`. `InMemorySession` → `InMemoryAgentSession`. Everything inside the trait gets augmented per §4.5 and §5. |
 | 3 | `alva-agent-context/src/scope/session_tracker.rs` (`SessionTracker`) | **Delete file** | Sub-agent linking is covered by `parent_session_id` on `AgentSession`. Confirm no production callers before deletion. |
-| 4 | `alva-app-cli/src/session_store.rs` (`SessionStore`) | **Delete file** | CLI's session listing / restoration is rewritten as queries against `AgentSession` (with a SQLite backend). The CLI call sites that construct/list/save sessions change to session-management helpers in a new shared crate (or `alva-app-core`). |
-| 5 | `alva-app-eval/src/recorder.rs` (`RecorderMiddleware` + `RunRecord`) | **Delete file** | The full `RecorderMiddleware` is not needed because runtime writes skeleton events directly. `RunRecord` is replaced by a pure projection function in a new `alva-app-eval/src/projection.rs` that turns `&[SessionEvent]` into whatever shape the eval UI renders. |
-| 6 | `alva-app-eval/src/store.rs` (`RunStore`, SQLite table `runs`) | **Delete file** | Replaced by a `SqliteAgentSession` backend implemented in `alva-app-core` (alongside the existing `alva-app-core::settings` and path helpers). Eval's API endpoints call into this shared backend via an `AgentSession` handle. A dedicated `alva-agent-session-sqlite` crate can be extracted later if more than one backend needs to share the same sqlite machinery; YAGNI until then. |
+| 4 | `alva-app-cli/src/session_store.rs` (`SessionStore`) | **Rewrite, not delete** | CLI has two valid paths and chooses one: **(a)** drop the existing JSON format and use the shipped `SqliteAgentSession` — simplest, ~20 lines of CLI code change; **(b)** keep the JSON format by implementing `JsonFileAgentSession: AgentSession` — a ~200-line custom backend modeled on `InMemoryAgentSession`. Either way, CLI's recording logic is gone — it no longer invents events, it consumes the unified event stream. Which path CLI takes is a CLI-product decision, not a spec decision. The spec guarantees both paths work equivalently. |
+| 5 | `alva-app-eval/src/recorder.rs` (`RecorderMiddleware` + `RunRecord`) | **Delete file** | The full `RecorderMiddleware` is not needed because runtime writes skeleton events directly. `RunRecord` is replaced by a pure projection function in a new `alva-app-eval/src/projection.rs` that turns `&[SessionEvent]` into whatever shape the eval UI renders. Eval writes zero recording code after migration — recording is entirely core's job. |
+| 6 | `alva-app-eval/src/store.rs` (`RunStore`, SQLite table `runs`) | **Delete file** | Replaced by the shipped `SqliteAgentSession` backend in `alva-app-core`. Eval wires its API endpoints to an `AgentSession` handle it obtains from core's session registry — it writes zero storage code. A dedicated `alva-agent-session-sqlite` crate can be extracted later if more than one backend needs to share the same sqlite machinery; YAGNI until then. |
 
 ### eval after the change
 
@@ -634,7 +718,9 @@ Run the same unit-test suite from Step 2 against the SQLite backend to verify tr
 
 ### Step 9 — Default backend wiring
 
-Set `SqliteAgentSession` as the default in whichever crate owns `BaseAgent::builder()`'s session construction. Eval and CLI both get persistent sessions automatically. Tests continue to use `InMemoryAgentSession` by default.
+Set `InMemoryAgentSession` as the library default in `BaseAgent::builder()` — this is what tests and minimal embeddings get. Apps that want persistence explicitly pass `SqliteAgentSession` at build time (eval does this directly; CLI chooses between `SqliteAgentSession` and its own `JsonFileAgentSession` depending on which migration path CLI takes in step 7).
+
+Core ships `InMemoryAgentSession` + `SqliteAgentSession` + `SessionEventSink` trait + `TeeAgentSession`. That is the complete set. No JSON backend, no remote backend, no file-per-session backend — those are consumer extensions.
 
 ---
 
