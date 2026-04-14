@@ -128,7 +128,7 @@ impl BaseAgent {
         let st = self.inner.state().lock().await;
         let _ = st.session.clear().await;
         for msg in messages {
-            st.session.append_message(msg).await;
+            st.session.append_message(msg, None).await;
         }
     }
 

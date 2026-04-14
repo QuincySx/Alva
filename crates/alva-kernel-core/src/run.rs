@@ -454,7 +454,7 @@ pub async fn run_agent(
     //    seed initial context. If a future use case needs input-message-driven
     //    injections, plumb them into run_loop via a parameter.
     for msg in input {
-        state.session.append_message(msg.clone()).await;
+        state.session.append_message(msg.clone(), None).await;
         let _ = fire_context_on_message(config, &agent_id, &msg).await;
     }
 
@@ -709,7 +709,7 @@ async fn run_loop(
 
             // 3g. Store response in session + fire ContextHooks::on_message
             let response_msg = AgentMessage::Standard(response.clone());
-            state.session.append_message(response_msg.clone()).await;
+            state.session.append_message(response_msg.clone(), Some(llm_start_uuid.clone())).await;
             pending_injections.extend(
                 fire_context_on_message(config, &agent_id, &response_msg).await,
             );
@@ -869,7 +869,7 @@ async fn run_loop(
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
                 let tool_msg = AgentMessage::Standard(tool_message);
-                state.session.append_message(tool_msg.clone()).await;
+                state.session.append_message(tool_msg.clone(), None).await;
                 pending_injections.extend(
                     fire_context_on_message(config, &agent_id, &tool_msg).await,
                 );
@@ -910,7 +910,7 @@ async fn run_loop(
                             AgentMessage::Steering(m) => AgentMessage::Standard(m),
                             other => other,
                         };
-                        state.session.append_message(msg.clone()).await;
+                        state.session.append_message(msg.clone(), None).await;
                         pending_injections.extend(
                             fire_context_on_message(config, &agent_id, &msg).await,
                         );
@@ -951,7 +951,7 @@ async fn run_loop(
                 AgentMessage::FollowUp(m) => AgentMessage::Standard(m),
                 other => other,
             };
-            state.session.append_message(msg.clone()).await;
+            state.session.append_message(msg.clone(), None).await;
             pending_injections.extend(
                 fire_context_on_message(config, &agent_id, &msg).await,
             );

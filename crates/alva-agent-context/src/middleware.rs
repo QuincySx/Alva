@@ -296,7 +296,7 @@ impl Middleware for CompactionMiddleware {
         for msg in &compacted {
             state
                 .session
-                .append_message(alva_kernel_abi::AgentMessage::Standard(msg.clone()))
+                .append_message(alva_kernel_abi::AgentMessage::Standard(msg.clone()), None)
                 .await;
         }
 

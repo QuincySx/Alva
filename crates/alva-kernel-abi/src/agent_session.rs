@@ -281,8 +281,9 @@ pub trait AgentSession: Send + Sync {
 
     /// Append an `AgentMessage` as a user / assistant / tool_result event.
     /// The backend translates the message into a `SessionEvent` with
-    /// `emitter = EventEmitter::runtime()` and appends it.
-    async fn append_message(&self, msg: AgentMessage);
+    /// `emitter = Runtime` and the given `parent_uuid` (or None for unparented
+    /// messages) and appends it.
+    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>);
 
     // --- Read: event-level ---
 
@@ -518,10 +519,11 @@ impl AgentSession for InMemoryAgentSession {
         self.events.write().await.push(event);
     }
 
-    async fn append_message(&self, msg: AgentMessage) {
+    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
         // Classify for display, serialize for perfect round-trip.
         let (event_type, session_msg) = Self::classify_message(&msg);
         let mut event = SessionEvent::new(event_type);
+        event.parent_uuid = parent_uuid;
         event.message = session_msg;
         event.data = Some(
             serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null),
@@ -808,8 +810,8 @@ mod tests {
     #[tokio::test]
     async fn append_message_updates_cache_and_events() {
         let s = InMemoryAgentSession::new();
-        s.append_message(user_msg("hello")).await;
-        s.append_message(user_msg("world")).await;
+        s.append_message(user_msg("hello"), None).await;
+        s.append_message(user_msg("world"), None).await;
 
         // Message cache has both
         let msgs = s.messages().await;
@@ -828,7 +830,7 @@ mod tests {
     async fn recent_messages_returns_last_n_from_cache() {
         let s = InMemoryAgentSession::new();
         for i in 0..10 {
-            s.append_message(user_msg(&format!("msg {}", i))).await;
+            s.append_message(user_msg(&format!("msg {}", i)), None).await;
         }
 
         let recent = s.recent_messages(3).await;
@@ -845,7 +847,7 @@ mod tests {
     #[tokio::test]
     async fn recent_messages_larger_than_total_returns_all() {
         let s = InMemoryAgentSession::new();
-        s.append_message(user_msg("one")).await;
+        s.append_message(user_msg("one"), None).await;
         assert_eq!(s.recent_messages(100).await.len(), 1);
     }
 
@@ -874,9 +876,9 @@ mod tests {
     #[tokio::test]
     async fn rollback_after_drops_events_and_rebuilds_cache() {
         let s = InMemoryAgentSession::new();
-        s.append_message(user_msg("one")).await;
-        s.append_message(user_msg("two")).await;
-        s.append_message(user_msg("three")).await;
+        s.append_message(user_msg("one"), None).await;
+        s.append_message(user_msg("two"), None).await;
+        s.append_message(user_msg("three"), None).await;
 
         // Grab the uuid of the second event (the "two" message).
         let second_uuid = s.events.read().await[1].uuid.clone();
@@ -910,7 +912,7 @@ mod tests {
     #[tokio::test]
     async fn clear_resets_everything() {
         let s = InMemoryAgentSession::new();
-        s.append_message(user_msg("one")).await;
+        s.append_message(user_msg("one"), None).await;
         s.save_snapshot(b"snap").await;
 
         s.clear().await.unwrap();

@@ -1431,7 +1431,7 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
             s.append_message(AgentMessage::Standard(Message::user(&format!(
                 "msg-{}-with-some-padding-text-to-pump-up-the-token-estimate",
                 i
-            )))).await;
+            ))), None).await;
         }
     }
 
