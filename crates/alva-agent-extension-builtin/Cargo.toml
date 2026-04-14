@@ -1,0 +1,43 @@
+[package]
+name = "alva-agent-extension-builtin"
+version = "0.1.0"
+edition = "2021"
+description = "Built-in agent extensions: tool implementations and Extension wrappers (file I/O, shell, web, notebook, worktree, team, task, utility)"
+
+[dependencies]
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-agent-core = { path = "../alva-agent-core" }
+async-trait = "0.1"
+tokio = { version = "1", default-features = false, features = ["sync", "time"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+regex = "1"
+glob = "0.3"
+tracing = "0.1"
+base64 = "0.22"
+
+# Native-only: process + fs + walkdir
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
+ignore = "0.4"
+reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = ["core", "utility"]
+
+# Always-on fundamentals
+core = []          # file_io + shell + interaction + plan_mode primitives
+utility = []       # sleep / config / skill / tool_search / view_image
+
+# Opt-in bundles
+web = ["dep:reqwest"]    # internet_search + read_url (native only by target gating)
+notebook = []            # notebook_edit
+worktree = []            # enter/exit_worktree
+team = []                # team_create/delete + send_message
+task = []                # task_create/update/get/list/output/stop
+schedule = []            # schedule_cron + remote_trigger
