@@ -318,3 +318,59 @@ pub trait AgentSession: Send + Sync {
 
     async fn clear(&self) -> Result<(), SessionError>;
 }
+
+// ===========================================================================
+// ScopedSession
+// ===========================================================================
+
+/// A wrapper around an `AgentSession` handle that stamps every appended event
+/// with a fixed `EventEmitter`. Third-party tools, middleware, and extensions
+/// receive a `ScopedSession` from their execution context — they can append
+/// events without ever touching the `emitter` field, because the wrapper
+/// fills it at construction time.
+///
+/// This is the structural guarantee that `emitter.kind` always matches the
+/// actual call path: runtime constructs the `ScopedSession` with the correct
+/// kind and id for each extension point, and the wrapper prevents the caller
+/// from overriding it.
+#[derive(Clone)]
+pub struct ScopedSession {
+    inner: Arc<dyn AgentSession>,
+    emitter: EventEmitter,
+}
+
+impl ScopedSession {
+    /// Create a new scoped wrapper. The emitter is baked in — it cannot be
+    /// changed after construction.
+    pub fn new(inner: Arc<dyn AgentSession>, emitter: EventEmitter) -> Self {
+        Self { inner, emitter }
+    }
+
+    /// The session id of the underlying session.
+    pub fn session_id(&self) -> &str {
+        self.inner.session_id()
+    }
+
+    /// The emitter that will be stamped on every event appended through this
+    /// wrapper.
+    pub fn emitter(&self) -> &EventEmitter {
+        &self.emitter
+    }
+
+    /// Append an event. The `emitter` field of the event is overwritten with
+    /// this wrapper's emitter; any value set by the caller is discarded.
+    pub async fn append(&self, mut event: SessionEvent) {
+        event.emitter = self.emitter.clone();
+        self.inner.append(event).await;
+    }
+
+    /// Delegate query to the inner session.
+    pub async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
+        self.inner.query(filter).await
+    }
+
+    /// Delegate count to the inner session.
+    pub async fn count(&self, filter: &EventQuery) -> usize {
+        self.inner.count(filter).await
+    }
+}
