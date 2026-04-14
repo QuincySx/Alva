@@ -718,3 +718,230 @@ impl Default for InMemoryAgentSession {
         Self::new()
     }
 }
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::message::Message;
+
+    fn user_msg(text: &str) -> AgentMessage {
+        // Use the `Message::user` factory — the `Message` struct has 6 fields
+        // (id, role, content, tool_call_id, usage, timestamp) and the factory
+        // fills them sensibly.
+        AgentMessage::Standard(Message::user(text))
+    }
+
+    #[tokio::test]
+    async fn new_session_has_id_and_no_parent() {
+        let s = InMemoryAgentSession::new();
+        assert!(!s.session_id().is_empty());
+        assert!(s.parent_session_id().is_none());
+    }
+
+    #[tokio::test]
+    async fn child_session_has_parent() {
+        let root = InMemoryAgentSession::new();
+        let child = InMemoryAgentSession::with_parent(root.session_id());
+        assert_eq!(child.parent_session_id(), Some(root.session_id()));
+    }
+
+    #[tokio::test]
+    async fn append_assigns_monotonic_seq() {
+        let s = InMemoryAgentSession::new();
+        let mut e1 = SessionEvent::progress(serde_json::json!({"n": 1}));
+        let mut e2 = SessionEvent::progress(serde_json::json!({"n": 2}));
+        let mut e3 = SessionEvent::progress(serde_json::json!({"n": 3}));
+        e1.seq = 0;
+        e2.seq = 0;
+        e3.seq = 0;
+
+        s.append(e1).await;
+        s.append(e2).await;
+        s.append(e3).await;
+
+        let events = s.events.read().await;
+        assert_eq!(events[0].seq, 1);
+        assert_eq!(events[1].seq, 2);
+        assert_eq!(events[2].seq, 3);
+    }
+
+    #[tokio::test]
+    async fn concurrent_append_preserves_monotonic_seq() {
+        use std::sync::Arc;
+
+        let s = Arc::new(InMemoryAgentSession::new());
+        let mut handles = Vec::new();
+        for i in 0..100 {
+            let s = s.clone();
+            handles.push(tokio::spawn(async move {
+                let e = SessionEvent::progress(serde_json::json!({"i": i}));
+                s.append(e).await;
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let events = s.events.read().await;
+        assert_eq!(events.len(), 100);
+
+        // Collect seqs and verify they are exactly {1..=100} with no duplicates
+        // and no gaps. Ordering in the Vec matches insertion order, which matches
+        // seq order because append grabs the counter before pushing.
+        let mut seqs: Vec<u64> = events.iter().map(|e| e.seq).collect();
+        seqs.sort_unstable();
+        for (i, seq) in seqs.iter().enumerate() {
+            assert_eq!(*seq, (i + 1) as u64, "seq at index {} should be {}", i, i + 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn append_message_updates_cache_and_events() {
+        let s = InMemoryAgentSession::new();
+        s.append_message(user_msg("hello")).await;
+        s.append_message(user_msg("world")).await;
+
+        // Message cache has both
+        let msgs = s.messages().await;
+        assert_eq!(msgs.len(), 2);
+
+        // Events log has both as "user" events with correct seq
+        let events = s.events.read().await;
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].event_type, "user");
+        assert_eq!(events[1].event_type, "user");
+        assert_eq!(events[0].seq, 1);
+        assert_eq!(events[1].seq, 2);
+    }
+
+    #[tokio::test]
+    async fn recent_messages_returns_last_n_from_cache() {
+        let s = InMemoryAgentSession::new();
+        for i in 0..10 {
+            s.append_message(user_msg(&format!("msg {}", i))).await;
+        }
+
+        let recent = s.recent_messages(3).await;
+        assert_eq!(recent.len(), 3);
+
+        // Verify it's the last three (msg 7, 8, 9).
+        if let AgentMessage::Standard(m) = &recent[0] {
+            assert!(m.text_content().contains("msg 7"));
+        } else {
+            panic!("expected Standard message");
+        }
+    }
+
+    #[tokio::test]
+    async fn recent_messages_larger_than_total_returns_all() {
+        let s = InMemoryAgentSession::new();
+        s.append_message(user_msg("one")).await;
+        assert_eq!(s.recent_messages(100).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn query_by_event_type() {
+        let s = InMemoryAgentSession::new();
+        s.append(SessionEvent::user_message(serde_json::json!("hi"))).await;
+        s.append(SessionEvent::progress(serde_json::json!({"ok": true}))).await;
+        s.append(SessionEvent::progress(serde_json::json!({"ok": false}))).await;
+
+        let progress = s.query(&EventQuery {
+            event_type: Some("progress".into()),
+            limit: 100,
+            ..Default::default()
+        }).await;
+        assert_eq!(progress.len(), 2);
+
+        let users = s.query(&EventQuery {
+            event_type: Some("user".into()),
+            limit: 100,
+            ..Default::default()
+        }).await;
+        assert_eq!(users.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rollback_after_drops_events_and_rebuilds_cache() {
+        let s = InMemoryAgentSession::new();
+        s.append_message(user_msg("one")).await;
+        s.append_message(user_msg("two")).await;
+        s.append_message(user_msg("three")).await;
+
+        // Grab the uuid of the second event (the "two" message).
+        let second_uuid = s.events.read().await[1].uuid.clone();
+
+        // Rollback after "two": drops "three".
+        let dropped = s.rollback_after(&second_uuid).await;
+        assert_eq!(dropped, 1);
+
+        // Events log has two items; message cache has two items.
+        assert_eq!(s.events.read().await.len(), 2);
+        assert_eq!(s.messages().await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn snapshot_save_and_load() {
+        let s = InMemoryAgentSession::new();
+        assert!(s.load_snapshot().await.is_none());
+
+        s.save_snapshot(b"ctx-bytes").await;
+        assert_eq!(s.load_snapshot().await.unwrap(), b"ctx-bytes");
+    }
+
+    #[tokio::test]
+    async fn lifecycle_methods_are_ok() {
+        let s = InMemoryAgentSession::new();
+        s.restore().await.unwrap();
+        s.flush().await.unwrap();
+        s.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn clear_resets_everything() {
+        let s = InMemoryAgentSession::new();
+        s.append_message(user_msg("one")).await;
+        s.save_snapshot(b"snap").await;
+
+        s.clear().await.unwrap();
+
+        assert_eq!(s.messages().await.len(), 0);
+        assert!(s.load_snapshot().await.is_none());
+
+        // After clear, seq counter restarts at 1.
+        s.append(SessionEvent::progress(serde_json::json!({"after": "clear"}))).await;
+        assert_eq!(s.events.read().await[0].seq, 1);
+    }
+
+    #[tokio::test]
+    async fn scoped_session_stamps_emitter() {
+        let session = Arc::new(InMemoryAgentSession::new());
+        let scoped = ScopedSession::new(
+            session.clone() as Arc<dyn AgentSession>,
+            EventEmitter {
+                kind: EmitterKind::Tool,
+                id: "read_file".into(),
+                instance: None,
+            },
+        );
+
+        // Construct an event with a bogus emitter; scoped.append must overwrite it.
+        let mut e = SessionEvent::progress(serde_json::json!({"x": 1}));
+        e.emitter = EventEmitter {
+            kind: EmitterKind::Runtime,
+            id: "bogus".into(),
+            instance: None,
+        };
+        scoped.append(e).await;
+
+        // Read back via the Arc<InMemoryAgentSession> to assert the event's emitter.
+        let events = session.events.read().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].emitter.kind, EmitterKind::Tool);
+        assert_eq!(events[0].emitter.id, "read_file");
+    }
+}
