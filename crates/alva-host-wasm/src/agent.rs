@@ -162,6 +162,24 @@ impl WasmAgent {
     pub fn config_mut(&mut self) -> &mut AgentConfig {
         &mut self.config
     }
+
+    /// Replace the internal session with a fresh `InMemorySession`,
+    /// dropping all accumulated message history. Used when the same
+    /// `WasmAgent` instance is reused across multiple unrelated
+    /// conversations — the common wasm pattern where a single agent
+    /// sits behind a UI and each user message starts a new thread.
+    ///
+    /// Middleware, model, tools, and config are preserved.
+    pub fn clear_session(&mut self) {
+        self.state.session = Arc::new(InMemorySession::new());
+    }
+
+    /// Number of messages currently in the agent's session. Convenient
+    /// sanity check for tests and demos that want to assert how much
+    /// history a run accumulated without reaching into `state()`.
+    pub fn session_len(&self) -> usize {
+        self.state.session.len()
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +220,31 @@ mod tests {
         assert_eq!(
             output, "echo-ok",
             "run_simple should return the assistant response text"
+        );
+    }
+
+    #[tokio::test]
+    async fn wasm_agent_clear_session_resets_history_across_runs() {
+        let mut agent = WasmAgent::new(
+            Arc::new(StubLanguageModel::new("ok")),
+            vec![],
+            "",
+        );
+        // First run accumulates messages.
+        let _ = agent.run_simple("first").await.unwrap();
+        let after_first = agent.session_len();
+        assert!(after_first >= 2, "expected user + assistant, got {}", after_first);
+
+        // Reset and run again — second run should start from zero, not
+        // stack on top of the first.
+        agent.clear_session();
+        assert_eq!(agent.session_len(), 0, "clear_session should drop all history");
+
+        let _ = agent.run_simple("second").await.unwrap();
+        let after_second = agent.session_len();
+        assert_eq!(
+            after_second, after_first,
+            "second run after clear should have the same message count as first"
         );
     }
 }
