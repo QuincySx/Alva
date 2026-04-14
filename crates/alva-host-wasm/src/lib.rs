@@ -23,6 +23,12 @@ mod sleeper;
 #[cfg(target_family = "wasm")]
 pub use sleeper::WasmSleeper;
 
+// wasm-bindgen entry points — only compiled on wasm32. The module itself
+// is private; anything exposed to JS lives inside it and is marked
+// #[wasm_bindgen].
+#[cfg(target_family = "wasm")]
+mod entry;
+
 // Consumer-facing facade: a minimal `WasmAgent` struct that bundles
 // AgentState + AgentConfig + run_agent into one type. Compiles on every
 // target (native + wasm) so apps and tests share the same API.
