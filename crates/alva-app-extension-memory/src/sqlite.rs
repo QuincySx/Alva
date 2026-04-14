@@ -7,9 +7,9 @@
 
 use tokio_rusqlite::Connection;
 
-use crate::error::MemoryError;
+use alva_agent_memory::error::MemoryError;
 
-use crate::types::{MemoryEntry, MemoryFile};
+use alva_agent_memory::types::{MemoryEntry, MemoryFile};
 
 // ---------------------------------------------------------------------------
 // DDL
@@ -347,7 +347,7 @@ impl MemorySqlite {
 // ---------------------------------------------------------------------------
 
 #[async_trait::async_trait]
-impl crate::backend::MemoryBackend for MemorySqlite {
+impl alva_agent_memory::backend::MemoryBackend for MemorySqlite {
     async fn upsert_file(&self, file: &MemoryFile) -> Result<(), MemoryError> {
         self.upsert_file(file).await
     }

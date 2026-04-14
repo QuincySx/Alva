@@ -1,0 +1,31 @@
+[package]
+name = "alva-app-extension-memory"
+version = "0.1.0"
+edition = "2021"
+description = "Heavy app-layer extension: SQLite memory backend + MEMORY.md workspace sync + memory-facts extraction. Lives at the app extension layer because the agent layer must stay minimal."
+
+# Native-only by construction. rusqlite pulls a native sqlite3 library;
+# walkdir + tokio::fs depend on real filesystem access. Nothing here
+# works in a browser; wasm apps should implement their own
+# MemoryBackend over IndexedDB or similar.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-agent-memory = { path = "../alva-agent-memory" }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+walkdir = "2"
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokio-rusqlite = "0.5"
+tokio = { version = "1", features = ["sync", "fs"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+
+# On wasm32 the crate compiles to an empty lib so it can stay in the
+# workspace without breaking wasm builds.
+[target.'cfg(target_family = "wasm")'.dependencies]

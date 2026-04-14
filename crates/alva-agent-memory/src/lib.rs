@@ -1,23 +1,26 @@
-// INPUT:  error, types, sqlite, embedding, sync, service
-// OUTPUT: MemoryError, MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, EmbeddingProvider, MemorySqlite
-// POS:    Crate root — declares all modules and provides the public API via convenience re-exports.
-//! Agent memory — FTS + vector hybrid search, file sync, embedding support.
+// INPUT:  error, types, embedding, hash, backend, service
+// OUTPUT: MemoryBackend, MemoryError, MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, EmbeddingProvider, NoopEmbeddingProvider
+// POS:    Crate root — lean memory trait + types. Heavy impls (sqlite, workspace sync, extract) moved to alva-app-extension-memory.
+//! Agent memory — lean abstraction layer.
+//!
+//! This crate defines the `MemoryBackend` trait, the `MemoryService`
+//! facade, and the shared value types. Heavy native-only
+//! implementations (SQLite storage, workspace MEMORY.md sync, memory
+//! fact extraction) live in `alva-app-extension-memory` so this crate
+//! stays minimal and wasm32-clean.
+//!
+//! Wasm consumers should implement `MemoryBackend` themselves over
+//! IndexedDB / localStorage / server APIs.
 
 pub mod backend;
-pub mod error;
-pub mod types;
-pub mod sqlite;
 pub mod embedding;
+pub mod error;
 pub mod hash;
-pub mod sync;
 pub mod service;
-pub mod extract;
+pub mod types;
 
 pub use backend::MemoryBackend;
+pub use embedding::{EmbeddingProvider, NoopEmbeddingProvider};
 pub use error::MemoryError;
 pub use service::MemoryService;
-pub use types::{MemoryEntry, MemoryChunk, MemoryFile, SyncReport};
-pub use embedding::{EmbeddingProvider, NoopEmbeddingProvider};
-pub use sqlite::MemorySqlite;
-pub use sync::SyncConfig;
-pub use extract::{ExtractionConfig, ExtractedMemory, MemoryType};
+pub use types::{MemoryChunk, MemoryEntry, MemoryFile, SyncReport};

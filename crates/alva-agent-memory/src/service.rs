@@ -1,18 +1,21 @@
-// INPUT:  std::path, crate::error, crate::{embedding, sqlite, sync, types}
+// INPUT:  std::sync::Arc, crate::{backend, error, embedding, types}
 // OUTPUT: MemoryService
-// POS:    Unified memory service combining FTS + vector hybrid search with weighted score fusion.
-//! MemoryService — unified entry point for memory CRUD + hybrid search.
+// POS:    Unified memory service combining FTS + vector hybrid search with weighted score fusion — backend-agnostic.
 
-use std::path::Path;
+//! MemoryService — unified entry point for memory CRUD + hybrid search.
+//!
+//! Backend-agnostic. Callers inject an `Arc<dyn MemoryBackend>` (e.g.
+//! `MemorySqlite` from `alva-app-extension-memory`, or a custom
+//! IndexedDB impl for wasm) via `with_backend()`. Workspace MEMORY.md
+//! sync lives in `alva-app-extension-memory` alongside the sqlite
+//! backend — not in the service.
+
 use std::sync::Arc;
 
 use crate::backend::MemoryBackend;
-use crate::error::MemoryError;
-
 use crate::embedding::EmbeddingProvider;
-use crate::sqlite::MemorySqlite;
-use crate::sync;
-use crate::types::{MemoryEntry, SyncReport};
+use crate::error::MemoryError;
+use crate::types::MemoryEntry;
 
 /// High-level memory service combining FTS + vector search.
 pub struct MemoryService {
@@ -33,15 +36,10 @@ impl MemoryService {
         Self { store, embedder, fts_weight: 0.4, vec_weight: 0.6 }
     }
 
-    /// Create a new `MemoryService` with the default SQLite backend.
-    pub fn new(store: MemorySqlite, embedder: Box<dyn EmbeddingProvider>) -> Self {
-        Self {
-            store: Arc::new(store),
-            embedder,
-            fts_weight: 0.4,
-            vec_weight: 0.6,
-        }
-    }
+    // The old `new(store: MemorySqlite, ...)` convenience is gone —
+    // callers should use `with_backend()` and inject whatever backend
+    // is appropriate for their target (MemorySqlite from
+    // alva-app-extension-memory on native, a custom impl on wasm).
 
     /// Set custom weights for hybrid search scoring.
     /// `fts` + `vec` should sum to 1.0 for normalized results.
@@ -125,9 +123,15 @@ impl MemoryService {
         Ok(merged)
     }
 
-    /// Synchronize workspace MEMORY.md files into the store.
-    pub async fn sync_workspace(&self, workspace_path: &Path) -> Result<SyncReport, MemoryError> {
-        sync::sync_workspace(workspace_path, self.store.as_ref(), self.embedder.as_ref()).await
+    // sync_workspace() moved to alva-app-extension-memory::sync. Callers
+    // that want MEMORY.md scanning should call that free function
+    // directly, passing in `service.store()` and `service.embedder()`.
+
+    /// Access the underlying embedder (for callers that need to embed
+    /// text themselves, e.g. the workspace sync helper in the
+    /// extension crate).
+    pub fn embedder(&self) -> &dyn EmbeddingProvider {
+        self.embedder.as_ref()
     }
 
     /// Direct access to the underlying storage backend.
@@ -236,62 +240,11 @@ fn normalize_scores_inverted(entries: &[MemoryEntry]) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embedding::NoopEmbeddingProvider;
 
-    async fn make_service() -> MemoryService {
-        let store = MemorySqlite::open_in_memory().await.unwrap();
-        let embedder = Box::new(NoopEmbeddingProvider::new());
-        MemoryService::new(store, embedder)
-    }
-
-    #[tokio::test]
-    async fn test_store_and_search() {
-        let svc = make_service().await;
-
-        svc.store_entry("key1", "Rust is a systems programming language", "note")
-            .await
-            .unwrap();
-        svc.store_entry("key2", "Python is popular for machine learning", "note")
-            .await
-            .unwrap();
-        svc.store_entry("key3", "JavaScript runs in the browser", "note")
-            .await
-            .unwrap();
-
-        // FTS-only search (since embedder is noop)
-        let results = svc.search("Rust programming", 10).await.unwrap();
-        assert!(!results.is_empty());
-        assert!(results[0].text.contains("Rust"));
-    }
-
-    #[tokio::test]
-    async fn test_store_entry_overwrite() {
-        let svc = make_service().await;
-
-        svc.store_entry("key1", "version 1", "note").await.unwrap();
-        svc.store_entry("key1", "version 2", "note").await.unwrap();
-
-        let results = svc.search("version", 10).await.unwrap();
-        // Should only have the latest version, not both.
-        assert_eq!(results.len(), 1);
-        assert!(results[0].text.contains("version 2"));
-    }
-
-    #[tokio::test]
-    async fn test_sync_workspace() {
-        use tempfile::TempDir;
-
-        let svc = make_service().await;
-        let tmp = TempDir::new().unwrap();
-        let memory_md = tmp.path().join("MEMORY.md");
-        tokio::fs::write(&memory_md, "# Project Notes\n\nImportant context here.")
-            .await
-            .unwrap();
-
-        let report = svc.sync_workspace(tmp.path()).await.unwrap();
-        assert_eq!(report.files_added, 1);
-        assert_eq!(report.chunks_created, 1);
-    }
+    // Integration tests that exercise a real store (store_and_search,
+    // store_entry_overwrite, sync_workspace) moved to
+    // alva-app-extension-memory's test suite alongside MemorySqlite.
+    // alva-agent-memory keeps only the pure-logic tests below.
 
     #[test]
     fn test_normalize_scores() {

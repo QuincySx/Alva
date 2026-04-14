@@ -4,7 +4,8 @@ use std::sync::Arc;
 use alva_kernel_core::middleware::{Middleware, MiddlewareStack};
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::shared::Extensions;
-use alva_agent_memory::{MemoryService, MemorySqlite, NoopEmbeddingProvider};
+use alva_agent_memory::{MemoryService, NoopEmbeddingProvider};
+use alva_app_extension_memory::MemorySqlite;
 use alva_host_native::middleware::{ApprovalNotifier, ApprovalRequest};
 use alva_host_native::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
@@ -325,7 +326,7 @@ impl BaseAgentBuilder {
             let db_path = db_dir.join("memory.db");
             let store = MemorySqlite::open(&db_path).await?;
             let embedder = Box::new(NoopEmbeddingProvider::new());
-            Some(MemoryService::new(store, embedder))
+            Some(MemoryService::with_backend(std::sync::Arc::new(store), embedder))
         } else {
             None
         };

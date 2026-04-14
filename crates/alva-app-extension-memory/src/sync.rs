@@ -6,11 +6,11 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::error::MemoryError;
+use alva_agent_memory::error::MemoryError;
 
-use crate::backend::MemoryBackend;
-use crate::embedding::EmbeddingProvider;
-use crate::types::{MemoryFile, SyncReport};
+use alva_agent_memory::backend::MemoryBackend;
+use alva_agent_memory::embedding::EmbeddingProvider;
+use alva_agent_memory::types::{MemoryFile, SyncReport};
 
 /// Configuration for workspace synchronization.
 pub struct SyncConfig {
@@ -186,7 +186,7 @@ fn chunk_text(content: &str, chunk_size: usize) -> Vec<TextChunk> {
 }
 
 fn compute_hash(content: &str) -> String {
-    crate::hash::compute_hash(content)
+    alva_agent_memory::hash::compute_hash(content)
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +241,7 @@ mod tests {
             .unwrap();
 
         let store = MemorySqlite::open_in_memory().await.unwrap();
-        let embedder = crate::embedding::NoopEmbeddingProvider::new();
+        let embedder = alva_agent_memory::embedding::NoopEmbeddingProvider::new();
 
         let report = sync_workspace(tmp.path(), &store, &embedder)
             .await
