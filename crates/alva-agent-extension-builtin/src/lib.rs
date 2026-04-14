@@ -10,6 +10,7 @@
 // during the rest of the refactor.
 
 pub mod truncate;
+pub mod wrappers;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod walkdir;

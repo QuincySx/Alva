@@ -17,15 +17,6 @@ pub mod evaluation;
 pub mod agent_spawn;
 
 // Flat built-in extensions (one plugin per file)
-mod core;
-mod shell;
-mod interaction;
-mod task;
-mod team;
-mod planning;
-mod utility;
-mod web;
-mod browser;
 mod loop_detection;
 mod dangling_tool_call;
 mod tool_timeout;
@@ -43,15 +34,11 @@ pub use hooks::HooksExtension;
 pub use evaluation::EvaluationExtension;
 pub use agent_spawn::{ChildRunRecording, SubAgentExtension};
 
-pub use core::CoreExtension;
-pub use shell::ShellExtension;
-pub use interaction::InteractionExtension;
-pub use task::TaskExtension;
-pub use team::TeamExtension;
-pub use planning::PlanningExtension;
-pub use utility::UtilityExtension;
-pub use web::WebExtension;
-pub use browser::BrowserExtension;
+// Thin Extension wrappers now live in `alva-agent-extension-builtin::wrappers`.
+pub use alva_agent_extension_builtin::wrappers::{
+    BrowserExtension, CoreExtension, InteractionExtension, PlanningExtension, ShellExtension,
+    TaskExtension, TeamExtension, UtilityExtension, WebExtension,
+};
 pub use loop_detection::LoopDetectionExtension;
 pub use dangling_tool_call::DanglingToolCallExtension;
 pub use tool_timeout::ToolTimeoutExtension;

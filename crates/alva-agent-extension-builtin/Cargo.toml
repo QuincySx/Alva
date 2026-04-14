@@ -27,6 +27,7 @@ alva-agent-tools = { path = "../alva-agent-tools", default-features = false }
 tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
 ignore = "0.4"
 reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
+alva-app-extension-browser = { path = "../alva-app-extension-browser", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -45,3 +46,4 @@ worktree = []            # enter/exit_worktree
 team = []                # team_create/delete + send_message
 task = []                # task_create/update/get/list/output/stop
 schedule = []            # schedule_cron + remote_trigger
+browser = ["dep:alva-app-extension-browser"]  # BrowserExtension wrapper

@@ -1,10 +1,8 @@
 //! Human interaction tool (ask_human).
 
+use alva_agent_core::extension::Extension;
 use alva_kernel_abi::tool::Tool;
-use alva_agent_tools::tool_presets;
 use async_trait::async_trait;
-
-use super::Extension;
 
 pub struct InteractionExtension;
 
@@ -12,5 +10,5 @@ pub struct InteractionExtension;
 impl Extension for InteractionExtension {
     fn name(&self) -> &str { "interaction" }
     fn description(&self) -> &str { "Human interaction" }
-    async fn tools(&self) -> Vec<Box<dyn Tool>> { tool_presets::interaction() }
+    async fn tools(&self) -> Vec<Box<dyn Tool>> { crate::tool_presets::interaction() }
 }

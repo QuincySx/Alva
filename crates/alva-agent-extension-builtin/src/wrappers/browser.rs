@@ -1,15 +1,14 @@
-//! Browser automation extension.
+//! Browser automation extension wrapper.
 //!
 //! The actual chromiumoxide-based implementation lives in the dedicated
 //! `alva-app-extension-browser` crate — heavy, native-only, intentionally
-//! excluded from the agent/kernel layers. This file is just the thin
+//! excluded from the agent/kernel layers. This file is the thin
 //! `Extension` wrapper that bridges the standalone crate's tools into
-//! the app-core extension registry.
+//! the extension registry.
 
+use alva_agent_core::extension::Extension;
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
-
-use super::Extension;
 
 pub struct BrowserExtension;
 
