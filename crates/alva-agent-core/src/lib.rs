@@ -13,3 +13,9 @@ pub use extension::{
     Extension, ExtensionBridgeMiddleware, ExtensionContext, ExtensionEvent, ExtensionHost,
     EventResult, FinalizeContext, HostAPI, RegisteredCommand,
 };
+
+pub mod agent;
+pub mod agent_builder;
+
+pub use agent::Agent;
+pub use agent_builder::AgentBuilder;
