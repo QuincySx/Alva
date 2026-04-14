@@ -492,6 +492,227 @@ impl InMemoryAgentSession {
     }
 }
 
+#[async_trait]
+impl AgentSession for InMemoryAgentSession {
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn parent_session_id(&self) -> Option<&str> {
+        self.parent_session_id.as_deref()
+    }
+
+    async fn append(&self, mut event: SessionEvent) {
+        // Assign seq atomically. This is the only place seq is assigned
+        // on the raw-event write path.
+        event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+        // Raw events go into the event log ONLY. Message-bearing events
+        // should use append_message so that both the log and the cache
+        // stay consistent.
+        self.events.write().await.push(event);
+    }
+
+    async fn append_message(&self, msg: AgentMessage) {
+        // Classify for display, serialize for perfect round-trip.
+        let (event_type, session_msg) = Self::classify_message(&msg);
+        let mut event = SessionEvent::new(event_type);
+        event.message = session_msg;
+        event.data = Some(
+            serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null),
+        );
+        event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+
+        // Push to events log and directly to the message cache.
+        // The cache holds the original AgentMessage — no round-trip.
+        self.events.write().await.push(event);
+        self.messages.write().await.push_back(msg);
+    }
+
+    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
+        let events = self.events.read().await;
+
+        // Find start position if after_uuid cursor is set.
+        let start = if let Some(ref after) = filter.after_uuid {
+            events
+                .iter()
+                .position(|e| e.uuid == *after)
+                .map(|i| i + 1)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        let mut matches: Vec<EventMatch> = events[start..]
+            .iter()
+            .filter(|e| event_matches(e, filter))
+            .map(|e| EventMatch {
+                preview: make_preview(e),
+                event: e.clone(),
+            })
+            .collect();
+
+        if let Some(n) = filter.last_n {
+            let skip = matches.len().saturating_sub(n);
+            matches = matches.into_iter().skip(skip).collect();
+        }
+
+        if filter.limit > 0 {
+            matches.truncate(filter.limit);
+        }
+
+        matches
+    }
+
+    async fn count(&self, filter: &EventQuery) -> usize {
+        let events = self.events.read().await;
+        events.iter().filter(|e| event_matches(e, filter)).count()
+    }
+
+    async fn messages(&self) -> Vec<AgentMessage> {
+        let msgs = self.messages.read().await;
+        msgs.iter().cloned().collect()
+    }
+
+    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
+        let msgs = self.messages.read().await;
+        let len = msgs.len();
+        if n >= len {
+            msgs.iter().cloned().collect()
+        } else {
+            msgs.iter().skip(len - n).cloned().collect()
+        }
+    }
+
+    async fn rollback_after(&self, uuid: &str) -> usize {
+        let mut events = self.events.write().await;
+        let Some(pos) = events.iter().position(|e| e.uuid == *uuid) else {
+            return 0;
+        };
+
+        let removed = events.len() - pos - 1;
+        events.truncate(pos + 1);
+
+        // Clone the surviving events for cache rebuild, then drop the
+        // events lock before acquiring the messages lock.
+        let surviving: Vec<SessionEvent> = events.iter().cloned().collect();
+        drop(events);
+
+        // Rebuild the message cache by deserializing the AgentMessage
+        // from each surviving event's `data` field. Events without a
+        // serialized AgentMessage in `data` (progress, hooks, skeleton
+        // events) are skipped — they were never in the cache.
+        let mut msgs = self.messages.write().await;
+        msgs.clear();
+        for ev in &surviving {
+            if let Some(data) = &ev.data {
+                if let Ok(m) = serde_json::from_value::<AgentMessage>(data.clone()) {
+                    msgs.push_back(m);
+                }
+            }
+        }
+
+        removed
+    }
+
+    async fn save_snapshot(&self, data: &[u8]) {
+        *self.snapshot.write().await = Some(data.to_vec());
+    }
+
+    async fn load_snapshot(&self) -> Option<Vec<u8>> {
+        self.snapshot.read().await.clone()
+    }
+
+    async fn restore(&self) -> Result<(), SessionError> {
+        // In-memory: nothing persisted, nothing to restore.
+        Ok(())
+    }
+
+    async fn flush(&self) -> Result<(), SessionError> {
+        // In-memory: nothing to persist.
+        Ok(())
+    }
+
+    async fn close(&self) -> Result<(), SessionError> {
+        // In-memory: nothing to release.
+        Ok(())
+    }
+
+    async fn clear(&self) -> Result<(), SessionError> {
+        self.events.write().await.clear();
+        self.messages.write().await.clear();
+        *self.snapshot.write().await = None;
+        self.seq_counter.store(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+// ===========================================================================
+// Internal helpers
+// ===========================================================================
+
+fn event_matches(event: &SessionEvent, filter: &EventQuery) -> bool {
+    if let Some(ref et) = filter.event_type {
+        if event.event_type != *et {
+            return false;
+        }
+    }
+    if let Some(ref role) = filter.role {
+        match &event.message {
+            Some(msg) if msg.role == *role => {}
+            _ => return false,
+        }
+    }
+    if let Some(ref text) = filter.text_contains {
+        let content_str = match &event.message {
+            Some(msg) => msg.content.to_string(),
+            None => match &event.data {
+                Some(d) => d.to_string(),
+                None => String::new(),
+            },
+        };
+        if !content_str.to_lowercase().contains(&text.to_lowercase()) {
+            return false;
+        }
+    }
+    true
+}
+
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+fn make_preview(event: &SessionEvent) -> String {
+    let text = match &event.message {
+        Some(msg) => match &msg.content {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        },
+        None => match &event.data {
+            Some(d) => d.to_string(),
+            None => String::new(),
+        },
+    };
+    if text.len() > 160 {
+        format!("{}...", safe_truncate(&text, 160))
+    } else {
+        text
+    }
+}
+
+// Note: no `event_to_message` helper is needed. `append_message` serializes
+// the full `AgentMessage` into `event.data`, and `rollback_after` deserializes
+// it back during cache rebuild. The message cache holds the original
+// `AgentMessage` values as they were passed in by the caller — no round-trip
+// through `SessionMessage` is required, preserving variant information
+// (`Steering`, `FollowUp`, `Marker`, `Extension`) perfectly.
+
 impl Default for InMemoryAgentSession {
     fn default() -> Self {
         Self::new()
