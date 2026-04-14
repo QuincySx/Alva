@@ -21,18 +21,22 @@
 //! a starting template, copy it, and add the pieces they actually need.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::model::{LanguageModel, ModelConfig};
 use alva_kernel_abi::session::InMemorySession;
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::AgentMessage;
+use alva_kernel_abi::{AgentError, Sleeper};
+#[cfg(not(target_family = "wasm"))]
+use alva_kernel_abi::NoopSleeper;
+use alva_kernel_core::builtins::ToolTimeoutMiddleware;
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::run::run_agent;
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::AgentEvent;
-use alva_kernel_abi::AgentError;
 
 /// Minimal wasm-side runtime facade.
 pub struct WasmAgent {
@@ -42,8 +46,14 @@ pub struct WasmAgent {
 
 impl WasmAgent {
     /// Construct a wasm runtime with the given model and (optional) tools.
+    /// Installs `ToolTimeoutMiddleware` with a 120-second budget driven by
+    /// the platform's native sleeper (`WasmSleeper` on wasm32,
+    /// `NoopSleeper` on native — native paths are test-only and don't
+    /// rely on the timeout firing).
+    ///
     /// All other knobs use sensible defaults; users that need finer control
-    /// should construct `AgentState` + `AgentConfig` directly.
+    /// should construct `AgentState` + `AgentConfig` directly or grab
+    /// `config_mut()` to adjust the middleware stack.
     pub fn new(
         model: Arc<dyn LanguageModel>,
         tools: Vec<Arc<dyn Tool>>,
@@ -55,8 +65,15 @@ impl WasmAgent {
             session: Arc::new(InMemorySession::new()),
             extensions: Extensions::new(),
         };
+
+        let mut middleware = MiddlewareStack::new();
+        middleware.push_sorted(Arc::new(ToolTimeoutMiddleware::with_sleeper(
+            Duration::from_secs(120),
+            Self::default_sleeper(),
+        )));
+
         let config = AgentConfig {
-            middleware: MiddlewareStack::new(),
+            middleware,
             system_prompt: system_prompt.into(),
             max_iterations: 50,
             model_config: ModelConfig::default(),
@@ -67,6 +84,22 @@ impl WasmAgent {
             context_token_budget: None,
         };
         Self { state, config }
+    }
+
+    /// Pick the right `Sleeper` for the current target. On wasm32 this is
+    /// the real `WasmSleeper` backed by `gloo-timers`; on native (tests
+    /// only) it falls back to `NoopSleeper` which never fires — that's
+    /// fine because tests rely on cancellation/completion, not on real
+    /// wall-clock timeouts.
+    fn default_sleeper() -> Arc<dyn Sleeper> {
+        #[cfg(target_family = "wasm")]
+        {
+            Arc::new(crate::WasmSleeper)
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
+            Arc::new(NoopSleeper)
+        }
     }
 
     /// Run the agent against a single user input and stream `AgentEvent`s
@@ -106,7 +139,6 @@ mod tests {
     use alva_kernel_abi::base::message::{Message, MessageRole};
     use alva_kernel_abi::base::stream::StreamEvent;
     use alva_kernel_abi::model::CompletionResponse;
-    use alva_kernel_abi::AgentSession;
     use async_trait::async_trait;
     use futures_core::Stream;
     use std::pin::Pin;
