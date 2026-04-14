@@ -35,6 +35,11 @@ mod entry;
 mod agent;
 pub use agent::WasmAgent;
 
+// Stateless stub LanguageModel shared by tests, the smoke probe, and
+// wasm-bindgen demos. Compiles on every target.
+mod stub;
+pub use stub::StubLanguageModel;
+
 // Compile-time probe — type-checks the full kernel API surface against
 // wasm32 to catch regressions. The probe function is dead code; its purpose
 // is to force `cargo check --target wasm32` to exercise `run_agent` from a

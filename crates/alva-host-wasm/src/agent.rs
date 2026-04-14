@@ -167,69 +167,15 @@ impl WasmAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::base::content::ContentBlock;
-    use alva_kernel_abi::base::error::AgentError;
-    use alva_kernel_abi::base::message::{Message, MessageRole};
-    use alva_kernel_abi::base::stream::StreamEvent;
-    use alva_kernel_abi::model::CompletionResponse;
-    use async_trait::async_trait;
-    use futures_core::Stream;
-    use std::pin::Pin;
-
-    /// Tiny model that returns a fixed text response with no tool calls.
-    struct EchoOnceModel;
-    #[async_trait]
-    impl LanguageModel for EchoOnceModel {
-        async fn complete(
-            &self,
-            _: &[Message],
-            _: &[&dyn Tool],
-            _: &ModelConfig,
-        ) -> Result<CompletionResponse, AgentError> {
-            Ok(CompletionResponse::from_message(Message {
-                id: "r1".into(),
-                role: MessageRole::Assistant,
-                content: vec![ContentBlock::Text { text: "echo-ok".into() }],
-                tool_call_id: None,
-                usage: None,
-                timestamp: 0,
-            }))
-        }
-        fn stream(
-            &self,
-            _: &[Message],
-            _: &[&dyn Tool],
-            _: &ModelConfig,
-        ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
-            // Use a minimal hand-rolled stream so we don't need futures crate.
-            struct Once(Option<StreamEvent>, bool);
-            impl Stream for Once {
-                type Item = StreamEvent;
-                fn poll_next(
-                    mut self: Pin<&mut Self>,
-                    _cx: &mut std::task::Context<'_>,
-                ) -> std::task::Poll<Option<Self::Item>> {
-                    if let Some(ev) = self.0.take() {
-                        std::task::Poll::Ready(Some(ev))
-                    } else if !self.1 {
-                        self.1 = true;
-                        std::task::Poll::Ready(Some(StreamEvent::Done))
-                    } else {
-                        std::task::Poll::Ready(None)
-                    }
-                }
-            }
-            Box::pin(Once(
-                Some(StreamEvent::TextDelta { text: "echo-ok".into() }),
-                false,
-            ))
-        }
-        fn model_id(&self) -> &str { "echo-once" }
-    }
+    use crate::StubLanguageModel;
 
     #[tokio::test]
     async fn wasm_agent_runs_a_single_turn_on_native() {
-        let mut agent = WasmAgent::new(Arc::new(EchoOnceModel), vec![], "");
+        let mut agent = WasmAgent::new(
+            Arc::new(StubLanguageModel::new("echo-ok")),
+            vec![],
+            "",
+        );
         let cancel = CancellationToken::new();
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let result = agent.run("hi", cancel, tx).await;
@@ -244,7 +190,11 @@ mod tests {
 
     #[tokio::test]
     async fn wasm_agent_run_simple_returns_response_text() {
-        let mut agent = WasmAgent::new(Arc::new(EchoOnceModel), vec![], "");
+        let mut agent = WasmAgent::new(
+            Arc::new(StubLanguageModel::new("echo-ok")),
+            vec![],
+            "",
+        );
         let output = agent
             .run_simple("hello")
             .await
