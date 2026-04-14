@@ -23,7 +23,6 @@ pub mod provider;
 pub use provider::tests as provider_test;
 pub mod runtime;
 pub mod scope;
-pub mod session;
 pub mod agent_session;
 // tool_guard is now at tool::guard
 
@@ -58,7 +57,10 @@ pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
 pub use provider::{CredentialSource, StaticCredential, Provider, ProviderError, ProviderRegistry};
 pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
-pub use session::{AgentSession, InMemorySession};
+pub use agent_session::{
+    AgentSession, InMemoryAgentSession, SessionError, SessionEvent, SessionMessage,
+    EventEmitter, EmitterKind, ComponentDescriptor, ScopedSession, EventQuery, EventMatch,
+};
 
 // Bus — cross-layer coordination
 pub use alva_kernel_bus::{Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell};
