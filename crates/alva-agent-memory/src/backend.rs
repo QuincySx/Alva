@@ -3,8 +3,9 @@
 // POS:    Abstract storage backend for the memory subsystem, enabling pluggable implementations.
 //! Abstract storage backend trait for the memory subsystem.
 //!
-//! Default implementation: [`crate::sqlite::MemorySqlite`].
-//! For testing, use [`crate::sqlite::MemorySqlite::open_in_memory()`].
+//! Default implementation: [`crate::in_memory::InMemoryBackend`] (pure-Rust,
+//! HashMap-backed, process-lifetime). For persistent storage, see
+//! `alva_app_extension_memory::MemorySqlite`.
 
 use async_trait::async_trait;
 

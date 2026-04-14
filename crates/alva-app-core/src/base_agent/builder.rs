@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use alva_kernel_core::middleware::Middleware;
 use alva_agent_memory::{MemoryService, NoopEmbeddingProvider};
-use alva_app_extension_memory::MemorySqlite;
 use alva_host_native::middleware::{ApprovalNotifier, ApprovalRequest};
 use alva_host_native::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
@@ -127,14 +126,15 @@ impl BaseAgentBuilder {
 
     // -- Features -------------------------------------------------------------
 
-    /// Enable the memory subsystem (SQLite-backed).
+    /// Enable the memory subsystem with the default pure in-memory backend.
+    /// Use `.memory_service(...)` to swap in a persistent backend.
     pub fn with_memory(mut self) -> Self {
         self.enable_memory = true;
         self
     }
 
     /// Inject a pre-constructed `MemoryService` (overrides the default
-    /// `MemorySqlite`-backed construction). Implies `enable_memory = true`.
+    /// `InMemoryBackend`-backed construction). Implies `enable_memory = true`.
     pub fn memory_service(mut self, service: MemoryService) -> Self {
         self.memory_service_override = Some(service);
         self.enable_memory = true;
@@ -304,10 +304,10 @@ impl BaseAgentBuilder {
         let memory = if let Some(service) = self.memory_service_override {
             Some(service)
         } else if self.enable_memory {
-            let db_dir = workspace.join(".srow");
-            tokio::fs::create_dir_all(&db_dir).await?;
-            let db_path = db_dir.join("memory.db");
-            let store = MemorySqlite::open(&db_path).await?;
+            // Default: pure in-memory backend. Zero external deps, no filesystem.
+            // Users who want SQLite (or any other backend) should call
+            // `.memory_service(...)` with their own MemoryService.
+            let store = alva_agent_memory::InMemoryBackend::new();
             let embedder = Box::new(NoopEmbeddingProvider::new());
             Some(MemoryService::with_backend(std::sync::Arc::new(store), embedder))
         } else {

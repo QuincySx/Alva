@@ -3,7 +3,7 @@
 //! Verifies that:
 //! 1. `.memory_service(custom)` actually wires the caller-supplied
 //!    `MemoryService` into the resulting `BaseAgent`, instead of
-//!    constructing the default `MemorySqlite`-backed one.
+//!    constructing the default `InMemoryBackend`-backed one.
 //! 2. `.security_middleware(custom)` actually replaces the default
 //!    `SecurityMiddleware` in the middleware stack — proven by the
 //!    custom middleware's `on_agent_start` hook firing during a prompt.
@@ -13,10 +13,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 
-use alva_agent_memory::{MemoryService, NoopEmbeddingProvider};
+use alva_agent_memory::{InMemoryBackend, MemoryService, NoopEmbeddingProvider};
 use alva_app_core::base_agent::BaseAgent;
 use alva_app_core::AgentEvent;
-use alva_app_extension_memory::MemorySqlite;
 use alva_kernel_core::middleware::Middleware;
 use alva_kernel_core::shared::MiddlewareError;
 use alva_kernel_core::state::AgentState;
@@ -29,11 +28,9 @@ use alva_test::mock_provider::MockLanguageModel;
 
 #[tokio::test]
 async fn memory_service_override_is_used() {
-    // Build a custom MemoryService backed by an in-memory SQLite store, and
+    // Build a custom MemoryService backed by the pure in-memory backend, and
     // seed it with a known sentinel entry.
-    let backend = MemorySqlite::open_in_memory()
-        .await
-        .expect("open in-memory sqlite");
+    let backend = InMemoryBackend::new();
     let embedder = Box::new(NoopEmbeddingProvider::new());
     let custom = MemoryService::with_backend(Arc::new(backend), embedder);
 
@@ -59,7 +56,7 @@ async fn memory_service_override_is_used() {
         .expect("build should succeed");
 
     // The agent should expose *our* MemoryService — confirm by querying for
-    // the sentinel content. A freshly-constructed default MemorySqlite would
+    // the sentinel content. A freshly-constructed default InMemoryBackend would
     // have no entries, so a non-empty result proves we got the override.
     let memory = agent.memory().expect("memory should be wired");
     let results = memory

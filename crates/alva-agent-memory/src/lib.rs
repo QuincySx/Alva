@@ -16,10 +16,12 @@ pub mod backend;
 pub mod embedding;
 pub mod error;
 pub mod hash;
+pub mod in_memory;
 pub mod service;
 pub mod types;
 
 pub use backend::MemoryBackend;
+pub use in_memory::InMemoryBackend;
 pub use embedding::{EmbeddingProvider, NoopEmbeddingProvider};
 pub use error::MemoryError;
 pub use service::MemoryService;

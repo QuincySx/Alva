@@ -32,7 +32,6 @@ pub use alva_agent_security::{
 
 pub use alva_agent_memory::{MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, MemoryError};
 pub use alva_agent_memory::{EmbeddingProvider, NoopEmbeddingProvider};
-pub use alva_app_extension_memory::MemorySqlite;
 
 pub use alva_host_native::{AgentRuntime, AgentRuntimeBuilder};
 pub use alva_host_native::model;

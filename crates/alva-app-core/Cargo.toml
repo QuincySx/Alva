@@ -15,7 +15,6 @@ alva-kernel-core = { path = "../alva-kernel-core" }
 alva-agent-core = { path = "../alva-agent-core" }
 alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin", features = ["core", "utility", "web", "task", "team", "worktree", "browser"] }
 alva-app-extension-browser = { path = "../alva-app-extension-browser" }
-alva-app-extension-memory = { path = "../alva-app-extension-memory" }
 alva-agent-security = { path = "../alva-agent-security" }
 alva-agent-memory = { path = "../alva-agent-memory" }
 alva-host-native = { path = "../alva-host-native" }
