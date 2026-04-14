@@ -193,6 +193,12 @@ impl SessionEvent {
         e.data = Some(data);
         e
     }
+
+    /// Construct a runtime event with the given `event_type`. Used by
+    /// kernel-core to emit skeleton events.
+    pub fn new_runtime(event_type: impl Into<String>) -> Self {
+        Self::new(event_type)
+    }
 }
 
 // ===========================================================================

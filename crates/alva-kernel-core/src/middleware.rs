@@ -209,6 +209,11 @@ impl MiddlewareStack {
         self.layers.iter()
     }
 
+    /// Return the names of all middleware in the stack, in insertion order.
+    pub fn names(&self) -> Vec<String> {
+        self.layers.iter().map(|m| m.name().to_string()).collect()
+    }
+
     // -- lifecycle hooks ---------------------------------------------------
 
     /// Run `on_agent_start` top-to-bottom.

@@ -3,6 +3,9 @@
 // POS:    session-centric agent loop — uses bus-based AgentLoopHook for steering/follow-up injection.
 use std::sync::Arc;
 
+use alva_kernel_abi::agent_session::{
+    AgentSession, ComponentDescriptor, EmitterKind, SessionEvent,
+};
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
@@ -18,6 +21,28 @@ use crate::event::AgentEvent;
 use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
 use crate::runtime_context::RuntimeExecutionContext;
 use crate::state::{AgentConfig, AgentState};
+
+// ---------------------------------------------------------------------------
+// Session skeleton event helper
+// ---------------------------------------------------------------------------
+
+/// Append a runtime-emitted event to the session. The emitter is always
+/// `EventEmitter::runtime()`; callers only set event_type, parent_uuid, and
+/// data. Returns the uuid of the appended event so callers can use it as
+/// a parent for subsequent events.
+async fn emit_runtime_event(
+    session: &std::sync::Arc<dyn AgentSession>,
+    event_type: &str,
+    parent_uuid: Option<String>,
+    data: Option<serde_json::Value>,
+) -> String {
+    let mut event = SessionEvent::new_runtime(event_type);
+    event.parent_uuid = parent_uuid;
+    event.data = data;
+    let uuid = event.uuid.clone();
+    session.append(event).await;
+    uuid
+}
 
 // ---------------------------------------------------------------------------
 // ContextHooks integration helpers (Phase 4)
@@ -379,6 +404,41 @@ pub async fn run_agent(
     // Emit AgentStart
     let _ = event_tx.send(AgentEvent::AgentStart);
 
+    // --- Session skeleton: run_start ---
+    let run_start_uuid = emit_runtime_event(
+        &state.session,
+        "run_start",
+        None,
+        Some(serde_json::json!({
+            "agent_id": agent_id.clone(),
+            "max_iterations": config.max_iterations,
+        })),
+    ).await;
+
+    // --- Session skeleton: component_registry ---
+    // Collect descriptors for every tool and middleware in this run.
+    let mut components: Vec<ComponentDescriptor> = Vec::new();
+    for tool in &state.tools {
+        components.push(ComponentDescriptor {
+            kind: EmitterKind::Tool,
+            id: tool.name().to_string(),
+            name: tool.name().to_string(),
+        });
+    }
+    for mw_name in config.middleware.names() {
+        components.push(ComponentDescriptor {
+            kind: EmitterKind::Middleware,
+            id: mw_name.clone(),
+            name: mw_name,
+        });
+    }
+    emit_runtime_event(
+        &state.session,
+        "component_registry",
+        Some(run_start_uuid.clone()),
+        Some(serde_json::json!({ "components": components })),
+    ).await;
+
     // 2. Store input messages in session + fire on_message for each.
     //    Injections returned here are dropped — input messages typically arrive
     //    before any LLM call, and bootstrap is the proper place for plugins to
@@ -391,7 +451,7 @@ pub async fn run_agent(
 
     // 3. Main loop
     let mut error: Option<String> = None;
-    let result = run_loop(state, config, &cancel, &event_tx).await;
+    let result = run_loop(state, config, &cancel, &event_tx, &run_start_uuid).await;
 
     if let Err(ref e) = result {
         error = Some(e.to_string());
@@ -408,6 +468,16 @@ pub async fn run_agent(
 
     // 4b. ContextHooks: dispose (no-op when context_system is None)
     fire_context_dispose(config).await;
+
+    // --- Session skeleton: run_end ---
+    emit_runtime_event(
+        &state.session,
+        "run_end",
+        Some(run_start_uuid.clone()),
+        Some(serde_json::json!({
+            "error": error.clone(),
+        })),
+    ).await;
 
     // 5. Emit AgentEnd
     let _ = event_tx.send(AgentEvent::AgentEnd {
@@ -427,6 +497,7 @@ async fn run_loop(
     config: &AgentConfig,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    run_start_uuid: &str,
 ) -> Result<(), AgentError> {
     let mut total_iterations: u32 = 0;
     let mut _session_input_tokens: u64 = 0;
@@ -454,6 +525,14 @@ async fn run_loop(
                 return Err(AgentError::MaxIterations(config.max_iterations));
             }
             total_iterations += 1;
+
+            // Session skeleton: iteration boundary
+            let iteration_start_uuid = emit_runtime_event(
+                &state.session,
+                "iteration_start",
+                Some(run_start_uuid.to_string()),
+                Some(serde_json::json!({ "iteration": total_iterations })),
+            ).await;
 
             // Emit TurnStart
             let _ = event_tx.send(AgentEvent::TurnStart);
@@ -553,6 +632,17 @@ async fn run_loop(
                 message: placeholder_msg.clone(),
             });
 
+            // Session skeleton: llm_call_start
+            let llm_start_uuid = emit_runtime_event(
+                &state.session,
+                "llm_call_start",
+                Some(iteration_start_uuid.clone()),
+                Some(serde_json::json!({
+                    "iteration": total_iterations,
+                    "message_count": llm_messages.len(),
+                })),
+            ).await;
+
             // 3e. Call LLM through wrap_llm_call middleware chain
             let actual_call = ActualLlmCall {
                 model: state.model.clone(),
@@ -590,6 +680,17 @@ async fn run_loop(
                 });
                 return Err(agent_error);
             }
+
+            // Session skeleton: llm_call_end
+            emit_runtime_event(
+                &state.session,
+                "llm_call_end",
+                Some(llm_start_uuid.clone()),
+                Some(serde_json::json!({
+                    "input_tokens": response.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
+                    "output_tokens": response.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
+                })),
+            ).await;
 
             // 3g. Store response in session + fire ContextHooks::on_message
             let response_msg = AgentMessage::Standard(response.clone());
@@ -637,6 +738,12 @@ async fn run_loop(
                 );
                 let _ = event_tx.send(AgentEvent::TurnEnd);
                 fire_context_after_turn(config, &agent_id).await;
+                emit_runtime_event(
+                    &state.session,
+                    "iteration_end",
+                    Some(iteration_start_uuid.clone()),
+                    None,
+                ).await;
                 break 'inner;
             }
 
@@ -648,6 +755,18 @@ async fn run_loop(
                 if cancel.is_cancelled() {
                     return Err(AgentError::Cancelled);
                 }
+
+                // Session skeleton: tool_use
+                let tool_use_uuid = emit_runtime_event(
+                    &state.session,
+                    "tool_use",
+                    Some(llm_start_uuid.clone()),
+                    Some(serde_json::json!({
+                        "tool_name": tool_call.name.clone(),
+                        "tool_call_id": tool_call.id.clone(),
+                    })),
+                ).await;
+                let tool_start_time = std::time::Instant::now();
 
                 // Emit ToolExecutionStart
                 let _ = event_tx.send(AgentEvent::ToolExecutionStart {
@@ -709,6 +828,18 @@ async fn run_loop(
                     .await
                     .map_err(MiddlewareError::into_agent_error)?;
 
+                // Session skeleton: tool_result
+                emit_runtime_event(
+                    &state.session,
+                    "tool_result",
+                    Some(tool_use_uuid.clone()),
+                    Some(serde_json::json!({
+                        "tool_call_id": tool_call.id.clone(),
+                        "duration_ms": tool_start_time.elapsed().as_millis(),
+                        "is_error": result.is_error,
+                    })),
+                ).await;
+
                 // Build Tool message and append to session
                 let tool_message = Message {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -768,10 +899,24 @@ async fn run_loop(
                         pending_injections.extend(
                             fire_context_on_message(config, &agent_id, &msg).await,
                         );
+                        emit_runtime_event(
+                            &state.session,
+                            "iteration_end",
+                            Some(iteration_start_uuid.clone()),
+                            None,
+                        ).await;
                         continue 'inner;
                     }
                 }
             }
+
+            // Session skeleton: end of iteration (tool-calls path, no steering inject)
+            emit_runtime_event(
+                &state.session,
+                "iteration_end",
+                Some(iteration_start_uuid.clone()),
+                None,
+            ).await;
         }
 
         // Follow-up check: when inner loop ends naturally
