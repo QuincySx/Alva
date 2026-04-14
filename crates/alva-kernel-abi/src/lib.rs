@@ -24,6 +24,7 @@ pub use provider::tests as provider_test;
 pub mod runtime;
 pub mod scope;
 pub mod session;
+pub mod agent_session;
 // tool_guard is now at tool::guard
 
 pub use runtime::{timeout, NoopSleeper, Sleeper, TimeoutError};
