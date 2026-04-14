@@ -15,7 +15,6 @@
 //! compiling on wasm32.
 
 // ---- wasm-safe tools (no fs / shell / stdin / direct tokio::time) ----
-pub mod mock_fs;
 pub mod truncate;
 
 // Pure-data / signaling tools — no platform I/O
@@ -72,7 +71,7 @@ pub mod local_fs;
 #[cfg(not(target_family = "wasm"))]
 pub use local_fs::{walk_dir, walk_dir_filtered, LocalToolFs};
 
-pub use mock_fs::MockToolFs;
+pub use alva_agent_core::MockToolFs;
 
 #[cfg(all(not(target_family = "wasm"), feature = "native"))]
 pub mod internet_search;

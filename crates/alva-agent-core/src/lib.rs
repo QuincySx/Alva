@@ -4,3 +4,6 @@
 //! to live inside `alva-app-core/src/extension/`, plus `MockToolFs` which
 //! used to live in `alva-agent-tools`. It deliberately does NOT depend on
 //! any protocol crate, LLM provider, persistence, or host-specific code.
+
+pub mod mock_fs;
+pub use mock_fs::MockToolFs;
