@@ -131,6 +131,8 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
     check_wasm "alva-kernel-abi"
     check_wasm "alva-kernel-core"
     check_wasm "alva-agent-context"
+    check_wasm "alva-agent-core"
+    check_wasm "alva-agent-extension-builtin"
     check_wasm "alva-agent-graph"
     check_wasm "alva-agent-security"
     check_wasm "alva-agent-memory"
@@ -148,7 +150,7 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
         echo -e "${RED}FAILED: wasm32 invariant broken${NC}"
         exit 1
     fi
-    echo -e "${GREEN}PASSED: 17 crates wasm32-clean${NC}"
+    echo -e "${GREEN}PASSED: 19 crates wasm32-clean${NC}"
 
     # Stronger check: actually BUILD (link) alva-host-wasm for wasm32 at
     # least once, to catch issues cargo check misses (missing symbols,
