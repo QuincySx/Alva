@@ -117,6 +117,39 @@ impl WasmAgent {
         run_agent(&mut self.state, &self.config, cancel, input, event_tx).await
     }
 
+    /// One-shot convenience: run the agent against `prompt`, drain events
+    /// internally, and return the concatenated text of every assistant
+    /// `MessageEnd` produced during the run. This is the 99% wasm use
+    /// case — callers who need streaming, tool observation, or custom
+    /// event handling should use [`run`] directly.
+    ///
+    /// Uses a fresh `CancellationToken` internally; if the caller needs
+    /// to cancel the run from outside, use [`run`] with their own token.
+    pub async fn run_simple(
+        &mut self,
+        prompt: impl Into<String>,
+    ) -> Result<String, AgentError> {
+        let cancel = CancellationToken::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        self.run(prompt, cancel, tx).await?;
+
+        let mut output = String::new();
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::MessageEnd { message } = event {
+                if let AgentMessage::Standard(msg) = message {
+                    let text = msg.text_content();
+                    if !text.is_empty() {
+                        if !output.is_empty() {
+                            output.push('\n');
+                        }
+                        output.push_str(&text);
+                    }
+                }
+            }
+        }
+        Ok(output)
+    }
+
     /// Borrow the underlying `AgentState`. Useful for inspecting `session`
     /// after a run, or wiring custom middleware before calling `run`.
     pub fn state(&self) -> &AgentState {
@@ -206,6 +239,19 @@ mod tests {
             agent.state().session.len() >= 2,
             "expected session to have user + assistant messages, got {} entries",
             agent.state().session.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn wasm_agent_run_simple_returns_response_text() {
+        let mut agent = WasmAgent::new(Arc::new(EchoOnceModel), vec![], "");
+        let output = agent
+            .run_simple("hello")
+            .await
+            .expect("run_simple should succeed");
+        assert_eq!(
+            output, "echo-ok",
+            "run_simple should return the assistant response text"
         );
     }
 }
