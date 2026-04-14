@@ -27,7 +27,9 @@ native = [
     "alva-agent-security/native",
     "alva-agent-memory",
 ]
-browser = ["alva-agent-tools/browser"]
+# Browser is no longer a host-native concern — heavy domain-specific tools
+# belong at the app extension layer (alva-app-extension-browser), injected
+# by apps that need them. The host stays minimal.
 
 [[example]]
 name = "runtime_basic"

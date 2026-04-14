@@ -22,15 +22,9 @@ base64 = "0.22"
 tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
 ignore = "0.4"
 
-[dependencies.chromiumoxide]
-version = "0.9"
-default-features = false
-optional = true
-
 [dev-dependencies]
 tempfile = "3"
 
 [features]
-browser = ["chromiumoxide"]
 native = ["reqwest"]
-default = ["browser", "native"]
+default = ["native"]

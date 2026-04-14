@@ -1,5 +1,5 @@
 // INPUT:  alva_kernel_abi::ToolRegistry, all tool modules
-// OUTPUT: register_builtin_tools, register_all_tools
+// OUTPUT: register_builtin_tools
 // POS:    Crate root — declares tool modules and provides registration functions.
 //! Built-in tool implementations for the agent framework.
 //!
@@ -10,9 +10,9 @@
 //! Native-only tools (feature = "native", disabled on wasm):
 //!   internet_search, read_url
 //!
-//! Browser tools (feature = "browser"):
-//!   browser_start, browser_stop, browser_navigate, browser_action,
-//!   browser_snapshot, browser_screenshot, browser_status
+//! Browser tools moved to a separate crate `alva-agent-browser-tools`
+//! so chromiumoxide (which pulls mio) doesn't block this crate from
+//! compiling on wasm32.
 
 pub mod ask_human;
 pub mod create_file;
@@ -61,9 +61,6 @@ pub use mock_fs::MockToolFs;
 pub mod internet_search;
 #[cfg(feature = "native")]
 pub mod read_url;
-
-#[cfg(feature = "browser")]
-pub mod browser;
 
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::ToolRegistry;
@@ -173,28 +170,11 @@ pub mod tool_presets {
         vec![]
     }
 
-    /// Browser automation tools (browser feature only).
-    #[cfg(feature = "browser")]
-    pub fn browser_tools() -> Vec<Box<dyn Tool>> {
-        let manager = browser::browser_manager::shared_browser_manager();
-        vec![
-            Box::new(browser::BrowserStartTool { manager: manager.clone() }),
-            Box::new(browser::BrowserStopTool { manager: manager.clone() }),
-            Box::new(browser::BrowserNavigateTool { manager: manager.clone() }),
-            Box::new(browser::BrowserActionTool { manager: manager.clone() }),
-            Box::new(browser::BrowserSnapshotTool { manager: manager.clone() }),
-            Box::new(browser::BrowserScreenshotTool { manager: manager.clone() }),
-            Box::new(browser::BrowserStatusTool { manager: manager.clone() }),
-        ]
-    }
-
-    #[cfg(not(feature = "browser"))]
-    pub fn browser_tools() -> Vec<Box<dyn Tool>> {
-        vec![]
-    }
+    // Browser tools moved to alva-agent-browser-tools crate. To get them,
+    // depend on that crate directly and call its `browser_tools()` function.
 
     /// All standard tools (file_io + shell + interaction + task + team + planning
-    /// + worktree + utility + web). Does NOT include browser or agent spawn.
+    /// + worktree + utility + web). Does NOT include agent spawn or browser.
     pub fn all_standard() -> Vec<Box<dyn Tool>> {
         let mut tools = Vec::new();
         tools.extend(file_io());
@@ -214,19 +194,12 @@ pub mod tool_presets {
 // Legacy registration functions (for backward compat during migration)
 // ---------------------------------------------------------------------------
 
-/// Register all built-in tools into a ToolRegistry.
+/// Register all built-in tools into a ToolRegistry. Does NOT include
+/// browser tools — depend on `alva-agent-browser-tools` for those.
 pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     for tool in tool_presets::all_standard() {
         registry.register(tool);
     }
     // Legacy: include placeholder AgentTool
     registry.register(Box::new(agent_tool::AgentTool));
-}
-
-/// Register all built-in tools including browser tools into a ToolRegistry.
-pub fn register_all_tools(registry: &mut ToolRegistry) {
-    register_builtin_tools(registry);
-    for tool in tool_presets::browser_tools() {
-        registry.register(tool);
-    }
 }

@@ -1,0 +1,24 @@
+[package]
+name = "alva-app-extension-browser"
+version = "0.1.0"
+edition = "2021"
+description = "Heavy app-layer extension: Chrome browser automation via CDP. Lives at the app extension layer because the kernel/agent layers must stay minimal."
+
+# Native-only by design. chromiumoxide pulls tokio with `net` feature, which
+# pulls mio, which doesn't compile for wasm32. Anything wasm needs from the
+# browser must use web_sys::* directly inside the wasm app, not this crate.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+async-trait = "0.1"
+chromiumoxide = { version = "0.9", default-features = false }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+tracing = "0.1"
+futures = "0.3"
+base64 = "0.22"
+
+# On wasm32 the crate compiles to an empty lib so it can stay in the
+# workspace without breaking `cargo build --workspace` for wasm targets.
+[target.'cfg(target_family = "wasm")'.dependencies]

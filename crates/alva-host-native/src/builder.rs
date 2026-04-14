@@ -41,7 +41,6 @@ pub struct AgentRuntimeBuilder {
     model_config: ModelConfig,
     middleware: MiddlewareStack,
     register_builtin: bool,
-    register_browser: bool,
     custom_tools: Vec<Box<dyn Tool>>,
     max_iterations: u32,
     context_window: usize,
@@ -62,7 +61,6 @@ impl AgentRuntimeBuilder {
             model_config: ModelConfig::default(),
             middleware: MiddlewareStack::new(),
             register_builtin: false,
-            register_browser: false,
             custom_tools: Vec::new(),
             max_iterations: 100,
             context_window: 0,
@@ -125,11 +123,11 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    /// Register browser tools in addition to the standard built-in tools.
-    pub fn with_browser_tools(mut self) -> Self {
-        self.register_browser = true;
-        self
-    }
+    // `with_browser_tools` removed: browser is too heavy for the agent
+    // layer. Apps that need browser automation should depend on
+    // `alva-app-extension-browser` directly and inject its tools via
+    // `tool()` / `custom_tools`, or wire the BrowserExtension at the app
+    // extension layer.
 
     /// Set the max iterations for the agent loop (default: 100).
     pub fn max_iterations(mut self, n: u32) -> Self {
@@ -262,12 +260,8 @@ impl AgentRuntimeBuilder {
 
         let mut registry = ToolRegistry::new();
 
-        if self.register_builtin || self.register_browser {
-            if self.register_browser {
-                alva_agent_tools::register_all_tools(&mut registry);
-            } else {
-                alva_agent_tools::register_builtin_tools(&mut registry);
-            }
+        if self.register_builtin {
+            alva_agent_tools::register_builtin_tools(&mut registry);
         }
         for tool in self.custom_tools {
             registry.register(tool);

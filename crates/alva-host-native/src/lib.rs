@@ -20,7 +20,7 @@ pub use sleeper::TokioSleeper;
 pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, run_agent};
 pub use alva_kernel_core::{Middleware, MiddlewareStack};
 pub use alva_kernel_abi::{Tool, ToolExecutionContext, ToolRegistry, LanguageModel, Provider, ProviderRegistry};
-pub use alva_agent_tools::{register_builtin_tools, register_all_tools};
+pub use alva_agent_tools::register_builtin_tools;
 pub use alva_agent_security::{SecurityGuard, SandboxMode};
 pub use middleware::SecurityMiddleware;
 #[cfg(feature = "native")]

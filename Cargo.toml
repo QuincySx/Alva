@@ -26,6 +26,7 @@ members = [
     "crates/alva-llm-provider",
     "crates/alva-app-eval",
     "crates/alva-host-wasm",
+    "crates/alva-app-extension-browser",
 ]
 resolver = "2"
 
