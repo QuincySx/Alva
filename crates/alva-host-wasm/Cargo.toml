@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "wasm32 host assembly for the alva agent kernel — the wasm-side counterpart of alva-host-native"
 
+[lib]
+# cdylib is what wasm-bindgen-cli / wasm-pack consume to produce a real
+# .wasm binary loadable by Chrome / Node / any wasm runtime. rlib is
+# kept so the crate is still importable from other Rust workspaces
+# (e.g., the smoke probe that runs on native cargo test).
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
