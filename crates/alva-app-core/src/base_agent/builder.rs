@@ -48,6 +48,7 @@ pub struct BaseAgentBuilder {
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
     pub(crate) enable_memory: bool,
+    pub(crate) memory_service_override: Option<MemoryService>,
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
@@ -65,6 +66,7 @@ impl BaseAgentBuilder {
             extra_tools: Vec::new(),
             extra_middleware: Vec::new(),
             enable_memory: false,
+            memory_service_override: None,
             max_iterations: 100,
             context_window: 0,
             approval_notifier: None,
@@ -131,6 +133,14 @@ impl BaseAgentBuilder {
 
     /// Enable the memory subsystem (SQLite-backed).
     pub fn with_memory(mut self) -> Self {
+        self.enable_memory = true;
+        self
+    }
+
+    /// Inject a pre-constructed `MemoryService` (overrides the default
+    /// `MemorySqlite`-backed construction). Implies `enable_memory = true`.
+    pub fn memory_service(mut self, service: MemoryService) -> Self {
+        self.memory_service_override = Some(service);
         self.enable_memory = true;
         self
     }
@@ -320,7 +330,9 @@ impl BaseAgentBuilder {
         };
 
         // 10. Optionally create MemoryService
-        let memory = if self.enable_memory {
+        let memory = if let Some(service) = self.memory_service_override {
+            Some(service)
+        } else if self.enable_memory {
             let db_dir = workspace.join(".srow");
             tokio::fs::create_dir_all(&db_dir).await?;
             let db_path = db_dir.join("memory.db");
