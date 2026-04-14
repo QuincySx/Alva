@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use alva_kernel_core::run::run_agent;
-use alva_kernel_core::event::AgentEvent;
-use alva_kernel_core::state::{AgentConfig, AgentState};
+use alva_agent_core::Agent;
 use alva_agent_memory::MemoryService;
 use alva_host_native::middleware::PlanModeControl;
 use alva_kernel_abi::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
+use alva_kernel_core::event::AgentEvent;
+use alva_kernel_core::run::run_agent;
 
 use tokio::sync::{mpsc, Mutex};
 
-use super::permission::PermissionMode;
 use super::builder::BaseAgentBuilder;
+use super::permission::PermissionMode;
 
 /// Pre-wired, batteries-included agent (engine) that automatically composes
 /// tools, security, and skill injection.
@@ -28,13 +28,15 @@ use super::builder::BaseAgentBuilder;
 /// let events = agent.prompt_text("Help me refactor this code");
 /// ```
 pub struct BaseAgent {
-    pub(super) state: Arc<Mutex<AgentState>>,
-    pub(super) config: Arc<AgentConfig>,
+    /// Inner SDK-level agent. Holds the assembled state, config, bus, and
+    /// extension host. The harness fields below live alongside it.
+    pub(super) inner: Arc<Agent>,
     /// Holds the CancellationToken for the currently running prompt() call.
     /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
     /// Wrapped in Arc so the ExtensionHost can also hold a reference for shutdown().
     pub(super) current_cancel: Arc<std::sync::Mutex<CancellationToken>>,
     pub(super) permission_mode: std::sync::Mutex<PermissionMode>,
+    /// Snapshot of the registered tools, exposed via `tool_registry()`.
     pub(super) tool_registry: ToolRegistry,
     pub(super) memory: Option<MemoryService>,
     pub(super) security_guard: Option<Arc<Mutex<alva_agent_security::SecurityGuard>>>,
@@ -43,10 +45,6 @@ pub struct BaseAgent {
     pub(super) pending_messages: Arc<alva_kernel_core::pending_queue::PendingMessageQueue>,
     /// Init-phase bus writer — retained for post-init registration (e.g., checkpoint callback).
     pub(super) bus_writer: BusWriter,
-    /// Cross-layer coordination bus handle (read-only).
-    pub(super) bus: BusHandle,
-    /// Runtime extension host — event dispatch and command registry.
-    pub(super) extension_host: Arc<std::sync::RwLock<crate::extension::ExtensionHost>>,
 }
 
 impl BaseAgent {
@@ -74,14 +72,13 @@ impl BaseAgent {
             *current = cancel.clone();
         }
 
-        let state = self.state.clone();
-        let config = self.config.clone();
+        let inner = self.inner.clone();
 
         tokio::spawn(async move {
-            let mut st = state.lock().await;
+            let mut st = inner.state().lock().await;
             if let Err(e) = run_agent(
                 &mut st,
-                &config,
+                inner.config(),
                 cancel,
                 messages,
                 event_tx.clone(),
@@ -121,13 +118,13 @@ impl BaseAgent {
 
     /// Get a snapshot of the current message history.
     pub async fn messages(&self) -> Vec<AgentMessage> {
-        let st = self.state.lock().await;
+        let st = self.inner.state().lock().await;
         st.session.messages()
     }
 
     /// Clear the current session's message history, starting fresh.
     pub async fn new_session(&self) {
-        let st = self.state.lock().await;
+        let st = self.inner.state().lock().await;
         st.session.clear();
     }
 
@@ -135,7 +132,7 @@ impl BaseAgent {
     ///
     /// Clears any existing messages first, then appends the restored history.
     pub async fn restore_messages(&self, messages: Vec<AgentMessage>) {
-        let st = self.state.lock().await;
+        let st = self.inner.state().lock().await;
         st.session.clear();
         for msg in messages {
             st.session.append(msg);
@@ -167,20 +164,20 @@ impl BaseAgent {
         *m = mode;
 
         // Toggle plan mode via bus — PlanModeExtension registers PlanModeControl
-        if let Some(ctrl) = self.bus.get::<dyn PlanModeControl>() {
+        if let Some(ctrl) = self.inner.bus().get::<dyn PlanModeControl>() {
             ctrl.set_enabled(mode == PermissionMode::Plan);
         }
     }
 
     /// Switch the language model. Takes effect on the next prompt.
     pub async fn set_model(&self, model: Arc<dyn alva_kernel_abi::LanguageModel>) {
-        let mut st = self.state.lock().await;
+        let mut st = self.inner.state().lock().await;
         st.model = model;
     }
 
     /// Get the current model ID.
     pub async fn model_id(&self) -> String {
-        let st = self.state.lock().await;
+        let st = self.inner.state().lock().await;
         st.model.model_id().to_string()
     }
 
@@ -191,7 +188,7 @@ impl BaseAgent {
 
     /// Access the cross-layer coordination bus.
     pub fn bus(&self) -> &BusHandle {
-        &self.bus
+        self.inner.bus()
     }
 
     /// Access the bus writer for post-init capability wiring.
@@ -206,7 +203,7 @@ impl BaseAgent {
 
     /// Access the runtime extension host (event dispatch and command registry).
     pub fn extension_host(&self) -> &Arc<std::sync::RwLock<crate::extension::ExtensionHost>> {
-        &self.extension_host
+        self.inner.host()
     }
 
     /// Resolve a pending permission request. Called by the UI layer (CLI/GUI).

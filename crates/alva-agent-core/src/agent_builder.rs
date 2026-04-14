@@ -271,11 +271,18 @@ impl AgentBuilder {
         //     read-side `BusHandle`.
         drop(bus_writer);
 
+        // Snapshot tools for cheap external inspection (BaseAgent, tests).
+        let tools_snapshot = {
+            let st = state.tools.clone();
+            st
+        };
+
         Ok(Agent {
             state: Mutex::new(state),
             config,
             bus,
             host,
+            tools: tools_snapshot,
         })
     }
 }

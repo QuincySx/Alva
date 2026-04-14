@@ -1,23 +1,17 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_kernel_core::middleware::{Middleware, MiddlewareStack};
-use alva_kernel_core::state::{AgentConfig, AgentState};
-use alva_kernel_core::shared::Extensions;
+use alva_kernel_core::middleware::Middleware;
 use alva_agent_memory::{MemoryService, NoopEmbeddingProvider};
 use alva_app_extension_memory::MemorySqlite;
 use alva_host_native::middleware::{ApprovalNotifier, ApprovalRequest};
 use alva_host_native::middleware::SecurityMiddleware;
 use alva_agent_security::SandboxMode;
-use alva_kernel_abi::{
-    Bus, BusPlugin, CancellationToken, LanguageModel,
-    PluginRegistrar, Tool, ToolRegistry,
-};
-use alva_kernel_abi::session::{AgentSession, InMemorySession};
+use alva_kernel_abi::{Bus, BusPlugin, CancellationToken, LanguageModel, PluginRegistrar, Tool};
 
 use crate::error::EngineError;
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 use super::agent::BaseAgent;
 use super::permission::PermissionMode;
@@ -190,50 +184,42 @@ impl BaseAgentBuilder {
     ///
     /// Returns `EngineError` if workspace is not set or if memory initialization fails.
     pub async fn build(self, model: Arc<dyn LanguageModel>) -> Result<BaseAgent, EngineError> {
-        // 1. Validate workspace
+        // 1. Validate workspace.
         let workspace = self
             .workspace
             .ok_or_else(|| EngineError::ToolExecution("workspace is required".into()))?;
 
-        // 1b. Create the coordination bus
+        // 2. Create the coordination bus. We keep our own writer alive for
+        //    the lifetime of BaseAgent so the harness can register
+        //    capabilities post-build (e.g. checkpoint callbacks).
         let bus = Bus::new();
         let bus_writer = bus.writer();
         let bus_handle = bus.handle();
 
-        bus_writer.provide::<dyn alva_kernel_abi::TokenCounter>(
-            Arc::new(alva_kernel_abi::model::HeuristicTokenCounter::new(200_000))
+        // 3. Pre-build wiring on the bus (BEFORE delegating to AgentBuilder
+        //    so that any extension `configure()` running inside the builder
+        //    can already see these capabilities).
+
+        // 3a. Default token counter.
+        bus_writer.provide::<dyn alva_kernel_abi::TokenCounter>(Arc::new(
+            alva_kernel_abi::model::HeuristicTokenCounter::new(200_000),
+        ));
+
+        // 3b. Approval notifier (only if the caller wired one).
+        if let Some(notifier) = self.approval_notifier {
+            bus_writer.provide(Arc::new(notifier));
+        }
+
+        // 3c. PendingMessageQueue + AgentLoopHook. We need to keep
+        //     `pending_messages` outside the builder because BaseAgent's
+        //     `steer()` / `follow_up()` push into it directly.
+        let pending_messages = Arc::new(alva_kernel_core::pending_queue::PendingMessageQueue::new());
+        bus_writer.provide::<dyn alva_kernel_core::pending_queue::AgentLoopHook>(
+            pending_messages.clone() as Arc<dyn alva_kernel_core::pending_queue::AgentLoopHook>,
         );
 
-        // 2. Collect tools from all extensions
-        let mut tool_registry = ToolRegistry::new();
-
-        for ext in &self.extensions {
-            tracing::info!(extension = ext.name(), "loading extension");
-            for tool in ext.tools().await {
-                tool_registry.register(tool);
-            }
-        }
-
-        // 3. Add direct tools (for special cases)
-        for tool in self.extra_tools {
-            tool_registry.register(tool);
-        }
-
-        // 4. Build Arc<dyn Tool> list
-        let mut alva_tools_list: Vec<Arc<dyn Tool>> = tool_registry.list_arc();
-
-        // 5. Create ExtensionHost and activate extensions
-        //    Extensions register middleware, event handlers, and commands via HostAPI.
-        let extension_host = Arc::new(std::sync::RwLock::new(crate::extension::ExtensionHost::new()));
-        for ext in &self.extensions {
-            let api = crate::extension::HostAPI::new(extension_host.clone(), ext.name().to_string());
-            ext.activate(&api);
-        }
-
-        // 6. Build MiddlewareStack from activated middleware + security + bridge
-        let mut middleware_stack = MiddlewareStack::new();
-
-        // Security is always active (bound to workspace + sandbox_mode), but can be overridden
+        // 4. Build the security middleware (harness preset, overridable).
+        //    It needs to see the bus_handle so its guard can publish events.
         let mut security_guard = None;
         let security_mw: Arc<dyn Middleware> = match self.security_middleware_override {
             Some(mw) => mw,
@@ -244,84 +230,55 @@ impl BaseAgentBuilder {
                 Arc::new(default)
             }
         };
-        middleware_stack.push_sorted(security_mw);
 
-        // Middleware from extensions (registered during activate)
-        {
-            let mut host = extension_host.write().unwrap();
-            for mw in host.take_middlewares() {
-                middleware_stack.push_sorted(mw);
-            }
+        // 5. Compose the inner alva_agent_core::AgentBuilder. The generic
+        //    extension lifecycle (tools/activate/configure/finalize),
+        //    middleware stack assembly, and AgentState/AgentConfig wiring
+        //    all live inside its `build()`.
+        let mut agent_builder = alva_agent_core::AgentBuilder::new()
+            .model(model)
+            .system_prompt(self.system_prompt)
+            .workspace(workspace.clone())
+            .max_iterations(self.max_iterations)
+            .context_window(self.context_window)
+            .with_bus_writer(bus_writer.clone());
+
+        // 5a. Trace each extension we hand off.
+        for ext in self.extensions {
+            tracing::info!(extension = ext.name(), "loading extension");
+            agent_builder = agent_builder.extension(ext);
         }
 
-        // Direct middleware (e.g., eval recorder)
+        // 5b. Direct tools (e.g. mock tools in tests).
+        for tool in self.extra_tools {
+            agent_builder = agent_builder.tool(tool);
+        }
+
+        // 5c. Security middleware first, then any caller-supplied extras.
+        //     The inner builder uses `push_sorted`, so global ordering still
+        //     respects each middleware's `priority()`.
+        agent_builder = agent_builder.middleware(security_mw);
         for mw in self.extra_middleware {
-            middleware_stack.push_sorted(mw);
+            agent_builder = agent_builder.middleware(mw);
         }
 
-        // Bridge middleware (routes lifecycle events to ExtensionHost)
-        let bridge = Arc::new(crate::extension::ExtensionBridgeMiddleware::new(extension_host.clone()));
-        middleware_stack.push_sorted(bridge);
+        // 6. Delegate the generic build.
+        let inner = agent_builder
+            .build()
+            .await
+            .map_err(|e| EngineError::ToolExecution(format!("agent build failed: {e}")))?;
 
-        // Configure all middleware with shared infrastructure (bus, workspace).
-        // Middleware that needs bus/workspace grabs it here via configure().
-        middleware_stack.configure_all(&alva_kernel_core::middleware::MiddlewareContext {
-            bus: Some(bus_handle.clone()),
-            workspace: Some(workspace.clone()),
-        });
-
-        // Configure extensions with full context (bus, workspace, tool names).
-        let ext_ctx = crate::extension::ExtensionContext {
-            bus: bus_handle.clone(),
-            bus_writer: bus_writer.clone(),
-            workspace: workspace.clone(),
-            tool_names: tool_registry.definitions().iter().map(|d| d.name.clone()).collect(),
-        };
-        for ext in &self.extensions {
-            ext.configure(&ext_ctx).await;
-        }
-
-        // 7. Finalize phase — extensions can add tools that depend on the final tool list
-        let finalize_ctx = crate::extension::FinalizeContext {
-            bus: bus_handle.clone(),
-            bus_writer: bus_writer.clone(),
-            workspace: workspace.clone(),
-            model: model.clone(),
-            tools: alva_tools_list.clone(),
-            max_iterations: self.max_iterations,
-        };
-        for ext in &self.extensions {
-            let extra = ext.finalize(&finalize_ctx).await;
-            alva_tools_list.extend(extra);
-        }
-
-        // 8. Create AgentState
-        let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
-        if let Some(notifier) = self.approval_notifier {
-            bus_writer.provide(Arc::new(notifier));
-        }
-        let extensions = Extensions::new();
-        let state = AgentState {
-            model,
-            tools: alva_tools_list,
-            session,
-            extensions,
-        };
-
-        // 9. Create PendingMessageQueue + AgentConfig
-        let pending_messages = Arc::new(alva_kernel_core::pending_queue::PendingMessageQueue::new());
-        bus_writer.provide::<dyn alva_kernel_core::pending_queue::AgentLoopHook>(
-            pending_messages.clone() as Arc<dyn alva_kernel_core::pending_queue::AgentLoopHook>,
-        );
-
-        // 9b. Create Arc-wrapped cancel token and bind to extension host
+        // 7. Post-build harness wiring. The extension host now exists and
+        //    extensions have already been activated/configured. We need to
+        //    bind the cancellation token + pending messages so the host can
+        //    cancel the loop and inject steering messages.
         let current_cancel = Arc::new(std::sync::Mutex::new(CancellationToken::new()));
         {
-            let mut host = extension_host.write().unwrap();
+            let mut host = inner.host().write().unwrap();
             host.bind_agent(pending_messages.clone(), current_cancel.clone());
         }
 
-        // Register bus plugins
+        // 8. Register bus plugins (harness-specific, not exposed by SDK).
         for plugin in &self.bus_plugins {
             let mut registrar = PluginRegistrar::new(&bus_writer, plugin.name());
             plugin.register(&mut registrar);
@@ -331,24 +288,19 @@ impl BaseAgentBuilder {
                 "bus plugin registered"
             );
         }
-
         for plugin in &self.bus_plugins {
             plugin.start(&bus_handle);
         }
 
-        let config = AgentConfig {
-            middleware: middleware_stack,
-            system_prompt: self.system_prompt,
-            max_iterations: self.max_iterations,
-            model_config: alva_kernel_abi::ModelConfig::default(),
-            context_window: self.context_window,
-            workspace: Some(workspace.clone()),
-            bus: Some(bus_handle.clone()),
-            context_system: None,
-            context_token_budget: None,
-        };
+        // 9. Build a tool registry snapshot for `BaseAgent::tool_registry()`.
+        //    The inner Agent already cached the tools list, but downstream
+        //    callers expect the `ToolRegistry` shape (definitions/list).
+        let mut tool_registry = alva_kernel_abi::ToolRegistry::new();
+        for tool in inner.tools() {
+            tool_registry.register_arc(tool.clone());
+        }
 
-        // 10. Optionally create MemoryService
+        // 10. Optionally create MemoryService (harness concern).
         let memory = if let Some(service) = self.memory_service_override {
             Some(service)
         } else if self.enable_memory {
@@ -362,10 +314,9 @@ impl BaseAgentBuilder {
             None
         };
 
-        // 11. Return BaseAgent
+        // 11. Return BaseAgent wrapping the inner Agent.
         Ok(BaseAgent {
-            state: Arc::new(Mutex::new(state)),
-            config: Arc::new(config),
+            inner: Arc::new(inner),
             current_cancel,
             permission_mode: std::sync::Mutex::new(PermissionMode::Ask),
             tool_registry,
@@ -373,8 +324,6 @@ impl BaseAgentBuilder {
             security_guard,
             pending_messages,
             bus_writer,
-            bus: bus_handle,
-            extension_host,
         })
     }
 }

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
-use alva_kernel_abi::{AgentError, AgentMessage, BusHandle, CancellationToken};
+use alva_kernel_abi::{AgentError, AgentMessage, BusHandle, CancellationToken, Tool};
 use alva_kernel_core::event::AgentEvent;
 use alva_kernel_core::run_agent;
 use alva_kernel_core::state::{AgentConfig, AgentState};
@@ -22,6 +22,9 @@ pub struct Agent {
     pub(crate) config: AgentConfig,
     pub(crate) bus: BusHandle,
     pub(crate) host: Arc<std::sync::RwLock<ExtensionHost>>,
+    /// Snapshot of the tools the agent was built with. Cached so callers
+    /// can inspect tool definitions without locking `state`.
+    pub(crate) tools: Vec<Arc<dyn Tool>>,
 }
 
 impl Agent {
@@ -49,5 +52,27 @@ impl Agent {
     /// steering messages, reading capability registrations).
     pub fn bus(&self) -> &BusHandle {
         &self.bus
+    }
+
+    /// Access the runtime extension host (event dispatch, command registry,
+    /// agent binding for cancellation/pending messages).
+    pub fn host(&self) -> &Arc<std::sync::RwLock<ExtensionHost>> {
+        &self.host
+    }
+
+    /// Snapshot of the tools the agent was built with.
+    pub fn tools(&self) -> &[Arc<dyn Tool>] {
+        &self.tools
+    }
+
+    /// Access the agent config (read-only).
+    pub fn config(&self) -> &AgentConfig {
+        &self.config
+    }
+
+    /// Access the underlying state mutex (advanced — most callers should
+    /// use `run`/`messages` accessors via a wrapping handle).
+    pub fn state(&self) -> &Mutex<AgentState> {
+        &self.state
     }
 }
