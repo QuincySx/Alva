@@ -7,6 +7,7 @@ members = [
     "crates/alva-macros",
     "crates/alva-kernel-abi",
     "crates/alva-kernel-core",
+    "crates/alva-agent-core",
     "crates/alva-agent-graph",
     "crates/alva-agent-tools",
     "crates/alva-agent-security",
