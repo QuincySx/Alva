@@ -426,6 +426,47 @@ impl AgentSession for TeeAgentSession {
 }
 ```
 
+#### The contract between core and sinks
+
+Core's obligation to sinks is exactly two things:
+
+1. **Deliver every event, in order, with complete identity.** Events arrive at `on_event` in strict `seq` order. No gaps, no duplicates, no missing `emitter`. Every event a sink receives is a fully-formed `SessionEvent` with a valid `emitter.kind` / `emitter.id` stamp.
+2. **Deliver `on_flush` / `on_close` at the lifecycle moments defined in §5.** Sinks know when "now is a good time to persist your batch" and "this session is done, release resources."
+
+The sink's obligation to core is:
+
+1. **Don't block.** Long work dispatches to a background task.
+2. **Don't mutate the event.** The event reference is borrowed, not owned.
+
+**That's it.** Core has no opinion on what the sink does with the events. A sink that cares about only user messages filters out everything else in its first line and returns. A sink that cares about tool timing reads `emitter.kind == Tool` events plus their paired `llm_call_end` siblings and discards the rest. A sink that cares about total token cost watches for `llm_call_end` events and sums one field. A sink that cares about nothing is a no-op. A sink that cares about everything mirrors every event to a log file.
+
+```rust
+// "I only care about user messages."
+impl SessionEventSink for OnlyUserMessagesSink {
+    async fn on_event(&self, _session_id: &str, event: &SessionEvent) {
+        if event.event_type != "user" {
+            return;
+        }
+        self.write_to_wherever(event).await;
+    }
+}
+
+// "I only care about tool usage stats."
+impl SessionEventSink for ToolStatsSink {
+    async fn on_event(&self, _session_id: &str, event: &SessionEvent) {
+        if event.emitter.kind != EmitterKind::Tool { return; }
+        if event.event_type != "tool_result" { return; }
+        let duration = event.data.as_ref()
+            .and_then(|d| d.get("duration_ms"))
+            .and_then(|d| d.as_u64())
+            .unwrap_or(0);
+        self.record_tool_timing(&event.emitter.id, duration).await;
+    }
+}
+```
+
+Core's job is to make sure the sink **has enough information to decide for itself**. Filtering, projection, compression, encryption, retention, export, replication — none of that is core's concern. Core ships the firehose; the sink chooses its sieve.
+
 When to use which extension point:
 
 | Need | Use |
