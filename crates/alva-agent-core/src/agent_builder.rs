@@ -219,7 +219,7 @@ impl AgentBuilder {
         middleware_stack.configure_all(&MiddlewareContext {
             bus: Some(bus.clone()),
             workspace: self.workspace.clone(),
-            session: None,
+            session: None, // TODO(phase-2): per-middleware scoped session
         });
 
         // 10. Finalize phase: extensions can return additional tools that

@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{
-    AgentSession, ComponentDescriptor, EmitterKind, SessionEvent,
+    AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, ScopedSession, SessionEvent,
 };
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::tool::Tool;
@@ -357,16 +357,25 @@ struct ActualToolCall {
 impl ToolCallFn for ActualToolCall {
     async fn call(
         &self,
-        _state: &mut AgentState,
+        state: &mut AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError> {
         // No timeout in the kernel — use ToolTimeoutMiddleware (wrap_tool_call) to add one.
+        let scoped_session = ScopedSession::new(
+            state.session.clone(),
+            EventEmitter {
+                kind: EmitterKind::Tool,
+                id: self.tool.name().to_string(),
+                instance: None,
+            },
+        );
         let mut ctx = RuntimeExecutionContext::new(
             self.cancel.clone(),
             tool_call.id.clone(),
             self.event_tx.clone(),
             self.session_id.clone(),
-        );
+        )
+        .with_session(scoped_session);
         if let Some(ref ws) = self.workspace {
             ctx = ctx.with_workspace(ws.clone());
         }

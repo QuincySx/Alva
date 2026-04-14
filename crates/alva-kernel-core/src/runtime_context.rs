@@ -7,6 +7,7 @@ use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use alva_kernel_abi::agent_session::ScopedSession;
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::tool::execution::{ProgressEvent, ToolExecutionContext};
 use alva_kernel_abi::BusHandle;
@@ -29,6 +30,7 @@ pub struct RuntimeExecutionContext {
     allow_dangerous: bool,
     tool_fs: Option<Arc<dyn ToolFs>>,
     bus: Option<BusHandle>,
+    pub session: Option<ScopedSession>,
 }
 
 impl RuntimeExecutionContext {
@@ -47,7 +49,13 @@ impl RuntimeExecutionContext {
             allow_dangerous: false,
             tool_fs: None,
             bus: None,
+            session: None,
         }
+    }
+
+    pub fn with_session(mut self, session: ScopedSession) -> Self {
+        self.session = Some(session);
+        self
     }
 
     pub fn with_workspace(mut self, path: PathBuf) -> Self {
@@ -105,6 +113,10 @@ impl ToolExecutionContext for RuntimeExecutionContext {
 
     fn bus(&self) -> Option<&BusHandle> {
         self.bus.as_ref()
+    }
+
+    fn session(&self) -> Option<&alva_kernel_abi::agent_session::ScopedSession> {
+        self.session.as_ref()
     }
 
     fn as_any(&self) -> &dyn Any {
