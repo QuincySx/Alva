@@ -217,3 +217,104 @@ pub struct EventMatch {
     pub event: SessionEvent,
     pub preview: String,
 }
+
+// ===========================================================================
+// AgentSession trait
+// ===========================================================================
+
+/// Unified session abstraction — the single source of truth for everything
+/// that happens during an agent's lifetime.
+///
+/// ## Invariants
+///
+/// 1. **Monotonic order.** Every event has a `seq: u64` assigned atomically
+///    at `append` time. `seq` is strictly increasing within a session; there
+///    are no duplicates and no gaps (except where `rollback_after` deliberately
+///    drops events).
+/// 2. **Single writer target.** Every piece of information worth recording is
+///    written to exactly one `AgentSession` instance for the session. Views
+///    are projections, never independent stores.
+/// 3. **Emitter identity.** Every event carries `emitter: EventEmitter`; the
+///    scoped session wrapper at each extension point injects this automatically
+///    so third-party code cannot fill it incorrectly.
+///
+/// ## Lifecycle contract
+///
+/// - **`restore()`** — called exactly once after construction, before any other
+///   call. Idempotent. The backend warms internal projections (e.g. message
+///   cache) from durable storage. For a fresh session, this is a no-op.
+///
+/// - **`flush()`** — called at three moments by the runtime: (a) `on_agent_end`,
+///   (b) periodically during long runs (default every 10 iterations or 30
+///   seconds), (c) once during graceful process shutdown. After `flush()`
+///   returns, every event appended before `flush()` started MUST be durably
+///   persisted.
+///
+/// - **`close()`** — called when the session is no longer going to be used.
+///   Implies `flush()` followed by resource release. After `close()`, calls
+///   to other methods MUST return an error.
+///
+/// - **`clear()`** — called only on explicit user-initiated reset or in tests.
+///   Never called by the runtime during normal operation. Drops all events and
+///   snapshots for this session.
+#[async_trait]
+pub trait AgentSession: Send + Sync {
+    // --- Identity ---
+
+    /// Unique identifier for this session.
+    fn session_id(&self) -> &str;
+
+    /// Parent session id for sub-agents. `None` for root sessions.
+    fn parent_session_id(&self) -> Option<&str>;
+
+    // --- Write ---
+
+    /// Append a raw event. The backend assigns `event.seq` atomically and
+    /// updates any internal projections (e.g. message cache).
+    async fn append(&self, event: SessionEvent);
+
+    /// Append an `AgentMessage` as a user / assistant / tool_result event.
+    /// The backend translates the message into a `SessionEvent` with
+    /// `emitter = EventEmitter::runtime()` and appends it.
+    async fn append_message(&self, msg: AgentMessage);
+
+    // --- Read: event-level ---
+
+    /// Query events matching the filter, ordered by `seq` ascending.
+    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>;
+
+    /// Count events matching the filter.
+    async fn count(&self, filter: &EventQuery) -> usize;
+
+    // --- Read: message-level (hot path for LLM input assembly) ---
+
+    /// All messages in append order, projected from events.
+    /// Backends are expected to serve this from an internal cache.
+    async fn messages(&self) -> Vec<AgentMessage>;
+
+    /// The last N messages, projected from events.
+    /// Backends are expected to serve this from an internal cache.
+    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage>;
+
+    // --- Write correction ---
+
+    /// Drop all events with `seq` greater than the event identified by `uuid`.
+    /// Returns the number of events dropped.
+    async fn rollback_after(&self, uuid: &str) -> usize;
+
+    /// Store an opaque snapshot blob (used by `ContextStore` for L0..L3 state).
+    async fn save_snapshot(&self, data: &[u8]);
+
+    /// Load the most recent snapshot, if any.
+    async fn load_snapshot(&self) -> Option<Vec<u8>>;
+
+    // --- Lifecycle ---
+
+    async fn restore(&self) -> Result<(), SessionError>;
+
+    async fn flush(&self) -> Result<(), SessionError>;
+
+    async fn close(&self) -> Result<(), SessionError>;
+
+    async fn clear(&self) -> Result<(), SessionError>;
+}
