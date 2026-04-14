@@ -2,7 +2,7 @@
 > 电池齐全的 Agent 运行时源码实现层：组合 core + tools + security + memory 并提供 Builder API
 
 ## 地位
-`alva-host-native` crate 的全部源码。是面向使用者的最高层抽象，组合所有 Agent 子系统（alva-kernel-core / alva-agent-tools / alva-agent-security / alva-agent-memory）为一个开箱即用的运行时。被 `alva-app` 或 CLI 入口直接使用。
+`alva-host-native` crate 的全部源码。是面向使用者的最高层抽象，组合所有 Agent 子系统（alva-kernel-core / alva-agent-extension-builtin / alva-agent-security / alva-agent-memory）为一个开箱即用的运行时。被 `alva-app` 或 CLI 入口直接使用。
 
 ## 逻辑
 1. `builder.rs` 提供 `AgentRuntimeBuilder`，通过 Builder 模式配置 system prompt、tools、middleware、bus 与运行时选项，并在 `build(model)` 时接收 `LanguageModel`，最终构建 `AgentRuntime`（包含 AgentState / AgentConfig / ToolRegistry / bus 相关 handles）；未注入外部 bus 时会自动创建一个默认 bus 并写入 `AgentConfig.bus`。

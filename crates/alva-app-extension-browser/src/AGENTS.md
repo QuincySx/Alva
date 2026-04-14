@@ -1,8 +1,8 @@
-# alva-agent-tools/src/browser
+# alva-app-extension-browser/src
 > 基于 Chrome DevTools Protocol (CDP) 的浏览器自动化工具组
 
 ## 地位
-`alva-agent-tools` crate 的 browser 子模块。通过 `mod.rs` re-export 7 个浏览器工具和共享的 `BrowserManager`。所有工具仅在 `browser` feature 下编译，依赖 `chromiumoxide` crate 与 Chrome 实例通信。
+`alva-app-extension-browser` crate 的源码。通过 `lib.rs` re-export 7 个浏览器工具和共享的 `BrowserManager`。所有工具依赖 `chromiumoxide` crate 与 Chrome 实例通信。从原 `alva-agent-tools/src/browser` 提取独立。
 
 ## 逻辑
 1. `browser_manager.rs` 管理 Chrome 实例生命周期：启动 Chrome、建立 CDP 连接、标签页管理。通过 `SharedBrowserManager`（`Arc<Mutex<BrowserManager>>`）在多个工具间共享状态。

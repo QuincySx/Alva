@@ -16,7 +16,7 @@
 - **wasm 专用 dep（`gloo-timers` / `wasm-bindgen-futures`）必须 `[target.'cfg(target_family = "wasm")'.dependencies]` 守卫**，否则 native 编译会拉进不需要的 crate。
 - **所有 wasm 专用 module 必须 `#[cfg(target_family = "wasm")]` 守卫**。`agent::WasmAgent` 和 `smoke::_wasm_smoke_probe` 在两个目标都编，因为它们不依赖 wasm-only API，只是让 native 测试也能跑同一套代码。
 - 新增的 consumer API 必须同时有一个 native 测试覆盖——wasm32 只跑 `cargo check`，不跑 `cargo test`，所以测试覆盖走的是 native path（同一份代码）。
-- **`alva-host-wasm` 不提供 `alva-agent-tools`**。`alva-agent-tools` 在当前状态下无法编译 wasm32（约 20 个 cfg-gating 相关 error），是独立的清理任务。`WasmAgent::new` 的 `tools` 参数因此默认为空 Vec，调用方自己按需传入 wasm-friendly 的工具。
+- **`alva-host-wasm` 不提供内置工具集**。`alva-agent-extension-builtin` 中的工具实现当前以 native 为目标，wasm 消费方需要按需提供 wasm-friendly 的工具实现。`WasmAgent::new` 的 `tools` 参数因此默认为空 Vec，调用方自己按需传入。
 
 ## 业务域清单
 | 名称 | 文件 | 职责 |

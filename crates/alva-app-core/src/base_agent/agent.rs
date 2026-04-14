@@ -436,8 +436,8 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let agent = BaseAgent::builder()
             .workspace(tmp.path())
-            .tools(alva_agent_tools::tool_presets::file_io())
-            .tools(alva_agent_tools::tool_presets::shell())
+            .tools(alva_agent_extension_builtin::tool_presets::file_io())
+            .tools(alva_agent_extension_builtin::tool_presets::shell())
             .build(model)
             .await
             .expect("build should succeed");

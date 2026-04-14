@@ -4,8 +4,8 @@
 
 //! `alva-agent-browser-tools` — browser automation tools (Chrome via CDP).
 //!
-//! Extracted from `alva-agent-tools` so the core tools crate stays
-//! wasm32-clean. Browser tools depend on `chromiumoxide`, which pulls
+//! Extracted from the former `alva-agent-tools` crate so the core
+//! tools crate stays wasm32-clean. Browser tools depend on `chromiumoxide`, which pulls
 //! `tokio/net` → `mio`, which doesn't compile for wasm32.
 //!
 //! On native targets this crate exports 7 tools (start / stop /

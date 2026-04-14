@@ -827,7 +827,7 @@ async fn e2e_real_find_files_tool() {
 // invocation pipeline. Workspace context is propagated via AgentConfig.
 //
 // The underlying walk_dir_filtered() function respects .gitignore; this is
-// tested at the unit level in alva-agent-tools. Here we verify the full
+// tested at the unit level in alva-agent-extension-builtin. Here we verify the full
 // agent pipeline: tool resolution -> security -> execution.
 // ---------------------------------------------------------------------------
 

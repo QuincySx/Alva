@@ -148,7 +148,7 @@ impl Visit for FieldVisitor {
 /// A tracing Layer that captures events from agent crates into per-run log buffers.
 ///
 /// Captures events from: alva_llm_provider, alva_kernel_core, alva_host_native,
-/// alva_agent_tools, alva_agent_security, alva_app_core, alva_app_eval.
+/// alva_agent_extension_builtin, alva_agent_security, alva_app_core, alva_app_eval.
 pub struct LogCaptureLayer {
     store: LogStore,
 }
@@ -168,7 +168,7 @@ impl<S: Subscriber> Layer<S> for LogCaptureLayer {
         if !target.starts_with("alva_llm_provider")
             && !target.starts_with("alva_kernel_core")
             && !target.starts_with("alva_host_native")
-            && !target.starts_with("alva_agent_tools")
+            && !target.starts_with("alva_agent_extension_builtin")
             && !target.starts_with("alva_agent_security")
             && !target.starts_with("alva_app_core")
             && !target.starts_with("alva_app_eval")

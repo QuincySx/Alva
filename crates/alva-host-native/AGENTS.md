@@ -1,6 +1,6 @@
 # alva-host-native
 
-> Batteries-included agent runtime composing alva-kernel-core + alva-agent-tools + alva-agent-security + alva-agent-memory with a builder API.
+> Batteries-included agent runtime composing alva-kernel-core + alva-agent-extension-builtin + alva-agent-security + alva-agent-memory with a builder API.
 
 ---
 

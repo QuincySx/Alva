@@ -667,7 +667,7 @@ async fn main() {
     // Terminal output defaults to warn; override with RUST_LOG=info or RUST_LOG=debug.
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(
-            "warn,alva_llm_provider=debug,alva_kernel_core=info,alva_host_native=info,alva_agent_tools=info,alva_agent_security=info,alva_app_core=info"
+            "warn,alva_llm_provider=debug,alva_kernel_core=info,alva_host_native=info,alva_agent_extension_builtin=info,alva_agent_security=info,alva_app_core=info"
         ));
 
     use tracing_subscriber::layer::SubscriberExt;

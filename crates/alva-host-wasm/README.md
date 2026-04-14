@@ -22,7 +22,7 @@ design — see the responsibility table below.
 | `Sleeper` runtime primitive | **library** | `WasmSleeper` via `spawn_local + oneshot` |
 | `WasmAgent` consumer facade | **library** | `new` / `with_session` / `run` / `run_simple` / `clear_session` |
 | Real LLM provider impl | **consumer** | Use `gloo-net::http`, `web_sys::fetch`, or `reqwest` with the wasm32 feature |
-| Real tools impl | **consumer** | The `alva-agent-tools` crate is native-only on purpose; wasm consumers write their own |
+| Real tools impl | **consumer** | The tools in `alva-agent-extension-builtin` target native on purpose; wasm consumers write their own |
 | Persistent session impl | **consumer** | Implement `AgentSession` over IndexedDB / localStorage / your backend |
 | `wasm-pack build` | **consumer** | Run it on your wasm app, not on this library |
 | CORS / API key proxying | **consumer** | Browser → your backend → upstream LLM API |
@@ -159,7 +159,7 @@ the library only owns the trait surface and `WasmAgent`.
   while the outer future captures only the `Receiver<()>` (which is
   Send). The kernel sees a Send future and stays runtime-agnostic.
 
-- **Why an empty default tool set?** `alva-agent-tools` is the native
+- **Why an empty default tool set?** `alva-agent-extension-builtin` is the native
   batteries-included tool collection — file edit, shell, grep,
   browser automation, sqlite memory. Most of those have no meaning
   in a browser. wasm consumers should write only the tools that make

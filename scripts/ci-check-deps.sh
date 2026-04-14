@@ -38,9 +38,6 @@ check_no_workspace_deps "alva-kernel-abi" "alva-kernel-bus"
 # Rule 2: alva-kernel-core only depends on alva-kernel-abi
 check_no_workspace_deps "alva-kernel-core" "alva-kernel-abi"
 
-# Rule 3: alva-agent-tools only depends on alva-kernel-abi
-check_no_workspace_deps "alva-agent-tools" "alva-kernel-abi"
-
 # Rule 4: alva-agent-security depends on alva-kernel-abi + alva-kernel-core
 #         (core is needed because security owns SecurityMiddleware + PlanModeMiddleware)
 check_no_workspace_deps "alva-agent-security" "alva-kernel-abi|alva-kernel-core"
@@ -56,7 +53,7 @@ check_no_workspace_deps "alva-agent-graph" "alva-kernel-abi|alva-kernel-core"
 check_no_workspace_deps "alva-agent-context" "alva-kernel-abi|alva-kernel-core"
 
 # Rule 8: alva-host-native only depends on foundation crates
-check_no_workspace_deps "alva-host-native" "alva-kernel-abi|alva-kernel-core|alva-agent-tools|alva-agent-security|alva-agent-context|alva-agent-memory|alva-agent-graph"
+check_no_workspace_deps "alva-host-native" "alva-kernel-abi|alva-kernel-core|alva-agent-extension-builtin|alva-agent-core|alva-agent-security|alva-agent-context|alva-agent-memory|alva-agent-graph"
 
 # Rule 9: alva-engine-runtime only depends on alva-kernel-abi
 check_no_workspace_deps "alva-engine-runtime" "alva-kernel-abi"
@@ -93,7 +90,7 @@ done
 
 # Rule 16: alva-app must NOT directly depend on internal agent-* crates
 echo "Checking alva-app facade boundary..."
-app_deps=$(cargo tree -p alva-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-kernel-abi|alva-kernel-core|alva-agent-graph|alva-agent-tools|alva-agent-security|alva-agent-memory|alva-host-native) " || true)
+app_deps=$(cargo tree -p alva-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-kernel-abi|alva-kernel-core|alva-agent-graph|alva-agent-extension-builtin|alva-agent-security|alva-agent-memory|alva-host-native) " || true)
 if [ -n "$app_deps" ]; then
     echo -e "${RED}VIOLATION: alva-app directly depends on internal crates:${NC}"
     echo "$app_deps"
@@ -136,7 +133,6 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
     check_wasm "alva-agent-context"
     check_wasm "alva-agent-graph"
     check_wasm "alva-agent-security"
-    check_wasm "alva-agent-tools"
     check_wasm "alva-agent-memory"
     check_wasm "alva-host-native"
     check_wasm "alva-host-wasm"
@@ -152,7 +148,7 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
         echo -e "${RED}FAILED: wasm32 invariant broken${NC}"
         exit 1
     fi
-    echo -e "${GREEN}PASSED: 18 crates wasm32-clean${NC}"
+    echo -e "${GREEN}PASSED: 17 crates wasm32-clean${NC}"
 
     # Stronger check: actually BUILD (link) alva-host-wasm for wasm32 at
     # least once, to catch issues cargo check misses (missing symbols,

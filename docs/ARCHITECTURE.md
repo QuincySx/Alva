@@ -64,7 +64,7 @@ Alva 是一个**分层解耦的 AI Agent 平台**，三大组件完全独立：
 ┌─ 功能层（并行，互不依赖）─────────────────────────────────────────┐
 │  alva-agent-context  — 上下文管理 Hooks + ContextStore + 四层模型 │
 │  alva-kernel-core     — Agent 循环引擎 + Middleware 洋葱模型       │
-│  alva-agent-tools    — 工具实现 + tool_presets 分组               │
+│  alva-agent-extension-builtin — 工具实现 + tool_presets 分组      │
 │  alva-agent-security — SecurityGuard + PermissionManager          │
 │  alva-agent-memory   — FTS + 向量搜索 + MemoryBackend trait       │
 │  alva-agent-graph    — StateGraph + Pregel + Channel + SubAgent   │
@@ -576,7 +576,7 @@ Rule 0:  alva-kernel-bus 零 workspace 依赖
 Rule 1:  alva-kernel-abi → alva-kernel-bus only
 Rule 2:  alva-agent-context → alva-kernel-abi only
 Rule 3:  alva-kernel-core → alva-kernel-abi only
-Rule 4:  alva-agent-tools → alva-kernel-abi only
+Rule 4:  alva-agent-extension-builtin → alva-kernel-abi + alva-agent-core
 Rule 5:  alva-agent-security → alva-kernel-abi only
 Rule 6:  alva-agent-memory → alva-kernel-abi only
 Rule 7:  alva-host-native → foundation agent-* crates
@@ -604,7 +604,7 @@ pub trait CodeIndex: Send + Sync {
     fn search(&self, query: &str) -> Vec<CodeMatch>;
 }
 
-// 2. 在某个 crate（如 alva-agent-tools）实现
+// 2. 在某个 crate（如 alva-agent-extension-builtin）实现
 struct LocalCodeIndex { ... }
 impl CodeIndex for LocalCodeIndex { ... }
 

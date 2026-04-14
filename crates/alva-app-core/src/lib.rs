@@ -21,7 +21,7 @@ pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, Pe
 pub use alva_kernel_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
 pub use alva_kernel_core::run_agent;
 
-pub use alva_agent_tools::tool_presets;
+pub use alva_agent_extension_builtin::tool_presets;
 
 pub use alva_agent_security::{
     SecurityGuard, SecurityDecision,

@@ -9,7 +9,7 @@
 //! - `Arc<dyn LanguageModel>` — caller-supplied (typically a wasm-friendly
 //!   provider built on `gloo-net` or `web_sys::fetch`)
 //! - `Vec<Arc<dyn Tool>>` — caller-supplied; defaults to empty since the
-//!   default `alva-agent-tools` set isn't wasm-clean yet
+//!   default `alva-agent-extension-builtin` set isn't wasm-clean yet
 //! - `InMemorySession` — the only kernel session impl that's already
 //!   wasm-friendly
 //! - **No security middleware** — wasm is sandboxed by the browser

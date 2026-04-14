@@ -3,7 +3,7 @@
 
 Usage:
   1. Start mock:  python3 tests/mock_llm.py &
-  2. Start eval:  RUST_LOG="warn,alva_kernel_core=debug,alva_llm_provider=debug,alva_host_native=debug,alva_agent_security=debug,alva_agent_tools=info,alva_app_core=info,alva_app_eval=info" cargo run -p alva-app-eval &
+  2. Start eval:  RUST_LOG="warn,alva_kernel_core=debug,alva_llm_provider=debug,alva_host_native=debug,alva_agent_security=debug,alva_agent_extension_builtin=info,alva_app_core=info,alva_app_eval=info" cargo run -p alva-app-eval &
   3. Run tests:   python3 tests/run_tests.py
 """
 
