@@ -96,3 +96,18 @@ pub mod team_create;
 pub mod team_delete;
 #[cfg(feature = "team")]
 pub mod send_message;
+
+// ---- task feature tools ----
+
+#[cfg(feature = "task")]
+pub mod task_create;
+#[cfg(feature = "task")]
+pub mod task_update;
+#[cfg(feature = "task")]
+pub mod task_get;
+#[cfg(feature = "task")]
+pub mod task_list;
+#[cfg(feature = "task")]
+pub mod task_output;
+#[cfg(feature = "task")]
+pub mod task_stop;
