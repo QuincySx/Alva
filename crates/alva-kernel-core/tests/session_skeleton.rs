@@ -169,6 +169,16 @@ async fn full_run_produces_skeleton_events_in_order() {
         "missing run_end; got: {:?}",
         event_types
     );
+    assert!(
+        event_types.contains(&"assistant"),
+        "missing assistant event; got: {:?}",
+        event_types
+    );
+    assert!(
+        event_types.contains(&"user"),
+        "missing user event; got: {:?}",
+        event_types
+    );
 
     // -----------------------------------------------------------------------
     // 2. Every event has seq assigned (none are 0).
@@ -248,4 +258,29 @@ async fn full_run_produces_skeleton_events_in_order() {
             );
         }
     }
+
+    // -----------------------------------------------------------------------
+    // 6. Fix A regression guard: assistant.parent_uuid points at the
+    //    llm_call_start it followed (spec §4.4 parent_uuid contract).
+    // -----------------------------------------------------------------------
+    let assistant = all_events
+        .iter()
+        .find(|em| em.event.event_type == "assistant")
+        .expect("assistant event missing");
+    let llm_call_start_uuids: std::collections::HashSet<&str> = all_events
+        .iter()
+        .filter(|em| em.event.event_type == "llm_call_start")
+        .map(|em| em.event.uuid.as_str())
+        .collect();
+    let parent = assistant
+        .event
+        .parent_uuid
+        .as_deref()
+        .expect("assistant event should have a parent_uuid set");
+    assert!(
+        llm_call_start_uuids.contains(parent),
+        "assistant.parent_uuid {} should match an llm_call_start uuid; available: {:?}",
+        parent,
+        llm_call_start_uuids
+    );
 }
