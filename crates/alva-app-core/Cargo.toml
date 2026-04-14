@@ -12,6 +12,7 @@ path = "src/lib.rs"
 # Extracted agent crates
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
+alva-agent-core = { path = "../alva-agent-core" }
 alva-agent-tools = { path = "../alva-agent-tools", default-features = false, features = ["native"] }
 alva-app-extension-browser = { path = "../alva-app-extension-browser" }
 alva-app-extension-memory = { path = "../alva-app-extension-memory" }
