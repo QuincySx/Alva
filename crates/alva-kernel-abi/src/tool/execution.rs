@@ -204,6 +204,19 @@ pub trait ToolExecutionContext: Send + Sync {
         None
     }
 
+    /// Scoped session handle for this tool invocation.
+    ///
+    /// Returns `Some` when the runtime has wired an `AgentSession` into
+    /// this execution context; events appended through the returned
+    /// `ScopedSession` are automatically stamped with
+    /// `EmitterKind::Tool` and this tool's registered id.
+    ///
+    /// Returns `None` for contexts that do not carry a session (tests,
+    /// `MinimalExecutionContext`, standalone tool runners).
+    fn session(&self) -> Option<&crate::agent_session::ScopedSession> {
+        None
+    }
+
     /// Downcast support for application-specific extensions.
     fn as_any(&self) -> &dyn Any;
 }
