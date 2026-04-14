@@ -7,7 +7,7 @@ description = "Batteries-included agent runtime — composes core, tools, securi
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
-alva-agent-tools = { path = "../alva-agent-tools", default-features = false }
+alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin", features = ["core", "utility", "web", "task", "team", "worktree", "notebook", "schedule"] }
 alva-agent-security = { path = "../alva-agent-security", default-features = false }
 alva-agent-context = { path = "../alva-agent-context" }
 alva-agent-memory = { path = "../alva-agent-memory", optional = true }
@@ -23,7 +23,6 @@ tokio-stream = "0.1"
 [features]
 default = ["native"]
 native = [
-    "alva-agent-tools/default",
     "alva-agent-security/native",
     "alva-agent-memory",
 ]

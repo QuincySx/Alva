@@ -1,4 +1,4 @@
-// INPUT:  std::path, std::sync, alva_kernel_core, alva_kernel_abi, alva_agent_tools
+// INPUT:  std::path, std::sync, alva_kernel_core, alva_kernel_abi, alva_agent_extension_builtin
 // OUTPUT: AgentRuntime, AgentRuntimeBuilder
 // POS:    Builder pattern for constructing a fully-configured AgentRuntime with state, config, tools, and middleware.
 use std::path::PathBuf;
@@ -261,7 +261,7 @@ impl AgentRuntimeBuilder {
         let mut registry = ToolRegistry::new();
 
         if self.register_builtin {
-            alva_agent_tools::register_builtin_tools(&mut registry);
+            alva_agent_extension_builtin::register_builtin_tools(&mut registry);
         }
         for tool in self.custom_tools {
             registry.register(tool);

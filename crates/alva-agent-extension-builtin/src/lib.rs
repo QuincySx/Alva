@@ -15,13 +15,14 @@ pub mod wrappers;
 #[cfg(not(target_family = "wasm"))]
 pub mod walkdir;
 
-/// Transitional bridge until `LocalToolFs` lands in `alva-host-native`
-/// in Phase 4. Do not add new code here — this module exists solely to
-/// keep migrated tool implementations compiling during the refactor.
+/// Local-OS `ToolFs` adapter. Native-only (`tokio::process` + `tokio::fs`).
+/// Built-in tool implementations use `LocalToolFs::new(workspace)` as a
+/// fallback when `ToolExecutionContext` doesn't provide a ToolFs handle.
 #[cfg(not(target_family = "wasm"))]
-pub mod local_fs {
-    pub use alva_agent_tools::local_fs::LocalToolFs;
-}
+pub mod local_fs;
+
+#[cfg(not(target_family = "wasm"))]
+pub use local_fs::LocalToolFs;
 
 // MockToolFs re-exported for test modules inside migrated tools.
 pub use alva_agent_core::MockToolFs;

@@ -20,10 +20,6 @@ base64 = "0.22"
 
 # Native-only: process + fs + walkdir
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-# Transitional: until Phase 4 lands LocalToolFs in alva-host-native, we
-# re-export it from alva-agent-tools so copied tool implementations still
-# compile. This dep goes away in Phase 4.
-alva-agent-tools = { path = "../alva-agent-tools", default-features = false }
 tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
 ignore = "0.4"
 reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
