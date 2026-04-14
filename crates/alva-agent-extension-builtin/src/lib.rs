@@ -87,3 +87,12 @@ pub mod notebook_edit;
 pub mod enter_worktree;
 #[cfg(all(feature = "worktree", not(target_family = "wasm")))]
 pub mod exit_worktree;
+
+// ---- team feature tools ----
+
+#[cfg(feature = "team")]
+pub mod team_create;
+#[cfg(feature = "team")]
+pub mod team_delete;
+#[cfg(feature = "team")]
+pub mod send_message;
