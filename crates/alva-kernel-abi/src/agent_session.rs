@@ -374,3 +374,126 @@ impl ScopedSession {
         self.inner.count(filter).await
     }
 }
+
+// ===========================================================================
+// InMemoryAgentSession
+// ===========================================================================
+
+/// In-memory backend for `AgentSession`. Used by default in tests and by
+/// agents that do not need persistence. All data lives in a single struct
+/// protected by async RwLocks.
+///
+/// Implementation notes:
+///
+/// - `seq` counter is a single `AtomicU64`, `fetch_add(1, SeqCst)` at the
+///   start of each `append`. This guarantees strict monotonic ordering
+///   even under concurrent appends.
+/// - `events` is the authoritative event log.
+/// - `messages` is a projection cache: every `append` of a message-bearing
+///   event (`user` / `assistant` / `tool_result` via `append_message` or via
+///   raw `append`) pushes to this cache, so `recent_messages` is O(n).
+/// - `snapshot` is a single opaque blob for `ContextStore`.
+/// - Lifecycle methods are no-ops except `clear`, which actually resets
+///   state. `flush`/`restore`/`close` are no-ops because there is nothing
+///   to persist.
+pub struct InMemoryAgentSession {
+    session_id: String,
+    parent_session_id: Option<String>,
+    seq_counter: AtomicU64,
+    events: RwLock<Vec<SessionEvent>>,
+    messages: RwLock<VecDeque<AgentMessage>>,
+    snapshot: RwLock<Option<Vec<u8>>>,
+}
+
+impl InMemoryAgentSession {
+    /// Create a fresh root session with a random UUID v4.
+    pub fn new() -> Self {
+        Self::with_id(uuid::Uuid::new_v4().to_string())
+    }
+
+    /// Create a fresh root session with the given id.
+    pub fn with_id(session_id: String) -> Self {
+        Self {
+            session_id,
+            parent_session_id: None,
+            seq_counter: AtomicU64::new(1),
+            events: RwLock::new(Vec::new()),
+            messages: RwLock::new(VecDeque::new()),
+            snapshot: RwLock::new(None),
+        }
+    }
+
+    /// Create a child session linked to a parent.
+    pub fn with_parent(parent_session_id: impl Into<String>) -> Self {
+        Self {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            parent_session_id: Some(parent_session_id.into()),
+            seq_counter: AtomicU64::new(1),
+            events: RwLock::new(Vec::new()),
+            messages: RwLock::new(VecDeque::new()),
+            snapshot: RwLock::new(None),
+        }
+    }
+
+    /// Classify an `AgentMessage` into an `event_type` string and an optional
+    /// `SessionMessage` for display. Used by `append_message` when building
+    /// the corresponding `SessionEvent`.
+    ///
+    /// The full original `AgentMessage` is NOT represented here — it gets
+    /// serialized into the event's `data` field by `append_message` for
+    /// perfect round-trip on rollback. This method only produces what
+    /// `query` / preview consumers need for display.
+    fn classify_message(msg: &AgentMessage) -> (String, Option<SessionMessage>) {
+        use crate::base::message::MessageRole;
+
+        // Derive event_type per variant.
+        let event_type = match msg {
+            AgentMessage::Standard(m) => match m.role {
+                MessageRole::User => "user",
+                MessageRole::Assistant => "assistant",
+                MessageRole::System => "system",
+                MessageRole::Tool => "tool_result",
+            },
+            AgentMessage::Steering(_) => "user_steering",
+            AgentMessage::FollowUp(_) => "system_followup",
+            AgentMessage::Marker(_) => "marker",
+            AgentMessage::Extension { type_name, .. } => {
+                // Extension events carry no SessionMessage.
+                return (format!("extension:{}", type_name), None);
+            }
+        };
+
+        // Extract the inner Message for the three variants that have one.
+        let m = match msg {
+            AgentMessage::Standard(m)
+            | AgentMessage::Steering(m)
+            | AgentMessage::FollowUp(m) => m,
+            AgentMessage::Marker(_) => {
+                // Markers carry no message content.
+                return (event_type.to_string(), None);
+            }
+            AgentMessage::Extension { .. } => unreachable!("handled above"),
+        };
+
+        let role_str = match m.role {
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+            MessageRole::System => "system",
+            MessageRole::Tool => "tool",
+        };
+        let content = serde_json::to_value(&m.content)
+            .unwrap_or_else(|_| serde_json::json!([]));
+        let session_msg = SessionMessage {
+            role: role_str.to_string(),
+            content,
+        };
+
+        (event_type.to_string(), Some(session_msg))
+    }
+}
+
+impl Default for InMemoryAgentSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
