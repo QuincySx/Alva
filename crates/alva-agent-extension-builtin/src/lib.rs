@@ -80,3 +80,10 @@ pub mod read_url;
 
 #[cfg(all(feature = "notebook", not(target_family = "wasm")))]
 pub mod notebook_edit;
+
+// ---- worktree feature tools ----
+
+#[cfg(all(feature = "worktree", not(target_family = "wasm")))]
+pub mod enter_worktree;
+#[cfg(all(feature = "worktree", not(target_family = "wasm")))]
+pub mod exit_worktree;
