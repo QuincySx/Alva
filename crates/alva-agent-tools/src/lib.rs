@@ -14,31 +14,19 @@
 //! so chromiumoxide (which pulls mio) doesn't block this crate from
 //! compiling on wasm32.
 
-pub mod ask_human;
-pub mod create_file;
-pub mod execute_shell;
-pub mod file_edit;
-pub mod find_files;
-pub mod grep_search;
-pub mod list_files;
+// ---- wasm-safe tools (no fs / shell / stdin / direct tokio::time) ----
 pub mod mock_fs;
-pub mod read_file;
 pub mod truncate;
-pub mod view_image;
 
-// --- Phase 3: Additional tools ---
+// Pure-data / signaling tools — no platform I/O
 pub mod agent_tool;
 pub mod config_tool;
 pub mod enter_plan_mode;
-pub mod enter_worktree;
 pub mod exit_plan_mode;
-pub mod exit_worktree;
-pub mod notebook_edit;
 pub mod remote_trigger;
 pub mod schedule_cron;
 pub mod send_message;
 pub mod skill_tool;
-pub mod sleep_tool;
 pub mod task_create;
 pub mod task_get;
 pub mod task_list;
@@ -47,8 +35,37 @@ pub mod task_stop;
 pub mod task_update;
 pub mod team_create;
 pub mod team_delete;
-pub mod todo_write;
 pub mod tool_search;
+
+// ---- native-only tools (depend on local_fs / stdin / tokio::time) ----
+#[cfg(not(target_family = "wasm"))]
+pub mod ask_human;        // stdin
+#[cfg(not(target_family = "wasm"))]
+pub mod create_file;       // local_fs
+#[cfg(not(target_family = "wasm"))]
+pub mod execute_shell;     // local_fs (shell exec)
+#[cfg(not(target_family = "wasm"))]
+pub mod file_edit;         // local_fs
+#[cfg(not(target_family = "wasm"))]
+pub mod find_files;        // local_fs (walkdir)
+#[cfg(not(target_family = "wasm"))]
+pub mod grep_search;       // local_fs (walkdir)
+#[cfg(not(target_family = "wasm"))]
+pub mod list_files;        // local_fs
+#[cfg(not(target_family = "wasm"))]
+pub mod read_file;         // local_fs
+#[cfg(not(target_family = "wasm"))]
+pub mod view_image;        // local_fs
+#[cfg(not(target_family = "wasm"))]
+pub mod enter_worktree;    // local_fs (git via shell)
+#[cfg(not(target_family = "wasm"))]
+pub mod exit_worktree;     // local_fs (git via shell)
+#[cfg(not(target_family = "wasm"))]
+pub mod notebook_edit;     // local_fs
+#[cfg(not(target_family = "wasm"))]
+pub mod sleep_tool;        // tokio::time::sleep + select!
+#[cfg(not(target_family = "wasm"))]
+pub mod todo_write;        // local_fs (writes CLAUDE.md)
 
 #[cfg(not(target_family = "wasm"))]
 pub mod local_fs;
@@ -57,9 +74,9 @@ pub use local_fs::{walk_dir, walk_dir_filtered, LocalToolFs};
 
 pub use mock_fs::MockToolFs;
 
-#[cfg(feature = "native")]
+#[cfg(all(not(target_family = "wasm"), feature = "native"))]
 pub mod internet_search;
-#[cfg(feature = "native")]
+#[cfg(all(not(target_family = "wasm"), feature = "native"))]
 pub mod read_url;
 
 use alva_kernel_abi::tool::Tool;
@@ -82,7 +99,10 @@ macro_rules! register_tools {
 pub mod tool_presets {
     use super::*;
 
-    /// Core file tools: read, write, edit, search, list.
+    // ---- native-only presets (depend on local_fs / stdin / shell) ----
+
+    /// Core file tools: read, write, edit, search, list. **Native only.**
+    #[cfg(not(target_family = "wasm"))]
     pub fn file_io() -> Vec<Box<dyn Tool>> {
         vec![
             Box::new(read_file::ReadFileTool),
@@ -94,16 +114,37 @@ pub mod tool_presets {
             Box::new(view_image::ViewImageTool),
         ]
     }
+    #[cfg(target_family = "wasm")]
+    pub fn file_io() -> Vec<Box<dyn Tool>> { Vec::new() }
 
-    /// Shell execution.
+    /// Shell execution. **Native only.**
+    #[cfg(not(target_family = "wasm"))]
     pub fn shell() -> Vec<Box<dyn Tool>> {
         vec![Box::new(execute_shell::ExecuteShellTool)]
     }
+    #[cfg(target_family = "wasm")]
+    pub fn shell() -> Vec<Box<dyn Tool>> { Vec::new() }
 
-    /// Human interaction.
+    /// Human interaction (stdin). **Native only.**
+    #[cfg(not(target_family = "wasm"))]
     pub fn interaction() -> Vec<Box<dyn Tool>> {
         vec![Box::new(ask_human::AskHumanTool)]
     }
+    #[cfg(target_family = "wasm")]
+    pub fn interaction() -> Vec<Box<dyn Tool>> { Vec::new() }
+
+    /// Git worktree tools. **Native only.**
+    #[cfg(not(target_family = "wasm"))]
+    pub fn worktree() -> Vec<Box<dyn Tool>> {
+        vec![
+            Box::new(enter_worktree::EnterWorktreeTool),
+            Box::new(exit_worktree::ExitWorktreeTool),
+        ]
+    }
+    #[cfg(target_family = "wasm")]
+    pub fn worktree() -> Vec<Box<dyn Tool>> { Vec::new() }
+
+    // ---- wasm-safe presets (pure data / signaling) ----
 
     /// Task management: create, update, get, list, output, stop.
     pub fn task_management() -> Vec<Box<dyn Tool>> {
@@ -126,38 +167,41 @@ pub mod tool_presets {
         ]
     }
 
-    /// Planning and mode switching.
+    /// Planning and mode switching. todo_write writes to CLAUDE.md so
+    /// it's gated to native; the rest are pure mode signaling.
     pub fn planning() -> Vec<Box<dyn Tool>> {
-        vec![
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = vec![
             Box::new(enter_plan_mode::EnterPlanModeTool),
             Box::new(exit_plan_mode::ExitPlanModeTool),
-            Box::new(todo_write::TodoWriteTool),
-        ]
+        ];
+        #[cfg(not(target_family = "wasm"))]
+        tools.push(Box::new(todo_write::TodoWriteTool));
+        tools
     }
 
-    /// Git worktree tools.
-    pub fn worktree() -> Vec<Box<dyn Tool>> {
-        vec![
-            Box::new(enter_worktree::EnterWorktreeTool),
-            Box::new(exit_worktree::ExitWorktreeTool),
-        ]
-    }
-
-    /// Utility tools: sleep, config, notebook, skill, tool_search, schedule, remote.
+    /// Utility tools: sleep, config, notebook, skill, tool_search, schedule,
+    /// remote. sleep_tool / notebook_edit are gated to native (they use
+    /// tokio::time and local_fs respectively); the rest are pure data.
     pub fn utility() -> Vec<Box<dyn Tool>> {
-        vec![
-            Box::new(sleep_tool::SleepTool),
+        #[allow(unused_mut)]
+        let mut tools: Vec<Box<dyn Tool>> = vec![
             Box::new(config_tool::ConfigTool),
-            Box::new(notebook_edit::NotebookEditTool),
             Box::new(skill_tool::SkillTool),
             Box::new(tool_search::ToolSearchTool),
             Box::new(schedule_cron::ScheduleCronTool),
             Box::new(remote_trigger::RemoteTriggerTool),
-        ]
+        ];
+        #[cfg(not(target_family = "wasm"))]
+        {
+            tools.push(Box::new(sleep_tool::SleepTool));
+            tools.push(Box::new(notebook_edit::NotebookEditTool));
+        }
+        tools
     }
 
-    /// Web tools (native only): internet search, URL fetching.
-    #[cfg(feature = "native")]
+    /// Web tools (native + feature flag): internet search, URL fetching.
+    #[cfg(all(not(target_family = "wasm"), feature = "native"))]
     pub fn web() -> Vec<Box<dyn Tool>> {
         vec![
             Box::new(internet_search::InternetSearchTool),
@@ -165,16 +209,17 @@ pub mod tool_presets {
         ]
     }
 
-    #[cfg(not(feature = "native"))]
+    #[cfg(not(all(not(target_family = "wasm"), feature = "native")))]
     pub fn web() -> Vec<Box<dyn Tool>> {
         vec![]
     }
 
-    // Browser tools moved to alva-agent-browser-tools crate. To get them,
-    // depend on that crate directly and call its `browser_tools()` function.
-
-    /// All standard tools (file_io + shell + interaction + task + team + planning
-    /// + worktree + utility + web). Does NOT include agent spawn or browser.
+    /// All standard tools available on the current target. On native this
+    /// is file_io + shell + interaction + task + team + planning + worktree
+    /// + utility + web. On wasm32 the native-only presets degrade to empty
+    /// Vecs, so the result is just task + team + planning(no todo) + utility
+    /// (no sleep/notebook). Browser is **never** included — depend on
+    /// `alva-app-extension-browser` for that.
     pub fn all_standard() -> Vec<Box<dyn Tool>> {
         let mut tools = Vec::new();
         tools.extend(file_io());
