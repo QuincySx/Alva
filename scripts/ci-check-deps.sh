@@ -139,6 +139,18 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
         exit 1
     fi
     echo -e "${GREEN}PASSED: 3 kernel layers + host-wasm all wasm32-clean${NC}"
+
+    # Stronger check: actually BUILD (link) alva-host-wasm for wasm32 at
+    # least once, to catch issues cargo check misses (missing symbols,
+    # feature unification with unrelated workspace crates, etc.).
+    echo ""
+    echo "Building alva-host-wasm for wasm32 (full link)..."
+    if cargo build --target wasm32-unknown-unknown -p alva-host-wasm >/dev/null 2>&1; then
+        echo -e "${GREEN}OK: alva-host-wasm builds (links) for wasm32${NC}"
+    else
+        echo -e "${RED}VIOLATION: alva-host-wasm fails to build for wasm32${NC}"
+        exit 1
+    fi
 else
     echo -e "${GREEN}SKIPPED: wasm32-unknown-unknown target not installed${NC}"
     echo "         install with: rustup target add wasm32-unknown-unknown"
