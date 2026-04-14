@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::model::{LanguageModel, ModelConfig};
-use alva_kernel_abi::session::InMemorySession;
+use alva_kernel_abi::session::{AgentSession, InMemorySession};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::AgentMessage;
 use alva_kernel_abi::{AgentError, Sleeper};
@@ -46,23 +46,41 @@ pub struct WasmAgent {
 
 impl WasmAgent {
     /// Construct a wasm runtime with the given model and (optional) tools.
+    /// Uses an in-memory session by default — call [`with_session`] to
+    /// inject a custom backend (e.g. an `IndexedDbSession` impl).
+    ///
     /// Installs `ToolTimeoutMiddleware` with a 120-second budget driven by
     /// the platform's native sleeper (`WasmSleeper` on wasm32,
     /// `NoopSleeper` on native — native paths are test-only and don't
     /// rely on the timeout firing).
-    ///
-    /// All other knobs use sensible defaults; users that need finer control
-    /// should construct `AgentState` + `AgentConfig` directly or grab
-    /// `config_mut()` to adjust the middleware stack.
     pub fn new(
         model: Arc<dyn LanguageModel>,
         tools: Vec<Arc<dyn Tool>>,
         system_prompt: impl Into<String>,
     ) -> Self {
+        Self::with_session(
+            model,
+            tools,
+            system_prompt,
+            Arc::new(InMemorySession::new()),
+        )
+    }
+
+    /// Like [`new`] but accepts a caller-provided `AgentSession` impl.
+    /// This is the entry point for consumers that want persistence
+    /// (IndexedDB, localStorage, server-side sync, etc.) — they
+    /// implement `alva_kernel_abi::session::AgentSession` themselves
+    /// and pass an `Arc<dyn AgentSession>` here.
+    pub fn with_session(
+        model: Arc<dyn LanguageModel>,
+        tools: Vec<Arc<dyn Tool>>,
+        system_prompt: impl Into<String>,
+        session: Arc<dyn AgentSession>,
+    ) -> Self {
         let state = AgentState {
             model,
             tools,
-            session: Arc::new(InMemorySession::new()),
+            session,
             extensions: Extensions::new(),
         };
 
