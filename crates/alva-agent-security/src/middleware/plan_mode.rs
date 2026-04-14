@@ -127,7 +127,7 @@ impl Middleware for PlanModeMiddleware {
 mod tests {
     use super::*;
     use alva_kernel_core::shared::Extensions;
-    use alva_kernel_abi::session::InMemorySession;
+    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::tool::Tool;
     use alva_kernel_abi::{AgentError, ToolOutput};
     use std::sync::Arc;
@@ -149,7 +149,7 @@ mod tests {
         AgentState {
             model: Arc::new(StubModel),
             tools,
-            session: Arc::new(InMemorySession::new()),
+            session: Arc::new(InMemoryAgentSession::new()),
             extensions: Extensions::new(),
         }
     }

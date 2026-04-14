@@ -10,7 +10,7 @@
 //!   provider built on `gloo-net` or `web_sys::fetch`)
 //! - `Vec<Arc<dyn Tool>>` — caller-supplied; defaults to empty since the
 //!   default `alva-agent-extension-builtin` set isn't wasm-clean yet
-//! - `InMemorySession` — the only kernel session impl that's already
+//! - `InMemoryAgentSession` — the only kernel session impl that's already
 //!   wasm-friendly
 //! - **No security middleware** — wasm is sandboxed by the browser
 //! - **No CompactionMiddleware** — defer to ContextHooks once a wasm
@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::model::{LanguageModel, ModelConfig};
-use alva_kernel_abi::session::{AgentSession, InMemorySession};
+use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::AgentMessage;
 use alva_kernel_abi::{AgentError, Sleeper};
@@ -62,14 +62,14 @@ impl WasmAgent {
             model,
             tools,
             system_prompt,
-            Arc::new(InMemorySession::new()),
+            Arc::new(InMemoryAgentSession::new()),
         )
     }
 
     /// Like [`new`] but accepts a caller-provided `AgentSession` impl.
     /// This is the entry point for consumers that want persistence
     /// (IndexedDB, localStorage, server-side sync, etc.) — they
-    /// implement `alva_kernel_abi::session::AgentSession` themselves
+    /// implement `alva_kernel_abi::agent_session::AgentSession` themselves
     /// and pass an `Arc<dyn AgentSession>` here.
     pub fn with_session(
         model: Arc<dyn LanguageModel>,
@@ -181,7 +181,7 @@ impl WasmAgent {
         &mut self.config
     }
 
-    /// Replace the internal session with a fresh `InMemorySession`,
+    /// Replace the internal session with a fresh `InMemoryAgentSession`,
     /// dropping all accumulated message history. Used when the same
     /// `WasmAgent` instance is reused across multiple unrelated
     /// conversations — the common wasm pattern where a single agent
@@ -189,14 +189,14 @@ impl WasmAgent {
     ///
     /// Middleware, model, tools, and config are preserved.
     pub fn clear_session(&mut self) {
-        self.state.session = Arc::new(InMemorySession::new());
+        self.state.session = Arc::new(InMemoryAgentSession::new());
     }
 
     /// Number of messages currently in the agent's session. Convenient
     /// sanity check for tests and demos that want to assert how much
     /// history a run accumulated without reaching into `state()`.
-    pub fn session_len(&self) -> usize {
-        self.state.session.len()
+    pub async fn session_len(&self) -> usize {
+        self.state.session.messages().await.len()
     }
 }
 
@@ -217,10 +217,11 @@ mod tests {
         let result = agent.run("hi", cancel, tx).await;
         assert!(result.is_ok(), "WasmAgent::run should succeed: {:?}", result);
         // Session should now contain at least the user input + the assistant response.
+        let session_len = agent.session_len().await;
         assert!(
-            agent.state().session.len() >= 2,
+            session_len >= 2,
             "expected session to have user + assistant messages, got {} entries",
-            agent.state().session.len()
+            session_len
         );
     }
 
@@ -250,16 +251,16 @@ mod tests {
         );
         // First run accumulates messages.
         let _ = agent.run_simple("first").await.unwrap();
-        let after_first = agent.session_len();
+        let after_first = agent.session_len().await;
         assert!(after_first >= 2, "expected user + assistant, got {}", after_first);
 
         // Reset and run again — second run should start from zero, not
         // stack on top of the first.
         agent.clear_session();
-        assert_eq!(agent.session_len(), 0, "clear_session should drop all history");
+        assert_eq!(agent.session_len().await, 0, "clear_session should drop all history");
 
         let _ = agent.run_simple("second").await.unwrap();
-        let after_second = agent.session_len();
+        let after_second = agent.session_len().await;
         assert_eq!(
             after_second, after_first,
             "second run after clear should have the same message count as first"

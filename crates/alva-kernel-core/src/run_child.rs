@@ -10,7 +10,7 @@ use std::time::Duration;
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::LanguageModel;
-use alva_kernel_abi::session::{AgentSession, InMemorySession};
+use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{AgentMessage, BusHandle, ModelConfig, NoopSleeper, Sleeper};
 
@@ -65,8 +65,8 @@ pub struct ChildAgentOutput {
 /// build state → run_agent → collect output from events → fallback to session.
 pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
     let session: Arc<dyn AgentSession> = match &params.parent_session_id {
-        Some(parent_id) => Arc::new(InMemorySession::with_parent(parent_id)),
-        None => Arc::new(InMemorySession::new()),
+        Some(parent_id) => Arc::new(InMemoryAgentSession::with_parent(parent_id)),
+        None => Arc::new(InMemoryAgentSession::new()),
     };
 
     let mut state = AgentState {
@@ -128,6 +128,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
         output = state
             .session
             .messages()
+            .await
             .iter()
             .filter_map(|m| {
                 if let AgentMessage::Standard(msg) = m {

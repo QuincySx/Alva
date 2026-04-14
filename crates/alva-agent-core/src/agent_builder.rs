@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use alva_kernel_abi::session::{AgentSession, InMemorySession};
+use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{
     AgentError, Bus, BusHandle, BusWriter, LanguageModel, ModelConfig, Tool, ToolRegistry,
 };
@@ -219,6 +219,7 @@ impl AgentBuilder {
         middleware_stack.configure_all(&MiddlewareContext {
             bus: Some(bus.clone()),
             workspace: self.workspace.clone(),
+            session: None,
         });
 
         // 10. Finalize phase: extensions can return additional tools that
@@ -242,7 +243,7 @@ impl AgentBuilder {
         // 11. Session — default to in-memory if not provided.
         let session: Arc<dyn AgentSession> = self
             .session
-            .unwrap_or_else(|| Arc::new(InMemorySession::new()));
+            .unwrap_or_else(|| Arc::new(InMemoryAgentSession::new()));
 
         // 12. AgentState
         let state = AgentState {

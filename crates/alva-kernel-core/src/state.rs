@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::context::ContextSystem;
-use alva_kernel_abi::session::AgentSession;
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::tool::Tool;
 
 use alva_kernel_abi::BusHandle;
@@ -22,7 +22,9 @@ pub struct AgentState {
     pub model: Arc<dyn LanguageModel>,
     /// Available tools the agent can invoke.
     pub tools: Vec<Arc<dyn Tool>>,
-    /// Session managing message history.
+    /// Session managing the unified event log (message history + runtime
+    /// skeleton events + component-emitted events). The single source of
+    /// truth for everything this agent does.
     pub session: Arc<dyn AgentSession>,
     /// Type-safe key-value store for cross-middleware communication.
     pub extensions: Extensions,
@@ -68,7 +70,7 @@ pub struct AgentConfig {
 mod tests {
     use super::*;
     use crate::builtins::test_helpers::helpers::{make_state, StubModel};
-    use alva_kernel_abi::session::InMemorySession;
+    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::ModelConfig;
 
     #[test]
@@ -76,7 +78,7 @@ mod tests {
         let state = make_state();
 
         assert!(state.tools.is_empty());
-        assert!(!state.session.id().is_empty());
+        assert!(!state.session.session_id().is_empty());
     }
 
     #[test]
@@ -106,7 +108,7 @@ mod tests {
         let mut state = AgentState {
             model: Arc::new(StubModel),
             tools: vec![],
-            session: Arc::new(InMemorySession::new()),
+            session: Arc::new(InMemoryAgentSession::new()),
             extensions: Extensions::new(),
         };
 

@@ -292,11 +292,12 @@ impl Middleware for CompactionMiddleware {
         // Write compacted messages back to the session so the history
         // actually shrinks. Without this, every subsequent turn would
         // re-read the full uncompacted history and repeat summarization.
-        state.session.clear();
+        let _ = state.session.clear().await;
         for msg in &compacted {
             state
                 .session
-                .append(alva_kernel_abi::AgentMessage::Standard(msg.clone()));
+                .append_message(alva_kernel_abi::AgentMessage::Standard(msg.clone()))
+                .await;
         }
 
         // Emit ContextCompacted event for observability.
@@ -497,12 +498,12 @@ mod tests {
 
     fn make_state_with_summary_model() -> AgentState {
         use alva_kernel_core::shared::Extensions;
-        use alva_kernel_abi::session::InMemorySession;
+        use alva_kernel_abi::agent_session::InMemoryAgentSession;
 
         AgentState {
             model: Arc::new(SummaryModel),
             tools: vec![],
-            session: Arc::new(InMemorySession::new()),
+            session: Arc::new(InMemoryAgentSession::new()),
             extensions: Extensions::new(),
         }
     }

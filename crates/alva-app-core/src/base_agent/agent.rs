@@ -112,13 +112,13 @@ impl BaseAgent {
     /// Get a snapshot of the current message history.
     pub async fn messages(&self) -> Vec<AgentMessage> {
         let st = self.inner.state().lock().await;
-        st.session.messages()
+        st.session.messages().await
     }
 
     /// Clear the current session's message history, starting fresh.
     pub async fn new_session(&self) {
         let st = self.inner.state().lock().await;
-        st.session.clear();
+        let _ = st.session.clear().await;
     }
 
     /// Restore message history (e.g., when resuming a session).
@@ -126,9 +126,9 @@ impl BaseAgent {
     /// Clears any existing messages first, then appends the restored history.
     pub async fn restore_messages(&self, messages: Vec<AgentMessage>) {
         let st = self.inner.state().lock().await;
-        st.session.clear();
+        let _ = st.session.clear().await;
         for msg in messages {
-            st.session.append(msg);
+            st.session.append_message(msg).await;
         }
     }
 

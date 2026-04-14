@@ -99,7 +99,7 @@ impl Middleware for LoopDetectionMiddleware {
         }
 
         let hash = Self::hash_tool_calls(response);
-        let session_id = state.session.id().to_string();
+        let session_id = state.session.session_id().to_string();
 
         let count = {
             let mut history_map = self.history.lock().unwrap_or_else(|e| e.into_inner());
@@ -145,7 +145,7 @@ impl Middleware for LoopDetectionMiddleware {
         state: &mut AgentState,
         _error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
-        let session_id = state.session.id().to_string();
+        let session_id = state.session.session_id().to_string();
         let mut history = self.history.lock().unwrap_or_else(|e| e.into_inner());
         history.remove(&session_id);
         Ok(())

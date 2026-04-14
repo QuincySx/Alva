@@ -173,7 +173,7 @@ impl Middleware for SprintContractMiddleware {
 mod tests {
     use super::*;
     use alva_kernel_core::shared::Extensions;
-    use alva_kernel_abi::session::InMemorySession;
+    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use std::sync::Arc;
 
     fn make_state() -> AgentState {
@@ -211,7 +211,7 @@ mod tests {
         AgentState {
             model: Arc::new(StubModel),
             tools: vec![],
-            session: Arc::new(InMemorySession::new()),
+            session: Arc::new(InMemoryAgentSession::new()),
             extensions: Extensions::new(),
         }
     }

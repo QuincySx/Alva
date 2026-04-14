@@ -117,8 +117,8 @@ impl GpuiChat {
 
         // Build AgentState
         let model: Arc<dyn LanguageModel> = Arc::new(PlaceholderModel);
-        let session: Arc<dyn alva_app_core::alva_kernel_abi::session::AgentSession> =
-            Arc::new(alva_app_core::alva_kernel_abi::session::InMemorySession::new());
+        let session: Arc<dyn alva_app_core::alva_kernel_abi::agent_session::AgentSession> =
+            Arc::new(alva_app_core::alva_kernel_abi::agent_session::InMemoryAgentSession::new());
         let state = alva_app_core::AgentState {
             model,
             tools: vec![],

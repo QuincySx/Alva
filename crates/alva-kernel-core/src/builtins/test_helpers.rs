@@ -10,7 +10,7 @@ pub(crate) mod helpers {
     use alva_kernel_abi::base::message::Message;
     use alva_kernel_abi::base::stream::StreamEvent;
     use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
-    use alva_kernel_abi::session::InMemorySession;
+    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::tool::Tool;
     use alva_kernel_abi::ModelConfig;
     use async_trait::async_trait;
@@ -52,7 +52,7 @@ pub(crate) mod helpers {
         AgentState {
             model: Arc::new(StubModel),
             tools: vec![],
-            session: Arc::new(InMemorySession::new()),
+            session: Arc::new(InMemoryAgentSession::new()),
             extensions: Extensions::new(),
         }
     }

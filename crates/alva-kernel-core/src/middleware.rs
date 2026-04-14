@@ -149,6 +149,10 @@ pub trait Middleware: Send + Sync {
 pub struct MiddlewareContext {
     pub bus: Option<alva_kernel_abi::BusHandle>,
     pub workspace: Option<std::path::PathBuf>,
+    /// Scoped session for this middleware. None only in test setups that
+    /// do not wire a session (e.g. unit tests of middleware hooks in isolation).
+    /// Middleware that emits events should call `ctx.session.as_ref()?.append(...)`.
+    pub session: Option<alva_kernel_abi::agent_session::ScopedSession>,
 }
 
 // ---------------------------------------------------------------------------

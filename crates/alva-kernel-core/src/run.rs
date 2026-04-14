@@ -373,7 +373,7 @@ pub async fn run_agent(
         .map_err(MiddlewareError::into_agent_error)?;
 
     // 1b. ContextHooks: bootstrap (no-op when context_system is None)
-    let agent_id = state.session.id().to_string();
+    let agent_id = state.session.session_id().to_string();
     fire_context_bootstrap(config, &agent_id).await;
 
     // Emit AgentStart
@@ -385,7 +385,7 @@ pub async fn run_agent(
     //    seed initial context. If a future use case needs input-message-driven
     //    injections, plumb them into run_loop via a parameter.
     for msg in input {
-        state.session.append(msg.clone());
+        state.session.append_message(msg.clone()).await;
         let _ = fire_context_on_message(config, &agent_id, &msg).await;
     }
 
@@ -434,7 +434,7 @@ async fn run_loop(
     // Stable identifier handed to ContextHooks. Same string for the entire run
     // so plugins can correlate hook calls. Cloned because we'll borrow `state`
     // mutably later for middleware.
-    let agent_id = state.session.id().to_string();
+    let agent_id = state.session.session_id().to_string();
     // Buffer for Injections returned by ContextHooks::on_message. Drained and
     // applied at the start of each LLM-call cycle (3a*) before assemble runs.
     let mut pending_injections: Vec<alva_kernel_abi::scope::context::Injection> = Vec::new();
@@ -461,9 +461,9 @@ async fn run_loop(
 
             // 3a. Get messages from session (optionally windowed)
             let session_messages = if config.context_window > 0 {
-                state.session.recent(config.context_window)
+                state.session.recent_messages(config.context_window).await
             } else {
-                state.session.messages()
+                state.session.messages().await
             };
 
             // 3a*. ContextHooks: apply pending injections + run assemble hook.
@@ -593,7 +593,7 @@ async fn run_loop(
 
             // 3g. Store response in session + fire ContextHooks::on_message
             let response_msg = AgentMessage::Standard(response.clone());
-            state.session.append(response_msg.clone());
+            state.session.append_message(response_msg.clone()).await;
             pending_injections.extend(
                 fire_context_on_message(config, &agent_id, &response_msg).await,
             );
@@ -685,7 +685,7 @@ async fn run_loop(
                                     tool: t.clone(),
                                     cancel: cancel.clone(),
                                     event_tx: event_tx.clone(),
-                                    session_id: state.session.id().to_string(),
+                                    session_id: state.session.session_id().to_string(),
                                     workspace: config.workspace.clone(),
                                     bus: config.bus.clone(),
                                 };
@@ -723,7 +723,7 @@ async fn run_loop(
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
                 let tool_msg = AgentMessage::Standard(tool_message);
-                state.session.append(tool_msg.clone());
+                state.session.append_message(tool_msg.clone()).await;
                 pending_injections.extend(
                     fire_context_on_message(config, &agent_id, &tool_msg).await,
                 );
@@ -764,7 +764,7 @@ async fn run_loop(
                             AgentMessage::Steering(m) => AgentMessage::Standard(m),
                             other => other,
                         };
-                        state.session.append(msg.clone());
+                        state.session.append_message(msg.clone()).await;
                         pending_injections.extend(
                             fire_context_on_message(config, &agent_id, &msg).await,
                         );
@@ -791,7 +791,7 @@ async fn run_loop(
                 AgentMessage::FollowUp(m) => AgentMessage::Standard(m),
                 other => other,
             };
-            state.session.append(msg.clone());
+            state.session.append_message(msg.clone()).await;
             pending_injections.extend(
                 fire_context_on_message(config, &agent_id, &msg).await,
             );
@@ -810,6 +810,7 @@ async fn run_loop(
 mod tests {
     use super::*;
     use alva_kernel_abi::*;
+    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use std::sync::Arc;
 
     struct EchoModel;
@@ -862,7 +863,7 @@ mod tests {
         AgentState {
             model: Arc::new(EchoModel),
             tools: vec![],
-            session: Arc::new(InMemorySession::new()),
+            session: Arc::new(InMemoryAgentSession::new()),
             extensions: crate::shared::Extensions::new(),
         }
     }
@@ -895,7 +896,7 @@ mod tests {
         .unwrap();
 
         // Session should have user + assistant
-        assert_eq!(state.session.messages().len(), 2);
+        assert_eq!(state.session.messages().await.len(), 2);
 
         // Events
         let mut events = vec![];
@@ -962,6 +963,6 @@ mod tests {
             .await
             .unwrap();
         // Session has 1 message (assistant response to empty context)
-        assert_eq!(state.session.messages().len(), 1);
+        assert_eq!(state.session.messages().await.len(), 1);
     }
 }

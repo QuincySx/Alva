@@ -14,7 +14,7 @@ use alva_kernel_abi::{
     model::HeuristicTokenCounter, Bus, BusHandle, BusPlugin, BusWriter, LanguageModel, ModelConfig,
     PluginRegistrar, Tool, ToolRegistry, TokenCounter,
 };
-use alva_kernel_abi::session::{AgentSession, InMemorySession};
+use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use tokio::sync::Mutex;
 
 use crate::middleware::{
@@ -270,7 +270,7 @@ impl AgentRuntimeBuilder {
         // Extract tools as Arc references — registry and state share the same instances.
         let tools: Vec<Arc<dyn Tool>> = registry.list_arc();
 
-        let session: Arc<dyn AgentSession> = Arc::new(InMemorySession::new());
+        let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
 
         let state = AgentState {
             model,

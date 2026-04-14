@@ -15,7 +15,7 @@ use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::{Message, MessageRole};
 use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
-use alva_kernel_abi::session::InMemorySession;
+use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
     AgentMessage, Bus, CancellationToken, ModelConfig, ToolExecutionContext, ToolOutput,
@@ -87,7 +87,7 @@ fn make_state_with_model(model: Arc<dyn LanguageModel>) -> AgentState {
     AgentState {
         model,
         tools: vec![],
-        session: Arc::new(InMemorySession::new()),
+        session: Arc::new(InMemoryAgentSession::new()),
         extensions: alva_kernel_core::shared::Extensions::new(),
     }
 }
@@ -124,7 +124,7 @@ async fn simple_echo_run() {
     .unwrap();
 
     // Session should have user + assistant
-    let messages = state.session.messages();
+    let messages = state.session.messages().await;
     assert_eq!(messages.len(), 2);
 
     // First is user
@@ -191,7 +191,7 @@ async fn run_with_middleware() {
     .await;
     assert!(result.is_ok());
 
-    let messages = state.session.messages();
+    let messages = state.session.messages().await;
     assert_eq!(messages.len(), 2);
 }
 
@@ -272,7 +272,7 @@ async fn session_persists_across_check() {
     .unwrap();
 
     // After first run: user + assistant = 2 messages
-    assert_eq!(state.session.messages().len(), 2);
+    assert_eq!(state.session.messages().await.len(), 2);
 
     // Second run (same state/session)
     let cancel2 = CancellationToken::new();
@@ -288,7 +288,7 @@ async fn session_persists_across_check() {
     .unwrap();
 
     // After second run: 2 (first run) + user + assistant = 4 messages
-    let messages = state.session.messages();
+    let messages = state.session.messages().await;
     assert_eq!(messages.len(), 4);
 
     // Verify message roles in order
@@ -370,7 +370,7 @@ async fn follow_up_continues_after_natural_stop() {
     //   [1] assistant echo of "hello"
     //   [2] user "follow-up question"  (injected)
     //   [3] assistant echo of "follow-up question"
-    let messages = state.session.messages();
+    let messages = state.session.messages().await;
     assert_eq!(
         messages.len(),
         4,
@@ -451,7 +451,7 @@ async fn no_follow_up_means_single_pass() {
     .unwrap();
 
     // Session should have exactly 2 messages: user + assistant
-    assert_eq!(state.session.messages().len(), 2);
+    assert_eq!(state.session.messages().await.len(), 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +612,7 @@ async fn claude_style_tool_call_deltas_merge_into_one_tool_use() {
     let assistant_with_tool_use = state
         .session
         .messages()
+        .await
         .into_iter()
         .find_map(|message| match message {
             AgentMessage::Standard(message)
@@ -720,7 +721,7 @@ async fn malformed_tool_arguments_fail_fast() {
     }
 
     assert_eq!(
-        state.session.messages().len(),
+        state.session.messages().await.len(),
         1,
         "malformed assistant response should not be appended to session"
     );
@@ -836,7 +837,7 @@ async fn stream_error_emits_message_error_event() {
         }
     }
 
-    assert_eq!(state.session.messages().len(), 1);
+    assert_eq!(state.session.messages().await.len(), 1);
     assert_eq!(
         error_id, start_id,
         "MessageError should close the same message"
@@ -941,7 +942,7 @@ async fn after_llm_call_failure_emits_message_error_event() {
         "failed message should not emit MessageEnd"
     );
     assert_eq!(
-        state.session.messages().len(),
+        state.session.messages().await.len(),
         1,
         "response should not be persisted when after_llm_call fails"
     );
@@ -1169,7 +1170,7 @@ async fn context_hooks_fire_at_lifecycle_points() {
     let mut state = AgentState {
         model: Arc::new(EchoModel),
         tools: vec![],
-        session: Arc::new(InMemorySession::new()),
+        session: Arc::new(InMemoryAgentSession::new()),
         extensions: alva_kernel_core::shared::Extensions::new(),
     };
     let config = AgentConfig {
@@ -1298,7 +1299,7 @@ async fn assemble_can_inject_extra_message() {
     let mut state = AgentState {
         model,
         tools: vec![],
-        session: Arc::new(InMemorySession::new()),
+        session: Arc::new(InMemoryAgentSession::new()),
         extensions: alva_kernel_core::shared::Extensions::new(),
     };
     let config = AgentConfig {
@@ -1423,14 +1424,14 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
     let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
     let cs = Arc::new(ContextSystem::new(hooks, handle));
 
-    let session = Arc::new(InMemorySession::new());
+    let session = Arc::new(InMemoryAgentSession::new());
     {
-        let s: &dyn alva_kernel_abi::session::AgentSession = session.as_ref();
+        let s: &dyn alva_kernel_abi::agent_session::AgentSession = session.as_ref();
         for i in 0..30 {
-            s.append(AgentMessage::Standard(Message::user(&format!(
+            s.append_message(AgentMessage::Standard(Message::user(&format!(
                 "msg-{}-with-some-padding-text-to-pump-up-the-token-estimate",
                 i
-            ))));
+            )))).await;
         }
     }
 
@@ -1482,7 +1483,7 @@ async fn context_hooks_disabled_by_default() {
     let mut state = AgentState {
         model: Arc::new(EchoModel),
         tools: vec![],
-        session: Arc::new(InMemorySession::new()),
+        session: Arc::new(InMemoryAgentSession::new()),
         extensions: alva_kernel_core::shared::Extensions::new(),
     };
     let config = AgentConfig {
