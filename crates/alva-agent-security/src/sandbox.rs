@@ -26,7 +26,12 @@ pub struct SandboxConfig {
     mode: SandboxMode,
     /// Directories that the sandboxed process is allowed to write to.
     writable_dirs: Vec<std::path::PathBuf>,
-    /// Whether network access is allowed.
+    /// Whether network access is allowed. Only consulted by the macOS
+    /// Seatbelt profile builder (gated to native), so on wasm32 this
+    /// field is constructed but never read — cfg-allow the dead_code
+    /// warning instead of cfg-gating the field, since it keeps the
+    /// struct shape identical across targets.
+    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     allow_network: bool,
 }
 
