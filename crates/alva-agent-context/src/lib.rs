@@ -35,6 +35,10 @@ pub mod rules_plugin;
 pub mod default_plugin;
 pub mod compact;
 pub mod auto_compact;
+// system_context scans git + CLAUDE.md from the real filesystem, which
+// has no meaning on wasm32 (and pulls tokio process/fs features that
+// don't compile for wasm). Gated out on wasm targets.
+#[cfg(not(target_family = "wasm"))]
 pub mod system_context;
 pub mod middleware;
 pub mod scope;

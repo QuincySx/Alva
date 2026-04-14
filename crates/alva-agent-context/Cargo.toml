@@ -12,10 +12,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
-chrono = "0.4"
-tokio = { version = "1", features = ["sync", "time", "process", "fs"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
+# wasm-safe tokio features only — `process` and `fs` are gated to non-wasm
+# below because they pull mio (which doesn't compile for wasm32).
+tokio = { version = "1", default-features = false, features = ["sync", "time"] }
 futures = "0.3"
 tracing = "0.1"
+
+# `system_context` (git/CLAUDE.md scanning) only makes sense on a real
+# filesystem — gate the tokio features it needs to non-wasm targets,
+# and gate the module itself in src/lib.rs.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { version = "1", features = ["process", "fs"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }
