@@ -49,6 +49,7 @@ pub struct BaseAgentBuilder {
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
     pub(crate) enable_memory: bool,
     pub(crate) memory_service_override: Option<MemoryService>,
+    pub(crate) security_middleware_override: Option<Arc<dyn Middleware>>,
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
     pub(crate) approval_notifier: Option<ApprovalNotifier>,
@@ -67,6 +68,7 @@ impl BaseAgentBuilder {
             extra_middleware: Vec::new(),
             enable_memory: false,
             memory_service_override: None,
+            security_middleware_override: None,
             max_iterations: 100,
             context_window: 0,
             approval_notifier: None,
@@ -142,6 +144,16 @@ impl BaseAgentBuilder {
     pub fn memory_service(mut self, service: MemoryService) -> Self {
         self.memory_service_override = Some(service);
         self.enable_memory = true;
+        self
+    }
+
+    /// Inject a custom middleware in place of the default
+    /// `SecurityMiddleware::for_workspace(workspace, sandbox_mode)`. Use this
+    /// when you want fine-grained control over sandboxing or are running in
+    /// an environment where the built-in sandbox doesn't apply (tests,
+    /// in-process harness, etc).
+    pub fn security_middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
+        self.security_middleware_override = Some(mw);
         self
     }
 
@@ -221,11 +233,18 @@ impl BaseAgentBuilder {
         // 6. Build MiddlewareStack from activated middleware + security + bridge
         let mut middleware_stack = MiddlewareStack::new();
 
-        // Security is always active (bound to workspace + sandbox_mode)
-        let security_mw = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
-            .with_bus(bus_handle.clone());
-        let security_guard = Some(security_mw.guard());
-        middleware_stack.push_sorted(Arc::new(security_mw));
+        // Security is always active (bound to workspace + sandbox_mode), but can be overridden
+        let mut security_guard = None;
+        let security_mw: Arc<dyn Middleware> = match self.security_middleware_override {
+            Some(mw) => mw,
+            None => {
+                let default = SecurityMiddleware::for_workspace(&workspace, self.sandbox_mode.clone())
+                    .with_bus(bus_handle.clone());
+                security_guard = Some(default.guard());
+                Arc::new(default)
+            }
+        };
+        middleware_stack.push_sorted(security_mw);
 
         // Middleware from extensions (registered during activate)
         {
