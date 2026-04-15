@@ -24,16 +24,18 @@ mod history;
 mod output;
 mod repl;
 pub mod services;
-mod session_store;
+mod session;
 mod setup;
 pub mod ui;
 
 use std::io::{self, Read as _};
 
 use alva_app_core::AlvaPaths;
+use alva_kernel_abi::agent_session::EventQuery;
+use alva_kernel_abi::AgentSession;
 use alva_llm_provider::ProviderConfig;
 
-use session_store::SessionStore;
+use session::JsonFileSessionManager;
 
 fn main() {
     tracing_subscriber::fmt()
@@ -73,7 +75,7 @@ async fn run() {
         }
     };
 
-    let store = SessionStore::for_workspace(&workspace);
+    let session_manager = JsonFileSessionManager::for_workspace(&workspace);
 
     // 2. Build agent (provider, skills, approval channel, checkpoint callback)
     let agent_setup::AgentBundle {
@@ -118,10 +120,12 @@ async fn run() {
 
     // 5. Check for single-shot mode (positional arg without -p)
     if let Some(prompt) = std::env::args().nth(1) {
-        let session_id = store.create(&prompt);
+        let initial_session = session_manager.create(&prompt).await;
+        agent.swap_session(initial_session.clone()).await;
         event_handler::run_prompt(&agent, &prompt, &mut approval_rx).await;
-        let messages = agent.messages().await;
-        store.save_messages(&session_id, &messages);
+        // Persistence is automatic — just refresh the index summary.
+        let event_count = initial_session.count(&EventQuery::default()).await;
+        session_manager.refresh_summary(initial_session.session_id(), event_count, Some(&prompt));
         return;
     }
 
@@ -131,7 +135,7 @@ async fn run() {
         &config,
         &workspace,
         &paths,
-        &store,
+        &session_manager,
         &_checkpoint_mgr,
         &mut approval_rx,
     )

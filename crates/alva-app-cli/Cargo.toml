@@ -15,6 +15,8 @@ alva-host-native = { path = "../alva-host-native" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+base64 = "0.22"
 crossterm = "0.28"
 ratatui = "0.29"
 chrono = { version = "0.4", features = ["serde"] }

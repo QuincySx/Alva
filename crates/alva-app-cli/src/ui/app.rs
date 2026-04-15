@@ -43,11 +43,13 @@ use ratatui::Terminal;
 
 use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, PermissionDecision};
 use alva_host_native::middleware::ApprovalRequest;
+use alva_kernel_abi::agent_session::EventQuery;
+use alva_kernel_abi::AgentSession;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
-use crate::session_store::SessionStore;
+use crate::session::{JsonFileAgentSession, JsonFileSessionManager};
 
 use super::event::{poll_event, TerminalEvent};
 use super::message_list::{DisplayMessage, MessageListWidget, MessageRole, ToolStatus, ToolUseDisplay};
@@ -794,24 +796,30 @@ pub async fn run_tui(
     config: &ProviderConfig,
     workspace: &Path,
     paths: &AlvaPaths,
-    store: &SessionStore,
+    session_manager: &JsonFileSessionManager,
     checkpoint_mgr: &checkpoint::CheckpointManager,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // -- Session setup (same logic as run_repl) --
-    let mut session_id = match store.latest() {
-        Some(id) => {
-            let sessions = store.list();
-            let _meta = sessions.iter().find(|m| m.id == id);
-
-            agent.new_session().await;
-            let saved = store.load_messages(&id);
-            if !saved.is_empty() {
-                crate::repl::restore_messages(agent, saved).await;
+    let (mut session_id, mut active_session) = match session_manager.latest() {
+        Some(id) => match session_manager.load(&id).await {
+            Some(sess) => {
+                agent.swap_session(sess.clone()).await;
+                (id, sess)
             }
-            id
+            None => {
+                let sess = session_manager.create("").await;
+                let id = sess.session_id().to_string();
+                agent.swap_session(sess.clone()).await;
+                (id, sess)
+            }
+        },
+        None => {
+            let sess = session_manager.create("").await;
+            let id = sess.session_id().to_string();
+            agent.swap_session(sess.clone()).await;
+            (id, sess)
         }
-        None => store.create(""),
     };
 
     // -- Initialize terminal --
@@ -866,9 +874,10 @@ pub async fn run_tui(
                                     config,
                                     workspace,
                                     paths,
-                                    store,
+                                    session_manager,
                                     checkpoint_mgr,
                                     &mut session_id,
+                                    &mut active_session,
                                 )
                                 .await;
                             } else if text.starts_with('!') {
@@ -929,10 +938,10 @@ pub async fn run_tui(
                     }
                     Err(mpsc::error::TryRecvError::Empty) => break,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
-                        // Agent finished; stop spinner, save session.
+                        // Agent finished; stop spinner, refresh index summary.
                         app.spinner_active = false;
-                        let messages = agent.messages().await;
-                        store.save_messages(&session_id, &messages);
+                        let event_count = active_session.count(&EventQuery::default()).await;
+                        session_manager.refresh_summary(&session_id, event_count, None);
                         agent_event_rx = None;
                         break;
                     }
@@ -959,9 +968,8 @@ pub async fn run_tui(
         app.draw(&mut terminal)?;
     }
 
-    // -- Final save --
-    let messages = agent.messages().await;
-    store.save_messages(&session_id, &messages);
+    // -- Final flush --
+    let _ = active_session.flush().await;
 
     // -- Restore terminal --
     restore_terminal(&mut terminal)?;
@@ -1034,9 +1042,10 @@ async fn handle_slash_command(
     config: &ProviderConfig,
     workspace: &Path,
     _paths: &AlvaPaths,
-    store: &SessionStore,
+    session_manager: &JsonFileSessionManager,
     _checkpoint_mgr: &checkpoint::CheckpointManager,
     session_id: &mut String,
+    active_session: &mut std::sync::Arc<JsonFileAgentSession>,
 ) {
     match cmd {
         "/quit" | "/exit" => {
@@ -1093,10 +1102,11 @@ async fn handle_slash_command(
             }
         }
         "/new" => {
-            let messages = agent.messages().await;
-            store.save_messages(session_id, &messages);
-            agent.new_session().await;
-            *session_id = store.create("");
+            let _ = active_session.flush().await;
+            let new_session = session_manager.create("").await;
+            *session_id = new_session.session_id().to_string();
+            agent.swap_session(new_session.clone()).await;
+            *active_session = new_session;
             app.session_id = session_id.clone();
             app.messages.clear();
             app.scroll_offset = 0;
@@ -1106,11 +1116,17 @@ async fn handle_slash_command(
             app.push_system_message(&format!("New session: {}", session_id));
         }
         "/fork" => {
-            let messages = agent.messages().await;
-            store.save_messages(session_id, &messages);
+            let _ = active_session.flush().await;
             let old_id = session_id.clone();
-            *session_id = store.create("");
-            store.save_messages(session_id, &messages);
+            let messages = agent.messages().await;
+            let new_session = session_manager.create("").await;
+            *session_id = new_session.session_id().to_string();
+            // Copy messages into new session
+            for msg in &messages {
+                new_session.append_message(msg.clone(), None).await;
+            }
+            agent.swap_session(new_session.clone()).await;
+            *active_session = new_session;
             app.session_id = session_id.clone();
             app.push_system_message(&format!(
                 "Forked from {} -> {}\n{} messages carried over.",
@@ -1120,7 +1136,7 @@ async fn handle_slash_command(
             ));
         }
         "/sessions" => {
-            let sessions = store.list();
+            let sessions = session_manager.list();
             if sessions.is_empty() {
                 app.push_system_message("No sessions.");
             } else {
@@ -1129,10 +1145,10 @@ async fn handle_slash_command(
                     let date = chrono::DateTime::from_timestamp_millis(s.updated_at)
                         .map(|d| d.format("%m-%d %H:%M").to_string())
                         .unwrap_or_default();
-                    let marker = if s.id == *session_id { " <-" } else { "" };
+                    let marker = if s.session_id == *session_id { " <-" } else { "" };
                     info.push_str(&format!(
-                        "  {} | {} msgs | {}{}\n",
-                        date, s.message_count, s.summary, marker,
+                        "  {} | {} events | {}{}\n",
+                        date, s.event_count, s.preview, marker,
                     ));
                 }
                 app.push_system_message(&info);

@@ -1,12 +1,14 @@
-// INPUT:  alva_app_core, alva_llm_provider, alva_host_native, checkpoint, session_store, output, event_handler, commands
-// OUTPUT: run_repl, restore_messages
+// INPUT:  alva_app_core, alva_llm_provider, alva_host_native, checkpoint, session, output, event_handler, commands
+// OUTPUT: run_repl
 // POS:    Interactive REPL loop — session management, slash commands, and user input dispatch
 
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use alva_app_core::{AgentMessage, AlvaPaths, BaseAgent, PermissionMode};
+use alva_app_core::{AlvaPaths, BaseAgent, PermissionMode};
 use alva_host_native::middleware::ApprovalRequest;
+use alva_kernel_abi::agent_session::EventQuery;
+use alva_kernel_abi::AgentSession;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
@@ -14,14 +16,7 @@ use crate::checkpoint;
 use crate::commands::{CommandContext, CommandRegistry, CommandResult, TokenUsage};
 use crate::event_handler;
 use crate::output;
-use crate::session_store::SessionStore;
-
-/// Restore saved messages into the agent's state.
-pub(crate) async fn restore_messages(agent: &BaseAgent, messages: Vec<AgentMessage>) {
-    if !messages.is_empty() {
-        agent.restore_messages(messages).await;
-    }
-}
+use crate::session::{JsonFileAgentSession, JsonFileSessionManager, SessionSummary};
 
 // Session-level token accumulation uses TokenUsage directly.
 
@@ -55,7 +50,7 @@ pub(crate) async fn run_repl(
     config: &ProviderConfig,
     workspace: &std::path::Path,
     paths: &AlvaPaths,
-    store: &SessionStore,
+    session_manager: &JsonFileSessionManager,
     checkpoint_mgr: &checkpoint::CheckpointManager,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
 ) {
@@ -64,24 +59,32 @@ pub(crate) async fn run_repl(
     let home_dir = dirs::home_dir().unwrap_or_default();
 
     // Auto-resume latest or start new
-    let mut session_id = match store.latest() {
-        Some(id) => {
-            let sessions = store.list();
-            let meta = sessions.iter().find(|m| m.id == id).unwrap();
-            output::print_session_resumed(&id, meta.message_count, &meta.summary);
-
-            // Restore messages — clear first to avoid stale data
-            agent.new_session().await;
-            let saved = store.load_messages(&id);
-            if !saved.is_empty() {
-                restore_messages(agent, saved).await;
+    let (mut session_id, mut active_session) = match session_manager.latest() {
+        Some(id) => match session_manager.load(&id).await {
+            Some(sess) => {
+                let sessions = session_manager.list();
+                let meta = sessions.iter().find(|m| m.session_id == id);
+                let (msg_count, summary) = meta
+                    .map(|m| (m.event_count, m.preview.as_str()))
+                    .unwrap_or((0, ""));
+                output::print_session_resumed(&id, msg_count, summary);
+                agent.swap_session(sess.clone()).await;
+                (id, sess)
             }
-            id
-        }
+            None => {
+                let sess = session_manager.create("").await;
+                let id = sess.session_id().to_string();
+                agent.swap_session(sess.clone()).await;
+                output::print_session_new(&id);
+                (id, sess)
+            }
+        },
         None => {
-            let id = store.create("");
+            let sess = session_manager.create("").await;
+            let id = sess.session_id().to_string();
+            agent.swap_session(sess.clone()).await;
             output::print_session_new(&id);
-            id
+            (id, sess)
         }
     };
 
@@ -148,21 +151,29 @@ pub(crate) async fn run_repl(
                         continue;
                     }
                     "/new" => {
-                        let messages = agent.messages().await;
-                        store.save_messages(&session_id, &messages);
-                        agent.new_session().await;
-                        session_id = store.create("");
+                        let _ = active_session.flush().await;
+                        let new_session = session_manager.create("").await;
+                        session_id = new_session.session_id().to_string();
+                        agent.swap_session(new_session.clone()).await;
+                        active_session = new_session;
                         tokens = TokenUsage::default();
                         output::print_session_new(&session_id);
                         output::print_divider();
                         continue;
                     }
                     "/fork" => {
-                        let messages = agent.messages().await;
-                        store.save_messages(&session_id, &messages);
+                        let _ = active_session.flush().await;
                         let old_id = session_id.clone();
-                        session_id = store.create("");
-                        store.save_messages(&session_id, &messages);
+                        // Load current messages before swapping
+                        let messages = agent.messages().await;
+                        let new_session = session_manager.create("").await;
+                        session_id = new_session.session_id().to_string();
+                        // Copy messages into new session
+                        for msg in &messages {
+                            new_session.append_message(msg.clone(), None).await;
+                        }
+                        agent.swap_session(new_session.clone()).await;
+                        active_session = new_session;
                         eprintln!(
                             "  Forked from {} → {}",
                             &old_id[..8.min(old_id.len())],
@@ -176,14 +187,17 @@ pub(crate) async fn run_repl(
                         continue;
                     }
                     "/resume" => {
-                        if let Some(new_id) = handle_resume(agent, store, &session_id).await {
+                        if let Some((new_id, new_session)) =
+                            handle_resume(agent, session_manager, &active_session, &session_id).await
+                        {
                             session_id = new_id;
+                            active_session = new_session;
                         }
                         output::print_divider();
                         continue;
                     }
                     "/sessions" => {
-                        handle_sessions(store, &session_id);
+                        handle_sessions(session_manager, &session_id);
                         continue;
                     }
                     _ => {} // Fall through to registry or model/shell handling
@@ -246,8 +260,9 @@ pub(crate) async fn run_repl(
                                 tokens.input_tokens += in_tok;
                                 tokens.output_tokens += out_tok;
 
-                                let messages = agent.messages().await;
-                                store.save_messages(&session_id, &messages);
+                                // Persistence is automatic; refresh index summary.
+                                let event_count = active_session.count(&EventQuery::default()).await;
+                                session_manager.refresh_summary(&session_id, event_count, None);
                             }
                             CommandResult::Compact { summary } => {
                                 eprintln!("  {}", summary);
@@ -261,8 +276,9 @@ pub(crate) async fn run_repl(
                                 tokens.input_tokens += in_tok;
                                 tokens.output_tokens += out_tok;
 
-                                let messages = agent.messages().await;
-                                store.save_messages(&session_id, &messages);
+                                // Persistence is automatic; refresh index summary.
+                                let event_count = active_session.count(&EventQuery::default()).await;
+                                session_manager.refresh_summary(&session_id, event_count, None);
                             }
                             CommandResult::Error(e) => {
                                 output::print_error(&e);
@@ -279,8 +295,9 @@ pub(crate) async fn run_repl(
                 tokens.input_tokens += in_tok;
                 tokens.output_tokens += out_tok;
 
-                let messages = agent.messages().await;
-                store.save_messages(&session_id, &messages);
+                // Persistence is automatic; refresh index summary.
+                let event_count = active_session.count(&EventQuery::default()).await;
+                session_manager.refresh_summary(&session_id, event_count, None);
             }
             Err(e) => {
                 output::print_error(&format!("stdin error: {}", e));
@@ -289,9 +306,8 @@ pub(crate) async fn run_repl(
         }
     }
 
-    // Final save
-    let messages = agent.messages().await;
-    store.save_messages(&session_id, &messages);
+    // Final flush
+    let _ = active_session.flush().await;
     eprintln!("Session saved: {}", session_id);
 }
 
@@ -352,13 +368,14 @@ fn handle_rewind(checkpoint_mgr: &checkpoint::CheckpointManager) {
 
 async fn handle_resume(
     agent: &BaseAgent,
-    store: &SessionStore,
+    session_manager: &JsonFileSessionManager,
+    active_session: &Arc<JsonFileAgentSession>,
     current_session_id: &str,
-) -> Option<String> {
-    let messages = agent.messages().await;
-    store.save_messages(current_session_id, &messages);
+) -> Option<(String, Arc<JsonFileAgentSession>)> {
+    // Flush current session before switching.
+    let _ = active_session.flush().await;
 
-    let sessions = store.list();
+    let sessions = session_manager.list();
     if sessions.is_empty() {
         output::print_error("No sessions found.");
         return None;
@@ -369,17 +386,17 @@ async fn handle_resume(
         let date = chrono::DateTime::from_timestamp_millis(s.updated_at)
             .map(|d| d.format("%m-%d %H:%M").to_string())
             .unwrap_or_default();
-        let marker = if s.id == current_session_id {
+        let marker = if s.session_id == current_session_id {
             " ◀"
         } else {
             ""
         };
         eprintln!(
-            "  [{}] {} | {} msgs | {}{}",
+            "  [{}] {} | {} events | {}{}",
             i + 1,
             date,
-            s.message_count,
-            s.summary,
+            s.event_count,
+            s.preview,
             marker,
         );
     }
@@ -390,22 +407,28 @@ async fn handle_resume(
     if io::stdin().lock().read_line(&mut choice).is_ok() {
         let idx: usize = choice.trim().parse().unwrap_or(1);
         if idx >= 1 && idx <= sessions.len().min(10) {
-            let picked = &sessions[idx - 1];
-            let new_id = picked.id.clone();
+            let picked: &SessionSummary = &sessions[idx - 1];
+            let new_id = picked.session_id.clone();
 
-            agent.new_session().await;
-            let saved = store.load_messages(&new_id);
-            restore_messages(agent, saved).await;
+            let new_session = match session_manager.load(&new_id).await {
+                Some(s) => s,
+                None => {
+                    output::print_error(&format!("session {} not found on disk", new_id));
+                    return None;
+                }
+            };
+            agent.swap_session(new_session.clone()).await;
 
-            output::print_session_resumed(&new_id, agent.messages().await.len(), &picked.summary);
-            return Some(new_id);
+            let msg_count = agent.messages().await.len();
+            output::print_session_resumed(&new_id, msg_count, &picked.preview);
+            return Some((new_id, new_session));
         }
     }
     None
 }
 
-fn handle_sessions(store: &SessionStore, current_session_id: &str) {
-    let sessions = store.list();
+fn handle_sessions(session_manager: &JsonFileSessionManager, current_session_id: &str) {
+    let sessions = session_manager.list();
     if sessions.is_empty() {
         eprintln!("No sessions.");
     } else {
@@ -413,14 +436,14 @@ fn handle_sessions(store: &SessionStore, current_session_id: &str) {
             let date = chrono::DateTime::from_timestamp_millis(s.updated_at)
                 .map(|d| d.format("%m-%d %H:%M").to_string())
                 .unwrap_or_default();
-            let marker = if s.id == current_session_id {
+            let marker = if s.session_id == current_session_id {
                 " ◀"
             } else {
                 ""
             };
             eprintln!(
-                "  {} | {} msgs | {}{}",
-                date, s.message_count, s.summary, marker,
+                "  {} | {} events | {}{}",
+                date, s.event_count, s.preview, marker,
             );
         }
     }
