@@ -634,6 +634,9 @@ async fn run_loop(
             // message_count reflects the pre-middleware message list; the
             // middleware may shrink or grow llm_messages, but the skeleton event
             // records the count at the point the LLM turn was initiated.
+            //
+            // llm_call_start carries the full messages list so projection-based consumers
+            // (eval, debug) can show exactly what was sent to the model for this turn.
             let llm_start_uuid = emit_runtime_event(
                 &state.session,
                 "llm_call_start",
@@ -641,6 +644,7 @@ async fn run_loop(
                 Some(serde_json::json!({
                     "iteration": total_iterations,
                     "message_count": llm_messages.len(),
+                    "messages": llm_messages,
                 })),
             ).await;
 
@@ -781,7 +785,6 @@ async fn run_loop(
                         "tool_call_id": tool_call.id.clone(),
                     })),
                 ).await;
-                let tool_start_time = std::time::Instant::now();
 
                 // Emit ToolExecutionStart
                 let _ = event_tx.send(AgentEvent::ToolExecutionStart {
@@ -843,19 +846,11 @@ async fn run_loop(
                     .await
                     .map_err(MiddlewareError::into_agent_error)?;
 
-                // Session skeleton: tool_result
-                emit_runtime_event(
-                    &state.session,
-                    "tool_result",
-                    Some(tool_use_uuid.clone()),
-                    Some(serde_json::json!({
-                        "tool_call_id": tool_call.id.clone(),
-                        "duration_ms": tool_start_time.elapsed().as_millis(),
-                        "is_error": result.is_error,
-                    })),
-                ).await;
-
-                // Build Tool message and append to session
+                // Build Tool message and append to session.
+                // Single tool_result event via append_message, linked to its tool_use
+                // via parent_uuid. Projection reads this event's `data` (serialized
+                // AgentMessage containing ToolOutput) for content + is_error, and computes
+                // duration_ms from the timestamp delta against the tool_use event.
                 let tool_message = Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     role: MessageRole::Tool,
@@ -869,7 +864,7 @@ async fn run_loop(
                     timestamp: chrono::Utc::now().timestamp_millis(),
                 };
                 let tool_msg = AgentMessage::Standard(tool_message);
-                state.session.append_message(tool_msg.clone(), None).await;
+                state.session.append_message(tool_msg.clone(), Some(tool_use_uuid.clone())).await;
                 pending_injections.extend(
                     fire_context_on_message(config, &agent_id, &tool_msg).await,
                 );

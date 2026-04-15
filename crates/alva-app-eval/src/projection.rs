@@ -441,12 +441,18 @@ fn build_llm_call_record(iter_events: &[SessionEvent], _turn_number: u32) -> Llm
         None => "error".to_string(),
     };
 
-    // messages_sent is not stored in skeleton events — leave as empty Vec.
-    // The frontend only shows response content and token counts for the
-    // LlmCallRecord, so this doesn't impact UX.
+    // messages_sent is read from the llm_call_start event's data["messages"] field,
+    // which carries the full serialized Vec<Message> since the kernel fix.
+    let messages_sent: Vec<Message> = llm_start
+        .and_then(|e| e.data.as_ref())
+        .and_then(|d| d.get("messages"))
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .unwrap_or_default();
+    let messages_sent_count = messages_sent.len();
+
     LlmCallRecord {
-        messages_sent: Vec::new(),
-        messages_sent_count: 0,
+        messages_sent,
+        messages_sent_count,
         response,
         input_tokens,
         output_tokens,
@@ -483,31 +489,32 @@ fn build_tool_call_records(iter_events: &[SessionEvent]) -> Vec<ToolCallRecord> 
             .to_string();
 
         let tool_use_uuid = event.uuid.as_str();
+        let tool_use_ts = event.timestamp;
 
-        // Find matching tool_result (parent_uuid == this tool_use uuid)
+        // Find matching tool_result: the single event written by append_message,
+        // linked via parent_uuid == tool_use_uuid. Its data holds the serialized
+        // AgentMessage containing the ToolResult content block.
         let tool_result_event = iter_events.iter().find(|e| {
             e.event_type == "tool_result"
                 && e.parent_uuid.as_deref() == Some(tool_use_uuid)
         });
 
-        let (is_error, duration_ms) = tool_result_event
-            .and_then(|e| e.data.as_ref())
-            .map(|d| {
-                let is_err = d.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-                let dur = d.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                (is_err, dur)
+        // duration_ms is derived from timestamp delta (both epoch millis).
+        let duration_ms = tool_result_event
+            .map(|e| {
+                let result_ts = e.timestamp;
+                if result_ts > tool_use_ts {
+                    (result_ts - tool_use_ts) as u64
+                } else {
+                    0
+                }
             })
-            .unwrap_or((false, 0));
+            .unwrap_or(0);
 
-        // Find the tool_result message event (event_type "tool_result" from append_message).
-        // This is a different event from the skeleton tool_result — the message
-        // event is the one with a message.content field (the actual tool output).
-        // Kernel emits it via append_message right after the skeleton tool_result.
-        // event_type == "tool_result" AND message is Some AND parent_uuid != tool_use_uuid
-        // (since the message event is unparented — see run.rs line 872: None).
-        // We identify it by finding a tool_result event with a message whose
-        // content contains the tool_call_id.
+        // is_error is extracted from the deserialized AgentMessage's ToolResult block.
+        // tool_output is extracted the same way via the shared find_tool_output helper.
         let tool_output: Option<ToolOutput> = find_tool_output(iter_events, &tool_call_id);
+        let is_error = tool_output.as_ref().map(|o| o.is_error).unwrap_or(false);
 
         // Build the ToolCall from the arguments in the assistant response.
         // The arguments are stored in the assistant message's content blocks.
@@ -531,8 +538,9 @@ fn build_tool_call_records(iter_events: &[SessionEvent]) -> Vec<ToolCallRecord> 
     tool_calls
 }
 
-/// Find the ToolOutput for a given tool_call_id by looking at tool_result
-/// message events in the iteration's event slice.
+/// Find the ToolOutput for a given tool_call_id by looking at the single
+/// tool_result event (written by append_message) in the iteration's event slice.
+/// The event data holds a serialized AgentMessage::Standard with role Tool.
 fn find_tool_output(iter_events: &[SessionEvent], tool_call_id: &str) -> Option<ToolOutput> {
     // Look for an event whose data (AgentMessage::Standard) has role Tool
     // and content containing a ToolResult block with matching id.
