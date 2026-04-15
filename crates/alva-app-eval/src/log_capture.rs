@@ -70,11 +70,6 @@ impl LogStore {
             .unwrap_or_default()
     }
 
-    /// Remove logs for a completed run (free memory after persistence).
-    pub fn remove_logs(&self, run_id: &str) {
-        self.logs.lock().unwrap().remove(run_id);
-    }
-
     /// Push a log entry to all active runs.
     fn push(&self, entry: LogEntry) {
         let active = self.active_runs.lock().unwrap().clone();

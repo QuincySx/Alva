@@ -210,8 +210,7 @@ impl BaseAgent {
     ///
     /// Lets outer layers register services on the bus after `build()`
     /// without the builder having to know every possible capability
-    /// ahead of time. Used, e.g., by observers to provide a
-    /// `ChildRunRecording` service for the `agent_spawn` plugin.
+    /// ahead of time.
     pub fn bus_writer(&self) -> &BusWriter {
         &self.bus_writer
     }

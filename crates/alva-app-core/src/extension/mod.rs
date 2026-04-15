@@ -33,7 +33,7 @@ pub use skills::SkillsExtension;
 pub use mcp::McpExtension;
 pub use hooks::HooksExtension;
 pub use evaluation::EvaluationExtension;
-pub use agent_spawn::{ChildRunRecording, SubAgentExtension};
+pub use agent_spawn::SubAgentExtension;
 
 // Thin Extension wrappers now live in `alva-agent-extension-builtin::wrappers`.
 pub use alva_agent_extension_builtin::wrappers::{

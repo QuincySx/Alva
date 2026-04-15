@@ -32,9 +32,6 @@ pub struct ChildAgentParams {
     /// Ignored when `session` is provided.
     pub parent_session_id: Option<String>,
     pub cancel: CancellationToken,
-    /// If set, the child agent uses this middleware stack (inherits parent's
-    /// security, timeout, logging, etc.). If None, an empty stack is used.
-    pub middleware: Option<MiddlewareStack>,
     /// If set, overrides the default ModelConfig.
     pub model_config: Option<ModelConfig>,
     /// Context window size. 0 = no limit.
@@ -87,7 +84,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
     };
 
     let config = AgentConfig {
-        middleware: params.middleware.unwrap_or_default(),
+        middleware: MiddlewareStack::new(),
         system_prompt: params.system_prompt,
         max_iterations: params.max_iterations,
         model_config: params.model_config.unwrap_or_default(),
