@@ -116,6 +116,40 @@ fn empty_record() -> RunRecord {
 }
 
 // ===========================================================================
+// Sub-agent range helpers
+// ===========================================================================
+
+/// Locate the slice of events that belongs to a specific sub-agent run,
+/// delimited by `subagent_run_start` / `subagent_run_end` markers both
+/// tagged with `tool_call_id`.
+///
+/// Returns the events strictly *between* the two markers (the markers
+/// themselves are bookkeeping noise for the projection layer, not part of
+/// the child run's own event log).
+fn find_subagent_range(events: &[SessionEvent], tool_call_id: &str) -> Option<Vec<SessionEvent>> {
+    let start_idx = events.iter().position(|e| {
+        e.event_type == "subagent_run_start"
+            && e.data
+                .as_ref()
+                .and_then(|d| d.get("tool_call_id"))
+                .and_then(|v| v.as_str())
+                == Some(tool_call_id)
+    })?;
+
+    let end_rel = events[start_idx + 1..].iter().position(|e| {
+        e.event_type == "subagent_run_end"
+            && e.data
+                .as_ref()
+                .and_then(|d| d.get("tool_call_id"))
+                .and_then(|v| v.as_str())
+                == Some(tool_call_id)
+    })?;
+    let end_idx = start_idx + 1 + end_rel;
+
+    Some(events[start_idx + 1..end_idx].to_vec())
+}
+
+// ===========================================================================
 // Main projection entry point
 // ===========================================================================
 
@@ -165,7 +199,24 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
     // -------------------------------------------------------------------
     // 3. Walk events to group by iteration
     // -------------------------------------------------------------------
-    let turns = build_turns(events);
+    let mut turns = build_turns(events);
+
+    // -------------------------------------------------------------------
+    // 3b. Attach sub_run records to tool calls that spawned sub-agents.
+    //     We search the FULL event list for subagent_run_start/end markers
+    //     (they live in the parent's stream, not within a single iteration).
+    // -------------------------------------------------------------------
+    for turn in &mut turns {
+        for tool_call in &mut turn.tool_calls {
+            let id = &tool_call.tool_call.id;
+            if !id.is_empty() {
+                if let Some(child_events) = find_subagent_range(events, id) {
+                    let child_record = build_run_record(&child_events);
+                    tool_call.sub_run = Some(Box::new(child_record));
+                }
+            }
+        }
+    }
 
     // -------------------------------------------------------------------
     // 4. Aggregate token counts from llm_call_end events
@@ -530,7 +581,8 @@ fn build_tool_call_records(iter_events: &[SessionEvent]) -> Vec<ToolCallRecord> 
             is_error,
             duration_ms,
             middleware_hooks: Vec::new(),
-            // TODO: sub-run projection when sub-agent session linkage is wired (Phase 3+)
+            // sub_run is populated by build_run_record after build_turns returns,
+            // using find_subagent_range over the full parent event stream.
             sub_run: None,
         });
     }
