@@ -9,11 +9,10 @@
 //! # open http://127.0.0.1:3000
 //! ```
 
-mod child_recording;
 mod log_capture;
-mod recorder;
+mod projection;
+mod session;
 mod skills;
-mod store;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -34,6 +33,7 @@ use alva_kernel_core::event::AgentEvent;
 use alva_app_core::extension::*;
 use alva_llm_provider::{AnthropicProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig};
 use alva_kernel_abi::LanguageModel;
+use alva_kernel_abi::agent_session::{SessionEvent, AgentSession};
 
 // ---------------------------------------------------------------------------
 // Embedded static assets
@@ -69,8 +69,8 @@ struct AppState {
     runs: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedReceiver<AgentEvent>>>,
     /// Captured tracing logs per run (in-memory, flushed to DB on completion).
     log_store: log_capture::LogStore,
-    /// Persistent storage for completed runs.
-    db: Arc<store::RunStore>,
+    /// Persistent storage for completed sessions.
+    session_manager: Arc<session::SqliteEvalSessionManager>,
 }
 
 // ---------------------------------------------------------------------------
@@ -134,8 +134,8 @@ struct CompareResponse {
 
 #[derive(Serialize)]
 struct CompareResult {
-    run_a: Option<recorder::RunRecord>,
-    run_b: Option<recorder::RunRecord>,
+    run_a: Option<projection::RunRecord>,
+    run_b: Option<projection::RunRecord>,
     diff: CompareDiff,
 }
 
@@ -229,8 +229,8 @@ fn create_extension(name: &str, workspace: &std::path::Path) -> Option<Box<dyn a
 
 /// Internal: create an agent run and return (run_id, tool_names).
 ///
-/// Builds the provider, tools, middleware, recorder, and spawns the agent task.
-/// Stores the event receiver in `state.runs` and the session in `state.sessions`.
+/// Builds the provider, tools, middleware, session, and spawns the agent task.
+/// Stores the event receiver in `state.runs`.
 async fn create_run(
     state: &Arc<AppState>,
     req: RunRequest,
@@ -298,16 +298,6 @@ async fn create_run(
     let extension_names: Vec<String> = req.extensions.clone()
         .unwrap_or_else(|| default_extensions.iter().map(|s| s.to_string()).collect());
 
-    let (rec, done_rx) = recorder::RecorderMiddleware::new();
-    let rec = Arc::new(rec);
-    rec.set_config(
-        system_prompt.clone(),
-        max_iterations,
-        vec![],                  // skill_names
-        extension_names.clone(), // extension_names
-        vec![],                  // middleware_names (no longer separate)
-    );
-
     // -- Approval handler: auto-approve with logging ---------------------------
     let (approval_ext, mut approval_rx) =
         alva_app_core::extension::ApprovalExtension::with_channel();
@@ -317,8 +307,7 @@ async fn create_run(
         .workspace(&workspace_path)
         .system_prompt(&system_prompt)
         .max_iterations(max_iterations)
-        .extension(Box::new(approval_ext))
-        .middleware(rec.clone()); // Recorder is always added
+        .extension(Box::new(approval_ext));
 
     for name in &extension_names {
         if let Some(ext) = create_extension(name, &workspace_path) {
@@ -331,34 +320,91 @@ async fn create_run(
     }
 
     let agent = builder
-        .build(model)
+        .build(model.clone())
         .await
         .map_err(|e| format!("build agent: {e}"))?;
 
-    // Register the ChildRunRecording service on the bus so that sub-agent
-    // tool calls will produce nested RunRecords that the parent recorder
-    // can attach to ToolCallRecord.sub_run.
-    agent
-        .bus_writer()
-        .provide::<dyn alva_app_core::extension::ChildRunRecording>(
-            Arc::new(crate::child_recording::ChildRunRecordingImpl::new()),
-        );
+    // -- 4. Create a SqliteEvalSession and swap it in -------------------------
+    let session = state.session_manager.create_session(&req.user_prompt).await;
+    let session_arc: Arc<dyn AgentSession> = session.clone();
+    agent.swap_session(session_arc).await;
 
-    let tool_names = agent.tool_names();
+    // -- 5. Write the eval_config_snapshot event to the session ---------------
+    //       Projection uses this event to recover config that isn't in the
+    //       runtime skeleton events (system_prompt, model_id, tool_definitions,
+    //       extension_names, etc.).
+    let tool_definitions = agent.tool_registry().definitions();
+    let tool_names_for_snap = agent.tool_names();
+    let model_id = model.model_id().to_string();
 
-    // -- 4. Start the run via BaseAgent::prompt_text -------------------------
+    let cfg_event = SessionEvent::system(serde_json::json!({
+        "type": "eval_config_snapshot",
+        "system_prompt": system_prompt.clone(),
+        "model_id": model_id.clone(),
+        "tool_names": tool_names_for_snap.clone(),
+        "tool_definitions": tool_definitions,
+        "skill_names": Vec::<String>::new(),
+        "max_iterations": max_iterations,
+        "extension_names": extension_names.clone(),
+        "middleware_names": Vec::<String>::new(),
+    }));
+    session.append(cfg_event).await;
+
+    let tool_names = tool_names_for_snap;
+
+    // -- 6. Start the run via BaseAgent::prompt_text -------------------------
     let log_store = state.log_store.clone();
     log_store.start_capture(&run_id);
 
-    let rx = agent.prompt_text(&req.user_prompt);
+    let agent_rx = agent.prompt_text(&req.user_prompt);
 
-    // -- Spawn: auto-approve permissions + persist record ----------------------
-    let rec_clone = rec.clone();
-    let state_clone = state.clone();
-    let run_id_for_record = run_id.clone();
-    let log_store_for_persist = log_store.clone();
+    // -- Split the event stream into SSE + lifecycle channels -----------------
+    //
+    // `agent_rx` is a single-consumer channel. We need two consumers:
+    //   - The SSE handler (forwards raw events to the browser)
+    //   - The lifecycle task (waits for AgentEnd, then flushes the session)
+    //
+    // Solution: a forwarding task reads from `agent_rx`, sends each event to
+    // both the SSE channel and a oneshot done-signal on AgentEnd.
+    let (sse_tx, sse_rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
 
-    // Auto-approval task — runs alongside the agent
+    // Forwarding task: reads from agent_rx, forwards to sse_tx, fires done_tx
+    // on AgentEnd (or when the channel closes).
+    tokio::spawn(async move {
+        let mut rx = agent_rx;
+        let mut done_tx_opt = Some(done_tx);
+        loop {
+            match rx.recv().await {
+                Some(event) => {
+                    // Check for AgentEnd before forwarding.
+                    if matches!(event, AgentEvent::AgentEnd { .. }) {
+                        let _ = sse_tx.send(event);
+                        // Signal lifecycle task that the run is complete.
+                        if let Some(tx) = done_tx_opt.take() {
+                            let _ = tx.send(());
+                        }
+                        // Drain any remaining events (unlikely, but safe).
+                        while let Some(ev) = rx.recv().await {
+                            let _ = sse_tx.send(ev);
+                        }
+                        break;
+                    } else {
+                        let _ = sse_tx.send(event);
+                    }
+                }
+                None => {
+                    // Channel closed without AgentEnd (crash/cancel).
+                    if let Some(tx) = done_tx_opt.take() {
+                        let _ = tx.send(());
+                    }
+                    break;
+                }
+            }
+        }
+    });
+
+    // -- Auto-approval task — runs alongside the agent -------------------------
     tokio::spawn(async move {
         while let Some(req) = approval_rx.recv().await {
             tracing::info!(
@@ -375,30 +421,65 @@ async fn create_run(
         }
     });
 
-    // Record persistence task — waits for on_agent_end (with timeout for panic safety)
-    tokio::spawn(async move {
-        let _tmp_guard = _tmp_guard; // keep TempDir alive
+    // -- Lifecycle task: waits for done signal, flushes session, persists metadata
+    let run_id_for_task = run_id.clone();
+    let log_store_for_task = log_store.clone();
+    let session_manager = state.session_manager.clone();
+    let session_for_task = session.clone();
 
-        // Wait for on_agent_end to fire, with 10-minute timeout for panic safety
+    tokio::spawn(async move {
+        let _tmp_guard = _tmp_guard; // keep TempDir alive for the duration of the run
+
+        // Wait for AgentEnd (with 10-minute timeout for panic safety).
         let timeout_result = tokio::time::timeout(
             std::time::Duration::from_secs(600),
             done_rx,
         ).await;
 
         if timeout_result.is_err() {
-            tracing::error!(run_id = %run_id_for_record, "run did not complete within 10 minutes, saving partial record");
+            tracing::error!(
+                run_id = %run_id_for_task,
+                "run did not complete within 10 minutes, flushing partial session"
+            );
         }
 
-        // Extract record and persist
-        log_store_for_persist.stop_capture(&run_id_for_record);
-        let record = rec_clone.take_record();
-        let logs = log_store_for_persist.get_logs(&run_id_for_record);
-        state_clone.db.save(&run_id_for_record, &record, &logs);
-        log_store_for_persist.remove_logs(&run_id_for_record);
+        // Flush the session so all in-memory events are persisted to SQLite.
+        if let Err(e) = session_for_task.flush().await {
+            tracing::error!(
+                run_id = %run_id_for_task,
+                error = %e,
+                "SqliteEvalSession flush failed"
+            );
+        }
+
+        // Build run metadata from the flushed session for the run list.
+        let all_events: Vec<alva_kernel_abi::agent_session::SessionEvent> = session_for_task
+            .query(&alva_kernel_abi::agent_session::EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await
+            .into_iter()
+            .map(|m| m.event)
+            .collect();
+
+        if !all_events.is_empty() {
+            let record = projection::build_run_record(&all_events);
+            session_manager.update_run_metadata(
+                &run_id_for_task,
+                &record.config_snapshot.model_id,
+                record.turns.len(),
+                record.total_input_tokens + record.total_output_tokens,
+                record.total_duration_ms,
+            );
+        }
+
+        // Stop log capture.
+        log_store_for_task.stop_capture(&run_id_for_task);
     });
 
-    // -- 5. Store handles ---------------------------------------------------
-    state.runs.lock().await.insert(run_id.clone(), rx);
+    // -- 7. Store SSE receiver for the events endpoint -------------------------
+    state.runs.lock().await.insert(run_id.clone(), sse_rx);
 
     Ok((run_id, tool_names))
 }
@@ -443,15 +524,32 @@ async fn get_record(
     State(state): State<Arc<AppState>>,
     Path(run_id): Path<String>,
 ) -> impl IntoResponse {
-    match state.db.get_record(&run_id) {
-        Some(record) => Json(record).into_response(),
-        None => (StatusCode::NOT_FOUND, "record not found or still running").into_response(),
+    // Load the session from DB and project its events into a RunRecord.
+    let Some(session) = state.session_manager.load_session(&run_id).await else {
+        return (StatusCode::NOT_FOUND, "record not found or still running").into_response();
+    };
+
+    let events: Vec<alva_kernel_abi::agent_session::SessionEvent> = session
+        .query(&alva_kernel_abi::agent_session::EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        })
+        .await
+        .into_iter()
+        .map(|m| m.event)
+        .collect();
+
+    if events.is_empty() {
+        return (StatusCode::NOT_FOUND, "record not found or still running").into_response();
     }
+
+    let record = projection::build_run_record(&events);
+    Json(record).into_response()
 }
 
 /// List summaries of all completed runs (from DB).
-async fn list_runs(State(state): State<Arc<AppState>>) -> Json<Vec<store::StoredRunSummary>> {
-    Json(state.db.list())
+async fn list_runs(State(state): State<Arc<AppState>>) -> Json<Vec<session::StoredRunSummary>> {
+    Json(state.session_manager.list_runs())
 }
 
 // ---------------------------------------------------------------------------
@@ -485,8 +583,8 @@ async fn get_compare(
     State(state): State<Arc<AppState>>,
     Path((id_a, id_b)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let rec_a = state.db.get_record(&id_a);
-    let rec_b = state.db.get_record(&id_b);
+    let rec_a = load_run_record(&state, &id_a).await;
+    let rec_b = load_run_record(&state, &id_b).await;
 
     let diff = build_compare_diff(rec_a.as_ref(), rec_b.as_ref());
 
@@ -498,12 +596,34 @@ async fn get_compare(
     .into_response()
 }
 
+/// Load and project a run record from the session DB. Returns None if not found.
+async fn load_run_record(
+    state: &Arc<AppState>,
+    run_id: &str,
+) -> Option<projection::RunRecord> {
+    let session = state.session_manager.load_session(run_id).await?;
+    let events: Vec<alva_kernel_abi::agent_session::SessionEvent> = session
+        .query(&alva_kernel_abi::agent_session::EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        })
+        .await
+        .into_iter()
+        .map(|m| m.event)
+        .collect();
+
+    if events.is_empty() {
+        return None;
+    }
+    Some(projection::build_run_record(&events))
+}
+
 /// Build a diff summary from two (possibly absent) run records.
 fn build_compare_diff(
-    a: Option<&recorder::RunRecord>,
-    b: Option<&recorder::RunRecord>,
+    a: Option<&projection::RunRecord>,
+    b: Option<&projection::RunRecord>,
 ) -> CompareDiff {
-    let extract_tool_calls = |rec: Option<&recorder::RunRecord>| -> Vec<String> {
+    let extract_tool_calls = |rec: Option<&projection::RunRecord>| -> Vec<String> {
         rec.map(|r| {
             r.turns
                 .iter()
@@ -549,7 +669,7 @@ async fn delete_run(
     State(state): State<Arc<AppState>>,
     Path(run_id): Path<String>,
 ) -> impl IntoResponse {
-    if state.db.delete(&run_id) {
+    if state.session_manager.delete_session(&run_id) {
         (StatusCode::OK, "deleted").into_response()
     } else {
         (StatusCode::NOT_FOUND, "run not found").into_response()
@@ -557,16 +677,12 @@ async fn delete_run(
 }
 
 /// Get captured tracing logs for a run (request/response bodies, tool timing, etc.)
-/// Checks in-memory first (active run), then falls back to DB.
+/// Checks in-memory first (active run), then falls back to log_store.
 async fn get_logs(
     State(state): State<Arc<AppState>>,
     Path(run_id): Path<String>,
 ) -> Json<Vec<log_capture::LogEntry>> {
-    let in_memory = state.log_store.get_logs(&run_id);
-    if !in_memory.is_empty() {
-        return Json(in_memory);
-    }
-    Json(state.db.get_logs(&run_id))
+    Json(state.log_store.get_logs(&run_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -664,9 +780,6 @@ async fn main() {
     let log_store = log_capture::LogStore::new();
 
     // Tracing subscriber: terminal output + log capture layer
-    // The capture layer intercepts events from alva_llm_provider and alva_kernel_core,
-    // buffering them per run_id for the web UI.
-    // Terminal output defaults to warn; override with RUST_LOG=info or RUST_LOG=debug.
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(
             "warn,alva_llm_provider=debug,alva_kernel_core=info,alva_host_native=info,alva_agent_extension_builtin=info,alva_agent_security=info,alva_app_core=info"
@@ -681,12 +794,17 @@ async fn main() {
         .with(log_capture::LogCaptureLayer::new(log_store.clone()))
         .init();
 
-    let db = Arc::new(store::RunStore::open("alva-eval-runs.db"));
+    let session_manager = Arc::new(
+        session::SqliteEvalSessionManager::open(
+            std::path::PathBuf::from("alva-eval-sessions.db")
+        )
+        .expect("failed to open eval sessions DB"),
+    );
 
     let state = Arc::new(AppState {
         runs: Mutex::new(HashMap::new()),
         log_store: log_store.clone(),
-        db,
+        session_manager,
     });
 
     let app = Router::new()
