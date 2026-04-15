@@ -1,22 +1,21 @@
-// INPUT:  Arc, Duration, LanguageModel, ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot, Tool, SessionTracker
+// INPUT:  Arc, Duration, LanguageModel, ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot, Tool
 // OUTPUT: SpawnScopeImpl
 // POS:    Concrete SpawnScope implementation — pure lifecycle management (tree, depth, resources).
 //         Communication (Blackboard, channels) is NOT managed here — it lives in plugins/middleware.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 use alva_kernel_abi::tool::Tool;
 
-use super::session_tracker::SessionTracker;
-
 /// Concrete SpawnScope implementation.
 ///
 /// Each instance represents one node in the spawn tree. Children are created
-/// via `spawn_child()`, which shares the same SessionTracker and model
-/// (so state is tracked globally across the tree).
+/// via `spawn_child()`, which shares the model (so resources are tracked globally
+/// across the tree).
 ///
 /// Communication (Blackboard, channels, etc.) is NOT part of SpawnScope.
 /// It is managed by plugins or middleware that hold their own state.
@@ -31,7 +30,9 @@ pub struct SpawnScopeImpl {
     // Shared across entire tree (Arc)
     model: Arc<dyn LanguageModel>,
     parent_tools: Arc<Vec<Arc<dyn Tool>>>,
-    session_tracker: Arc<SessionTracker>,
+
+    // Counts direct children spawned from this scope
+    children_spawned: Arc<AtomicUsize>,
 
     // Per-scope config
     timeout: Duration,
@@ -48,8 +49,7 @@ impl SpawnScopeImpl {
         max_depth: u32,
     ) -> Self {
         let id = ScopeId::new();
-        let session_tracker = Arc::new(SessionTracker::new());
-        let session_id = session_tracker.create_root("root");
+        let session_id = uuid::Uuid::new_v4().to_string();
 
         Self {
             id,
@@ -60,7 +60,7 @@ impl SpawnScopeImpl {
             session_id,
             model,
             parent_tools: Arc::new(tools),
-            session_tracker,
+            children_spawned: Arc::new(AtomicUsize::new(0)),
             timeout,
             max_iterations,
         }
@@ -83,9 +83,9 @@ impl SpawnScopeImpl {
         }
 
         let child_id = ScopeId::new();
+        let child_session_id = uuid::Uuid::new_v4().to_string();
 
-        let child_session_id =
-            self.session_tracker.create_child(&self.session_id, &config.role);
+        self.children_spawned.fetch_add(1, Ordering::Relaxed);
 
         let child = SpawnScopeImpl {
             id: child_id,
@@ -96,7 +96,7 @@ impl SpawnScopeImpl {
             session_id: child_session_id,
             model: self.model.clone(),
             parent_tools: self.parent_tools.clone(),
-            session_tracker: self.session_tracker.clone(),
+            children_spawned: Arc::new(AtomicUsize::new(0)),
             timeout: config.timeout.unwrap_or(self.timeout),
             max_iterations: config.max_iterations.unwrap_or(self.max_iterations),
         };
@@ -136,10 +136,6 @@ impl SpawnScopeImpl {
 
     pub fn max_iterations(&self) -> u32 {
         self.max_iterations
-    }
-
-    pub fn session_tracker(&self) -> &Arc<SessionTracker> {
-        &self.session_tracker
     }
 
     // ── Tools ────────────────────────────────────────────────────────────
@@ -191,22 +187,16 @@ impl SpawnScopeImpl {
 
     // ── Lifecycle ────────────────────────────────────────────────────────
 
-    /// Mark this scope's session as completed with the given output summary.
-    pub fn mark_completed(&self, output: &str) {
-        self.session_tracker.mark_completed(&self.session_id, output);
-    }
-
     /// Take a snapshot of this scope's state for debugging/logging.
     pub fn snapshot(&self) -> ScopeSnapshot {
-        let session_snap = self.session_tracker.snapshot(&self.session_id);
         ScopeSnapshot {
             id: self.id.as_str().to_owned(),
             parent_id: self.parent_id.as_ref().map(|p| p.as_str().to_owned()),
             depth: self.depth,
             role: self.role.clone(),
             session_id: self.session_id.clone(),
-            children_count: session_snap.children_count,
-            completed: session_snap.completed,
+            children_count: self.children_spawned.load(Ordering::Relaxed),
+            completed: false,
         }
     }
 }
@@ -319,20 +309,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mark_completed_updates_tracker() {
-        let root = test_root(3);
-        let child = root
-            .spawn_child(ChildScopeConfig::new("worker"))
-            .await
-            .unwrap();
-        child.mark_completed("done");
-        let snap = root.session_tracker().snapshot(child.session_id());
-        assert!(snap.completed);
-        assert_eq!(snap.output_summary, Some("done".to_string()));
-    }
-
-    #[tokio::test]
-    async fn session_tree_tracks_children() {
+    async fn children_count_tracked() {
         let root = test_root(3);
         let _c1 = root
             .spawn_child(ChildScopeConfig::new("a"))
@@ -342,8 +319,7 @@ mod tests {
             .spawn_child(ChildScopeConfig::new("b"))
             .await
             .unwrap();
-        let children = root.session_tracker().children_of(root.session_id());
-        assert_eq!(children.len(), 2);
+        assert_eq!(root.snapshot().children_count, 2);
     }
 
     #[tokio::test]

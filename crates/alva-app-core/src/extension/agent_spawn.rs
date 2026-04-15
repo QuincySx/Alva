@@ -341,8 +341,6 @@ impl AgentSpawnTool {
                 .await;
         }
 
-        child_scope.mark_completed(&result.text);
-
         if result.is_error {
             Ok(ToolOutput::error(format!(
                 "[Agent '{}' error: {}]\n{}",

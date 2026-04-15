@@ -1,7 +1,7 @@
 // Integration tests for SpawnScope multi-level spawn tree.
 //
-// Exercises: depth tracking, session tree structure, mark_completed,
-// timeout/iteration inheritance, board sharing (via BoardRegistry, independent of scope).
+// Exercises: depth tracking, timeout/iteration inheritance,
+// board sharing (via BoardRegistry, independent of scope).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -144,83 +144,7 @@ async fn cross_tree_board_isolation() {
     );
 }
 
-// ── 4. Session tree structure ───────────────────────────────────────────
-
-#[tokio::test]
-async fn session_tree_structure() {
-    let root = root_scope(3);
-    let tracker = root.session_tracker().clone();
-
-    let a = root
-        .spawn_child(ChildScopeConfig::new("A"))
-        .await
-        .unwrap();
-    let a1 = a
-        .spawn_child(ChildScopeConfig::new("A1"))
-        .await
-        .unwrap();
-    let b = root
-        .spawn_child(ChildScopeConfig::new("B"))
-        .await
-        .unwrap();
-
-    let root_children = tracker.children_of(root.session_id());
-    assert_eq!(root_children.len(), 2);
-    assert!(root_children.contains(&a.session_id().to_string()));
-    assert!(root_children.contains(&b.session_id().to_string()));
-
-    let a_children = tracker.children_of(a.session_id());
-    assert_eq!(a_children.len(), 1);
-    assert_eq!(a_children[0], a1.session_id());
-
-    let b_children = tracker.children_of(b.session_id());
-    assert_eq!(b_children.len(), 0);
-
-    assert_eq!(
-        tracker.parent_of(a1.session_id()),
-        Some(a.session_id().to_string())
-    );
-
-    let tree = tracker.tree_json(root.session_id());
-    assert!(tree["children"].is_array());
-    let top_children = tree["children"].as_array().unwrap();
-    assert_eq!(top_children.len(), 2);
-
-    let a_node = top_children
-        .iter()
-        .find(|n| n["role"].as_str() == Some("A"))
-        .expect("should find A in tree");
-    let a_sub_children = a_node["children"].as_array().unwrap();
-    assert_eq!(a_sub_children.len(), 1);
-    assert_eq!(a_sub_children[0]["role"].as_str(), Some("A1"));
-}
-
-// ── 5. Mark completed ──────────────────────────────────────────────────
-
-#[tokio::test]
-async fn mark_completed_propagates() {
-    let root = root_scope(3);
-    let tracker = root.session_tracker().clone();
-
-    let worker = root
-        .spawn_child(ChildScopeConfig::new("worker"))
-        .await
-        .unwrap();
-
-    let snap_before = tracker.snapshot(worker.session_id());
-    assert!(!snap_before.completed);
-
-    worker.mark_completed("done");
-
-    let snap_after = tracker.snapshot(worker.session_id());
-    assert!(snap_after.completed);
-    assert_eq!(snap_after.output_summary, Some("done".to_string()));
-
-    let root_snap = tracker.snapshot(root.session_id());
-    assert!(!root_snap.completed);
-}
-
-// ── 6. Timeout/iterations inheritance + override ────────────────────────
+// ── 4. Timeout/iterations inheritance + override ────────────────────────
 
 #[tokio::test]
 async fn timeout_iterations_inheritance_and_override() {
@@ -254,7 +178,7 @@ async fn timeout_iterations_inheritance_and_override() {
     assert_eq!(grandchild.max_iterations(), 5);
 }
 
-// ── 7. Snapshot fields ─────────────────────────────────────────────────
+// ── 5. Snapshot fields ─────────────────────────────────────────────────
 
 #[tokio::test]
 async fn snapshot_across_tree() {
@@ -287,7 +211,7 @@ async fn snapshot_across_tree() {
     assert_eq!(child_snap.children_count, 2);
 }
 
-// ── 8. Model shared across tree ────────────────────────────────────────
+// ── 6. Model shared across tree ────────────────────────────────────────
 
 #[tokio::test]
 async fn model_shared_across_tree() {
@@ -306,18 +230,3 @@ async fn model_shared_across_tree() {
     assert_eq!(grandchild.model().model_id(), "mock");
 }
 
-// ── 9. Session tracker shared across tree ──────────────────────────────
-
-#[tokio::test]
-async fn shared_session_tracker_across_tree() {
-    let root = root_scope(3);
-    let child = root
-        .spawn_child(ChildScopeConfig::new("worker"))
-        .await
-        .unwrap();
-
-    assert!(
-        Arc::ptr_eq(root.session_tracker(), child.session_tracker()),
-        "session_tracker should be shared"
-    );
-}
