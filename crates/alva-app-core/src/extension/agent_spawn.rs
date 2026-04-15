@@ -26,6 +26,7 @@ use serde_json::Value;
 
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
+use alva_kernel_abi::agent_session::{AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener};
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
@@ -95,6 +96,24 @@ pub trait ChildRunRecording: Send + Sync {
     /// parent tool call id. Returns `None` if no record was produced or
     /// it was already taken.
     fn take_child_record(&self, parent_tool_call_id: &str) -> Option<serde_json::Value>;
+}
+
+// ---------------------------------------------------------------------------
+// ForwardToSession listener
+// ---------------------------------------------------------------------------
+
+/// `SessionEventListener` that mirrors each event into a target session.
+/// Used by `AgentSpawnTool` to forward child events into the parent session
+/// with their original emitter preserved.
+struct ForwardToSession {
+    target: Arc<dyn AgentSession>,
+}
+
+#[async_trait]
+impl SessionEventListener for ForwardToSession {
+    async fn on_event(&self, event: &SessionEvent) {
+        self.target.append(event.clone()).await;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +311,31 @@ impl AgentSpawnTool {
             .as_ref()
             .map(|(svc, id)| svc.begin_child_run(id));
 
-        // Run child agent using the shared helper
+        // Retrieve the raw parent session (bypassing emitter stamping) so we
+        // can write start/end markers and forward child events directly.
+        let parent_raw: Option<Arc<dyn AgentSession>> = ctx
+            .session()
+            .map(|s| s.inner());
+
+        // Write subagent_run_start marker into parent session.
+        let tool_call_id = ctx.tool_call_id().unwrap_or("").to_string();
+        if let Some(ref raw) = parent_raw {
+            let mut start = SessionEvent::new_runtime("subagent_run_start");
+            start.data = Some(serde_json::json!({ "tool_call_id": tool_call_id.clone() }));
+            raw.append(start).await;
+        }
+
+        // Create a listenable child session and attach a forwarder to the parent.
+        let child_session = Arc::new(ListenableInMemorySession::with_parent(
+            self.scope.session_id(),
+        ));
+        if let Some(ref raw) = parent_raw {
+            child_session.subscribe(Arc::new(ForwardToSession {
+                target: raw.clone(),
+            })).await;
+        }
+
+        // Run child agent using the shared helper, supplying the listenable session.
         let result = run_child_agent(ChildAgentParams {
             model: child_scope.model(),
             tools: child_tools,
@@ -308,8 +351,19 @@ impl AgentSpawnTool {
             workspace: ctx.workspace().map(|p| p.to_path_buf()),
             bus: ctx.bus().cloned(),
             sleeper: None,
+            session: Some(child_session as Arc<dyn AgentSession>),
         })
         .await;
+
+        // Write subagent_run_end marker into parent session (always, even on error).
+        if let Some(ref raw) = parent_raw {
+            let mut end = SessionEvent::new_runtime("subagent_run_end");
+            end.data = Some(serde_json::json!({
+                "tool_call_id": tool_call_id.clone(),
+                "error": result.error.as_deref(),
+            }));
+            raw.append(end).await;
+        }
 
         // Hand the child record back to the recording service so the
         // parent's recorder can drain it via `take_child_record` in

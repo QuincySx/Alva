@@ -29,6 +29,7 @@ pub struct ChildAgentParams {
     pub max_iterations: u32,
     pub timeout: Duration,
     /// If set, links the child session to a parent for tree-wide tracking.
+    /// Ignored when `session` is provided.
     pub parent_session_id: Option<String>,
     pub cancel: CancellationToken,
     /// If set, the child agent uses this middleware stack (inherits parent's
@@ -47,6 +48,11 @@ pub struct ChildAgentParams {
     /// the cancel token allows). Production callers should pass a real
     /// runtime impl such as `alva-host-native::TokioSleeper`.
     pub sleeper: Option<Arc<dyn Sleeper>>,
+    /// If set, the child agent uses this pre-constructed session instead of
+    /// creating a new `InMemoryAgentSession`. The caller is responsible for
+    /// setting up any listeners before passing it in. Takes precedence over
+    /// `parent_session_id`.
+    pub session: Option<Arc<dyn AgentSession>>,
 }
 
 /// Output from a completed child agent run.
@@ -64,9 +70,13 @@ pub struct ChildAgentOutput {
 /// This encapsulates the common pattern shared by all sub-agent tools:
 /// build state → run_agent → collect output from events → fallback to session.
 pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
-    let session: Arc<dyn AgentSession> = match &params.parent_session_id {
-        Some(parent_id) => Arc::new(InMemoryAgentSession::with_parent(parent_id)),
-        None => Arc::new(InMemoryAgentSession::new()),
+    let session: Arc<dyn AgentSession> = if let Some(external) = params.session.clone() {
+        external
+    } else {
+        match &params.parent_session_id {
+            Some(parent_id) => Arc::new(InMemoryAgentSession::with_parent(parent_id)),
+            None => Arc::new(InMemoryAgentSession::new()),
+        }
     };
 
     let mut state = AgentState {
