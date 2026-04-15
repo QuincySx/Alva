@@ -132,6 +132,18 @@ impl BaseAgent {
         }
     }
 
+    /// Swap the current session for a new one. After this call, all reads and
+    /// writes go to `new_session`. Used by apps (like CLI) that want to switch
+    /// between persistent session files without rebuilding the entire agent.
+    ///
+    /// The caller is responsible for calling `new_session.restore().await`
+    /// before handing it over if the session needs to warm its cache from
+    /// durable storage.
+    pub async fn swap_session(&self, new_session: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>) {
+        let mut st = self.inner.state().lock().await;
+        st.session = new_session;
+    }
+
     /// Build a fresh [`ToolRegistry`] snapshot from the currently-registered
     /// tools. The registry is constructed on demand — `BaseAgent` does not
     /// cache it, because the inner agent already owns the authoritative
