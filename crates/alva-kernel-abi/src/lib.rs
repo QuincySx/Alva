@@ -58,7 +58,8 @@ pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, Moder
 pub use provider::{CredentialSource, StaticCredential, Provider, ProviderError, ProviderRegistry};
 pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 pub use agent_session::{
-    AgentSession, InMemoryAgentSession, SessionError, SessionEvent, SessionMessage,
+    AgentSession, InMemoryAgentSession, ListenableInMemorySession, SessionEventListener,
+    SessionError, SessionEvent, SessionMessage,
     EventEmitter, EmitterKind, ComponentDescriptor, ScopedSession, EventQuery, EventMatch,
 };
 

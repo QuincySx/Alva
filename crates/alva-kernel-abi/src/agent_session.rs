@@ -364,6 +364,13 @@ impl ScopedSession {
         &self.emitter
     }
 
+    /// Return a clone of the wrapped AgentSession handle. Callers that
+    /// bypass emitter stamping (e.g. to forward events with their original
+    /// emitter intact) use this escape hatch.
+    pub fn inner(&self) -> Arc<dyn AgentSession> {
+        self.inner.clone()
+    }
+
     /// Append an event. The `emitter` field of the event is overwritten with
     /// this wrapper's emitter; any value set by the caller is discarded.
     pub async fn append(&self, mut event: SessionEvent) {
@@ -651,6 +658,155 @@ impl AgentSession for InMemoryAgentSession {
         *self.snapshot.write().await = None;
         self.seq_counter.store(1, Ordering::SeqCst);
         Ok(())
+    }
+}
+
+// ===========================================================================
+// SessionEventListener + ListenableInMemorySession
+// ===========================================================================
+
+/// Observer that receives a copy of every `SessionEvent` written to a
+/// `ListenableInMemorySession`. Listeners are called in subscription order,
+/// synchronously within each write call (after the write itself completes),
+/// so they see the assigned `seq`.
+///
+/// Typical use: forward child-agent events into a parent session so that
+/// the parent's event log contains a complete nested sub-run view.
+#[async_trait]
+pub trait SessionEventListener: Send + Sync {
+    async fn on_event(&self, event: &SessionEvent);
+}
+
+/// An `InMemoryAgentSession` wrapper that broadcasts every written event to
+/// a list of `SessionEventListener`s after the write completes.
+///
+/// Lives in the same module as `InMemoryAgentSession` so it can access
+/// its private fields directly for the combined seq-assign + notify pattern.
+pub struct ListenableInMemorySession {
+    inner: InMemoryAgentSession,
+    listeners: RwLock<Vec<Arc<dyn SessionEventListener>>>,
+}
+
+impl ListenableInMemorySession {
+    /// Create a fresh root listenable session.
+    pub fn new() -> Self {
+        Self {
+            inner: InMemoryAgentSession::new(),
+            listeners: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Create a child listenable session linked to a parent session id.
+    pub fn with_parent(parent_id: impl Into<String>) -> Self {
+        Self {
+            inner: InMemoryAgentSession::with_parent(parent_id),
+            listeners: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Register a listener. It will receive every event written after
+    /// this call completes.
+    pub async fn subscribe(&self, listener: Arc<dyn SessionEventListener>) {
+        self.listeners.write().await.push(listener);
+    }
+}
+
+impl Default for ListenableInMemorySession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl AgentSession for ListenableInMemorySession {
+    fn session_id(&self) -> &str {
+        self.inner.session_id()
+    }
+
+    fn parent_session_id(&self) -> Option<&str> {
+        self.inner.parent_session_id()
+    }
+
+    async fn append(&self, event: SessionEvent) {
+        // Assign seq directly via inner's atomic counter, then push to
+        // inner's events vec. We do NOT call self.inner.append() so that
+        // we have the post-seq-assign event in hand to broadcast.
+        let mut e = event;
+        e.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+        self.inner.events.write().await.push(e.clone());
+
+        let listeners = self.listeners.read().await;
+        for l in listeners.iter() {
+            l.on_event(&e).await;
+        }
+    }
+
+    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
+        // Replicate InMemoryAgentSession::append_message logic so we can
+        // hold the fully-constructed event for broadcasting.
+        let (event_type, session_msg) = InMemoryAgentSession::classify_message(&msg);
+        let mut event = SessionEvent::new(event_type);
+        event.message = session_msg;
+        event.parent_uuid = parent_uuid;
+        event.data = Some(
+            serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null),
+        );
+        // Assign seq via inner's counter (same-module private field access).
+        event.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+
+        // Store in inner's fields.
+        self.inner.events.write().await.push(event.clone());
+        self.inner.messages.write().await.push_back(msg);
+
+        // Notify listeners.
+        let listeners = self.listeners.read().await;
+        for l in listeners.iter() {
+            l.on_event(&event).await;
+        }
+    }
+
+    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
+        self.inner.query(filter).await
+    }
+
+    async fn count(&self, filter: &EventQuery) -> usize {
+        self.inner.count(filter).await
+    }
+
+    async fn messages(&self) -> Vec<AgentMessage> {
+        self.inner.messages().await
+    }
+
+    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
+        self.inner.recent_messages(n).await
+    }
+
+    async fn rollback_after(&self, uuid: &str) -> usize {
+        self.inner.rollback_after(uuid).await
+    }
+
+    async fn save_snapshot(&self, data: &[u8]) {
+        self.inner.save_snapshot(data).await
+    }
+
+    async fn load_snapshot(&self) -> Option<Vec<u8>> {
+        self.inner.load_snapshot().await
+    }
+
+    async fn restore(&self) -> Result<(), SessionError> {
+        self.inner.restore().await
+    }
+
+    async fn flush(&self) -> Result<(), SessionError> {
+        self.inner.flush().await
+    }
+
+    async fn close(&self) -> Result<(), SessionError> {
+        self.inner.close().await
+    }
+
+    async fn clear(&self) -> Result<(), SessionError> {
+        self.inner.clear().await
     }
 }
 
@@ -951,5 +1107,106 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].emitter.kind, EmitterKind::Tool);
         assert_eq!(events[0].emitter.id, "read_file");
+    }
+
+    // -----------------------------------------------------------------------
+    // ListenableInMemorySession tests
+    // -----------------------------------------------------------------------
+
+    struct TestListener {
+        received: Arc<tokio::sync::Mutex<Vec<SessionEvent>>>,
+    }
+
+    #[async_trait]
+    impl SessionEventListener for TestListener {
+        async fn on_event(&self, event: &SessionEvent) {
+            self.received.lock().await.push(event.clone());
+        }
+    }
+
+    fn make_test_listener() -> (Arc<TestListener>, Arc<tokio::sync::Mutex<Vec<SessionEvent>>>) {
+        let received = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let listener = Arc::new(TestListener { received: received.clone() });
+        (listener, received)
+    }
+
+    #[tokio::test]
+    async fn listenable_session_notifies_listener_on_append() {
+        let session = ListenableInMemorySession::new();
+        let (listener, received) = make_test_listener();
+        session.subscribe(listener).await;
+
+        let e = SessionEvent::progress(serde_json::json!({"n": 42}));
+        session.append(e).await;
+
+        let got = received.lock().await;
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].seq, 1);
+        assert_eq!(got[0].event_type, "progress");
+    }
+
+    #[tokio::test]
+    async fn listenable_session_notifies_on_append_message() {
+        let session = ListenableInMemorySession::new();
+        let (listener, received) = make_test_listener();
+        session.subscribe(listener).await;
+
+        session.append_message(user_msg("hello"), None).await;
+
+        let got = received.lock().await;
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].seq, 1);
+        assert_eq!(got[0].event_type, "user");
+        // Verify data holds the original AgentMessage (serialized with tag "kind").
+        let data = got[0].data.as_ref().expect("data should be set");
+        assert_eq!(
+            data.get("kind").and_then(|v| v.as_str()),
+            Some("Standard"),
+            "data should hold AgentMessage::Standard"
+        );
+    }
+
+    #[tokio::test]
+    async fn listenable_session_multiple_listeners_fire_in_order() {
+        let session = ListenableInMemorySession::new();
+        let (l1, r1) = make_test_listener();
+        let (l2, r2) = make_test_listener();
+        session.subscribe(l1).await;
+        session.subscribe(l2).await;
+
+        session.append(SessionEvent::progress(serde_json::json!({"x": 1}))).await;
+
+        assert_eq!(r1.lock().await.len(), 1, "first listener should fire");
+        assert_eq!(r2.lock().await.len(), 1, "second listener should fire");
+    }
+
+    #[tokio::test]
+    async fn listenable_session_nested_forward() {
+        // ForwardToSession listener defined inline.
+        struct ForwardToSession {
+            target: Arc<dyn AgentSession>,
+        }
+
+        #[async_trait]
+        impl SessionEventListener for ForwardToSession {
+            async fn on_event(&self, event: &SessionEvent) {
+                self.target.append(event.clone()).await;
+            }
+        }
+
+        let parent = Arc::new(ListenableInMemorySession::new());
+        let child = Arc::new(ListenableInMemorySession::new());
+
+        // Attach forwarder: child events -> parent session.
+        child.subscribe(Arc::new(ForwardToSession {
+            target: parent.clone() as Arc<dyn AgentSession>,
+        })).await;
+
+        // Append to child — should appear in parent via the listener.
+        child.append(SessionEvent::progress(serde_json::json!({"from": "child"}))).await;
+
+        let parent_events = parent.inner.events.read().await;
+        assert_eq!(parent_events.len(), 1, "parent should have received the child event");
+        assert_eq!(parent_events[0].event_type, "progress");
     }
 }
