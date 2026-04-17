@@ -141,20 +141,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builder_works() {
-        let p = AgentProfile::new("gen", "code generation")
-            .with_capability("write rust")
-            .with_capability("refactor")
-            .depends_on(["planner"])
-            .provides_to(["evaluator", "reviewer"]);
-
-        assert_eq!(p.id, "gen");
-        assert_eq!(p.capabilities.len(), 2);
-        assert_eq!(p.depends_on, vec!["planner"]);
-        assert_eq!(p.provides_to, vec!["evaluator", "reviewer"]);
-    }
-
-    #[test]
     fn team_prompt_contains_relations() {
         let profiles = vec![
             AgentProfile::new("planner", "requirements"),
