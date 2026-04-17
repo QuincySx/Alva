@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use alva_kernel_abi::{AgentMessage, CancellationToken, Message};
+use alva_kernel_abi::CancellationToken;
 use super::events::{ExtensionEvent, EventResult};
 
 type HandlerFn = Box<dyn Fn(&ExtensionEvent) -> EventResult + Send + Sync>;
@@ -19,7 +19,6 @@ pub struct ExtensionHost {
     handlers: HashMap<&'static str, Vec<(String, HandlerFn)>>,  // (extension_name, handler)
     middlewares: Vec<Arc<dyn alva_kernel_core::middleware::Middleware>>,
     commands: Vec<RegisteredCommand>,
-    pending_messages: Option<Arc<alva_kernel_core::pending_queue::PendingMessageQueue>>,
     cancel_token: Option<Arc<std::sync::Mutex<CancellationToken>>>,
 }
 
@@ -29,7 +28,6 @@ impl ExtensionHost {
             handlers: HashMap::new(),
             middlewares: Vec::new(),
             commands: Vec::new(),
-            pending_messages: None,
             cancel_token: None,
         }
     }
@@ -86,12 +84,7 @@ impl ExtensionHost {
         EventResult::Continue
     }
 
-    pub fn bind_agent(
-        &mut self,
-        pending: Arc<alva_kernel_core::pending_queue::PendingMessageQueue>,
-        cancel: Arc<std::sync::Mutex<CancellationToken>>,
-    ) {
-        self.pending_messages = Some(pending);
+    pub fn bind_agent(&mut self, cancel: Arc<std::sync::Mutex<CancellationToken>>) {
         self.cancel_token = Some(cancel);
     }
 
@@ -107,6 +100,11 @@ impl Default for ExtensionHost {
 }
 
 /// API handle given to extensions during activate().
+///
+/// `Clone` is cheap — `host` is `Arc` and `extension_name` is a short
+/// string. Aggregator extensions (e.g. `SubprocessLoaderExtension`)
+/// clone the handle in `activate()` and reuse it in `configure()`.
+#[derive(Clone)]
 pub struct HostAPI {
     host: Arc<RwLock<ExtensionHost>>,
     extension_name: String,
@@ -129,6 +127,24 @@ impl HostAPI {
         host.register_handler(event_type, self.extension_name.clone(), Box::new(handler));
     }
 
+    /// Like [`on`](Self::on), but attribute the handler to a custom
+    /// `source_name` instead of this extension's own name.
+    ///
+    /// Used by aggregator extensions (e.g. `SubprocessLoaderExtension`)
+    /// that internally manage many third-party extensions and want each
+    /// to appear by its real name in the host's handler registry —
+    /// making individual plugins visible instead of collapsing them all
+    /// behind the loader's name.
+    pub fn on_as(
+        &self,
+        source_name: &str,
+        event_type: &'static str,
+        handler: impl Fn(&ExtensionEvent) -> EventResult + Send + Sync + 'static,
+    ) {
+        let mut host = self.host.write().unwrap();
+        host.register_handler(event_type, source_name.to_string(), Box::new(handler));
+    }
+
     /// Register a /command (metadata only, routing is P3).
     pub fn register_command(&self, name: &str, description: &str) {
         let mut host = self.host.write().unwrap();
@@ -137,22 +153,6 @@ impl HostAPI {
             description: description.to_string(),
             source_extension: self.extension_name.clone(),
         });
-    }
-
-    /// Inject a steering message into the agent.
-    pub fn steer(&self, text: &str) {
-        let host = self.host.read().unwrap();
-        if let Some(ref pending) = host.pending_messages {
-            pending.steer(AgentMessage::Steering(Message::user(text)));
-        }
-    }
-
-    /// Queue a follow-up message.
-    pub fn follow_up(&self, text: &str) {
-        let host = self.host.read().unwrap();
-        if let Some(ref pending) = host.pending_messages {
-            pending.follow_up(AgentMessage::FollowUp(Message::user(text)));
-        }
     }
 
     /// Cancel the current agent loop.

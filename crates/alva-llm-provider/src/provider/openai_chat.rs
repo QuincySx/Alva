@@ -324,6 +324,7 @@ impl LanguageModel for OpenAIChatProvider {
                                         input_tokens: usage.prompt_tokens,
                                         output_tokens: usage.completion_tokens,
                                         total_tokens: usage.total_tokens,
+                                        ..Default::default()
                                     });
                                 }
                             }
@@ -599,6 +600,7 @@ fn from_oai_response(resp: OaiResponse) -> Result<Message, AgentError> {
         input_tokens: u.prompt_tokens,
         output_tokens: u.completion_tokens,
         total_tokens: u.total_tokens,
+        ..Default::default()
     });
 
     Ok(Message {

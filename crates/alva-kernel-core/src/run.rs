@@ -1,6 +1,8 @@
-// INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_kernel_abi::*, crate::pending_queue::AgentLoopHook
+// INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_kernel_abi::*
 // OUTPUT: pub async fn run_agent()
-// POS:    session-centric agent loop — uses bus-based AgentLoopHook for steering/follow-up injection.
+// POS:    session-centric agent loop. Mid-run steering is NOT a kernel concern —
+//         external callers inject messages by appending them to the session directly
+//         (typically via an opt-in `PendingExtension` middleware).
 use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{
@@ -700,7 +702,11 @@ async fn run_loop(
                 return Err(agent_error);
             }
 
-            // Session skeleton: llm_call_end
+            // Session skeleton: llm_call_end.
+            // Carries token usage for this turn — basic in/out counts plus
+            // cache stats for providers that report them (e.g. Anthropic).
+            // Absent fields (e.g. OpenAI cache) serialize as null, not 0,
+            // so consumers can distinguish "unknown" from "zero".
             emit_runtime_event(
                 &state.session,
                 "llm_call_end",
@@ -708,6 +714,8 @@ async fn run_loop(
                 Some(serde_json::json!({
                     "input_tokens": response.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
                     "output_tokens": response.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
+                    "cache_creation_input_tokens": response.usage.as_ref().and_then(|u| u.cache_creation_input_tokens),
+                    "cache_read_input_tokens": response.usage.as_ref().and_then(|u| u.cache_read_input_tokens),
                 })),
             ).await;
 
@@ -895,32 +903,9 @@ async fn run_loop(
             let _ = event_tx.send(AgentEvent::TurnEnd);
             fire_context_after_turn(config, &agent_id).await;
 
-            // Steering check: after tool execution, before next LLM call
-            if let Some(bus) = &config.bus {
-                if let Some(hook) = bus.get::<dyn crate::pending_queue::AgentLoopHook>() {
-                    if let Some(steering_msg) = hook.take_steering() {
-                        // Convert to Standard — steering is an injection method, not a message type.
-                        // The session should only contain Standard messages for persistence.
-                        let msg = match steering_msg {
-                            AgentMessage::Steering(m) => AgentMessage::Standard(m),
-                            other => other,
-                        };
-                        state.session.append_message(msg.clone(), None).await;
-                        pending_injections.extend(
-                            fire_context_on_message(config, &agent_id, &msg).await,
-                        );
-                        emit_runtime_event(
-                            &state.session,
-                            "iteration_end",
-                            Some(iteration_start_uuid.clone()),
-                            None,
-                        ).await;
-                        continue 'inner;
-                    }
-                }
-            }
-
-            // Session skeleton: end of iteration (tool-calls path, no steering inject)
+            // Session skeleton: end of iteration (tool-calls path).
+            // Any mid-run user interjection lands via an extension that
+            // runs at `before_llm_call`, not here.
             emit_runtime_event(
                 &state.session,
                 "iteration_end",
@@ -929,29 +914,10 @@ async fn run_loop(
             ).await;
         }
 
-        // Follow-up check: when inner loop ends naturally
-        let follow_ups = config
-            .bus
-            .as_ref()
-            .and_then(|b| b.get::<dyn crate::pending_queue::AgentLoopHook>())
-            .map(|h| h.take_follow_ups())
-            .unwrap_or_default();
-        if follow_ups.is_empty() {
-            break 'outer; // Truly done
-        }
-        for msg in follow_ups {
-            // Convert to Standard — follow-up is an injection method, not a message type.
-            // The session should only contain Standard messages for persistence.
-            let msg = match msg {
-                AgentMessage::FollowUp(m) => AgentMessage::Standard(m),
-                other => other,
-            };
-            state.session.append_message(msg.clone(), None).await;
-            pending_injections.extend(
-                fire_context_on_message(config, &agent_id, &msg).await,
-            );
-        }
-        // Continue outer loop — process follow-ups
+        // Inner loop ended with no more tool calls → agent run is done.
+        // Callers that want to "continue the conversation" invoke
+        // `run_agent` again with the next user input.
+        break 'outer;
     }
 
     Ok(())

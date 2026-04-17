@@ -5,7 +5,6 @@
 pub mod builtins;
 pub mod event;
 pub mod middleware;
-pub mod pending_queue;
 pub mod run;
 pub mod run_child;
 pub mod runtime_context;
@@ -27,9 +26,6 @@ pub use run_child::{run_child_agent, ChildAgentOutput, ChildAgentParams};
 
 // Re-exports — event
 pub use event::AgentEvent;
-
-// Re-exports — pending_queue
-pub use pending_queue::{AgentLoopHook, PendingMessageQueue};
 
 // Re-exports — runtime context
 pub use runtime_context::RuntimeExecutionContext;

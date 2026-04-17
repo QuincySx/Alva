@@ -294,6 +294,7 @@ impl LanguageModel for OpenAIResponsesProvider {
                                                 input_tokens: usage.input_tokens,
                                                 output_tokens: usage.output_tokens,
                                                 total_tokens: usage.total_tokens,
+                                                ..Default::default()
                                             });
                                         }
                                     }
@@ -552,6 +553,7 @@ fn from_responses_output(resp: ResponsesApiResponse) -> Result<Message, AgentErr
         input_tokens: u.input_tokens,
         output_tokens: u.output_tokens,
         total_tokens: u.total_tokens,
+        ..Default::default()
     });
 
     Ok(Message {

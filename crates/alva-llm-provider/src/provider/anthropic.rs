@@ -396,6 +396,8 @@ impl LanguageModel for AnthropicProvider {
                                             output_tokens: usage.output_tokens.unwrap_or(0),
                                             total_tokens: usage.input_tokens.unwrap_or(0)
                                                 + usage.output_tokens.unwrap_or(0),
+                                            cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                                            cache_read_input_tokens: usage.cache_read_input_tokens,
                                         });
                                     }
                                 }
@@ -411,6 +413,8 @@ impl LanguageModel for AnthropicProvider {
                                                 output_tokens: usage.output_tokens.unwrap_or(0),
                                                 total_tokens: usage.input_tokens.unwrap_or(0)
                                                     + usage.output_tokens.unwrap_or(0),
+                                                cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                                                cache_read_input_tokens: usage.cache_read_input_tokens,
                                             });
                                         }
                                     }
@@ -481,6 +485,10 @@ struct AnthropicUsage {
     input_tokens: Option<u32>,
     #[serde(default)]
     output_tokens: Option<u32>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u32>,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -698,6 +706,8 @@ fn from_anthropic_response(resp: AnthropicResponse) -> Result<Message, AgentErro
         input_tokens: u.input_tokens.unwrap_or(0),
         output_tokens: u.output_tokens.unwrap_or(0),
         total_tokens: u.input_tokens.unwrap_or(0) + u.output_tokens.unwrap_or(0),
+        cache_creation_input_tokens: u.cache_creation_input_tokens,
+        cache_read_input_tokens: u.cache_read_input_tokens,
     });
 
     Ok(Message {

@@ -27,6 +27,7 @@ mod plan_mode;
 mod analytics;
 mod auth;
 mod lsp;
+mod pending;
 
 // Re-export built-in extension types
 pub use skills::SkillsExtension;
@@ -50,3 +51,4 @@ pub use plan_mode::PlanModeExtension;
 pub use analytics::AnalyticsExtension;
 pub use auth::AuthExtension;
 pub use lsp::LspExtension;
+pub use pending::{PendingExtension, PendingMessage, PendingService, PendingServiceImpl};

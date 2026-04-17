@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use alva_kernel_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware, ToolTimeoutMiddleware};
 use alva_kernel_core::middleware::MiddlewareStack;
-use alva_kernel_core::pending_queue::{AgentLoopHook, PendingMessageQueue};
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::shared::Extensions;
 use alva_agent_security::{SandboxMode, SecurityGuard};
@@ -29,7 +28,6 @@ pub struct AgentRuntime {
     pub tool_registry: ToolRegistry,
     pub bus: BusHandle,
     pub bus_writer: Option<BusWriter>,
-    pub pending_messages: Option<Arc<PendingMessageQueue>>,
     pub plan_mode_middleware: Option<Arc<PlanModeMiddleware>>,
     pub security_guard: Option<Arc<Mutex<SecurityGuard>>>,
 }
@@ -171,9 +169,12 @@ impl AgentRuntimeBuilder {
     ///
     /// This wires:
     /// - a default heuristic token counter
-    /// - PendingMessageQueue as AgentLoopHook
     /// - Security / loop detection / timeout / compaction / plan / checkpoint middleware
     /// - optional approval notifier and bus plugins
+    ///
+    /// Mid-run steering/interjection is NOT wired here — callers that
+    /// want it should add the opt-in `PendingExtension` (from
+    /// `alva_app_core::extension::pending`) via their own extension path.
     pub fn with_standard_agent_stack(mut self, sandbox_mode: SandboxMode) -> Self {
         self.standard_agent_stack = Some(sandbox_mode);
         self
@@ -199,7 +200,6 @@ impl AgentRuntimeBuilder {
         };
 
         let mut middleware = self.middleware;
-        let mut pending_messages: Option<Arc<PendingMessageQueue>> = None;
         let mut plan_mode_middleware: Option<Arc<PlanModeMiddleware>> = None;
         let mut security_guard: Option<Arc<Mutex<SecurityGuard>>> = None;
 
@@ -219,10 +219,6 @@ impl AgentRuntimeBuilder {
             if let Some(notifier) = self.approval_notifier.clone() {
                 writer.provide(Arc::new(notifier));
             }
-
-            let queue = Arc::new(PendingMessageQueue::new());
-            writer.provide::<dyn AgentLoopHook>(queue.clone() as Arc<dyn AgentLoopHook>);
-            pending_messages = Some(queue);
 
             for plugin in &self.bus_plugins {
                 let mut registrar = PluginRegistrar::new(&writer, plugin.name());
@@ -297,7 +293,6 @@ impl AgentRuntimeBuilder {
             tool_registry: registry,
             bus,
             bus_writer,
-            pending_messages,
             plan_mode_middleware,
             security_guard,
         }
@@ -385,11 +380,9 @@ mod tests {
             .build(Arc::new(DummyModel));
 
         assert!(runtime.bus_writer.is_some());
-        assert!(runtime.pending_messages.is_some());
         assert!(runtime.plan_mode_middleware.is_some());
         assert!(runtime.security_guard.is_some());
         assert!(runtime.bus.has::<dyn TokenCounter>());
-        assert!(runtime.bus.has::<dyn AgentLoopHook>());
         assert!(runtime.config.middleware.len() >= 7);
     }
 

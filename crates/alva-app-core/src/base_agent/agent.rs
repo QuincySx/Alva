@@ -33,9 +33,6 @@ pub struct BaseAgent {
     /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
     /// Wrapped in Arc so the ExtensionHost can also hold a reference for shutdown().
     pub(super) current_cancel: Arc<std::sync::Mutex<CancellationToken>>,
-    /// Pending messages queue — bridges external steer/follow_up calls
-    /// to the agent loop via AgentLoopHook.
-    pub(super) pending_messages: Arc<alva_kernel_core::pending_queue::PendingMessageQueue>,
     /// Init-phase bus writer — retained for post-init registration (e.g., checkpoint callback).
     pub(super) bus_writer: BusWriter,
 }
@@ -89,24 +86,6 @@ impl BaseAgent {
     pub fn cancel(&self) {
         let current = self.current_cancel.lock().unwrap_or_else(|e| e.into_inner());
         current.cancel();
-    }
-
-    /// Inject a steering message mid-turn.
-    ///
-    /// The message is delivered after the current tool execution completes,
-    /// before the next LLM call. Replaces any previously queued steering message.
-    pub fn steer(&self, text: &str) {
-        self.pending_messages
-            .steer(AgentMessage::Steering(Message::user(text)));
-    }
-
-    /// Queue a follow-up message.
-    ///
-    /// Delivered after the agent finishes its current turn naturally (no more tool calls).
-    /// Multiple follow-ups accumulate and are processed in order.
-    pub fn follow_up(&self, text: &str) {
-        self.pending_messages
-            .follow_up(AgentMessage::FollowUp(Message::user(text)));
     }
 
     /// Get a snapshot of the current message history.

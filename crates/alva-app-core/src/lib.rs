@@ -17,8 +17,8 @@
 
 pub use alva_kernel_abi;
 
-pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, PendingMessageQueue};
-pub use alva_kernel_core::{Middleware, MiddlewareStack, MiddlewareError, MiddlewarePriority, Extensions};
+pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage};
+pub use alva_kernel_core::{MiddlewareStack, Extensions};
 pub use alva_kernel_core::run_agent;
 
 pub use alva_agent_extension_builtin::tool_presets;

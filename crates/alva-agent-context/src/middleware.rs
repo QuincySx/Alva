@@ -292,7 +292,27 @@ impl Middleware for CompactionMiddleware {
         // Write compacted messages back to the session so the history
         // actually shrinks. Without this, every subsequent turn would
         // re-read the full uncompacted history and repeat summarization.
+        //
+        // NOTE: `clear()` wipes the entire event log, not just messages —
+        // skeleton events (run_start, llm_call_*, tool_use) are lost too.
+        // A compaction marker is emitted as the first event of the rebuilt
+        // log below so consumers can at least see that a rewrite happened.
+        // A less destructive rewrite is tracked as future work.
         let _ = state.session.clear().await;
+
+        let mut compaction_event =
+            alva_kernel_abi::SessionEvent::new_runtime("compaction");
+        compaction_event.data = Some(serde_json::json!({
+            "strategy": "llm_summarization",
+            "old_message_count": old_count,
+            "new_message_count": new_count,
+            "old_tokens": total_tokens,
+            "new_tokens": new_tokens,
+            "trigger_tokens": self.config.trigger_tokens,
+            "summary_length": summary_text.len(),
+        }));
+        state.session.append(compaction_event).await;
+
         for msg in &compacted {
             state
                 .session
@@ -666,5 +686,52 @@ mod tests {
             event.tokens_after,
             event.tokens_before,
         );
+    }
+
+    #[tokio::test]
+    async fn compaction_writes_event_to_session_log() {
+        use alva_kernel_abi::EventQuery;
+
+        let bus = alva_kernel_abi::Bus::new();
+        let writer = bus.writer();
+        writer.provide::<dyn alva_kernel_abi::TokenCounter>(Arc::new(MockCounter(500)));
+        let handle = bus.handle();
+
+        let mw = CompactionMiddleware::new(CompactionConfig {
+            trigger_tokens: 200,
+            reserve_tokens: 0,
+            keep_recent_tokens: 250,
+        })
+        .with_bus(handle);
+
+        let mut state = make_state_with_summary_model();
+        let long_text = "x".repeat(400);
+        let mut msgs = vec![
+            Message::system("sys"),
+            make_user_msg(&format!("aaa {}", long_text)),
+            make_assistant_msg(&format!("bbb {}", long_text)),
+            make_user_msg(&format!("ccc {}", long_text)),
+            make_assistant_msg(&format!("ddd {}", long_text)),
+            make_user_msg(&format!("eee {}", long_text)),
+            make_assistant_msg(&format!("fff {}", long_text)),
+        ];
+
+        let _ = mw.before_llm_call(&mut state, &mut msgs).await;
+        assert!(mw.compaction_count() > 0, "compaction must fire");
+
+        // Session log should contain exactly one `compaction` event with the
+        // expected data shape.
+        let matches = state
+            .session
+            .query(&EventQuery {
+                event_type: Some("compaction".into()),
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(matches.len(), 1, "expected one compaction event");
+        let data = matches[0].event.data.as_ref().expect("event must carry data");
+        assert_eq!(data.get("strategy").and_then(|v| v.as_str()), Some("llm_summarization"));
+        assert!(data.get("old_message_count").and_then(|v| v.as_u64()).unwrap() > 0);
+        assert!(data.get("new_message_count").and_then(|v| v.as_u64()).unwrap() > 0);
     }
 }

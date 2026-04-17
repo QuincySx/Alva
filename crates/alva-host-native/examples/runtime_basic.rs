@@ -50,6 +50,7 @@ impl LanguageModel for StubModel {
                 input_tokens: 10,
                 output_tokens: 8,
                 total_tokens: 18,
+                ..Default::default()
             }),
             timestamp: 0,
         }))

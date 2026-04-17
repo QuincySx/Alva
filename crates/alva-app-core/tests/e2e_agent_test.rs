@@ -187,102 +187,10 @@ async fn e2e_tool_call_chain() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: Follow-up message continues after natural stop
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e2e_follow_up_continues() {
-    let model = Arc::new(
-        MockLanguageModel::new()
-            .with_response(make_assistant_message("First answer."))
-            .with_response(make_assistant_message("Follow-up answer.")),
-    );
-
-    let (agent, _tmp) = build_agent(model).await;
-
-    // Queue follow-up BEFORE prompting — it will be consumed after the first
-    // natural stop (no tool calls).
-    agent.follow_up("Now do this additional thing.");
-
-    let rx = agent.prompt_text("Do something.");
-    let events = collect_events(rx).await;
-
-    // Should have 2 MessageEnd events: first response + follow-up response
-    let message_end_count = events
-        .iter()
-        .filter(|e| matches!(e, AgentEvent::MessageEnd { .. }))
-        .count();
-    assert_eq!(
-        message_end_count, 2,
-        "should process both initial and follow-up, got {} MessageEnd events",
-        message_end_count
-    );
-
-    // Verify session contains follow-up messages
-    let messages = agent.messages().await;
-    assert!(
-        messages.len() >= 4,
-        "should have >= 4 messages (user, assistant, follow-up user, follow-up assistant), got {}",
-        messages.len()
-    );
-
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })));
-}
-
-// ---------------------------------------------------------------------------
-// Test: Steering message mid-turn
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e2e_steering_mid_turn() {
-    // First response: model requests a tool call
-    let tool_resp = make_tool_call_message("my_helper", serde_json::json!({}));
-    // Second response: model acknowledges steering
-    let steering_resp = make_assistant_message("OK, I changed my approach as requested.");
-
-    let model = Arc::new(
-        MockLanguageModel::new()
-            .with_response(tool_resp)
-            .with_response(steering_resp),
-    );
-
-    let mock_tool = MockTool::new("my_helper").with_result(ToolOutput::text("done"));
-
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let agent = BaseAgent::builder()
-        .workspace(tmp.path())
-        .system_prompt("Test.")
-        .tool(Box::new(mock_tool))
-        .build(model)
-        .await
-        .expect("build");
-
-    // Queue a steering message BEFORE prompting; it will be consumed after
-    // tool execution completes, before the next LLM call.
-    agent.steer("Actually, use a different approach.");
-
-    let rx = agent.prompt_text("Do something.");
-    let events = collect_events(rx).await;
-
-    // Should have completed without error
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
-        "agent should end without error"
-    );
-
-    // Session should contain: user msg, tool-call response, tool result,
-    // steering msg (normalized to Standard), steering response.
-    let messages = agent.messages().await;
-    assert!(
-        messages.len() >= 4,
-        "should have multiple messages including steering, got {}",
-        messages.len()
-    );
-}
+// Follow-up and steering e2e tests removed — the kernel no longer has a
+// follow_up / steer path on BaseAgent. Mid-run interjection is now provided
+// by the opt-in `PendingExtension` in `alva_app_core::extension::pending`;
+// dedicated tests live next to that extension.
 
 // ---------------------------------------------------------------------------
 // Test: Plan mode blocks write tools
@@ -375,6 +283,7 @@ async fn e2e_usage_metadata_in_events() {
             input_tokens: 100,
             output_tokens: 50,
             total_tokens: 150,
+            ..Default::default()
         }),
         timestamp: 0,
     };
@@ -1456,7 +1365,6 @@ async fn e2e_builtin_tool_registry_completeness() {
         "find_files",
         "list_files",
         "ask_human",
-        "view_image",
     ];
     for tool_name in &expected {
         assert!(

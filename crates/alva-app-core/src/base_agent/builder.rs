@@ -86,28 +86,26 @@ impl BaseAgentBuilder {
         self
     }
 
-    // -- Direct tool/middleware (internal / eval use) -------------------------
+    // -- Direct tool/middleware (internal only) ---------------------------------
+    // These bypass the Extension abstraction. Kept for eval harnesses and
+    // internal wiring within app-core; NOT for external crate consumption.
 
-    /// Add tools directly. Prefer `.extension()` for public use.
-    pub fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
+    pub(crate) fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
         self.extra_tools.extend(tools);
         self
     }
 
-    /// Add a single tool directly. Prefer `.extension()` for public use.
-    pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
+    pub(crate) fn tool(mut self, tool: Box<dyn Tool>) -> Self {
         self.extra_tools.push(tool);
         self
     }
 
-    /// Add middleware directly. Prefer `.extension()` for public use.
-    pub fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
+    pub(crate) fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
         self.extra_middleware.extend(mws);
         self
     }
 
-    /// Add a single middleware directly. Prefer `.extension()` for public use.
-    pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
+    pub(crate) fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
         self.extra_middleware.push(mw);
         self
     }
@@ -162,14 +160,6 @@ impl BaseAgentBuilder {
         bus_writer.provide::<dyn alva_kernel_abi::TokenCounter>(Arc::new(
             alva_kernel_abi::model::HeuristicTokenCounter::new(200_000),
         ));
-
-        // 3b. PendingMessageQueue + AgentLoopHook. We need to keep
-        //     `pending_messages` outside the builder because BaseAgent's
-        //     `steer()` / `follow_up()` push into it directly.
-        let pending_messages = Arc::new(alva_kernel_core::pending_queue::PendingMessageQueue::new());
-        bus_writer.provide::<dyn alva_kernel_core::pending_queue::AgentLoopHook>(
-            pending_messages.clone() as Arc<dyn alva_kernel_core::pending_queue::AgentLoopHook>,
-        );
 
         // 4. Auto-wire default extensions for memory + security if the
         //    caller hasn't already registered an extension under the same
@@ -231,13 +221,15 @@ impl BaseAgentBuilder {
             .map_err(|e| EngineError::ToolExecution(format!("agent build failed: {e}")))?;
 
         // 7. Post-build harness wiring. The extension host now exists and
-        //    extensions have already been activated/configured. We need to
-        //    bind the cancellation token + pending messages so the host can
-        //    cancel the loop and inject steering messages.
+        //    extensions have already been activated/configured. We bind the
+        //    cancellation token so the host can cancel the loop via
+        //    `HostAPI::shutdown`. Steering/follow-up injection is no longer
+        //    a kernel concern — users who need it opt in with the
+        //    `PendingExtension` (in `alva_app_core::extension::pending`).
         let current_cancel = Arc::new(std::sync::Mutex::new(CancellationToken::new()));
         {
             let mut host = inner.host().write().unwrap();
-            host.bind_agent(pending_messages.clone(), current_cancel.clone());
+            host.bind_agent(current_cancel.clone());
         }
 
         // 8. Register bus plugins (harness-specific, not exposed by SDK).
@@ -258,7 +250,6 @@ impl BaseAgentBuilder {
         Ok(BaseAgent {
             inner: Arc::new(inner),
             current_cancel,
-            pending_messages,
             bus_writer,
         })
     }
