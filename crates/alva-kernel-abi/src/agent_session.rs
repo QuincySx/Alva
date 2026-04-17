@@ -244,6 +244,27 @@ pub struct EventMatch {
 ///    scoped session wrapper at each extension point injects this automatically
 ///    so third-party code cannot fill it incorrectly.
 ///
+/// ## Durability contract
+///
+/// `append` and `append_message` return `()`. This is deliberate — the
+/// implementation owns durability and error recovery entirely:
+///
+/// - **Transient failures** (network blips, disk pressure, broker
+///   reconnects, etc.) MUST be handled internally: buffer, retry, or
+///   dead-letter locally. Do NOT drop events silently.
+/// - **Permanent failures** (archived session, expired auth, quota exceeded,
+///   backend wedged beyond retry) MUST be surfaced on the next call to
+///   `flush` / `close`, carried in `SessionError::Other` or a more
+///   specific variant. Per-event result returns are intentionally not
+///   provided — hot-path callers cannot meaningfully handle each append's
+///   fate, and `flush` already exists as the sync point.
+/// - The runtime guarantees `flush` is invoked periodically (see Lifecycle
+///   contract below), so permanent failures surface within a bounded window.
+///
+/// In-memory backends may no-op everything; remote/persistent backends
+/// are expected to maintain an internal write queue with back-pressure
+/// and escalate unrecoverable errors at flush time.
+///
 /// ## Lifecycle contract
 ///
 /// - **`restore()`** — called exactly once after construction, before any other
@@ -277,12 +298,18 @@ pub trait AgentSession: Send + Sync {
 
     /// Append a raw event. The backend assigns `event.seq` atomically and
     /// updates any internal projections (e.g. message cache).
+    ///
+    /// Returns `()` — see the "Durability contract" on the trait doc.
+    /// Transient failures are absorbed internally; permanent failures
+    /// surface on the next `flush` / `close`.
     async fn append(&self, event: SessionEvent);
 
     /// Append an `AgentMessage` as a user / assistant / tool_result event.
     /// The backend translates the message into a `SessionEvent` with
     /// `emitter = Runtime` and the given `parent_uuid` (or None for unparented
     /// messages) and appends it.
+    ///
+    /// Same durability contract as `append`.
     async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>);
 
     // --- Read: event-level ---
@@ -296,12 +323,76 @@ pub trait AgentSession: Send + Sync {
     // --- Read: message-level (hot path for LLM input assembly) ---
 
     /// All messages in append order, projected from events.
-    /// Backends are expected to serve this from an internal cache.
+    ///
+    /// **Must be served from an O(1) local projection.** This is called on
+    /// the hot path of `run_agent` (every iteration before the LLM request),
+    /// so implementations MUST NOT round-trip to remote storage on each
+    /// call. Remote backends should implement `SubscribableSession` and
+    /// keep a local mirror warm from that stream.
     async fn messages(&self) -> Vec<AgentMessage>;
 
-    /// The last N messages, projected from events.
-    /// Backends are expected to serve this from an internal cache.
+    /// The last N messages, projected from events. Same cache requirement
+    /// as `messages`.
     async fn recent_messages(&self, n: usize) -> Vec<AgentMessage>;
+
+    /// Return messages whose source event has `seq > after_seq`, in append
+    /// order. Used by remote backends to incrementally sync a local mirror
+    /// without re-fetching the full history each turn.
+    ///
+    /// The default implementation scans the event log via `query` and
+    /// deserializes the `AgentMessage` out of each event's `data` field,
+    /// so it matches `messages()` in cost. Network-backed backends should
+    /// override this with an efficient single-roundtrip query (e.g. a
+    /// server-side filter on `seq`).
+    ///
+    /// Events without a serialized `AgentMessage` in `data` (progress,
+    /// skeleton, extension events) are skipped.
+    async fn messages_since(&self, after_seq: u64) -> Vec<AgentMessage> {
+        let matches = self.query(&EventQuery::default()).await;
+        matches
+            .into_iter()
+            .filter(|m| m.event.seq > after_seq)
+            .filter_map(|m| {
+                m.event
+                    .data
+                    .and_then(|d| serde_json::from_value::<AgentMessage>(d).ok())
+            })
+            .collect()
+    }
+
+    // --- Subscription ---
+
+    /// Subscribe to the session's event stream, returning a stream that
+    /// yields (in order):
+    ///
+    /// 1. All events currently in the log with `seq > from_seq`.
+    /// 2. All subsequently appended events, for as long as the stream is
+    ///    held — **if the backend supports live tailing**.
+    ///
+    /// The default implementation covers (1) only: a one-shot snapshot
+    /// of historical events that ends immediately after replay. Backends
+    /// that support broadcasting new events to subscribers
+    /// (e.g. `ListenableInMemorySession`, remote HTTP/SSE backends) MUST
+    /// override to provide both (1) and (2) with no gap or duplication at
+    /// the boundary.
+    ///
+    /// Typical uses:
+    /// - `from_seq = 0` — "give me everything". Remote backends use this
+    ///   at construction time to populate a local mirror; live-tail impls
+    ///   then keep it warm.
+    /// - `from_seq = last_seen` — resume after a reader disconnect.
+    ///
+    /// Dropping the returned stream unsubscribes. Cleanup of internal
+    /// listener state is allowed to be lazy.
+    async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream {
+        let matches = self.query(&EventQuery::default()).await;
+        let history: Vec<SessionEvent> = matches
+            .into_iter()
+            .filter(|m| m.event.seq > from_seq)
+            .map(|m| m.event)
+            .collect();
+        Box::pin(futures_util::stream::iter(history))
+    }
 
     // --- Write correction ---
 
@@ -325,6 +416,13 @@ pub trait AgentSession: Send + Sync {
 
     async fn clear(&self) -> Result<(), SessionError>;
 }
+
+// ===========================================================================
+// Session event stream
+// ===========================================================================
+
+/// Stream of `SessionEvent`s. Returned by `AgentSession::subscribe_events`.
+pub type SessionEventStream = futures_util::stream::BoxStream<'static, SessionEvent>;
 
 // ===========================================================================
 // ScopedSession
@@ -808,6 +906,58 @@ impl AgentSession for ListenableInMemorySession {
     async fn clear(&self) -> Result<(), SessionError> {
         self.inner.clear().await
     }
+
+    /// Override: return a stream that yields historical events with
+    /// `seq > from_seq`, then follows live events appended thereafter.
+    ///
+    /// History snapshot and listener registration happen under the events
+    /// write lock, so no event is dropped or duplicated across the
+    /// historical-to-live boundary.
+    async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream {
+        use futures_util::stream::{self, StreamExt};
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<SessionEvent>();
+
+        // Atomically snapshot history AND register the listener under the
+        // events write lock. Any `append` takes `events.write()` first, so
+        // while we hold that lock no new event can be published to the log.
+        // After we release, new appends go to both the log and the listener.
+        // Events with seq <= the snapshot high-water are in (1); events
+        // after are in (2). No dup, no loss.
+        let events_guard = self.inner.events.write().await;
+        let history: Vec<SessionEvent> = events_guard
+            .iter()
+            .filter(|e| e.seq > from_seq)
+            .cloned()
+            .collect();
+
+        let listener: Arc<dyn SessionEventListener> = Arc::new(ChannelListener { tx });
+        self.listeners.write().await.push(listener);
+        drop(events_guard);
+
+        let history_stream = stream::iter(history);
+        let live_stream = stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|e| (e, rx))
+        });
+
+        Box::pin(history_stream.chain(live_stream))
+    }
+}
+
+// Listener that funnels received events into an mpsc channel. Used by
+// `ListenableInMemorySession::subscribe_events` to back the returned
+// stream.
+struct ChannelListener {
+    tx: tokio::sync::mpsc::UnboundedSender<SessionEvent>,
+}
+
+#[async_trait]
+impl SessionEventListener for ChannelListener {
+    async fn on_event(&self, event: &SessionEvent) {
+        // Receiver dropped → stream was dropped by consumer. Silently
+        // no-op; the listener stays in the Vec (lazy cleanup).
+        let _ = self.tx.send(event.clone());
+    }
 }
 
 // ===========================================================================
@@ -1001,6 +1151,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn messages_since_returns_only_newer_messages() {
+        let s = InMemoryAgentSession::new();
+        s.append_message(user_msg("one"), None).await;    // seq 1
+        s.append_message(user_msg("two"), None).await;    // seq 2
+        s.append_message(user_msg("three"), None).await;  // seq 3
+
+        assert_eq!(s.messages_since(0).await.len(), 3);
+        assert_eq!(s.messages_since(1).await.len(), 2);
+        assert_eq!(s.messages_since(2).await.len(), 1);
+        assert_eq!(s.messages_since(3).await.len(), 0);
+        assert_eq!(s.messages_since(99).await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn messages_since_skips_non_message_events() {
+        let s = InMemoryAgentSession::new();
+        s.append_message(user_msg("m1"), None).await;                          // seq 1 (message)
+        s.append(SessionEvent::progress(serde_json::json!({"p": 1}))).await;   // seq 2 (no data-backed message)
+        s.append_message(user_msg("m2"), None).await;                          // seq 3 (message)
+
+        // Default impl deserializes from event.data — only the two messages
+        // round-trip; the raw progress event has `data` but it's not an
+        // AgentMessage, so it's skipped.
+        let all = s.messages_since(0).await;
+        assert_eq!(all.len(), 2);
+    }
+
+    #[tokio::test]
     async fn recent_messages_larger_than_total_returns_all() {
         let s = InMemoryAgentSession::new();
         s.append_message(user_msg("one"), None).await;
@@ -1178,6 +1356,79 @@ mod tests {
 
         assert_eq!(r1.lock().await.len(), 1, "first listener should fire");
         assert_eq!(r2.lock().await.len(), 1, "second listener should fire");
+    }
+
+    #[tokio::test]
+    async fn default_subscribe_events_replays_history_and_ends() {
+        use futures_util::StreamExt;
+
+        // InMemoryAgentSession doesn't override subscribe_events, so it
+        // gets the default impl: one-shot history snapshot, no live tail.
+        let s = InMemoryAgentSession::new();
+        s.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
+        s.append(SessionEvent::progress(serde_json::json!({"n": 2}))).await;
+
+        let mut stream = s.subscribe_events(0).await;
+        let e1 = stream.next().await.expect("seq 1");
+        assert_eq!(e1.seq, 1);
+        let e2 = stream.next().await.expect("seq 2");
+        assert_eq!(e2.seq, 2);
+
+        // Default impl has no live tail — stream ends after history.
+        assert!(stream.next().await.is_none(), "default impl must end after history");
+    }
+
+    #[tokio::test]
+    async fn subscribe_events_replays_history_then_tails_live() {
+        use futures_util::StreamExt;
+
+        let session = ListenableInMemorySession::new();
+        session.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
+        session.append(SessionEvent::progress(serde_json::json!({"n": 2}))).await;
+
+        // Subscribe from seq 0: replay seq 1 and 2, then wait on live.
+        let mut stream = session.subscribe_events(0).await;
+
+        let e1 = stream.next().await.expect("seq 1 should replay");
+        assert_eq!(e1.seq, 1);
+        let e2 = stream.next().await.expect("seq 2 should replay");
+        assert_eq!(e2.seq, 2);
+
+        // Append a live event after subscription; stream should yield it.
+        session.append(SessionEvent::progress(serde_json::json!({"n": 3}))).await;
+        let e3 = stream.next().await.expect("seq 3 should arrive live");
+        assert_eq!(e3.seq, 3);
+    }
+
+    #[tokio::test]
+    async fn subscribe_events_from_seq_skips_early_history() {
+        use futures_util::StreamExt;
+
+        let session = ListenableInMemorySession::new();
+        session.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
+        session.append(SessionEvent::progress(serde_json::json!({"n": 2}))).await;
+        session.append(SessionEvent::progress(serde_json::json!({"n": 3}))).await;
+
+        // Subscribe after seq 1: history yields seq 2 and 3 only.
+        let mut stream = session.subscribe_events(1).await;
+        let e = stream.next().await.unwrap();
+        assert_eq!(e.seq, 2);
+        let e = stream.next().await.unwrap();
+        assert_eq!(e.seq, 3);
+    }
+
+    #[tokio::test]
+    async fn subscribe_events_dropping_stream_does_not_panic_future_appends() {
+        let session = ListenableInMemorySession::new();
+        {
+            let _stream = session.subscribe_events(0).await;
+            // drop stream at end of scope
+        }
+        // Subsequent appends must succeed (no panic / no hang) even though
+        // the ChannelListener's receiver is gone.
+        session.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
+        let events = session.inner.events.read().await;
+        assert_eq!(events.len(), 1);
     }
 
     #[tokio::test]
