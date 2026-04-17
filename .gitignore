@@ -8,5 +8,10 @@ Cargo.lock
 .claude/hud-cache.json
 .claude/hud-last-scan
 .claude/projects/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
 .playwright-cli/
 alva-eval-runs.db
+
+# Ad-hoc test binaries left at repo root during development.
+/test_dyn_trait
