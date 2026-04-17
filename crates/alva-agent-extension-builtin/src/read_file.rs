@@ -1,7 +1,6 @@
 // INPUT:  alva_kernel_abi, async_trait, base64, schemars, serde, serde_json, crate::local_fs::LocalToolFs
 // OUTPUT: ReadFileTool
-// POS:    Read file contents with offset/limit pagination, automatic image detection,
-//         encoding detection, PDF page support, and smart truncation.
+// POS:    Read file contents with offset/limit pagination, image detection (magic bytes + extension fallback for SVG/ICO), encoding detection, PDF page support, and smart truncation.
 //! read_file — read text or image files with pagination and truncation
 
 use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
@@ -54,6 +53,22 @@ fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
         return Some("image/bmp");
     }
     None
+}
+
+/// Detect image MIME type by file extension. Catches formats whose magic
+/// bytes are ambiguous or text-based (SVG, ICO).
+fn detect_image_by_extension(path: &std::path::Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?.to_lowercase();
+    match ext.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "bmp" => Some("image/bmp"),
+        "svg" => Some("image/svg+xml"),
+        "ico" => Some("image/x-icon"),
+        _ => None,
+    }
 }
 
 /// Check if a file is a PDF based on magic bytes.
@@ -119,8 +134,8 @@ fn parse_page_range(range: &str) -> Result<(usize, usize), String> {
 #[tool(
     name = "read_file",
     description = "Read file contents. Returns text with line numbers for code/text files, \
-        or base64-encoded image data for image files. Supports offset/limit for \
-        paginated reading of large files. Use pages parameter for PDF files.",
+        or base64-encoded image data for image files (PNG, JPEG, GIF, WebP, BMP, SVG, ICO). \
+        Supports offset/limit for paginated reading of large files. Use pages parameter for PDF files.",
     input = Input,
     read_only,
     concurrency_safe,
@@ -169,8 +184,10 @@ impl ReadFileTool {
         // Record the read for staleness detection by FileEditTool
         crate::file_edit::record_file_read(path_str, crate::file_edit::content_hash(&data));
 
-        // Check if it's an image (magic bytes)
-        if let Some(mime) = detect_image_mime(&data) {
+        // Check if it's an image (magic bytes first, then file extension fallback)
+        let image_mime = detect_image_mime(&data)
+            .or_else(|| detect_image_by_extension(&file_path));
+        if let Some(mime) = image_mime {
             return self.handle_image(&data, mime, &params.path);
         }
 

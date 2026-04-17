@@ -35,7 +35,7 @@ default = ["core", "utility"]
 
 # Always-on fundamentals
 core = []          # file_io + shell + interaction + plan_mode primitives
-utility = []       # sleep / config / skill / tool_search / view_image
+utility = []       # sleep / config / skill / tool_search
 
 # Opt-in bundles
 web = ["dep:reqwest"]    # internet_search + read_url (native only by target gating)

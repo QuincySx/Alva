@@ -46,8 +46,6 @@ pub mod execute_shell;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod ask_human;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
-pub mod view_image;
-#[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod todo_write;
 
 // Plan mode primitives are pure signaling — wasm-safe.
@@ -132,7 +130,7 @@ pub mod remote_trigger;
 pub mod tool_presets {
     use alva_kernel_abi::tool::Tool;
 
-    /// Core file tools: read, write, edit, search, list, view image.
+    /// Core file tools: read (with image support), write, edit, search, list.
     pub fn file_io() -> Vec<Box<dyn Tool>> {
         #[allow(unused_mut)]
         let mut tools: Vec<Box<dyn Tool>> = Vec::new();
@@ -144,7 +142,6 @@ pub mod tool_presets {
             tools.push(Box::new(crate::list_files::ListFilesTool));
             tools.push(Box::new(crate::find_files::FindFilesTool));
             tools.push(Box::new(crate::grep_search::GrepSearchTool));
-            tools.push(Box::new(crate::view_image::ViewImageTool));
         }
         tools
     }
