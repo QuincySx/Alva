@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/alva-app",
+    "crates/alva-app-tauri",
     "crates/alva-app-core",
     "crates/alva-app-cli",
     "crates/alva-app-debug",
@@ -25,10 +25,10 @@ members = [
     "crates/alva-app-devtools-mcp",
     "crates/alva-environment",
     "crates/alva-llm-provider",
-    "crates/alva-app-eval",
     "crates/alva-host-wasm",
     "crates/alva-app-extension-browser",
     "crates/alva-app-extension-memory",
+    "crates/alva-app-extension-loader",
 ]
 resolver = "2"
 

@@ -95,6 +95,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-agent-extension-builtin` | **内置 tool + 默认 extension wrapper**。`tools/` 目录 40+ 个 `Tool` 实现，按 feature 分组（`core` = file_io + shell + interaction + plan primitives；`utility` = config / skill / tool_search / sleep；`web` = internet_search + read_url；`notebook` / `worktree` / `team` / `task` / `schedule` / `browser`）。`tool_presets::*` 函数把工具按组打包。`wrappers/` 目录的 11 个 `Extension` 包装：`CoreExtension` / `ShellExtension` / `InteractionExtension` / `TaskExtension` / `TeamExtension` / `PlanningExtension` / `UtilityExtension` / `WebExtension` / `BrowserExtension` —— 这些是 tool 组的 Extension 形式。**`MemoryExtension::default()`**（默认用 `InMemoryBackend`，可被同名 extension 替换）。**`SecurityExtension::for_workspace()`**（默认 sandbox 中间件）。`LocalToolFs`：本地 OS `ToolFs` 适配器，native-only。`register_builtin_tools(registry)` legacy shim。 |
 | `alva-app-extension-browser` | **重依赖外挂**：基于 `chromiumoxide` 的浏览器自动化（CDP），独立 crate 隔离 mio 依赖，wasm 不可用。 |
 | `alva-app-extension-memory` | **重依赖外挂**：基于 `rusqlite` + 捆绑 SQLite 的持久化 memory backend (`MemorySqlite`) + 工作区扫描 + LLM 提取。**不是默认 backend**——想要持久化的用户显式注册一个同名 `Extension` 来替换 `MemoryExtension::default()`。 |
+| `alva-app-extension-loader` | **第三方子进程插件加载器**：实现 AEP（Alva Extension Protocol，JSON-RPC 2.0 over stdio），把 Python / JS / 其它语言写的插件作为子进程加载成标准 `Extension`。`SubprocessLoaderExtension` 扫描 `~/.config/alva/extensions/` + `<workspace>/.alva/extensions/`，每个插件用 `RemoteExtensionProxy` 把事件转发到子进程。Native-only（wasm 下编译为空 lib）。插件作者不用写 Rust——配套 SDK 在 `sdk/python`（`alva_sdk`）/ `sdk/js`（规划中）。 |
 
 ### L5：Harness 装配（把上面的拼起来变成可跑的 agent）
 
@@ -128,11 +129,10 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 
 | crate | 职责 |
 |------|------|
-| `alva-app` | GPUI 桌面 GUI：Sidebar / Chat / Markdown 渲染 / 主窗体。 |
 | `alva-app-cli` | CLI 入口（`pi` 风格的交互式终端 + REPL）。 |
 | `alva-app-debug` | AI 调试系统：HTTP API / 日志捕获 / 视图树检查 / `traced!` 宏。 |
 | `alva-app-devtools-mcp` | MCP 服务器：包装 `alva-app-debug` HTTP API，供外部 IDE 调试。 |
-| `alva-app-eval` | Axum 本地 HTTP 服务 + 内嵌 SPA（rust-embed）+ SSE 流式 `AgentEvent`：本地 eval playground。 |
+| `alva-app-tauri` | Tauri 2 桌面壳 + React/Vite 前端：新一代 GUI，内置 Inspector、持久化 session（SQLite）、多窗口。 |
 
 ---
 
@@ -179,16 +179,13 @@ let agent = BaseAgent::builder()
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object）。 |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app。 |
 | `Cargo.toml` | Rust workspace，管理 29 个 crate。 |
+| `sdk/python/` | Python 插件 SDK（`alva_sdk` 包）。供第三方用 Python 写 `alva-app-extension-loader` 的子进程插件，不在 Cargo workspace 里。 |
 
 ---
 
 # 项目架构
 
 > 详细架构设计见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
-
-## GPUI
-Use when building GPUI components, custom elements, managing state/entities, working with contexts, handling events/subscriptions, async tasks, global state, actions/keybindings, focus management, layout/styling, code style conventions, or writing GPUI tests.
-`docs/gpui/index.md`
 
 ## Git Commit 规范
 

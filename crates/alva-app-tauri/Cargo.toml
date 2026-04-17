@@ -1,0 +1,52 @@
+[package]
+name = "alva-app-tauri"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "alva-agent-tauri"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-dialog = "2"
+
+# Cross-platform "open path in OS file manager".
+opener = { version = "0.7", default-features = false }
+
+# Core crate: BaseAgent + extensions
+alva-app-core = { path = "../alva-app-core" }
+alva-kernel-core = { path = "../alva-kernel-core" }
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-llm-provider = { path = "../alva-llm-provider" }
+alva-protocol-skill = { path = "../alva-protocol-skill" }
+alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin" }
+alva-app-extension-browser = { path = "../alva-app-extension-browser" }
+alva-app-extension-memory = { path = "../alva-app-extension-memory" }
+
+# Cross-platform dirs (home/config resolution for skills + mcp config)
+dirs = "5"
+
+# HTTP client for provider-facing /v1/models + connection tests.
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Persistent session store (ported from alva-app-eval).
+rusqlite = { version = "0.31", features = ["bundled"] }
+chrono = "0.4"
+async-trait = "0.1"
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error / logging
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,0 +1,26 @@
+[package]
+name = "alva-app-extension-loader"
+version = "0.1.0"
+edition = "2021"
+description = "Dynamic loader for third-party extensions written in JS/Python/etc. Runs plugins as subprocesses over AEP (Alva Extension Protocol)."
+
+# Native-only by construction: subprocess spawning does not exist on
+# wasm32. On wasm the crate compiles to an empty lib so it stays in
+# the workspace without breaking wasm builds.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "rt-multi-thread", "time", "fs"] }
+tracing = "0.1"
+async-trait = "0.1"
+toml = "0.8"
+alva-agent-core = { path = "../alva-agent-core" }
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tempfile = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
