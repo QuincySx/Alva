@@ -51,10 +51,24 @@ fn main() {
         .build()
         .expect("failed to build tokio runtime");
 
-    rt.block_on(run());
+    // run() returns an exit code; all destructors for its stack locals
+    // (agent, extensions, subprocess loader, plugin proxies...) run
+    // inside block_on() before we drop the runtime. Previously we used
+    // `std::process::exit()` inside run(), which bypassed all Drop
+    // impls and caused loaded subprocess plugins to be reparented
+    // instead of cleanly shut down.
+    let exit_code = rt.block_on(run());
+
+    // Give in-flight tokio tasks a bounded window to finish (reader /
+    // writer loops on subprocess stdio shutting down cleanly, etc.).
+    rt.shutdown_timeout(std::time::Duration::from_secs(5));
+
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
 }
 
-async fn run() {
+async fn run() -> i32 {
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let paths = AlvaPaths::new(&workspace);
 
@@ -69,7 +83,7 @@ async fn run() {
                     output::print_error("Setup incomplete. You can also configure manually:");
                     eprintln!("  export ALVA_API_KEY=sk-...");
                     eprintln!("  export ALVA_MODEL=gpt-4o");
-                    return;
+                    return 1;
                 }
             }
         }
@@ -106,11 +120,11 @@ async fn run() {
 
         if prompt.is_empty() {
             eprintln!("Error: no prompt provided. Usage: alva -p \"your prompt\"");
-            std::process::exit(1);
+            return 1;
         }
 
         let exit_code = event_handler::run_print_mode(&agent, &prompt).await;
-        std::process::exit(exit_code);
+        return exit_code;
     }
 
     // 4. Print banner (interactive modes only)
@@ -126,7 +140,7 @@ async fn run() {
         // Persistence is automatic — just refresh the index summary.
         let event_count = initial_session.count(&EventQuery::default()).await;
         session_manager.refresh_summary(initial_session.session_id(), event_count, Some(&prompt));
-        return;
+        return 0;
     }
 
     // 6. Interactive REPL
@@ -140,4 +154,6 @@ async fn run() {
         &mut approval_rx,
     )
     .await;
+
+    0
 }

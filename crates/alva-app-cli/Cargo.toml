@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 alva-app-core = { path = "../alva-app-core" }
+alva-app-extension-loader = { path = "../alva-app-extension-loader" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-host-native = { path = "../alva-host-native" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }

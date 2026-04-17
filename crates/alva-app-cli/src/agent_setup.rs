@@ -1,6 +1,6 @@
-// INPUT:  alva_app_core, alva_host_native, alva_llm_provider, checkpoint
+// INPUT:  alva_app_core, alva_host_native, alva_llm_provider, alva_app_extension_loader, checkpoint
 // OUTPUT: CliCheckpointCallback, load_project_context, build_agent
-// POS:    Agent construction — config loading, provider wiring, checkpoint callback, and project context discovery
+// POS:    Agent construction — config loading, provider wiring, checkpoint callback, project context discovery, subprocess plugin loader wiring
 
 use std::path::Path;
 use std::sync::Arc;
@@ -102,7 +102,16 @@ pub(crate) async fn build_agent(
         ])))
         .extension(Box::new(alva_app_core::extension::HooksExtension::new(
             alva_app_core::settings::HooksSettings::default(),
-        )));
+        )))
+        // Third-party subprocess plugins (JS / Python / anything).
+        // Project dir shadows global on name conflicts — same convention
+        // as skills and MCP configs above.
+        .extension(Box::new(
+            alva_app_extension_loader::loader::SubprocessLoaderExtension::new(vec![
+                paths.project_extensions_dir(),
+                paths.global_extensions_dir(),
+            ]),
+        ));
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback

@@ -42,7 +42,7 @@ mod config;
 mod provider;
 pub mod rate_limit;
 
-pub use config::{normalize_base_url, ProviderConfig};
+pub use config::ProviderConfig;
 pub use provider::anthropic::AnthropicProvider;
 pub use provider::openai_chat::OpenAIChatProvider;
 pub use provider::openai_responses::OpenAIResponsesProvider;

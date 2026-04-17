@@ -225,20 +225,22 @@ impl AgentBuilder {
         // 10. Finalize phase: extensions can return additional tools that
         //     depend on seeing the final tool list. We hand them an Arc
         //     snapshot of the registry; any returned tools are folded back
-        //     into the final list (they are already Arc<dyn Tool>).
-        let mut tools_arc: Vec<Arc<dyn Tool>> = registry.list_arc();
+        //     through the registry so name collisions dedupe the same way
+        //     as the `tools()` path (last write wins).
         let finalize_ctx = FinalizeContext {
             bus: bus.clone(),
             bus_writer: bus_writer.clone(),
             workspace: workspace_for_ctx,
             model: model.clone(),
-            tools: tools_arc.clone(),
+            tools: registry.list_arc(),
             max_iterations: self.max_iterations,
         };
         for ext in &self.extensions {
-            let extra = ext.finalize(&finalize_ctx).await;
-            tools_arc.extend(extra);
+            for tool in ext.finalize(&finalize_ctx).await {
+                registry.register_arc(tool);
+            }
         }
+        let tools_arc: Vec<Arc<dyn Tool>> = registry.list_arc();
 
         // 11. Session — default to in-memory if not provided.
         let session: Arc<dyn AgentSession> = self

@@ -84,45 +84,6 @@ impl PartialConfig {
     }
 }
 
-/// Known API path suffixes that should be stripped from base_url.
-/// Order matters — longer suffixes first to avoid partial matches.
-const KNOWN_SUFFIXES: &[&str] = &[
-    "/v1/chat/completions",
-    "/chat/completions",
-    "/v1/responses",
-    "/responses",
-    "/v1/messages",
-    "/messages",
-    "/v1",
-];
-
-/// Strip known API endpoint suffixes from a base URL.
-///
-/// Users often paste full endpoint URLs like `https://api.openai.com/v1/chat/completions`
-/// when they should only provide the base `https://api.openai.com/v1`.
-/// This normalizes to just the base so providers can append their own paths.
-///
-/// ```text
-/// "https://api.openai.com/v1/chat/completions"  → "https://api.openai.com/v1"
-/// "https://api.openai.com/v1"                   → "https://api.openai.com"
-/// "https://api.anthropic.com/v1/messages"        → "https://api.anthropic.com"
-/// "https://my-proxy.com/api"                     → "https://my-proxy.com/api" (unchanged)
-/// ```
-pub fn normalize_base_url(url: &str) -> String {
-    let mut url = url.trim_end_matches('/').to_string();
-    for suffix in KNOWN_SUFFIXES {
-        if url.ends_with(suffix) {
-            url.truncate(url.len() - suffix.len());
-            break;
-        }
-    }
-    // Don't return empty string
-    if url.is_empty() {
-        return "https://api.openai.com".to_string();
-    }
-    url
-}
-
 impl ProviderConfig {
     /// Global config directory following XDG Base Directory spec.
     ///

@@ -91,6 +91,16 @@ impl AlvaPaths {
         self.project_dir.join("skills")
     }
 
+    // ── Subprocess plugin extensions ────────────────────────────────
+
+    pub fn global_extensions_dir(&self) -> PathBuf {
+        self.global_dir.join("extensions")
+    }
+
+    pub fn project_extensions_dir(&self) -> PathBuf {
+        self.project_dir.join("extensions")
+    }
+
     // ── Session / checkpoint data ───────────────────────────────────
 
     pub fn sessions_dir(&self) -> PathBuf {
