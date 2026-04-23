@@ -1007,14 +1007,20 @@ async fn run_loop(
                                     if let Some(registry) = bus
                                         .get::<alva_kernel_abi::ToolLockRegistry>()
                                     {
-                                        Some(
-                                            registry
-                                                .acquire(
-                                                    &t.resource_keys(&tool_call.arguments),
-                                                    t.execution_mode(),
-                                                )
-                                                .await,
-                                        )
+                                        let keys = t.resource_keys(&tool_call.arguments);
+                                        let mode = t.execution_mode();
+                                        // Resolve relative keys (e.g. `"src/foo.rs"`)
+                                        // against workspace root so two tools
+                                        // declaring the same file with different
+                                        // shapes (absolute vs relative) still
+                                        // collide on the same lock. Without a
+                                        // workspace, fall back to plain acquire.
+                                        Some(match config.workspace.as_deref() {
+                                            Some(ws) => {
+                                                registry.acquire_within(&keys, mode, ws).await
+                                            }
+                                            None => registry.acquire(&keys, mode).await,
+                                        })
                                     } else {
                                         None
                                     }

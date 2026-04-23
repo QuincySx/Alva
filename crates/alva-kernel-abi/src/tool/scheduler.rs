@@ -60,18 +60,74 @@ pub struct ResourceKey {
 }
 
 impl ResourceKey {
+    /// Read lock on `key`. Key is string-normalized (collapse `//`, resolve
+    /// `.` and `..` segments) so logically identical paths map to the
+    /// same lock entry.
+    ///
+    /// Note: the normalization is **purely string-based**, doesn't touch
+    /// the filesystem. Relative paths stay relative — see
+    /// [`ToolLockRegistry::acquire_within`] if you want relative paths
+    /// resolved against a workspace root.
     pub fn read(key: impl Into<String>) -> Self {
         Self {
-            key: key.into(),
+            key: normalize_path_string(&key.into()),
             mode: LockMode::Read,
         }
     }
 
+    /// Write lock on `key`. See [`ResourceKey::read`] for normalization notes.
     pub fn write(key: impl Into<String>) -> Self {
         Self {
-            key: key.into(),
+            key: normalize_path_string(&key.into()),
             mode: LockMode::Write,
         }
+    }
+}
+
+/// Pure string path normalization. Safe on every target (no fs calls).
+///
+/// Handles:
+/// - Collapses consecutive slashes: `/a//b` → `/a/b`
+/// - Drops empty / `.` segments: `./a/./b` → `a/b`
+/// - Resolves `..` segments: `a/b/../c` → `a/c`
+/// - Preserves absolute-vs-relative: leading `/` is kept
+///
+/// Does NOT:
+/// - Resolve relative → absolute (needs a workspace root — see
+///   [`ToolLockRegistry::acquire_within`])
+/// - Follow symlinks (needs fs access)
+/// - Canonicalize Windows-style backslashes (assumes `/` separator,
+///   which matches how LLMs emit paths in tool_use JSON)
+fn normalize_path_string(raw: &str) -> String {
+    let is_absolute = raw.starts_with('/');
+    let mut segments: Vec<&str> = Vec::new();
+    for seg in raw.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                // Pop only if the top of the stack is a real segment,
+                // not a `..` we couldn't resolve earlier (relative paths
+                // that escape their base keep their leading `..`s).
+                if segments
+                    .last()
+                    .map(|s| *s != "..")
+                    .unwrap_or(false)
+                {
+                    segments.pop();
+                } else if !is_absolute {
+                    segments.push("..");
+                }
+                // Absolute paths never keep stray `..` — they're nonsensical.
+            }
+            s => segments.push(s),
+        }
+    }
+    if is_absolute {
+        format!("/{}", segments.join("/"))
+    } else if segments.is_empty() {
+        ".".to_string()
+    } else {
+        segments.join("/")
     }
 }
 
@@ -197,6 +253,30 @@ impl ToolLockRegistry {
         }
     }
 
+    /// Like [`Self::acquire`] but resolves relative paths in `keys` against
+    /// `workspace` before taking locks. This collapses the common collision
+    /// where tool A says `"src/foo.rs"` (relative) and tool B says
+    /// `"/workspace/src/foo.rs"` (absolute) — both resolve to the same
+    /// absolute key and take the same lock.
+    ///
+    /// Paths already absolute are left alone (still string-normalized).
+    /// Paths with no sensible workspace root stay relative.
+    pub async fn acquire_within(
+        &self,
+        keys: &[ResourceKey],
+        mode: ExecutionMode,
+        workspace: &std::path::Path,
+    ) -> ToolLockGuards {
+        let resolved: Vec<ResourceKey> = keys
+            .iter()
+            .map(|k| ResourceKey {
+                key: resolve_against_workspace(&k.key, workspace),
+                mode: k.mode,
+            })
+            .collect();
+        self.acquire(&resolved, mode).await
+    }
+
     fn get_or_create(&self, key: &str) -> Arc<RwLock<()>> {
         let mut map = self.locks.lock().unwrap_or_else(|e| e.into_inner());
         map.entry(key.to_string())
@@ -210,6 +290,17 @@ impl ToolLockRegistry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .len()
+    }
+}
+
+fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String {
+    if key.starts_with('/') {
+        // Already absolute — string-normalize was done at construction.
+        key.to_string()
+    } else {
+        // Relative key joined to absolute workspace → absolute normalized.
+        let joined = workspace.join(key);
+        normalize_path_string(&joined.to_string_lossy())
     }
 }
 
@@ -388,6 +479,77 @@ mod tests {
             .await;
         assert_eq!(guards.held_reads(), 0);
         assert_eq!(guards.held_writes(), 1);
+    }
+
+    #[test]
+    fn normalize_collapses_double_slashes_and_dots() {
+        assert_eq!(normalize_path_string("/a/b/c"), "/a/b/c");
+        assert_eq!(normalize_path_string("/a//b//c"), "/a/b/c");
+        assert_eq!(normalize_path_string("/a/./b/./c"), "/a/b/c");
+        assert_eq!(normalize_path_string("/a/b/../c"), "/a/c");
+        assert_eq!(normalize_path_string("/a/b/../../c"), "/c");
+        assert_eq!(normalize_path_string("./a/b"), "a/b");
+        assert_eq!(normalize_path_string("a/../b"), "b");
+        // Relative path that escapes its base keeps the leading `..`.
+        assert_eq!(normalize_path_string("../a"), "../a");
+        assert_eq!(normalize_path_string("../../a"), "../../a");
+    }
+
+    #[test]
+    fn resource_key_normalizes_at_construction() {
+        // Two ResourceKeys built from logically-equal paths hash the same.
+        let a = ResourceKey::write("/src/./foo.rs");
+        let b = ResourceKey::write("/src/bar/../foo.rs");
+        let c = ResourceKey::write("/src//foo.rs");
+        assert_eq!(a.key, "/src/foo.rs");
+        assert_eq!(b.key, "/src/foo.rs");
+        assert_eq!(c.key, "/src/foo.rs");
+    }
+
+    #[tokio::test]
+    async fn acquire_within_collides_relative_and_absolute() {
+        // Two tools: one declares "src/foo.rs" (relative), the other
+        // "/workspace/src/foo.rs" (absolute). Under acquire_within(workspace=
+        // "/workspace"), they must land on the same lock and serialize.
+        let reg = Arc::new(ToolLockRegistry::new());
+        let workspace = std::path::PathBuf::from("/workspace");
+        let order = Arc::new(tokio::sync::Mutex::new(Vec::<u32>::new()));
+
+        let reg1 = reg.clone();
+        let ws1 = workspace.clone();
+        let order1 = order.clone();
+        let t1 = tokio::spawn(async move {
+            let _g = reg1
+                .acquire_within(
+                    &[ResourceKey::write("src/foo.rs")],
+                    ExecutionMode::Parallel,
+                    &ws1,
+                )
+                .await;
+            order1.lock().await.push(1);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            order1.lock().await.push(2);
+        });
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let reg2 = reg.clone();
+        let ws2 = workspace.clone();
+        let order2 = order.clone();
+        let t2 = tokio::spawn(async move {
+            let _g = reg2
+                .acquire_within(
+                    &[ResourceKey::write("/workspace/src/foo.rs")],
+                    ExecutionMode::Parallel,
+                    &ws2,
+                )
+                .await;
+            order2.lock().await.push(3);
+        });
+
+        t1.await.unwrap();
+        t2.await.unwrap();
+        assert_eq!(*order.lock().await, vec![1, 2, 3]);
     }
 
     #[tokio::test]
