@@ -35,3 +35,4 @@ Message ←── ContentBlock (text / tool_use / tool_result / image)
 | 流事件 | `stream.rs` | StreamEvent（LLM 流式输出事件） |
 | 取消令牌 | `cancel.rs` | CancellationToken（协作式取消） |
 | 错误 | `error.rs` | AgentError 统一错误枚举 |
+| Spawn Comm | `scope/spawn/communication.rs` | SpawnCommunication trait + SpawnCommContext + SpawnCommHandle + OnChildComplete + SpawnResult + SpawnCommunicationRegistry —— sub-agent 通信能力的插件契约 |

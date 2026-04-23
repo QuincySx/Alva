@@ -9,7 +9,7 @@ use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareErro
 use alva_kernel_core::state::AgentState;
 use alva_kernel_core::shared::MiddlewarePriority;
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
-use alva_kernel_abi::{BusHandle, CancellationToken, MinimalExecutionContext, ToolCall};
+use alva_kernel_abi::{bus_cap, BusHandle, CancellationToken, MinimalExecutionContext, ToolCall};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -21,8 +21,21 @@ pub struct ApprovalRequest {
     pub arguments: serde_json::Value,
 }
 
-/// Wrapper type stored in Extensions — holds the sending half of the approval channel.
-/// The CLI/UI receives ApprovalRequest on the other end of the channel.
+/// Bus Capability: fire-and-forget channel that wakes the HITL UI when
+/// a tool call needs human approval.
+///
+/// **Provider**: `ApprovalExtension::configure`
+/// (`alva-app-core/src/extension/approval.rs`) for the opt-in flow;
+/// also installed by `AgentRuntimeBuilder::build` when the standard
+/// agent stack is enabled (`alva-host-native/src/builder.rs`).
+/// **Consumers**: `SecurityMiddleware::before_tool_call` — looks up the
+/// notifier and sends an `ApprovalRequest` into the channel, then
+/// awaits a decision from the security guard.
+/// **Why bus**: the sender lives in the outer app (owns the `mpsc`
+/// receiver), the consumer is middleware in `alva-agent-security`.
+/// Constructor injection would require every stack variant to thread
+/// the notifier through; bus-based discovery keeps middleware opt-in.
+#[bus_cap]
 #[derive(Clone)]
 pub struct ApprovalNotifier {
     pub tx: tokio::sync::mpsc::UnboundedSender<ApprovalRequest>,

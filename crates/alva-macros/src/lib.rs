@@ -1,5 +1,5 @@
 // INPUT:  proc_macro, proc_macro2, quote, syn, darling
-// OUTPUT: #[derive(Tool)] proc macro
+// OUTPUT: #[derive(Tool)] proc macro; #[bus_cap] / #[bus_event] discovery markers
 // POS:    Code-generation helpers for the Alva plugin layer.
 
 //! Proc macros for the Alva agent framework.
@@ -62,6 +62,37 @@ use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
+
+/// Marks a trait, struct, or type alias as a capability published on the
+/// Alva bus. This is an **identity macro** — it expands to the item
+/// unchanged. Its only job is to give `alva-bus-lint` a discoverable
+/// anchor so it can enforce architectural rules at the definition site
+/// (currently: cross-crate type surface of Cap traits).
+///
+/// ```ignore
+/// #[bus_cap]
+/// pub trait TokenCounter: Send + Sync { /* ... */ }
+/// ```
+///
+/// Pair with the three-field doc required by `docs/BUS-RULES.md`
+/// (`Provider` / `Consumers` / `Why bus`).
+#[proc_macro_attribute]
+pub fn bus_cap(_args: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+
+/// Marks a type as a bus event (counterpart to [`bus_cap`]). Identity
+/// macro — expands unchanged. Consumed by `alva-bus-lint` for discovery.
+///
+/// ```ignore
+/// #[bus_event]
+/// #[derive(Clone, Debug)]
+/// pub struct TokenBudgetExceeded { /* ... */ }
+/// ```
+#[proc_macro_attribute]
+pub fn bus_event(_args: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
 
 /// Parsed `#[tool(...)]` attribute arguments.
 ///
@@ -189,6 +220,29 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
                 // just by writing its own inherent method with the
                 // same signature.
                 self.apply_schema_overrides(&mut schema);
+
+                schema
+            }
+
+            fn parameters_schema_with(
+                &self,
+                ctx: &::alva_kernel_abi::tool::schema::ToolSchemaContext,
+            ) -> ::serde_json::Value {
+                let mut schema = ::serde_json::to_value(
+                    ::schemars::schema_for!(#input_ty)
+                ).expect("schemars::schema_for always produces valid JSON");
+
+                ::alva_kernel_abi::tool::schema::normalize_llm_tool_schema(&mut schema);
+
+                // Mirrors `parameters_schema` but passes the
+                // `ToolSchemaContext` through. An inherent
+                // `apply_schema_overrides_with` on the concrete type
+                // wins over the trait default via Rust's method
+                // resolution — so tools plug in ctx-aware dynamic
+                // enums (e.g. bus-registered comm kinds) by defining
+                // that single inherent method, without touching the
+                // legacy context-free `apply_schema_overrides`.
+                self.apply_schema_overrides_with(&mut schema, ctx);
 
                 schema
             }

@@ -9,7 +9,10 @@ structs.
 ## Architecture
 - **Tool** (`tool.rs`) — `Tool` trait (async execute), `ToolContext` / `LocalToolContext`
   split (base context vs. filesystem-aware context), `EmptyToolContext`, `ToolRegistry`,
-  wire types (`ToolCall`, `ToolResult`, `ToolDefinition`).
+  wire types (`ToolCall`, `ToolResult`, `ToolDefinition`). `ToolSchemaContext` + the
+  opt-in `Tool::parameters_schema_with` / `apply_schema_overrides_with` methods let
+  a tool emit a JSON Schema that depends on live runtime state (e.g. a bus-registered
+  `SpawnCommunicationRegistry`) — see `tool/schema.rs`.
 - **Message** (`message.rs`) — `Message`, `MessageRole`, `UsageMetadata`.
 - **Content** (`content.rs`) — `ContentBlock` enum (Text, Reasoning, ToolUse,
   ToolResult, Image).

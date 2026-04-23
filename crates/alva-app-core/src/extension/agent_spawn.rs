@@ -1,16 +1,15 @@
-// INPUT:  alva_kernel_abi, alva_kernel_core::run_child, alva_agent_context::scope::blackboard, alva_agent_context::scope::SpawnScopeImpl
+// INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, alva_agent_context::scope::SpawnScopeImpl, alva_agent_context::default_context_system, alva_agent_context::ContextHooksChain
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentExtension
-// POS:    AI-driven sub-agent spawning — dynamic roles, optional Blackboard communication.
+// POS:    AI-driven sub-agent spawning — dynamic roles, optional per-spawn model, pluggable SpawnCommunication capabilities (blackboard etc).
 
 //! Agent spawn plugin — the AI primitive for creating sub-agents.
 //!
-//! The LLM decides when to spawn, what role to give, whether to share
-//! a Blackboard. Orchestration lives in the LLM's reasoning, not in
-//! code-level graph definitions.
+//! The LLM decides when to spawn, what role to give, optionally which
+//! model to run the child with, and which communication capabilities (if
+//! any) to attach — all via the `agent` tool's `SpawnInput`.
 //!
-//! Exposes [`SubAgentExtension`] which wires the `agent` tool into the
-//! agent using `finalize()` so the tool receives the final tool list and
-//! model as its root `SpawnScopeImpl`.
+//! Orchestration lives in the LLM's reasoning, not in code-level graph
+//! definitions.
 //!
 //! Sub-agent events are recorded into the parent's session in real time
 //! via a `ListenableInMemorySession` + a `ForwardToSession` listener.
@@ -29,13 +28,18 @@ use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
 use alva_kernel_abi::agent_session::{AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener};
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::error::AgentError;
+use alva_kernel_abi::context::{ContextHooks, ContextSystem};
+use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{
+    OnChildComplete, ProviderRegistry, SpawnCommContext, SpawnCommHandle,
+    SpawnCommunicationRegistry, SpawnResult,
+};
 
-use alva_agent_context::scope::blackboard::{AgentProfile, BoardMessage, MessageKind};
-use alva_agent_context::scope::board_registry::BoardRegistry;
 use alva_agent_context::scope::SpawnScopeImpl;
+use alva_agent_context::{default_context_system, ContextHooksChain};
 
 // ---------------------------------------------------------------------------
 // ForwardToSession listener
@@ -59,13 +63,29 @@ impl SessionEventListener for ForwardToSession {
 // Tool input
 // ---------------------------------------------------------------------------
 
+/// One communication capability to attach to a spawned sub-agent.
+///
+/// `kind` is runtime-registered on the bus via
+/// `SpawnCommunicationRegistry`; the shape of `config` depends on the
+/// kind (see each `SpawnCommunication::config_schema`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct CommSpec {
+    /// Communication capability kind (e.g. "blackboard"). Must match a
+    /// capability registered with the spawn comm registry.
+    kind: String,
+    /// Kind-specific config payload. See the capability's schema.
+    #[serde(default)]
+    config: Value,
+}
+
 /// Input arguments for the `agent` spawn tool.
 ///
 /// `schemars` derives the JSON Schema from this struct's fields and
 /// their doc comments — the tool's `parameters_schema` just calls
 /// `schema_for!(SpawnInput)` and post-processes the result to inject
-/// the runtime-dependent `tools.items.enum` list (see
-/// `AgentSpawnTool::parameters_schema`).
+/// the runtime-dependent `tools.items.enum` list and the currently
+/// registered `comms.items.properties.kind.enum` values (see
+/// `AgentSpawnTool::apply_schema_overrides`).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct SpawnInput {
     /// Complete task description for the sub-agent.
@@ -83,10 +103,18 @@ struct SpawnInput {
     /// sub-agents.
     #[serde(default)]
     tools: Vec<String>,
-    /// Shared board ID for multi-agent communication. Agents on the
-    /// same board see each other's output.
+    /// Provider/model spec for this sub-agent (e.g.
+    /// `anthropic/claude-haiku-4.5`). Leave empty (or unset) to inherit
+    /// the parent's model. Requires a `ProviderRegistry` on the bus,
+    /// installed via `ProviderRegistryExtension`; otherwise setting this
+    /// field will error.
     #[serde(default)]
-    board: Option<String>,
+    model: Option<String>,
+    /// Communication capabilities to attach to this sub-agent. Each kind
+    /// is a runtime-registered plugin (e.g. "blackboard"); config format
+    /// depends on kind.
+    #[serde(default)]
+    comms: Vec<CommSpec>,
 }
 
 // ---------------------------------------------------------------------------
@@ -97,43 +125,35 @@ struct SpawnInput {
 #[tool(
     name = "agent",
     description = "Spawn a sub-agent to handle a specific task. The sub-agent runs independently \
-        with its own role and system prompt. Use 'board' to enable communication between \
-        multiple agents via a shared workspace. Sub-agents can spawn further sub-agents \
-        up to the configured depth limit.",
+        with its own role and system prompt. Pick a subset of the parent's tools via 'tools'. \
+        Optionally pick a different model via 'model' (requires ProviderRegistry on bus). \
+        Attach communication capabilities (e.g. shared blackboard) via 'comms'. \
+        Sub-agents can spawn further sub-agents up to the configured depth limit.",
     input = SpawnInput,
     manages_own_timeout,
 )]
 pub struct AgentSpawnTool {
     scope: Arc<SpawnScopeImpl>,
-    /// Board registry for inter-agent communication (optional, independent of scope).
-    board_registry: Arc<BoardRegistry>,
 }
 
 impl AgentSpawnTool {
     pub fn new(scope: Arc<SpawnScopeImpl>) -> Self {
-        Self {
-            scope,
-            board_registry: Arc::new(BoardRegistry::new()),
-        }
-    }
-
-    pub fn with_board_registry(mut self, registry: Arc<BoardRegistry>) -> Self {
-        self.board_registry = registry;
-        self
+        Self { scope }
     }
 }
 
 impl AgentSpawnTool {
-    /// Inject the runtime-dependent enum for `tools.items`: the exact
-    /// set of tool names the parent agent can hand down. schemars can't
-    /// know this at compile time — it's per-spawn.
-    ///
-    /// Picked up automatically by the `#[derive(Tool)]`-generated
-    /// `parameters_schema`: it calls `self.apply_schema_overrides(...)`
-    /// unqualified, which Rust's method resolution binds to this
-    /// inherent method (winning over `Tool::apply_schema_overrides`'s
-    /// trait default).
-    fn apply_schema_overrides(&self, schema: &mut Value) {
+    /// Inject runtime-dependent enums:
+    /// - `tools.items.enum`: exact set of tool names the parent can hand
+    ///   down (per-spawn, changes across agents). Sourced from the scope
+    ///   this tool was built against — independent of the bus.
+    /// - `comms.items.properties.kind.enum`: currently registered
+    ///   `SpawnCommunication` kinds, read from the bus via
+    ///   [`ToolSchemaContext::bus`]. Omitted entirely when no bus is wired
+    ///   or no capabilities are registered (kind stays a free-form
+    ///   string, and the executor still validates against the live
+    ///   registry at call time).
+    fn inject_dynamic_enums(&self, schema: &mut Value, comm_kinds: &[String]) {
         let available_tools = self.scope.parent_tool_names();
         if let Some(items) = schema
             .pointer_mut("/properties/tools/items")
@@ -144,6 +164,64 @@ impl AgentSpawnTool {
                 Value::Array(available_tools.into_iter().map(Value::String).collect()),
             );
         }
+
+        if !comm_kinds.is_empty() {
+            if let Some(kind_schema) = schema
+                .pointer_mut("/properties/comms/items/properties/kind")
+                .and_then(Value::as_object_mut)
+            {
+                kind_schema.insert(
+                    "enum".into(),
+                    Value::Array(
+                        comm_kinds
+                            .iter()
+                            .cloned()
+                            .map(Value::String)
+                            .collect(),
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Context-free fallback path. Hit when the provider generates a
+    /// tool schema without a live [`ToolSchemaContext`] (e.g. an offline
+    /// dump, a test that calls `parameters_schema()` directly). Only
+    /// the scope-dependent `tools.items.enum` can be populated; the
+    /// bus-dependent comm-kinds enum is skipped here and injected by
+    /// the ctx-aware path instead.
+    ///
+    /// Picked up automatically by the `#[derive(Tool)]`-generated
+    /// `parameters_schema`: it calls `self.apply_schema_overrides(...)`
+    /// unqualified, which Rust's method resolution binds to this
+    /// inherent method (winning over `Tool::apply_schema_overrides`'s
+    /// trait default).
+    fn apply_schema_overrides(&self, schema: &mut Value) {
+        self.inject_dynamic_enums(schema, &[]);
+    }
+
+    /// Context-aware path — invoked by the `#[derive(Tool)]`-generated
+    /// `parameters_schema_with`. Same inherent-wins-over-trait pattern
+    /// as `apply_schema_overrides`: defining this inherent method
+    /// overrides the trait default that merely forwards to the
+    /// context-free variant.
+    ///
+    /// Reads `SpawnCommunicationRegistry` off
+    /// [`ToolSchemaContext::bus`] (if wired) and injects the full set of
+    /// registered kind ids as a JSON-Schema `enum` on
+    /// `comms.items.properties.kind`, so the LLM gets the precise live
+    /// set of choices instead of an unconstrained string.
+    fn apply_schema_overrides_with(
+        &self,
+        schema: &mut Value,
+        ctx: &alva_kernel_abi::tool::schema::ToolSchemaContext,
+    ) {
+        let comm_kinds: Vec<String> = ctx
+            .bus
+            .and_then(|b| b.get::<dyn SpawnCommunicationRegistry>())
+            .map(|reg| reg.list().iter().map(|c| c.kind().to_string()).collect())
+            .unwrap_or_default();
+        self.inject_dynamic_enums(schema, &comm_kinds);
     }
 
     /// Core execution, with the input already deserialized. Called by
@@ -160,12 +238,10 @@ impl AgentSpawnTool {
                 input.role
             )
         } else {
-            input.system_prompt
+            input.system_prompt.clone()
         };
 
         // Build child scope — spawn_child() enforces the depth limit.
-        // Tool whitelisting happens below via `tools_by_names`; the scope
-        // itself no longer carries an inherit_tools flag.
         let child_config = ChildScopeConfig::new(&input.role)
             .with_system_prompt(&system_prompt);
 
@@ -185,45 +261,87 @@ impl AgentSpawnTool {
             }
         };
 
-        // Build context with board messages if applicable.
-        // Board is managed by board_registry (independent of scope).
-        let mut task_context = input.task.clone();
-        if let Some(board_id) = &input.board {
-            let scope_key = self.scope.id();
-            let board = self.board_registry.get_or_create(scope_key, board_id).await;
+        // ── Model resolution ────────────────────────────────────────────
+        let child_model: Arc<dyn LanguageModel> = match &input.model {
+            Some(spec) if !spec.is_empty() => {
+                let registry = ctx
+                    .bus()
+                    .and_then(|b| b.get::<ProviderRegistry>())
+                    .ok_or_else(|| AgentError::ToolError {
+                        tool_name: "agent".into(),
+                        message: "ProviderRegistry not registered on bus. Install \
+                             `ProviderRegistryExtension` on the builder to enable \
+                             the 'model' field in spawn input."
+                            .into(),
+                    })?;
+                alva_host_native::model(spec, &registry).map_err(|e| AgentError::ToolError {
+                    tool_name: "agent".into(),
+                    message: format!("resolve model '{spec}': {e}"),
+                })?
+            }
+            _ => child_scope.model(),
+        };
 
-            board
-                .register(AgentProfile::new(&input.role, &input.role))
-                .await;
+        // ── Communication capabilities ──────────────────────────────────
+        let registry = ctx.bus().and_then(|b| b.get::<dyn SpawnCommunicationRegistry>());
 
-            let (log, count) = board.render_chat_log(30).await;
-            if count > 0 {
-                task_context = format!(
-                    "{}\n\n## Team Communication\n{}\n\nYou are '{}'. Respond based on the above context.",
-                    input.task, log, input.role,
-                );
+        let mut comm_handles: Vec<SpawnCommHandle> = Vec::new();
+        let mut child_hooks: Vec<Arc<dyn ContextHooks>> = Vec::new();
+
+        for spec in &input.comms {
+            let Some(ref reg) = registry else {
+                return Ok(ToolOutput::error(format!(
+                    "comms '{}' requested but no SpawnCommunicationRegistry on bus",
+                    spec.kind
+                )));
+            };
+            let Some(ch) = reg.get(&spec.kind) else {
+                let available: Vec<String> = reg
+                    .list()
+                    .iter()
+                    .map(|c| c.kind().to_string())
+                    .collect();
+                return Ok(ToolOutput::error(format!(
+                    "unknown communication kind '{}'; available: {:?}",
+                    spec.kind, available
+                )));
+            };
+
+            let comm_ctx = SpawnCommContext {
+                parent_scope_id: self.scope.id().as_str(),
+                parent_session_id: self.scope.session_id(),
+                child_scope_id: child_scope.id().as_str(),
+                child_session_id: child_scope.session_id(),
+                role: &input.role,
+                bus: ctx.bus(),
+            };
+
+            match ch.attach(&comm_ctx, spec.config.clone()).await {
+                Ok(handle) => {
+                    child_hooks.extend(handle.hooks.clone());
+                    comm_handles.push(handle);
+                }
+                Err(e) => {
+                    return Ok(ToolOutput::error(format!(
+                        "attach comm '{}' failed: {}",
+                        spec.kind, e
+                    )));
+                }
             }
         }
 
-        // Build child tools = whitelisted parent tools + a freshly
-        // built spawn tool bound to child_scope.
+        // ── Child tool list ─────────────────────────────────────────────
         //
-        // Recursive spawning is **allowed** — the child agent gets its
-        // own `agent` tool and can spawn grandchildren up to
-        // `max_depth`. The new instance is pushed below, bound to
-        // `child_scope` so its depth starts at child.depth+1.
-        //
-        // `tools_by_names` drops any `agent` entry from the whitelist
-        // so the parent's own spawn tool (bound to parent scope,
-        // wrong depth) doesn't end up in the list alongside ours.
-        // Without that, dispatch's first-match find would route the
-        // child's recursive spawn calls to the parent-scoped instance,
-        // creating siblings at parent-depth instead of grandchildren
-        // at child-depth — silently bypassing max_depth.
+        // `tools_by_names` drops any `agent` entry from the whitelist so
+        // the parent's own spawn tool (bound to parent scope, wrong depth)
+        // doesn't end up in the list alongside ours. Without that,
+        // dispatch's first-match find would route the child's recursive
+        // spawn calls to the parent-scoped instance, creating siblings at
+        // parent-depth instead of grandchildren at child-depth — silently
+        // bypassing max_depth.
         let mut child_tools = child_scope.tools_by_names(&input.tools);
         child_tools.push(Arc::new(AgentSpawnTool {
             scope: child_scope.clone(),
-            board_registry: self.board_registry.clone(),
         }));
 
         tracing::info!(
@@ -233,6 +351,8 @@ impl AgentSpawnTool {
             parent_scope_id = %self.scope.id(),
             granted_tools = ?input.tools,
             tool_count = child_tools.len(),
+            model_override = ?input.model,
+            comm_kinds = ?input.comms.iter().map(|c| c.kind.as_str()).collect::<Vec<_>>(),
             "sub-agent spawned"
         );
 
@@ -260,12 +380,22 @@ impl AgentSpawnTool {
             })).await;
         }
 
+        // ── ContextSystem for hooks (only when any comm attached hooks) ─
+        let context_system: Option<Arc<ContextSystem>> = if child_hooks.is_empty() {
+            None
+        } else {
+            let mut cs = default_context_system();
+            let chain: Arc<dyn ContextHooks> = Arc::new(ContextHooksChain::new(child_hooks));
+            cs.set_hooks(chain);
+            Some(Arc::new(cs))
+        };
+
         // Run child agent using the shared helper, supplying the listenable session.
         let result = run_child_agent(ChildAgentParams {
-            model: child_scope.model(),
+            model: child_model,
             tools: child_tools,
             system_prompt,
-            task: task_context,
+            task: input.task.clone(),
             max_iterations: child_scope.max_iterations(),
             timeout: child_scope.timeout(),
             parent_session_id: Some(self.scope.session_id().to_string()),
@@ -276,6 +406,7 @@ impl AgentSpawnTool {
             bus: ctx.bus().cloned(),
             sleeper: None,
             session: Some(child_session as Arc<dyn AgentSession>),
+            context_system,
         })
         .await;
 
@@ -299,17 +430,20 @@ impl AgentSpawnTool {
             "sub-agent completed"
         );
 
-        // Post result to board if applicable
-        if let Some(board_id) = &input.board {
-            let scope_key = self.scope.id();
-            let board = self.board_registry.get_or_create(scope_key, board_id).await;
-            board
-                .post(
-                    BoardMessage::new(&input.role, &result.text).with_kind(MessageKind::Artifact {
-                        name: format!("{}-output", input.role),
-                    }),
-                )
-                .await;
+        // Fire comm on_complete callbacks. They get a lightweight
+        // `SpawnResult` (abi-layer view, decoupled from ChildAgentOutput).
+        if !comm_handles.is_empty() {
+            let spawn_result = SpawnResult {
+                text: result.text.clone(),
+                is_error: result.is_error,
+                error: result.error.clone(),
+            };
+            for handle in comm_handles {
+                if let Some(cb) = handle.on_complete {
+                    let _: Arc<dyn OnChildComplete> = cb.clone();
+                    cb.call(&spawn_result).await;
+                }
+            }
         }
 
         if result.is_error {
@@ -387,7 +521,9 @@ impl Extension for SubAgentExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::tool::schema::normalize_llm_tool_schema;
+    use alva_kernel_abi::tool::schema::{normalize_llm_tool_schema, ToolSchemaContext};
+    use alva_kernel_abi::Bus;
+    use std::time::Duration;
 
     /// Snapshot-style: print the normalized LLM-facing schema so we
     /// can eyeball it. Run with:
@@ -410,10 +546,159 @@ mod tests {
         assert!(schema["properties"]["tools"].is_object());
         assert_eq!(schema["properties"]["tools"]["type"], "array");
 
+        // New fields survived the derive.
+        assert!(schema["properties"]["model"].is_object());
+        assert!(schema["properties"]["comms"].is_object());
+        assert_eq!(schema["properties"]["comms"]["type"], "array");
+
         // Descriptions survived from doc comments.
         assert!(schema["properties"]["task"]["description"]
             .as_str()
             .map(|s| s.contains("task"))
             .unwrap_or(false));
+    }
+
+    // A minimal stub model so we can build a root `SpawnScopeImpl` without
+    // pulling in a real LLM provider.
+    struct StubModel;
+    #[async_trait]
+    impl LanguageModel for StubModel {
+        async fn complete(
+            &self,
+            _messages: &[alva_kernel_abi::Message],
+            _tools: &[&dyn Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> Result<alva_kernel_abi::CompletionResponse, AgentError> {
+            Err(AgentError::LlmError("stub".into()))
+        }
+        fn stream(
+            &self,
+            _messages: &[alva_kernel_abi::Message],
+            _tools: &[&dyn Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> std::pin::Pin<
+            Box<
+                dyn futures::Stream<Item = alva_kernel_abi::StreamEvent> + Send,
+            >,
+        > {
+            Box::pin(futures::stream::empty())
+        }
+        fn model_id(&self) -> &str {
+            "stub"
+        }
+    }
+
+    // Minimal `SpawnCommunication` implementations so the registry has
+    // something to list when we fetch it off the bus.
+    struct DummyComm {
+        kind: String,
+    }
+    #[async_trait]
+    impl alva_kernel_abi::SpawnCommunication for DummyComm {
+        fn kind(&self) -> &str {
+            &self.kind
+        }
+        fn description(&self) -> &str {
+            "dummy comm for tests"
+        }
+        async fn attach(
+            &self,
+            _ctx: &alva_kernel_abi::SpawnCommContext<'_>,
+            _config: serde_json::Value,
+        ) -> Result<alva_kernel_abi::SpawnCommHandle, alva_kernel_abi::SpawnCommError> {
+            Ok(alva_kernel_abi::SpawnCommHandle::empty())
+        }
+    }
+
+    // In-memory `SpawnCommunicationRegistry` — the default
+    // implementation lives in app-core extension wiring; we only need
+    // list/register/get semantics here.
+    struct TestRegistry {
+        inner: std::sync::Mutex<
+            Vec<Arc<dyn alva_kernel_abi::SpawnCommunication>>,
+        >,
+    }
+    impl TestRegistry {
+        fn new() -> Self {
+            Self {
+                inner: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+    impl SpawnCommunicationRegistry for TestRegistry {
+        fn register(&self, ch: Arc<dyn alva_kernel_abi::SpawnCommunication>) {
+            self.inner.lock().unwrap().push(ch);
+        }
+        fn get(
+            &self,
+            kind: &str,
+        ) -> Option<Arc<dyn alva_kernel_abi::SpawnCommunication>> {
+            self.inner
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|c| c.kind() == kind)
+                .cloned()
+        }
+        fn list(&self) -> Vec<Arc<dyn alva_kernel_abi::SpawnCommunication>> {
+            self.inner.lock().unwrap().clone()
+        }
+    }
+
+    fn build_spawn_tool() -> AgentSpawnTool {
+        let scope = Arc::new(SpawnScopeImpl::root(
+            Arc::new(StubModel),
+            Vec::new(),
+            Duration::from_secs(60),
+            1,
+            1,
+        ));
+        AgentSpawnTool::new(scope)
+    }
+
+    /// Context-free path (the old behavior): without a bus we can't
+    /// list live comm kinds, so `comms.items.properties.kind` has no
+    /// `enum` — the string stays free-form and the executor validates
+    /// against the registry at call time.
+    #[test]
+    fn parameters_schema_without_ctx_omits_comm_enum() {
+        let tool = build_spawn_tool();
+        let schema = tool.parameters_schema();
+        let kind = &schema["properties"]["comms"]["items"]["properties"]["kind"];
+        assert_eq!(kind["type"], "string");
+        assert!(kind.get("enum").is_none());
+    }
+
+    /// Ctx-aware path: with a `ToolSchemaContext` whose bus has a
+    /// populated `SpawnCommunicationRegistry`, the generated schema
+    /// carries the live set of kind ids as a JSON-Schema `enum`.
+    #[test]
+    fn parameters_schema_with_ctx_injects_comm_enum() {
+        let bus = Bus::new();
+        let writer = bus.writer();
+        let reg: Arc<dyn SpawnCommunicationRegistry> = Arc::new(TestRegistry::new());
+        reg.register(Arc::new(DummyComm {
+            kind: "blackboard".into(),
+        }));
+        reg.register(Arc::new(DummyComm {
+            kind: "handoff".into(),
+        }));
+        writer.provide::<dyn SpawnCommunicationRegistry>(reg);
+        let handle = bus.handle();
+
+        let tool = build_spawn_tool();
+        let ctx = ToolSchemaContext::with_bus(&handle);
+        let schema = tool.parameters_schema_with(&ctx);
+
+        let kind = &schema["properties"]["comms"]["items"]["properties"]["kind"];
+        let enum_vals = kind["enum"]
+            .as_array()
+            .expect("comms.kind.enum should be populated from the bus registry")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(enum_vals.contains(&"blackboard".to_string()));
+        assert!(enum_vals.contains(&"handoff".to_string()));
+        assert_eq!(enum_vals.len(), 2);
     }
 }

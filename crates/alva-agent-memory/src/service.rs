@@ -12,12 +12,30 @@
 
 use std::sync::Arc;
 
+use alva_kernel_abi::bus_cap;
+
 use crate::backend::MemoryBackend;
 use crate::embedding::EmbeddingProvider;
 use crate::error::MemoryError;
 use crate::types::MemoryEntry;
 
-/// High-level memory service combining FTS + vector search.
+/// Bus Capability: unified memory CRUD + hybrid FTS/vector search.
+///
+/// **Provider**: `MemoryExtension::configure`
+/// (`alva-agent-extension-builtin/src/wrappers/memory.rs`). A default
+/// in-memory-backed extension is auto-registered by
+/// `BaseAgentBuilder::build` unless the caller supplies their own
+/// `"memory"`-named extension — see the "default-replacement contract"
+/// in AGENTS.md for how to swap backends.
+/// **Consumers**: the outer app / user-defined tools that want to
+/// store or recall facts; memory-aware middleware; any tool that does
+/// `bus.get::<MemoryService>()` (e.g. to enrich a prompt with recalled
+/// facts).
+/// **Why bus**: the backend is pluggable (in-memory, sqlite, remote,
+/// wasm IndexedDB, …) and chosen by the outer harness. Threading the
+/// backend through every callsite would leak the choice everywhere;
+/// bus-based discovery lets the default be transparently replaced.
+#[bus_cap]
 pub struct MemoryService {
     store: Arc<dyn MemoryBackend>,
     embedder: Box<dyn EmbeddingProvider>,

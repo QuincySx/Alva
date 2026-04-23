@@ -41,8 +41,19 @@ impl BoardRegistry {
 
     /// Get or create a board for a scope. Same scope + same board_id = same instance.
     pub async fn get_or_create(&self, scope_id: &ScopeId, board_id: &str) -> Arc<Blackboard> {
+        self.get_or_create_by_str(scope_id.as_str(), board_id).await
+    }
+
+    /// Like `get_or_create` but keyed by raw scope-id string — used by
+    /// callers (e.g. `SpawnCommunication`) that carry `&str` instead of
+    /// `&ScopeId`.
+    pub async fn get_or_create_by_str(
+        &self,
+        scope_id: &str,
+        board_id: &str,
+    ) -> Arc<Blackboard> {
         let mut boards = self.boards.lock().await;
-        let key = (scope_id.as_str().to_owned(), board_id.to_owned());
+        let key = (scope_id.to_owned(), board_id.to_owned());
         boards
             .entry(key)
             .or_insert_with(|| Arc::new(Blackboard::new()))

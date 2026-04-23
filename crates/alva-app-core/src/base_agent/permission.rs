@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use alva_host_native::middleware::PlanModeControl;
+use alva_kernel_abi::bus_cap;
 
 /// Controls how the agent handles tool permissions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,12 +20,23 @@ impl Default for PermissionMode {
     }
 }
 
-/// Bus-published service that holds the current [`PermissionMode`] for the
-/// whole agent. `BaseAgent::permission_mode()` / `set_permission_mode()` are
-/// thin proxies that query/mutate this service via the bus.
+/// Bus Capability: session-wide permission mode (ask / accept-edits / plan).
+///
+/// **Provider**: `PlanModeExtension::configure`
+/// (`alva-app-core/src/extension/plan_mode.rs`). Exactly one production
+/// producer; the outer app registers this extension to opt in.
+/// **Consumers**: `BaseAgent::permission_mode()` /
+/// `BaseAgent::set_permission_mode()` read and write through the bus;
+/// the CLI / UI talks through those accessors.
+/// **Why bus**: The permission-mode state is set from the outer harness
+/// (CLI flags, UI buttons) but consulted by middleware in an entirely
+/// different crate (`alva-agent-security::PlanModeMiddleware`). Threading
+/// an `Arc` through every layer's constructor would leak the concept
+/// into crates that shouldn't need to know about it.
 ///
 /// The service additionally toggles any `PlanModeControl` it was given a
 /// handle to, so mode changes transparently flip plan-mode enforcement.
+#[bus_cap]
 pub struct PermissionModeService {
     mode: Mutex<PermissionMode>,
     plan_ctrl: Option<Arc<dyn PlanModeControl>>,

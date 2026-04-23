@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 
-use alva_kernel_abi::{AgentMessage, Message};
+use alva_kernel_abi::{bus_cap, AgentMessage, Message};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::state::AgentState;
 
@@ -42,8 +42,19 @@ pub struct PendingMessage {
     pub read_at: Option<i64>,
 }
 
-/// Public surface for queuing / cancelling / inspecting pending messages.
-/// Consumers grab this off the agent bus via `bus.get::<dyn PendingService>()`.
+/// Bus Capability: out-of-band user-message queue for mid-loop injection.
+///
+/// **Provider**: `PendingExtension::configure` — opt-in; the outer app
+/// registers this extension (see `alva-app-core/src/extension/pending.rs`).
+/// **Consumers**: outer harness (CLI / UI) that wants to inject a
+/// typed-ahead message while the agent is running;
+/// `PendingMiddleware::before_llm_call` drains the queue into the
+/// next LLM turn.
+/// **Why bus**: the producer (UI that enqueues) and the drain point
+/// (middleware that injects) live in different layers and are connected
+/// asynchronously. Neither side is willing to hold a shared handle, and
+/// `get() → None` is a valid "feature disabled" state.
+#[bus_cap]
 pub trait PendingService: Send + Sync {
     /// Queue a new message. Returns its uuid for later cancellation.
     fn add(&self, text: &str) -> String;

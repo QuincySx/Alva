@@ -7,4 +7,4 @@ pub use types::{
     SearchReadInfo, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult,
     ToolPermissionResult, ToolRegistry,
 };
-pub use schema::normalize_llm_tool_schema;
+pub use schema::{normalize_llm_tool_schema, ToolSchemaContext};

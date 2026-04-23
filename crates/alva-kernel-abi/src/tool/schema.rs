@@ -1,6 +1,6 @@
-// INPUT:  schemars, serde_json::Value
-// OUTPUT: normalize_llm_tool_schema
-// POS:    Normalize schemars-derived JSON Schema to LLM tool-calling spec.
+// INPUT:  schemars, serde_json::Value, alva_kernel_bus::BusHandle
+// OUTPUT: normalize_llm_tool_schema, ToolSchemaContext
+// POS:    Normalize schemars-derived JSON Schema to LLM tool-calling spec; ToolSchemaContext exposes runtime state for dynamic enum injection.
 
 //! Transforms schemars-generated JSON Schema so it matches what LLM
 //! tool-calling APIs (OpenAI function calling, Anthropic tools,
@@ -20,6 +20,49 @@
 //!   normalization without going through the derive.
 
 use serde_json::Value;
+
+use alva_kernel_bus::BusHandle;
+
+// ---------------------------------------------------------------------------
+// ToolSchemaContext — runtime state available when generating a tool's JSON Schema
+// ---------------------------------------------------------------------------
+
+/// Context available during [`Tool::parameters_schema_with`] generation.
+///
+/// Carries runtime handles so tools can emit dynamic enums — e.g. the set
+/// of sibling tool names, the currently registered `SpawnCommunication`
+/// kinds, MCP server ids discovered at connect-time, or Skill identifiers
+/// loaded into the SkillStore. Tools without runtime schema state ignore
+/// this value and fall through to the static [`Tool::parameters_schema`]
+/// path.
+///
+/// Always prefer the shortest useful lifetime — borrowed from the run
+/// loop's [`crate::BusHandle`] so no reference counting or cloning is
+/// involved at schema-resolution time.
+#[derive(Default, Clone, Copy)]
+pub struct ToolSchemaContext<'a> {
+    /// Cross-layer coordination bus. Populated by the runtime when a bus
+    /// is wired (most production paths); `None` in isolated unit tests
+    /// and other contexts that never construct a bus.
+    pub bus: Option<&'a BusHandle>,
+}
+
+impl<'a> ToolSchemaContext<'a> {
+    /// Build an empty context — no bus, no runtime state. Tools hit this
+    /// when there's no sensible live state to read (e.g. a provider
+    /// generating schemas outside of an agent run, tests, offline
+    /// dumping).
+    pub fn empty() -> Self {
+        Self { bus: None }
+    }
+
+    /// Build a context wrapping an existing bus handle. Borrowed for the
+    /// duration of the schema resolution call — the runtime retains
+    /// ownership.
+    pub fn with_bus(bus: &'a BusHandle) -> Self {
+        Self { bus: Some(bus) }
+    }
+}
 
 /// Normalize a `schemars`-generated JSON Schema in-place so it matches
 /// the shape LLM tool-calling APIs expect.

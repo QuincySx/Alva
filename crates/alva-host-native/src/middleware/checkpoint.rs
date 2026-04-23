@@ -12,7 +12,7 @@ use std::sync::Arc;
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::shared::MiddlewarePriority;
 use alva_kernel_core::state::AgentState;
-use alva_kernel_abi::{BusHandle, ToolCall};
+use alva_kernel_abi::{bus_cap, BusHandle, ToolCall};
 use async_trait::async_trait;
 
 /// Callback trait for checkpoint creation — implemented by CLI or app.
@@ -21,7 +21,21 @@ pub trait CheckpointCallback: Send + Sync {
     fn create_checkpoint(&self, description: &str, file_paths: &[PathBuf]);
 }
 
-/// Wrapper type stored in Extensions so the middleware can find the callback.
+/// Bus Capability: handle to the outer app's auto-checkpoint callback
+/// (wraps an `Arc<dyn CheckpointCallback>` so it can live on the bus).
+///
+/// **Provider**: `BaseAgent::set_checkpoint_callback`
+/// (`alva-app-core/src/base_agent/agent.rs`). Wired post-build by the
+/// outer harness once it owns the agent handle.
+/// **Consumers**: `CheckpointMiddleware::before_tool_call` — looks up
+/// the callback before any non-read-only tool runs, and fires it to
+/// snapshot files.
+/// **Why bus**: the callback is supplied by the outer app after the
+/// agent is built, not during construction. Passing it through the
+/// `AgentRuntimeBuilder` would require the builder to know about
+/// checkpoint plumbing in every invocation path; bus-based late
+/// injection sidesteps that.
+#[bus_cap]
 pub struct CheckpointCallbackRef(pub Arc<dyn CheckpointCallback>);
 
 /// Middleware that auto-checkpoints files before non-read-only tools modify them.

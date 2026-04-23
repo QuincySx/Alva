@@ -163,10 +163,23 @@ pub trait Provider: Send + Sync {
 // ProviderRegistry
 // ---------------------------------------------------------------------------
 
-/// Central registry of all available providers.
+/// Bus Capability: central registry of all configured LLM providers.
+///
+/// **Provider**: `ProviderRegistryExtension::configure`
+/// (`alva-app-core/src/extension/provider_registry.rs`). Fully opt-in —
+/// no built-in default, no builder setter.
+/// **Consumers**: `AgentSpawnTool` — when a `SpawnInput.model` carries a
+/// `"provider/id"` override, the tool resolves it through this registry
+/// to obtain an `Arc<dyn LanguageModel>` for the child agent.
+/// **Why bus**: the spawn tool lives in `alva-app-core` but the
+/// registry contents are assembled by the outer app (CLI / UI) from
+/// user config. No static wiring connects them; the bus carries the
+/// registry across that boundary, and its absence is a valid state
+/// (children just inherit the parent's model).
 ///
 /// Supports lookup by provider ID and a convenience method for
 /// `provider_id:model_id` shorthand strings.
+#[crate::bus_cap]
 pub struct ProviderRegistry {
     providers: HashMap<String, Arc<dyn Provider>>,
 }

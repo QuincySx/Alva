@@ -17,8 +17,8 @@ pub mod board_registry;
 pub mod scope_impl;
 
 pub use blackboard::{
-    AgentProfile, Blackboard, BlackboardPlugin, BlackboardPluginConfig, BoardMessage, MessageKind,
-    TaskPhase,
+    AgentProfile, Blackboard, BlackboardCommunication, BlackboardPlugin, BlackboardPluginConfig,
+    BoardMessage, MessageKind, TaskPhase,
 };
 pub use board_registry::BoardRegistry;
 pub use scope_impl::SpawnScopeImpl;

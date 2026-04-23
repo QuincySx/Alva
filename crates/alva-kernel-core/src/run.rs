@@ -2,14 +2,20 @@
 // OUTPUT: pub async fn run_agent()
 // POS:    session-centric agent loop. Mid-run steering is NOT a kernel concern —
 //         external callers inject messages by appending them to the session directly
-//         (typically via an opt-in `PendingExtension` middleware).
+//         (typically via an opt-in `PendingExtension` middleware). Before each LLM
+//         call, tool schemas are pre-baked against a `ToolSchemaContext` carrying the
+//         bus handle so `Tool::parameters_schema_with` sees live runtime state.
 use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{
     AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, ScopedSession, SessionEvent,
 };
 use alva_kernel_abi::model::LanguageModel;
-use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::tool::execution::{ToolExecutionContext as AbiToolExecutionContext, ToolOutput as AbiToolOutput};
+use alva_kernel_abi::tool::schema::ToolSchemaContext;
+use alva_kernel_abi::tool::{
+    SearchReadInfo, Tool, ToolDefinition, ToolPermissionResult,
+};
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
     ModelConfig, StreamEvent, ToolCall, ToolOutput,
@@ -152,6 +158,149 @@ fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Schema pre-baking — freeze each tool's schema against the live bus before
+// the provider sees it
+// ---------------------------------------------------------------------------
+
+/// Transparent `Tool` wrapper whose `parameters_schema()` returns a
+/// pre-baked JSON Schema value instead of re-running the inner tool's
+/// `parameters_schema` each time it's asked.
+///
+/// Every provider's `to_*_tools` helper reads `t.parameters_schema()`.
+/// That entry point can't see the bus, so runtime-dependent enums
+/// (sibling tools, registered `SpawnCommunication` kinds, MCP servers,
+/// skills) would otherwise be absent from the schema sent to the model.
+///
+/// Instead, the kernel run loop generates each tool's schema once per
+/// turn via [`Tool::parameters_schema_with`] with a
+/// [`ToolSchemaContext`] carrying the config bus, then hands providers a
+/// slice of [`PrebakedSchemaTool`]s that replay the baked schema back
+/// on `parameters_schema()`. Every other `Tool` method delegates to
+/// the inner implementation unchanged.
+///
+/// Tools that don't override `parameters_schema_with` fall through to
+/// their static `parameters_schema()`, so this wrapper is inert for
+/// the common case and cheap for everyone else.
+struct PrebakedSchemaTool {
+    inner: Arc<dyn Tool>,
+    schema: serde_json::Value,
+}
+
+impl PrebakedSchemaTool {
+    fn new(inner: Arc<dyn Tool>, schema: serde_json::Value) -> Self {
+        Self { inner, schema }
+    }
+}
+
+#[async_trait]
+impl Tool for PrebakedSchemaTool {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        self.schema.clone()
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: self.inner.name().to_string(),
+            description: self.inner.description().to_string(),
+            parameters: self.schema.clone(),
+        }
+    }
+
+    async fn execute(
+        &self,
+        input: serde_json::Value,
+        ctx: &dyn AbiToolExecutionContext,
+    ) -> Result<AbiToolOutput, AgentError> {
+        self.inner.execute(input, ctx).await
+    }
+
+    fn is_concurrency_safe(&self, input: &serde_json::Value) -> bool {
+        self.inner.is_concurrency_safe(input)
+    }
+
+    fn is_read_only(&self, input: &serde_json::Value) -> bool {
+        self.inner.is_read_only(input)
+    }
+
+    fn is_destructive(&self, input: &serde_json::Value) -> bool {
+        self.inner.is_destructive(input)
+    }
+
+    fn manages_own_timeout(&self) -> bool {
+        self.inner.manages_own_timeout()
+    }
+
+    fn is_search_or_read(&self, input: &serde_json::Value) -> Option<SearchReadInfo> {
+        self.inner.is_search_or_read(input)
+    }
+
+    fn check_permissions(
+        &self,
+        input: &serde_json::Value,
+        ctx: &dyn AbiToolExecutionContext,
+    ) -> ToolPermissionResult {
+        self.inner.check_permissions(input, ctx)
+    }
+
+    fn user_facing_name(&self, input: &serde_json::Value) -> String {
+        self.inner.user_facing_name(input)
+    }
+
+    fn max_result_size_chars(&self) -> Option<usize> {
+        self.inner.max_result_size_chars()
+    }
+
+    fn should_defer(&self) -> bool {
+        self.inner.should_defer()
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        self.inner.aliases()
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.inner.is_enabled()
+    }
+
+    fn tool_prompt(&self) -> String {
+        self.inner.tool_prompt()
+    }
+}
+
+/// Build a fresh set of tool handles whose `parameters_schema()` returns
+/// the schema produced by each tool's `parameters_schema_with(&ctx)`.
+///
+/// Used right before calling `model.stream` / `model.complete` so the
+/// provider-facing `to_*_tools` paths pick up dynamic enums sourced from
+/// `ctx.bus`. The wrapping is a no-op for tools that don't override
+/// `parameters_schema_with` — their static schema is recomputed once and
+/// baked in place.
+fn bake_tool_schemas(
+    tools: &[Arc<dyn Tool>],
+    bus: Option<&BusHandle>,
+) -> Vec<Arc<dyn Tool>> {
+    let ctx = match bus {
+        Some(b) => ToolSchemaContext::with_bus(b),
+        None => ToolSchemaContext::empty(),
+    };
+    tools
+        .iter()
+        .map(|t| -> Arc<dyn Tool> {
+            let schema = t.parameters_schema_with(&ctx);
+            Arc::new(PrebakedSchemaTool::new(t.clone(), schema))
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // LlmCallFn / ToolCallFn adapters for wrap hooks
 // ---------------------------------------------------------------------------
 
@@ -161,6 +310,11 @@ fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
 /// Internally uses `model.stream()` to emit `MessageUpdate` events in
 /// real-time, then assembles the final `Message` from accumulated chunks
 /// so the middleware chain still receives a complete `Message`.
+///
+/// `tools` is expected to already carry context-baked schemas (see
+/// [`bake_tool_schemas`]) so the provider's `to_*_tools` path picks up
+/// any dynamic enums sourced from the bus via
+/// [`Tool::parameters_schema_with`].
 struct ActualLlmCall {
     model: Arc<dyn LanguageModel>,
     tools: Vec<Arc<dyn Tool>>,
@@ -664,10 +818,18 @@ async fn run_loop(
                 message: placeholder_msg.clone(),
             });
 
-            // 3e. Call LLM through wrap_llm_call middleware chain
+            // 3e. Call LLM through wrap_llm_call middleware chain.
+            //
+            // Pre-bake each tool's JSON Schema against a `ToolSchemaContext`
+            // that carries the config bus. Tools that override
+            // `Tool::parameters_schema_with` (e.g. `AgentSpawnTool`
+            // pulling registered `SpawnCommunication` kinds off the bus)
+            // observe the live runtime state here; tools that don't just
+            // see their usual static schema cached once per turn.
+            let baked_tools = bake_tool_schemas(&state.tools, config.bus.as_ref());
             let actual_call = ActualLlmCall {
                 model: state.model.clone(),
-                tools: state.tools.clone(),
+                tools: baked_tools,
                 model_config: config.model_config.clone(),
                 event_tx: event_tx.clone(),
                 message_id,

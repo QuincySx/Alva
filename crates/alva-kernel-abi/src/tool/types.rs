@@ -202,6 +202,46 @@ pub trait Tool: Send + Sync {
     /// Tools without runtime schema mutation leave this as a no-op.
     fn apply_schema_overrides(&self, _schema: &mut serde_json::Value) {}
 
+    /// JSON Schema for parameters, with access to runtime state.
+    ///
+    /// Override when schema depends on live runtime state — e.g. a
+    /// dynamic `enum` of sibling tool names, registered
+    /// `SpawnCommunication` kinds, connected MCP servers, or
+    /// discovered Skills. Consumers that have a live bus (the
+    /// `alva-kernel-core` run loop) should prefer this method over
+    /// [`Tool::parameters_schema`] so overrides can see the bus.
+    ///
+    /// Default falls back to [`Tool::parameters_schema`], preserving
+    /// zero-change behavior for every existing `Tool` impl.
+    fn parameters_schema_with(
+        &self,
+        _ctx: &super::schema::ToolSchemaContext,
+    ) -> serde_json::Value {
+        self.parameters_schema()
+    }
+
+    /// Hook for mutating the derived JSON schema with runtime data,
+    /// with access to the same [`super::schema::ToolSchemaContext`] passed
+    /// to [`Tool::parameters_schema_with`].
+    ///
+    /// Called by `#[derive(Tool)]`-generated `parameters_schema_with`
+    /// after `schema_for!(Input)` + `normalize_llm_tool_schema`. Same
+    /// inherent-wins-over-trait pattern as
+    /// [`Tool::apply_schema_overrides`]: tools plug in ctx-aware
+    /// mutations by defining a matching inherent method on their
+    /// concrete type.
+    ///
+    /// The default routes to the context-free
+    /// [`Tool::apply_schema_overrides`] so tools that only need the
+    /// legacy (bus-less) shape keep working unchanged.
+    fn apply_schema_overrides_with(
+        &self,
+        schema: &mut serde_json::Value,
+        _ctx: &super::schema::ToolSchemaContext,
+    ) {
+        self.apply_schema_overrides(schema);
+    }
+
     /// Classify the search/read nature of this invocation, if applicable.
     fn is_search_or_read(&self, _input: &serde_json::Value) -> Option<SearchReadInfo> {
         None

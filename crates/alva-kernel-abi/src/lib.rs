@@ -1,6 +1,6 @@
 // INPUT:  async_trait, serde, serde_json, thiserror, chrono, tokio_util, alva_kernel_bus
-// OUTPUT: CancellationToken, ContentBlock, AgentError, Message, LanguageModel, ModelConfig, TokenCounter, StreamEvent, Tool, ToolCall, ToolExecutionContext, ToolOutput, Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, ...
-// POS:    Crate root — re-exports all shared types including bus coordination primitives and context bus events.
+// OUTPUT: CancellationToken, ContentBlock, AgentError, Message, LanguageModel, ModelConfig, TokenCounter, StreamEvent, Tool, ToolCall, ToolExecutionContext, ToolOutput, Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, SpawnCommunication, SpawnCommContext, SpawnCommHandle, SpawnCommError, SpawnCommunicationRegistry, OnChildComplete, SpawnResult, ...
+// POS:    Crate root — re-exports all shared types including bus coordination primitives, context bus events, and spawn-time communication plugin contract.
 pub mod base;
 // context is now at scope::context; re-export for backward compatibility
 pub use scope::context;
@@ -34,7 +34,7 @@ pub use base::error::AgentError;
 pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadata};
 pub use model::{CompletionResponse, LanguageModel, ModelConfig, TokenCounter};
 pub use base::stream::StreamEvent;
-pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, SearchReadInfo};
+pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, SearchReadInfo};
 pub use tool::execution::{MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput};
 
 // Re-export proc macros from alva-macros. A derive macro and a trait
@@ -44,6 +44,14 @@ pub use tool::execution::{MinimalExecutionContext, ProgressEvent, ToolContent, T
 // a single import — same pattern as serde's Serialize/Deserialize.
 #[doc(inline)]
 pub use alva_macros::Tool;
+
+// Discovery markers for `alva-bus-lint`. Identity attribute macros — the
+// lint binary walks every `#[bus_cap]` trait in the workspace and enforces
+// a cross-crate type-surface limit at the definition site. Re-exported
+// from `alva-kernel-abi` so downstream crates don't need a direct
+// `alva-macros` dep.
+#[doc(inline)]
+pub use alva_macros::{bus_cap, bus_event};
 pub use task::{TaskType, TaskStatus, TaskState, generate_task_id, create_task_state};
 pub use token_estimation::{TokenEstimator, SimpleTokenEstimator};
 pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
@@ -57,6 +65,10 @@ pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
 pub use provider::{CredentialSource, StaticCredential, Provider, ProviderError, ProviderRegistry};
 pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
+pub use scope::spawn::{
+    OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication,
+    SpawnCommunicationRegistry, SpawnResult,
+};
 pub use agent_session::{
     AgentSession, InMemoryAgentSession, ListenableInMemorySession, SessionEventListener,
     SessionError, SessionEvent, SessionMessage,

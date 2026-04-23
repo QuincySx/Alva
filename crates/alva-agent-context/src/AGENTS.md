@@ -36,3 +36,5 @@
 | 默认策略 | `default_plugin.rs` | `DefaultContextHooks`、`DefaultHooksConfig` |
 | 类型导出 | `types.rs` | context 相关共享值对象 re-export |
 | 中间件 | `middleware.rs` | `CompactionMiddleware`（过渡版，bus TokenCounter 驱动） |
+| Spawn Scope | `scope/scope_impl.rs` / `scope/board_registry.rs` | SpawnScopeImpl（lifecycle）+ BoardRegistry（按 parent scope 隔离 Blackboard） |
+| Blackboard 协作 | `scope/blackboard/` | Blackboard + BlackboardPlugin（ContextHooks）+ BlackboardCommunication（SpawnCommunication 实现，挂子 agent 时动态 attach 共享 board） |

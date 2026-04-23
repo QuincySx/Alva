@@ -1,0 +1,14 @@
+[package]
+name = "alva-bus-lint"
+version = "0.1.0"
+edition = "2021"
+description = "CI lint: enforces cross-crate type surface limits on bus-cap traits."
+publish = false
+
+[[bin]]
+name = "alva-bus-lint"
+path = "src/main.rs"
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits", "visit"] }
+walkdir = "2"

@@ -1,6 +1,6 @@
-// INPUT:  crate::run::run_agent, crate::state::{AgentState, AgentConfig}, alva_kernel_abi::*
-// OUTPUT: pub async fn run_child_agent(), pub struct ChildAgentParams, pub struct ChildAgentOutput
-// POS:    Shared helper for running a child agent to completion and collecting its text output.
+// INPUT:  crate::run::run_agent, crate::state::{AgentState, AgentConfig}, alva_kernel_abi::* (includes ContextSystem)
+// OUTPUT: pub async fn run_child_agent(), pub struct ChildAgentParams (now with optional context_system), pub struct ChildAgentOutput
+// POS:    Shared helper for running a child agent to completion; callers may mount per-spawn ContextHooks via `context_system`.
 //         Used by agent_spawn (AI-driven), task_spawn (developer-constrained), and team (graph-based).
 
 use std::path::PathBuf;
@@ -11,6 +11,7 @@ use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
+use alva_kernel_abi::scope::context::ContextSystem;
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{AgentMessage, BusHandle, ModelConfig, NoopSleeper, Sleeper};
 
@@ -50,6 +51,12 @@ pub struct ChildAgentParams {
     /// setting up any listeners before passing it in. Takes precedence over
     /// `parent_session_id`.
     pub session: Option<Arc<dyn AgentSession>>,
+    /// Optional `ContextSystem` to mount on the child loop — allows the
+    /// caller to install per-spawn `ContextHooks` (e.g. a Blackboard
+    /// plugin chain built from `SpawnCommunication::attach`). When `None`
+    /// the child runs without any context plugins (kernel behavior
+    /// unchanged).
+    pub context_system: Option<Arc<ContextSystem>>,
 }
 
 /// Output from a completed child agent run.
@@ -91,7 +98,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
         context_window: params.context_window,
         workspace: params.workspace,
         bus: params.bus,
-        context_system: None,
+        context_system: params.context_system,
         context_token_budget: None,
     };
 

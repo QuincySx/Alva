@@ -1,9 +1,16 @@
 // POS: Bus events — emitted by context management for observability and coordination.
 
-/// Emitted when token usage exceeds the configured budget threshold.
+/// Bus Event: token usage exceeded the configured budget threshold.
 ///
-/// Sender: ContextHooks (on_budget_exceeded)
-/// Receiver: UI layer, compression middleware, metrics
+/// **Emitter**: `CompactionMiddleware::before_llm_call`
+/// (`alva-agent-context/src/middleware.rs`) and any future
+/// `ContextHooks::on_budget_exceeded` implementation.
+/// **Subscribers**: UI layer (redraw token gauge), metrics pipeline,
+/// policy middleware that wants to react (e.g. preempt the next turn).
+/// **Semantic**: observational — signal only, no required action.
+/// Downstream compaction is orchestrated by the same middleware and
+/// does not wait for subscribers.
+#[crate::bus_event]
 #[derive(Clone, Debug)]
 pub struct TokenBudgetExceeded {
     pub agent_id: String,
@@ -13,10 +20,16 @@ pub struct TokenBudgetExceeded {
 }
 impl alva_kernel_bus::BusEvent for TokenBudgetExceeded {}
 
-/// Emitted after context compression is applied.
+/// Bus Event: context compaction finished — one emission per compaction.
 ///
-/// Sender: ContextHooks (assemble/on_budget_exceeded)
-/// Receiver: UI layer, metrics
+/// **Emitter**: `CompactionMiddleware::before_llm_call`
+/// (`alva-agent-context/src/middleware.rs`) after running its
+/// compaction strategy.
+/// **Subscribers**: UI layer (redraw token usage, show "compacted"
+/// indicator), metrics pipeline.
+/// **Semantic**: informational — conversation context has shrunk.
+/// Subscribers should refresh any cached token totals.
+#[crate::bus_event]
 #[derive(Clone, Debug)]
 pub struct ContextCompacted {
     pub agent_id: String,
@@ -26,10 +39,16 @@ pub struct ContextCompacted {
 }
 impl alva_kernel_bus::BusEvent for ContextCompacted {}
 
-/// Emitted after memory facts are extracted from conversation.
+/// Bus Event: memory facts extracted from a conversation turn.
 ///
-/// Sender: DefaultContextHooks (after_turn)
-/// Receiver: UI layer, metrics
+/// **Emitter**: reserved for future use by a memory-extraction pipeline
+/// (likely `DefaultContextHooks::after_turn` or a dedicated memory
+/// middleware). No production emitter today.
+/// **Subscribers**: UI layer (show "N facts saved" toast), metrics.
+/// **Semantic**: informational — N memory facts just landed in the
+/// memory backend. Subscribers may re-query memory to reflect the new
+/// state.
+#[crate::bus_event]
 #[derive(Clone, Debug)]
 pub struct MemoryExtracted {
     pub agent_id: String,

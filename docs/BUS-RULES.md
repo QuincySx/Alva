@@ -53,6 +53,47 @@ Bus 提供三个机制，每个有明确的使用场景和禁区：
 - 运行时（agent loop 执行过程中）禁止动态注册新能力
 - 能力一旦注册，生命周期等同于 bus 本身
 
+**Cap 文档规则（强制）：**
+
+每个 Cap 的 trait 定义（或在 `.provide` 使用的 concrete struct 定义处）必须带三行字段的 doc comment：
+
+```rust
+/// Bus Capability: <一句话说明>
+///
+/// **Provider**: <谁注册，什么时候>
+/// **Consumers**: <谁 get，在哪用>
+/// **Why bus**: <为什么不直接作为函数参数传递>
+pub trait MyService: Send + Sync { ... }
+```
+
+"Why bus" 必须能写出来。写不出来的说明这个能力不该放 bus — 应该直接构造函数传参或用 Extensions。
+
+**`#[bus_cap]` 标记（强制）：**
+
+每个 Cap 的定义必须带 `#[bus_cap]` 属性宏（identity macro，来自 `alva_kernel_abi::bus_cap`）：
+
+```rust
+use alva_kernel_abi::bus_cap;
+
+/// Bus Capability: ...
+///
+/// **Provider**: ...
+/// **Consumers**: ...
+/// **Why bus**: ...
+#[bus_cap]
+pub trait MyService: Send + Sync { ... }
+```
+
+这个标记让 `alva-bus-lint`（`crates/alva-bus-lint/`）能定位到 Cap 定义并在 CI 强制下面的 surface 限制。trait / struct / enum 都适用。
+
+**Cap surface 限制（强制，仅 trait 适用）：**
+
+带 `#[bus_cap]` 的 **trait** 的所有方法签名（参数 + 返回类型）里，出现的命名类型所属的外部 crate 去重后**不得超过 2 个**（不含 std / core / alloc / 同 crate）。
+
+这条规则的目的：一个把 4 个不同 crate 的类型缝进签名的 trait，就是在把半个 workspace 耦合进这一个扩展点。它是 God interface 的机械信号。
+
+struct / enum 形式的 Cap 不做 surface check（struct 内部方法的自然增长不是 God interface 信号；真正的 God 风险在 trait 合约）。
+
 ### Event（事件总线）
 
 **可以用：**
@@ -66,19 +107,25 @@ Bus 提供三个机制，每个有明确的使用场景和禁区：
 - 高频数据流 — 每个 token 的 streaming delta 不走 bus，走现有的 event_tx channel
 - 需要严格顺序保证的控制流 — bus event 是通知，不是命令
 
-**事件定义规则：**
+**事件定义规则（强制）：**
+
+每个 Event struct 定义处必须带三行字段的 doc comment：
+
 ```rust
-/// 每个 Event 必须有文档注释说明三件事：
-/// - **发送方**: 哪个 crate / 哪个函数发出
-/// - **接收方**: 预期哪些 crate 订阅
-/// - **语义**: 这个事件意味着什么，接收方应该做什么
-#[derive(Clone)]
+/// Bus Event: <一句话说明这个事件代表什么>
+///
+/// **Emitter**: 哪个 crate / 哪个函数发出
+/// **Subscribers**: 预期哪些 crate 订阅
+/// **Semantic**: 这个事件意味着什么，订阅方应该做什么
+#[derive(Clone, Debug)]
 pub struct TokenBudgetExceeded {
     pub ratio: f32,
     pub session_id: String,
 }
 impl BusEvent for TokenBudgetExceeded {}
 ```
+
+Event 定义也要带 `#[bus_event]` 属性宏（`alva_kernel_abi::bus_event`），用于 `alva-bus-lint` 发现。Event 不做 surface 限制，因为 Event 本质是数据 struct，没有 trait 签名膨胀问题。
 
 ### StateCell（共享状态格）
 
@@ -251,7 +298,11 @@ bus crate 自身必须包含以下测试：
 每个涉及 bus 的 PR，reviewer 必须检查：
 
 - [ ] 是否是跨 crate 通信？同一 crate 内不应使用 bus
-- [ ] Event 是否有文档注释（发送方 / 接收方 / 语义）？
+- [ ] Cap 定义处是否有 `#[bus_cap]` 标记？`alva-bus-lint` 通过？
+- [ ] Cap 定义处是否有 `Provider / Consumers / Why bus` 三行 doc？
+- [ ] Event 定义处是否有 `#[bus_event]` 标记？
+- [ ] Event 定义处是否有 `Emitter / Subscribers / Semantic` 三行 doc？
+- [ ] 新增 Cap trait 的方法签名跨 crate 表面积 ≤ 2（lint 强制，但作者也要自查）？
 - [ ] 是否用 event 模拟了 RPC（发请求等回复）？如果是，改用 Caps
 - [ ] 新增的 Caps trait 是否定义在 alva-kernel-abi 中？不允许定义在 bus crate 里
 - [ ] event handler 里是否有 emit 同类事件的风险？
@@ -261,7 +312,20 @@ bus crate 自身必须包含以下测试：
 
 ---
 
-## 七、演进路径
+## 七、本规则集的退役条件
+
+本文档描述的规则（特别是 `alva-bus-lint` 强制的 surface 限制）针对当前规模（~10 Cap + ~3 Event）调校。以下任一条件触发时，**本规则应整体作废，进入更重的第二层**（Cap 分级 `stable` / `experimental` / `internal`，加上 namespaced bus 的分桶设计），不要靠加白名单条目苟延残喘：
+
+- Cap 总数 > 20，或 Event 总数 > 10
+- 引入 namespaced bus（例如 `bus.namespace("spawn").get::<T>()`）—— surface 语义变了，旧 lint 失效
+- 第三方（AEP / SDK 用户）注册 Cap 成为常态 —— 不可能强制外部遵守表面积规则
+- 单季度内出现 >1 次围绕 "这个 Cap 算不算过线" 的 PR 辩论 —— 说明 2-crate 阈值在当前代码规模下已经不 load-bearing
+
+本规则不是"永久基建"，是"从 8-15 Cap 阶段过渡到真·架构治理的过渡物"。退役时直接删 `crates/alva-bus-lint/`、摘 `ci-check-deps.sh` 里的调用、`docs/BUS-RULES.md` 改写这一章。
+
+---
+
+## 八、演进路径
 
 ```
 P0  创建 alva-kernel-bus crate（~330行），更新 CI 脚本

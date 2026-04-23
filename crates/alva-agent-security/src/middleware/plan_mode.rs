@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::shared::MiddlewarePriority;
 use alva_kernel_core::state::AgentState;
-use alva_kernel_abi::ToolCall;
+use alva_kernel_abi::{bus_cap, ToolCall};
 use async_trait::async_trait;
 
 /// Middleware that blocks non-read-only tools when plan mode is active.
@@ -48,7 +48,18 @@ impl PlanModeMiddleware {
     }
 }
 
-/// Trait for runtime plan mode control, exposed via Bus.
+/// Bus Capability: runtime plan-mode enable/disable knob.
+///
+/// **Provider**: `PlanModeExtension::configure`
+/// (`alva-app-core/src/extension/plan_mode.rs`). The concrete impl is
+/// `PlanModeMiddleware` itself, wrapped in `Arc`.
+/// **Consumers**: `PermissionModeService` (internal — toggles plan-mode
+/// enforcement whenever the permission mode flips to/from `Plan`).
+/// **Why bus**: `PermissionModeService` lives in `alva-app-core`,
+/// `PlanModeMiddleware` lives in `alva-agent-security`. The bus is the
+/// only seam the two crates share — neither depends on the other at
+/// compile time.
+#[bus_cap]
 pub trait PlanModeControl: Send + Sync {
     fn set_enabled(&self, enabled: bool);
 }

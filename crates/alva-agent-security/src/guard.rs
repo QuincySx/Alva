@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-use alva_kernel_abi::ToolExecutionContext;
+use alva_kernel_abi::{bus_cap, ToolExecutionContext};
 
 use crate::authorized_roots::AuthorizedRoots;
 use crate::cache::{CachedDecision, PermissionCache};
@@ -71,8 +71,22 @@ fn expand_home(path: &str) -> PathBuf {
 }
 
 
-/// Unified security gate — the single entry point checked before every tool
-/// execution.
+/// Bus Capability: unified security gate shared by middleware + HITL UI.
+/// Published on the bus wrapped in `tokio::sync::Mutex<SecurityGuard>`.
+///
+/// **Provider**: `SecurityExtension::configure`
+/// (`alva-agent-extension-builtin/src/wrappers/security.rs`). The
+/// default-replacement contract applies — register your own extension
+/// named `"security"` to swap the guard.
+/// **Consumers**: `BaseAgent::resolve_permission`
+/// (`alva-app-core/src/base_agent/agent.rs`) so the CLI / UI can
+/// answer pending HITL approval prompts without going through a
+/// hardcoded accessor; internally `SecurityMiddleware` retains its own
+/// `Arc<Mutex<_>>` clone.
+/// **Why bus**: the middleware enforcing security sits in
+/// `alva-agent-security`; the HITL resolver lives in the outer app.
+/// Exposing the guard on the bus avoids bolting a `Security`-shaped
+/// accessor onto the stable `BaseAgent` API.
 ///
 /// Composes all security subsystems:
 ///   1. Sensitive path filtering
@@ -83,6 +97,7 @@ fn expand_home(path: &str) -> PathBuf {
 ///   6. Bash command classification (read-only/destructive/unknown)
 ///   7. HITL permission management
 ///   8. Sandbox configuration (for command wrapping)
+#[bus_cap]
 pub struct SecurityGuard {
     sensitive_paths: SensitivePathFilter,
     permission_manager: PermissionManager,

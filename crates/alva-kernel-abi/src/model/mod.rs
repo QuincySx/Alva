@@ -69,11 +69,20 @@ pub trait LanguageModel: Send + Sync {
     fn model_id(&self) -> &str;
 }
 
-/// Token counting capability.
+/// Bus Capability: Token counting + context-window lookup.
 ///
-/// Registered on the bus by the provider layer. Context management
-/// and compression systems use this for accurate token budgeting
-/// instead of heuristic estimation (chars/4).
+/// **Provider**: `BaseAgentBuilder::build` (default `HeuristicTokenCounter`);
+/// `AgentRuntimeBuilder::build` standard-stack path. Replaceable by
+/// publishing a provider-specific counter via a custom Extension (e.g.
+/// a real tokenizer for the configured model).
+/// **Consumers**: `alva-kernel-core::run` for budget reporting,
+/// `CompactionMiddleware` (`alva-agent-context`) for token accounting,
+/// `ContextHandleImpl` for context assembly size checks.
+/// **Why bus**: The tokenizer lives with the provider crate (because each
+/// model family has its own encoding). Context management lives in a
+/// separate crate with no compile-time dependency on any provider —
+/// the bus bridges those layers without a build-time edge.
+#[crate::bus_cap]
 pub trait TokenCounter: Send + Sync {
     /// Count tokens in a text string using the model's actual tokenizer.
     fn count_tokens(&self, text: &str) -> usize;

@@ -40,11 +40,13 @@
 //! ```
 
 mod board;
+mod communication;
 mod message;
 mod plugin;
 mod profile;
 
 pub use board::Blackboard;
+pub use communication::BlackboardCommunication;
 pub use message::{BoardMessage, MessageKind, TaskPhase};
 pub use plugin::{BlackboardPlugin, BlackboardPluginConfig};
 pub use profile::AgentProfile;

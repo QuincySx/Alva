@@ -161,6 +161,15 @@ impl BaseAgentBuilder {
             alva_kernel_abi::model::HeuristicTokenCounter::new(200_000),
         ));
 
+        // NOTE: There is no built-in default provide for
+        //   - `SpawnCommunicationRegistry` (install `SpawnCommRegistryExtension`)
+        //   - `ProviderRegistry` (install `ProviderRegistryExtension`)
+        //
+        // Both are opt-in via `Extension`, matching the rest of the
+        // framework's philosophy: the builder does not grow ad-hoc
+        // setters or default registrations — everything extra is an
+        // Extension that the caller explicitly registers.
+
         // 4. Auto-wire default extensions for memory + security if the
         //    caller hasn't already registered an extension under the same
         //    name. This is the ENTIRE opt-out mechanism: register your own

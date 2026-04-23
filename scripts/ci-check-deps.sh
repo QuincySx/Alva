@@ -150,6 +150,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Bus cap surface firewall — every #[bus_cap] trait must keep its signature
+# type-surface ≤ 2 external crates. See docs/BUS-RULES.md § "Cap surface
+# limit" for the contract. Tool lives at crates/alva-bus-lint/.
+# ---------------------------------------------------------------------------
+echo ""
+echo "Checking bus cap surface (crates/alva-bus-lint)..."
+cargo run --quiet -p alva-bus-lint
+
+# ---------------------------------------------------------------------------
 # Phase 5 invariant: kernel layers must compile for wasm32-unknown-unknown
 # without any host-specific deps.
 # ---------------------------------------------------------------------------

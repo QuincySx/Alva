@@ -55,4 +55,7 @@
 | 网关 | `gateway/` | API 网关（placeholder） |
 | 系统能力 | `system/` | 系统能力抽象（placeholder） |
 | BaseAgent | `base_agent.rs` | 开箱即用 Agent：自动组装工具、安全、压缩、Skill 注入、MCP |
+| Spawn Comm Registry | `extension/spawn_comm_registry.rs` | DefaultSpawnCommRegistry + SpawnCommRegistryExtension — 可选：把空 SpawnCommunicationRegistry provide 到 bus，供其它 comm extension（如 Blackboard）填充；不装则 `SpawnInput.comms` 必须为空 |
+| Provider Registry Extension | `extension/provider_registry.rs` | ProviderRegistryExtension — 可选：把用户持有的 `Arc<ProviderRegistry>` provide 到 bus，启用 `SpawnInput.model` 字段；不装则 `model` 必须留空（子 agent 继承父模型） |
+| Blackboard Comm Extension | `extension/blackboard_comm.rs` | BlackboardCommExtension — 可选：从 bus 拿 `SpawnCommunicationRegistry`（需先装 SpawnCommRegistryExtension），把 BlackboardCommunication 注册进去 |
 | 错误 | `error.rs` | EngineError / SkillError 统一错误类型 |
