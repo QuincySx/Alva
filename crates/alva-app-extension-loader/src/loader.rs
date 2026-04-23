@@ -382,6 +382,81 @@ async fn scan_one_dir(
 }
 
 // ===========================================================
+// Public CLI-facing APIs (alva plugins list / exec)
+// ===========================================================
+
+/// Metadata discovered for one plugin without starting its subprocess.
+/// Returned from [`discover_plugins`] — fast, cheap, suitable for
+/// listing in `alva plugins list`.
+#[derive(Debug, Clone)]
+pub struct DiscoveredPlugin {
+    /// Absolute plugin directory (contains `alva.toml` + entry file).
+    pub dir: PathBuf,
+    /// Parsed `alva.toml`.
+    pub manifest: PluginManifest,
+}
+
+/// Walk each directory and return the manifest metadata for every
+/// plugin subdirectory that has a valid `alva.toml`. Does NOT start
+/// subprocesses — use [`start_plugin`] for that.
+///
+/// Broken manifests are logged and skipped; the scan never fails
+/// wholesale. Duplicate plugin names across directories yield
+/// duplicate `DiscoveredPlugin` entries (caller decides dedup policy).
+pub async fn discover_plugins(dirs: &[PathBuf]) -> Vec<DiscoveredPlugin> {
+    let mut out = Vec::new();
+    for dir in dirs {
+        if !dir.exists() {
+            continue;
+        }
+        let Ok(mut entries) = tokio::fs::read_dir(dir).await else { continue };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let plugin_dir = entry.path();
+            if !entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let manifest_path = plugin_dir.join("alva.toml");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let Ok(s) = tokio::fs::read_to_string(&manifest_path).await else { continue };
+            let Ok(manifest) = toml::from_str::<PluginManifest>(&s) else {
+                tracing::warn!(
+                    path = %manifest_path.display(),
+                    "failed to parse manifest"
+                );
+                continue;
+            };
+            out.push(DiscoveredPlugin { dir: plugin_dir, manifest });
+        }
+    }
+    out
+}
+
+/// Start a single plugin from its directory (containing `alva.toml`
+/// + entry file). Used by CLI tools like `alva plugins exec` that
+/// need one plugin running without the full Extension lifecycle.
+///
+/// Returns the running [`RemoteExtensionProxy`] — caller is
+/// responsible for `.shutdown()` when done.
+pub async fn start_plugin(plugin_dir: PathBuf) -> Result<Arc<RemoteExtensionProxy>, LoaderError> {
+    let manifest_path = plugin_dir.join("alva.toml");
+    if !manifest_path.exists() {
+        return Err(LoaderError::Manifest(format!(
+            "no alva.toml in {}",
+            plugin_dir.display()
+        )));
+    }
+    let manifest_str = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .map_err(LoaderError::Io)?;
+    let manifest: PluginManifest = toml::from_str(&manifest_str)
+        .map_err(|e| LoaderError::Manifest(format!("parse {}: {e}", manifest_path.display())))?;
+    let proxy = RemoteExtensionProxy::start(plugin_dir, manifest).await?;
+    Ok(Arc::new(proxy))
+}
+
+// ===========================================================
 // Error
 // ===========================================================
 
@@ -395,4 +470,7 @@ pub enum LoaderError {
 
     #[error("proxy error: {0}")]
     Proxy(#[from] ProxyError),
+
+    #[error("manifest error: {0}")]
+    Manifest(String),
 }

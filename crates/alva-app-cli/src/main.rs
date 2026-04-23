@@ -22,6 +22,7 @@ mod commands;
 mod event_handler;
 mod history;
 mod output;
+mod plugins;
 mod repl;
 pub mod services;
 mod session;
@@ -69,6 +70,14 @@ fn main() {
 }
 
 async fn run() -> i32 {
+    // Early dispatch: `alva plugins ...` short-circuits before any
+    // agent setup. No LLM config needed, no session init — it's a
+    // pure plugin debugging command.
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(|s| s.as_str()) == Some("plugins") {
+        return plugins::run(&argv[2..]).await;
+    }
+
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let paths = AlvaPaths::new(&workspace);
 
