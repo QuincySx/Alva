@@ -19,6 +19,7 @@
 mod agent_setup;
 mod checkpoint;
 mod commands;
+mod context;
 mod event_handler;
 mod history;
 mod output;
@@ -70,12 +71,14 @@ fn main() {
 }
 
 async fn run() -> i32 {
-    // Early dispatch: `alva plugins ...` short-circuits before any
-    // agent setup. No LLM config needed, no session init — it's a
-    // pure plugin debugging command.
+    // Early dispatch: `alva plugins ...` and `alva context ...`
+    // short-circuit before any agent setup — pure debugging commands
+    // that need no LLM config or session init.
     let argv: Vec<String> = std::env::args().collect();
-    if argv.get(1).map(|s| s.as_str()) == Some("plugins") {
-        return plugins::run(&argv[2..]).await;
+    match argv.get(1).map(|s| s.as_str()) {
+        Some("plugins") => return plugins::run(&argv[2..]).await,
+        Some("context") => return context::run(&argv[2..]).await,
+        _ => {}
     }
 
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
