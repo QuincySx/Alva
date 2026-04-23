@@ -49,10 +49,22 @@ struct Input {
     description = "Edit a Jupyter notebook cell. Supports replacing cell content, inserting a new \
         cell, or deleting an existing cell.",
     input = Input,
+    resource_keys = resource_keys_for_input,
 )]
 pub struct NotebookEditTool;
 
 impl NotebookEditTool {
+    fn resource_keys_for_input(
+        &self,
+        input: &serde_json::Value,
+    ) -> Vec<alva_kernel_abi::ResourceKey> {
+        input
+            .get("notebook_path")
+            .and_then(|v| v.as_str())
+            .map(|p| vec![alva_kernel_abi::ResourceKey::write(p.to_string())])
+            .unwrap_or_default()
+    }
+
     async fn execute_impl(
         &self,
         params: Input,

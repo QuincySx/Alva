@@ -31,6 +31,7 @@ mod lsp;
 mod pending;
 pub mod provider_registry;
 pub mod spawn_comm_registry;
+pub mod tool_lock_registry;
 
 // Re-export built-in extension types
 pub use skills::SkillsExtension;
@@ -58,3 +59,4 @@ pub use lsp::LspExtension;
 pub use pending::{PendingExtension, PendingMessage, PendingService, PendingServiceImpl};
 pub use provider_registry::ProviderRegistryExtension;
 pub use spawn_comm_registry::SpawnCommRegistryExtension;
+pub use tool_lock_registry::ToolLockRegistryExtension;

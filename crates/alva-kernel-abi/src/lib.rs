@@ -36,6 +36,7 @@ pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadat
 pub use model::{CompletionResponse, LanguageModel, ModelConfig, TokenCounter};
 pub use base::stream::StreamEvent;
 pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, SearchReadInfo};
+pub use tool::scheduler::{ExecutionMode, LockMode, ResourceKey, ToolLockGuards, ToolLockRegistry};
 pub use tool::execution::{MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput};
 
 // Re-export proc macros from alva-macros. A derive macro and a trait

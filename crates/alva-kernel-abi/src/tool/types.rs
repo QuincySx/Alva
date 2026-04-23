@@ -161,6 +161,27 @@ pub trait Tool: Send + Sync {
         false
     }
 
+    /// Resource keys this invocation will lock. Scheduler uses multi-reader /
+    /// single-writer semantics: many `Read` on the same key run concurrently;
+    /// `Write` is exclusive. Default: empty (no locks — fully parallel).
+    ///
+    /// By convention `key` is the absolute file path for file-mutating tools,
+    /// or any URI-shaped identifier for other contended resources. Keys are
+    /// sorted before acquisition to guarantee total order across invocations
+    /// and avoid cross-tool deadlock.
+    fn resource_keys(&self, _input: &serde_json::Value) -> Vec<super::scheduler::ResourceKey> {
+        Vec::new()
+    }
+
+    /// Execution mode for batch scheduling. Default: `Parallel` — tool
+    /// honors `resource_keys()` and runs concurrently with non-conflicting
+    /// peers. Override with `SerialGlobal` for tools whose side effects
+    /// cannot be precisely modeled (e.g. Bash: arbitrary FS + env + process
+    /// mutations → safer to treat as globally exclusive).
+    fn execution_mode(&self) -> super::scheduler::ExecutionMode {
+        super::scheduler::ExecutionMode::Parallel
+    }
+
     /// Whether this tool invocation is purely read-only (no side effects).
     fn is_read_only(&self, _input: &serde_json::Value) -> bool {
         false

@@ -120,10 +120,24 @@ fn check_staleness(path: &str, current_content: &[u8]) -> Option<String> {
         batch edits (edits[] array), and replace_all mode. Each old_str must be unique unless \
         replace_all is true. Smart quotes are automatically normalized. Path is relative to workspace root.",
     input = Input,
+    resource_keys = resource_keys_for_input,
 )]
 pub struct FileEditTool;
 
 impl FileEditTool {
+    /// Write lock on the target file path. Blocks concurrent reads + writes
+    /// on the same file; other files are unaffected.
+    fn resource_keys_for_input(
+        &self,
+        input: &serde_json::Value,
+    ) -> Vec<alva_kernel_abi::ResourceKey> {
+        input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|p| vec![alva_kernel_abi::ResourceKey::write(p.to_string())])
+            .unwrap_or_default()
+    }
+
     async fn execute_impl(
         &self,
         params: Input,

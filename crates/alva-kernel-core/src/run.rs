@@ -996,6 +996,32 @@ async fn run_loop(
                         // Execute the tool through wrap_tool_call middleware chain (with timeout)
                         match tool {
                             Some(ref t) => {
+                                // Acquire resource locks for this invocation. Multi-reader /
+                                // single-writer per `tool.resource_keys()`; `SerialGlobal`
+                                // tools get exclusive. The guards are held across the whole
+                                // wrap_tool_call chain (including middleware + tool.execute)
+                                // and dropped when this `Ok(())` arm's scope exits — RAII
+                                // release. If no ToolLockRegistry is published on the bus,
+                                // this degenerates to a no-op (`None` guard, zero locks).
+                                let _lock_guards = if let Some(bus) = config.bus.as_ref() {
+                                    if let Some(registry) = bus
+                                        .get::<alva_kernel_abi::ToolLockRegistry>()
+                                    {
+                                        Some(
+                                            registry
+                                                .acquire(
+                                                    &t.resource_keys(&tool_call.arguments),
+                                                    t.execution_mode(),
+                                                )
+                                                .await,
+                                        )
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+
                                 let actual_tool_call = ActualToolCall {
                                     tool: t.clone(),
                                     cancel: cancel.clone(),

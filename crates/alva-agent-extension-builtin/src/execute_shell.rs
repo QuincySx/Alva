@@ -75,6 +75,11 @@ fn detect_git_operation(command: &str) -> Option<&'static str> {
         checking system state, or performing operations that require shell access. \
         Supports timeout, background execution, environment variables, and git operation tracking.",
     input = Input,
+    // Shell commands can mutate arbitrary FS paths, environment vars, background
+    // processes, network state — not precisely modelable with resource_keys.
+    // Treat as globally exclusive: blocks all other tools while running, and
+    // waits for all in-flight tools to finish before starting.
+    execution_mode = "serial-global",
 )]
 pub struct ExecuteShellTool;
 

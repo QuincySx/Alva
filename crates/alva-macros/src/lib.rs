@@ -137,6 +137,22 @@ struct ToolAttrs {
     /// parallel with others. Default: `false`.
     #[darling(default)]
     concurrency_safe: bool,
+    /// Name of an inherent method that supplies [`Tool::resource_keys`].
+    /// Signature: `fn <name>(&self, input: &serde_json::Value) ->
+    /// Vec<alva_kernel_abi::ResourceKey>`. When set, the derive's
+    /// `impl Tool` emits a `resource_keys` that delegates to this
+    /// inherent method; otherwise the trait default (empty vec) is used.
+    /// See `docs/amp/alva-learnings/resource-lock-scheduler.md` for
+    /// context on multi-reader/single-writer lock semantics.
+    #[darling(default)]
+    resource_keys: Option<syn::Ident>,
+    /// Override `Tool::execution_mode`. Accepts `"parallel"` (default) or
+    /// `"serial-global"`. Use `serial-global` only for tools whose side
+    /// effects can't be precisely modeled (e.g. Bash: arbitrary FS/env
+    /// mutations). `Parallel` tools honor `resource_keys()`; `SerialGlobal`
+    /// ignores them and runs alone.
+    #[darling(default)]
+    execution_mode: Option<String>,
 }
 
 #[proc_macro_derive(Tool, attributes(tool))]
@@ -186,6 +202,33 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let resource_keys_impl = if let Some(ref ident) = attrs.resource_keys {
+        quote! {
+            fn resource_keys(&self, input: &::serde_json::Value)
+                -> ::std::vec::Vec<::alva_kernel_abi::ResourceKey>
+            {
+                Self::#ident(self, input)
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let execution_mode_impl = match attrs.execution_mode.as_deref() {
+        Some("serial-global") | Some("serial_global") | Some("SerialGlobal") => quote! {
+            fn execution_mode(&self) -> ::alva_kernel_abi::ExecutionMode {
+                ::alva_kernel_abi::ExecutionMode::SerialGlobal
+            }
+        },
+        Some("parallel") | Some("Parallel") | None => quote! {},
+        Some(other) => {
+            let msg = format!(
+                "unknown execution_mode `{other}` (expected `parallel` or `serial-global`)"
+            );
+            quote! { compile_error!(#msg); }
+        }
+    };
+
     // All references to third-party items are fully qualified so the
     // macro works even when the consumer crate hasn't imported them
     // into the local namespace.
@@ -204,6 +247,8 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
             #read_only_impl
             #destructive_impl
             #concurrency_safe_impl
+            #resource_keys_impl
+            #execution_mode_impl
 
             fn parameters_schema(&self) -> ::serde_json::Value {
                 let mut schema = ::serde_json::to_value(

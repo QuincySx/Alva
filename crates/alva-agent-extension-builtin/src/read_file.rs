@@ -139,10 +139,24 @@ fn parse_page_range(range: &str) -> Result<(usize, usize), String> {
     input = Input,
     read_only,
     concurrency_safe,
+    resource_keys = resource_keys_for_input,
 )]
 pub struct ReadFileTool;
 
 impl ReadFileTool {
+    /// Read lock on the target file path. Concurrent reads of the same file
+    /// are fine; blocks while a write-locking tool (e.g. file_edit) holds it.
+    fn resource_keys_for_input(
+        &self,
+        input: &serde_json::Value,
+    ) -> Vec<alva_kernel_abi::ResourceKey> {
+        input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|p| vec![alva_kernel_abi::ResourceKey::read(p.to_string())])
+            .unwrap_or_default()
+    }
+
     async fn execute_impl(
         &self,
         params: Input,
