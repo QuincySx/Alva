@@ -403,7 +403,15 @@ impl LlmCallFn for ActualLlmCall {
                 StreamEvent::Error(e) => {
                     return Err(AgentError::LlmError(e));
                 }
-                StreamEvent::Start | StreamEvent::Done | StreamEvent::ReasoningDelta { .. } => {}
+                StreamEvent::Start
+                | StreamEvent::Done
+                | StreamEvent::ReasoningDelta { .. }
+                | StreamEvent::ToolCallStart { .. }
+                | StreamEvent::ToolCallEnd { .. } => {
+                    // Start/End are boundary signals the agent loop doesn't need
+                    // to act on — the delta accumulation path already tracks
+                    // which tool call is in progress via last_tool_call_index.
+                }
             }
         }
 

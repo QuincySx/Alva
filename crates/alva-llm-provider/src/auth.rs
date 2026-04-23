@@ -16,6 +16,8 @@ pub enum AuthScheme {
     Bearer,
     /// `x-api-key: <key>` — Anthropic.
     XApiKey,
+    /// `x-goog-api-key: <key>` — Google Gemini / Vertex AI.
+    GoogApiKey,
 }
 
 impl AuthScheme {
@@ -24,6 +26,7 @@ impl AuthScheme {
         match self {
             AuthScheme::Bearer => ("Authorization", format!("Bearer {}", api_key)),
             AuthScheme::XApiKey => ("x-api-key", api_key.to_string()),
+            AuthScheme::GoogApiKey => ("x-goog-api-key", api_key.to_string()),
         }
     }
 }

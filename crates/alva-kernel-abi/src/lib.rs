@@ -1,6 +1,7 @@
 // INPUT:  async_trait, serde, serde_json, thiserror, chrono, tokio_util, alva_kernel_bus
 // OUTPUT: CancellationToken, ContentBlock, AgentError, Message, LanguageModel, ModelConfig, TokenCounter, StreamEvent, Tool, ToolCall, ToolExecutionContext, ToolOutput, Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, SpawnCommunication, SpawnCommContext, SpawnCommHandle, SpawnCommError, SpawnCommunicationRegistry, OnChildComplete, SpawnResult, ...
 // POS:    Crate root — re-exports all shared types including bus coordination primitives, context bus events, and spawn-time communication plugin contract.
+pub mod adapter;
 pub mod base;
 // context is now at scope::context; re-export for backward compatibility
 pub use scope::context;
