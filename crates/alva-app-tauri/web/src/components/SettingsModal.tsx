@@ -111,6 +111,7 @@ const PROVIDER_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI (Chat Completions)" },
   { value: "openai-responses", label: "OpenAI (Responses)" },
+  { value: "gemini", label: "Google Gemini" },
 ];
 
 function ModelsTab() {

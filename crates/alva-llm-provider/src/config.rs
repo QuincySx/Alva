@@ -28,6 +28,12 @@ pub struct ProviderConfig {
     /// Custom headers to send with every request. When non-empty, `api_key` is ignored.
     #[serde(default)]
     pub custom_headers: std::collections::HashMap<String, String>,
+    /// Which provider impl to use. Values:
+    /// `"anthropic"` / `"openai-chat"` / `"openai-responses"` / `"gemini"`.
+    /// `None` (or unknown value) defaults to OpenAI Chat Completions, which
+    /// is the broadest OpenAI-compatible path (OpenAI / DeepSeek / Ollama / etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 /// Partial config — all fields optional, for layered merging.
@@ -41,6 +47,8 @@ struct PartialConfig {
     pub base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 impl PartialConfig {
@@ -51,6 +59,7 @@ impl PartialConfig {
             model: other.model.or(self.model),
             base_url: other.base_url.or(self.base_url),
             max_tokens: other.max_tokens.or(self.max_tokens),
+            kind: other.kind.or(self.kind),
         }
     }
 
@@ -67,6 +76,7 @@ impl PartialConfig {
             max_tokens: std::env::var("ALVA_MAX_TOKENS")
                 .ok()
                 .and_then(|s| s.parse().ok()),
+            kind: std::env::var("ALVA_PROVIDER_KIND").ok().filter(|s| !s.is_empty()),
         }
     }
 
@@ -80,6 +90,7 @@ impl PartialConfig {
                 .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
             max_tokens: self.max_tokens.unwrap_or(8192),
             custom_headers: std::collections::HashMap::new(),
+            kind: self.kind,
         })
     }
 }
@@ -181,12 +192,14 @@ mod tests {
             model: Some("base-model".into()),
             base_url: None,
             max_tokens: Some(4096),
+            kind: None,
         };
         let overlay = PartialConfig {
             api_key: None,
             model: Some("overlay-model".into()),
             base_url: Some("https://custom.api".into()),
             max_tokens: None,
+            kind: None,
         };
         let merged = base.merge(overlay);
         assert_eq!(merged.api_key.as_deref(), Some("base-key"));
@@ -243,6 +256,7 @@ mod tests {
             base_url: "https://test.api/v1".into(),
             max_tokens: 4096,
             custom_headers: std::collections::HashMap::new(),
+            kind: None,
         };
         let path = config.save_project(tmp.path()).unwrap();
         assert!(path.exists());

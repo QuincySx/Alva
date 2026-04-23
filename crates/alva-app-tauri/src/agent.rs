@@ -29,7 +29,7 @@ use alva_kernel_abi::base::content::ContentBlock;
 use alva_kernel_abi::base::message::{AgentMessage, Message, MessageRole};
 use alva_kernel_abi::LanguageModel;
 use alva_llm_provider::{
-    AnthropicProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
+    AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
 };
 
 use crate::sqlite_session::{SessionSummary, SqliteEvalSession, SqliteEvalSessionManager};
@@ -327,6 +327,11 @@ pub async fn list_providers() -> Vec<ProviderInfo> {
             label: "OpenAI (Responses)",
             default_model: "gpt-4o",
         },
+        ProviderInfo {
+            id: "gemini",
+            label: "Google Gemini",
+            default_model: "gemini-1.5-pro",
+        },
     ]
 }
 
@@ -544,6 +549,7 @@ fn default_base_url_for(provider: &str) -> String {
     match provider {
         "anthropic" => "https://api.anthropic.com".into(),
         "openai-responses" => "https://api.openai.com".into(),
+        "gemini" => "https://generativelanguage.googleapis.com".into(),
         _ => "https://api.openai.com/v1".into(),
     }
 }
@@ -1184,15 +1190,21 @@ fn build_model(req: &SendMessageRequest) -> Result<Arc<dyn LanguageModel>, Strin
         .clone()
         .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
         .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+        .or_else(|| std::env::var("GEMINI_API_KEY").ok())
+        .or_else(|| std::env::var("GOOGLE_API_KEY").ok())
         .unwrap_or_default();
 
     if api_key.is_empty() {
-        return Err("missing api_key (set it in the UI or via ANTHROPIC_API_KEY / OPENAI_API_KEY)".into());
+        return Err(
+            "missing api_key (set it in the UI or via ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)"
+                .into(),
+        );
     }
 
     let base_url = req.base_url.clone().unwrap_or_else(|| match req.provider.as_str() {
         "anthropic" => "https://api.anthropic.com".into(),
         "openai-responses" => "https://api.openai.com".into(),
+        "gemini" => "https://generativelanguage.googleapis.com".into(),
         _ => "https://api.openai.com/v1".into(),
     });
 
@@ -1202,11 +1214,13 @@ fn build_model(req: &SendMessageRequest) -> Result<Arc<dyn LanguageModel>, Strin
         base_url,
         max_tokens: 8192,
         custom_headers: Default::default(),
+        kind: Some(req.provider.clone()),
     };
 
     let model: Arc<dyn LanguageModel> = match req.provider.as_str() {
         "anthropic" => Arc::new(AnthropicProvider::new(config)),
         "openai-responses" => Arc::new(OpenAIResponsesProvider::new(config)),
+        "gemini" => Arc::new(GeminiProvider::new(config)),
         _ => Arc::new(OpenAIChatProvider::new(config)),
     };
     Ok(model)

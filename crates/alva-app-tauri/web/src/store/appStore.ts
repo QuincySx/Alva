@@ -5,7 +5,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ProviderKind = "anthropic" | "openai" | "openai-responses";
+export type ProviderKind = "anthropic" | "openai" | "openai-responses" | "gemini";
 
 export interface ProviderConfig {
   /** Stable local id (uuid-ish). */
@@ -117,7 +117,12 @@ function migrateLegacyLocalStorage(): ProviderConfig | null {
     const apiKey = localStorage.getItem("alva.apiKey") ?? "";
     const baseUrl = localStorage.getItem("alva.baseUrl") ?? "";
     if (!provider || !model) return null;
-    if (provider !== "anthropic" && provider !== "openai" && provider !== "openai-responses") {
+    if (
+      provider !== "anthropic" &&
+      provider !== "openai" &&
+      provider !== "openai-responses" &&
+      provider !== "gemini"
+    ) {
       return null;
     }
     return {

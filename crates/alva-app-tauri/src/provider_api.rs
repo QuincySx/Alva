@@ -113,6 +113,11 @@ fn resolve_models_url(provider: &str, base_url: &str) -> String {
                 format!("{b}/v1/models")
             }
         }
+        // Gemini API: /v1beta/models, response shape is {models: [{name, displayName, ...}]}
+        // rather than OpenAI's {data: [...]}. We hit the endpoint but `fetch_remote_models`
+        // will return empty because the RawResponse shape doesn't match — the UI still
+        // works (user can type model name manually).
+        "gemini" => format!("{b}/v1beta/models"),
         _ => format!("{b}/v1/models"),
     }
 }
@@ -133,6 +138,7 @@ fn build_request(
         "anthropic" => req
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
+        "gemini" => req.header("x-goog-api-key", api_key),
         _ => req.bearer_auth(api_key),
     }
 }

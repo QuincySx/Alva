@@ -8,7 +8,10 @@ use std::sync::Arc;
 use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder};
 use alva_host_native::middleware::checkpoint::CheckpointCallback;
 use alva_host_native::middleware::ApprovalRequest;
-use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
+use alva_kernel_abi::LanguageModel;
+use alva_llm_provider::{
+    AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
+};
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
@@ -70,7 +73,13 @@ pub(crate) async fn build_agent(
         project_context
     );
 
-    let model = Arc::new(OpenAIChatProvider::new(config.clone()));
+    let model: Arc<dyn LanguageModel> = match config.kind.as_deref() {
+        Some("anthropic") => Arc::new(AnthropicProvider::new(config.clone())),
+        Some("openai-responses") => Arc::new(OpenAIResponsesProvider::new(config.clone())),
+        Some("gemini") => Arc::new(GeminiProvider::new(config.clone())),
+        // None / "openai-chat" / unknown → OpenAI Chat (broadest OpenAI-compat path).
+        _ => Arc::new(OpenAIChatProvider::new(config.clone())),
+    };
     let (approval_ext, approval_rx) =
         alva_app_core::extension::ApprovalExtension::with_channel();
     let builder = BaseAgentBuilder::new()

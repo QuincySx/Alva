@@ -199,6 +199,7 @@ async fn e2e_http_streaming_full_pipeline() {
         base_url: server_url,
         max_tokens: 1000,
         custom_headers: std::collections::HashMap::new(),
+        kind: None,
     };
     let model: Arc<dyn LanguageModel> = Arc::new(OpenAIChatProvider::new(config));
 
@@ -268,6 +269,7 @@ async fn e2e_http_tool_call_pipeline() {
         base_url: server_url,
         max_tokens: 1000,
         custom_headers: std::collections::HashMap::new(),
+        kind: None,
     };
     let model: Arc<dyn LanguageModel> = Arc::new(OpenAIChatProvider::new(config));
 

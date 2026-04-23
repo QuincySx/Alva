@@ -9,12 +9,17 @@ use std::path::Path;
 
 use alva_llm_provider::ProviderConfig;
 
-/// Known provider presets.
+/// Known provider presets. `kind` maps to the provider impl in
+/// `alva_llm_provider` — see `alva-app-cli/src/agent_setup.rs` for the
+/// dispatch.
 struct ProviderPreset {
     name: &'static str,
     base_url: &'static str,
     default_model: &'static str,
     needs_api_key: bool,
+    /// Provider impl kind. `"openai-chat"` is the broadest
+    /// OpenAI-compatible path (OpenAI / DeepSeek / Ollama / custom).
+    kind: &'static str,
 }
 
 const PRESETS: &[ProviderPreset] = &[
@@ -23,30 +28,56 @@ const PRESETS: &[ProviderPreset] = &[
         base_url: "https://api.openai.com/v1",
         default_model: "gpt-4o",
         needs_api_key: true,
+        kind: "openai-chat",
+    },
+    ProviderPreset {
+        name: "Anthropic",
+        base_url: "https://api.anthropic.com",
+        default_model: "claude-sonnet-4-6",
+        needs_api_key: true,
+        kind: "anthropic",
+    },
+    ProviderPreset {
+        name: "Google Gemini",
+        base_url: "https://generativelanguage.googleapis.com",
+        default_model: "gemini-1.5-pro",
+        needs_api_key: true,
+        kind: "gemini",
+    },
+    ProviderPreset {
+        name: "OpenAI (Responses API)",
+        base_url: "https://api.openai.com",
+        default_model: "gpt-4o",
+        needs_api_key: true,
+        kind: "openai-responses",
     },
     ProviderPreset {
         name: "DeepSeek",
         base_url: "https://api.deepseek.com/v1",
         default_model: "deepseek-chat",
         needs_api_key: true,
+        kind: "openai-chat",
     },
     ProviderPreset {
         name: "Ollama (local)",
         base_url: "http://localhost:11434/v1",
         default_model: "llama3",
         needs_api_key: false,
+        kind: "openai-chat",
     },
     ProviderPreset {
         name: "Azure OpenAI",
         base_url: "",
         default_model: "gpt-4o",
         needs_api_key: true,
+        kind: "openai-chat",
     },
     ProviderPreset {
         name: "Custom (OpenAI-compatible)",
         base_url: "",
         default_model: "",
         needs_api_key: true,
+        kind: "openai-chat",
     },
 ];
 
@@ -193,6 +224,7 @@ pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
         base_url,
         max_tokens: 8192,
         custom_headers: std::collections::HashMap::new(),
+        kind: Some(preset.kind.to_string()),
     };
 
     // Save to global config (~/.config/alva/config.json)
