@@ -547,6 +547,54 @@ impl InMemoryAgentSession {
         }
     }
 
+    /// Replay a batch of pre-persisted `SessionEvent`s into this in-memory
+    /// session — used by storage backends (SQLite, JSON file, etc.) to
+    /// rebuild state from disk at startup.
+    ///
+    /// Unlike [`AgentSession::append`] (which assigns a fresh seq and only
+    /// touches the event log), this method:
+    /// 1. Preserves each event's original `seq` — no renumbering
+    /// 2. Rebuilds the `messages` projection by deserializing `event.data`
+    ///    for events whose role indicates a `AgentMessage` payload
+    /// 3. Advances `seq_counter` past the largest restored seq so future
+    ///    writes don't collide
+    ///
+    /// Without this method, backends that replay raw events via `append`
+    /// end up with an empty `messages` cache — `session.messages()` then
+    /// returns `[]` on reload, which the UI renders as "history wiped".
+    pub async fn restore_events(&self, events: Vec<SessionEvent>) {
+        let mut max_seq: u64 = 0;
+        let mut rebuilt_messages: VecDeque<AgentMessage> = VecDeque::new();
+        for event in &events {
+            if event.seq > max_seq {
+                max_seq = event.seq;
+            }
+            // Events originally written via `append_message` carry the
+            // full AgentMessage in `data`. That's the authoritative source
+            // for rebuilding the messages cache.
+            if let Some(data) = &event.data {
+                if let Ok(msg) = serde_json::from_value::<AgentMessage>(data.clone()) {
+                    rebuilt_messages.push_back(msg);
+                }
+            }
+        }
+        {
+            let mut log = self.events.write().await;
+            *log = events;
+        }
+        {
+            let mut msgs = self.messages.write().await;
+            *msgs = rebuilt_messages;
+        }
+        // Advance the counter past every restored seq, so next `append`
+        // or `append_message` gets a unique new seq.
+        let next = max_seq.saturating_add(1);
+        let current = self.seq_counter.load(Ordering::SeqCst);
+        if next > current {
+            self.seq_counter.store(next, Ordering::SeqCst);
+        }
+    }
+
     /// Classify an `AgentMessage` into an `event_type` string and an optional
     /// `SessionMessage` for display. Used by `append_message` when building
     /// the corresponding `SessionEvent`.
@@ -1040,7 +1088,7 @@ impl Default for InMemoryAgentSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::base::message::Message;
+    use crate::base::message::{Message, MessageRole};
 
     fn user_msg(text: &str) -> AgentMessage {
         // Use the `Message::user` factory — the `Message` struct has 6 fields
@@ -1241,6 +1289,63 @@ mod tests {
         s.restore().await.unwrap();
         s.flush().await.unwrap();
         s.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn restore_events_rebuilds_both_event_log_and_messages_cache() {
+        // Build a session, write a user + assistant message through the
+        // real write path (append_message), pull the raw events out, then
+        // replay them into a FRESH session via restore_events. The fresh
+        // session should match the original on both `.events()` and
+        // `.messages()` — proving that a backend round-trip through
+        // SQLite/JSON files rebuilds the messages cache correctly. Regression
+        // guard for: https://github.com/.../issues/… (history missing after
+        // app restart — cache stays empty after `append` replay).
+        let original = InMemoryAgentSession::new();
+        original.append_message(user_msg("hi"), None).await;
+        original
+            .append_message(
+                AgentMessage::Standard(Message {
+                    id: "m2".into(),
+                    role: MessageRole::Assistant,
+                    content: vec![crate::base::content::ContentBlock::Text {
+                        text: "hello there".into(),
+                    }],
+                    tool_call_id: None,
+                    usage: None,
+                    timestamp: 0,
+                }),
+                None,
+            )
+            .await;
+        let captured_events: Vec<SessionEvent> =
+            original.events.read().await.iter().cloned().collect();
+        assert_eq!(captured_events.len(), 2);
+        assert_eq!(original.messages().await.len(), 2);
+
+        // Fresh session — plain `append` would leave messages cache empty.
+        let restored = InMemoryAgentSession::new();
+        restored.restore_events(captured_events.clone()).await;
+
+        // Both views must match the original.
+        let replayed_events = restored.events.read().await;
+        assert_eq!(replayed_events.len(), 2);
+        // Seq numbers must be preserved, not reassigned.
+        assert_eq!(replayed_events[0].seq, captured_events[0].seq);
+        assert_eq!(replayed_events[1].seq, captured_events[1].seq);
+        drop(replayed_events);
+
+        let replayed_msgs = restored.messages().await;
+        assert_eq!(replayed_msgs.len(), 2);
+
+        // Next append must take a seq past the largest restored — no collisions.
+        restored
+            .append(SessionEvent::progress(serde_json::json!({"after": "restore"})))
+            .await;
+        let log = restored.events.read().await;
+        let new_event = log.last().unwrap();
+        let max_restored = captured_events.iter().map(|e| e.seq).max().unwrap();
+        assert!(new_event.seq > max_restored);
     }
 
     #[tokio::test]

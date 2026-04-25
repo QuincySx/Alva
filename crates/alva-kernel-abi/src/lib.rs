@@ -2,7 +2,9 @@
 // OUTPUT: CancellationToken, ContentBlock, AgentError, Message, LanguageModel, ModelConfig, TokenCounter, StreamEvent, Tool, ToolCall, ToolExecutionContext, ToolOutput, Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, SpawnCommunication, SpawnCommContext, SpawnCommHandle, SpawnCommError, SpawnCommunicationRegistry, OnChildComplete, SpawnResult, ...
 // POS:    Crate root — re-exports all shared types including bus coordination primitives, context bus events, and spawn-time communication plugin contract.
 pub mod adapter;
+pub mod analytics;
 pub mod base;
+pub mod diagnostic;
 // context is now at scope::context; re-export for backward compatibility
 pub use scope::context;
 pub mod constants;
@@ -27,13 +29,16 @@ pub mod scope;
 pub mod agent_session;
 // tool_guard is now at tool::guard
 
+pub use analytics::{AnalyticsEvent, AnalyticsSink, NoopAnalyticsSink};
+pub use diagnostic::{Diagnostic, Severity};
+
 pub use runtime::{timeout, NoopSleeper, Sleeper, TimeoutError};
 
 pub use base::cancel::CancellationToken;
 pub use base::content::ContentBlock;
 pub use base::error::AgentError;
 pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadata};
-pub use model::{CompletionResponse, LanguageModel, ModelConfig, TokenCounter};
+pub use model::{CompletionResponse, LanguageModel, ModelConfig, ReasoningEffort, TokenCounter};
 pub use base::stream::StreamEvent;
 pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, SearchReadInfo};
 pub use tool::scheduler::{ExecutionMode, LockMode, ResourceKey, ToolLockGuards, ToolLockRegistry};

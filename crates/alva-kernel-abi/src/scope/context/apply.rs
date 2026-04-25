@@ -11,12 +11,59 @@ use crate::scope::context::{
 use crate::AgentMessage;
 use tracing::debug;
 
-/// Apply a list of Injections to system_prompt and messages.
+/// Apply a list of Injections to the layered system prompt and message
+/// list.
+///
+/// Each entry in `system_prompt` is a "segment". Convention used by
+/// the kernel:
+///   - **All entries except the last** are stable / cacheable (Layer
+///     L0 / L1 / L3 / Memory contributions live here).
+///   - **The last entry** is the dynamic / volatile bucket (Layer L2
+///     RuntimeInject — date, git status, fresh tool results).
+///
+/// Routing:
+///   - `Memory` / `Skill` / `SystemPrompt` injections → appended to
+///     the **stable** bucket (the second-to-last entry, or a fresh
+///     stable entry if the vec was all-dynamic).
+///   - `RuntimeContext` injection → appended to the **dynamic**
+///     bucket (the last entry, creating it if necessary).
+///   - `Message` → unchanged, pushed onto `messages`.
+///
+/// This preserves the long-stable prefix that prompt-cache providers
+/// (Anthropic, OpenAI auto-prefix) need to hit cache reliably.
 pub fn apply_injections(
     injections: Vec<Injection>,
-    system_prompt: &mut String,
+    system_prompt: &mut Vec<String>,
     messages: &mut Vec<AgentMessage>,
 ) {
+    /// Get a mutable reference to the dynamic (last) segment, creating
+    /// an empty one if the prompt vec is empty or contains only stable
+    /// content (we conservatively treat the existing trailing entry as
+    /// stable when only one entry exists — caller's responsibility to
+    /// already split via `assemble_system_prompt`).
+    fn dynamic_seg(buf: &mut Vec<String>) -> &mut String {
+        if buf.is_empty() {
+            buf.push(String::new());
+        }
+        buf.last_mut().unwrap()
+    }
+
+    /// Mutable ref to the stable bucket — second-to-last entry. If the
+    /// prompt has only one entry (all-stable so far), we append in
+    /// place; if it has zero, we create one.
+    fn stable_seg(buf: &mut Vec<String>) -> &mut String {
+        if buf.is_empty() {
+            buf.push(String::new());
+            return buf.first_mut().unwrap();
+        }
+        if buf.len() == 1 {
+            return buf.first_mut().unwrap();
+        }
+        // 2+ entries: last is dynamic, second-to-last is stable bucket.
+        let idx = buf.len() - 2;
+        &mut buf[idx]
+    }
+
     for injection in injections {
         match injection.content {
             InjectionContent::Memory(facts) => {
@@ -26,25 +73,31 @@ pub fn apply_injections(
                         .map(|f| format!("- {}", f.text))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    system_prompt
-                        .push_str(&format!("\n\n<user_memory>\n{}\n</user_memory>", text));
+                    stable_seg(system_prompt).push_str(&format!(
+                        "\n\n<user_memory>\n{}\n</user_memory>",
+                        text
+                    ));
                 }
             }
             InjectionContent::Skill { name, content } => {
-                system_prompt.push_str(&format!(
+                stable_seg(system_prompt).push_str(&format!(
                     "\n\n<skill name=\"{}\">\n{}\n</skill>",
                     name, content
                 ));
             }
             InjectionContent::RuntimeContext(data) => {
-                system_prompt.push_str(&format!("\n\n<runtime>\n{}\n</runtime>", data));
+                dynamic_seg(system_prompt)
+                    .push_str(&format!("\n\n<runtime>\n{}\n</runtime>", data));
             }
             InjectionContent::Message(msg) => {
                 messages.push(msg);
             }
             InjectionContent::SystemPrompt(section) => {
-                system_prompt.push_str("\n\n");
-                system_prompt.push_str(&section.content);
+                // PromptSection doesn't carry a layer (it's named L0
+                // by definition), so route to the stable bucket.
+                let target = stable_seg(system_prompt);
+                target.push_str("\n\n");
+                target.push_str(&section.content);
             }
         }
     }
