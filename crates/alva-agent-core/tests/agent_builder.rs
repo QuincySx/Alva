@@ -66,3 +66,11 @@ async fn builder_requires_model() {
         .await;
     assert!(result.is_err(), "build without model must fail");
 }
+
+// Roster integration tests previously lived here. Roster types have moved
+// to `alva-app-core::roster` (harness layer) and are no longer wired into
+// `AgentBuilder` — see `crates/alva-app-core/src/roster.rs` for the unit
+// tests of `MultiagentRoster::validate`, `RosterEntry`, and the
+// `MultiagentRosterCap` bus capability. Whichever harness extension
+// (e.g. `SubAgentExtension`) wants to publish the cap calls
+// `bus_writer.provide(Arc::new(MultiagentRosterCap { ... }))` itself.

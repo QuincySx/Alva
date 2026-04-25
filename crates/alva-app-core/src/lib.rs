@@ -50,6 +50,10 @@ pub use alva_agent_context::scope::scope_impl as scope;
 
 pub mod base_agent;
 pub mod extension;
+pub mod outcome;
+pub mod resource;
+pub mod roster;
+pub mod session_registry;
 pub mod settings;
 pub mod paths;
 pub mod utils;
@@ -66,3 +70,23 @@ pub use utils::{estimate_cost_usd, format_token_count};
 
 // Extension runtime API
 pub use crate::extension::{ExtensionEvent, EventResult, ExtensionHost, HostAPI};
+
+// Managed Agents parity surface — see docs/plans/2026-05-11-managed-agents-parity.md.
+pub use outcome::{
+    render_outcomes_for_session, InMemoryOutcomeRegistry, Outcome, OutcomeError, OutcomeFilter,
+    OutcomeParams, OutcomePatch, OutcomeRegistry, OutcomeScore, OutcomeStatus, Rubric,
+};
+pub use resource::{
+    render_resource_instructions, InMemoryResourceRegistry, RepoCheckout, ResourceAccess,
+    ResourceError, ResourceFilter, ResourceKind, ResourceParams, ResourcePatch, ResourceRegistry,
+    SessionResource,
+};
+pub use roster::{
+    MultiagentRoster, MultiagentRosterCap, RosterEntry, RosterEntryKind, RosterError,
+    ROSTER_MAX_ENTRIES, ROSTER_MIN_ENTRIES,
+};
+pub use session_registry::{
+    primary_thread_for, thread_tree, thread_view, InMemorySessionRegistry, SessionFilter,
+    SessionMetadata, SessionMetadataPatch, SessionOrder, SessionPage, SessionRegistry,
+    SessionStatus, ThreadStats, ThreadUsage,
+};

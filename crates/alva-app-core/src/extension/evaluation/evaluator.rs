@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// A single grading dimension with a name, description, and weight.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GradingCriterion {
     /// Short identifier (e.g., "design_quality").
     pub name: String,

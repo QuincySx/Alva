@@ -1,6 +1,9 @@
-// INPUT:  alva_kernel_core::middleware, crate::{SecurityGuard, SandboxMode, SecurityDecision, PermissionDecision}, alva_kernel_abi::{BusHandle, ToolCall}, async_trait, tokio::sync::Mutex
+// INPUT:  alva_kernel_core::middleware, crate::{SecurityGuard, SandboxMode, SecurityDecision, PermissionDecision, pending_actions::*}, alva_kernel_abi::{BusHandle, ToolCall, agent_session::*}, async_trait, tokio::sync::Mutex
 // OUTPUT: SecurityMiddleware, ApprovalRequest, ApprovalNotifier
-// POS:    Wraps SecurityGuard as async Middleware — reads ApprovalNotifier from bus to route interactive permission prompts.
+// POS:    Wraps SecurityGuard as async Middleware — reads ApprovalNotifier from bus to route
+//         interactive permission prompts. Mirrors every approval request/resolution into the
+//         session event log (requires_action / requires_action_resolved) so subscribers see
+//         pending HITL state through the same stream that carries everything else.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -8,10 +11,64 @@ use std::time::Duration;
 use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
 use alva_kernel_core::state::AgentState;
 use alva_kernel_core::shared::MiddlewarePriority;
+use crate::pending_actions::{
+    ResolveStatus, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED,
+};
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
+use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
 use alva_kernel_abi::{bus_cap, BusHandle, CancellationToken, MinimalExecutionContext, ToolCall};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
+
+/// Emitter stamped onto every session event written by this middleware.
+fn security_emitter() -> EventEmitter {
+    EventEmitter {
+        kind: EmitterKind::Middleware,
+        id: "security".to_string(),
+        instance: None,
+    }
+}
+
+/// Append a `requires_action` event to the session log, encoding the HITL
+/// request payload that subscribers / `pending_actions()` will read back.
+/// Returns the event uuid so the matching `requires_action_resolved` can
+/// link back via `parent_uuid`.
+async fn emit_requires_action(
+    session: &Arc<dyn AgentSession>,
+    request_id: &str,
+    tool_call: &ToolCall,
+) -> String {
+    let mut event = SessionEvent::new_runtime(EVENT_REQUIRES_ACTION);
+    event.emitter = security_emitter();
+    event.data = Some(serde_json::json!({
+        "action_type": "tool_confirmation",
+        "request_id": request_id,
+        "tool_name": tool_call.name,
+        "tool_call_id": tool_call.id,
+        "arguments": tool_call.arguments,
+    }));
+    let uuid = event.uuid.clone();
+    session.append(event).await;
+    uuid
+}
+
+/// Append the matching `requires_action_resolved` event so the pair shows up
+/// as resolved to any subscriber and to `pending_actions()`.
+async fn emit_requires_action_resolved(
+    session: &Arc<dyn AgentSession>,
+    parent_uuid: &str,
+    request_id: &str,
+    status: ResolveStatus,
+) {
+    let mut event = SessionEvent::new_runtime(EVENT_REQUIRES_ACTION_RESOLVED);
+    event.emitter = security_emitter();
+    event.parent_uuid = Some(parent_uuid.to_string());
+    event.data = Some(serde_json::json!({
+        "request_id": request_id,
+        "status": status.as_str(),
+    }));
+    session.append(event).await;
+}
 
 /// Sent through the approval channel when a tool needs human approval.
 #[derive(Debug, Clone)]
@@ -108,6 +165,14 @@ impl Middleware for SecurityMiddleware {
             SecurityDecision::Allow => Ok(()),
             SecurityDecision::Deny { reason } => Err(MiddlewareError::Blocked { reason }),
             SecurityDecision::NeedHumanApproval { request_id } => {
+                // Mirror the request into the session event log before any
+                // side-channel notification fires. Subscribers see this event
+                // appear synchronously with seq assignment; readers will find
+                // it via `pending_actions()` until the matching resolved event
+                // is appended.
+                let action_uuid =
+                    emit_requires_action(&state.session, &request_id, tool_call).await;
+
                 // Try to get the approval notifier from the bus
                 let notifier = self.bus.get()
                     .and_then(|b| b.get::<ApprovalNotifier>())
@@ -123,6 +188,14 @@ impl Middleware for SecurityMiddleware {
                         }).is_err() {
                             let mut guard = self.guard.lock().await;
                             guard.cancel_permission(&request_id);
+                            drop(guard);
+                            emit_requires_action_resolved(
+                                &state.session,
+                                &action_uuid,
+                                &request_id,
+                                ResolveStatus::Disconnected,
+                            )
+                            .await;
                             return Err(MiddlewareError::Blocked {
                                 reason: format!(
                                     "approval handler for '{}' disconnected before the request could be delivered",
@@ -157,6 +230,19 @@ impl Middleware for SecurityMiddleware {
                         match wait_outcome {
                             ApprovalWaitOutcome::Decision(Ok(perm)) => {
                                 use crate::PermissionDecision;
+                                let status = match perm {
+                                    PermissionDecision::AllowOnce => ResolveStatus::AllowOnce,
+                                    PermissionDecision::AllowAlways => ResolveStatus::AllowAlways,
+                                    PermissionDecision::RejectOnce => ResolveStatus::RejectOnce,
+                                    PermissionDecision::RejectAlways => ResolveStatus::RejectAlways,
+                                };
+                                emit_requires_action_resolved(
+                                    &state.session,
+                                    &action_uuid,
+                                    &request_id,
+                                    status,
+                                )
+                                .await;
                                 match perm {
                                     PermissionDecision::AllowOnce
                                     | PermissionDecision::AllowAlways => Ok(()),
@@ -171,15 +257,32 @@ impl Middleware for SecurityMiddleware {
                                     }
                                 }
                             }
-                            ApprovalWaitOutcome::Decision(Err(_)) => Err(MiddlewareError::Blocked {
-                                reason: format!(
-                                    "approval for '{}' timed out or cancelled",
-                                    tool_call.name
-                                ),
-                            }),
+                            ApprovalWaitOutcome::Decision(Err(_)) => {
+                                emit_requires_action_resolved(
+                                    &state.session,
+                                    &action_uuid,
+                                    &request_id,
+                                    ResolveStatus::Disconnected,
+                                )
+                                .await;
+                                Err(MiddlewareError::Blocked {
+                                    reason: format!(
+                                        "approval for '{}' timed out or cancelled",
+                                        tool_call.name
+                                    ),
+                                })
+                            }
                             ApprovalWaitOutcome::Cancelled => {
                                 let mut guard = self.guard.lock().await;
                                 guard.cancel_permission(&request_id);
+                                drop(guard);
+                                emit_requires_action_resolved(
+                                    &state.session,
+                                    &action_uuid,
+                                    &request_id,
+                                    ResolveStatus::Cancelled,
+                                )
+                                .await;
                                 Err(MiddlewareError::Blocked {
                                     reason: format!(
                                         "approval for '{}' was cancelled because the run was cancelled",
@@ -190,6 +293,14 @@ impl Middleware for SecurityMiddleware {
                             ApprovalWaitOutcome::TimedOut => {
                                 let mut guard = self.guard.lock().await;
                                 guard.cancel_permission(&request_id);
+                                drop(guard);
+                                emit_requires_action_resolved(
+                                    &state.session,
+                                    &action_uuid,
+                                    &request_id,
+                                    ResolveStatus::TimedOut,
+                                )
+                                .await;
                                 Err(MiddlewareError::Blocked {
                                     reason: format!(
                                         "approval for '{}' timed out",
@@ -202,6 +313,14 @@ impl Middleware for SecurityMiddleware {
                     _ => {
                         let mut guard = self.guard.lock().await;
                         guard.cancel_permission(&request_id);
+                        drop(guard);
+                        emit_requires_action_resolved(
+                            &state.session,
+                            &action_uuid,
+                            &request_id,
+                            ResolveStatus::NoHandler,
+                        )
+                        .await;
                         // No approval handler configured — fall back to blocking
                         Err(MiddlewareError::Blocked {
                             reason: format!(
@@ -453,5 +572,340 @@ mod tests {
 
         let result = mw.before_tool_call(&mut state, &tc).await;
         assert!(result.is_err(), "timed out approvals should be blocked");
+    }
+
+    // -----------------------------------------------------------------------
+    // requires_action event-log integration
+    //
+    // The middleware mirrors each HITL request through the session event log:
+    //   - `requires_action` appended before the side-channel send
+    //   - `requires_action_resolved` appended on each terminal outcome
+    //     (decision / cancel / timeout / disconnected / no_handler)
+    // Subscribers to `AgentSession::subscribe_events` therefore see the same
+    // state through the same stream that carries everything else, and
+    // `pending_actions()` is a O(n) projection over the log.
+    // -----------------------------------------------------------------------
+
+    use crate::pending_actions::{pending_actions, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED};
+
+    fn make_state_with_session(session: Arc<dyn AgentSession>) -> AgentState {
+        use alva_kernel_abi::base::error::AgentError;
+        use alva_kernel_abi::base::message::Message;
+        use alva_kernel_abi::base::stream::StreamEvent;
+        use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
+        use alva_kernel_abi::tool::Tool;
+        use alva_kernel_abi::ModelConfig;
+
+        struct StubModel;
+        #[async_trait]
+        impl LanguageModel for StubModel {
+            async fn complete(
+                &self,
+                _: &[Message],
+                _: &[&dyn Tool],
+                _: &ModelConfig,
+            ) -> Result<CompletionResponse, AgentError> {
+                unreachable!()
+            }
+            fn stream(
+                &self,
+                _: &[Message],
+                _: &[&dyn Tool],
+                _: &ModelConfig,
+            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+                Box::pin(tokio_stream::empty())
+            }
+            fn model_id(&self) -> &str {
+                "stub"
+            }
+        }
+
+        AgentState {
+            model: Arc::new(StubModel),
+            tools: vec![],
+            session,
+            extensions: Extensions::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn approval_emits_requires_action_into_session_log() {
+        use alva_kernel_abi::agent_session::EventQuery;
+
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let bus_handle = bus.handle();
+
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus_handle);
+        let guard = mw.guard();
+        let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+        let mut state = make_state_with_session(session.clone());
+
+        let tc = ToolCall {
+            id: "call-7".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "ls /projects/test" }),
+        };
+
+        let mw_guard = guard.clone();
+        let approver = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "execute_shell",
+                crate::PermissionDecision::AllowOnce,
+            );
+        });
+
+        mw.before_tool_call(&mut state, &tc).await.unwrap();
+        approver.await.unwrap();
+
+        // Pair appears in the log, in order.
+        let events = session.query(&EventQuery::default()).await;
+        let req_pos = events
+            .iter()
+            .position(|m| m.event.event_type == EVENT_REQUIRES_ACTION)
+            .expect("requires_action present");
+        let res_pos = events
+            .iter()
+            .position(|m| m.event.event_type == EVENT_REQUIRES_ACTION_RESOLVED)
+            .expect("requires_action_resolved present");
+        assert!(req_pos < res_pos, "request must precede resolution");
+
+        // Resolved event parent_uuid links back to the request.
+        let req_uuid = events[req_pos].event.uuid.clone();
+        assert_eq!(events[res_pos].event.parent_uuid.as_deref(), Some(req_uuid.as_str()));
+
+        // Carried payload matches the ToolCall.
+        let req_data = events[req_pos].event.data.as_ref().unwrap();
+        assert_eq!(req_data["action_type"], "tool_confirmation");
+        assert_eq!(req_data["tool_name"], "execute_shell");
+        assert_eq!(req_data["tool_call_id"], "call-7");
+        assert_eq!(req_data["arguments"]["command"], "ls /projects/test");
+
+        // Resolved status matches the decision.
+        let res_data = events[res_pos].event.data.as_ref().unwrap();
+        assert_eq!(res_data["status"], "allow_once");
+
+        // pending_actions returns empty once resolved.
+        assert!(pending_actions(&*session).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pending_actions_lists_in_flight_approval() {
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let bus_handle = bus.handle();
+
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus_handle);
+        let guard = mw.guard();
+        let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+        let mut state = make_state_with_session(session.clone());
+
+        let tc = ToolCall {
+            id: "call-9".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "rm -rf /tmp" }),
+        };
+
+        // Snapshot pending state from a separate task between the request
+        // being mirrored into the log and the human's decision arriving.
+        let pending_session = session.clone();
+        let pending_check = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            // At this point the requires_action event is already in the log
+            // (it's appended before the side-channel notifier send).
+            let pending = pending_actions(&*pending_session).await;
+            assert_eq!(pending.len(), 1);
+            assert_eq!(pending[0].request_id, req.request_id);
+            assert_eq!(pending[0].tool_call_id, "call-9");
+            assert_eq!(pending[0].tool_name, "execute_shell");
+            assert_eq!(pending[0].action_type, "tool_confirmation");
+            req
+        });
+
+        let mw_guard = guard.clone();
+        let resolver_session = session.clone();
+        let resolver = tokio::spawn(async move {
+            let req = pending_check.await.unwrap();
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "execute_shell",
+                crate::PermissionDecision::RejectOnce,
+            );
+            drop(g);
+            // After resolve, the middleware appends `requires_action_resolved`
+            // — but that happens in the middleware task, not here. The
+            // assertion below the join awaits both.
+            let _ = resolver_session;
+        });
+
+        let _ = mw.before_tool_call(&mut state, &tc).await;
+        resolver.await.unwrap();
+
+        // After resolution: nothing pending.
+        assert!(pending_actions(&*session).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn timeout_records_resolved_with_timed_out_status() {
+        use alva_kernel_abi::agent_session::EventQuery;
+
+        // Drop the rx side immediately so even a successful send doesn't keep
+        // the channel alive — but the middleware doesn't depend on rx;
+        // it's the oneshot in PermissionManager that drives the wait.
+        // Tight timeout forces the TimedOut branch.
+        let (approval_tx, _approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let bus_handle = bus.handle();
+
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus_handle)
+                .with_approval_timeout(std::time::Duration::from_millis(10));
+        let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+        let mut state = make_state_with_session(session.clone());
+
+        let tc = ToolCall {
+            id: "call-timeout".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "ls" }),
+        };
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        assert!(result.is_err());
+
+        let events = session.query(&EventQuery::default()).await;
+        let res = events
+            .iter()
+            .find(|m| m.event.event_type == EVENT_REQUIRES_ACTION_RESOLVED)
+            .expect("timed-out approvals must still emit a resolved event");
+        assert_eq!(res.event.data.as_ref().unwrap()["status"], "timed_out");
+
+        // Nothing pending — the timed-out request is resolved.
+        assert!(pending_actions(&*session).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_handler_records_resolved_with_no_handler_status() {
+        use alva_kernel_abi::agent_session::EventQuery;
+
+        // Bus without ApprovalNotifier — the (None, _) fallback should still
+        // emit the request and a resolved event with status="no_handler".
+        let bus = Bus::new();
+        let bus_handle = bus.handle();
+
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus_handle);
+        let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+        let mut state = make_state_with_session(session.clone());
+
+        let tc = ToolCall {
+            id: "call-nohandler".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "ls" }),
+        };
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        assert!(result.is_err());
+
+        let events = session.query(&EventQuery::default()).await;
+        assert!(
+            events.iter().any(|m| m.event.event_type == EVENT_REQUIRES_ACTION),
+            "missing notifier should still record the request in the log"
+        );
+        let res = events
+            .iter()
+            .find(|m| m.event.event_type == EVENT_REQUIRES_ACTION_RESOLVED)
+            .expect("missing notifier should still record a resolution");
+        assert_eq!(res.event.data.as_ref().unwrap()["status"], "no_handler");
+    }
+
+    #[tokio::test]
+    async fn subscriber_sees_requires_action_live() {
+        use alva_kernel_abi::agent_session::ListenableInMemorySession;
+        use tokio_stream::StreamExt;
+
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let bus_handle = bus.handle();
+
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus_handle);
+        let guard = mw.guard();
+
+        // ListenableInMemorySession supports live-tail subscriptions, which
+        // is the moral equivalent of Anthropic's `events.stream` endpoint.
+        let session = Arc::new(ListenableInMemorySession::new());
+        let session_dyn: Arc<dyn AgentSession> = session.clone();
+        let mut state = make_state_with_session(session_dyn.clone());
+
+        // Subscribe BEFORE the approval flow runs — we want to see the
+        // events appear live, not just in historical replay.
+        let mut stream = session.subscribe_events(0).await;
+
+        let tc = ToolCall {
+            id: "call-live".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "ls /projects/test" }),
+        };
+
+        let mw_guard = guard.clone();
+        let approver = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "execute_shell",
+                crate::PermissionDecision::AllowOnce,
+            );
+        });
+
+        mw.before_tool_call(&mut state, &tc).await.unwrap();
+        approver.await.unwrap();
+
+        // Collect events from the stream until we see both expected types.
+        // Bounded poll so a regression can't hang the test.
+        let mut saw_req = false;
+        let mut saw_res = false;
+        for _ in 0..32 {
+            let next = tokio::time::timeout(
+                std::time::Duration::from_millis(200),
+                stream.next(),
+            )
+            .await;
+            let Ok(Some(event)) = next else { break };
+            if event.event_type == EVENT_REQUIRES_ACTION {
+                saw_req = true;
+            }
+            if event.event_type == EVENT_REQUIRES_ACTION_RESOLVED {
+                saw_res = true;
+            }
+            if saw_req && saw_res {
+                break;
+            }
+        }
+        assert!(saw_req, "subscriber must observe requires_action live");
+        assert!(saw_res, "subscriber must observe requires_action_resolved live");
     }
 }
