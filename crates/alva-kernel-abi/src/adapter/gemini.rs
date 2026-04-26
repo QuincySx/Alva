@@ -68,7 +68,11 @@ impl ToolAdapter for GeminiAdapter {
     }
 
     fn encode_messages(&self, messages: &[Message]) -> EncodedMessages {
-        let mut system: Option<String> = None;
+        // Gemini's systemInstruction is a single block — collect
+        // segments and the provider's build_body joins them with
+        // "\n\n". Gemini has its own automatic prefix-cache so we don't
+        // need explicit cache markers here.
+        let mut system_segments: Vec<String> = Vec::new();
         let mut contents: Vec<Value> = Vec::new();
 
         for m in messages {
@@ -76,10 +80,7 @@ impl ToolAdapter for GeminiAdapter {
                 MessageRole::System => {
                     let text = m.text_content();
                     if !text.is_empty() {
-                        system = Some(match system {
-                            Some(existing) => format!("{existing}\n\n{text}"),
-                            None => text,
-                        });
+                        system_segments.push(text);
                     }
                 }
                 MessageRole::User => {
@@ -145,7 +146,11 @@ impl ToolAdapter for GeminiAdapter {
         }
 
         EncodedMessages {
-            system,
+            system_segments: if system_segments.is_empty() {
+                None
+            } else {
+                Some(system_segments)
+            },
             messages: contents,
         }
     }
@@ -185,17 +190,25 @@ impl ToolAdapter for GeminiAdapter {
             }
         }
 
-        let usage = response.get("usageMetadata").map(|u| UsageMetadata {
-            input_tokens: u.get("promptTokenCount").and_then(Value::as_u64).unwrap_or(0) as u32,
-            output_tokens: u
-                .get("candidatesTokenCount")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            total_tokens: u
-                .get("totalTokenCount")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            ..Default::default()
+        let usage = response.get("usageMetadata").map(|u| {
+            let (cache_creation_input_tokens, cache_read_input_tokens) =
+                super::common::cache_usage::extract_gemini(u);
+            UsageMetadata {
+                input_tokens: u
+                    .get("promptTokenCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                output_tokens: u
+                    .get("candidatesTokenCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                total_tokens: u
+                    .get("totalTokenCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
+            }
         });
 
         Ok(DecodedResponse {
@@ -261,6 +274,8 @@ impl ToolAdapter for GeminiAdapter {
             }
         }
         if let Some(usage) = event.get("usageMetadata") {
+            let (cache_creation_input_tokens, cache_read_input_tokens) =
+                super::common::cache_usage::extract_gemini(usage);
             out.push(StreamEvent::Usage(UsageMetadata {
                 input_tokens: usage
                     .get("promptTokenCount")
@@ -274,7 +289,8 @@ impl ToolAdapter for GeminiAdapter {
                     .get("totalTokenCount")
                     .and_then(Value::as_u64)
                     .unwrap_or(0) as u32,
-                ..Default::default()
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
             }));
         }
         // finishReason == "STOP" is the closest analog to "this was the last
@@ -444,7 +460,7 @@ mod tests {
             },
         ];
         let out = GeminiAdapter.encode_messages(&msgs);
-        assert_eq!(out.system.as_deref(), Some("you are alva"));
+        assert_eq!(out.system_flat().as_deref(), Some("you are alva"));
         assert_eq!(out.messages.len(), 2);
         assert_eq!(out.messages[0]["role"], "user");
         assert_eq!(out.messages[1]["role"], "model");

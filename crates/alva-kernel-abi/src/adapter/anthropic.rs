@@ -55,7 +55,12 @@ impl ToolAdapter for AnthropicAdapter {
     }
 
     fn encode_messages(&self, messages: &[Message]) -> EncodedMessages {
-        let mut system: Option<String> = None;
+        // Each System message becomes its own segment. The kernel sends
+        // one System message per system_prompt segment in stable→
+        // dynamic order, so we preserve that ordering 1:1 — Anthropic's
+        // build_body then maps every segment except the last to a
+        // `cache_control: ephemeral` block.
+        let mut system_segments: Vec<String> = Vec::new();
         let mut api_messages: Vec<Value> = Vec::new();
 
         for m in messages {
@@ -63,10 +68,7 @@ impl ToolAdapter for AnthropicAdapter {
                 MessageRole::System => {
                     let text = m.text_content();
                     if !text.is_empty() {
-                        system = Some(match system {
-                            Some(existing) => format!("{existing}\n\n{text}"),
-                            None => text,
-                        });
+                        system_segments.push(text);
                     }
                 }
                 MessageRole::User => {
@@ -81,6 +83,25 @@ impl ToolAdapter for AnthropicAdapter {
                         match b {
                             crate::base::content::ContentBlock::Text { text } => {
                                 blocks.push(serde_json::json!({"type": "text", "text": text}));
+                            }
+                            crate::base::content::ContentBlock::Reasoning {
+                                text,
+                                signature,
+                            } => {
+                                // Echo thinking blocks back verbatim. Anthropic's
+                                // extended thinking mode requires the signature
+                                // to be present and unchanged; without it the
+                                // next turn fails 400. Blocks missing a signature
+                                // (e.g. from other providers round-tripped into
+                                // Anthropic history) are skipped to avoid
+                                // invalid-request errors on the Anthropic side.
+                                if let Some(sig) = signature {
+                                    blocks.push(serde_json::json!({
+                                        "type": "thinking",
+                                        "thinking": text,
+                                        "signature": sig,
+                                    }));
+                                }
                             }
                             crate::base::content::ContentBlock::ToolUse { id, name, input } => {
                                 // Anthropic expects its own toolu_* ids; pass through normalized
@@ -113,6 +134,19 @@ impl ToolAdapter for AnthropicAdapter {
                 MessageRole::Tool => {
                     // Anthropic encodes tool results as user-role messages
                     // with `tool_result` content blocks.
+                    //
+                    // CRITICAL: when an assistant turn returns multiple
+                    // tool_uses, Alva's run loop appends each tool_result as
+                    // its own `MessageRole::Tool` message. But Anthropic
+                    // requires ALL tool_result blocks in the SINGLE user
+                    // message immediately following the assistant turn — any
+                    // tool_use whose result spills into a later message is
+                    // rejected as "tool_use ids were found without
+                    // tool_result blocks immediately after".
+                    //
+                    // So: when the previous api_message is already a user
+                    // message carrying tool_result blocks, append into it
+                    // instead of pushing a new one.
                     let mut blocks: Vec<Value> = Vec::new();
                     for b in &m.content {
                         if let crate::base::content::ContentBlock::ToolResult {
@@ -143,16 +177,44 @@ impl ToolAdapter for AnthropicAdapter {
                             "content": text,
                         }));
                     }
-                    api_messages.push(serde_json::json!({
-                        "role": "user",
-                        "content": blocks,
-                    }));
+
+                    let appended = api_messages
+                        .last_mut()
+                        .and_then(|prev| {
+                            let prev_role = prev.get("role").and_then(Value::as_str)?;
+                            if prev_role != "user" {
+                                return None;
+                            }
+                            let prev_content = prev.get("content")?.as_array()?;
+                            let all_tool_results = !prev_content.is_empty()
+                                && prev_content.iter().all(|b| {
+                                    b.get("type").and_then(Value::as_str) == Some("tool_result")
+                                });
+                            if !all_tool_results {
+                                return None;
+                            }
+                            let arr = prev.get_mut("content")?.as_array_mut()?;
+                            arr.extend(std::mem::take(&mut blocks));
+                            Some(())
+                        })
+                        .is_some();
+
+                    if !appended {
+                        api_messages.push(serde_json::json!({
+                            "role": "user",
+                            "content": blocks,
+                        }));
+                    }
                 }
             }
         }
 
         EncodedMessages {
-            system,
+            system_segments: if system_segments.is_empty() {
+                None
+            } else {
+                Some(system_segments)
+            },
             messages: api_messages,
         }
     }
@@ -190,13 +252,21 @@ impl ToolAdapter for AnthropicAdapter {
                     blocks.push(crate::base::content::ContentBlock::ToolUse { id, name, input });
                 }
                 "thinking" => {
-                    if let Some(t) = b.get("thinking").and_then(Value::as_str) {
-                        if !t.is_empty() {
-                            blocks.push(crate::base::content::ContentBlock::Text {
-                                text: format!("<thinking>\n{t}\n</thinking>"),
-                            });
-                        }
-                    }
+                    // Preserve the signature so the block can be echoed back
+                    // on the next turn (Anthropic rejects 400 otherwise).
+                    let text = b
+                        .get("thinking")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let signature = b
+                        .get("signature")
+                        .and_then(Value::as_str)
+                        .map(String::from);
+                    blocks.push(crate::base::content::ContentBlock::Reasoning {
+                        text,
+                        signature,
+                    });
                 }
                 _ => {
                     // Forward-compat: unknown block types skipped.
@@ -264,6 +334,16 @@ impl ToolAdapter for AnthropicAdapter {
                             id,
                             name,
                         });
+                    } else if block_type == "thinking" {
+                        // Seed per-block buffers. `thinking_delta` appends to
+                        // "text" and `signature_delta` appends to "signature".
+                        // On `content_block_stop` we emit the complete block.
+                        state
+                            .tool_input_buf
+                            .insert(format!("thinking::text::{idx}"), String::new());
+                        state
+                            .tool_input_buf
+                            .insert(format!("thinking::sig::{idx}"), String::new());
                     }
                 }
             }
@@ -305,21 +385,68 @@ impl ToolAdapter for AnthropicAdapter {
                     }
                     "thinking_delta" | "thinking" => {
                         if let Some(t) = delta.get("thinking").and_then(Value::as_str) {
+                            let idx = event
+                                .get("index")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0) as usize;
+                            if let Some(buf) = state
+                                .tool_input_buf
+                                .get_mut(&format!("thinking::text::{idx}"))
+                            {
+                                buf.push_str(t);
+                            }
                             out.push(StreamEvent::ReasoningDelta { text: t.to_string() });
+                        }
+                    }
+                    "signature_delta" => {
+                        // Accumulated chunk of the thinking block's signature.
+                        // Not emitted downstream per-chunk — buffered and
+                        // attached to the final ReasoningBlock at block_stop.
+                        if let Some(sig) = delta.get("signature").and_then(Value::as_str) {
+                            let idx = event
+                                .get("index")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0) as usize;
+                            if let Some(buf) = state
+                                .tool_input_buf
+                                .get_mut(&format!("thinking::sig::{idx}"))
+                            {
+                                buf.push_str(sig);
+                            }
                         }
                     }
                     _ => {}
                 }
             }
             "content_block_stop" => {
-                // Emit ToolCallEnd if this block was a tool_use.
                 let idx = event
                     .get("index")
                     .and_then(Value::as_u64)
                     .unwrap_or(0) as usize;
+                // Tool-use block ended — emit ToolCallEnd (same id).
                 if let Some(tag) = state.block_type.get(&(usize::MAX - idx)).cloned() {
                     if let Some(id) = tag.strip_prefix("tool_use::") {
                         out.push(StreamEvent::ToolCallEnd { id: id.to_string() });
+                    }
+                }
+                // Thinking block ended — emit ReasoningBlock with the full
+                // accumulated text + signature. Consumers need this to echo
+                // the block back on the next turn (Anthropic extended
+                // thinking requires signature round-trip).
+                if state.block_type.get(&idx).map(|s| s.as_str()) == Some("thinking") {
+                    let text = state
+                        .tool_input_buf
+                        .remove(&format!("thinking::text::{idx}"))
+                        .unwrap_or_default();
+                    let sig = state
+                        .tool_input_buf
+                        .remove(&format!("thinking::sig::{idx}"))
+                        .filter(|s| !s.is_empty());
+                    if !text.is_empty() || sig.is_some() {
+                        out.push(StreamEvent::ReasoningBlock {
+                            text,
+                            signature: sig,
+                        });
                     }
                 }
             }
@@ -397,13 +524,79 @@ mod tests {
     }
 
     #[test]
+    fn encode_messages_merges_consecutive_tool_results() {
+        // Regression: multi-tool turns used to produce one user-message per
+        // tool_result, which Anthropic rejects as "tool_use ids were found
+        // without tool_result blocks immediately after". Encoder must merge
+        // them into a single user message.
+        use crate::tool::execution::ToolContent;
+
+        let assistant = Message {
+            id: "m1".into(),
+            role: MessageRole::Assistant,
+            content: vec![
+                ContentBlock::ToolUse {
+                    id: "toolu_A".into(),
+                    name: "read".into(),
+                    input: serde_json::json!({}),
+                },
+                ContentBlock::ToolUse {
+                    id: "toolu_B".into(),
+                    name: "ls".into(),
+                    input: serde_json::json!({}),
+                },
+            ],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let tool_a = Message {
+            id: "m2".into(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::ToolResult {
+                id: "toolu_A".into(),
+                content: vec![ToolContent::Text { text: "A".into() }],
+                is_error: false,
+            }],
+            tool_call_id: Some("toolu_A".into()),
+            usage: None,
+            timestamp: 0,
+        };
+        let tool_b = Message {
+            id: "m3".into(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::ToolResult {
+                id: "toolu_B".into(),
+                content: vec![ToolContent::Text { text: "B".into() }],
+                is_error: false,
+            }],
+            tool_call_id: Some("toolu_B".into()),
+            usage: None,
+            timestamp: 0,
+        };
+
+        let encoded = AnthropicAdapter.encode_messages(&[assistant, tool_a, tool_b]);
+        assert_eq!(
+            encoded.messages.len(),
+            2,
+            "expected assistant + merged user, got {encoded:?}",
+        );
+        assert_eq!(encoded.messages[0]["role"], "assistant");
+        assert_eq!(encoded.messages[1]["role"], "user");
+        let results = encoded.messages[1]["content"].as_array().unwrap();
+        assert_eq!(results.len(), 2, "both tool_results must share one user msg");
+        assert_eq!(results[0]["tool_use_id"], "toolu_A");
+        assert_eq!(results[1]["tool_use_id"], "toolu_B");
+    }
+
+    #[test]
     fn encode_messages_splits_system() {
         let msgs = vec![
             Message::system("you are alva"),
             Message::user("hi"),
         ];
         let out = AnthropicAdapter.encode_messages(&msgs);
-        assert_eq!(out.system.as_deref(), Some("you are alva"));
+        assert_eq!(out.system_flat().as_deref(), Some("you are alva"));
         assert_eq!(out.messages.len(), 1);
         assert_eq!(out.messages[0]["role"], "user");
     }

@@ -12,7 +12,16 @@ pub enum ContentBlock {
     #[serde(rename = "image")]
     Image { data: String, media_type: String },
     #[serde(rename = "reasoning")]
-    Reasoning { text: String },
+    Reasoning {
+        text: String,
+        /// Provider attestation for the reasoning text. Anthropic's extended
+        /// thinking mode returns a `signature` on each thinking block that
+        /// MUST be echoed back unchanged on the next turn, or the API rejects
+        /// the request with 400 ("content[].thinking in the thinking mode
+        /// must be passed back"). Other providers leave this `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
@@ -75,7 +84,7 @@ impl ContentBlock {
     /// Returns the reasoning text if this is a Reasoning block.
     pub fn as_reasoning(&self) -> Option<&str> {
         match self {
-            ContentBlock::Reasoning { text } => Some(text),
+            ContentBlock::Reasoning { text, .. } => Some(text),
             _ => None,
         }
     }
@@ -104,7 +113,7 @@ impl ContentBlock {
     pub fn estimated_tokens(&self) -> usize {
         let char_len = match self {
             ContentBlock::Text { text } => text.len(),
-            ContentBlock::Reasoning { text } => text.len(),
+            ContentBlock::Reasoning { text, .. } => text.len(),
             ContentBlock::ToolResult { content, .. } => {
                 content.iter().map(|c| c.to_model_string().len()).sum()
             }
@@ -145,6 +154,7 @@ mod tests {
     fn reasoning_block() -> ContentBlock {
         ContentBlock::Reasoning {
             text: "thinking...".into(),
+            signature: None,
         }
     }
 

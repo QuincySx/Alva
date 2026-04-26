@@ -133,6 +133,85 @@ pub mod tool_id {
 }
 
 // ---------------------------------------------------------------------------
+// cache_usage — provider-native prompt-cache field extractors
+// ---------------------------------------------------------------------------
+
+/// Extract `(cache_creation, cache_read)` token counts from a provider's
+/// `usage` JSON object. Each provider has different field names — and
+/// some compat layers (DeepSeek's OpenAI-compatible mode) add yet more
+/// aliases. We try every known name, in order, and return the first
+/// match for each side.
+///
+/// Field provenance:
+///
+/// | Provider | `cache_read` source | `cache_creation` source |
+/// |---|---|---|
+/// | Anthropic | `cache_read_input_tokens` | `cache_creation_input_tokens` |
+/// | OpenAI Chat / Responses | `prompt_tokens_details.cached_tokens` | n/a (always None) |
+/// | DeepSeek (OAI-compat) | `prompt_cache_hit_tokens` | n/a |
+/// | Gemini | `cachedContentTokenCount` | n/a |
+///
+/// OpenAI / DeepSeek / Gemini don't report a "creation" count — only
+/// "hit". So `cache_creation` will be `None` for them; only Anthropic
+/// (or compat layers that copy Anthropic's names verbatim) populates it.
+pub mod cache_usage {
+    use super::Value;
+
+    /// Try a list of dotted JSON paths (e.g. `prompt_tokens_details.cached_tokens`)
+    /// against `obj`, return the first one that resolves to a u64.
+    fn try_paths(obj: &Value, paths: &[&str]) -> Option<u32> {
+        for p in paths {
+            let mut cur = obj;
+            for seg in p.split('.') {
+                match cur.get(seg) {
+                    Some(v) => cur = v,
+                    None => {
+                        cur = &Value::Null;
+                        break;
+                    }
+                }
+            }
+            if let Some(n) = cur.as_u64() {
+                return Some(n as u32);
+            }
+        }
+        None
+    }
+
+    /// Pull cache stats from an OpenAI / OpenAI-compatible `usage`
+    /// object. Tries OpenAI standard first, then DeepSeek, then
+    /// Anthropic aliases (some compat layers expose them).
+    pub fn extract_openai_compat(usage: &Value) -> (Option<u32>, Option<u32>) {
+        let cache_read = try_paths(
+            usage,
+            &[
+                // OpenAI native (gpt-4o+ models with prompt caching)
+                "prompt_tokens_details.cached_tokens",
+                // DeepSeek explicit hit count
+                "prompt_cache_hit_tokens",
+                // Anthropic-style aliases (DeepSeek-v4-flash exposes these too)
+                "cache_read_input_tokens",
+            ],
+        );
+        let cache_create = try_paths(
+            usage,
+            &[
+                // Only Anthropic-aliased compat layers report creation.
+                "cache_creation_input_tokens",
+            ],
+        );
+        (cache_create, cache_read)
+    }
+
+    /// Pull cache stats from Gemini's `usageMetadata` object. Gemini
+    /// only reports cached count, no creation count.
+    pub fn extract_gemini(usage: &Value) -> (Option<u32>, Option<u32>) {
+        let cache_read = try_paths(usage, &["cachedContentTokenCount"]);
+        (None, cache_read)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -183,5 +262,72 @@ mod tests {
         let id = tool_id::generate();
         assert!(id.starts_with("toolu_"));
         assert!(id.len() > 6);
+    }
+
+    #[test]
+    fn cache_usage_openai_native_field() {
+        let usage = serde_json::json!({
+            "prompt_tokens": 100,
+            "prompt_tokens_details": { "cached_tokens": 64 }
+        });
+        let (cre, read) = cache_usage::extract_openai_compat(&usage);
+        assert_eq!(read, Some(64));
+        assert_eq!(cre, None);
+    }
+
+    #[test]
+    fn cache_usage_deepseek_field() {
+        let usage = serde_json::json!({
+            "prompt_tokens": 200,
+            "prompt_cache_hit_tokens": 192,
+            "prompt_cache_miss_tokens": 8
+        });
+        let (_cre, read) = cache_usage::extract_openai_compat(&usage);
+        assert_eq!(read, Some(192));
+    }
+
+    #[test]
+    fn cache_usage_anthropic_alias_in_openai_compat() {
+        // Some providers (e.g. deepseek-v4-flash via OAI-compat) expose
+        // Anthropic-named fields directly. Make sure we still pick them up.
+        let usage = serde_json::json!({
+            "prompt_tokens": 50,
+            "cache_read_input_tokens": 4992,
+            "cache_creation_input_tokens": 0
+        });
+        let (cre, read) = cache_usage::extract_openai_compat(&usage);
+        assert_eq!(read, Some(4992));
+        assert_eq!(cre, Some(0));
+    }
+
+    #[test]
+    fn cache_usage_openai_priority_over_aliases() {
+        // OpenAI native should win when multiple fields present.
+        let usage = serde_json::json!({
+            "prompt_tokens_details": { "cached_tokens": 1000 },
+            "prompt_cache_hit_tokens": 500,
+            "cache_read_input_tokens": 200
+        });
+        let (_cre, read) = cache_usage::extract_openai_compat(&usage);
+        assert_eq!(read, Some(1000));
+    }
+
+    #[test]
+    fn cache_usage_gemini_field() {
+        let usage = serde_json::json!({
+            "promptTokenCount": 200,
+            "cachedContentTokenCount": 128
+        });
+        let (cre, read) = cache_usage::extract_gemini(&usage);
+        assert_eq!(read, Some(128));
+        assert_eq!(cre, None);
+    }
+
+    #[test]
+    fn cache_usage_returns_none_when_missing() {
+        let usage = serde_json::json!({ "prompt_tokens": 10 });
+        let (cre, read) = cache_usage::extract_openai_compat(&usage);
+        assert_eq!(read, None);
+        assert_eq!(cre, None);
     }
 }

@@ -10,6 +10,17 @@ pub enum StreamEvent {
     Start,
     TextDelta { text: String },
     ReasoningDelta { text: String },
+    /// Completed reasoning / thinking block — emitted by adapter when a
+    /// full reasoning content block ends in the stream. Consumers
+    /// (run.rs) should append a `ContentBlock::Reasoning { text, signature }`
+    /// to the built assistant message. This is the authoritative record
+    /// of the block, in contrast with `ReasoningDelta` which is a UI
+    /// progress signal. `signature` is Anthropic's extended-thinking
+    /// attestation that MUST be echoed back verbatim on the next turn.
+    ReasoningBlock {
+        text: String,
+        signature: Option<String>,
+    },
     /// A new tool call is about to stream. Fires once per tool call, before
     /// any `ToolCallDelta`. UI layers can use this to render a "tool X
     /// starting" indicator and to allocate per-tool state keyed by `id`.

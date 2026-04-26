@@ -112,13 +112,31 @@ pub trait ToolAdapter: Send + Sync {
 /// Output of [`ToolAdapter::encode_messages`]. Split into an optional
 /// out-of-band `system` prompt (used by Anthropic) and the `messages` array
 /// that goes into the request body unchanged.
+///
+/// `system_segments` is the layered system prompt: every entry except
+/// the last is "stable" (cacheable for prompt-cache providers); the
+/// last is "dynamic" (per-turn, no cache). Single-segment vec means
+/// the whole system prompt is treated as dynamic. Empty vec means no
+/// system prompt at all.
 #[derive(Debug, Clone, Default)]
 pub struct EncodedMessages {
-    /// System prompt extracted and passed as a separate request field.
-    /// `None` if the provider embeds system messages inline in `messages`.
-    pub system: Option<String>,
+    /// System prompt segments in stable→dynamic order. See struct
+    /// docs above. `None` if the provider embeds system messages
+    /// inline in `messages`.
+    pub system_segments: Option<Vec<String>>,
     /// The messages array ready to be spliced into the request body.
     pub messages: Vec<Value>,
+}
+
+impl EncodedMessages {
+    /// Backwards-compat helper: flatten segments into a single string
+    /// joined with `\n\n`. Returns `None` when there are no segments.
+    pub fn system_flat(&self) -> Option<String> {
+        self.system_segments
+            .as_ref()
+            .map(|segs| segs.join("\n\n"))
+            .filter(|s| !s.is_empty())
+    }
 }
 
 // ---------------------------------------------------------------------------

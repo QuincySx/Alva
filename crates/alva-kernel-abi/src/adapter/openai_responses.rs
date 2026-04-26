@@ -61,7 +61,7 @@ impl ToolAdapter for OpenAIResponsesAdapter {
     }
 
     fn encode_messages(&self, messages: &[Message]) -> EncodedMessages {
-        let mut instructions: Option<String> = None;
+        let mut instruction_segments: Vec<String> = Vec::new();
         let mut input: Vec<Value> = Vec::new();
 
         for m in messages {
@@ -69,10 +69,7 @@ impl ToolAdapter for OpenAIResponsesAdapter {
                 MessageRole::System => {
                     let text = m.text_content();
                     if !text.is_empty() {
-                        instructions = Some(match instructions {
-                            Some(existing) => format!("{existing}\n\n{text}"),
-                            None => text,
-                        });
+                        instruction_segments.push(text);
                     }
                 }
                 MessageRole::User => {
@@ -129,7 +126,11 @@ impl ToolAdapter for OpenAIResponsesAdapter {
         }
 
         EncodedMessages {
-            system: instructions,
+            system_segments: if instruction_segments.is_empty() {
+                None
+            } else {
+                Some(instruction_segments)
+            },
             messages: input,
         }
     }
@@ -187,14 +188,22 @@ impl ToolAdapter for OpenAIResponsesAdapter {
             }
         }
 
-        let usage = response.get("usage").map(|u| UsageMetadata {
-            input_tokens: u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
-            output_tokens: u
-                .get("output_tokens")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            total_tokens: u.get("total_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
-            ..Default::default()
+        let usage = response.get("usage").map(|u| {
+            let (cache_creation_input_tokens, cache_read_input_tokens) =
+                super::common::cache_usage::extract_openai_compat(u);
+            UsageMetadata {
+                input_tokens: u
+                    .get("input_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                output_tokens: u
+                    .get("output_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                total_tokens: u.get("total_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
+            }
         });
 
         Ok(DecodedResponse {
@@ -282,6 +291,8 @@ impl ToolAdapter for OpenAIResponsesAdapter {
             }
             "response.completed" => {
                 if let Some(usage) = event.pointer("/response/usage") {
+                    let (cache_creation_input_tokens, cache_read_input_tokens) =
+                        super::common::cache_usage::extract_openai_compat(usage);
                     out.push(StreamEvent::Usage(UsageMetadata {
                         input_tokens: usage
                             .get("input_tokens")
@@ -295,7 +306,8 @@ impl ToolAdapter for OpenAIResponsesAdapter {
                             .get("total_tokens")
                             .and_then(Value::as_u64)
                             .unwrap_or(0) as u32,
-                        ..Default::default()
+                        cache_creation_input_tokens,
+                        cache_read_input_tokens,
                     }));
                 }
                 out.push(StreamEvent::Done);
@@ -345,7 +357,7 @@ mod tests {
             Message::user("hi"),
         ];
         let out = OpenAIResponsesAdapter.encode_messages(&msgs);
-        assert_eq!(out.system.as_deref(), Some("you are alva"));
+        assert_eq!(out.system_flat().as_deref(), Some("you are alva"));
         assert_eq!(out.messages.len(), 1);
         assert_eq!(out.messages[0]["type"], "message");
         assert_eq!(out.messages[0]["role"], "user");

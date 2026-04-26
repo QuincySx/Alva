@@ -143,7 +143,7 @@ impl ToolAdapter for OpenAIChatAdapter {
             }
         }
         EncodedMessages {
-            system: None, // inline in messages
+            system_segments: None, // inline in messages
             messages: out,
         }
     }
@@ -182,14 +182,19 @@ impl ToolAdapter for OpenAIChatAdapter {
             }
         }
 
-        let usage = response.get("usage").map(|u| UsageMetadata {
-            input_tokens: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
-            output_tokens: u
-                .get("completion_tokens")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32,
-            total_tokens: u.get("total_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
-            ..Default::default()
+        let usage = response.get("usage").map(|u| {
+            let (cache_creation_input_tokens, cache_read_input_tokens) =
+                super::common::cache_usage::extract_openai_compat(u);
+            UsageMetadata {
+                input_tokens: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
+                output_tokens: u
+                    .get("completion_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                total_tokens: u.get("total_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
+            }
         });
 
         Ok(DecodedResponse {
@@ -283,6 +288,8 @@ impl ToolAdapter for OpenAIChatAdapter {
             }
         }
         if let Some(usage) = event.get("usage") {
+            let (cache_creation_input_tokens, cache_read_input_tokens) =
+                super::common::cache_usage::extract_openai_compat(usage);
             out.push(StreamEvent::Usage(UsageMetadata {
                 input_tokens: usage
                     .get("prompt_tokens")
@@ -296,7 +303,8 @@ impl ToolAdapter for OpenAIChatAdapter {
                     .get("total_tokens")
                     .and_then(Value::as_u64)
                     .unwrap_or(0) as u32,
-                ..Default::default()
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
             }));
         }
         Ok(out)
