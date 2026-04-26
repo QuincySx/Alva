@@ -40,7 +40,8 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
@@ -181,13 +182,121 @@ pub struct ToolLockRegistry {
     /// parallel tools coexist but pause collectively when a SerialGlobal
     /// is running.
     global: Arc<RwLock<()>>,
+    /// Active holder snapshot for `inspect()` diagnostics. Tracks active
+    /// acquisitions in parallel with the actual lock guards — entries are
+    /// inserted on acquire and removed when the matching `ToolLockGuards`
+    /// drops. Strictly observational; does not affect lock semantics.
+    inspect: Arc<Mutex<InspectState>>,
 }
+
+/// Sentinel key used in inspect snapshots when a `SerialGlobal` tool
+/// holds the registry-wide exclusive lock.
+pub const GLOBAL_SERIAL_KEY: &str = "<global-serial>";
+
+#[derive(Debug, Default)]
+struct InspectState {
+    /// key → list of active holders (most recent last).
+    holders: HashMap<String, Vec<HolderEntry>>,
+    /// Monotonic id assigned to each holder for precise removal on drop.
+    next_id: u64,
+}
+
+#[derive(Debug)]
+struct HolderEntry {
+    id: u64,
+    mode: LockMode,
+    holder: Option<String>,
+    acquired_at: Instant,
+}
+
+/// Snapshot of one active lock acquisition, returned by [`ToolLockRegistry::inspect`].
+#[derive(Debug, Clone)]
+pub struct LockSnapshot {
+    pub key: String,
+    pub mode: LockMode,
+    pub holder: Option<String>,
+    pub age: Duration,
+}
+
+/// Returned when [`ToolLockRegistry::acquire_with_timeout`] times out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AcquireError {
+    /// Could not obtain all requested locks within the deadline.
+    Timeout {
+        waited: Duration,
+        keys: Vec<ResourceKey>,
+    },
+}
+
+impl std::fmt::Display for AcquireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AcquireError::Timeout { waited, keys } => {
+                write!(
+                    f,
+                    "lock acquire timed out after {waited:?} on {} key(s)",
+                    keys.len()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for AcquireError {}
 
 impl ToolLockRegistry {
     pub fn new() -> Self {
         Self {
             locks: std::sync::Mutex::new(HashMap::new()),
             global: Arc::new(RwLock::new(())),
+            inspect: Arc::new(Mutex::new(InspectState::default())),
+        }
+    }
+
+    /// Snapshot all currently held locks. Diagnostic only — readers see
+    /// a consistent point-in-time view across all keys, but new acquires
+    /// can complete before the caller acts on the result.
+    pub fn inspect(&self) -> Vec<LockSnapshot> {
+        let now = Instant::now();
+        let state = self.inspect.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out = Vec::new();
+        for (key, holders) in state.holders.iter() {
+            for h in holders {
+                out.push(LockSnapshot {
+                    key: key.clone(),
+                    mode: h.mode,
+                    holder: h.holder.clone(),
+                    age: now.saturating_duration_since(h.acquired_at),
+                });
+            }
+        }
+        // Stable order for predictable test/UI output.
+        out.sort_by(|a, b| a.key.cmp(&b.key).then(a.age.cmp(&b.age)));
+        out
+    }
+
+    /// Internal: register a new active holder, returning its unique id.
+    fn track_holder(&self, key: &str, mode: LockMode, holder: Option<String>) -> u64 {
+        let mut state = self.inspect.lock().unwrap_or_else(|e| e.into_inner());
+        let id = state.next_id;
+        state.next_id += 1;
+        state.holders.entry(key.to_string()).or_default().push(HolderEntry {
+            id,
+            mode,
+            holder,
+            acquired_at: Instant::now(),
+        });
+        id
+    }
+
+    /// Internal: remove a tracked holder when its guard drops.
+    fn untrack_holder(&self, key: &str, id: u64) {
+        let mut state = self.inspect.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entries) = state.holders.get_mut(key) {
+            entries.retain(|e| e.id != id);
+            if entries.is_empty() {
+                state.holders.remove(key);
+            }
         }
     }
 
@@ -205,14 +314,31 @@ impl ToolLockRegistry {
         keys: &[ResourceKey],
         mode: ExecutionMode,
     ) -> ToolLockGuards {
+        self.acquire_with_holder(keys, mode, None).await
+    }
+
+    /// Like [`Self::acquire`] but tags the acquisition with a `holder`
+    /// label (e.g. agent id, tool name) — purely observational, surfaces
+    /// in `inspect()` snapshots for diagnostics.
+    pub async fn acquire_with_holder(
+        &self,
+        keys: &[ResourceKey],
+        mode: ExecutionMode,
+        holder: Option<String>,
+    ) -> ToolLockGuards {
         match mode {
             ExecutionMode::SerialGlobal => {
                 let guard = self.global.clone().write_owned().await;
+                let id = self.track_holder(GLOBAL_SERIAL_KEY, LockMode::Write, holder);
                 ToolLockGuards {
                     global_write: Some(guard),
                     global_read: None,
                     read: Vec::new(),
                     write: Vec::new(),
+                    ticket: HolderTicket {
+                        registry: Arc::downgrade(&self.inspect),
+                        holds: vec![(GLOBAL_SERIAL_KEY.to_string(), id)],
+                    },
                 }
             }
             ExecutionMode::Parallel => {
@@ -236,11 +362,22 @@ impl ToolLockRegistry {
 
                 let mut read = Vec::new();
                 let mut write = Vec::new();
+                let mut holds = Vec::new();
                 for rk in dedup {
                     let lock = self.get_or_create(&rk.key);
                     match rk.mode {
-                        LockMode::Read => read.push(lock.read_owned().await),
-                        LockMode::Write => write.push(lock.write_owned().await),
+                        LockMode::Read => {
+                            let g = lock.read_owned().await;
+                            let id = self.track_holder(&rk.key, LockMode::Read, holder.clone());
+                            holds.push((rk.key.clone(), id));
+                            read.push(g);
+                        }
+                        LockMode::Write => {
+                            let g = lock.write_owned().await;
+                            let id = self.track_holder(&rk.key, LockMode::Write, holder.clone());
+                            holds.push((rk.key.clone(), id));
+                            write.push(g);
+                        }
                     }
                 }
                 ToolLockGuards {
@@ -248,8 +385,51 @@ impl ToolLockRegistry {
                     global_read: Some(global_read),
                     read,
                     write,
+                    ticket: HolderTicket {
+                        registry: Arc::downgrade(&self.inspect),
+                        holds,
+                    },
                 }
             }
+        }
+    }
+
+    /// Like [`Self::acquire`] but bounded by a deadline. Returns
+    /// [`AcquireError::Timeout`] if not all locks were obtained within
+    /// `timeout`.
+    ///
+    /// Use this on the agent hot path to surface deadlock-shaped issues
+    /// as bounded errors instead of indefinite hangs.
+    pub async fn acquire_with_timeout(
+        &self,
+        keys: &[ResourceKey],
+        mode: ExecutionMode,
+        timeout: Duration,
+    ) -> Result<ToolLockGuards, AcquireError> {
+        self.acquire_with_holder_and_timeout(keys, mode, None, timeout).await
+    }
+
+    /// Combined holder-tagged + bounded acquire. See
+    /// [`Self::acquire_with_holder`] and [`Self::acquire_with_timeout`].
+    pub async fn acquire_with_holder_and_timeout(
+        &self,
+        keys: &[ResourceKey],
+        mode: ExecutionMode,
+        holder: Option<String>,
+        timeout: Duration,
+    ) -> Result<ToolLockGuards, AcquireError> {
+        let started = Instant::now();
+        match tokio::time::timeout(
+            timeout,
+            self.acquire_with_holder(keys, mode, holder),
+        )
+        .await
+        {
+            Ok(guards) => Ok(guards),
+            Err(_elapsed) => Err(AcquireError::Timeout {
+                waited: started.elapsed(),
+                keys: keys.to_vec(),
+            }),
         }
     }
 
@@ -326,6 +506,35 @@ pub struct ToolLockGuards {
     global_read: Option<OwnedRwLockReadGuard<()>>,
     read: Vec<OwnedRwLockReadGuard<()>>,
     write: Vec<OwnedRwLockWriteGuard<()>>,
+    /// Inspect-state ticket — declared last so it drops AFTER the actual
+    /// lock guards (Rust drops fields in declaration order). Removing the
+    /// holder entry from the inspect map after the lock is released keeps
+    /// the diagnostic view eventually consistent.
+    ticket: HolderTicket,
+}
+
+/// Removes a holder's entries from the inspect map on drop.
+///
+/// Holds a `Weak` to the inspect state so dropping after the registry
+/// itself was dropped is harmless (the upgrade fails, no-op).
+struct HolderTicket {
+    registry: std::sync::Weak<Mutex<InspectState>>,
+    holds: Vec<(String, u64)>,
+}
+
+impl Drop for HolderTicket {
+    fn drop(&mut self) {
+        let Some(state) = self.registry.upgrade() else { return };
+        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+        for (key, id) in self.holds.drain(..) {
+            if let Some(entries) = s.holders.get_mut(&key) {
+                entries.retain(|e| e.id != id);
+                if entries.is_empty() {
+                    s.holders.remove(&key);
+                }
+            }
+        }
+    }
 }
 
 impl ToolLockGuards {
@@ -588,5 +797,148 @@ mod tests {
         })
         .await
         .expect("deadlock: tasks did not finish within 2s");
+    }
+
+    // ---- inspect() snapshot tests --------------------------------------
+
+    #[test]
+    fn inspect_empty_registry_is_empty() {
+        let reg = ToolLockRegistry::new();
+        assert!(reg.inspect().is_empty());
+    }
+
+    #[tokio::test]
+    async fn inspect_lists_held_locks_with_holder_label() {
+        let reg = Arc::new(ToolLockRegistry::new());
+        let _g = reg
+            .acquire_with_holder(
+                &[ResourceKey::write("/x"), ResourceKey::read("/y")],
+                ExecutionMode::Parallel,
+                Some("editor-tool".into()),
+            )
+            .await;
+
+        let snap = reg.inspect();
+        assert_eq!(snap.len(), 2, "expected two snapshots, got {snap:?}");
+        // Sorted by key alphabetically — /x < /y.
+        assert_eq!(snap[0].key, "/x");
+        assert_eq!(snap[0].mode, LockMode::Write);
+        assert_eq!(snap[0].holder.as_deref(), Some("editor-tool"));
+        assert_eq!(snap[1].key, "/y");
+        assert_eq!(snap[1].mode, LockMode::Read);
+    }
+
+    #[tokio::test]
+    async fn inspect_clears_after_guard_drops() {
+        let reg = Arc::new(ToolLockRegistry::new());
+        {
+            let _g = reg
+                .acquire(&[ResourceKey::write("/transient")], ExecutionMode::Parallel)
+                .await;
+            assert_eq!(reg.inspect().len(), 1);
+        }
+        // Give the runtime a tick to ensure the guard's Drop has flushed.
+        tokio::task::yield_now().await;
+        assert!(reg.inspect().is_empty(), "snapshot should be empty after guard drop");
+    }
+
+    #[tokio::test]
+    async fn inspect_serial_global_uses_sentinel_key() {
+        let reg = Arc::new(ToolLockRegistry::new());
+        let _g = reg
+            .acquire_with_holder(
+                &[],
+                ExecutionMode::SerialGlobal,
+                Some("bash-tool".into()),
+            )
+            .await;
+        let snap = reg.inspect();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0].key, GLOBAL_SERIAL_KEY);
+        assert_eq!(snap[0].mode, LockMode::Write);
+        assert_eq!(snap[0].holder.as_deref(), Some("bash-tool"));
+    }
+
+    // ---- acquire_with_timeout tests ------------------------------------
+
+    #[tokio::test]
+    async fn acquire_with_timeout_succeeds_when_uncontended() {
+        let reg = Arc::new(ToolLockRegistry::new());
+        let res = reg
+            .acquire_with_timeout(
+                &[ResourceKey::write("/free")],
+                ExecutionMode::Parallel,
+                Duration::from_millis(100),
+            )
+            .await;
+        assert!(res.is_ok(), "should acquire immediately when uncontended");
+    }
+
+    #[tokio::test]
+    async fn acquire_with_timeout_times_out_on_contention() {
+        let reg = Arc::new(ToolLockRegistry::new());
+        let _holder = reg
+            .acquire(&[ResourceKey::write("/blocked")], ExecutionMode::Parallel)
+            .await;
+
+        let res = reg
+            .acquire_with_timeout(
+                &[ResourceKey::write("/blocked")],
+                ExecutionMode::Parallel,
+                Duration::from_millis(50),
+            )
+            .await;
+        match res {
+            Err(AcquireError::Timeout { waited, keys }) => {
+                assert!(waited >= Duration::from_millis(40));
+                assert_eq!(keys.len(), 1);
+                assert_eq!(keys[0].key, "/blocked");
+            }
+            Ok(_) => panic!("expected Timeout, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn acquire_with_timeout_succeeds_after_release() {
+        let reg = Arc::new(ToolLockRegistry::new());
+        let holder = reg
+            .acquire(&[ResourceKey::write("/k")], ExecutionMode::Parallel)
+            .await;
+
+        // Spawn a waiter with a generous timeout, then release.
+        let reg2 = reg.clone();
+        let waiter = tokio::spawn(async move {
+            reg2.acquire_with_timeout(
+                &[ResourceKey::write("/k")],
+                ExecutionMode::Parallel,
+                Duration::from_secs(2),
+            )
+            .await
+        });
+
+        // Yield then release.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        drop(holder);
+
+        let res = waiter.await.unwrap();
+        assert!(res.is_ok(), "waiter should acquire after release");
+    }
+
+    #[tokio::test]
+    async fn inspect_age_grows_with_time() {
+        let reg = Arc::new(ToolLockRegistry::new());
+        let _g = reg
+            .acquire(&[ResourceKey::read("/age-test")], ExecutionMode::Parallel)
+            .await;
+        let s1 = reg.inspect();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let s2 = reg.inspect();
+        assert!(
+            s2[0].age >= s1[0].age,
+            "age should monotonically grow: s1={:?}, s2={:?}",
+            s1[0].age,
+            s2[0].age
+        );
+        assert!(s2[0].age >= Duration::from_millis(15));
     }
 }
