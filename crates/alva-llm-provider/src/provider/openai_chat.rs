@@ -85,7 +85,81 @@ fn build_body(
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.to_vec());
     }
+
+    // `reasoning_effort` — only valid for gpt-5/o-series reasoning models.
+    // The server rejects this field on non-reasoning models (400 with
+    // "Unsupported parameter"), so we gate on a model-name sniff.
+    // `minimal` is gpt-5 original only; gpt-5.1+ uses `none` instead of
+    // `minimal` and adds `xhigh` (only on `gpt-5.1-codex-max`).
+    if let Some(effort) = config.reasoning_effort {
+        if let Some(value) = openai_effort_string(model, effort) {
+            body["reasoning_effort"] = Value::String(value.to_string());
+        }
+    }
+    super::apply_extra_body(&mut body, config.extra_body.as_ref());
     body
+}
+
+/// Translate `ReasoningEffort` into the exact string the OpenAI Chat
+/// Completions API accepts for this model. Returns `None` when:
+/// - Model isn't a reasoning model (field will be rejected → skip)
+/// - Caller asked for a value that's not supported on this model
+///   (e.g. `XHigh` on non-codex-max); we clamp to the closest supported
+///   level instead of erroring.
+pub(crate) fn openai_effort_string(
+    model: &str,
+    effort: alva_kernel_abi::ReasoningEffort,
+) -> Option<&'static str> {
+    use alva_kernel_abi::ReasoningEffort as RE;
+
+    // Sniff model family. Anything else → no reasoning_effort.
+    let is_reasoning = model.starts_with("gpt-5")
+        || model.starts_with("o1-")
+        || model == "o1"
+        || model.starts_with("o3")
+        || model.starts_with("o4");
+    if !is_reasoning {
+        return None;
+    }
+    let is_gpt5_original = model == "gpt-5" || model.starts_with("gpt-5-") && !model.starts_with("gpt-5.");
+    let is_gpt51_plus = model.starts_with("gpt-5.")
+        || model == "gpt-5.1"
+        || model == "gpt-5.2";
+    let is_codex_max = model.contains("codex-max");
+    // `o1-mini` has no reasoning_effort at all per docs.
+    if model == "o1-mini" {
+        return None;
+    }
+
+    Some(match effort {
+        // gpt-5.1+ introduced explicit "none". On gpt-5 original, omit
+        // the field instead (return None from the outer mapping).
+        RE::None => {
+            if is_gpt51_plus {
+                "none"
+            } else {
+                return None;
+            }
+        }
+        RE::Minimal => {
+            // Only gpt-5 original supports "minimal". Others fall back to "low".
+            if is_gpt5_original {
+                "minimal"
+            } else {
+                "low"
+            }
+        }
+        RE::Low => "low",
+        RE::Medium => "medium",
+        RE::High => "high",
+        RE::XHigh => {
+            if is_codex_max {
+                "xhigh"
+            } else {
+                "high"
+            }
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -312,5 +386,9 @@ impl LanguageModel for OpenAIChatProvider {
 
     fn model_id(&self) -> &str {
         &self.model
+    }
+
+    fn provider_id(&self) -> &str {
+        "openai-chat"
     }
 }

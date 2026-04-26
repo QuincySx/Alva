@@ -93,8 +93,40 @@ fn build_body(
     if stream {
         body["stream"] = Value::Bool(true);
     }
-    if let Some(system) = &encoded.system {
-        body["system"] = Value::String(system.clone());
+    // System prompt: emit as a TextBlock array so we can place
+    // `cache_control: ephemeral` markers on every segment except the
+    // last (the convention is "all-but-last is stable / cacheable").
+    // Single-segment systems still emit an array-of-1 with no cache
+    // marker — Anthropic accepts both shapes (string OR block array).
+    // 4-breakpoint marker placement (mirrors pi-mono / Claude Code):
+    //   * tools[N-1]      → last tool gets cache_control
+    //   * system[K-1]     → last system block stays uncached;
+    //                       earlier system blocks each get marker
+    //   * messages[user]  → last user message's last text block
+    //                       gets cache_control (added below)
+    if let Some(segments) = &encoded.system_segments {
+        if !segments.is_empty() {
+            let last_idx = segments.len() - 1;
+            let blocks: Vec<Value> = segments
+                .iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    if i < last_idx {
+                        serde_json::json!({
+                            "type": "text",
+                            "text": text,
+                            "cache_control": { "type": "ephemeral" },
+                        })
+                    } else {
+                        serde_json::json!({
+                            "type": "text",
+                            "text": text,
+                        })
+                    }
+                })
+                .collect();
+            body["system"] = Value::Array(blocks);
+        }
     }
     if let Some(t) = config.temperature {
         body["temperature"] = serde_json::json!(t);
@@ -106,8 +138,39 @@ fn build_body(
         body["stop_sequences"] = serde_json::json!(config.stop_sequences);
     }
     if !tools.is_empty() {
-        body["tools"] = Value::Array(tools.to_vec());
+        // Mark the LAST tool with `cache_control: ephemeral` so the
+        // tool schema layer caches independently from the system
+        // prompt and message history. Tools usually change less than
+        // the system prompt, so this is the cheapest cache hit.
+        let mut tools_with_cache = tools.to_vec();
+        if let Some(last) = tools_with_cache.last_mut() {
+            if let Some(obj) = last.as_object_mut() {
+                obj.insert(
+                    "cache_control".to_string(),
+                    serde_json::json!({ "type": "ephemeral" }),
+                );
+            }
+        }
+        body["tools"] = Value::Array(tools_with_cache);
     }
+
+    // Mark the last user message's last text block with
+    // `cache_control: ephemeral` so the entire conversation history up
+    // to (and including) that message becomes cacheable. The current
+    // turn's appended user content sits *after* this marker and is
+    // the natural delta. Mirrors pi-mono's `addCacheControlToLastConversationMessage`.
+    apply_cache_marker_to_last_user(&mut body);
+
+    // Extended thinking. Per Anthropic docs:
+    //   - Opus 4.7+ must use {type:"adaptive"} — manual enable returns 400
+    //   - 4.6 / Sonnet 4.6 manual mode deprecated but still works
+    //   - budget_tokens must be < max_tokens
+    //   - Mid-turn toggling breaks prompt caching + may strip thinking
+    //     blocks; that's a call-site concern, not ours here.
+    if let Some(effort) = config.reasoning_effort {
+        apply_anthropic_thinking(&mut body, model, max_tokens, effort);
+    }
+    super::apply_extra_body(&mut body, config.extra_body.as_ref());
     body
 }
 
@@ -341,5 +404,106 @@ impl LanguageModel for AnthropicProvider {
 
     fn model_id(&self) -> &str {
         &self.model
+    }
+
+    fn provider_id(&self) -> &str {
+        "anthropic"
+    }
+}
+
+/// Apply extended-thinking config to the request body based on model + effort.
+///
+/// - `ReasoningEffort::None` → `thinking: {type:"disabled"}` (except Opus 4.7+
+///   which rejects disabled; for those we just omit the field, relying on the
+///   model's default adaptive behavior)
+/// - Opus 4.7+ with any non-`None` effort → `{type:"adaptive"}`. 4.7 doesn't
+///   honor explicit budgets.
+/// - Other extended-thinking models → `{type:"enabled", budget_tokens: N}`
+///   where N is clamped to `max_tokens - 1` to satisfy the budget_tokens <
+///   max_tokens rule.
+/// Place `cache_control: ephemeral` on the **last user message's last
+/// text block** in `body["messages"]`. This is one of Anthropic's 4
+/// cache breakpoints — caching the entire conversation prefix up to
+/// that user turn so subsequent turns can reuse it.
+///
+/// Behavior:
+///   - If `messages` isn't an array, no-op.
+///   - If no `role: "user"` message exists, no-op.
+///   - If the user message's `content` is a string, upgrade to a
+///     `[{type:"text", text:..., cache_control:...}]` block array.
+///   - If `content` is already a block array, mark the last text block.
+fn apply_cache_marker_to_last_user(body: &mut Value) {
+    let Some(messages) = body.get_mut("messages").and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+    // Find the last user message by index.
+    let last_user_idx = messages
+        .iter()
+        .rposition(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"));
+    let Some(idx) = last_user_idx else { return };
+    let Some(msg) = messages.get_mut(idx) else { return };
+    let Some(obj) = msg.as_object_mut() else { return };
+    let Some(content) = obj.get_mut("content") else { return };
+
+    match content {
+        Value::String(text) => {
+            let upgraded = serde_json::json!([{
+                "type": "text",
+                "text": text,
+                "cache_control": { "type": "ephemeral" },
+            }]);
+            *content = upgraded;
+        }
+        Value::Array(blocks) => {
+            // Walk from the end to find the last text block (skip
+            // tool_use / image / etc. — those don't accept cache_control
+            // in the same way).
+            for block in blocks.iter_mut().rev() {
+                let Some(b_obj) = block.as_object_mut() else { continue };
+                if b_obj.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    b_obj.insert(
+                        "cache_control".to_string(),
+                        serde_json::json!({ "type": "ephemeral" }),
+                    );
+                    break;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn apply_anthropic_thinking(
+    body: &mut Value,
+    model: &str,
+    max_tokens: u32,
+    effort: alva_kernel_abi::ReasoningEffort,
+) {
+    use alva_kernel_abi::ReasoningEffort as RE;
+
+    let is_opus_47_plus = model.contains("opus-4-7") || model.contains("opus-4.7");
+
+    match effort {
+        RE::None => {
+            if !is_opus_47_plus {
+                body["thinking"] = serde_json::json!({"type": "disabled"});
+            }
+            // Opus 4.7+ doesn't support disabled — leave field out, model
+            // uses adaptive-by-default.
+        }
+        _ => {
+            if is_opus_47_plus {
+                body["thinking"] = serde_json::json!({"type": "adaptive"});
+            } else {
+                let budget = effort
+                    .suggested_token_budget()
+                    .unwrap_or(8192)
+                    .min(max_tokens.saturating_sub(1).max(1024));
+                body["thinking"] = serde_json::json!({
+                    "type": "enabled",
+                    "budget_tokens": budget,
+                });
+            }
+        }
     }
 }

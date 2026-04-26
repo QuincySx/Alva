@@ -41,6 +41,7 @@ pub mod auth;
 mod config;
 mod provider;
 pub mod rate_limit;
+pub mod registry;
 
 pub use config::ProviderConfig;
 pub use provider::anthropic::AnthropicProvider;
@@ -48,3 +49,4 @@ pub use provider::gemini::GeminiProvider;
 pub use provider::openai_chat::OpenAIChatProvider;
 pub use provider::openai_responses::OpenAIResponsesProvider;
 pub use rate_limit::{RateLimitCheck, RateLimitState, RateLimitType};
+pub use registry::{build_provider_registry, ConfigProviderAdapter};

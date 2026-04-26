@@ -69,8 +69,12 @@ fn build_body(
     if stream {
         body["stream"] = Value::Bool(true);
     }
-    if let Some(instructions) = &encoded.system {
-        body["instructions"] = Value::String(instructions.clone());
+    // OpenAI Responses uses a single `instructions` string. Auto-prefix
+    // caching kicks in for ≥1024 token prefixes — the kernel's stable→
+    // dynamic ordering already gives us a long stable prefix, so we
+    // just join the segments.
+    if let Some(instructions) = encoded.system_flat() {
+        body["instructions"] = Value::String(instructions);
     }
     if let Some(t) = config.temperature {
         body["temperature"] = serde_json::json!(t);
@@ -81,6 +85,16 @@ fn build_body(
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.to_vec());
     }
+
+    // Responses API uses a nested `reasoning: { effort }` (vs Chat's
+    // top-level `reasoning_effort`). Same model applicability + value
+    // mapping rules — reuse the Chat helper.
+    if let Some(effort) = config.reasoning_effort {
+        if let Some(value) = super::openai_chat::openai_effort_string(model, effort) {
+            body["reasoning"] = serde_json::json!({ "effort": value });
+        }
+    }
+    super::apply_extra_body(&mut body, config.extra_body.as_ref());
     body
 }
 
@@ -291,5 +305,9 @@ impl LanguageModel for OpenAIResponsesProvider {
 
     fn model_id(&self) -> &str {
         &self.model
+    }
+
+    fn provider_id(&self) -> &str {
+        "openai-responses"
     }
 }

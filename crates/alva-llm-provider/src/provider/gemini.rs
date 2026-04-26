@@ -70,6 +70,7 @@ impl GeminiProvider {
 // ---------------------------------------------------------------------------
 
 fn build_body(
+    model: &str,
     max_tokens: u32,
     encoded: &alva_kernel_abi::adapter::EncodedMessages,
     tools: &[Value],
@@ -86,11 +87,26 @@ fn build_body(
         generation_config["stopSequences"] = serde_json::json!(config.stop_sequences);
     }
 
+    // Thinking. Gemini 2.5 series accepts `thinkingConfig.thinkingBudget`;
+    // 3.x accepts `thinkingLevel` (with `thinkingBudget` kept for back-compat).
+    // Docs:
+    //   0     → disabled (Flash/Flash-Lite only; Pro min is 128)
+    //   -1    → dynamic (model auto-adjusts, default)
+    //   N > 0 → explicit budget cap
+    //   range 0..=24576 for Flash/Flash-Lite
+    // Non-thinking models ignore the field.
+    if let Some(effort) = config.reasoning_effort {
+        if let Some(thinking) = gemini_thinking_config(model, effort) {
+            generation_config["thinkingConfig"] = thinking;
+        }
+    }
+
     let mut body = serde_json::json!({
         "contents": encoded.messages,
         "generationConfig": generation_config,
     });
-    if let Some(system) = &encoded.system {
+    // Gemini's systemInstruction is a single block; auto-prefix-caches.
+    if let Some(system) = encoded.system_flat() {
         body["systemInstruction"] = serde_json::json!({
             "parts": [{ "text": system }]
         });
@@ -98,7 +114,52 @@ fn build_body(
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.to_vec());
     }
+    super::apply_extra_body(&mut body, config.extra_body.as_ref());
     body
+}
+
+fn gemini_thinking_config(
+    model: &str,
+    effort: alva_kernel_abi::ReasoningEffort,
+) -> Option<Value> {
+    use alva_kernel_abi::ReasoningEffort as RE;
+
+    // Sniff model family. Only 2.5+ and 3.x support thinking per docs.
+    let is_thinking_model = model.contains("2.5") || model.contains("-3-") || model.contains("-3.");
+    if !is_thinking_model {
+        return None;
+    }
+    let is_pro = model.contains("pro"); // 2.5-pro cannot disable thinking (min 128)
+    let is_gemini_3 = model.contains("-3-") || model.contains("-3.");
+
+    // Gemini 3.x uses thinkingLevel strings ("minimal" / "low" / "high" etc.)
+    // — we map enum to the closest available.
+    if is_gemini_3 {
+        let level = match effort {
+            RE::None => "low",   // 3.x has no explicit "off"; use lowest
+            RE::Minimal => "minimal",
+            RE::Low => "low",
+            RE::Medium | RE::High | RE::XHigh => "high",
+        };
+        return Some(serde_json::json!({ "thinkingLevel": level }));
+    }
+
+    // 2.5 series: use thinkingBudget token count.
+    let budget: i64 = match effort {
+        RE::None => {
+            if is_pro {
+                128 // Pro minimum — effectively the "least thinking" we can ask for
+            } else {
+                0 // Flash / Flash-Lite: 0 = off
+            }
+        }
+        RE::Minimal => 1024,
+        RE::Low => 2048,
+        RE::Medium => 8192,
+        RE::High => 16384,
+        RE::XHigh => 24576,
+    };
+    Some(serde_json::json!({ "thinkingBudget": budget }))
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +179,7 @@ impl LanguageModel for GeminiProvider {
         let encoded = adapter.encode_messages(messages);
         let api_tools = adapter.encode_tools(tools);
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
-        let body = build_body(max_tokens, &encoded, &api_tools, config);
+        let body = build_body(&self.model, max_tokens, &encoded, &api_tools, config);
 
         let span = tracing::info_span!("llm_request",
             provider = "gemini",
@@ -191,7 +252,7 @@ impl LanguageModel for GeminiProvider {
         let adapter = GeminiAdapter::new();
         let encoded = adapter.encode_messages(messages);
         let api_tools = adapter.encode_tools(tools);
-        let body = build_body(max_tokens, &encoded, &api_tools, config);
+        let body = build_body(&self.model, max_tokens, &encoded, &api_tools, config);
 
         let body_str = serde_json::to_string(&body).unwrap_or_default();
         tracing::info!(
@@ -293,5 +354,9 @@ impl LanguageModel for GeminiProvider {
 
     fn model_id(&self) -> &str {
         &self.model
+    }
+
+    fn provider_id(&self) -> &str {
+        "gemini"
     }
 }
