@@ -37,8 +37,21 @@ pub struct AgentState {
 pub struct AgentConfig {
     /// The middleware stack for this agent run.
     pub middleware: crate::middleware::MiddlewareStack,
-    /// System prompt prepended to every LLM call.
-    pub system_prompt: String,
+    /// System prompt segments prepended to every LLM call. Modeled as
+    /// an ordered list so providers that support prompt caching
+    /// (Anthropic `cache_control: ephemeral`) can mark the *boundary*
+    /// between stable segments (cacheable) and the trailing volatile
+    /// segment (per-turn changes like date / git status). The
+    /// convention: every entry except the **last** is treated as
+    /// stable / cacheable; the last entry is dynamic / no cache.
+    /// Single-element vec = entire prompt is dynamic. Empty vec = no
+    /// system prompt at all.
+    ///
+    /// Inspired by Claude Code's `splitSysPromptPrefix` model
+    /// (`__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` sentinel) and pi-mono's
+    /// 3-marker cache scheme — flattened to a `Vec<String>` so kernel
+    /// stays adapter-agnostic.
+    pub system_prompt: Vec<String>,
     /// Maximum number of iterations (LLM call + tool execution rounds) before stopping.
     pub max_iterations: u32,
     /// Model configuration (temperature, max_tokens, etc.).
@@ -85,7 +98,7 @@ mod tests {
     fn agent_config_with_system_prompt() {
         let config = AgentConfig {
             middleware: crate::middleware::MiddlewareStack::new(),
-            system_prompt: "You are a helpful assistant.".to_string(),
+            system_prompt: vec!["You are a helpful assistant.".to_string()],
             max_iterations: 100,
             model_config: ModelConfig::default(),
             context_window: 0,
@@ -95,7 +108,10 @@ mod tests {
             context_token_budget: None,
         };
 
-        assert_eq!(config.system_prompt, "You are a helpful assistant.");
+        assert_eq!(
+            config.system_prompt,
+            vec!["You are a helpful assistant.".to_string()]
+        );
         assert!(config.middleware.is_empty());
         assert_eq!(config.max_iterations, 100);
     }

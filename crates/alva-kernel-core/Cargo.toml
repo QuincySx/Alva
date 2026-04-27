@@ -14,6 +14,7 @@ tracing = "0.1"
 futures-core = "0.3"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
+sha2 = "0.10"
 tokio-stream = { version = "0.1", default-features = false }
 # web-time provides std::time::Instant on native and Performance.now() on wasm32
 # with an identical API surface — used for monotonic duration measurement in

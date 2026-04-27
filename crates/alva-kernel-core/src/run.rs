@@ -344,6 +344,12 @@ impl LlmCallFn for ActualLlmCall {
         let mut tool_call_indices: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
 
+        // Reasoning / thinking blocks captured from the stream. Anthropic
+        // emits one on `content_block_stop` with an attestation signature
+        // that MUST be echoed back on the next turn (otherwise 400 errors).
+        // We capture them here and splice into the final assistant message.
+        let mut reasoning_blocks: Vec<(String, Option<String>)> = Vec::new();
+
         while let Some(event) = stream.next().await {
             event_count += 1;
             // Build a placeholder message for the MessageUpdate envelope.
@@ -403,14 +409,47 @@ impl LlmCallFn for ActualLlmCall {
                 StreamEvent::Error(e) => {
                     return Err(AgentError::LlmError(e));
                 }
+                StreamEvent::ToolCallStart { id, name } => {
+                    // Anthropic emits the tool name ONLY on `content_block_start`
+                    // (→ our ToolCallStart). Subsequent ToolCallDelta carries
+                    // the arguments stream but name: None. If we ignored
+                    // ToolCallStart, the builder's name stayed "" and the
+                    // tool dispatch later reported "Tool not found: ".
+                    if !id.is_empty() {
+                        let target_index =
+                            if let Some(existing) = tool_call_indices.get(&id).copied() {
+                                existing
+                            } else {
+                                let next = tool_call_builders.len();
+                                tool_call_builders.push((
+                                    id.clone(),
+                                    String::new(),
+                                    String::new(),
+                                ));
+                                tool_call_indices.insert(id, next);
+                                next
+                            };
+                        last_tool_call_index = Some(target_index);
+                        if !name.is_empty() {
+                            if let Some((_, existing_name, _)) =
+                                tool_call_builders.get_mut(target_index)
+                            {
+                                *existing_name = name;
+                            }
+                        }
+                    }
+                }
+                StreamEvent::ReasoningBlock { text, signature } => {
+                    // Authoritative capture of a completed thinking block.
+                    // Anthropic's extended thinking requires round-tripping
+                    // the full text + signature verbatim on the next turn.
+                    reasoning_blocks.push((text, signature));
+                }
                 StreamEvent::Start
                 | StreamEvent::Done
                 | StreamEvent::ReasoningDelta { .. }
-                | StreamEvent::ToolCallStart { .. }
                 | StreamEvent::ToolCallEnd { .. } => {
-                    // Start/End are boundary signals the agent loop doesn't need
-                    // to act on — the delta accumulation path already tracks
-                    // which tool call is in progress via last_tool_call_index.
+                    // Boundary signals / UI progress — no builder state to update.
                 }
             }
         }
@@ -481,7 +520,12 @@ impl LlmCallFn for ActualLlmCall {
         }
 
         // Assemble the final Message from accumulated stream chunks.
+        // Order matters for Anthropic: extended thinking requires thinking
+        // blocks to precede text / tool_use in the echoed assistant message.
         let mut content_blocks = Vec::new();
+        for (text, signature) in reasoning_blocks {
+            content_blocks.push(ContentBlock::Reasoning { text, signature });
+        }
         if !text_content.is_empty() {
             content_blocks.push(ContentBlock::Text { text: text_content });
         }
@@ -721,7 +765,15 @@ async fn run_loop(
             // 3a*. ContextHooks: apply pending injections + run assemble hook.
             //      When context_system is None, this collapses to a passthrough
             //      and the behavior matches the pre-Phase-4 path bit-for-bit.
-            let mut system_prompt_buf = config.system_prompt.clone();
+            //
+            //      `system_prompt_buf` is a Vec<String> — every entry except
+            //      the last is "stable / cacheable", the last is "dynamic".
+            //      apply_injections routes each Injection by its layer:
+            //      AlwaysPresent / OnDemand / Memory → appended to second-
+            //      to-last segment (or new stable segment if none); RuntimeInject
+            //      → appended to the last (dynamic) segment, creating it if
+            //      the prompt was previously all-stable.
+            let mut system_prompt_buf: Vec<String> = config.system_prompt.clone();
             let mut working_messages: Vec<AgentMessage> = session_messages;
             if !pending_injections.is_empty() {
                 alva_kernel_abi::scope::context::apply_injections(
@@ -777,10 +829,40 @@ async fn run_loop(
                 }
             }
 
-            // 3b. Build LLM messages: [system_prompt] + working_messages (only Standard)
+            // 3b. Build LLM messages: [system_prompt segments] + working_messages
+            //
+            //     We push ONE Message::system per segment. Adapters decide
+            //     how to render — Anthropic emits a `system: [{...}]`
+            //     block array with `cache_control: ephemeral` on every
+            //     segment except the last (cacheable); OpenAI / Gemini
+            //     concat into one string (auto-prefix-cached).
             let mut llm_messages = Vec::new();
-            if !system_prompt_buf.is_empty() {
-                llm_messages.push(Message::system(&system_prompt_buf));
+            let total_segments = system_prompt_buf.len();
+            let total_chars: usize = system_prompt_buf.iter().map(|s| s.len()).sum();
+            if total_chars > 0 {
+                let head_segment = system_prompt_buf
+                    .first()
+                    .map(|s| s.chars().take(200).collect::<String>())
+                    .unwrap_or_default();
+                let tail_segment = system_prompt_buf
+                    .last()
+                    .map(|s| {
+                        let start = s.len().saturating_sub(200);
+                        s[start..].to_string()
+                    })
+                    .unwrap_or_default();
+                tracing::debug!(
+                    segments = total_segments,
+                    total_chars,
+                    head_first = %head_segment,
+                    tail_last = %tail_segment,
+                    "llm_call: system_prompt"
+                );
+            }
+            for segment in &system_prompt_buf {
+                if !segment.is_empty() {
+                    llm_messages.push(Message::system(segment));
+                }
             }
             for msg in &working_messages {
                 // Only Standard messages are sent to the LLM.
@@ -801,6 +883,36 @@ async fn run_loop(
             //
             // llm_call_start carries the full messages list so projection-based consumers
             // (eval, debug) can show exactly what was sent to the model for this turn.
+            //
+            // Per-turn observability fields (P2 markers):
+            //   * `system_prompt_segments` — cache boundary count (>1 = stable+dynamic split)
+            //   * `system_prompt_segment_hashes` — sha256 per segment, lets the user diagnose
+            //     "which segment caused a cache miss" by hash diff across turns
+            //   * `disable_tools` — whether this call ran without tools
+            //   * `tools_count_sent` — actual number of tools in the request body
+            //   * `provider_options_applied` — whether vendor `extra_body` was non-empty
+            let segment_hashes: Vec<String> = system_prompt_buf
+                .iter()
+                .map(|seg| {
+                    use sha2::{Digest, Sha256};
+                    let h = Sha256::digest(seg.as_bytes());
+                    format!("{:x}", h)
+                        .chars()
+                        .take(16)
+                        .collect::<String>()
+                })
+                .collect();
+            let provider_options_applied = config
+                .model_config
+                .extra_body
+                .as_ref()
+                .map(|m| !m.is_empty())
+                .unwrap_or(false);
+            let tools_count_sent_for_event = if config.model_config.disable_tools {
+                0
+            } else {
+                state.tools.len()
+            };
             let llm_start_uuid = emit_runtime_event(
                 &state.session,
                 "llm_call_start",
@@ -809,8 +921,17 @@ async fn run_loop(
                     "iteration": total_iterations,
                     "message_count": llm_messages.len(),
                     "messages": llm_messages,
+                    "system_prompt_segments": system_prompt_buf.len(),
+                    "system_prompt_segment_hashes": segment_hashes,
+                    "disable_tools": config.model_config.disable_tools,
+                    "tools_count_sent": tools_count_sent_for_event,
+                    "provider_options_applied": provider_options_applied,
                 })),
             ).await;
+            // Wall-clock start for analytics. Captured here (just before
+            // before_llm_call middleware) so the latency includes any
+            // pre-call middleware work too.
+            let llm_call_started_at = std::time::Instant::now();
 
             // 3c. Middleware: before_llm_call
             config
@@ -834,7 +955,21 @@ async fn run_loop(
             // pulling registered `SpawnCommunication` kinds off the bus)
             // observe the live runtime state here; tools that don't just
             // see their usual static schema cached once per turn.
-            let baked_tools = bake_tool_schemas(&state.tools, config.bus.as_ref());
+            //
+            // `model_config.disable_tools = true` short-circuits to an
+            // empty list — used when the user (or runtime probe) has
+            // marked the active model as not supporting function
+            // calling. The provider then omits the `tools` field from
+            // the request entirely (no empty array; AMP / pi-mono
+            // behavior).
+            let baked_tools = if config.model_config.disable_tools {
+                tracing::debug!(
+                    "model_config.disable_tools=true; skipping all tool injection"
+                );
+                Vec::new()
+            } else {
+                bake_tool_schemas(&state.tools, config.bus.as_ref())
+            };
             let actual_call = ActualLlmCall {
                 model: state.model.clone(),
                 tools: baked_tools,
@@ -888,6 +1023,32 @@ async fn run_loop(
                     "cache_read_input_tokens": response.usage.as_ref().and_then(|u| u.cache_read_input_tokens),
                 })),
             ).await;
+
+            // Analytics: emit a structured LlmCall event for telemetry sinks.
+            // No-op if no AnalyticsSink is registered on the bus.
+            if let Some(sink) = config
+                .bus
+                .as_ref()
+                .and_then(|b| b.get::<dyn alva_kernel_abi::AnalyticsSink>())
+            {
+                let usage = response.usage.as_ref();
+                sink.record(alva_kernel_abi::AnalyticsEvent::LlmCall {
+                    session_id: state.session.session_id().to_string(),
+                    provider: state.model.provider_id().to_string(),
+                    model: state.model.model_id().to_string(),
+                    input_tokens: usage.map(|u| u.input_tokens).unwrap_or(0),
+                    output_tokens: usage.map(|u| u.output_tokens).unwrap_or(0),
+                    cache_read: usage
+                        .and_then(|u| u.cache_read_input_tokens)
+                        .unwrap_or(0),
+                    cache_write: usage
+                        .and_then(|u| u.cache_creation_input_tokens)
+                        .unwrap_or(0),
+                    cost_usd: 0.0,
+                    latency_ms: llm_call_started_at.elapsed().as_millis() as u64,
+                    ts: std::time::SystemTime::now(),
+                });
+            }
 
             // 3g. Store response in session + fire ContextHooks::on_message
             let response_msg = AgentMessage::Standard(response.clone());

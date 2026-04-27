@@ -25,7 +25,9 @@ use crate::state::{AgentConfig, AgentState};
 pub struct ChildAgentParams {
     pub model: Arc<dyn LanguageModel>,
     pub tools: Vec<Arc<dyn Tool>>,
-    pub system_prompt: String,
+    /// Layered system prompt segments (stable... + dynamic).
+    /// See `AgentConfig::system_prompt`.
+    pub system_prompt: Vec<String>,
     pub task: String,
     pub max_iterations: u32,
     pub timeout: Duration,
