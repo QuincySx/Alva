@@ -103,7 +103,7 @@ pub fn compact_messages(
         for msg in old_messages {
             if let AgentMessage::Standard(m) = msg {
                 for block in &m.content {
-                    if let ContentBlock::Reasoning { text } = block {
+                    if let ContentBlock::Reasoning { text, .. } = block {
                         preserved_thinking.push(text.clone());
                     }
                 }
@@ -313,6 +313,7 @@ mod tests {
             content: vec![
                 ContentBlock::Reasoning {
                     text: reasoning.to_string(),
+                    signature: None,
                 },
                 ContentBlock::Text {
                     text: text.to_string(),
