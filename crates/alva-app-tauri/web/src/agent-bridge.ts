@@ -1,6 +1,66 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+// ───────────────────────────────────────────────────────────────────────────
+// Browser-mode fallback
+// ───────────────────────────────────────────────────────────────────────────
+// `@tauri-apps/api/core` reaches `window.__TAURI_INTERNALS__.transformCallback`
+// in `invoke()` — when the page is loaded in plain Chrome (not the Tauri
+// webview), that global is missing and every call throws an unhandled
+// `Cannot read properties of undefined (reading 'transformCallback')` /
+// `(reading 'invoke')` error. We detect the runtime once and route IPC
+// through safe shims so dev-server-only mode (used by the
+// autonomous-ui-test skill) renders cleanly with empty defaults instead
+// of spamming the console with stack traces.
+
+const HAS_TAURI =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+if (!HAS_TAURI && typeof console !== "undefined") {
+  // One-time hint, not per-call. Real bugs stay visible.
+  console.info(
+    "[agent-bridge] Tauri runtime not detected — running in browser-only " +
+      "mode. IPC commands return empty/no-op defaults. Use `cargo tauri dev` " +
+      "for the full desktop experience."
+  );
+}
+
+/** Run a Tauri command, or return `fallback` when the runtime is absent. */
+async function safeInvokeOr<T>(
+  cmd: string,
+  args: Record<string, unknown> | undefined,
+  fallback: T
+): Promise<T> {
+  if (!HAS_TAURI) return fallback;
+  return await invoke<T>(cmd, args);
+}
+
+/** Run a Tauri command. In browser mode throws a clear, single-line error
+ * the caller can catch and surface — used for mutations/queries that
+ * have no sensible empty default (e.g. `send_message`). */
+async function safeInvoke<T>(
+  cmd: string,
+  args?: Record<string, unknown>
+): Promise<T> {
+  if (!HAS_TAURI) {
+    throw new Error(
+      `Tauri command "${cmd}" requires the desktop runtime (run \`cargo tauri dev\`).`
+    );
+  }
+  return await invoke<T>(cmd, args);
+}
+
+/** Subscribe to a Tauri event, or no-op when the runtime is absent. */
+function safeListen<T>(
+  evt: string,
+  cb: (e: { payload: T }) => void
+): Promise<UnlistenFn> {
+  if (!HAS_TAURI) {
+    return Promise.resolve((() => {}) as UnlistenFn);
+  }
+  return listen<T>(evt, cb);
+}
+
 // Mirrors `alva_kernel_core::event::AgentEvent` (tag = "type").
 export type AgentEvent =
   | { type: "AgentStart" }
@@ -23,6 +83,17 @@ export interface AgentEventEnvelope {
   event: AgentEvent;
 }
 
+/** Per-turn reasoning effort. Lowercase strings match the Rust
+ * `ReasoningEffort::parse` contract. Unknown values (or `null`) clear
+ * any override — provider default behavior. */
+export type ReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export interface SendMessageRequest {
   provider: string;
   model: string;
@@ -34,6 +105,22 @@ export interface SendMessageRequest {
   skill_names?: string[] | null;
   /** Manual tool allow-list. `null` / absent = auto mode (all tools). */
   tool_names?: string[] | null;
+  /** Per-turn reasoning effort override. Applies to every LLM call in
+   * this turn — Anthropic requires one mode per turn, so mid-turn
+   * switching is not supported. */
+  reasoning_effort?: ReasoningEffort | null;
+  /** Resolved per-model output cap — Home computes via
+   * `useResolvedModelCapabilities`. `null` lets the backend apply its
+   * `32_000` fallback. */
+  max_output_tokens?: number | null;
+  /** Vendor-specific JSON merged verbatim into the LLM request body
+   * (last-write-wins). Comes from the per-model override panel, fed
+   * straight through to `ModelConfig::extra_body`. */
+  provider_options?: Record<string, unknown> | null;
+  /** When `true`, the backend skips all tool injection (request goes
+   * out without a `tools` field). Resolve from
+   * `modelCaps.supports_tools === false`. */
+  disable_tools?: boolean | null;
   text: string;
 }
 
@@ -55,7 +142,7 @@ export async function setPluginEnabled(
   name: string,
   enabled: boolean,
 ): Promise<void> {
-  await invoke<void>("set_plugin_enabled", { name, enabled });
+  await safeInvokeOr<void>("set_plugin_enabled", { name, enabled }, undefined);
 }
 
 export interface SkillInfo {
@@ -84,6 +171,20 @@ export interface ModelCapabilities {
   supports_tools: boolean | null;
   is_reasoning: boolean | null;
   context_window: number | null;
+  /** Per-model output token cap (separate from context_window — input
+   * space is much larger than what the model emits in one response).
+   * Pulled from OpenRouter's `top_provider.max_completion_tokens`;
+   * other providers leave this `null` and the user can override in
+   * Settings. The backend falls back to `32_000` when not provided. */
+  max_output_tokens: number | null;
+  /** Vision-input models (accepts image content blocks). */
+  vision?: boolean | null;
+  /** Image-output models (returns `image` content blocks). Different
+   * from `vision` — most chat models do neither, GPT-4o does both,
+   * DALL-E does only output. */
+  image_output?: boolean | null;
+  /** Embedding-only models. Filters them out of the chat picker. */
+  embedding?: boolean | null;
 }
 
 export interface RemoteModelInfo {
@@ -96,14 +197,29 @@ export interface RemoteModelInfo {
 export interface ConnectionTestResult {
   ok: boolean;
   latency_ms: number;
-  status: number | null;
   message: string | null;
-  model_count: number;
+  /** The model id that was tested — echoed back so the UI can confirm which one ran. */
+  model: string | null;
+  /** First ~200 chars of the assistant reply on success. Null on failure. */
+  sample_response: string | null;
+  /** Usage counts from the test request, if the provider populated them. */
+  input_tokens: number | null;
+  output_tokens: number | null;
 }
 
 export interface RemoteModelsRequest {
   provider: string;
   api_key: string;
+  base_url?: string | null;
+}
+
+/** Connection test sends one inference ping through the configured
+ * provider + model, so it needs the model id in addition to the auth.
+ */
+export interface ConnectionTestRequest {
+  provider: string;
+  api_key: string;
+  model: string;
   base_url?: string | null;
 }
 
@@ -118,10 +234,24 @@ export interface RunRecord {
   total_duration_ms: number;
   total_input_tokens: number;
   total_output_tokens: number;
+  /** User-submitted prompts in the order they arrived. Each entry's
+   * `before_turn_number` is the 1-indexed turn the message kicked off
+   * — render the message block right before that turn in the timeline.
+   * Optional for backwards compatibility with old projections. */
+  user_messages?: UserMessageRecord[];
+}
+
+export interface UserMessageRecord {
+  before_turn_number: number;
+  text: string;
+  timestamp_ms: number;
 }
 
 export interface ConfigSnapshot {
-  system_prompt: string;
+  /** Layered system prompt — every entry except the last is rendered
+   * with `cache_control: ephemeral` (Anthropic). Old snapshots may
+   * deserialize into a 1-element array (legacy single-string shape). */
+  system_prompt: string[];
   model_id: string;
   tool_names: string[];
   tool_definitions: unknown[];
@@ -149,6 +279,22 @@ export interface LlmCallRecord {
   stop_reason: string;
   error_message: string | null;
   middleware_hooks: HookRecord[];
+
+  // Prompt-cache observability (Anthropic only — null for other providers).
+  /** Tokens written FRESH into prompt cache (you pay for these). */
+  cache_creation_input_tokens?: number | null;
+  /** Tokens reused FROM cache (~90% discount on Anthropic). */
+  cache_read_input_tokens?: number | null;
+
+  // Per-turn config knobs (P2 markers from llm_call_start).
+  /** True when this call ran without tools (request omitted `tools`). */
+  disable_tools?: boolean;
+  /** Cache-segment count of the system prompt this call. >1 = stable+dynamic split. */
+  system_prompt_segments?: number;
+  /** Number of tools actually sent (0 if disable_tools or no tools registered). */
+  tools_count_sent?: number;
+  /** Whether vendor-specific JSON pass-through (extra_body) was non-empty. */
+  provider_options_applied?: boolean;
 }
 
 export interface ToolCallRecord {
@@ -197,86 +343,142 @@ export type ChatEntry =
 // --- send / cancel ---------------------------------------------------------
 
 export async function sendMessage(req: SendMessageRequest): Promise<string> {
-  return await invoke<string>("send_message", { request: req });
+  return await safeInvoke<string>("send_message", { request: req });
 }
 
 export async function cancelRun(): Promise<void> {
-  await invoke("cancel_run");
+  await safeInvokeOr<void>("cancel_run", undefined, undefined);
+}
+
+// --- approval flow ---------------------------------------------------------
+
+/** Mirror of `crates/alva-app-tauri/src/agent.rs::PendingApproval`. */
+export interface PendingApproval {
+  request_id: string;
+  tool_name: string;
+  arguments: unknown;
+}
+
+/** 4 user choices the inline approval bubble offers. The string values
+ * match `parse_decision` on the Rust side — keep in sync. */
+export type ApprovalDecision =
+  | "allow_once"
+  | "allow_always"
+  | "reject_once"
+  | "reject_always";
+
+/** Resolve a pending approval. Idempotent — answering twice is fine. */
+export async function respondApproval(
+  requestId: string,
+  decision: ApprovalDecision,
+): Promise<void> {
+  await safeInvokeOr<void>("respond_approval", { requestId, decision }, undefined);
+}
+
+/** Snapshot of currently-pending approvals. Used to rehydrate UI on
+ * mount in case events were emitted before the listener attached. */
+export async function listPendingApprovals(): Promise<PendingApproval[]> {
+  return await safeInvokeOr<PendingApproval[]>("list_pending_approvals", undefined, []);
+}
+
+/** Subscribe to new approval requests pushed from the backend. */
+export async function listenApprovalRequest(
+  cb: (req: PendingApproval) => void,
+): Promise<UnlistenFn> {
+  return await safeListen<PendingApproval>("approval_request", (e) => cb(e.payload));
+}
+
+/** Subscribe to approval-resolved notifications (so other windows /
+ * stale views can drop the bubble from their list). */
+export async function listenApprovalResolved(
+  cb: (requestId: string) => void,
+): Promise<UnlistenFn> {
+  return await safeListen<{ request_id: string }>("approval_resolved", (e) =>
+    cb(e.payload.request_id),
+  );
+}
+
+/** Subscribe to "all pending approvals cleared" — sent when the agent
+ * is rebuilt and the previous request_ids are invalid. */
+export async function listenApprovalsCleared(
+  cb: () => void,
+): Promise<UnlistenFn> {
+  return await safeListen<null>("approvals_cleared", () => cb());
 }
 
 // --- session management ----------------------------------------------------
 
 export async function listSessions(): Promise<SessionInfo[]> {
-  return await invoke<SessionInfo[]>("list_sessions");
+  return await safeInvokeOr<SessionInfo[]>("list_sessions", undefined, []);
 }
 
 export async function createSession(): Promise<SessionInfo> {
-  return await invoke<SessionInfo>("create_session");
+  return await safeInvoke<SessionInfo>("create_session");
 }
 
 export async function switchSession(id: string): Promise<ChatEntry[]> {
-  return await invoke<ChatEntry[]>("switch_session", { id });
+  return await safeInvokeOr<ChatEntry[]>("switch_session", { id }, []);
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  await invoke("delete_session", { id });
+  await safeInvokeOr<void>("delete_session", { id }, undefined);
 }
 
 export async function setSessionWorkspace(id: string, path: string): Promise<void> {
-  await invoke("set_session_workspace", { id, path });
+  await safeInvokeOr<void>("set_session_workspace", { id, path }, undefined);
 }
 
 export async function openSessionWorkspace(id: string): Promise<void> {
-  await invoke("open_session_workspace", { id });
+  await safeInvokeOr<void>("open_session_workspace", { id }, undefined);
 }
 
 // --- skills & MCP ---------------------------------------------------------
 
 export async function listSkillSources(): Promise<SkillSourceInfo[]> {
-  return await invoke<SkillSourceInfo[]>("list_skill_sources");
+  return await safeInvokeOr<SkillSourceInfo[]>("list_skill_sources", undefined, []);
 }
 
 export async function scanSkills(path: string): Promise<SkillInfo[]> {
-  return await invoke<SkillInfo[]>("scan_skills", { path });
+  return await safeInvokeOr<SkillInfo[]>("scan_skills", { path }, []);
 }
 
 export async function listAllSkills(): Promise<SkillInfo[]> {
-  return await invoke<SkillInfo[]>("list_all_skills");
+  return await safeInvokeOr<SkillInfo[]>("list_all_skills", undefined, []);
 }
 
 export async function listMcpServers(): Promise<McpServerInfo[]> {
-  return await invoke<McpServerInfo[]>("list_mcp_servers");
+  return await safeInvokeOr<McpServerInfo[]>("list_mcp_servers", undefined, []);
 }
 
 export async function listPlugins(): Promise<PluginInfo[]> {
-  return await invoke<PluginInfo[]>("list_plugins");
+  return await safeInvokeOr<PluginInfo[]>("list_plugins", undefined, []);
 }
 
 export async function listRemoteModels(
   request: RemoteModelsRequest,
 ): Promise<RemoteModelInfo[]> {
-  return await invoke<RemoteModelInfo[]>("list_remote_models", { request });
+  return await safeInvokeOr<RemoteModelInfo[]>("list_remote_models", { request }, []);
 }
 
 export async function testProviderConnection(
-  request: RemoteModelsRequest,
+  request: ConnectionTestRequest,
 ): Promise<ConnectionTestResult> {
-  return await invoke<ConnectionTestResult>("test_provider_connection", {
+  return await safeInvoke<ConnectionTestResult>("test_provider_connection", {
     request,
   });
 }
 
 export async function getSessionRecord(id: string): Promise<RunRecord> {
-  return await invoke<RunRecord>("get_session_record", { id });
+  return await safeInvoke<RunRecord>("get_session_record", { id });
 }
 
 /** Loose-typed raw SessionEvent log for the Raw Events inspector tab. */
 export async function listSessionEvents(id: string): Promise<unknown[]> {
-  return await invoke<unknown[]>("list_session_events", { id });
+  return await safeInvokeOr<unknown[]>("list_session_events", { id }, []);
 }
 
 export async function openInspectorWindow(): Promise<void> {
-  await invoke("open_inspector_window");
+  await safeInvokeOr<void>("open_inspector_window", undefined, undefined);
 }
 
 // --- event stream ----------------------------------------------------------
@@ -284,7 +486,7 @@ export async function openInspectorWindow(): Promise<void> {
 export function subscribeAgentEvents(
   handler: (envelope: AgentEventEnvelope) => void,
 ): Promise<UnlistenFn> {
-  return listen<AgentEventEnvelope>("agent_event", (e) => handler(e.payload));
+  return safeListen<AgentEventEnvelope>("agent_event", (e) => handler(e.payload));
 }
 
 // --- message projection ----------------------------------------------------
