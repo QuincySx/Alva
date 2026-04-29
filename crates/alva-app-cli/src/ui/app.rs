@@ -23,12 +23,12 @@
 //! ```
 
 use std::io::{self, Stdout};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{
-    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -37,8 +37,8 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Modifier;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::Paragraph;
 use ratatui::Terminal;
 
 use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, PermissionDecision};
@@ -51,10 +51,13 @@ use tokio::sync::mpsc;
 use crate::checkpoint;
 use crate::session::{JsonFileAgentSession, JsonFileSessionManager};
 
+use super::components::{
+    Attachment, AttachmentKind, AttachmentStrip, ChatInput, ChatInputAction, CollapsibleBlock,
+    Component, ConversationItem, ConversationView, MessageBubble, Picker, PinnedHeader,
+};
 use super::event::{poll_event, TerminalEvent};
-use super::message_list::{DisplayMessage, MessageListWidget, MessageRole, ToolStatus, ToolUseDisplay};
 use super::permission_dialog::{PermissionDialogWidget, PermissionType};
-use super::prompt_input::{InputMode, PromptInputWidget};
+use super::typeahead::Typeahead;
 use super::spinner::{SpinnerWidget, SPINNER_FRAMES};
 use super::theme::{Theme, ThemeMode};
 
@@ -84,20 +87,54 @@ struct PendingApproval {
 }
 
 // ---------------------------------------------------------------------------
+// Slash command catalog
+// ---------------------------------------------------------------------------
+
+/// Hardcoded list of slash commands the typeahead offers. Mirrors what the
+/// reedline path advertises (CommandRegistry builtins + REPL inline-handled
+/// extras). Out-of-band: if you wire CommandRegistry in here later, replace
+/// this with `registry.list().into_iter().map(|(n,_)| n.to_string()).collect()`.
+fn default_slash_commands() -> Vec<String> {
+    [
+        // Registry builtins (commands/registry.rs)
+        "clear", "compact", "new", "help", "exit", "cost", "status", "doctor",
+        "config", "model", "theme", "permissions", "plan", "fast", "vim",
+        "commit", "review", "export",
+        // Inline-handled in repl.rs (and equivalents in TUI)
+        "quit", "resume", "fork", "rewind", "sessions", "setup", "auto", "locks",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+// ---------------------------------------------------------------------------
 // TuiApp
 // ---------------------------------------------------------------------------
 
 /// Full-screen terminal UI application state.
+///
+/// All conversation rendering goes through the reusable component framework
+/// in [`super::components`]:
+/// - `conversation` is a [`ConversationView`] of [`MessageBubble`] +
+///   [`CollapsibleBlock`] items (tool calls / thinking blocks fold up).
+/// - `chat_input` is a multi-line [`ChatInput`] that emits SlashTrigger /
+///   AtTrigger so the parent can pop a palette while the user types.
+/// - `pinned_question` keeps the user's most recent prompt visible at the
+///   top so streaming output can't push it off-screen.
+/// - `attachments` holds pending file/image chips above the input.
 pub struct TuiApp {
-    // -- UI state --
-    messages: Vec<DisplayMessage>,
-    input_buffer: String,
-    cursor_col: usize,
-    input_mode: InputMode,
-    scroll_offset: u16,
-    /// Total content height in lines (approximated after each render).
-    content_height: u16,
-    auto_scroll: bool,
+    // -- conversation --
+    conversation: ConversationView,
+    /// User's most recent prompt — rendered in the PinnedHeader stripe.
+    pinned_question: Option<String>,
+    attachments: AttachmentStrip,
+
+    // -- input --
+    chat_input: ChatInput,
+    /// Snapshot of the chat-input value used by typeahead filtering. We
+    /// can't borrow `chat_input` while `typeahead` mutates so we mirror it.
+    last_input_snapshot: String,
 
     // -- spinner --
     spinner_active: bool,
@@ -106,8 +143,8 @@ pub struct TuiApp {
     tick_count: u64,
 
     // -- session info --
-    model_name: String,
-    session_id: String,
+    pub(crate) model_name: String,
+    pub(crate) session_id: String,
     total_input_tokens: u32,
     total_output_tokens: u32,
 
@@ -121,28 +158,50 @@ pub struct TuiApp {
     saved_input: String,
 
     // -- streaming --
-    /// Text accumulated during assistant streaming.
-    streaming_text: String,
-    is_streaming: bool,
+    /// Index in `conversation` of the assistant bubble that is currently
+    /// receiving streaming text. None when no stream is in flight.
+    streaming_idx: Option<usize>,
+    /// Index in `conversation` of the open thinking block — collected
+    /// across `ReasoningDelta`s and sealed on `ReasoningBlock`. The block
+    /// stays in the conversation (folded by default) once sealed.
+    thinking_idx: Option<usize>,
+    /// Total chars accumulated in the current thinking block — used for
+    /// the "1.2K chars" badge after seal.
+    thinking_chars: usize,
+    /// Pending tool blocks awaiting completion: (tool_name, conv_idx).
+    /// We drain in reverse on ToolExecutionEnd to match the most recent
+    /// "running" entry for that tool.
+    pending_tools: Vec<(String, usize)>,
+
+    // -- typeahead / slash-command autocomplete --
+    typeahead: Typeahead,
+
+    // -- @-file picker (overlay) --
+    /// Open file-picker when the cursor is in an `@…` token. Built lazily
+    /// from a `walkdir`-style scan of `workspace_root`, capped at 500 files
+    /// so very large repos stay responsive.
+    file_picker: Option<Picker<PathBuf>>,
+    /// Workspace root used by the file picker — stored here so on_key can
+    /// rebuild the picker without threading workspace through every call.
+    workspace_root: Option<PathBuf>,
 
     // -- theme --
     theme: Theme,
 
     // -- exit flag --
-    should_quit: bool,
+    pub(crate) should_quit: bool,
 }
 
 impl TuiApp {
     /// Create a new TUI app with the given model name and session ID.
     pub fn new(model_name: &str, session_id: &str) -> Self {
         Self {
-            messages: Vec::new(),
-            input_buffer: String::new(),
-            cursor_col: 0,
-            input_mode: InputMode::Normal,
-            scroll_offset: 0,
-            content_height: 0,
-            auto_scroll: true,
+            conversation: ConversationView::new(),
+            pinned_question: None,
+            attachments: AttachmentStrip::new(),
+
+            chat_input: ChatInput::new("Send a message — / for commands, @ for files, Shift+Enter for newline"),
+            last_input_snapshot: String::new(),
 
             spinner_active: false,
             spinner_frame: 0,
@@ -160,8 +219,15 @@ impl TuiApp {
             history_index: None,
             saved_input: String::new(),
 
-            streaming_text: String::new(),
-            is_streaming: false,
+            streaming_idx: None,
+            thinking_idx: None,
+            thinking_chars: 0,
+            pending_tools: Vec::new(),
+
+            typeahead: Typeahead::new(default_slash_commands()),
+
+            file_picker: None,
+            workspace_root: None,
 
             theme: Theme::new(ThemeMode::Dark),
 
@@ -169,204 +235,174 @@ impl TuiApp {
         }
     }
 
+    /// Tell the app where the workspace root is so the @-file picker can
+    /// scan it. `run_tui` calls this once at startup.
+    pub(crate) fn set_workspace(&mut self, root: PathBuf) {
+        self.workspace_root = Some(root);
+    }
+
     // -- state mutation helpers ------------------------------------------------
 
-    fn push_message(&mut self, msg: DisplayMessage) {
-        self.messages.push(msg);
-        if self.auto_scroll {
-            self.scroll_to_bottom();
-        }
+    pub(crate) fn push_user_message(&mut self, text: &str) {
+        self.pinned_question = Some(text.to_string());
+        self.conversation.push(ConversationItem::Message(MessageBubble::user(text)));
+        self.conversation.stick_to_bottom();
     }
 
-    fn push_user_message(&mut self, text: &str) {
-        self.push_message(DisplayMessage {
-            role: MessageRole::User,
-            content: text.to_string(),
-            tool_uses: Vec::new(),
-            timestamp: Some(chrono::Local::now().format("%H:%M:%S").to_string()),
-            is_streaming: false,
-        });
+    pub(crate) fn push_system_message(&mut self, text: &str) {
+        self.conversation.push(ConversationItem::Message(MessageBubble::system(text)));
+        self.conversation.stick_to_bottom();
     }
 
-    fn push_system_message(&mut self, text: &str) {
-        self.push_message(DisplayMessage {
-            role: MessageRole::System,
-            content: text.to_string(),
-            tool_uses: Vec::new(),
-            timestamp: None,
-            is_streaming: false,
-        });
+    pub(crate) fn push_error_message(&mut self, text: &str) {
+        self.conversation.push(ConversationItem::Message(MessageBubble::error(text)));
+        self.conversation.stick_to_bottom();
     }
 
-    fn push_error_message(&mut self, text: &str) {
-        self.push_message(DisplayMessage {
-            role: MessageRole::Error,
-            content: text.to_string(),
-            tool_uses: Vec::new(),
-            timestamp: None,
-            is_streaming: false,
-        });
+    /// Reset conversation (used by /clear and /new). Keeps history & input.
+    pub(crate) fn reset_conversation(&mut self) {
+        self.conversation = ConversationView::new();
+        self.pinned_question = None;
+        self.streaming_idx = None;
+        self.thinking_idx = None;
+        self.thinking_chars = 0;
+        self.pending_tools.clear();
     }
 
     fn begin_streaming(&mut self) {
-        self.streaming_text.clear();
-        self.is_streaming = true;
-        self.push_message(DisplayMessage {
-            role: MessageRole::Assistant,
-            content: String::new(),
-            tool_uses: Vec::new(),
-            timestamp: Some(chrono::Local::now().format("%H:%M:%S").to_string()),
-            is_streaming: true,
-        });
+        // Push an empty assistant bubble — subsequent deltas append into it.
+        self.conversation
+            .push(ConversationItem::Message(MessageBubble::assistant(String::new())));
+        self.streaming_idx = Some(self.conversation.items().len() - 1);
+        self.conversation.stick_to_bottom();
     }
 
     fn append_streaming_text(&mut self, text: &str) {
-        self.streaming_text.push_str(text);
-        if let Some(last) = self.messages.last_mut() {
-            last.content = self.streaming_text.clone();
+        let Some(idx) = self.streaming_idx else { return; };
+        if let Some(ConversationItem::Message(b)) = self.conversation.items_mut().get_mut(idx) {
+            b.text.push_str(text);
         }
-        if self.auto_scroll {
-            self.scroll_to_bottom();
-        }
+        self.conversation.stick_to_bottom();
     }
 
     fn end_streaming(&mut self) {
-        self.is_streaming = false;
-        if let Some(last) = self.messages.last_mut() {
-            last.is_streaming = false;
-            last.content = self.streaming_text.clone();
-        }
-        self.streaming_text.clear();
+        self.streaming_idx = None;
     }
 
     fn add_tool_start(&mut self, name: &str, input_summary: &str) {
-        // Attach to the last assistant message, or create one.
-        if self.messages.last().map_or(true, |m| m.role != MessageRole::Assistant) {
-            self.push_message(DisplayMessage {
-                role: MessageRole::Assistant,
-                content: String::new(),
-                tool_uses: Vec::new(),
-                timestamp: None,
-                is_streaming: false,
-            });
-        }
-        if let Some(last) = self.messages.last_mut() {
-            last.tool_uses.push(ToolUseDisplay {
-                name: name.to_string(),
-                status: ToolStatus::Running,
-                input_summary: input_summary.to_string(),
-                output_preview: String::new(),
-            });
-        }
-        if self.auto_scroll {
-            self.scroll_to_bottom();
-        }
+        let header = if input_summary.is_empty() {
+            name.to_string()
+        } else {
+            format!("{} · {}", name, truncate(input_summary, 60))
+        };
+        let body = Text::from("(running…)");
+        let block = CollapsibleBlock::tool_call(header, body).with_badge("running");
+        self.conversation.push(ConversationItem::Block(block));
+        let idx = self.conversation.items().len() - 1;
+        self.pending_tools.push((name.to_string(), idx));
+        self.conversation.stick_to_bottom();
     }
 
     fn complete_tool(&mut self, name: &str, is_error: bool, preview: &str) {
-        // Find the last tool use with this name that is still running.
-        for msg in self.messages.iter_mut().rev() {
-            for tool in msg.tool_uses.iter_mut().rev() {
-                if tool.name == name && tool.status == ToolStatus::Running {
-                    tool.status = if is_error {
-                        ToolStatus::Error
-                    } else {
-                        ToolStatus::Success
-                    };
-                    let preview_clean = preview.replace('\n', " ");
-                    tool.output_preview = if preview_clean.len() > 100 {
-                        format!("{}...", &preview_clean[..100])
-                    } else {
-                        preview_clean
-                    };
-                    return;
-                }
+        // Match the most recent pending tool with this name.
+        let Some(pos) = self
+            .pending_tools
+            .iter()
+            .rposition(|(n, _)| n == name)
+        else { return; };
+        let (_, idx) = self.pending_tools.remove(pos);
+        let Some(ConversationItem::Block(block)) =
+            self.conversation.items_mut().get_mut(idx) else { return; };
+        block.badge = Some(if is_error { "✗ error".into() } else { "✓ done".into() });
+        let preview_owned = preview.to_string();
+        block.body = Text::from(preview_owned);
+    }
+
+    /// Append a `ReasoningDelta` text fragment to the open thinking block,
+    /// creating one (collapsed) if there isn't one in flight. The block
+    /// stays in place once sealed so the user can expand it for review.
+    fn append_thinking(&mut self, text: &str) {
+        let idx = match self.thinking_idx {
+            Some(i) => i,
+            None => {
+                let block = CollapsibleBlock::thinking("Thinking…", Text::from(String::new()))
+                    .with_badge("…");
+                self.conversation.push(ConversationItem::Block(block));
+                let i = self.conversation.items().len() - 1;
+                self.thinking_idx = Some(i);
+                self.thinking_chars = 0;
+                i
             }
+        };
+        if let Some(ConversationItem::Block(b)) = self.conversation.items_mut().get_mut(idx) {
+            // Append the delta to the body's last line (or push a new line).
+            let new_text = format!("{}{}", body_text(b), text);
+            b.body = Text::from(new_text);
+            self.thinking_chars += text.chars().count();
+            b.badge = Some(format_chars(self.thinking_chars));
         }
+        self.conversation.stick_to_bottom();
     }
 
-    fn scroll_to_bottom(&mut self) {
-        // Will be clamped during rendering.
-        self.scroll_offset = self.content_height.saturating_sub(1);
-    }
-
-    fn scroll_up(&mut self, lines: u16) {
-        self.auto_scroll = false;
-        self.scroll_offset = self.scroll_offset.saturating_sub(lines);
-    }
-
-    fn scroll_down(&mut self, lines: u16, visible_height: u16) {
-        let max = self.content_height.saturating_sub(visible_height);
-        self.scroll_offset = (self.scroll_offset + lines).min(max);
-        if self.scroll_offset >= max {
-            self.auto_scroll = true;
+    /// Seal the current thinking block — called on `ReasoningBlock` so the
+    /// authoritative final text replaces the streamed accumulation.
+    fn seal_thinking(&mut self, final_text: Option<&str>) {
+        let Some(idx) = self.thinking_idx.take() else { return; };
+        if let Some(ConversationItem::Block(b)) = self.conversation.items_mut().get_mut(idx) {
+            if let Some(t) = final_text {
+                b.body = Text::from(t.to_string());
+                self.thinking_chars = t.chars().count();
+            }
+            b.header = "Thought".to_string();
+            b.badge = Some(format_chars(self.thinking_chars));
         }
+        self.thinking_chars = 0;
     }
 
     // -- input helpers --------------------------------------------------------
 
-    fn submit_input(&mut self) -> Option<String> {
-        let text = self.input_buffer.trim().to_string();
-        if text.is_empty() {
-            return None;
-        }
-        // Save to history.
-        self.input_history.push(text.clone());
+    /// Push the just-submitted text to history and clear the input editor.
+    fn record_submission(&mut self, text: &str) {
+        let text = text.trim();
+        if text.is_empty() { return; }
+        self.input_history.push(text.to_string());
         self.history_index = None;
         self.saved_input.clear();
-        self.input_buffer.clear();
-        self.cursor_col = 0;
-        self.input_mode = InputMode::Normal;
-        self.auto_scroll = true;
-        Some(text)
+        self.chat_input.clear();
+        self.last_input_snapshot.clear();
     }
 
     fn history_prev(&mut self) {
-        if self.input_history.is_empty() {
-            return;
-        }
+        if self.input_history.is_empty() { return; }
         match self.history_index {
             None => {
-                self.saved_input = self.input_buffer.clone();
+                self.saved_input = self.chat_input.value();
                 let idx = self.input_history.len() - 1;
                 self.history_index = Some(idx);
-                self.input_buffer = self.input_history[idx].clone();
+                self.chat_input.set_value(self.input_history[idx].clone());
             }
             Some(idx) if idx > 0 => {
                 let new_idx = idx - 1;
                 self.history_index = Some(new_idx);
-                self.input_buffer = self.input_history[new_idx].clone();
+                self.chat_input.set_value(self.input_history[new_idx].clone());
             }
             _ => {}
         }
-        self.cursor_col = self.input_buffer.len();
+        self.last_input_snapshot = self.chat_input.value();
     }
 
     fn history_next(&mut self) {
-        match self.history_index {
-            Some(idx) => {
-                if idx + 1 < self.input_history.len() {
-                    let new_idx = idx + 1;
-                    self.history_index = Some(new_idx);
-                    self.input_buffer = self.input_history[new_idx].clone();
-                } else {
-                    self.history_index = None;
-                    self.input_buffer = self.saved_input.clone();
-                    self.saved_input.clear();
-                }
+        if let Some(idx) = self.history_index {
+            if idx + 1 < self.input_history.len() {
+                let new_idx = idx + 1;
+                self.history_index = Some(new_idx);
+                self.chat_input.set_value(self.input_history[new_idx].clone());
+            } else {
+                self.history_index = None;
+                let saved = std::mem::take(&mut self.saved_input);
+                self.chat_input.set_value(saved);
             }
-            None => {}
-        }
-        self.cursor_col = self.input_buffer.len();
-    }
-
-    fn detect_input_mode(&mut self) {
-        if self.input_buffer.starts_with('/') {
-            self.input_mode = InputMode::Command;
-        } else if self.input_buffer.starts_with('!') {
-            self.input_mode = InputMode::Shell;
-        } else {
-            self.input_mode = InputMode::Normal;
+            self.last_input_snapshot = self.chat_input.value();
         }
     }
 
@@ -379,96 +415,190 @@ impl TuiApp {
             return self.on_key_approval(key);
         }
 
+        // File picker (opened by `@`) takes priority over both typeahead
+        // and ChatInput edits for navigation keys. Typing characters falls
+        // through so the user can keep filtering by extending the @-token.
+        if self.file_picker.is_some() {
+            match key.code {
+                KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
+                    if let Some(p) = self.file_picker.as_mut() {
+                        let action = p.handle_event(Event::Key(key));
+                        let _ = action;
+                    }
+                    return KeyAction::None;
+                }
+                KeyCode::Enter | KeyCode::Tab => {
+                    let pick = self.file_picker.as_ref().and_then(|p| {
+                        let label = p.selected_label()?.to_string();
+                        let path = p.selected_value()?.clone();
+                        Some((label, path))
+                    });
+                    if let Some((label, path)) = pick {
+                        self.accept_file_pick(&label, &path);
+                    }
+                    return KeyAction::None;
+                }
+                KeyCode::Esc => { self.close_file_picker(); return KeyAction::None; }
+                _ => {} // fall through to ChatInput
+            }
+        }
+
+        // Typeahead has priority while open: ↑/↓ navigate, Enter/Tab accept,
+        // Esc dismiss. Anything else falls through to ChatInput so the user
+        // can keep editing while the menu re-filters live.
+        if self.typeahead.is_active() {
+            match key.code {
+                KeyCode::Up => { self.typeahead.prev(); return KeyAction::None; }
+                KeyCode::Down => { self.typeahead.next(); return KeyAction::None; }
+                KeyCode::Enter | KeyCode::Tab => {
+                    if let Some(cmd) = self.typeahead.accept() {
+                        // Replace the buffer with `/<cmd>` (Typeahead returns
+                        // the bare command name).
+                        let value = if cmd.starts_with('/') { cmd } else { format!("/{}", cmd) };
+                        self.chat_input.set_value(value);
+                        self.last_input_snapshot = self.chat_input.value();
+                    }
+                    return KeyAction::None;
+                }
+                KeyCode::Esc => { self.typeahead.dismiss(); return KeyAction::None; }
+                _ => {} // fall through to normal edit handling
+            }
+        }
+
+        // Top-level shortcuts that should not be claimed by the editor.
         match (key.modifiers, key.code) {
-            // Exit
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.should_quit = true;
-                KeyAction::None
+                return KeyAction::None;
             }
-            // Interrupt
-            (KeyModifiers::CONTROL, KeyCode::Char('c')) => KeyAction::Interrupt,
-            // Submit
-            (_, KeyCode::Enter) => {
-                if let Some(text) = self.submit_input() {
-                    KeyAction::Submit(text)
-                } else {
-                    KeyAction::None
-                }
-            }
-            // Escape
-            (_, KeyCode::Esc) => {
-                self.input_buffer.clear();
-                self.cursor_col = 0;
-                self.input_mode = InputMode::Normal;
-                KeyAction::None
-            }
-            // History navigation
-            (_, KeyCode::Up) => {
-                self.history_prev();
-                self.detect_input_mode();
-                KeyAction::None
-            }
-            (_, KeyCode::Down) => {
-                self.history_next();
-                self.detect_input_mode();
-                KeyAction::None
-            }
-            // Scrolling
-            (_, KeyCode::PageUp) => {
-                self.scroll_up(10);
-                KeyAction::None
-            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return KeyAction::Interrupt,
+            // Conversation scroll keys (only when not paging history).
+            (_, KeyCode::PageUp) => { self.conversation.scroll_up(10); return KeyAction::None; }
             (_, KeyCode::PageDown) => {
-                // visible_height will be applied during render; use a reasonable default.
-                self.scroll_down(10, 20);
-                KeyAction::None
+                // ConversationView clamps via render; pass a reasonable view height.
+                self.conversation.scroll_down(10, 80, 20);
+                return KeyAction::None;
             }
-            // Cursor movement within input
-            (_, KeyCode::Left) => {
-                if self.cursor_col > 0 {
-                    self.cursor_col -= 1;
-                }
-                KeyAction::None
+            // History navigation: Alt+Up/Alt+Down (Up/Down are reserved for
+            // multi-line cursor movement inside the editor).
+            (KeyModifiers::ALT, KeyCode::Up)   => { self.history_prev(); self.refresh_typeahead(); return KeyAction::None; }
+            (KeyModifiers::ALT, KeyCode::Down) => { self.history_next(); self.refresh_typeahead(); return KeyAction::None; }
+            (_, KeyCode::Esc) => {
+                // Clear the buffer and dismiss any open menu.
+                self.chat_input.clear();
+                self.last_input_snapshot.clear();
+                self.typeahead.dismiss();
+                return KeyAction::None;
             }
-            (_, KeyCode::Right) => {
-                if self.cursor_col < self.input_buffer.len() {
-                    self.cursor_col += 1;
-                }
-                KeyAction::None
-            }
-            (_, KeyCode::Home) => {
-                self.cursor_col = 0;
-                KeyAction::None
-            }
-            (_, KeyCode::End) => {
-                self.cursor_col = self.input_buffer.len();
-                KeyAction::None
-            }
-            // Backspace
-            (_, KeyCode::Backspace) => {
-                if self.cursor_col > 0 {
-                    self.cursor_col -= 1;
-                    self.input_buffer.remove(self.cursor_col);
-                    self.detect_input_mode();
-                }
-                KeyAction::None
-            }
-            // Delete
-            (_, KeyCode::Delete) => {
-                if self.cursor_col < self.input_buffer.len() {
-                    self.input_buffer.remove(self.cursor_col);
-                }
-                KeyAction::None
-            }
-            // Character input
-            (_, KeyCode::Char(c)) => {
-                self.input_buffer.insert(self.cursor_col, c);
-                self.cursor_col += 1;
-                self.detect_input_mode();
-                KeyAction::None
-            }
-            _ => KeyAction::None,
+            _ => {}
         }
+
+        // Forward to ChatInput. It owns Enter (submit), Shift+Enter (newline),
+        // and all the editing keys.
+        let action = self.chat_input.handle_event(Event::Key(key));
+        match action {
+            ChatInputAction::Submit(text) => {
+                self.record_submission(&text);
+                self.typeahead.dismiss();
+                KeyAction::Submit(text)
+            }
+            ChatInputAction::Cancel => KeyAction::Interrupt,
+            ChatInputAction::SlashTrigger(token) => {
+                // Reedline-style: open and prefix-filter on the token.
+                self.typeahead.update(&format!("/{}", token));
+                self.last_input_snapshot = self.chat_input.value();
+                KeyAction::None
+            }
+            ChatInputAction::AtTrigger(token) => {
+                self.typeahead.dismiss();
+                self.open_or_filter_file_picker(&token);
+                self.last_input_snapshot = self.chat_input.value();
+                KeyAction::None
+            }
+            ChatInputAction::Changed => {
+                self.refresh_typeahead();
+                KeyAction::None
+            }
+            ChatInputAction::None => KeyAction::None,
+        }
+    }
+
+    /// Re-run typeahead filtering against the current ChatInput value.
+    /// Called after history nav or non-trigger edits.
+    fn refresh_typeahead(&mut self) {
+        let v = self.chat_input.value();
+        self.last_input_snapshot = v.clone();
+        if v.starts_with('/') {
+            self.typeahead.update(&v);
+        } else if self.typeahead.is_active() {
+            self.typeahead.dismiss();
+        }
+        // The @-picker stays open as long as the cursor is inside an @-word.
+        // ChatInput emits AtTrigger every keystroke while inside one; if no
+        // trigger fires, close the picker.
+        if self.file_picker.is_some() {
+            self.close_file_picker();
+        }
+    }
+
+    /// Open or refresh the file picker filtered by `token` (the chars
+    /// after `@`). First-open scans the workspace once; subsequent calls
+    /// just update the query.
+    fn open_or_filter_file_picker(&mut self, token: &str) {
+        if self.file_picker.is_none() {
+            let root = match &self.workspace_root {
+                Some(r) => r.clone(),
+                None => return, // can't scan without a root
+            };
+            let entries = scan_workspace_files(&root, 500);
+            if entries.is_empty() { return; }
+            let items: Vec<(PathBuf, String)> = entries
+                .iter()
+                .map(|p| {
+                    let label = p.strip_prefix(&root).unwrap_or(p).display().to_string();
+                    (p.clone(), label)
+                })
+                .collect();
+            let picker = Picker::new(items, "Files").show_query(true);
+            self.file_picker = Some(picker);
+        }
+        if let Some(p) = self.file_picker.as_mut() {
+            p.set_query(token);
+        }
+    }
+
+    fn close_file_picker(&mut self) {
+        self.file_picker = None;
+    }
+
+    /// Accept a file-picker selection. Two paths depending on file type:
+    /// - **Image** (png/jpg/...) → push onto AttachmentStrip and just strip
+    ///   the `@token` from the input. The attachment chip shows the file.
+    /// - **Other** → replace `@token` with `@<rel_path>` text (plus a
+    ///   trailing space) so the agent can read the path from the prompt.
+    fn accept_file_pick(&mut self, label: &str, path: &Path) {
+        let attachment = Attachment::auto(path.to_path_buf());
+        let is_image = matches!(attachment.kind, AttachmentKind::Image);
+
+        let buf = self.chat_input.value();
+        let at_pos = find_at_token_start(&buf);
+
+        let new_value = if is_image {
+            self.attachments.push(attachment);
+            // Strip the @-token entirely; the chip represents the image.
+            match at_pos {
+                Some(at) => buf[..at].trim_end().to_string(),
+                None => buf,
+            }
+        } else {
+            match at_pos {
+                Some(at) => format!("{}@{} ", &buf[..at], label),
+                None => format!("{}@{} ", buf, label),
+            }
+        };
+        self.chat_input.set_value(new_value);
+        self.last_input_snapshot = self.chat_input.value();
+        self.close_file_picker();
     }
 
     fn on_key_approval(&mut self, key: KeyEvent) -> KeyAction {
@@ -494,60 +624,13 @@ impl TuiApp {
 
     // -- mouse handling -------------------------------------------------------
 
-    /// Process a mouse event (vim-style mouse support).
-    fn on_mouse(&mut self, mouse: MouseEvent, area: Rect) {
-        // Determine which UI zone the event is in based on y coordinate.
-        // Layout: status_bar(1) | messages(fill) | input(3)
-        let status_h = 1u16;
-        let input_h = 3u16;
-        let msg_y_start = area.y + status_h;
-        let msg_y_end = area.y + area.height.saturating_sub(input_h);
-        let msg_height = msg_y_end.saturating_sub(msg_y_start);
-
+    /// Process a mouse event. Wheel scrolls the conversation; right-click
+    /// snaps to bottom (re-engages auto-stick).
+    fn on_mouse(&mut self, mouse: MouseEvent, _area: Rect) {
         match mouse.kind {
-            // Scroll up in message area
-            MouseEventKind::ScrollUp => {
-                if mouse.row >= msg_y_start && mouse.row < msg_y_end {
-                    self.scroll_up(3);
-                }
-            }
-            // Scroll down in message area
-            MouseEventKind::ScrollDown => {
-                if mouse.row >= msg_y_start && mouse.row < msg_y_end {
-                    self.scroll_down(3, msg_height);
-                }
-            }
-            // Left click in input area → focus input (move cursor)
-            MouseEventKind::Down(MouseButton::Left) => {
-                if mouse.row >= msg_y_end {
-                    // Clicked in input area — estimate cursor position
-                    let prefix_len = self.input_mode.prefix().len() as u16;
-                    let click_col = mouse.column.saturating_sub(area.x + 1 + prefix_len) as usize;
-                    self.cursor_col = click_col.min(self.input_buffer.len());
-                } else if mouse.row >= msg_y_start && mouse.row < msg_y_end {
-                    // Clicked in message area — disable auto-scroll (allows reading)
-                    self.auto_scroll = false;
-                }
-            }
-            // Double-click or right-click in message area → scroll to bottom
-            MouseEventKind::Down(MouseButton::Right) => {
-                if mouse.row >= msg_y_start && mouse.row < msg_y_end {
-                    self.auto_scroll = true;
-                    self.scroll_to_bottom();
-                }
-            }
-            // Drag in message area → scroll proportionally
-            MouseEventKind::Drag(MouseButton::Left) => {
-                if mouse.row >= msg_y_start && mouse.row < msg_y_end && msg_height > 0 {
-                    let relative_y = mouse.row.saturating_sub(msg_y_start);
-                    let ratio = relative_y as f64 / msg_height as f64;
-                    let target = (self.content_height as f64 * ratio) as u16;
-                    self.scroll_offset = target.min(
-                        self.content_height.saturating_sub(msg_height),
-                    );
-                    self.auto_scroll = false;
-                }
-            }
+            MouseEventKind::ScrollUp => self.conversation.scroll_up(3),
+            MouseEventKind::ScrollDown => self.conversation.scroll_down(3, 200, 20),
+            MouseEventKind::Down(MouseButton::Right) => self.conversation.stick_to_bottom(),
             _ => {}
         }
     }
@@ -555,47 +638,61 @@ impl TuiApp {
     // -- rendering ------------------------------------------------------------
 
     fn draw(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
+        // Snapshot dynamic-section heights so the layout stays stable while
+        // rendering (the components borrow &self).
+        let pinned_h = if self.pinned_question.is_some() { 4u16 } else { 0u16 };
+        let attach_h = if self.attachments.is_empty() { 0u16 } else { 2u16 };
+
         terminal.draw(|frame| {
             let area = frame.area();
 
-            // Layout: status bar (1) | messages (fill) | input (3)
+            // Layout: status (1) | pinned (0 or 4) | conversation (min)
+            //       | attachments (0 or 2) | chat input (5)
             let chunks = Layout::vertical([
-                Constraint::Length(1),  // status bar
-                Constraint::Min(3),    // message list
-                Constraint::Length(3), // prompt input
+                Constraint::Length(1),
+                Constraint::Length(pinned_h),
+                Constraint::Min(3),
+                Constraint::Length(attach_h),
+                Constraint::Length(5),
             ])
             .split(area);
 
             let status_area = chunks[0];
-            let message_area = chunks[1];
-            let input_area = chunks[2];
+            let pinned_area = chunks[1];
+            let conv_area   = chunks[2];
+            let attach_area = chunks[3];
+            let input_area  = chunks[4];
 
-            // -- Status bar --
             self.render_status_bar(frame, status_area);
 
-            // -- Message list --
-            self.render_messages(frame, message_area);
+            if let Some(q) = self.pinned_question.as_deref() {
+                PinnedHeader::new(q).render(frame, pinned_area, &self.theme);
+            }
 
-            // -- Input prompt --
-            self.render_input(frame, input_area);
+            self.conversation.render(frame, conv_area, &self.theme);
 
-            // -- Spinner overlay (below messages, above input) --
+            self.attachments.render(frame, attach_area, &self.theme);
+
+            self.chat_input.render(frame, input_area, &self.theme);
+
+            // -- Typeahead popup (anchored above the chat input) --
+            if self.typeahead.is_active() {
+                self.render_typeahead(frame, conv_area);
+            }
+
+            // -- File picker overlay (anchored above the input, larger) --
+            if let Some(picker) = self.file_picker.as_ref() {
+                self.render_file_picker(frame, conv_area, picker);
+            }
+
+            // -- Spinner overlay (bottom edge of conversation) --
             if self.spinner_active {
-                self.render_spinner(frame, message_area);
+                self.render_spinner(frame, conv_area);
             }
 
             // -- Permission dialog overlay --
             if let Some(ref approval) = self.pending_approval {
                 self.render_permission_dialog(frame, area, approval);
-            }
-
-            // -- Set cursor position --
-            if self.pending_approval.is_none() {
-                let prefix_len = self.input_mode.prefix().len() as u16;
-                // Input area: block border (top) + 1 line padding = first content line
-                let cursor_x = input_area.x + 1 + prefix_len + self.cursor_col as u16;
-                let cursor_y = input_area.y + 1; // after the top border
-                frame.set_cursor_position((cursor_x, cursor_y));
             }
         })?;
 
@@ -637,53 +734,72 @@ impl TuiApp {
         frame.render_widget(paragraph, area);
     }
 
-    fn render_messages(&mut self, frame: &mut ratatui::Frame<'_>, area: Rect) {
-        let block = Block::default()
-            .borders(Borders::NONE);
+    /// Render the slash-command typeahead as a small bordered popup anchored
+    /// to the bottom-left of `message_area`, just above the input prompt.
+    /// Shows up to 6 candidates; the selected row is highlighted via theme
+    /// `selection`. Indicator on the left edge of each row mirrors fish/zsh.
+    fn render_typeahead(&self, frame: &mut ratatui::Frame<'_>, message_area: Rect) {
+        use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
+        use ratatui::style::{Modifier, Style};
 
-        // Estimate total content height for scrolling.
-        // Each message: 1 header + content lines + blank separator + tool lines
-        let mut total_lines: u16 = 0;
-        for (idx, msg) in self.messages.iter().enumerate() {
-            if idx > 0 {
-                total_lines += 1; // separator
-            }
-            total_lines += 1; // header
-            total_lines += msg.content.lines().count().max(1) as u16;
-            for tool in &msg.tool_uses {
-                total_lines += 1; // tool line
-                if !tool.output_preview.is_empty() {
-                    total_lines += 1;
-                }
-            }
-        }
-        self.content_height = total_lines;
+        let items = self.typeahead.items();
+        if items.is_empty() { return; }
+        let visible = items.len().min(6);
+        let height = (visible as u16) + 2; // +2 for top/bottom border
 
-        // Clamp scroll offset
-        let inner_height = area.height;
-        if self.auto_scroll {
-            self.scroll_offset = total_lines.saturating_sub(inner_height);
-        } else {
-            let max = total_lines.saturating_sub(inner_height);
-            self.scroll_offset = self.scroll_offset.min(max);
-        }
+        // Width: longest candidate + "/ " prefix + 4 padding, capped to area.
+        let max_len = items.iter().map(|s| s.len()).max().unwrap_or(0) + 6;
+        let width = (max_len as u16).min(message_area.width.saturating_sub(2)).max(20);
 
-        let widget = MessageListWidget::new(&self.messages, &self.theme)
-            .block(block)
-            .scroll(self.scroll_offset);
+        let popup = Rect {
+            x: message_area.x + 2,
+            y: message_area.y + message_area.height.saturating_sub(height + 1),
+            width,
+            height,
+        };
 
-        frame.render_widget(widget, area);
+        // Clear the underlying region so we draw on a clean canvas.
+        frame.render_widget(ratatui::widgets::Clear, popup);
+
+        let list_items: Vec<ListItem> = items
+            .iter()
+            .take(visible)
+            .map(|name| ListItem::new(format!(" /{}", name)))
+            .collect();
+
+        let list = List::new(list_items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(self.theme.border)
+                    .title(format!(" Slash {}/{} ", self.typeahead.selected() + 1, items.len())),
+            )
+            .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+        let mut state = ListState::default();
+        state.select(Some(self.typeahead.selected()));
+
+        frame.render_stateful_widget(list, popup, &mut state);
     }
 
-    fn render_input(&self, frame: &mut ratatui::Frame<'_>, area: Rect) {
-        let total_tokens = self.total_input_tokens + self.total_output_tokens;
-        let widget = PromptInputWidget::new(&self.input_buffer, &self.theme)
-            .cursor(self.cursor_col)
-            .mode(self.input_mode)
-            .model_name(&self.model_name)
-            .token_count(total_tokens);
+    /// Render the @-file picker as a bordered popup anchored above the
+    /// chat input, taller than the slash typeahead (15 visible rows).
+    fn render_file_picker(
+        &self,
+        frame: &mut ratatui::Frame<'_>,
+        conv_area: Rect,
+        picker: &Picker<PathBuf>,
+    ) {
+        // Reserve roughly half the conversation height, capped at 17 rows
+        // (15 visible + 2 borders) — the underlying Picker pages internally.
+        let height = conv_area.height.min(17).max(5);
+        let width = conv_area.width.saturating_sub(4).min(60).max(20);
+        let x = conv_area.x + 2;
+        let y = conv_area.y + conv_area.height.saturating_sub(height + 1);
+        let area = Rect { x, y, width, height };
 
-        frame.render_widget(widget, area);
+        frame.render_widget(ratatui::widgets::Clear, area);
+        picker.render(frame, area, &self.theme);
     }
 
     fn render_spinner(&self, frame: &mut ratatui::Frame<'_>, message_area: Rect) {
@@ -758,27 +874,60 @@ enum KeyAction {
 // Terminal lifecycle helpers
 // ---------------------------------------------------------------------------
 
-fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
+/// Which screen mode to render the TUI in. `Inline(N)` keeps shell
+/// scrollback visible (paste-friendly, claude-code style); `Fullscreen`
+/// takes over via alternate screen (classic TUI).
+#[derive(Debug, Clone, Copy)]
+pub enum UiViewport {
+    Inline(u16),
+    Fullscreen,
+}
+
+impl UiViewport {
+    /// Parse from a string ("inline" / "fullscreen"). Default Inline(30).
+    pub fn parse(mode: Option<&str>, inline_rows: Option<u16>) -> Self {
+        match mode.unwrap_or("inline") {
+            "fullscreen" | "full" | "fs" => UiViewport::Fullscreen,
+            _ => UiViewport::Inline(inline_rows.unwrap_or(30)),
+        }
+    }
+}
+
+fn setup_terminal(viewport: UiViewport) -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    // Enable mouse capture (click, scroll, drag — vim-style mouse mode)
-    execute!(
-        stdout,
-        EnterAlternateScreen,
-        crossterm::event::EnableMouseCapture
-    )?;
+    // Mouse capture for click/scroll/drag in either mode.
+    execute!(stdout, crossterm::event::EnableMouseCapture)?;
+    // Alternate screen ONLY for Fullscreen — Inline mode renders within
+    // the existing terminal so scrollback above stays visible after exit.
+    if matches!(viewport, UiViewport::Fullscreen) {
+        execute!(stdout, EnterAlternateScreen)?;
+    }
     let backend = CrosstermBackend::new(stdout);
-    let terminal = Terminal::new(backend)?;
+    let terminal = match viewport {
+        UiViewport::Fullscreen => Terminal::new(backend)?,
+        UiViewport::Inline(rows) => Terminal::with_options(
+            backend,
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Inline(rows),
+            },
+        )?,
+    };
     Ok(terminal)
 }
 
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
+fn restore_terminal(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    viewport: UiViewport,
+) -> io::Result<()> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
         crossterm::event::DisableMouseCapture,
-        LeaveAlternateScreen
     )?;
+    if matches!(viewport, UiViewport::Fullscreen) {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    }
     terminal.show_cursor()?;
     Ok(())
 }
@@ -787,10 +936,9 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Re
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Run the full-screen TUI as an alternative to `run_repl`.
-///
-/// This function owns the terminal lifecycle (raw mode, alternate screen)
-/// and returns when the user exits.
+/// Run the ratatui-based TUI in either Inline or Fullscreen mode (see
+/// `UiViewport`). Owns the terminal lifecycle for the chosen mode and
+/// returns when the user exits.
 pub async fn run_tui(
     agent: &BaseAgent,
     config: &ProviderConfig,
@@ -799,6 +947,7 @@ pub async fn run_tui(
     session_manager: &JsonFileSessionManager,
     checkpoint_mgr: &checkpoint::CheckpointManager,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
+    viewport: UiViewport,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // -- Session setup (same logic as run_repl) --
     let (mut session_id, mut active_session) = match session_manager.latest() {
@@ -823,10 +972,11 @@ pub async fn run_tui(
     };
 
     // -- Initialize terminal --
-    let mut terminal = setup_terminal()?;
+    let mut terminal = setup_terminal(viewport)?;
 
     // -- Build app state --
     let mut app = TuiApp::new(&config.model, &session_id);
+    app.set_workspace(workspace.to_path_buf());
 
     // Welcome message
     app.push_system_message(&format!(
@@ -972,7 +1122,7 @@ pub async fn run_tui(
     let _ = active_session.flush().await;
 
     // -- Restore terminal --
-    restore_terminal(&mut terminal)?;
+    restore_terminal(&mut terminal, viewport)?;
 
     Ok(())
 }
@@ -990,12 +1140,21 @@ fn handle_agent_event(app: &mut TuiApp, event: AgentEvent) {
             app.begin_streaming();
         }
         AgentEvent::MessageUpdate { delta, .. } => {
-            if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
-                app.append_streaming_text(text);
+            use alva_kernel_abi::StreamEvent;
+            match &delta {
+                StreamEvent::TextDelta { text } => app.append_streaming_text(text),
+                StreamEvent::ReasoningDelta { text } => app.append_thinking(text),
+                StreamEvent::ReasoningBlock { text, .. } => {
+                    app.seal_thinking(Some(text));
+                }
+                _ => {}
             }
         }
         AgentEvent::MessageEnd { message } => {
             app.end_streaming();
+            // Defensive: if the model emitted reasoning deltas without a
+            // ReasoningBlock seal, close the block now using the streamed text.
+            app.seal_thinking(None);
             if let AgentMessage::Standard(msg) = &message {
                 if let Some(usage) = &msg.usage {
                     app.total_input_tokens += usage.input_tokens;
@@ -1069,9 +1228,7 @@ async fn handle_slash_command(
             );
         }
         "/clear" => {
-            app.messages.clear();
-            app.scroll_offset = 0;
-            app.content_height = 0;
+            app.reset_conversation();
             app.push_system_message("Screen cleared.");
         }
         "/config" => {
@@ -1101,6 +1258,21 @@ async fn handle_slash_command(
                 app.push_system_message("Plan mode OFF -- tools can modify files");
             }
         }
+        "/auto" => {
+            use alva_app_core::PermissionMode;
+            let current = agent.permission_mode();
+            let new_mode = if current == PermissionMode::AcceptShell {
+                PermissionMode::Ask
+            } else {
+                PermissionMode::AcceptShell
+            };
+            agent.set_permission_mode(new_mode);
+            if new_mode == PermissionMode::AcceptShell {
+                app.push_system_message("Auto-shell ON -- non-destructive shell commands run without prompting");
+            } else {
+                app.push_system_message("Auto-shell OFF -- shell commands ask for approval");
+            }
+        }
         "/new" => {
             let _ = active_session.flush().await;
             let new_session = session_manager.create("").await;
@@ -1108,9 +1280,7 @@ async fn handle_slash_command(
             agent.swap_session(new_session.clone()).await;
             *active_session = new_session;
             app.session_id = session_id.clone();
-            app.messages.clear();
-            app.scroll_offset = 0;
-            app.content_height = 0;
+            app.reset_conversation();
             app.total_input_tokens = 0;
             app.total_output_tokens = 0;
             app.push_system_message(&format!("New session: {}", session_id));
@@ -1218,4 +1388,72 @@ fn handle_shell_command(app: &mut TuiApp, shell_cmd: &str, workspace: &Path) {
             app.push_error_message(&format!("Failed to execute: {}", e));
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Misc helpers
+// ---------------------------------------------------------------------------
+
+/// Trim a string to `max` chars, appending an ellipsis when cut. Used for
+/// the one-line tool-call header summary.
+fn truncate(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max { return s.to_string(); }
+    let mut out: String = s.chars().take(max).collect();
+    out.push('…');
+    out
+}
+
+/// Flatten a Text body back to a plain String so we can append to it. Used
+/// during reasoning streaming where the body is rebuilt each delta.
+fn body_text(block: &CollapsibleBlock) -> String {
+    block
+        .body
+        .lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Format a char count as "1.2K" / "823" for the thinking-block badge.
+fn format_chars(n: usize) -> String {
+    if n < 1000 { format!("{} chars", n) }
+    else if n < 1_000_000 { format!("{:.1}K chars", n as f64 / 1000.0) }
+    else { format!("{:.1}M chars", n as f64 / 1_000_000.0) }
+}
+
+/// Locate the byte offset of the active `@`-token in `buf`. Returns the
+/// position of the `@` itself, or `None` if there is no @-word at the end.
+/// Mirrors the rule ChatInput uses to detect the @-trigger.
+fn find_at_token_start(buf: &str) -> Option<usize> {
+    for (i, c) in buf.char_indices().rev() {
+        if c.is_whitespace() { return None; }
+        if c == '@' {
+            let prev_is_boundary = i == 0
+                || buf[..i].chars().last().map(|p| p.is_whitespace()).unwrap_or(true);
+            return prev_is_boundary.then_some(i);
+        }
+    }
+    None
+}
+
+/// One-shot scan of the workspace for files, capped at `limit` entries to
+/// keep the picker responsive on huge repos. Respects `.gitignore` and skips
+/// hidden files via the `ignore` crate.
+fn scan_workspace_files(root: &Path, limit: usize) -> Vec<PathBuf> {
+    let mut out = Vec::with_capacity(limit.min(64));
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .build();
+    for entry in walker {
+        let Ok(e) = entry else { continue; };
+        if !e.file_type().map(|t| t.is_file()).unwrap_or(false) { continue; }
+        out.push(e.into_path());
+        if out.len() >= limit { break; }
+    }
+    out
 }

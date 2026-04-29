@@ -1,4 +1,5 @@
 pub mod app;
+pub mod components;
 pub mod diff_display;
 pub mod event;
 pub mod history_search;

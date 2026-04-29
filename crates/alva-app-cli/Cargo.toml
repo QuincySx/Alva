@@ -11,6 +11,8 @@ path = "src/main.rs"
 [dependencies]
 alva-app-core = { path = "../alva-app-core" }
 alva-app-extension-loader = { path = "../alva-app-extension-loader" }
+alva-protocol-skill = { path = "../alva-protocol-skill" }
+include_dir = "0.7"
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-host-native = { path = "../alva-host-native" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
@@ -20,6 +22,19 @@ async-trait = "0.1"
 base64 = "0.22"
 crossterm = "0.28"
 ratatui = "0.29"
+# ratatui has no built-in text input widget — `tui-textarea` is the de facto
+# community widget (Vim/emacs keybindings, undo/redo, selection). Wrap it
+# instead of hand-rolling a buffer + cursor in our `TextField` component.
+tui-textarea = "0.7"
+# Community widgets we wrap in `ui/components/` — keeps each widget a thin
+# facade over a known-good upstream rather than something we maintain.
+tui-tree-widget = "0.23"            # nested trees: file picker, settings tree
+throbber-widgets-tui = "0.8"        # animated spinners (replaces hand-rolled)
+tui-popup = "0.6"                   # movable/scrollable popups (alt to ModalFrame)
+ratatui-image = { version = "5", default-features = false, features = ["crossterm"] }
+# Needed to decode images for `ratatui-image` — it consumes a `DynamicImage`
+# and doesn't re-export the loader. Slim feature set: png/jpeg only.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +42,14 @@ uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
+# Live REPL with slash autocomplete that pops up on keystroke (not Tab) +
+# persistent history. Used only by the interactive REPL; single-shot /
+# `-p` modes go through plain stdin and don't pull this in.
+reedline = "0.36"
+# `ignore` powers the `@`-mention file picker — respects .gitignore and is
+# already in the workspace (transitively via builtins). Direct dep so the
+# CLI doesn't depend on extension-builtin's internals.
+ignore = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
