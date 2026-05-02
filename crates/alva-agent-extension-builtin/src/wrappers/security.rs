@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use alva_agent_core::extension::{Extension, ExtensionContext, HostAPI};
-use alva_agent_security::{SandboxMode, SecurityGuard, SecurityMiddleware};
+use alva_agent_security::{
+    SandboxMode, SecurityGuard, SecurityMiddleware, SecurityModeControl,
+};
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -72,6 +74,11 @@ impl Extension for SecurityExtension {
         // through a hardcoded BaseAgent accessor.
         let guard_opt = self.guard.lock().ok().and_then(|g| g.clone());
         if let Some(guard) = guard_opt {
+            // Also publish the lock-free mode control so PermissionModeService
+            // can flip the security mode without holding the guard's mutex.
+            let mode_handle = guard.lock().await.mode_handle();
+            ctx.bus_writer
+                .provide::<dyn SecurityModeControl>(mode_handle);
             ctx.bus_writer.provide::<Mutex<SecurityGuard>>(guard);
         }
     }

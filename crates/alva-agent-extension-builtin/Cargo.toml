@@ -26,6 +26,7 @@ tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
 ignore = "0.4"
 reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
 alva-app-extension-browser = { path = "../alva-app-extension-browser", optional = true }
+alva-agent-context = { path = "../alva-agent-context" }
 
 [dev-dependencies]
 tempfile = "3"

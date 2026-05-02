@@ -6,6 +6,8 @@ pub mod memory;
 pub mod planning;
 pub mod security;
 pub mod shell;
+#[cfg(not(target_family = "wasm"))]
+pub mod system_context;
 pub mod task;
 pub mod team;
 pub mod utility;
@@ -19,6 +21,8 @@ pub use memory::MemoryExtension;
 pub use planning::PlanningExtension;
 pub use security::SecurityExtension;
 pub use shell::ShellExtension;
+#[cfg(not(target_family = "wasm"))]
+pub use system_context::SystemContextExtension;
 pub use task::TaskExtension;
 pub use team::TeamExtension;
 pub use utility::UtilityExtension;
