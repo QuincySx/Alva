@@ -20,6 +20,14 @@ pub struct ExtensionHost {
     middlewares: Vec<Arc<dyn alva_kernel_core::middleware::Middleware>>,
     commands: Vec<RegisteredCommand>,
     cancel_token: Option<Arc<std::sync::Mutex<CancellationToken>>>,
+    /// System-prompt fragments contributed by extensions during
+    /// `configure()`. Each entry is `(extension_name, layer, text)` in
+    /// the order it was appended. The builder drains the collection
+    /// after configure/finalize and groups by layer when assembling the
+    /// final prompt: stable layers (L0 / L1 / L3) form the cacheable
+    /// prefix, RuntimeInject is appended last (volatile bucket).
+    system_prompt_additions:
+        Vec<(String, alva_kernel_abi::scope::context::ContextLayer, String)>,
 }
 
 impl ExtensionHost {
@@ -29,6 +37,7 @@ impl ExtensionHost {
             middlewares: Vec::new(),
             commands: Vec::new(),
             cancel_token: None,
+            system_prompt_additions: Vec::new(),
         }
     }
 
@@ -47,6 +56,27 @@ impl ExtensionHost {
 
     pub fn register_command(&mut self, cmd: RegisteredCommand) {
         self.commands.push(cmd);
+    }
+
+    /// Record a system-prompt fragment contributed by an extension at
+    /// a given context layer. The builder uses the layer to decide
+    /// whether the fragment ends up in the stable (cacheable) bucket
+    /// or the dynamic (per-turn) tail.
+    pub fn append_system_prompt(
+        &mut self,
+        extension_name: String,
+        layer: alva_kernel_abi::scope::context::ContextLayer,
+        text: String,
+    ) {
+        self.system_prompt_additions
+            .push((extension_name, layer, text));
+    }
+
+    /// Take all accumulated system-prompt fragments (drains the collection).
+    pub fn take_system_prompt_additions(
+        &mut self,
+    ) -> Vec<(String, alva_kernel_abi::scope::context::ContextLayer, String)> {
+        std::mem::take(&mut self.system_prompt_additions)
     }
 
     /// Dispatch event to all registered handlers. Sequential, first Block/Handled wins.
@@ -153,6 +183,26 @@ impl HostAPI {
             description: description.to_string(),
             source_extension: self.extension_name.clone(),
         });
+    }
+
+    /// Append a fragment to the agent's system prompt at a given
+    /// context layer. The layer decides cache placement:
+    ///   - `AlwaysPresent` / `OnDemand` / `Memory` → stable bucket
+    ///     (cacheable prefix)
+    ///   - `RuntimeInject` → dynamic bucket (per-turn volatile, not
+    ///     cached)
+    ///
+    /// Use `AlwaysPresent` for things like `<project_context>` /
+    /// CLAUDE.md / skill indexes. Use `RuntimeInject` for git status,
+    /// today's date, current directory listings, anything that varies
+    /// per turn.
+    pub fn append_system_prompt(
+        &self,
+        layer: alva_kernel_abi::scope::context::ContextLayer,
+        text: impl Into<String>,
+    ) {
+        let mut host = self.host.write().unwrap();
+        host.append_system_prompt(self.extension_name.clone(), layer, text.into());
     }
 
     /// Cancel the current agent loop.

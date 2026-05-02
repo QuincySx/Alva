@@ -242,6 +242,26 @@ impl AgentBuilder {
         }
         let tools_arc: Vec<Arc<dyn Tool>> = registry.list_arc();
 
+        // 10*. Assemble the final system prompt:
+        //      [user-provided base]
+        //      [extension contributions, in registration order]
+        //      [Environment block — kernel-managed invariant: cwd + date]
+        //
+        //      The Environment block is the agent-core's hard contract: a
+        //      runnable agent should always know its workspace and the
+        //      current date, regardless of what extensions contribute.
+        //      Matches pi-mono's `buildSystemPrompt` floor (core always
+        //      appends cwd + date even when the user supplies a custom
+        //      prompt). Placed last so it wins on short-term recency.
+        let system_prompt = assemble_system_prompt(
+            self.system_prompt,
+            {
+                let mut host_mut = host.write().unwrap();
+                host_mut.take_system_prompt_additions()
+            },
+            self.workspace.as_deref(),
+        );
+
         // 11. Session — default to in-memory if not provided.
         let session: Arc<dyn AgentSession> = self
             .session
@@ -258,7 +278,7 @@ impl AgentBuilder {
         // 13. AgentConfig
         let config = AgentConfig {
             middleware: middleware_stack,
-            system_prompt: self.system_prompt,
+            system_prompt,
             max_iterations: self.max_iterations,
             model_config: self.model_config,
             context_window: self.context_window,
@@ -282,7 +302,7 @@ impl AgentBuilder {
 
         Ok(Agent {
             state: Mutex::new(state),
-            config,
+            config: tokio::sync::RwLock::new(config),
             bus,
             host,
             tools: tools_snapshot,
@@ -293,5 +313,164 @@ impl AgentBuilder {
 impl Default for AgentBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Assemble the final system prompt as a layered `Vec<String>` so
+/// providers that support prompt caching can split cleanly between
+/// stable (cacheable) and dynamic (per-turn) content.
+///
+/// Output convention:
+///   - `result[0]` = stable bucket: base prompt + every extension
+///     contribution at layer L0 (`AlwaysPresent`) / L1 (`OnDemand`) /
+///     L3 (`Memory`). Cacheable by Anthropic's `cache_control:
+///     ephemeral`.
+///   - `result[1]` = dynamic bucket: every extension contribution at
+///     layer L2 (`RuntimeInject`) plus the kernel-managed Environment
+///     block (cwd + today's date). Always rebuilt per turn.
+///
+/// If there are no dynamic contributions and no Environment block is
+/// emitted, returns a single-element vec (entire prompt stable). If
+/// there's no stable content either, returns an empty vec.
+fn assemble_system_prompt(
+    base: String,
+    additions: Vec<(
+        String,
+        alva_kernel_abi::scope::context::ContextLayer,
+        String,
+    )>,
+    workspace: Option<&std::path::Path>,
+) -> Vec<String> {
+    use alva_kernel_abi::scope::context::ContextLayer;
+
+    let mut stable_parts: Vec<String> = Vec::new();
+    let mut dynamic_parts: Vec<String> = Vec::new();
+
+    let trimmed_base = base.trim();
+    if !trimmed_base.is_empty() {
+        stable_parts.push(trimmed_base.to_string());
+    }
+    for (_ext, layer, text) in additions {
+        let t = text.trim();
+        if t.is_empty() {
+            continue;
+        }
+        match layer {
+            ContextLayer::RuntimeInject => dynamic_parts.push(t.to_string()),
+            // AlwaysPresent / OnDemand / Memory all stable.
+            _ => stable_parts.push(t.to_string()),
+        }
+    }
+    // Environment block is per-turn-volatile (today's date) — always
+    // dynamic bucket.
+    dynamic_parts.push(build_environment_block(workspace));
+
+    let stable_joined = stable_parts.join("\n\n");
+    let dynamic_joined = dynamic_parts.join("\n\n");
+
+    let mut out: Vec<String> = Vec::new();
+    if !stable_joined.is_empty() {
+        out.push(stable_joined);
+    }
+    if !dynamic_joined.is_empty() {
+        out.push(dynamic_joined);
+    }
+    out
+}
+
+/// Build the canonical "# Environment" block. Always includes the date;
+/// includes `Working directory` only when a workspace path was set.
+fn build_environment_block(workspace: Option<&std::path::Path>) -> String {
+    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let mut lines: Vec<String> = Vec::with_capacity(3);
+    lines.push("# Environment".to_string());
+    lines.push(format!("Today's date: {}", date));
+    if let Some(ws) = workspace {
+        let ws_str = ws.display().to_string();
+        if !ws_str.is_empty() {
+            lines.push(format!("Working directory: {}", ws_str));
+        }
+    }
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_block_without_workspace_has_date_only() {
+        let block = build_environment_block(None);
+        assert!(block.starts_with("# Environment"));
+        assert!(block.contains("Today's date:"));
+        assert!(!block.contains("Working directory"));
+    }
+
+    #[test]
+    fn environment_block_with_workspace_includes_cwd() {
+        let ws = std::path::Path::new("/tmp/some/ws");
+        let block = build_environment_block(Some(ws));
+        assert!(block.contains("Working directory: /tmp/some/ws"));
+        assert!(block.contains("Today's date:"));
+    }
+
+    #[test]
+    fn assemble_empty_base_still_emits_environment() {
+        let out = assemble_system_prompt(String::new(), vec![], None);
+        // No stable content → only dynamic segment (Environment).
+        assert_eq!(out.len(), 1);
+        assert!(out[0].starts_with("# Environment"));
+    }
+
+    #[test]
+    fn assemble_groups_stable_and_dynamic_correctly() {
+        use alva_kernel_abi::scope::context::ContextLayer;
+        let base = "You are Alva.".to_string();
+        let adds = vec![
+            (
+                "ext_a".to_string(),
+                ContextLayer::AlwaysPresent,
+                "stable-context".to_string(),
+            ),
+            (
+                "ext_b".to_string(),
+                ContextLayer::RuntimeInject,
+                "volatile-context".to_string(),
+            ),
+        ];
+        let out = assemble_system_prompt(
+            base,
+            adds,
+            Some(std::path::Path::new("/ws")),
+        );
+        // [stable bucket, dynamic bucket]
+        assert_eq!(out.len(), 2);
+        // Stable: base + ext_a
+        assert!(out[0].contains("You are Alva."));
+        assert!(out[0].contains("stable-context"));
+        assert!(!out[0].contains("volatile-context"));
+        assert!(!out[0].contains("# Environment"));
+        // Dynamic: ext_b + Environment
+        assert!(out[1].contains("volatile-context"));
+        assert!(out[1].contains("# Environment"));
+        assert!(out[1].contains("Working directory: /ws"));
+    }
+
+    #[test]
+    fn assemble_skips_empty_additions() {
+        use alva_kernel_abi::scope::context::ContextLayer;
+        let out = assemble_system_prompt(
+            "base".to_string(),
+            vec![
+                ("x".to_string(), ContextLayer::AlwaysPresent, "   ".to_string()),
+                ("y".to_string(), ContextLayer::AlwaysPresent, "real".to_string()),
+            ],
+            None,
+        );
+        // Joined into stable+dynamic segments — peek at the whole thing.
+        let joined = out.join("\n\n");
+        assert!(joined.contains("base"));
+        assert!(joined.contains("real"));
+        assert!(joined.contains("# Environment"));
     }
 }
