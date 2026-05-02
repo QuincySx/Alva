@@ -3,6 +3,7 @@
 // POS:    Unified security gate composing sensitive-path filtering, authorized-root checking,
 //         HITL permission management, permission rules, caching, modes, and bash classification.
 use std::collections::HashSet;
+use std::sync::Arc;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,7 @@ use alva_kernel_abi::{bus_cap, ToolExecutionContext};
 use crate::authorized_roots::AuthorizedRoots;
 use crate::cache::{CachedDecision, PermissionCache};
 use crate::classifier::{BashClassifier, CommandClassification};
+use crate::mode_control::{SecurityModeControl, SecurityModeHandle};
 use crate::modes::PermissionMode;
 use crate::path_utils::normalize_path;
 use crate::permission::PermissionManager;
@@ -107,8 +109,10 @@ pub struct SecurityGuard {
     permission_rules: PermissionRules,
     /// Cache for repeated permission decisions.
     permission_cache: PermissionCache,
-    /// Current permission mode.
-    permission_mode: PermissionMode,
+    /// Current permission mode — atomic-backed `Arc` so that any holder of
+    /// the same handle (e.g. a `SecurityModeControl` published on the bus)
+    /// observes mode changes without going through the guard's tokio Mutex.
+    mode: Arc<SecurityModeHandle>,
     /// Tools requiring HITL review — configurable at runtime.
     dangerous_tools: HashSet<String>,
     /// JSON keys to extract paths from — configurable at runtime.
@@ -119,6 +123,21 @@ pub struct SecurityGuard {
 
 impl SecurityGuard {
     pub fn new(workspace: PathBuf, sandbox_mode: SandboxMode) -> Self {
+        Self::with_mode_handle(
+            workspace,
+            sandbox_mode,
+            Arc::new(SecurityModeHandle::default()),
+        )
+    }
+
+    /// Construct with an externally-owned mode handle so a `SecurityModeControl`
+    /// published on the bus shares the exact same `Arc<AtomicU8>` the guard
+    /// reads through.
+    pub fn with_mode_handle(
+        workspace: PathBuf,
+        sandbox_mode: SandboxMode,
+        mode: Arc<SecurityModeHandle>,
+    ) -> Self {
         Self {
             sensitive_paths: SensitivePathFilter::default_rules(),
             permission_manager: PermissionManager::new(),
@@ -126,11 +145,18 @@ impl SecurityGuard {
             sandbox_config: SandboxConfig::for_workspace(&workspace, sandbox_mode),
             permission_rules: PermissionRules::default(),
             permission_cache: PermissionCache::new(),
-            permission_mode: PermissionMode::default(),
+            mode,
             dangerous_tools: DEFAULT_DANGEROUS_TOOLS.iter().map(|s| s.to_string()).collect(),
             path_keys: DEFAULT_PATH_KEYS.iter().map(|s| s.to_string()).collect(),
             pending_receivers: std::collections::HashMap::new(),
         }
+    }
+
+    /// Shared reference to the mode handle. Publish this on the bus as
+    /// `dyn SecurityModeControl` to let outer crates flip the mode without
+    /// holding the tokio Mutex over the guard.
+    pub fn mode_handle(&self) -> Arc<SecurityModeHandle> {
+        self.mode.clone()
     }
 
     /// Add a tool name to the dangerous tools set (requires HITL review).
@@ -164,13 +190,13 @@ impl SecurityGuard {
     }
 
     /// Set the permission mode.
-    pub fn set_permission_mode(&mut self, mode: PermissionMode) {
-        self.permission_mode = mode;
+    pub fn set_permission_mode(&self, mode: PermissionMode) {
+        self.mode.set_mode(mode);
     }
 
     /// Get the current permission mode.
     pub fn permission_mode(&self) -> PermissionMode {
-        self.permission_mode
+        self.mode.get_mode()
     }
 
     /// Get a reference to the permission cache.
@@ -200,28 +226,42 @@ impl SecurityGuard {
         args: &Value,
         _ctx: &dyn ToolExecutionContext,
     ) -> SecurityDecision {
+        let current_mode = self.mode.get_mode();
+
         // 1. Permission mode enforcement
-        if !self.permission_mode.allows_writes() && self.is_dangerous(tool_name) {
-            tracing::info!(tool = tool_name, mode = %self.permission_mode, "denied by plan mode");
+        if !current_mode.allows_writes() && self.is_dangerous(tool_name) {
+            tracing::info!(tool = tool_name, mode = %current_mode, "denied by plan mode");
             return SecurityDecision::Deny {
                 reason: format!(
                     "tool '{}' blocked: write operations not allowed in {} mode",
-                    tool_name, self.permission_mode
+                    tool_name, current_mode
                 ),
             };
         }
 
         // Bypass mode: allow everything (assumes sandbox is active)
-        if self.permission_mode == PermissionMode::Bypass {
+        if current_mode == PermissionMode::Bypass {
             tracing::debug!(tool = tool_name, "allowed by bypass mode");
             return SecurityDecision::Allow;
         }
 
-        // 2. Extract all paths from tool arguments
-        let paths = self.extract_paths(args);
+        // 2. Extract paths from tool arguments, split by source.
+        //
+        // explicit_paths come from structured args (`file_path`, `path`, etc.)
+        // and are authoritative — tool clearly intends to touch THAT path.
+        //
+        // command_paths come from tokenizing a shell command string. They're
+        // a best-effort heuristic — a shell command might reference `/` or
+        // `/tmp` as part of normal operation without meaning "access this
+        // file". Root-checking these makes shell unusable (any `ls /` gets
+        // denied). The sensitive-path filter still applies so `/etc/passwd`
+        // or secret stores stay blocked; shell safety beyond that belongs
+        // to `BashClassifier`, not the root boundary.
+        let explicit_paths = self.extract_explicit_paths(args);
+        let command_paths = Self::extract_paths_from_args_commands(args);
 
-        // 3. Check sensitive paths
-        for path in &paths {
+        // 3. Sensitive-path check applies to BOTH (explicit + shell-extracted).
+        for path in explicit_paths.iter().chain(command_paths.iter()) {
             if let Some(reason) = self.sensitive_paths.check(path) {
                 tracing::info!(tool = tool_name, path = %path.display(), "denied: sensitive path");
                 return SecurityDecision::Deny {
@@ -233,8 +273,8 @@ impl SecurityGuard {
             }
         }
 
-        // 4. Check authorized roots
-        for path in &paths {
+        // 4. Root check applies ONLY to explicit paths — see note above.
+        for path in &explicit_paths {
             if let Err(reason) = self.authorized_roots.check(path) {
                 tracing::info!(tool = tool_name, path = %path.display(), "denied: outside roots");
                 return SecurityDecision::Deny {
@@ -289,7 +329,7 @@ impl SecurityGuard {
         }
 
         // 7. Auto mode: use bash classifier for auto-approval
-        if self.permission_mode.auto_approves() && self.is_dangerous(tool_name) {
+        if current_mode.auto_approves() && self.is_dangerous(tool_name) {
             if let Some(command) = Self::extract_command(args) {
                 match BashClassifier::classify(&command) {
                     CommandClassification::ReadOnly => {
@@ -414,14 +454,14 @@ impl SecurityGuard {
     /// Extract file paths from JSON tool arguments by looking at well-known
     /// keys. Also handles the `command` key for shell tools (extracts paths
     /// from command strings).
-    fn extract_paths(&self, args: &Value) -> Vec<PathBuf> {
+    /// Paths named explicitly in tool args (`file_path`, `path`, `cwd`…).
+    /// Root check applies to these — a write/read tool with an explicit
+    /// `file_path: "/etc/hosts"` is unambiguously trying to touch that file.
+    fn extract_explicit_paths(&self, args: &Value) -> Vec<PathBuf> {
         let mut paths = Vec::new();
-
         if let Value::Object(map) = args {
             for (key, value) in map {
                 let key_lower = key.to_lowercase();
-
-                // Direct path keys
                 if self.path_keys.contains(&key_lower) {
                     if let Value::String(s) = value {
                         if !s.is_empty() {
@@ -429,16 +469,24 @@ impl SecurityGuard {
                         }
                     }
                 }
+            }
+        }
+        paths
+    }
 
-                // Shell command — try to extract paths from the command string
-                if key_lower == "command" {
+    /// Paths heuristically pulled out of shell command strings. Only the
+    /// sensitive-path filter uses these — see `check_tool_call` step 2.
+    fn extract_paths_from_args_commands(args: &Value) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        if let Value::Object(map) = args {
+            for (key, value) in map {
+                if key.to_lowercase() == "command" {
                     if let Value::String(cmd) = value {
                         paths.extend(Self::extract_paths_from_command(cmd));
                     }
                 }
             }
         }
-
         paths
     }
 
@@ -609,8 +657,40 @@ mod tests {
             "destination": "~/Documents/output.txt"
         });
         let guard = SecurityGuard::new(PathBuf::from("/tmp"), SandboxMode::RestrictiveOpen);
-        let paths = guard.extract_paths(&args);
+        let paths = guard.extract_explicit_paths(&args);
         assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn shell_commands_not_root_checked() {
+        // Regression: `ls /` used to extract "/" as a path and get denied
+        // by the root check, making shell useless outside the workspace.
+        // The command-path heuristic must not feed the root gate.
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "command": "ls /" });
+        let decision = guard.check_tool_call("execute_shell", &args, &test_ctx());
+        assert!(
+            !matches!(&decision, SecurityDecision::Deny { reason } if reason.contains("outside")),
+            "shell command `ls /` must not be denied by the root check: {decision:?}"
+        );
+    }
+
+    #[test]
+    fn explicit_path_outside_workspace_still_denied() {
+        // Sanity: the split didn't accidentally loosen the explicit-path gate.
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "file_path": "/etc/hosts" });
+        let decision = guard.check_tool_call("read_file", &args, &test_ctx());
+        assert!(
+            matches!(&decision, SecurityDecision::Deny { .. }),
+            "explicit file_path outside workspace must still be denied"
+        );
     }
 
     #[test]

@@ -14,6 +14,7 @@ pub mod sandbox;
 pub mod rules;
 pub mod cache;
 pub mod modes;
+pub mod mode_control;
 pub mod classifier;
 pub mod middleware;
 pub mod pending_actions;
@@ -27,6 +28,7 @@ pub use sandbox::{SandboxConfig, SandboxMode};
 pub use rules::{PermissionRule, PermissionRules, RuleDecision};
 pub use cache::{PermissionCache, CachedDecision};
 pub use modes::PermissionMode;
+pub use mode_control::{SecurityModeControl, SecurityModeHandle};
 pub use classifier::{BashClassifier, CommandClassification};
 pub use middleware::{
     ApprovalNotifier, ApprovalRequest, PlanModeControl, PlanModeMiddleware, SecurityMiddleware,

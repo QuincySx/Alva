@@ -12,19 +12,34 @@ use serde::{Deserialize, Serialize};
 /// - `Plan` — read-only mode, deny all write/execute operations
 /// - `Bypass` — allow everything (requires sandbox)
 /// - `Default` — same as Interactive
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionMode {
     /// Interactive: Ask user for each unrecognized tool use.
-    Interactive,
+    Interactive = 0,
     /// Auto: Use classifier to auto-approve safe operations.
-    Auto,
+    Auto = 1,
     /// Plan: Read-only mode, deny all write/execute operations.
-    Plan,
+    Plan = 2,
     /// Bypass: Allow everything (requires sandbox).
-    Bypass,
+    Bypass = 3,
     /// Default: Same as Interactive.
-    Default,
+    Default = 4,
+}
+
+impl PermissionMode {
+    /// Decode from the discriminant produced by `mode as u8`.
+    /// Out-of-range values fall back to `Default`.
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            0 => PermissionMode::Interactive,
+            1 => PermissionMode::Auto,
+            2 => PermissionMode::Plan,
+            3 => PermissionMode::Bypass,
+            _ => PermissionMode::Default,
+        }
+    }
 }
 
 impl std::default::Default for PermissionMode {
