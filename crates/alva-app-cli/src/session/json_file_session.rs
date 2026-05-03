@@ -126,12 +126,12 @@ impl JsonFileAgentSession {
         let file: SessionFile = serde_json::from_str(&contents)
             .map_err(SessionError::Serialization)?;
 
-        // Replay events. Each append reassigns seq inside the inner session;
-        // that's fine because after the full replay, seq_counter is back in
-        // sync with the number of events.
-        for event in file.events {
-            self.inner.append(event).await;
-        }
+        // Replay events via `restore_events` so both the event log AND
+        // the messages projection get rebuilt. Plain `append()` only
+        // writes to the log, leaving the messages cache empty — which
+        // the UI reads as "history is gone". See
+        // InMemoryAgentSession::restore_events for the contract.
+        self.inner.restore_events(file.events).await;
 
         if let Some(snap_b64) = file.snapshot_base64 {
             let bytes = B64

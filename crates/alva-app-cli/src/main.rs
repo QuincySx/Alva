@@ -23,10 +23,13 @@ mod context;
 mod event_handler;
 mod history;
 mod output;
+mod bundled_skills;
 mod plugins;
 mod repl;
+mod repl_completer;
 pub mod services;
 mod session;
+mod settings_cmd;
 mod setup;
 pub mod ui;
 
@@ -78,23 +81,40 @@ async fn run() -> i32 {
     match argv.get(1).map(|s| s.as_str()) {
         Some("plugins") => return plugins::run(&argv[2..]).await,
         Some("context") => return context::run(&argv[2..]).await,
+        Some("settings") => return settings_cmd::run(&argv[2..]).await,
         _ => {}
     }
 
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let paths = AlvaPaths::new(&workspace);
 
-    // 1. Config — layered: env > project (.alva/config.json) > global (~/.config/alva/config.json)
+    // 1. Config — resolution order:
+    //    a. env vars (ALVA_*) — `ProviderConfig::load` will pick these up
+    //    b. project / global flat-format files (legacy CLI paths)
+    //    c. shared `~/.alva/config.json` active provider — same file Tauri reads
+    //    d. setup wizard
+    //
+    // The shared config is checked AFTER env vars + legacy files so old setups
+    // keep working unchanged. New users go through the wizard or `alva settings set`.
     let config = match ProviderConfig::load(&workspace) {
-        Ok(c) => c,
-        Err(_) => {
-            match setup::run_setup_wizard(&workspace) {
+        Ok(c) if !c.api_key.is_empty() => c,
+        _ => match settings_cmd::try_load_provider_from_shared() {
+            Some(mut shared) => {
+                // Env vars still override individual fields when present.
+                if let Ok(k) = std::env::var("ALVA_API_KEY") { if !k.is_empty() { shared.api_key = k; } }
+                if let Ok(m) = std::env::var("ALVA_MODEL") { if !m.is_empty() { shared.model = m; } }
+                if let Ok(b) = std::env::var("ALVA_BASE_URL") { if !b.is_empty() { shared.base_url = b; } }
+                if let Ok(k) = std::env::var("ALVA_PROVIDER_KIND") { if !k.is_empty() { shared.kind = Some(k); } }
+                shared
+            }
+            None => match setup::run_setup_wizard(&workspace) {
                 Some(c) => c,
                 None => {
                     eprintln!();
                     output::print_error("Setup incomplete. You can also configure manually:");
                     eprintln!("  export ALVA_API_KEY=sk-...");
                     eprintln!("  export ALVA_MODEL=gpt-4o");
+                    eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
                     return 1;
                 }
             }
@@ -144,18 +164,86 @@ async fn run() -> i32 {
     output::print_git_status(&workspace);
     output::print_banner_end();
 
-    // 5. Check for single-shot mode (positional arg without -p)
-    if let Some(prompt) = std::env::args().nth(1) {
-        let initial_session = session_manager.create(&prompt).await;
-        agent.swap_session(initial_session.clone()).await;
-        event_handler::run_prompt(&agent, &prompt, &mut approval_rx).await;
-        // Persistence is automatic — just refresh the index summary.
-        let event_count = initial_session.count(&EventQuery::default()).await;
-        session_manager.refresh_summary(initial_session.session_id(), event_count, Some(&prompt));
+    // 5. Interactive — TUI by default. Inline (20 rows) unless explicitly
+    //    flipped via flag/env/config. `--repl` falls back to the legacy
+    //    reedline line-mode for users who prefer it.
+    //
+    //    UI mode resolution order (first hit wins):
+    //      1. `--ui-mode <inline|fullscreen>` flag
+    //      2. `ALVA_UI_MODE` env var
+    //      3. `ui_mode` field in ~/.alva/config.json (shared with Tauri)
+    //      4. default "inline"
+    let cli_args: Vec<String> = std::env::args().collect();
+    let want_repl = cli_args.iter().any(|a| a == "--repl")
+        || std::env::var("ALVA_REPL").ok().as_deref() == Some("1");
+    if !want_repl {
+        let mut mode_override: Option<String> = None;
+        if let Some(i) = cli_args.iter().position(|a| a == "--ui-mode") {
+            mode_override = cli_args.get(i + 1).cloned();
+        }
+        if mode_override.is_none() {
+            if let Ok(env_mode) = std::env::var("ALVA_UI_MODE") {
+                if !env_mode.is_empty() { mode_override = Some(env_mode); }
+            }
+        }
+        let shared_cfg = alva_app_core::config::load();
+        let cfg_mode = shared_cfg.as_ref().and_then(|c| c.ui_mode.clone());
+        let cfg_inline_rows = shared_cfg.as_ref().and_then(|c| c.ui_inline_rows);
+        let mode_str = mode_override.or(cfg_mode);
+        let viewport = ui::app::UiViewport::parse(mode_str.as_deref(), cfg_inline_rows);
+        if let Err(e) = ui::app::run_tui(
+            &agent,
+            &config,
+            &workspace,
+            &paths,
+            &session_manager,
+            &_checkpoint_mgr,
+            &mut approval_rx,
+            viewport,
+        )
+        .await
+        {
+            output::print_error(&format!("TUI exited with error: {e}"));
+            return 1;
+        }
         return 0;
     }
 
-    // 6. Interactive REPL
+    // 6. Check for single-shot mode (positional arg without leading -).
+    //    Skips any value that follows `--ui-mode`/`--print` so flag
+    //    arguments don't get treated as prompts.
+    let argv: Vec<String> = std::env::args().collect();
+    let mut prompt_arg: Option<String> = None;
+    let mut i = 1;
+    while i < argv.len() {
+        let a = &argv[i];
+        if a == "--ui-mode" { i += 2; continue; }
+        if a == "-p" || a == "--print" || a == "--tui" || a == "--repl" { i += 1; continue; }
+        if a.starts_with('-') { i += 1; continue; }
+        prompt_arg = Some(a.clone());
+        break;
+    }
+    if let Some(prompt) = prompt_arg {
+        let initial_session = session_manager.create(&prompt).await;
+        agent.swap_session(initial_session.clone()).await;
+        // Append eval_config_snapshot before the first turn so RunRecord
+        // captures the actual model + tool/skill/extension config used.
+        // Same shape as Tauri's append_config_snapshot_if_needed.
+        session_manager
+            .append_config_snapshot_if_needed(&initial_session, &agent, &config.model)
+            .await;
+        event_handler::run_prompt(&agent, &prompt, &mut approval_rx).await;
+        // Persistence is automatic — refresh the index summary, then drop a
+        // structured RunRecord next to the raw event log so external tooling
+        // gets the same turn / llm-call / tool-call view Tauri builds for its
+        // Inspector. Same projection (alva_app_core::session_projection).
+        let event_count = initial_session.count(&EventQuery::default()).await;
+        session_manager.refresh_summary(initial_session.session_id(), event_count, Some(&prompt));
+        session_manager.write_run_record(&initial_session).await;
+        return 0;
+    }
+
+    // 7. Interactive REPL (default when not TUI / not single-shot).
     repl::run_repl(
         &agent,
         &config,

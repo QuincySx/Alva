@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use alva_kernel_abi::agent_session::AgentSession;
+use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
 
 use super::json_file_session::JsonFileAgentSession;
 
@@ -147,6 +147,87 @@ impl JsonFileSessionManager {
                 entry.preview = truncate_preview(p);
             }
             self.save_index(&index);
+        }
+    }
+
+    /// Append an `eval_config_snapshot` system event to the session if it
+    /// doesn't already have one. Mirrors what Tauri's `ensure_agent` does on
+    /// the first send_message — without it, RunRecord.config_snapshot stays
+    /// empty (no system_prompt segments / no tool_definitions), and external
+    /// tools can't see what the agent was actually configured with for the run.
+    pub async fn append_config_snapshot_if_needed(
+        &self,
+        session: &Arc<JsonFileAgentSession>,
+        agent: &alva_app_core::BaseAgent,
+        model_id: &str,
+    ) {
+        let events = session.query(&EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        }).await;
+        let already = events.iter().any(|m| {
+            m.event.event_type == "system"
+                && m.event.data.as_ref()
+                    .and_then(|d| d.get("type"))
+                    .and_then(|v| v.as_str())
+                    == Some("eval_config_snapshot")
+        });
+        if already { return; }
+
+        let tool_definitions = agent.tool_registry().definitions();
+        let tool_names = agent.tool_names();
+        let system_prompt_segments = agent.system_prompt_segments().await;
+        // Lockstep with alva-app-cli::agent_setup::build_agent + alva-app-tauri's
+        // default plugin set. Update both lists when extensions move around.
+        let extension_names = vec![
+            "provider-registry", "tool-lock-registry", "analytics", "approval",
+            "skills", "core", "shell", "interaction", "task", "team",
+            "planning", "utility", "web", "browser",
+            "loop-detection", "dangling-tool-call", "tool-timeout",
+            "compaction", "checkpoint", "permission", "sub-agents",
+            "mcp", "hooks", "subprocess-loader",
+        ];
+        let snapshot = serde_json::json!({
+            "type": "eval_config_snapshot",
+            "system_prompt": system_prompt_segments,
+            "model_id": model_id,
+            "tool_names": tool_names,
+            "tool_definitions": tool_definitions,
+            "skill_names": Vec::<String>::new(),
+            "max_iterations": 20u32,
+            "extension_names": extension_names,
+            "middleware_names": Vec::<String>::new(),
+        });
+        let event = alva_kernel_abi::agent_session::SessionEvent::system(snapshot);
+        let _ = session.append(event).await;
+    }
+
+    /// Build a structured `RunRecord` from the session's full event log and
+    /// persist it next to `<session_id>.json` as `<session_id>.run.json`.
+    /// This is the same projection Tauri builds on demand for its Inspector;
+    /// CLI dumps it to disk so external tools can load the structured view
+    /// without re-implementing the events → record reduction. Errors are
+    /// logged but not propagated — the raw event log is still on disk and
+    /// the run record can be rebuilt later.
+    pub async fn write_run_record(&self, session: &Arc<JsonFileAgentSession>) {
+        let session_id = session.session_id().to_string();
+        let events: Vec<alva_kernel_abi::agent_session::SessionEvent> = session
+            .query(&EventQuery { limit: usize::MAX, ..Default::default() })
+            .await
+            .into_iter()
+            .map(|m| m.event)
+            .collect();
+        let record = alva_app_core::session_projection::build_run_record(&events);
+        let path = self.sessions_dir.join(format!("{}.run.json", session_id));
+        match serde_json::to_string_pretty(&record) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&path, json) {
+                    tracing::warn!(session_id = %session_id, error = %e, "write run record failed");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(session_id = %session_id, error = %e, "serialize run record failed");
+            }
         }
     }
 }

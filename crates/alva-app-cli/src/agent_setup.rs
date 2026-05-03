@@ -34,6 +34,19 @@ impl CheckpointCallback for CliCheckpointCallback {
     }
 }
 
+/// Resolve where the App-bundled skills tree was extracted to. Returns
+/// `None` (with a logged warning) on extraction failure so the agent
+/// continues without bundled skills rather than refusing to start.
+pub(crate) fn bundled_skill_dir() -> Option<std::path::PathBuf> {
+    match crate::bundled_skills::ensure_extracted() {
+        Ok(p) => Some(p),
+        Err(e) => {
+            tracing::warn!(error = %e, "bundled skills extraction failed; continuing without them");
+            None
+        }
+    }
+}
+
 /// Load project context from well-known files (AGENTS.md, CLAUDE.md, .alva/context.md).
 pub(crate) fn load_project_context(workspace: &Path) -> String {
     let mut context = String::new();
@@ -80,16 +93,30 @@ pub(crate) async fn build_agent(
         // None / "openai-chat" / unknown → OpenAI Chat (broadest OpenAI-compat path).
         _ => Arc::new(OpenAIChatProvider::new(config.clone())),
     };
+    let provider_registry = alva_llm_provider::build_provider_registry(config);
     let (approval_ext, approval_rx) =
         alva_app_core::extension::ApprovalExtension::with_channel();
+    // Extension list is kept in lockstep with `alva-app-tauri::agent::ensure_agent`.
+    // Same defaults, same kernel surface, same iteration cap — only storage
+    // (JSON vs SQLite) and UI shell legitimately differ between the two apps.
     let builder = BaseAgentBuilder::new()
         .workspace(workspace)
         .system_prompt(&system_prompt)
+        .max_iterations(20)
+        .extension(Box::new(
+            alva_app_core::extension::ProviderRegistryExtension::new(provider_registry),
+        ))
+        .extension(Box::new(
+            alva_app_core::extension::ToolLockRegistryExtension::new(),
+        ))
+        .extension(Box::new(
+            alva_app_core::extension::AnalyticsExtension::new(),
+        ))
         .extension(Box::new(approval_ext))
-        .extension(Box::new(alva_app_core::extension::SkillsExtension::new(vec![
+        .extension(Box::new(alva_app_core::extension::SkillsExtension::with_bundled(
             paths.project_skills_dir(),
-            paths.global_skills_dir(),
-        ])))
+            bundled_skill_dir(),
+        )))
         .extension(Box::new(alva_app_core::extension::CoreExtension))
         .extension(Box::new(alva_app_core::extension::ShellExtension))
         .extension(Box::new(alva_app_core::extension::InteractionExtension))
@@ -98,12 +125,13 @@ pub(crate) async fn build_agent(
         .extension(Box::new(alva_app_core::extension::PlanningExtension))
         .extension(Box::new(alva_app_core::extension::UtilityExtension))
         .extension(Box::new(alva_app_core::extension::WebExtension))
+        .extension(Box::new(alva_app_core::extension::BrowserExtension))
         .extension(Box::new(alva_app_core::extension::LoopDetectionExtension))
         .extension(Box::new(alva_app_core::extension::DanglingToolCallExtension))
         .extension(Box::new(alva_app_core::extension::ToolTimeoutExtension))
         .extension(Box::new(alva_app_core::extension::CompactionExtension))
         .extension(Box::new(alva_app_core::extension::CheckpointExtension))
-        .extension(Box::new(alva_app_core::extension::PlanModeExtension::new()))
+        .extension(Box::new(alva_app_core::extension::PermissionExtension::new()))
         .extension(Box::new(alva_app_core::extension::SubAgentExtension::new(3)))
         .extension(Box::new(alva_app_core::extension::McpExtension::new(vec![
             paths.global_mcp_config(),

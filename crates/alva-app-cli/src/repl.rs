@@ -88,14 +88,156 @@ pub(crate) async fn run_repl(
         }
     };
 
+    // Append eval_config_snapshot once per session — idempotent, so safe to
+    // call here after every resume/create. Same record shape as Tauri's.
+    session_manager
+        .append_config_snapshot_if_needed(&active_session, agent, &config.model)
+        .await;
+
     output::print_divider();
 
-    loop {
-        output::print_prompt();
+    // Analytics: SessionStart for the active session and a sticky timer
+    // so we can emit SessionEnd with the right duration when the REPL
+    // exits. `emit_session_*` is a no-op if no AnalyticsSink is on the bus.
+    let session_started_at = std::time::Instant::now();
+    emit_session_start(agent, &session_id, workspace);
 
-        let mut line = String::new();
-        match io::stdin().lock().read_line(&mut line) {
-            Ok(0) => break,
+    // reedline-driven input — slash autocomplete pops on keystroke (not
+    // Tab). The completer pulls names from the registry plus REPL-side
+    // hardcoded commands. History persists at ~/.alva/repl-history across
+    // runs so frequent prompts stay reachable.
+    let registry_names: Vec<String> = registry
+        .list()
+        .into_iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
+
+    let history_path = dirs::home_dir().map(|h| h.join(".alva").join("repl-history"));
+    if let Some(p) = &history_path {
+        if let Some(parent) = p.parent() { let _ = std::fs::create_dir_all(parent); }
+    }
+    use reedline::MenuBuilder; // for ColumnarMenu::with_name
+    let history: Box<dyn reedline::History> = match &history_path {
+        Some(p) => Box::new(
+            reedline::FileBackedHistory::with_file(2000, p.clone())
+                .unwrap_or_else(|_| {
+                    reedline::FileBackedHistory::new(2000).expect("in-memory history fallback")
+                }),
+        ),
+        None => Box::new(
+            reedline::FileBackedHistory::new(2000).expect("in-memory history"),
+        ),
+    };
+
+    // Pageable single-column list — 6 entries per page, true paged loading
+    // (completer.partial_complete called per page, not "load 25 then slice").
+    //
+    // To get the partial_complete path, ListMenu's `parsed.remainder` must
+    // be empty. That's only the case when the input it sees is empty — which
+    // is what `only_buffer_difference: true` gives us right when the menu
+    // opens (the buffer state at open-time is the baseline; only the delta
+    // since open is sent to the completer). So we keep the default true.
+    //
+    // The trade-off: the completer now sees the *post-`/` text* as `line`
+    // (diff since open), not the full `/co...` buffer. SlashCompleter is
+    // built to handle that — it filters command names by `line` directly,
+    // no leading `/` required.
+    let menu = Box::new(
+        reedline::ListMenu::default()
+            .with_name("completion_menu")
+            .with_page_size(15),
+    );
+
+    let mut keybindings = reedline::default_emacs_keybindings();
+    // Type `/` → insert it AND open the menu in the same event.
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::Char('/'),
+        reedline::ReedlineEvent::Multiple(vec![
+            reedline::ReedlineEvent::Edit(vec![reedline::EditCommand::InsertChar('/')]),
+            reedline::ReedlineEvent::Menu("completion_menu".to_string()),
+        ]),
+    );
+    // Inside-menu navigation:
+    //   ↑/↓        : row-by-row within the page
+    //   PageUp/Dn  : page-by-page through the candidate list
+    //   →/←        : also page-by-page (mirror PageUp/Dn for laptops without those keys)
+    // Outside the menu these fall back to line/history navigation via UntilFound.
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::Down,
+        reedline::ReedlineEvent::UntilFound(vec![
+            reedline::ReedlineEvent::MenuNext,
+            reedline::ReedlineEvent::Down,
+        ]),
+    );
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::Up,
+        reedline::ReedlineEvent::UntilFound(vec![
+            reedline::ReedlineEvent::MenuPrevious,
+            reedline::ReedlineEvent::Up,
+        ]),
+    );
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::PageDown,
+        reedline::ReedlineEvent::MenuPageNext,
+    );
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::PageUp,
+        reedline::ReedlineEvent::MenuPagePrevious,
+    );
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::Right,
+        reedline::ReedlineEvent::UntilFound(vec![
+            reedline::ReedlineEvent::MenuPageNext,
+            reedline::ReedlineEvent::Right,
+        ]),
+    );
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::Left,
+        reedline::ReedlineEvent::UntilFound(vec![
+            reedline::ReedlineEvent::MenuPagePrevious,
+            reedline::ReedlineEvent::Left,
+        ]),
+    );
+    // Tab still triggers the menu — useful when user already typed past `/`.
+    keybindings.add_binding(
+        reedline::KeyModifiers::NONE,
+        reedline::KeyCode::Tab,
+        reedline::ReedlineEvent::UntilFound(vec![
+            reedline::ReedlineEvent::Menu("completion_menu".to_string()),
+            reedline::ReedlineEvent::MenuNext,
+        ]),
+    );
+
+    let edit_mode = Box::new(reedline::Emacs::new(keybindings));
+    let mut line_editor = reedline::Reedline::create()
+        .with_completer(Box::new(crate::repl_completer::SlashCompleter::new(registry_names)))
+        .with_menu(reedline::ReedlineMenu::EngineCompleter(menu))
+        .with_edit_mode(edit_mode)
+        .with_history(history);
+
+    let prompt = ReplPrompt;
+
+    loop {
+        let line = match line_editor.read_line(&prompt) {
+            Ok(reedline::Signal::Success(line)) => line,
+            // Ctrl+C and Ctrl+D both exit immediately. Matches the user's
+            // expectation that ^C kills the REPL (vs shell-like "clear line").
+            Ok(reedline::Signal::CtrlC) | Ok(reedline::Signal::CtrlD) => break,
+            Err(e) => { output::print_error(&format!("readline error: {e}")); break; }
+        };
+        // Inline-rewrap into the original `match read_line { Ok(_) => { ... } }`
+        // body: the surrounding block uses `let trimmed = line.trim()` then a
+        // `match trimmed { ... }`, all of which still works because `line`
+        // shadows the rustyline-returned String here.
+        match Ok::<usize, std::io::Error>(line.len()) {
+            Ok(0) => continue, // empty line — original code did `continue` after trim
             Ok(_) => {
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
@@ -140,6 +282,21 @@ pub(crate) async fn run_repl(
                         }
                         continue;
                     }
+                    "/auto" => {
+                        let current = agent.permission_mode();
+                        let new_mode = if current == PermissionMode::AcceptShell {
+                            PermissionMode::Ask
+                        } else {
+                            PermissionMode::AcceptShell
+                        };
+                        agent.set_permission_mode(new_mode);
+                        if new_mode == PermissionMode::AcceptShell {
+                            eprintln!("  Auto-shell ON — non-destructive shell commands run without prompting");
+                        } else {
+                            eprintln!("  Auto-shell OFF — shell commands ask for approval");
+                        }
+                        continue;
+                    }
                     "/model" => {
                         let current = agent.model_id().await;
                         eprintln!("  Current model: {}", current);
@@ -148,6 +305,39 @@ pub(crate) async fn run_repl(
                     }
                     "/rewind" => {
                         handle_rewind(checkpoint_mgr);
+                        continue;
+                    }
+                    "/locks" => {
+                        if let Some(reg) = agent
+                            .bus()
+                            .get::<alva_kernel_abi::ToolLockRegistry>()
+                        {
+                            let snap = reg.inspect();
+                            if snap.is_empty() {
+                                eprintln!("  no active locks");
+                            } else {
+                                eprintln!(
+                                    "  {:<32}  {:<5}  {:<24}  {}",
+                                    "key", "mode", "holder", "age"
+                                );
+                                for s in &snap {
+                                    let mode = match s.mode {
+                                        alva_kernel_abi::LockMode::Read => "read",
+                                        alva_kernel_abi::LockMode::Write => "write",
+                                    };
+                                    let holder = s.holder.as_deref().unwrap_or("-");
+                                    eprintln!(
+                                        "  {:<32}  {:<5}  {:<24}  {:.1?}",
+                                        truncate(&s.key, 32),
+                                        mode,
+                                        truncate(holder, 24),
+                                        s.age
+                                    );
+                                }
+                            }
+                        } else {
+                            eprintln!("  ToolLockRegistry not available on bus");
+                        }
                         continue;
                     }
                     "/new" => {
@@ -260,9 +450,12 @@ pub(crate) async fn run_repl(
                                 tokens.input_tokens += in_tok;
                                 tokens.output_tokens += out_tok;
 
-                                // Persistence is automatic; refresh index summary.
+                                // Persistence is automatic; refresh index summary
+                                // and dump the structured RunRecord (same projection
+                                // Tauri builds for Inspector — see write_run_record).
                                 let event_count = active_session.count(&EventQuery::default()).await;
                                 session_manager.refresh_summary(&session_id, event_count, None);
+                                session_manager.write_run_record(&active_session).await;
                             }
                             CommandResult::Compact { summary } => {
                                 eprintln!("  {}", summary);
@@ -276,9 +469,12 @@ pub(crate) async fn run_repl(
                                 tokens.input_tokens += in_tok;
                                 tokens.output_tokens += out_tok;
 
-                                // Persistence is automatic; refresh index summary.
+                                // Persistence is automatic; refresh index summary
+                                // and dump the structured RunRecord (same projection
+                                // Tauri builds for Inspector — see write_run_record).
                                 let event_count = active_session.count(&EventQuery::default()).await;
                                 session_manager.refresh_summary(&session_id, event_count, None);
+                                session_manager.write_run_record(&active_session).await;
                             }
                             CommandResult::Error(e) => {
                                 output::print_error(&e);
@@ -290,14 +486,21 @@ pub(crate) async fn run_repl(
                 }
 
                 // === Regular prompt ===
+                // Idempotent — only writes the snapshot if this session
+                // doesn't have one yet. Covers /new + /fork paths that
+                // swapped in a fresh session since the last prompt.
+                session_manager
+                    .append_config_snapshot_if_needed(&active_session, agent, &config.model)
+                    .await;
                 let (in_tok, out_tok) =
                     event_handler::run_prompt(agent, trimmed, approval_rx).await;
                 tokens.input_tokens += in_tok;
                 tokens.output_tokens += out_tok;
 
-                // Persistence is automatic; refresh index summary.
+                // Persistence is automatic; refresh index summary + structured run record.
                 let event_count = active_session.count(&EventQuery::default()).await;
                 session_manager.refresh_summary(&session_id, event_count, None);
+                session_manager.write_run_record(&active_session).await;
             }
             Err(e) => {
                 output::print_error(&format!("stdin error: {}", e));
@@ -306,12 +509,84 @@ pub(crate) async fn run_repl(
         }
     }
 
-    // Final flush
+    // reedline persists incrementally via FileBackedHistory — no explicit
+    // save needed on exit.
+
+    // Final flush + analytics SessionEnd.
+    emit_session_end(agent, &session_id, session_started_at);
     let _ = active_session.flush().await;
     eprintln!("Session saved: {}", session_id);
 }
 
+// === reedline Prompt — matches the previous ">" cyan look ===
+
+struct ReplPrompt;
+
+impl reedline::Prompt for ReplPrompt {
+    fn render_prompt_left(&self) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Borrowed("")
+    }
+    fn render_prompt_right(&self) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Borrowed("")
+    }
+    fn render_prompt_indicator(
+        &self,
+        _mode: reedline::PromptEditMode,
+    ) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Borrowed("> ")
+    }
+    fn render_prompt_multiline_indicator(&self) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Borrowed("· ")
+    }
+    fn render_prompt_history_search_indicator(
+        &self,
+        history_search: reedline::PromptHistorySearch,
+    ) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Owned(format!("(reverse-i-search '{}'): ", history_search.term))
+    }
+}
+
 // === Extracted handlers for complex commands that need mutable state ===
+
+/// Emit `AnalyticsEvent::SessionStart` if an `AnalyticsSink` is on the bus.
+/// No-op if the analytics extension wasn't installed.
+fn emit_session_start(agent: &BaseAgent, session_id: &str, workspace: &std::path::Path) {
+    if let Some(sink) = agent
+        .bus()
+        .get::<dyn alva_kernel_abi::AnalyticsSink>()
+    {
+        sink.record(alva_kernel_abi::AnalyticsEvent::SessionStart {
+            session_id: session_id.to_string(),
+            workspace: workspace.to_path_buf(),
+            ts: std::time::SystemTime::now(),
+        });
+    }
+}
+
+/// Emit `AnalyticsEvent::SessionEnd`. Duration is wall-clock since
+/// `started_at` (captured at the matching `SessionStart`).
+fn emit_session_end(agent: &BaseAgent, session_id: &str, started_at: std::time::Instant) {
+    if let Some(sink) = agent
+        .bus()
+        .get::<dyn alva_kernel_abi::AnalyticsSink>()
+    {
+        sink.record(alva_kernel_abi::AnalyticsEvent::SessionEnd {
+            session_id: session_id.to_string(),
+            duration_ms: started_at.elapsed().as_millis() as u64,
+            ts: std::time::SystemTime::now(),
+        });
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let mut t: String = s.chars().take(max.saturating_sub(1)).collect();
+        t.push('…');
+        t
+    }
+}
 
 fn handle_rewind(checkpoint_mgr: &checkpoint::CheckpointManager) {
     let checkpoints = checkpoint_mgr.list();
