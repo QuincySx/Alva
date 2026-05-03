@@ -15,8 +15,10 @@ pub mod mcp;
 pub mod hooks;
 pub mod evaluation;
 pub mod agent_spawn;
+pub mod lsp;
 
 // Flat built-in extensions (one plugin per file)
+mod analytics;
 mod approval;
 mod blackboard_comm;
 mod loop_detection;
@@ -24,10 +26,7 @@ mod dangling_tool_call;
 mod tool_timeout;
 mod compaction;
 mod checkpoint;
-mod plan_mode;
-mod analytics;
-mod auth;
-mod lsp;
+mod permission;
 mod pending;
 pub mod provider_registry;
 pub mod spawn_comm_registry;
@@ -39,6 +38,10 @@ pub use mcp::McpExtension;
 pub use hooks::HooksExtension;
 pub use evaluation::EvaluationExtension;
 pub use agent_spawn::SubAgentExtension;
+pub use lsp::{
+    LspDiagnostic, LspDiagnosticsTool, LspExtension, LspManager, LspServerConfig, LspSeverity,
+    StubLspManager,
+};
 
 // Thin Extension wrappers now live in `alva-agent-extension-builtin::wrappers`.
 pub use alva_agent_extension_builtin::wrappers::{
@@ -50,12 +53,10 @@ pub use blackboard_comm::BlackboardCommExtension;
 pub use loop_detection::LoopDetectionExtension;
 pub use dangling_tool_call::DanglingToolCallExtension;
 pub use tool_timeout::ToolTimeoutExtension;
+pub use analytics::{AnalyticsExtension, AnalyticsMiddleware};
 pub use compaction::CompactionExtension;
 pub use checkpoint::CheckpointExtension;
-pub use plan_mode::PlanModeExtension;
-pub use analytics::AnalyticsExtension;
-pub use auth::AuthExtension;
-pub use lsp::LspExtension;
+pub use permission::PermissionExtension;
 pub use pending::{PendingExtension, PendingMessage, PendingService, PendingServiceImpl};
 pub use provider_registry::ProviderRegistryExtension;
 pub use spawn_comm_registry::SpawnCommRegistryExtension;

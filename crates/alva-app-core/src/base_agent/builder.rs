@@ -193,6 +193,18 @@ impl BaseAgentBuilder {
                 ),
             );
         }
+        let has_system_context = self
+            .extensions
+            .iter()
+            .any(|e| e.name() == "system_context");
+        if !has_system_context {
+            self.extensions.insert(
+                0,
+                Box::new(
+                    alva_agent_extension_builtin::wrappers::SystemContextExtension::new(),
+                ),
+            );
+        }
 
         // 5. Compose the inner alva_agent_core::AgentBuilder. The generic
         //    extension lifecycle (tools/activate/configure/finalize),

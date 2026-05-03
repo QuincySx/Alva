@@ -48,11 +48,14 @@ pub use alva_agent_context::scope::scope_impl as scope;
 
 // ── Crate modules ────────────────────────────────────────────────────
 
+pub mod analytics;
 pub mod base_agent;
+pub mod config;
 pub mod extension;
 pub mod outcome;
 pub mod resource;
 pub mod roster;
+pub mod session_projection;
 pub mod session_registry;
 pub mod settings;
 pub mod paths;

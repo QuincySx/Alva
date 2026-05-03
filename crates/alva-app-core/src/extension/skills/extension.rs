@@ -26,15 +26,30 @@ pub struct SkillsExtension {
 impl SkillsExtension {
     /// Create a new SkillsExtension with the given skill directories.
     /// The first directory is used as primary (bundled/mbb/user subdirs).
+    ///
+    /// **Note**: only the first directory in `skill_dirs` is consulted.
+    /// Use [`Self::with_bundled`] when the App-bundled skills tree lives
+    /// elsewhere (e.g. extracted from the binary into a cache dir).
     pub fn new(skill_dirs: Vec<PathBuf>) -> Self {
-        let primary_dir = skill_dirs.first().cloned()
+        let primary = skill_dirs.first().cloned()
             .unwrap_or_else(|| PathBuf::from(".alva/skills"));
+        Self::with_bundled(primary, None)
+    }
 
+    /// Construct from an explicit primary skill dir (containing
+    /// `mbb/`, `user/`, `state.json`) plus an optional override for the
+    /// `bundled/` directory. The override is what makes binary-bundled
+    /// skills work: the App extracts its embedded skill tree to a cache
+    /// dir, then passes that path here so the repo scans it as the
+    /// bundled source instead of looking for a `<primary>/bundled/`
+    /// subdir that the user never created.
+    pub fn with_bundled(primary: PathBuf, bundled_override: Option<PathBuf>) -> Self {
+        let bundled_dir = bundled_override.unwrap_or_else(|| primary.join("bundled"));
         let repo = Arc::new(FsSkillRepository::new(
-            primary_dir.join("bundled"),
-            primary_dir.join("mbb"),
-            primary_dir.join("user"),
-            primary_dir.join("state.json"),
+            bundled_dir,
+            primary.join("mbb"),
+            primary.join("user"),
+            primary.join("state.json"),
         ));
         let store = Arc::new(SkillStore::new(repo.clone() as Arc<dyn SkillRepository>));
         let loader = Arc::new(SkillLoader::new(repo.clone() as Arc<dyn SkillRepository>));

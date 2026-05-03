@@ -55,7 +55,12 @@
 | 网关 | `gateway/` | API 网关（placeholder） |
 | 系统能力 | `system/` | 系统能力抽象（placeholder） |
 | BaseAgent | `base_agent.rs` | 开箱即用 Agent：自动组装工具、安全、压缩、Skill 注入、MCP |
+| Permission Extension | `extension/permission.rs` | PermissionExtension — 必选（外层显式注册）：拥有 PermissionModeService（fan-out 调度器）+ PlanModeMiddleware（Plan 子开关）。其他权限子系统（如 SecurityExtension）通过 bus 各自注册 control trait 接入，零编译期耦合 |
+| Analytics Extension | `extension/analytics.rs`, `analytics.rs` | AnalyticsExtension + AnalyticsMiddleware — 写 `<workspace>/.alva/analytics.jsonl`，事件类型在 `kernel-abi::AnalyticsEvent`（SessionStart/End / ToolCallStart/End / LlmCall）；JsonlSink 含 100MB 滚动 + 7 文件保留。CLI 默认装；Tauri 通过 plugin flag `analytics` 默认 on。`alva context analytics` 子命令读 jsonl 出聚合 |
+| Provider Registry Extension | `extension/provider_registry.rs` | ProviderRegistryExtension — 可选：发布外层提供的 `Arc<ProviderRegistry>` 到 bus，启用 `SpawnInput.model = "kind/<id>"`。CLI/Tauri 通过 `alva_llm_provider::build_provider_registry(config)` 构造，把当前 active ProviderConfig 包装为 dyn Provider |
+| Tool Lock Registry Extension | `extension/tool_lock_registry.rs` | ToolLockRegistryExtension — CLI/Tauri 默认装。ToolLockRegistry 在 kernel-abi，提供 `acquire_with_holder` 跟踪 + `inspect()` 快照 + `acquire_with_timeout` 超时。CLI `/locks` 命令展示当前持锁状态 |
+| Project tooling（bundled skill）| `crates/alva-app-cli/skills/project-tooling/SKILL.md` + `crates/alva-app-cli/src/bundled_skills.rs` | 项目无关：纯 markdown SKILL.md 教 agent 探测 Cargo / package.json / pyproject / go.mod 标记并跑对应 CLI（cargo --message-format=json / tsc / eslint --format=json / biome / ruff / pyright / go vet）。skills 树用 `include_dir!` 编进 alva 二进制，启动期解到 `~/.cache/alva/bundled-skills-v<X>/`，作为 SkillsExtension 的最低优先级搜索路径加入；用户可同名 skill 覆盖。Skill 作为 App 功能的兑现路径，比单独建 Extension 简单得多 |
+| LSP Extension（scaffold, **deprecated**） | `extension/lsp/` | 实验性架构占位。实际诊断由 project-tooling skill 完成（agent 调对应 build CLI）。LspManager trait 留作未来 hover/references 真需要时的 hook，无活跃开发计划 |
 | Spawn Comm Registry | `extension/spawn_comm_registry.rs` | DefaultSpawnCommRegistry + SpawnCommRegistryExtension — 可选：把空 SpawnCommunicationRegistry provide 到 bus，供其它 comm extension（如 Blackboard）填充；不装则 `SpawnInput.comms` 必须为空 |
-| Provider Registry Extension | `extension/provider_registry.rs` | ProviderRegistryExtension — 可选：把用户持有的 `Arc<ProviderRegistry>` provide 到 bus，启用 `SpawnInput.model` 字段；不装则 `model` 必须留空（子 agent 继承父模型） |
 | Blackboard Comm Extension | `extension/blackboard_comm.rs` | BlackboardCommExtension — 可选：从 bus 拿 `SpawnCommunicationRegistry`（需先装 SpawnCommRegistryExtension），把 BlackboardCommunication 注册进去 |
 | 错误 | `error.rs` | EngineError / SkillError 统一错误类型 |

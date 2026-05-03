@@ -1,7 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
+use alva_agent_security::SecurityModeControl;
 use alva_host_native::middleware::PlanModeControl;
-use alva_kernel_abi::bus_cap;
+use alva_kernel_abi::{bus_cap, BusHandle};
 
 /// Controls how the agent handles tool permissions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,6 +11,10 @@ pub enum PermissionMode {
     Ask,
     /// All write tools auto-approved; shell commands still need approval.
     AcceptEdits,
+    /// Shell commands auto-approved when `BashClassifier` deems them safe
+    /// or unknown — only `Destructive` commands are blocked. Trusts the
+    /// sandbox; only enable if a sandbox is in effect.
+    AcceptShell,
     /// No tools execute — agent can only read and analyze.
     Plan,
 }
@@ -20,38 +25,51 @@ impl Default for PermissionMode {
     }
 }
 
-/// Bus Capability: session-wide permission mode (ask / accept-edits / plan).
+impl PermissionMode {
+    /// Map the app-level mode to the underlying security guard mode.
+    pub fn to_security_mode(self) -> alva_agent_security::PermissionMode {
+        use alva_agent_security::PermissionMode as Sec;
+        match self {
+            PermissionMode::Ask => Sec::Interactive,
+            PermissionMode::AcceptEdits => Sec::Interactive,
+            PermissionMode::AcceptShell => Sec::Auto,
+            PermissionMode::Plan => Sec::Plan,
+        }
+    }
+}
+
+/// Bus Capability: session-wide permission mode (ask / accept-edits /
+/// accept-shell / plan).
 ///
-/// **Provider**: `PlanModeExtension::configure`
-/// (`alva-app-core/src/extension/plan_mode.rs`). Exactly one production
-/// producer; the outer app registers this extension to opt in.
+/// **Provider**: `PermissionModeExtension::configure`
+/// (`alva-app-core/src/extension/permission_mode.rs`). Optional — outer
+/// apps register the extension only if they want runtime mode toggling.
 /// **Consumers**: `BaseAgent::permission_mode()` /
-/// `BaseAgent::set_permission_mode()` read and write through the bus;
-/// the CLI / UI talks through those accessors.
-/// **Why bus**: The permission-mode state is set from the outer harness
-/// (CLI flags, UI buttons) but consulted by middleware in an entirely
-/// different crate (`alva-agent-security::PlanModeMiddleware`). Threading
-/// an `Arc` through every layer's constructor would leak the concept
-/// into crates that shouldn't need to know about it.
-///
-/// The service additionally toggles any `PlanModeControl` it was given a
-/// handle to, so mode changes transparently flip plan-mode enforcement.
+/// `BaseAgent::set_permission_mode()`. CLI / UI talks through those.
+/// **Why bus**: keeps the service crate-agnostic. It does not depend
+/// on `PlanModeMiddleware` or `SecurityGuard` at construction time;
+/// instead `set()` queries the bus for whichever subsystem control
+/// handles are present (`dyn PlanModeControl`, `dyn SecurityModeControl`)
+/// and fans the change out to each. Adding a third subsystem in the
+/// future means publishing a new control trait — this service does not
+/// change.
 #[bus_cap]
 pub struct PermissionModeService {
     mode: Mutex<PermissionMode>,
-    plan_ctrl: Option<Arc<dyn PlanModeControl>>,
+    bus: BusHandle,
 }
 
 impl PermissionModeService {
-    pub fn new(initial: PermissionMode, plan_ctrl: Option<Arc<dyn PlanModeControl>>) -> Self {
-        // Make sure plan-mode middleware starts in sync with our initial value.
-        if let Some(ctrl) = plan_ctrl.as_ref() {
-            ctrl.set_enabled(initial == PermissionMode::Plan);
-        }
-        Self {
+    /// Construct the service. The initial mode is propagated to whichever
+    /// subsystem controls are already on the bus; controls registered
+    /// later will be picked up at the next `set()` call.
+    pub fn new(initial: PermissionMode, bus: BusHandle) -> Self {
+        let svc = Self {
             mode: Mutex::new(initial),
-            plan_ctrl,
-        }
+            bus,
+        };
+        svc.fan_out(initial);
+        svc
     }
 
     pub fn get(&self) -> PermissionMode {
@@ -63,8 +81,15 @@ impl PermissionModeService {
             let mut m = self.mode.lock().unwrap_or_else(|e| e.into_inner());
             *m = mode;
         }
-        if let Some(ctrl) = self.plan_ctrl.as_ref() {
+        self.fan_out(mode);
+    }
+
+    fn fan_out(&self, mode: PermissionMode) {
+        if let Some(ctrl) = self.bus.get::<dyn PlanModeControl>() {
             ctrl.set_enabled(mode == PermissionMode::Plan);
+        }
+        if let Some(ctrl) = self.bus.get::<dyn SecurityModeControl>() {
+            ctrl.set_mode(mode.to_security_mode());
         }
     }
 }

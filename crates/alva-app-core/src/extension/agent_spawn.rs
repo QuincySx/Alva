@@ -394,7 +394,11 @@ impl AgentSpawnTool {
         let result = run_child_agent(ChildAgentParams {
             model: child_model,
             tools: child_tools,
-            system_prompt,
+            system_prompt: if system_prompt.is_empty() {
+                Vec::new()
+            } else {
+                vec![system_prompt]
+            },
             task: input.task.clone(),
             max_iterations: child_scope.max_iterations(),
             timeout: child_scope.timeout(),

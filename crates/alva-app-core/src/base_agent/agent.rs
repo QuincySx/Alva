@@ -66,9 +66,10 @@ impl BaseAgent {
 
         tokio::spawn(async move {
             let mut st = inner.state().lock().await;
+            let config = inner.config().await;
             if let Err(e) = run_agent(
                 &mut st,
-                inner.config(),
+                &*config,
                 cancel,
                 messages,
                 event_tx.clone(),
@@ -86,6 +87,43 @@ impl BaseAgent {
     pub fn cancel(&self) {
         let current = self.current_cancel.lock().unwrap_or_else(|e| e.into_inner());
         current.cancel();
+    }
+
+    /// Set the reasoning effort applied to the next turn's LLM calls.
+    /// `None` clears any override — provider-default behavior.
+    ///
+    /// Safe to call between turns; a running turn uses whatever effort
+    /// was set when it started (reads via RwLock read guard).
+    pub async fn set_reasoning_effort(
+        &self,
+        effort: Option<alva_kernel_abi::ReasoningEffort>,
+    ) {
+        self.inner.set_reasoning_effort(effort).await;
+    }
+
+    /// Per-turn override of the provider-specific JSON pass-through
+    /// merged into the LLM request body. `None` / empty map clears.
+    pub async fn set_extra_body(
+        &self,
+        extra: Option<serde_json::Map<String, serde_json::Value>>,
+    ) {
+        self.inner.set_extra_body(extra).await;
+    }
+
+    /// Per-turn override: when `true`, skip all tool injection on the
+    /// next run (the request goes out without a `tools` field, even if
+    /// the agent has tools registered).
+    pub async fn set_disable_tools(&self, disabled: bool) {
+        self.inner.set_disable_tools(disabled).await;
+    }
+
+    /// Snapshot of the layered system-prompt segments currently set on
+    /// the agent's config. Stable→dynamic order. Used by the harness
+    /// to record what was actually assembled (vs the raw user-typed
+    /// prompt) into the session config snapshot for Inspector.
+    pub async fn system_prompt_segments(&self) -> Vec<String> {
+        let cfg = self.inner.config().await;
+        cfg.system_prompt.clone()
     }
 
     /// Get a snapshot of the current message history.
@@ -160,8 +198,9 @@ impl BaseAgent {
     /// Set the permission mode.
     ///
     /// Writes through to the bus-published [`PermissionModeService`], which
-    /// in turn toggles `PlanModeMiddleware` when entering/leaving
-    /// [`PermissionMode::Plan`]. A no-op if no service is registered.
+    /// fans out to whichever control handles are registered on the bus
+    /// (`PlanModeControl`, `SecurityModeControl`). A no-op if no service is
+    /// registered (e.g. `PermissionModeExtension` was not added).
     pub fn set_permission_mode(&self, mode: PermissionMode) {
         if let Some(service) = self.inner.bus().get::<PermissionModeService>() {
             service.set(mode);
