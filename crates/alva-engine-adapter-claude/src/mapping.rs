@@ -104,7 +104,10 @@ impl EventMapper {
                             text_blocks.push(ContentBlock::Text { text });
                         }
                         SdkContentBlock::Thinking { thinking } => {
-                            text_blocks.push(ContentBlock::Reasoning { text: thinking });
+                            text_blocks.push(ContentBlock::Reasoning {
+                                text: thinking,
+                                signature: None,
+                            });
                         }
                         SdkContentBlock::ToolUse { id, name, input } => {
                             self.tool_names.insert(id.clone(), name.clone());

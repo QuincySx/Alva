@@ -277,7 +277,11 @@ impl AgentRuntimeBuilder {
 
         let config = AgentConfig {
             middleware,
-            system_prompt: self.system_prompt,
+            system_prompt: if self.system_prompt.is_empty() {
+                Vec::new()
+            } else {
+                vec![self.system_prompt]
+            },
             max_iterations: self.max_iterations,
             model_config: self.model_config,
             context_window: self.context_window,

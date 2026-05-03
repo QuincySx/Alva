@@ -48,7 +48,7 @@ async fn _wasm_smoke_probe() -> Result<(), AgentError> {
     };
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: String::new(),
+        system_prompt: Vec::new(),
         max_iterations: 1,
         model_config: ModelConfig::default(),
         context_window: 0,

@@ -90,9 +90,10 @@ impl WasmAgent {
             Self::default_sleeper(),
         )));
 
+        let s: String = system_prompt.into();
         let config = AgentConfig {
             middleware,
-            system_prompt: system_prompt.into(),
+            system_prompt: if s.is_empty() { Vec::new() } else { vec![s] },
             max_iterations: 50,
             model_config: ModelConfig::default(),
             context_window: 0,

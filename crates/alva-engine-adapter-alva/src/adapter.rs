@@ -93,10 +93,16 @@ impl EngineRuntime for AlvaAdapter {
             extensions: Extensions::new(),
         };
 
-        // 4. Build AgentConfig.
+        // 4. Build AgentConfig. Single-segment system prompt at this
+        //    layer; cache markers don't apply here yet (only the
+        //    BaseAgent path uses prompt cache).
         let config = AgentConfig {
             middleware: MiddlewareStack::new(),
-            system_prompt,
+            system_prompt: if system_prompt.is_empty() {
+                Vec::new()
+            } else {
+                vec![system_prompt]
+            },
             max_iterations,
             model_config: alva_kernel_abi::ModelConfig::default(),
             context_window: 0,
