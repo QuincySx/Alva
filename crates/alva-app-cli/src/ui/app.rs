@@ -483,6 +483,26 @@ impl TuiApp {
             // multi-line cursor movement inside the editor).
             (KeyModifiers::ALT, KeyCode::Up)   => { self.history_prev(); self.refresh_typeahead(); return KeyAction::None; }
             (KeyModifiers::ALT, KeyCode::Down) => { self.history_next(); self.refresh_typeahead(); return KeyAction::None; }
+            // Conversation focus navigation: Tab / Shift+Tab cycles through
+            // collapsibles + bubbles; Ctrl+Space toggles the focused block.
+            // Tab is otherwise forwarded to the editor (which inserts \t),
+            // so claim it here before ChatInput sees it.
+            (KeyModifiers::NONE, KeyCode::Tab) => {
+                self.conversation.focus_next();
+                return KeyAction::None;
+            }
+            // Most terminals emit Shift+Tab as KeyCode::BackTab with NONE
+            // modifiers; some emit Tab+SHIFT. Handle both.
+            (KeyModifiers::NONE,  KeyCode::BackTab) |
+            (KeyModifiers::SHIFT, KeyCode::Tab)     |
+            (KeyModifiers::SHIFT, KeyCode::BackTab) => {
+                self.conversation.focus_prev();
+                return KeyAction::None;
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char(' ')) => {
+                self.conversation.toggle_focused();
+                return KeyAction::None;
+            }
             (_, KeyCode::Esc) => {
                 // Clear the buffer and dismiss any open menu.
                 self.chat_input.clear();
@@ -521,6 +541,33 @@ impl TuiApp {
             }
             ChatInputAction::None => KeyAction::None,
         }
+    }
+
+    /// Handle a bracketed-paste chunk. If the pasted content (after trim)
+    /// is a single existing path, auto-attach it instead of inserting the
+    /// raw text. Otherwise we don't touch the buffer here; the caller can
+    /// fall back to inserting the text via ChatInput.
+    ///
+    /// Returns `true` when the paste was consumed as an attachment.
+    fn on_paste(&mut self, raw: &str) -> bool {
+        let trimmed = raw.trim();
+        // Strip surrounding quotes — finder/file managers often quote paths.
+        let stripped = trimmed.trim_matches(|c| c == '"' || c == '\'');
+        if stripped.is_empty() || stripped.lines().count() != 1 { return false; }
+
+        let candidate = std::path::PathBuf::from(stripped);
+        let exists = candidate.is_file();
+        // Resolve `~` since pasted paths often start with it.
+        let resolved = if !exists && stripped.starts_with('~') {
+            dirs::home_dir().map(|h| h.join(stripped.trim_start_matches("~/").trim_start_matches('~')))
+        } else {
+            None
+        };
+        let path = if exists { Some(candidate) } else { resolved.filter(|p| p.is_file()) };
+        let Some(path) = path else { return false; };
+
+        self.attachments.push(Attachment::auto(path));
+        true
     }
 
     /// Re-run typeahead filtering against the current ChatInput value.
@@ -898,6 +945,10 @@ fn setup_terminal(viewport: UiViewport) -> io::Result<Terminal<CrosstermBackend<
     let mut stdout = io::stdout();
     // Mouse capture for click/scroll/drag in either mode.
     execute!(stdout, crossterm::event::EnableMouseCapture)?;
+    // Bracketed paste lets us receive Cmd/Ctrl+V as a single Event::Paste
+    // chunk instead of a flood of Char events. Used to auto-attach pasted
+    // file paths into AttachmentStrip instead of inserting raw text.
+    execute!(stdout, crossterm::event::EnableBracketedPaste)?;
     // Alternate screen ONLY for Fullscreen — Inline mode renders within
     // the existing terminal so scrollback above stays visible after exit.
     if matches!(viewport, UiViewport::Fullscreen) {
@@ -921,6 +972,10 @@ fn restore_terminal(
     viewport: UiViewport,
 ) -> io::Result<()> {
     disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        crossterm::event::DisableBracketedPaste,
+    )?;
     execute!(
         terminal.backend_mut(),
         crossterm::event::DisableMouseCapture,
@@ -1060,6 +1115,19 @@ pub async fn run_tui(
                                 .await;
                         }
                         KeyAction::None => {}
+                    }
+                }
+                TerminalEvent::Paste(s) => {
+                    if !app.on_paste(&s) {
+                        // Not a path — forward to the chat input as text.
+                        let action = app.chat_input.handle_event(
+                            crossterm::event::Event::Paste(s),
+                        );
+                        // Refresh typeahead/file picker the same way Changed
+                        // would be handled if a key were typed.
+                        if matches!(action, ChatInputAction::Changed) {
+                            app.refresh_typeahead();
+                        }
                     }
                 }
                 TerminalEvent::Resize(_, _) => {

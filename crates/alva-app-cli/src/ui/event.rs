@@ -15,6 +15,8 @@ pub enum TerminalEvent {
     Mouse(MouseEvent),
     /// The terminal was resized.
     Resize(u16, u16),
+    /// A bracketed-paste arrived as a single chunk (Cmd/Ctrl+V).
+    Paste(String),
     /// A tick fired — used for spinner animation and periodic redraws.
     Tick,
 }
@@ -30,6 +32,7 @@ pub fn poll_event(tick_rate: Duration) -> Option<TerminalEvent> {
             Event::Key(key) => Some(TerminalEvent::Key(key)),
             Event::Mouse(mouse) => Some(TerminalEvent::Mouse(mouse)),
             Event::Resize(w, h) => Some(TerminalEvent::Resize(w, h)),
+            Event::Paste(s) => Some(TerminalEvent::Paste(s)),
             _ => None,
         }
     } else {

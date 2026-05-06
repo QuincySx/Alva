@@ -108,7 +108,21 @@ impl ChatInput {
         frame.render_widget(&ta, area);
     }
 
+    /// Insert raw text at the cursor (used by the parent's paste fallback).
+    /// Multi-line pastes are passed through verbatim.
+    pub fn insert_text(&mut self, text: &str) {
+        for (i, line) in text.split('\n').enumerate() {
+            if i > 0 { self.inner.insert_newline(); }
+            self.inner.insert_str(line);
+        }
+    }
+
     pub fn handle_event(&mut self, event: Event) -> ChatInputAction {
+        // Forward bracketed-paste chunks to the textarea (multi-line aware).
+        if let Event::Paste(s) = &event {
+            self.insert_text(s);
+            return ChatInputAction::Changed;
+        }
         let Event::Key(KeyEvent { code, modifiers, .. }) = event.clone() else {
             return ChatInputAction::None;
         };
