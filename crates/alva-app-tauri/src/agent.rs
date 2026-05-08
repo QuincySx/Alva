@@ -19,11 +19,11 @@ use tokio::sync::RwLock;
 use alva_app_core::extension::{
     ApprovalExtension, BrowserExtension, CheckpointExtension, CompactionExtension, CoreExtension,
     DanglingToolCallExtension, HooksExtension, InteractionExtension, LoopDetectionExtension,
-    McpExtension, PlanModeExtension, PlanningExtension, ShellExtension, SkillsExtension,
+    McpExtension, PermissionExtension, PlanningExtension, ShellExtension, SkillsExtension,
     SubAgentExtension, TaskExtension, TeamExtension, ToolTimeoutExtension, UtilityExtension,
     WebExtension,
 };
-use alva_app_core::{AlvaPaths, BaseAgent};
+use alva_app_core::{AlvaPaths, BaseAgent, PermissionDecision};
 use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
 use alva_kernel_abi::base::content::ContentBlock;
 use alva_kernel_abi::base::message::{AgentMessage, Message, MessageRole};
@@ -48,10 +48,20 @@ struct SessionEntry {
     config_snapshot_appended: bool,
 }
 
+/// Snapshot of a pending approval request — what the UI needs to render
+/// the inline "Allow / Reject" prompt and what `respond_approval` needs
+/// to dispatch the resolution back to the agent.
+#[derive(Clone, Debug, Serialize)]
+pub struct PendingApproval {
+    pub request_id: String,
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+}
+
 pub struct AppState {
     pub tokio: Handle,
     pub agent: RwLock<Option<Arc<BaseAgent>>>,
-    /// Cache key: "provider:model:base_url|plugin_hash"
+    /// Cache key: "provider:model:base_url|ws=...|plugin_hash"
     current_agent_key: RwLock<Option<String>>,
     session_manager: Arc<SqliteEvalSessionManager>,
     /// In-memory cache of loaded session entries. The db is the source of
@@ -60,6 +70,14 @@ pub struct AppState {
     /// outlive the turn).
     sessions: RwLock<Vec<SessionEntry>>,
     active_session_id: RwLock<Option<String>>,
+    /// Pending approval requests waiting for the user's decision. Keyed by
+    /// `request_id`. Populated by the drain task spawned alongside each
+    /// `ensure_agent` build; cleared by `respond_approval` once the user
+    /// answers (or by the drain task on agent rebuild — receiver dies and
+    /// pending entries are stale, so we clear them when a new agent
+    /// starts to avoid ghost prompts).
+    pub pending_approvals:
+        Arc<RwLock<std::collections::HashMap<String, PendingApproval>>>,
 }
 
 impl AppState {
@@ -77,6 +95,7 @@ impl AppState {
             session_manager: Arc::new(manager),
             sessions: RwLock::new(Vec::new()),
             active_session_id: RwLock::new(None),
+            pending_approvals: Arc::new(RwLock::new(std::collections::HashMap::new())),
         })
     }
 }
@@ -241,8 +260,39 @@ pub struct SendMessageRequest {
     #[allow(dead_code)]
     #[serde(default)]
     pub enable_sub_agent: Option<bool>,
+    /// Per-turn reasoning effort override. Accepts lowercase strings:
+    /// `"none"` / `"minimal"` / `"low"` / `"medium"` / `"high"` / `"xhigh"`.
+    /// Applies to all LLM calls within this turn (Anthropic requires a
+    /// single mode per turn — don't rely on mid-iteration changes).
+    /// Unknown values are ignored (no error, no override).
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    /// Resolved per-model output cap (override → API caps → fallback)
+    /// computed by the frontend. Backend uses
+    /// `unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS)` so a missing field still
+    /// produces a sane value — same default pi-mono ships with.
+    #[serde(default)]
+    pub max_output_tokens: Option<u32>,
+    /// Free-form vendor-specific options merged into the LLM request
+    /// body verbatim. Comes from the per-model override panel
+    /// (Settings → 模型 → ✎ → Provider Options JSON). Last-write-wins
+    /// against whatever the provider's `build_body` set.
+    #[serde(default)]
+    pub provider_options: Option<serde_json::Map<String, serde_json::Value>>,
+    /// `true` when the user (or runtime probe) marked the active model
+    /// as not supporting function calling. The backend skips all tool
+    /// injection — request goes out without a `tools` field. Resolved
+    /// on the frontend from `modelCaps.supports_tools` (false →
+    /// disable_tools=true).
+    #[serde(default)]
+    pub disable_tools: Option<bool>,
     pub text: String,
 }
+
+/// Fallback `max_tokens` when the request didn't carry a resolved value.
+/// Mirrors pi-mono's `Math.min(model.maxTokens, 32_000)` floor for
+/// providers that don't expose `max_completion_tokens` on `/v1/models`.
+const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 32_000;
 
 #[derive(Serialize, Clone)]
 pub struct ProviderInfo {
@@ -565,15 +615,30 @@ pub async fn list_remote_models(
     crate::provider_api::fetch_remote_models(&request.provider, &request.api_key, &base).await
 }
 
+#[derive(Deserialize)]
+pub struct ConnectionTestRequest {
+    pub provider: String,
+    pub api_key: String,
+    pub model: String,
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
 #[tauri::command]
 pub async fn test_provider_connection(
-    request: RemoteModelsRequest,
+    request: ConnectionTestRequest,
 ) -> crate::provider_api::ConnectionTestResult {
     let base = request
         .base_url
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| default_base_url_for(&request.provider));
-    crate::provider_api::test_connection(&request.provider, &request.api_key, &base).await
+    crate::provider_api::test_connection(
+        &request.provider,
+        &request.api_key,
+        &base,
+        &request.model,
+    )
+    .await
 }
 
 /// Open (or focus) the standalone Inspector window. The frontend is
@@ -644,7 +709,7 @@ pub async fn get_session_record(
         .map(|m| m.event)
         .collect();
 
-    let record = crate::session_projection::build_run_record(&events);
+    let record = alva_app_core::session_projection::build_run_record(&events);
     serde_json::to_value(&record).map_err(|e| format!("serialize record: {e}"))
 }
 
@@ -726,7 +791,34 @@ pub async fn switch_session(
     }
 
     let agent_msgs = session.messages().await;
-    Ok(messages_to_chat_entries(agent_msgs))
+    let run_errors = collect_run_errors(&session).await;
+    Ok(messages_to_chat_entries(agent_msgs, run_errors))
+}
+
+/// Walk the session's `run_end` events and pull out every non-null
+/// `error` field. Returned in seq order; one entry per failed run. The
+/// chat projection appends these as `ChatEntry::Error` so a session
+/// that hit an `LLM error: invalid tool arguments ...` mid-stream still
+/// shows the failure permanently in history (otherwise the AgentEnd
+/// red bubble race-loses to switchSession's projection refresh).
+async fn collect_run_errors(session: &Arc<SqliteEvalSession>) -> Vec<String> {
+    let matches = session
+        .query(&EventQuery {
+            event_type: Some("run_end".into()),
+            limit: usize::MAX,
+            ..Default::default()
+        })
+        .await;
+    matches
+        .into_iter()
+        .filter_map(|m| {
+            m.event
+                .data
+                .as_ref()
+                .and_then(|d| d.get("error"))
+                .and_then(|e| e.as_str().map(|s| s.to_string()))
+        })
+        .collect()
 }
 
 /// Update a session's workspace path. Only allowed **before** the first
@@ -813,6 +905,21 @@ pub async fn open_session_workspace(
 
 #[tauri::command]
 pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    // Snapshot the workspace path BEFORE we drop the session row — once
+    // it's gone the workspace_id ↔ path linkage is unrecoverable from
+    // the cache. Only the on-disk folder cleanup branches on this; the
+    // `workspaces` table row is left alone (multiple sessions may share
+    // a user-picked path via link_workspace's de-dup, and the row is
+    // cheap to keep).
+    let workspace_path: Option<String> = {
+        let manager = state.session_manager.clone();
+        let target = id.clone();
+        tokio::task::spawn_blocking(move || manager.get_session_workspace_path(&target))
+            .await
+            .ok()
+            .flatten()
+    };
+
     // Delete from the db first — source of truth.
     let manager = state.session_manager.clone();
     let target = id.clone();
@@ -822,6 +929,56 @@ pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<()
     {
         let mut sessions = state.sessions.write().await;
         sessions.retain(|e| e.info.id != id);
+    }
+
+    // Workspace folder cleanup, two-rule policy:
+    //  1) User-picked path  ⇒ NEVER delete (it's the user's real project
+    //     directory; could be a git repo, could be Documents/, blowing it
+    //     away would be a data-loss bug).
+    //  2) Auto-allocated default `~/.alva/workspaces/{session_id}` ⇒
+    //     safe to remove — Alva owns it, only this session lived there.
+    //
+    // We compare the stored path against `default_workspace_for(id)`
+    // exactly (same `~/.alva/workspaces/{session_id}` shape) to decide.
+    if let Some(ws) = workspace_path {
+        let default = default_workspace_for(&id).ok();
+        let ws_path = std::path::PathBuf::from(&ws);
+        let is_default = default
+            .as_ref()
+            .map(|d| paths_match(d, &ws_path))
+            .unwrap_or(false);
+        if is_default {
+            let to_remove = ws_path.clone();
+            let removed = tokio::task::spawn_blocking(move || {
+                std::fs::remove_dir_all(&to_remove)
+            })
+            .await;
+            match removed {
+                Ok(Ok(())) => tracing::info!(
+                    session_id = %id,
+                    path = %ws_path.display(),
+                    "deleted auto-allocated workspace folder"
+                ),
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                    tracing::debug!(
+                        path = %ws_path.display(),
+                        "workspace folder already gone, nothing to do"
+                    );
+                }
+                Ok(Err(e)) => tracing::warn!(
+                    error = %e,
+                    path = %ws_path.display(),
+                    "failed to remove auto-allocated workspace folder"
+                ),
+                Err(e) => tracing::warn!(error = %e, "remove_dir_all join failed"),
+            }
+        } else {
+            tracing::info!(
+                session_id = %id,
+                path = %ws_path.display(),
+                "preserving user-picked workspace folder on session delete"
+            );
+        }
     }
 
     let mut active = state.active_session_id.write().await;
@@ -839,6 +996,19 @@ pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<()
     Ok(())
 }
 
+/// Path equality robust to symlinks / `..` segments / trailing slashes.
+/// Falls back to literal compare when canonicalize fails (e.g. the path
+/// no longer exists, which is fine — `default_workspace_for` always
+/// `create_dir_all`s, but the user-picked side may have been moved).
+fn paths_match(a: &std::path::Path, b: &std::path::Path) -> bool {
+    let ca = std::fs::canonicalize(a).ok();
+    let cb = std::fs::canonicalize(b).ok();
+    match (ca, cb) {
+        (Some(ca), Some(cb)) => ca == cb,
+        _ => a == b,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Commands — run control
 // ---------------------------------------------------------------------------
@@ -849,6 +1019,70 @@ pub async fn cancel_run(state: State<'_, AppState>) -> Result<(), String> {
         agent.cancel();
     }
     Ok(())
+}
+
+/// User decision string from the inline approval bubble. Mirrors
+/// `PermissionDecision`'s 4 variants.
+fn parse_decision(s: &str) -> Result<PermissionDecision, String> {
+    Ok(match s {
+        "allow_once" => PermissionDecision::AllowOnce,
+        "allow_always" => PermissionDecision::AllowAlways,
+        "reject_once" => PermissionDecision::RejectOnce,
+        "reject_always" => PermissionDecision::RejectAlways,
+        other => return Err(format!("unknown approval decision: {other}")),
+    })
+}
+
+/// Resolve a pending approval. Called by the inline "Allow / Reject"
+/// bubble in the chat. Removes the entry from `pending_approvals`,
+/// dispatches the decision into `BaseAgent::resolve_permission`, and
+/// emits `approval_resolved` so any other webview tab can drop the
+/// prompt from view.
+#[tauri::command]
+pub async fn respond_approval(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request_id: String,
+    decision: String,
+) -> Result<(), String> {
+    let parsed = parse_decision(&decision)?;
+    let pa = state.pending_approvals.write().await.remove(&request_id);
+    let Some(pa) = pa else {
+        // Already answered (double-click, multi-window race) or cleared
+        // by an agent rebuild. Idempotent no-op.
+        tracing::debug!(
+            request_id = %request_id,
+            "respond_approval: no pending entry (already resolved or stale)"
+        );
+        return Ok(());
+    };
+
+    let agent = state
+        .agent
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| "no agent built yet".to_string())?;
+    agent
+        .resolve_permission(&pa.request_id, &pa.tool_name, parsed)
+        .await;
+
+    let _ = app.emit(
+        "approval_resolved",
+        serde_json::json!({ "request_id": pa.request_id }),
+    );
+    Ok(())
+}
+
+/// Snapshot of the currently-pending approvals. The frontend calls this
+/// on mount / on session switch to rehydrate any prompts that arrived
+/// before its event listener was attached.
+#[tauri::command]
+pub async fn list_pending_approvals(
+    state: State<'_, AppState>,
+) -> Result<Vec<PendingApproval>, String> {
+    let pending = state.pending_approvals.read().await;
+    Ok(pending.values().cloned().collect())
 }
 
 #[tauri::command]
@@ -868,7 +1102,36 @@ pub async fn send_message(
             .ok_or_else(|| format!("session vanished: {session_id}"))?
     };
 
-    let agent = ensure_agent(&state, &request).await?;
+    // SQLite is the source of truth for workspace — UI state can lag (the
+    // user picked a folder, the listSessions refetch hasn't landed yet).
+    // Always overwrite `request.workspace` from the DB so the agent runs
+    // against the path actually linked to this session. Also pin the
+    // resolved session id onto the request so `ensure_agent` /
+    // `resolve_workspace` can compute a per-session fallback path
+    // (`~/.alva/workspaces/{session_id}`) instead of a shared one.
+    let mut request = request;
+    request.session_id = Some(session_id.clone());
+    {
+        let manager = state.session_manager.clone();
+        let sid = session_id.clone();
+        let workspace_from_db = tokio::task::spawn_blocking(move || {
+            manager.get_session_workspace_path(&sid)
+        })
+        .await
+        .ok()
+        .flatten();
+        tracing::info!(
+            session_id = %session_id,
+            req_workspace = ?request.workspace,
+            db_workspace = ?workspace_from_db,
+            "send_message: resolving workspace"
+        );
+        if let Some(ws) = workspace_from_db {
+            request.workspace = Some(ws);
+        }
+    }
+
+    let agent = ensure_agent(&app, &state, &request).await?;
     agent
         .swap_session(session_arc.clone() as Arc<dyn AgentSession>)
         .await;
@@ -894,6 +1157,21 @@ pub async fn send_message(
     // on this session so the projection layer (Inspector) has the run's
     // configuration to display.
     append_config_snapshot_if_needed(&state, &session_id, &session_arc, &agent, &request).await;
+
+    // Apply per-turn reasoning effort override. Set BEFORE prompt_text so
+    // it takes effect on the first LLM call of this turn. None / unknown
+    // string clears the override (provider default behavior).
+    let effort = request
+        .reasoning_effort
+        .as_deref()
+        .and_then(alva_kernel_abi::ReasoningEffort::parse);
+    agent.set_reasoning_effort(effort).await;
+    agent
+        .set_extra_body(request.provider_options.clone())
+        .await;
+    agent
+        .set_disable_tools(request.disable_tools.unwrap_or(false))
+        .await;
 
     let mut rx = agent.prompt_text(&request.text);
     let app_handle = app.clone();
@@ -986,10 +1264,10 @@ async fn append_config_snapshot_if_needed(
 
     let tool_definitions = agent.tool_registry().definitions();
     let tool_names = agent.tool_names();
-    let system_prompt = request
-        .system_prompt
-        .clone()
-        .unwrap_or_else(|| "You are Alva, a helpful coding assistant.".to_string());
+    // The layered, actually-sent system prompt (base + ext contributions
+    // + Environment block) — NOT the user-typed string. Inspector uses
+    // this to show the real cache boundaries.
+    let system_prompt_segments = agent.system_prompt_segments().await;
     let extension_names = vec![
         "core",
         "shell",
@@ -1002,7 +1280,7 @@ async fn append_config_snapshot_if_needed(
 
     let snapshot = serde_json::json!({
         "type": "eval_config_snapshot",
-        "system_prompt": system_prompt,
+        "system_prompt": system_prompt_segments,
         "model_id": request.model.clone(),
         "tool_names": tool_names,
         "tool_definitions": tool_definitions,
@@ -1046,6 +1324,7 @@ async fn update_title_if_default(state: &State<'_, AppState>, id: &str, first_te
 }
 
 async fn ensure_agent(
+    app: &AppHandle,
     state: &State<'_, AppState>,
     req: &SendMessageRequest,
 ) -> Result<Arc<BaseAgent>, String> {
@@ -1061,10 +1340,12 @@ async fn ensure_agent(
     };
 
     let agent_key = format!(
-        "{}:{}:{}|{}",
+        "{}:{}:{}|ws={}|mt={}|{}",
         req.provider,
         req.model,
         req.base_url.as_deref().unwrap_or(""),
+        req.workspace.as_deref().unwrap_or(""),
+        req.max_output_tokens.unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
         plugin_config_hash(&plugin_config),
     );
     let should_rebuild = state
@@ -1081,8 +1362,18 @@ async fn ensure_agent(
         }
     }
 
-    let model = build_model(req)?;
-    let workspace = resolve_workspace(req.workspace.as_deref())?;
+    let (model, provider_config) = build_model(req)?;
+    let provider_registry = alva_llm_provider::build_provider_registry(&provider_config);
+    // ensure_agent always runs after `send_message` has resolved the
+    // session, so `req.session_id` is populated. Be defensive anyway —
+    // an empty string would only happen if a future caller skipped that
+    // step, in which case the per-session fallback can't be computed
+    // and we want a loud error rather than silently sharing scratch.
+    let session_id = req
+        .session_id
+        .as_deref()
+        .ok_or_else(|| "ensure_agent: req.session_id missing".to_string())?;
+    let workspace = resolve_workspace(req.workspace.as_deref(), session_id)?;
     let system_prompt = req
         .system_prompt
         .clone()
@@ -1099,25 +1390,52 @@ async fn ensure_agent(
         .system_prompt(&system_prompt)
         .max_iterations(20);
 
+    // ProviderRegistry — enables sub-agent spawn with `model: "kind/<id>"`.
+    // Always-on; the registry only exposes the active provider's auth, so
+    // sub-agents can pick a different model from the same provider.
+    builder = builder.extension(Box::new(
+        alva_app_core::extension::ProviderRegistryExtension::new(provider_registry),
+    ));
+
+    // ToolLockRegistry — serializes concurrent tool calls on shared
+    // resource keys (e.g. two sub-agents editing the same file). Always-on:
+    // running without it allows lost writes, which is a correctness bug
+    // not an optimization.
+    builder = builder.extension(Box::new(
+        alva_app_core::extension::ToolLockRegistryExtension::new(),
+    ));
+
+    // Analytics — JSONL telemetry sink (.alva/analytics.jsonl) +
+    // tool-call latency middleware. Default-on, opt-out via plugin config
+    // ("analytics" feature flag) for users who want a leaner footprint.
+    if on("analytics", true) {
+        builder = builder
+            .extension(Box::new(alva_app_core::extension::AnalyticsExtension::new()));
+    }
+
     // Core 7 tools — always-on (CoreExtension + ShellExtension)
     builder = builder
         .extension(Box::new(CoreExtension))
         .extension(Box::new(ShellExtension));
 
-    // Conditionally registered tool extensions
-    if on("interaction", false) {
+    // Conditionally registered tool extensions. Defaults are kept in lockstep
+    // with `alva-app-cli::agent_setup::build_agent` — both apps share the same
+    // agent kernel and capability set; only the UI shell + session storage
+    // differ. If you're tempted to flip a default here without doing the same
+    // on the CLI side, don't — that's how the two drifted last time.
+    if on("interaction", true) {
         builder = builder.extension(Box::new(InteractionExtension));
     }
-    if on("task", false) {
+    if on("task", true) {
         builder = builder.extension(Box::new(TaskExtension));
     }
-    if on("team", false) {
+    if on("team", true) {
         builder = builder.extension(Box::new(TeamExtension));
     }
-    if on("planning", false) {
+    if on("planning", true) {
         builder = builder.extension(Box::new(PlanningExtension));
     }
-    if on("utility", false) {
+    if on("utility", true) {
         builder = builder.extension(Box::new(UtilityExtension));
     }
     if on("web", true) {
@@ -1128,15 +1446,31 @@ async fn ensure_agent(
     }
 
     // System extensions
-    if on("approval", true) {
-        let (approval_ext, _approval_rx) = ApprovalExtension::with_channel();
+    //
+    // Approval channel: SecurityMiddleware sends ApprovalRequest into the
+    // tx half (held by the bus-published ApprovalNotifier); the rx half
+    // must be drained by *us* — otherwise tx.send() returns Disconnected
+    // and every confirmation-required tool call fails with
+    // "approval handler ... disconnected before the request could be
+    // delivered". We capture the rx, hand it to a drain task spawned
+    // after build, and that task forwards every request to the frontend
+    // as an `approval_request` event for inline approval rendering.
+    let approval_rx = if on("approval", true) {
+        let (approval_ext, rx) = ApprovalExtension::with_channel();
         builder = builder.extension(Box::new(approval_ext));
-    }
+        Some(rx)
+    } else {
+        None
+    };
     if on("skills", true) {
-        builder = builder.extension(Box::new(SkillsExtension::new(vec![
+        let bundled = crate::bundled_skills::ensure_extracted().ok();
+        if bundled.is_none() {
+            tracing::warn!("bundled skills extraction failed; continuing without them");
+        }
+        builder = builder.extension(Box::new(SkillsExtension::with_bundled(
             paths.project_skills_dir(),
-            paths.global_skills_dir(),
-        ])));
+            bundled,
+        )));
     }
     if on("mcp", true) {
         builder = builder.extension(Box::new(McpExtension::new(vec![
@@ -1169,8 +1503,21 @@ async fn ensure_agent(
     if on("checkpoint", true) {
         builder = builder.extension(Box::new(CheckpointExtension));
     }
-    if on("plan-mode", false) {
-        builder = builder.extension(Box::new(PlanModeExtension::new()));
+    if on("permission", true) {
+        builder = builder.extension(Box::new(PermissionExtension::new()));
+    }
+
+    // Third-party subprocess plugins (JS / Python / anything via AEP).
+    // Same convention CLI uses: project dir shadows global on name conflicts.
+    // Matches alva-app-cli::agent_setup; kept on by default so the two apps
+    // expose the same plugin surface to users.
+    if on("subprocess-loader", true) {
+        builder = builder.extension(Box::new(
+            alva_app_extension_loader::loader::SubprocessLoaderExtension::new(vec![
+                paths.project_extensions_dir(),
+                paths.global_extensions_dir(),
+            ]),
+        ));
     }
 
     let agent = builder
@@ -1181,52 +1528,171 @@ async fn ensure_agent(
     let agent = Arc::new(agent);
     *state.agent.write().await = Some(agent.clone());
     *state.current_agent_key.write().await = Some(agent_key);
+
+    // Rebuild ⇒ stale pending approvals can never be answered (their
+    // request_id lived on the previous SecurityGuard). Clear them so the
+    // frontend doesn't show ghost prompts; we also push an
+    // `approvals_cleared` event so it can drop them from view.
+    {
+        let mut pending = state.pending_approvals.write().await;
+        if !pending.is_empty() {
+            pending.clear();
+            let _ = app.emit("approvals_cleared", ());
+        }
+    }
+
+    // Spawn the approval-drain task. Lives until rx is closed, which
+    // happens when the next `ensure_agent` build drops the previous
+    // ApprovalNotifier (its tx). The previous task therefore terminates
+    // naturally — no manual handle juggling needed.
+    if let Some(mut rx) = approval_rx {
+        let pending_handle = state.pending_approvals.clone();
+        let app_handle = app.clone();
+        tokio::spawn(async move {
+            while let Some(req) = rx.recv().await {
+                let pa = PendingApproval {
+                    request_id: req.request_id.clone(),
+                    tool_name: req.tool_name.clone(),
+                    arguments: req.arguments.clone(),
+                };
+                pending_handle
+                    .write()
+                    .await
+                    .insert(pa.request_id.clone(), pa.clone());
+                if let Err(e) = app_handle.emit("approval_request", &pa) {
+                    tracing::warn!(
+                        error = %e,
+                        request_id = %pa.request_id,
+                        "failed to emit approval_request to frontend"
+                    );
+                }
+            }
+            tracing::debug!("approval drain task exiting (rx closed)");
+        });
+    }
+
     Ok(agent)
 }
 
-fn build_model(req: &SendMessageRequest) -> Result<Arc<dyn LanguageModel>, String> {
+/// Build the model and the ProviderConfig used to construct it. The
+/// config is needed downstream to populate `ProviderRegistry` so
+/// sub-agents can spawn under a different `model_id` of the same kind.
+fn build_model(
+    req: &SendMessageRequest,
+) -> Result<(Arc<dyn LanguageModel>, ProviderConfig), String> {
+    // Pick the right env var to consult based on the requested provider —
+    // before we'd `or_else` chain through every provider's env, which meant
+    // a stray OPENAI_API_KEY in the shell would get sent to Anthropic and
+    // fail with auth errors. Now the env lookup matches `req.provider`.
+    let provider_env_key = match req.provider.as_str() {
+        "anthropic" => "ANTHROPIC_API_KEY",
+        "openai-responses" | "openai-chat" => "OPENAI_API_KEY",
+        "gemini" => "GEMINI_API_KEY",
+        _ => "OPENAI_API_KEY",
+    };
+
+    // Fall back to ~/.alva/config.json if both UI and env are empty. Same
+    // shared config alva-app-cli reads from + writes to via `alva settings`.
+    let file_provider = alva_app_core::config::load()
+        .and_then(|cfg| cfg.providers.get(&req.provider).cloned());
+
     let api_key = req
         .api_key
         .clone()
-        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
-        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-        .or_else(|| std::env::var("GEMINI_API_KEY").ok())
-        .or_else(|| std::env::var("GOOGLE_API_KEY").ok())
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var(provider_env_key).ok().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            // Gemini accepts GOOGLE_API_KEY as an alias.
+            if req.provider == "gemini" {
+                std::env::var("GOOGLE_API_KEY").ok().filter(|s| !s.is_empty())
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            file_provider
+                .as_ref()
+                .map(|e| e.api_key.clone())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_default();
 
     if api_key.is_empty() {
-        return Err(
-            "missing api_key (set it in the UI or via ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)"
-                .into(),
-        );
+        return Err(format!(
+            "missing api_key for provider '{}'. Set in UI Settings, via {} env var, \
+             or add to ~/.alva/config.json under providers.{}.api_key",
+            req.provider, provider_env_key, req.provider
+        ));
     }
 
-    let base_url = req.base_url.clone().unwrap_or_else(|| match req.provider.as_str() {
-        "anthropic" => "https://api.anthropic.com".into(),
-        "openai-responses" => "https://api.openai.com".into(),
-        "gemini" => "https://generativelanguage.googleapis.com".into(),
-        _ => "https://api.openai.com/v1".into(),
-    });
+    let base_url = req
+        .base_url
+        .clone()
+        .or_else(|| file_provider.as_ref().and_then(|e| e.base_url.clone()))
+        .unwrap_or_else(|| match req.provider.as_str() {
+            "anthropic" => "https://api.anthropic.com".into(),
+            "openai-responses" => "https://api.openai.com".into(),
+            "gemini" => "https://generativelanguage.googleapis.com".into(),
+            _ => "https://api.openai.com/v1".into(),
+        });
 
+    // Model resolution: UI → file → error.
+    let model_id = if !req.model.is_empty() {
+        req.model.clone()
+    } else if let Some(m) = file_provider
+        .as_ref()
+        .and_then(|e| e.model.clone())
+        .filter(|s| !s.is_empty())
+    {
+        m
+    } else {
+        return Err(format!(
+            "missing model for provider '{}'. Set in UI Settings or add to \
+             ~/.alva/config.json under providers.{}.model",
+            req.provider, req.provider
+        ));
+    };
+
+    let max_tokens = req
+        .max_output_tokens
+        .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS);
+    tracing::debug!(
+        provider = %req.provider,
+        model = %model_id,
+        max_tokens,
+        from_request = req.max_output_tokens.is_some(),
+        "build_model: max_tokens resolved"
+    );
     let config = ProviderConfig {
         api_key,
-        model: req.model.clone(),
+        model: model_id,
         base_url,
-        max_tokens: 8192,
+        max_tokens,
         custom_headers: Default::default(),
         kind: Some(req.provider.clone()),
     };
 
     let model: Arc<dyn LanguageModel> = match req.provider.as_str() {
-        "anthropic" => Arc::new(AnthropicProvider::new(config)),
-        "openai-responses" => Arc::new(OpenAIResponsesProvider::new(config)),
-        "gemini" => Arc::new(GeminiProvider::new(config)),
-        _ => Arc::new(OpenAIChatProvider::new(config)),
+        "anthropic" => Arc::new(AnthropicProvider::new(config.clone())),
+        "openai-responses" => Arc::new(OpenAIResponsesProvider::new(config.clone())),
+        "gemini" => Arc::new(GeminiProvider::new(config.clone())),
+        _ => Arc::new(OpenAIChatProvider::new(config.clone())),
     };
-    Ok(model)
+    Ok((model, config))
 }
 
-fn resolve_workspace(requested: Option<&str>) -> Result<std::path::PathBuf, String> {
+/// Resolve the workspace path for a session run.
+///
+/// Strategy A (per-session isolation):
+/// - If the request supplied a path, use it.
+/// - Otherwise fall back to `default_workspace_for(session_id)` — same
+///   `~/.alva/workspaces/{session_id}` directory `create_session` allocated.
+///   No global shared scratch dir; every session has its own root so file
+///   ops, security guard authorizations, and cleanup all stay isolated.
+fn resolve_workspace(
+    requested: Option<&str>,
+    session_id: &str,
+) -> Result<std::path::PathBuf, String> {
     if let Some(ws) = requested {
         let p = std::path::PathBuf::from(ws);
         if !p.is_dir() {
@@ -1234,10 +1700,7 @@ fn resolve_workspace(requested: Option<&str>) -> Result<std::path::PathBuf, Stri
         }
         return Ok(p);
     }
-    let home = workspace_home()?;
-    let default = home.join(".alva").join("workspace");
-    std::fs::create_dir_all(&default).map_err(|e| format!("create workspace dir: {e}"))?;
-    Ok(default)
+    default_workspace_for(session_id)
 }
 
 fn workspace_home() -> Result<std::path::PathBuf, String> {
@@ -1270,7 +1733,10 @@ fn now_ms() -> u64 {
 /// and patch `result` + `is_error` when we later see the matching
 /// `ToolResult` block. That preserves 1:1 ordering *and* co-locates the
 /// result with its call in the output list.
-fn messages_to_chat_entries(msgs: Vec<AgentMessage>) -> Vec<ChatEntry> {
+fn messages_to_chat_entries(
+    msgs: Vec<AgentMessage>,
+    run_errors: Vec<String>,
+) -> Vec<ChatEntry> {
     let mut entries: Vec<ChatEntry> = Vec::new();
     let mut tool_call_indices: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
@@ -1293,7 +1759,7 @@ fn messages_to_chat_entries(msgs: Vec<AgentMessage>) -> Vec<ChatEntry> {
                         entries.push(ChatEntry::System { text })
                     }
                 },
-                ContentBlock::Reasoning { text } if !text.is_empty() => {
+                ContentBlock::Reasoning { text, .. } if !text.is_empty() => {
                     entries.push(ChatEntry::Thinking { text });
                 }
                 ContentBlock::ToolUse { id, name, input } => {
@@ -1332,6 +1798,17 @@ fn messages_to_chat_entries(msgs: Vec<AgentMessage>) -> Vec<ChatEntry> {
                 _ => {}
             }
         }
+    }
+
+    // Run-end errors appended at the tail. Imperfect interleave (if the
+    // user retried multiple times, errors stack at the bottom) but
+    // ensures failures don't get silently dropped by the AgentEnd-vs-
+    // switchSession race in Home.tsx. Each error is prefixed so the
+    // user sees the structural cause at a glance.
+    for err in run_errors {
+        entries.push(ChatEntry::Error {
+            text: format!("agent error: {err}"),
+        });
     }
 
     entries

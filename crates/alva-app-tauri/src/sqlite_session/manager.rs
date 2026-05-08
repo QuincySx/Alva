@@ -63,6 +63,24 @@ impl SqliteEvalSessionManager {
             .map_err(|e| format!("failed to open DB at {}: {}", db_path.display(), e))?;
         init_schema(&conn)
             .map_err(|e| format!("failed to init DB schema: {}", e))?;
+        // Startup cleanup: drop ghost sessions (rows in `sessions` with no
+        // corresponding events). These accumulate from failed first-turn
+        // runs — auth errors, 404s, network blips — where the session row
+        // was created but no event was ever persisted. Harmless but shows
+        // up in the UI as "empty" entries. One-shot at open is fine; doesn't
+        // race with live writes.
+        let deleted = conn
+            .execute(
+                "DELETE FROM sessions
+                 WHERE NOT EXISTS (
+                   SELECT 1 FROM events e WHERE e.session_id = sessions.session_id
+                 )",
+                [],
+            )
+            .unwrap_or(0);
+        if deleted > 0 {
+            tracing::info!(count = deleted, "cleaned up ghost sessions with no events");
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             db_path,
@@ -268,11 +286,17 @@ impl SqliteEvalSessionManager {
 
     pub fn list_sessions(&self) -> Vec<SessionSummary> {
         let conn = self.conn.lock().unwrap();
+        // Filter out "ghost" sessions — rows in `sessions` that have no events
+        // at all. These happen when we create_session() on app start / resume
+        // but the first LLM call errors out (auth, 404, network) before any
+        // event is persisted. Without this filter, the UI shows them in the
+        // list and clicking shows empty history — confusing.
         let mut stmt = match conn.prepare(
-            "SELECT session_id, model_id, workspace_id, preview, created_at,
-                    turns, total_tokens, duration_ms
-             FROM sessions
-             ORDER BY created_at DESC",
+            "SELECT s.session_id, s.model_id, s.workspace_id, s.preview,
+                    s.created_at, s.turns, s.total_tokens, s.duration_ms
+             FROM sessions s
+             WHERE EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.session_id)
+             ORDER BY s.created_at DESC",
         ) {
             Ok(s) => s,
             Err(e) => {

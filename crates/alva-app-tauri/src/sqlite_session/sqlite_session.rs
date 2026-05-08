@@ -226,10 +226,12 @@ impl SqliteEvalSession {
         .map_err(|e| SessionError::Other(format!("spawn_blocking join error: {}", e)))?
         .map_err(|e| SessionError::Other(format!("SQLite error: {}", e)))?;
 
-        // Replay events into the inner session so the message cache is rebuilt.
-        for event in events {
-            self.inner.append(event).await;
-        }
+        // Replay events via `restore_events` so both the event log AND
+        // the messages projection are rebuilt. Plain `append()` only
+        // touches the log — the messages cache stays empty, which the
+        // UI reads as "history wiped". See
+        // InMemoryAgentSession::restore_events doc for the contract.
+        self.inner.restore_events(events).await;
 
         if let Some(snap) = snapshot {
             self.inner.save_snapshot(&snap).await;

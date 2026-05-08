@@ -1,14 +1,20 @@
-// INPUT:  reqwest, serde
-// OUTPUT: fetch_remote_models / test_connection helpers exposing
-//         /v1/models-style endpoints across supported providers.
-// POS:    Used by the Settings UI to let the user (a) verify that an
-//         api_key / base_url combo actually authenticates, and (b) discover
-//         which models the configured endpoint advertises. Keeps API keys
-//         in Rust — the webview never makes a direct HTTPS call.
+// INPUT:  reqwest, serde, std::time, alva_kernel_abi::{LanguageModel, Message, ModelConfig}, alva_llm_provider::*
+// OUTPUT: RemoteModelInfo + fetch_remote_models for the models listing UI;
+//         ConnectionTestResult + test_connection for the "Test connection" button — real inference ping, not /v1/models count.
+// POS:    Used by the Settings UI to let the user (a) browse what models the configured endpoint advertises and (b) verify
+//         that their api_key + model combo actually works end-to-end (auth + routing + model availability) with a minimal prompt.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+use alva_kernel_abi::base::message::Message;
+use alva_kernel_abi::model::{LanguageModel, ModelConfig};
+use alva_kernel_abi::ContentBlock;
+use alva_llm_provider::{
+    AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
+};
 
 #[derive(Serialize, Clone)]
 pub struct RemoteModelInfo {
@@ -26,6 +32,14 @@ pub struct ModelCapabilities {
     pub supports_tools: Option<bool>,
     pub is_reasoning: Option<bool>,
     pub context_window: Option<u32>,
+    /// Per-model output token cap (separate from `context_window` — input
+    /// space is much larger than what the model will emit in one
+    /// response). Pulled from OpenRouter's `top_provider.max_completion_tokens`
+    /// when available; other providers don't expose it on their list
+    /// endpoints, so it stays `None` and the user can override in
+    /// Settings. The actual `max_tokens` we send falls back to a
+    /// pi-mono-style `32_000` default.
+    pub max_output_tokens: Option<u32>,
 }
 
 /// Extract capabilities from an OpenRouter `/api/v1/models` entry. Every
@@ -48,20 +62,43 @@ fn extract_openrouter_capabilities(entry: &RawModelEntry) -> ModelCapabilities {
         .as_ref()
         .map(|params| params.iter().any(|p| p == "reasoning"));
 
+    let max_output_tokens = entry
+        .top_provider
+        .as_ref()
+        .and_then(|tp| tp.max_completion_tokens);
+
     ModelCapabilities {
         supports_tools,
         is_reasoning,
         context_window,
+        max_output_tokens,
     }
 }
 
-#[derive(Serialize)]
+/// Result of a real inference-ping connection test (not a /v1/models count).
+///
+/// A connection test isn't useful if it only proves the /models endpoint is
+/// reachable — users need to know whether their **specific model** actually
+/// works end-to-end (auth right? model available on this key? request body
+/// well-formed for this backend?). So the test sends a tiny user message
+/// through the configured provider + model and reports what comes back.
+#[derive(Serialize, Clone)]
 pub struct ConnectionTestResult {
     pub ok: bool,
     pub latency_ms: u64,
-    pub status: Option<u16>,
+    /// Error / status message. On success: a short confirmation. On failure:
+    /// the provider error text (HTTP status + body, parse error, etc.).
     pub message: Option<String>,
-    pub model_count: usize,
+    /// The model id that was tested — echoed back so the UI can confirm
+    /// "we really pinged this one".
+    pub model: Option<String>,
+    /// First ~200 chars of the assistant's text reply. Lets the user see a
+    /// live response rather than just "OK".
+    pub sample_response: Option<String>,
+    /// Input token count from the response usage, if the provider populated it.
+    pub input_tokens: Option<u32>,
+    /// Output token count.
+    pub output_tokens: Option<u32>,
 }
 
 /// Minimal shape that covers OpenAI / Anthropic / OpenRouter /v1/models
@@ -86,6 +123,17 @@ struct RawModelEntry {
     context_length: Option<u32>,
     #[serde(default)]
     supported_parameters: Option<Vec<String>>,
+    #[serde(default)]
+    top_provider: Option<RawTopProvider>,
+}
+
+/// OpenRouter's nested `top_provider` block that carries the real
+/// per-model output-token cap. Fields default to None — providers that
+/// don't expose it leave the block out entirely.
+#[derive(Deserialize)]
+struct RawTopProvider {
+    #[serde(default)]
+    max_completion_tokens: Option<u32>,
 }
 
 fn is_openrouter(base_url: &str) -> bool {
@@ -105,20 +153,31 @@ fn resolve_models_url(provider: &str, base_url: &str) -> String {
         return format!("{b}/api/v1/models");
     }
 
-    match provider {
-        "openai" => {
-            if b.ends_with("/v1") || b.contains("/v1/") {
-                format!("{b}/models")
-            } else {
-                format!("{b}/v1/models")
-            }
+    // Helper: return "{b}/models" if `b` already ends with /v1, else "{b}/v1/models".
+    // Users frequently configure `base_url` either way (`api.anthropic.com` or
+    // `api.anthropic.com/v1`) and we shouldn't double up the /v1 segment.
+    let v1_models = |b: &str| -> String {
+        if b.ends_with("/v1") {
+            format!("{b}/models")
+        } else {
+            format!("{b}/v1/models")
         }
+    };
+
+    match provider {
+        "openai" | "openai-responses" | "anthropic" => v1_models(b),
         // Gemini API: /v1beta/models, response shape is {models: [{name, displayName, ...}]}
         // rather than OpenAI's {data: [...]}. We hit the endpoint but `fetch_remote_models`
         // will return empty because the RawResponse shape doesn't match — the UI still
         // works (user can type model name manually).
-        "gemini" => format!("{b}/v1beta/models"),
-        _ => format!("{b}/v1/models"),
+        "gemini" => {
+            if b.ends_with("/v1beta") {
+                format!("{b}/models")
+            } else {
+                format!("{b}/v1beta/models")
+            }
+        }
+        _ => v1_models(b),
     }
 }
 
@@ -151,16 +210,28 @@ pub async fn fetch_remote_models(
     if api_key.is_empty() {
         return Err("api_key is empty".into());
     }
+    let url = resolve_models_url(provider, base_url);
     let resp = build_request(provider, api_key, base_url)
         .send()
         .await
-        .map_err(|e| format!("request failed: {e}"))?;
+        .map_err(|e| format!("request failed: {e} (url: {url})"))?;
 
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         let snippet: String = body.chars().take(500).collect();
-        return Err(format!("HTTP {status}: {snippet}"));
+        // 404 on the models endpoint is usually a proxy that only
+        // implements the inference path — not an auth or config problem.
+        // Tell the user how to proceed rather than just surfacing the
+        // raw HTTP response.
+        if status.as_u16() == 404 {
+            return Err(format!(
+                "HTTP 404 @ {url} — this endpoint isn't implemented by your \
+                 provider/proxy. Inference probably still works; type the \
+                 model name manually in the Model field."
+            ));
+        }
+        return Err(format!("HTTP {status} @ {url} — {snippet}"));
     }
 
     let parsed: RawResponse = resp
@@ -193,52 +264,116 @@ pub async fn fetch_remote_models(
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// test_connection — real inference ping
+// ---------------------------------------------------------------------------
+
+/// Send a minimal prompt ("Reply with OK.") to the configured provider +
+/// model and report what came back. This proves:
+/// - API key is valid for this endpoint
+/// - The model id is actually served here
+/// - The request body shape is accepted (so agent runs won't fail at turn 1)
+/// - Rough end-to-end latency
+///
+/// Much more useful than pinging /v1/models because that endpoint can list
+/// stale model names that actually 404 on inference, or succeed with an API
+/// key that lacks access to the specific model the user configured.
 pub async fn test_connection(
     provider: &str,
     api_key: &str,
     base_url: &str,
+    model: &str,
 ) -> ConnectionTestResult {
     let start = Instant::now();
     if api_key.is_empty() {
         return ConnectionTestResult {
             ok: false,
             latency_ms: 0,
-            status: None,
             message: Some("api_key is empty".into()),
-            model_count: 0,
+            model: None,
+            sample_response: None,
+            input_tokens: None,
+            output_tokens: None,
+        };
+    }
+    if model.is_empty() {
+        return ConnectionTestResult {
+            ok: false,
+            latency_ms: 0,
+            message: Some("model is empty — pick a model before testing".into()),
+            model: None,
+            sample_response: None,
+            input_tokens: None,
+            output_tokens: None,
         };
     }
 
-    match build_request(provider, api_key, base_url).send().await {
+    let config = ProviderConfig {
+        api_key: api_key.to_string(),
+        model: model.to_string(),
+        base_url: base_url.to_string(),
+        max_tokens: 64,
+        custom_headers: Default::default(),
+        kind: Some(provider.to_string()),
+    };
+
+    let lm: Arc<dyn LanguageModel> = match provider {
+        "anthropic" => Arc::new(AnthropicProvider::new(config)),
+        "openai-responses" => Arc::new(OpenAIResponsesProvider::new(config)),
+        "gemini" => Arc::new(GeminiProvider::new(config)),
+        _ => Arc::new(OpenAIChatProvider::new(config)),
+    };
+
+    let messages = vec![Message::user(
+        "Respond with the single word OK and nothing else.",
+    )];
+    let model_config = ModelConfig {
+        temperature: Some(0.0),
+        max_tokens: Some(32),
+        stop_sequences: vec![],
+        top_p: None,
+        reasoning_effort: None,
+        extra_body: None,
+        disable_tools: false,
+    };
+
+    match lm.complete(&messages, &[], &model_config).await {
         Ok(resp) => {
             let latency_ms = start.elapsed().as_millis() as u64;
-            let status = resp.status();
-            let ok = status.is_success();
-            let mut model_count = 0;
-            let mut message = None;
-            if ok {
-                if let Ok(parsed) = resp.json::<RawResponse>().await {
-                    model_count = parsed.data.len();
-                }
-            } else {
-                let body = resp.text().await.unwrap_or_default();
-                let snippet: String = body.chars().take(300).collect();
-                message = Some(format!("HTTP {status}: {snippet}"));
-            }
+            let text = resp
+                .message
+                .content
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let sample: String = text.chars().take(200).collect();
+            let ok = !sample.is_empty();
             ConnectionTestResult {
                 ok,
                 latency_ms,
-                status: Some(status.as_u16()),
-                message,
-                model_count,
+                message: if ok {
+                    Some(format!("OK ({latency_ms} ms)"))
+                } else {
+                    Some("provider returned empty response".into())
+                },
+                model: Some(model.to_string()),
+                sample_response: if sample.is_empty() { None } else { Some(sample) },
+                input_tokens: resp.message.usage.as_ref().map(|u| u.input_tokens),
+                output_tokens: resp.message.usage.as_ref().map(|u| u.output_tokens),
             }
         }
         Err(e) => ConnectionTestResult {
             ok: false,
             latency_ms: start.elapsed().as_millis() as u64,
-            status: None,
             message: Some(e.to_string()),
-            model_count: 0,
+            model: Some(model.to_string()),
+            sample_response: None,
+            input_tokens: None,
+            output_tokens: None,
         },
     }
 }

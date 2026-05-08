@@ -9,9 +9,9 @@
 )]
 
 mod agent;
+mod bundled_skills;
 mod mcp;
 mod provider_api;
-mod session_projection;
 mod skills;
 mod sqlite_session;
 
@@ -55,6 +55,8 @@ fn main() {
             agent::open_inspector_window,
             agent::set_session_workspace,
             agent::open_session_workspace,
+            agent::respond_approval,
+            agent::list_pending_approvals,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");

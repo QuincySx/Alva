@@ -26,6 +26,8 @@ alva-protocol-skill = { path = "../alva-protocol-skill" }
 alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin" }
 alva-app-extension-browser = { path = "../alva-app-extension-browser" }
 alva-app-extension-memory = { path = "../alva-app-extension-memory" }
+alva-app-extension-loader = { path = "../alva-app-extension-loader" }
+include_dir = "0.7"
 
 # Cross-platform dirs (home/config resolution for skills + mcp config)
 dirs = "5"
