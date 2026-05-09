@@ -6,6 +6,9 @@ interface ModalProps {
   children: ReactNode;
   /** Optional max width class — defaults to a large settings-style modal. */
   widthClass?: string;
+  /** Optional height class. Defaults to the original 580px settings-style
+   * pane. Set e.g. `"h-auto max-h-[80vh]"` for an auto-sized prompt. */
+  heightClass?: string;
 }
 
 /**
@@ -17,6 +20,7 @@ export function Modal({
   onClose,
   children,
   widthClass = "w-[880px] max-w-[calc(100vw-64px)]",
+  heightClass = "h-[580px] max-h-[calc(100vh-64px)]",
 }: ModalProps) {
   useEffect(() => {
     if (!open) return;
@@ -36,7 +40,7 @@ export function Modal({
         onClick={onClose}
       />
       <div
-        className={`relative ${widthClass} h-[580px] max-h-[calc(100vh-64px)] rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl overflow-hidden flex flex-col`}
+        className={`relative ${widthClass} ${heightClass} rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl overflow-hidden flex flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

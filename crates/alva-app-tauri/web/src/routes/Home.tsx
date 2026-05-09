@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import {
   type AgentEventEnvelope,
+  type ApprovalDecision,
   type ChatEntry,
+  type PendingApproval,
   type SessionInfo,
   createSession,
+  listenApprovalRequest,
+  listenApprovalResolved,
+  listenApprovalsCleared,
+  listPendingApprovals,
   listSessionEvents,
   listSessions,
   openInspectorWindow,
   openSessionWorkspace,
+  respondApproval,
   sendMessage,
   setSessionWorkspace,
   subscribeAgentEvents,
@@ -33,9 +40,17 @@ import { Inspector } from "../components/Inspector";
 import { ModelPicker } from "../components/ModelPicker";
 import { SkillPicker } from "../components/SkillPicker";
 import { ToolPicker } from "../components/ToolPicker";
-import { useActiveProviderConfig, useAppStore } from "../store/appStore";
+import {
+  useActiveProviderConfig,
+  useAppStore,
+  useResolvedModelCapabilities,
+} from "../store/appStore";
 
-export default function Home() {
+interface HomeProps {
+  onNavigate: (id: import("../components/NavSidebar").RouteId) => void;
+}
+
+export default function Home({ onNavigate }: HomeProps) {
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const setActiveSessionId = useAppStore((s) => s.setActiveSessionId);
   const bumpSessionList = useAppStore((s) => s.bumpSessionList);
@@ -60,11 +75,35 @@ export default function Home() {
   const [inspectorNonce, setInspectorNonce] = useState(0);
   const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  /** Per-turn reasoning effort override. `null` = use provider default.
+   * Picked by the user via the dropdown next to the input; applies to the
+   * next message sent. Kept in Home state (not appStore) because it's
+   * a per-turn knob, not a persisted session/provider setting. */
+  const [reasoningEffort, setReasoningEffort] =
+    useState<import("../agent-bridge").ReasoningEffort | null>(null);
 
   const providerConfig = useActiveProviderConfig();
   const openSettings = useAppStore((s) => s.openSettings);
   const toolsAutoMode = useAppStore((s) => s.toolsAutoMode);
   const storeSelectedTools = useAppStore((s) => s.selectedTools);
+  const pendingApprovals = useAppStore((s) => s.pendingApprovals);
+  const upsertPendingApproval = useAppStore((s) => s.upsertPendingApproval);
+  const removePendingApproval = useAppStore((s) => s.removePendingApproval);
+  const setPendingApprovals = useAppStore((s) => s.setPendingApprovals);
+  const clearPendingApprovals = useAppStore((s) => s.clearPendingApprovals);
+  const modelCaps = useResolvedModelCapabilities(
+    providerConfig?.model,
+    providerConfig?.id,
+  );
+
+  // Hide + forget the reasoning effort pick when the active model can't
+  // use it. Without this, the value would quietly persist and leak into
+  // the next send once the user switches back to a reasoning model.
+  useEffect(() => {
+    if (!modelCaps.is_reasoning && reasoningEffort !== null) {
+      setReasoningEffort(null);
+    }
+  }, [modelCaps.is_reasoning, reasoningEffort]);
 
   // Raw events come straight from the Rust session store via
   // `list_session_events`, so Raw Events tab survives: Home unmount,
@@ -131,6 +170,63 @@ export default function Home() {
       cancelled = true;
     };
   }, [sessionListNonce, activeSessionId]);
+
+  // Approval flow — listen for backend events + rehydrate any pending
+  // requests that arrived before this listener attached. Mounted once
+  // (no deps) and torn down on Home unmount: the unlisten functions
+  // returned by Tauri's event API run during cleanup.
+  useEffect(() => {
+    let cancelled = false;
+    const offFns: Array<() => void> = [];
+    (async () => {
+      try {
+        const initial = await listPendingApprovals();
+        if (!cancelled) setPendingApprovals(initial);
+      } catch (e) {
+        console.error("listPendingApprovals failed", e);
+      }
+      const offReq = await listenApprovalRequest((req) =>
+        upsertPendingApproval(req),
+      );
+      const offResolved = await listenApprovalResolved((id) =>
+        removePendingApproval(id),
+      );
+      const offCleared = await listenApprovalsCleared(() =>
+        clearPendingApprovals(),
+      );
+      if (cancelled) {
+        offReq();
+        offResolved();
+        offCleared();
+        return;
+      }
+      offFns.push(offReq, offResolved, offCleared);
+    })();
+    return () => {
+      cancelled = true;
+      offFns.forEach((f) => f());
+    };
+  }, [
+    setPendingApprovals,
+    upsertPendingApproval,
+    removePendingApproval,
+    clearPendingApprovals,
+  ]);
+
+  // Decision dispatcher used by the inline approval bubble. Optimistic
+  // remove on click — the backend will also fire `approval_resolved`,
+  // but we don't want a click-to-disappear lag.
+  const onApprovalDecision = async (
+    requestId: string,
+    decision: ApprovalDecision,
+  ) => {
+    removePendingApproval(requestId);
+    try {
+      await respondApproval(requestId, decision);
+    } catch (e) {
+      console.error("respondApproval failed", e);
+    }
+  };
 
   // Hydrate Raw Events from the Rust session store. Triggered on session
   // switch (new id) AND on AgentEnd (inspectorNonce bumped). Since these
@@ -338,9 +434,32 @@ export default function Home() {
         model: providerConfig.model,
         api_key: providerConfig.api_key || null,
         base_url: providerConfig.base_url || null,
+        // The session's workspace was set via the folder picker and stored
+        // in SQLite, but the Rust send path reads it off the request, not
+        // the session record. Without this line the agent silently falls
+        // back to ~/.alva/workspace, and the security guard then rejects
+        // every path the user actually cares about.
+        workspace: activeSessionInfo?.workspace_path ?? null,
         session_id: activeSessionId,
         skill_names: selectedSkills.length > 0 ? selectedSkills : null,
         tool_names: toolsAutoMode ? null : storeSelectedTools,
+        reasoning_effort: reasoningEffort,
+        // null = backend fallback (32_000). Override (Settings) wins
+        // over API-reported cap; this resolved value is computed in
+        // `useResolvedModelCapabilities`.
+        max_output_tokens: modelCaps.max_output_tokens,
+        // Vendor-specific JSON pass-through — merged verbatim into the
+        // LLM request body on the Rust side. Pulled directly from the
+        // per-model override panel; null = no extras.
+        provider_options:
+          modelCaps.provider_options &&
+          Object.keys(modelCaps.provider_options).length > 0
+            ? modelCaps.provider_options
+            : null,
+        // Tool gating: if the user's resolved supports_tools flips to
+        // false (override OR API said model doesn't support function
+        // calling), tell the backend to skip tool injection entirely.
+        disable_tools: modelCaps.supports_tools === false,
         text,
       });
     } catch (err) {
@@ -417,9 +536,9 @@ export default function Home() {
 
           <div className="grid grid-cols-2 gap-3">
             <ShortcutCard icon={<Settings2 size={16} />} label="模型设置" onClick={openSettings} />
-            <ShortcutCard icon={<Puzzle size={16} />} label="插件管理" onClick={() => {/* TODO: navigate to skills */}} />
-            <ShortcutCard icon={<Plug size={16} />} label="MCP 服务" onClick={() => {/* TODO: navigate to mcp */}} />
-            <ShortcutCard icon={<Sparkles size={16} />} label="技能" onClick={() => {/* TODO: navigate to skills tab */}} />
+            <ShortcutCard icon={<Puzzle size={16} />} label="插件管理" onClick={() => onNavigate("skills")} />
+            <ShortcutCard icon={<Plug size={16} />} label="MCP 服务" onClick={() => onNavigate("mcp")} />
+            <ShortcutCard icon={<Sparkles size={16} />} label="技能" onClick={() => onNavigate("skills")} />
           </div>
         </div>
       </div>
@@ -470,7 +589,16 @@ export default function Home() {
               </div>
             </div>
           ) : (
-            messages.map((m, i) => <ChatEntryView key={i} entry={m} />)
+            <>
+              {messages.map((m, i) => <ChatEntryView key={i} entry={m} />)}
+              {pendingApprovals.map((req) => (
+                <ApprovalBubble
+                  key={req.request_id}
+                  request={req}
+                  onDecide={onApprovalDecision}
+                />
+              ))}
+            </>
           )}
         </main>
 
@@ -643,6 +771,13 @@ export default function Home() {
                 </span>
               ))}
               <span className="flex-1" />
+              {modelCaps.is_reasoning && (
+                <ReasoningEffortPicker
+                  value={reasoningEffort}
+                  onChange={setReasoningEffort}
+                  disabled={running}
+                />
+              )}
               <button
                 type="submit"
                 disabled={running || !input.trim() || !activeSessionId}
@@ -659,8 +794,131 @@ export default function Home() {
 }
 
 // ---------------------------------------------------------------------------
+// ReasoningEffortPicker
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-turn reasoning effort dropdown. Null = "use provider default" (no
+ * override sent in the request). Other values map 1:1 to the Rust
+ * ReasoningEffort enum.
+ *
+ * We intentionally expose only the five commonly-supported levels
+ * (none/low/medium/high + default). `minimal` (gpt-5 original only) and
+ * `xhigh` (codex-max only) are niche — we let the adapter clamp to the
+ * nearest supported value when a user picks something the model doesn't
+ * accept, which is simpler than per-model UI gating.
+ *
+ * Applies per-turn: change takes effect on the NEXT submitted message,
+ * not retroactively. Provider-side, Anthropic requires a single mode
+ * per turn — which matches exactly how this dropdown behaves (one pick,
+ * applies to one send).
+ */
+function ReasoningEffortPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: import("../agent-bridge").ReasoningEffort | null;
+  onChange: (
+    v: import("../agent-bridge").ReasoningEffort | null,
+  ) => void;
+  disabled?: boolean;
+}) {
+  const label = value === null ? "默认" : value;
+  return (
+    <label
+      className="inline-flex items-center gap-1.5 text-xs text-neutral-400"
+      title="推理强度——下一条消息会按这个级别调用 LLM。Anthropic 一个 turn 必须用同一级别，所以一次发送内不变"
+    >
+      <span className="text-neutral-500">推理</span>
+      <select
+        value={value ?? ""}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "") {
+            onChange(null);
+          } else {
+            onChange(
+              v as import("../agent-bridge").ReasoningEffort,
+            );
+          }
+        }}
+        className="bg-neutral-800/70 border border-neutral-700 rounded px-1.5 py-1 text-xs outline-none hover:border-neutral-600 disabled:opacity-40"
+      >
+        <option value="">默认</option>
+        <option value="none">关</option>
+        <option value="low">低</option>
+        <option value="medium">中</option>
+        <option value="high">高</option>
+      </select>
+      {value !== null && value !== label && null}
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Chat entry renderers
 // ---------------------------------------------------------------------------
+
+/** Inline approval bubble — yellow-tinted card with the tool name, the
+ * arguments preview, and 4 decision buttons. Lives in the message stream
+ * so the user sees it in context. The 4 buttons map directly to
+ * `PermissionDecision` on the Rust side. */
+function ApprovalBubble({
+  request,
+  onDecide,
+}: {
+  request: PendingApproval;
+  onDecide: (id: string, decision: ApprovalDecision) => void | Promise<void>;
+}) {
+  const argsPreview = (() => {
+    try {
+      return JSON.stringify(request.arguments, null, 2);
+    } catch {
+      return String(request.arguments);
+    }
+  })();
+  return (
+    <div className="rounded-lg px-4 py-3 bg-amber-950/30 border border-amber-700/50">
+      <div className="text-[10px] uppercase tracking-wider text-amber-300 mb-1">
+        需要授权
+      </div>
+      <div className="text-sm mb-2">
+        Agent 想调用 <span className="font-mono">{request.tool_name}</span>
+      </div>
+      <pre className="text-xs bg-neutral-900/60 rounded p-2 mb-3 max-h-40 overflow-auto whitespace-pre-wrap break-all">
+        {argsPreview}
+      </pre>
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="px-3 py-1.5 text-sm rounded bg-emerald-700/70 hover:bg-emerald-600/70"
+          onClick={() => onDecide(request.request_id, "allow_once")}
+        >
+          允许一次
+        </button>
+        <button
+          className="px-3 py-1.5 text-sm rounded bg-emerald-800/40 hover:bg-emerald-700/50"
+          onClick={() => onDecide(request.request_id, "allow_always")}
+        >
+          总是允许
+        </button>
+        <button
+          className="px-3 py-1.5 text-sm rounded bg-neutral-700/60 hover:bg-neutral-600/60"
+          onClick={() => onDecide(request.request_id, "reject_once")}
+        >
+          拒绝
+        </button>
+        <button
+          className="px-3 py-1.5 text-sm rounded bg-red-900/60 hover:bg-red-800/60"
+          onClick={() => onDecide(request.request_id, "reject_always")}
+        >
+          总是拒绝
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function ChatEntryView({ entry }: { entry: ChatEntry }) {
   switch (entry.type) {

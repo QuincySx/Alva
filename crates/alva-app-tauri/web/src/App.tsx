@@ -8,10 +8,10 @@ import Placeholder from "./routes/Placeholder";
 import Skills from "./routes/Skills";
 import { useAppStore } from "./store/appStore";
 
-function renderRoute(id: RouteId) {
+function renderRoute(id: RouteId, onNavigate: (next: RouteId) => void) {
   switch (id) {
     case "home":
-      return <Home />;
+      return <Home onNavigate={onNavigate} />;
     case "search":
       return (
         <Placeholder
@@ -49,8 +49,12 @@ export default function App() {
   const toggleNavCollapsed = useAppStore((s) => s.toggleNavCollapsed);
 
   // Cmd/Ctrl+B — macOS standard for sidebar toggle (VS Code / Mail both use it).
+  // Suppressed while a modal is open so the modal owns the keyboard — otherwise
+  // ⌘B on muscle memory while Settings is up silently collapses the sidebar
+  // behind the overlay.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (settingsOpen) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
         e.preventDefault();
         toggleNavCollapsed();
@@ -58,7 +62,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleNavCollapsed]);
+  }, [toggleNavCollapsed, settingsOpen]);
 
   return (
     <div className="relative h-screen w-screen bg-neutral-950 text-neutral-100 overflow-hidden">
@@ -78,7 +82,7 @@ export default function App() {
             collapsed={navCollapsed}
           />
         }
-        right={<div className="h-full w-full">{renderRoute(route)}</div>}
+        right={<div className="h-full w-full">{renderRoute(route, setRoute)}</div>}
       />
 
       <SettingsModal open={settingsOpen} onClose={closeSettings} />

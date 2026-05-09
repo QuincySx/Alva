@@ -39,7 +39,11 @@ export function ResizableSplit({
     try {
       const raw = localStorage.getItem(storageKey);
       const n = raw ? parseInt(raw, 10) : NaN;
-      if (Number.isFinite(n) && n >= minWidth && n <= maxWidth) return n;
+      // Clamp to [min, max] instead of dropping out-of-range values: when
+      // maxWidth is later reduced in code, an existing user's saved value
+      // could fall outside the new range — clamping preserves their intent
+      // (still wide-ish), dropping silently resets to default.
+      if (Number.isFinite(n)) return Math.min(maxWidth, Math.max(minWidth, n));
     } catch {
       // ignore
     }

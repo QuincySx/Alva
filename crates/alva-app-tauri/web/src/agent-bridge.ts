@@ -13,7 +13,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 // autonomous-ui-test skill) renders cleanly with empty defaults instead
 // of spamming the console with stack traces.
 
-const HAS_TAURI =
+export const HAS_TAURI =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 if (!HAS_TAURI && typeof console !== "undefined") {

@@ -17,6 +17,7 @@ import {
   type RunRecord,
   type ToolCallRecord,
   type TurnRecord,
+  type UserMessageRecord,
 } from "../agent-bridge";
 
 interface InspectorProps {
@@ -100,13 +101,14 @@ export function Inspector({ sessionId, refreshNonce = 0 }: InspectorProps) {
 
   return (
     <div className="h-full flex flex-col bg-neutral-950 relative">
-      <header className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-neutral-800 text-[10px] uppercase tracking-wider text-neutral-500">
-        <span>Inspector · 会话投影</span>
+      <header className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-neutral-800 text-[10px] uppercase tracking-wider text-neutral-500 gap-2">
+        <span className="shrink-0">Inspector · 会话投影</span>
+        <SessionIdBadge sessionId={sessionId} />
         <button
           type="button"
           onClick={refresh}
           disabled={loading}
-          className="inline-flex items-center gap-1 text-neutral-400 hover:text-white disabled:opacity-50"
+          className="inline-flex items-center gap-1 text-neutral-400 hover:text-white disabled:opacity-50 shrink-0"
         >
           <RefreshCcw size={11} className={loading ? "animate-spin" : ""} />
           {loading ? "加载中" : "刷新"}
@@ -262,8 +264,14 @@ function Timeline({
         </div>
       </Block>
 
-      {/* Per-turn blocks */}
+      {/* Per-turn blocks, with user prompts interleaved before the turn
+          they kicked off. A multi-iteration run will show its prompt
+          once (before turn 1); a "继续/重试" appearing between turns
+          shows up between them. */}
       {record.turns.map((turn) => {
+        const promptsBefore = (record.user_messages ?? []).filter(
+          (u) => u.before_turn_number === turn.turn_number,
+        );
         const block = (
           <TurnTimeline
             key={turn.turn_number}
@@ -275,8 +283,40 @@ function Timeline({
           />
         );
         prevInputTokens = turn.llm_call.input_tokens;
-        return block;
+        return (
+          <div key={`group-${turn.turn_number}`} className="space-y-2">
+            {promptsBefore.map((u, idx) => (
+              <UserPromptBlock
+                key={`u-${turn.turn_number}-${idx}`}
+                msg={u}
+                index={record.user_messages
+                  ?.findIndex((x) => x === u) ?? idx}
+                selectedKey={selectedKey}
+                onSelect={onSelect}
+              />
+            ))}
+            {block}
+          </div>
+        );
       })}
+
+      {/* User prompts that have no following turn yet (cancelled before
+          any iteration started, or run still in flight). These attach
+          to one past the last turn. */}
+      {(record.user_messages ?? [])
+        .filter(
+          (u) => u.before_turn_number > record.turns.length,
+        )
+        .map((u, idx) => (
+          <UserPromptBlock
+            key={`u-trailing-${idx}`}
+            msg={u}
+            index={(record.user_messages ?? []).indexOf(u)}
+            selectedKey={selectedKey}
+            onSelect={onSelect}
+            trailing
+          />
+        ))}
 
       {/* Summary block */}
       <Block
@@ -333,6 +373,13 @@ function TurnTimeline({
 
   const stopColor = stopReasonColor(lc.stop_reason, !!lc.error_message);
 
+  // Cache hit/miss summary. Anthropic-only — null elsewhere.
+  const cacheRead = lc.cache_read_input_tokens ?? 0;
+  const cacheCreate = lc.cache_creation_input_tokens ?? 0;
+  const hasCacheData =
+    lc.cache_read_input_tokens != null ||
+    lc.cache_creation_input_tokens != null;
+
   return (
     <div className="border-l-2 border-purple-700/60 pl-2.5 ml-1">
       <div className="flex items-center justify-between text-[10px] text-neutral-500 mb-1">
@@ -341,6 +388,62 @@ function TurnTimeline({
           {fmtMs(turn.duration_ms)} · {turnTokens.toLocaleString()} tok
         </span>
       </div>
+
+      {/* P2 marker chips: per-turn config knobs that affect this LLM call. */}
+      {(lc.disable_tools ||
+        lc.provider_options_applied ||
+        (lc.system_prompt_segments ?? 0) > 1 ||
+        hasCacheData) && (
+        <div className="flex flex-wrap gap-1 mb-1">
+          {(lc.system_prompt_segments ?? 0) > 1 && (
+            <span
+              title={`System prompt split into ${lc.system_prompt_segments} cache segments`}
+              className="text-[9px] font-mono rounded px-1.5 py-0.5 bg-cyan-950/50 border border-cyan-900/60 text-cyan-300"
+            >
+              sp×{lc.system_prompt_segments}
+            </span>
+          )}
+          {hasCacheData && (
+            <span
+              title={`Cache read ${cacheRead.toLocaleString()} / created ${cacheCreate.toLocaleString()} input tokens`}
+              className={`text-[9px] font-mono rounded px-1.5 py-0.5 border ${
+                cacheRead > 0
+                  ? "bg-emerald-950/50 border-emerald-900/60 text-emerald-300"
+                  : "bg-neutral-800/80 border-neutral-700/60 text-neutral-400"
+              }`}
+            >
+              {cacheRead > 0
+                ? `cache↓${formatTokens(cacheRead)}`
+                : `cache∅`}
+              {cacheCreate > 0 && ` +${formatTokens(cacheCreate)}`}
+            </span>
+          )}
+          {lc.disable_tools && (
+            <span
+              title="Tools were disabled for this turn — request had no `tools` field"
+              className="text-[9px] font-mono rounded px-1.5 py-0.5 bg-rose-950/50 border border-rose-900/60 text-rose-300"
+            >
+              ⊘ tools
+            </span>
+          )}
+          {!lc.disable_tools && (lc.tools_count_sent ?? 0) > 0 && (
+            <span
+              title={`${lc.tools_count_sent} tool schemas sent`}
+              className="text-[9px] font-mono rounded px-1.5 py-0.5 bg-neutral-800/80 border border-neutral-700/60 text-neutral-400"
+            >
+              {lc.tools_count_sent} tools
+            </span>
+          )}
+          {lc.provider_options_applied && (
+            <span
+              title="Vendor-specific JSON pass-through (extra_body) merged into request"
+              className="text-[9px] font-mono rounded px-1.5 py-0.5 bg-purple-950/50 border border-purple-900/60 text-purple-300"
+            >
+              {`{...}`}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* LLM Request */}
       <Block
@@ -367,6 +470,12 @@ function TurnTimeline({
         {tokenDelta > 0 && (
           <div className="text-[10px] text-amber-400 mt-0.5">
             +{tokenDelta.toLocaleString()} from prev turn
+          </div>
+        )}
+        {hasCacheData && cacheRead > 0 && (
+          <div className="text-[10px] text-emerald-400 mt-0.5">
+            cache hit: {cacheRead.toLocaleString()} tok read (~$
+            {((cacheRead * 0.9) / 1_000_000).toFixed(4)} saved est.)
           </div>
         )}
       </Block>
@@ -517,6 +626,61 @@ type BlockAccent =
   | "purple"
   | "cyan"
   | "neutral";
+
+/** Inserted in the timeline immediately before the turn it triggered.
+ * `index` is the position inside `record.user_messages` so two prompts
+ * with the same `before_turn_number` (cancelled-before-iteration case)
+ * still get unique selection keys. `trailing=true` styles a "still
+ * pending / cancelled" prompt with no following turn. */
+function UserPromptBlock({
+  msg,
+  index,
+  selectedKey,
+  onSelect,
+  trailing = false,
+}: {
+  msg: UserMessageRecord;
+  index: number;
+  selectedKey: string | null;
+  onSelect: (key: string, content: ReactNode) => void;
+  trailing?: boolean;
+}) {
+  const keyId = `user_prompt:${index}`;
+  const preview = msg.text.length > 90 ? `${msg.text.slice(0, 90)}…` : msg.text;
+  return (
+    <Block
+      keyId={keyId}
+      selectedKey={selectedKey}
+      accent="blue"
+      onClick={() =>
+        onSelect(
+          keyId,
+          <DetailSection title="User prompt">
+            <div className="text-[10px] text-neutral-500 mb-2">
+              {new Date(msg.timestamp_ms).toLocaleString()}
+              {trailing ? " · 等待 turn 启动" : ""}
+            </div>
+            <pre className="text-sm whitespace-pre-wrap break-words bg-neutral-950/40 rounded p-3 border border-neutral-800">
+              {msg.text}
+            </pre>
+          </DetailSection>,
+        )
+      }
+    >
+      <div className="font-medium text-[12px] flex items-center gap-2">
+        <span className="text-blue-400">→ 用户消息 #{index + 1}</span>
+        {trailing && (
+          <span className="text-[9px] uppercase tracking-wider text-amber-400">
+            pending
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] text-neutral-300 mt-1 truncate">
+        {preview || "(空)"}
+      </div>
+    </Block>
+  );
+}
 
 function Block({
   keyId,
@@ -669,6 +833,27 @@ function OverviewDetail({
   totalTools: number;
 }) {
   const c: ConfigSnapshot = record.config_snapshot;
+
+  // Aggregate prompt-cache stats across all turns. cache_read tokens
+  // are the savings; cache_creation tokens are upfront cost. Hit rate
+  // uses (read / (read+creation)) as a rough quality signal — purely
+  // observability, not load-bearing logic.
+  const cacheRead = record.turns.reduce(
+    (sum, t) => sum + (t.llm_call.cache_read_input_tokens ?? 0),
+    0,
+  );
+  const cacheCreated = record.turns.reduce(
+    (sum, t) => sum + (t.llm_call.cache_creation_input_tokens ?? 0),
+    0,
+  );
+  const cacheTotal = cacheRead + cacheCreated;
+  const cacheHitRate = cacheTotal > 0 ? cacheRead / cacheTotal : 0;
+  const hasCacheData = record.turns.some(
+    (t) =>
+      t.llm_call.cache_read_input_tokens != null ||
+      t.llm_call.cache_creation_input_tokens != null,
+  );
+
   return (
     <>
       <DetailSection title="Configuration">
@@ -687,10 +872,66 @@ function OverviewDetail({
         </div>
       </DetailSection>
 
-      <DetailSection title="System Prompt">
-        <pre className="rounded bg-neutral-950 border border-neutral-800 px-2 py-1.5 text-[10px] font-mono whitespace-pre-wrap break-all max-h-72 overflow-auto text-neutral-300">
-          {c.system_prompt || "(empty)"}
-        </pre>
+      {hasCacheData && (
+        <DetailSection title="Prompt Cache">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <KvLine
+              label="Hit rate"
+              value={`${(cacheHitRate * 100).toFixed(1)}%`}
+            />
+            <KvLine label="Read" value={cacheRead.toLocaleString()} />
+            <KvLine label="Created" value={cacheCreated.toLocaleString()} />
+            <KvLine
+              label="Saved (est)"
+              value={`~${(cacheRead * 0.9).toLocaleString()} tok`}
+            />
+          </div>
+          <div className="text-[10px] text-neutral-500 mt-2">
+            Anthropic 给 cache_read 约 90% 折扣;hit rate 越高越好。
+            cache 主要受 system prompt / tools / 历史变动影响 ——
+            稳定段在请求前部 + last user 末尾打 marker。
+          </div>
+        </DetailSection>
+      )}
+
+      <DetailSection
+        title={
+          c.system_prompt.length > 1
+            ? `System Prompt (${c.system_prompt.length} segments)`
+            : "System Prompt"
+        }
+      >
+        {c.system_prompt.length === 0 ? (
+          <div className="text-[10px] text-neutral-500">(empty)</div>
+        ) : (
+          <div className="space-y-2">
+            {c.system_prompt.map((seg, idx) => {
+              const isLast = idx === c.system_prompt.length - 1;
+              const cached = !isLast;
+              return (
+                <div key={idx}>
+                  <div className="flex items-center gap-2 text-[10px] mb-0.5">
+                    <span
+                      className={`font-mono px-1.5 py-0.5 rounded ${
+                        cached
+                          ? "bg-emerald-950/50 border border-emerald-900/60 text-emerald-300"
+                          : "bg-amber-950/50 border border-amber-900/60 text-amber-300"
+                      }`}
+                    >
+                      {cached ? "stable · cacheable" : "dynamic · per-turn"}
+                    </span>
+                    <span className="text-neutral-500 font-mono">
+                      seg #{idx + 1} · {seg.length.toLocaleString()} chars
+                    </span>
+                  </div>
+                  <pre className="rounded bg-neutral-950 border border-neutral-800 px-2 py-1.5 text-[10px] font-mono whitespace-pre-wrap break-all max-h-48 overflow-auto text-neutral-300">
+                    {seg}
+                  </pre>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </DetailSection>
 
       {c.tool_definitions && c.tool_definitions.length > 0 && (
@@ -941,6 +1182,14 @@ function fmtMs(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+/** Compact token counter: 1234 → 1.2K, 1_234_567 → 1.2M. Used in
+ * cache-hit chips so a 50K cached prefix doesn't wreck the chip width. */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n) + "…";
@@ -969,4 +1218,42 @@ function formatToolOutput(result: unknown): string {
   } catch {
     return String(result);
   }
+}
+
+// ---------------------------------------------------------------------------
+// SessionIdBadge
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows the active session id in the Inspector header, full id visible on
+ * hover, one click copies to clipboard so users can paste it into bug reports
+ * without hunting through logs.
+ */
+function SessionIdBadge({ sessionId }: { sessionId: string | null }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!sessionId) return null;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCopied(true);
+      // Reset after a beat — long enough for the user to see the confirmation.
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can be denied in some webview contexts; ignore.
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`${sessionId} — 点击复制`}
+      className="min-w-0 flex-1 truncate text-left font-mono normal-case tracking-normal text-[11px] text-neutral-400 hover:text-white transition-colors"
+    >
+      <span className="text-neutral-600">id:</span>{" "}
+      <span>{copied ? "已复制" : sessionId}</span>
+    </button>
+  );
 }

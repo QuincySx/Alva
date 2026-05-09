@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
+import type { PendingApproval, RemoteModelInfo } from "../agent-bridge";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -40,7 +42,73 @@ export interface AgentPreset {
 export interface ModelOverride {
   supports_tools?: boolean;
   is_reasoning?: boolean;
+  vision?: boolean;
   context_window?: number;
+  /** User-set output token cap, overrides whatever the API reported.
+   * `undefined` = no override. Frontend resolver order:
+   * override → API caps → null (backend fallback applies). */
+  max_output_tokens?: number;
+  /** Image-output capability override. Mostly informational right
+   * now — the chat path doesn't yet route image generation. */
+  image_output?: boolean;
+  /** Mark a model as embedding-only so it's filterable from the chat
+   * picker. Default: not embedding (regular chat model). */
+  embedding?: boolean;
+  /** Free-form provider-specific options merged into the chat request
+   * body. Stored as-is, sent verbatim. Use cases: Doubao
+   * `{ "thinking": { "type": "disabled" } }` to turn off reasoning,
+   * `{ "stream_options": { "include_usage": true } }`, etc.
+   * `undefined` = no override; an empty object `{}` is treated the
+   * same as undefined when merging.  */
+  provider_options?: Record<string, unknown>;
+}
+
+/** Per-model capability resolution with opinionated defaults.
+ *
+ * tools + reasoning default to TRUE: as of 2026 the long tail of models
+ * without these is small, and the user flips them off per-model via the
+ * pencil icon in Settings.
+ *
+ * vision defaults to FALSE: vision is still the minority case, so the
+ * user opts-in per-model.
+ *
+ * Resolution order: explicit override → API-reported cap → default. */
+export interface ResolvedCapabilities {
+  supports_tools: boolean;
+  is_reasoning: boolean;
+  vision: boolean;
+  /** `null` means "let the backend pick its fallback" (currently 32 000).
+   * Any positive number flows straight into ProviderConfig.max_tokens. */
+  max_output_tokens: number | null;
+  /** User-set vendor JSON, sent as-is into the LLM request body. `null`
+   * = no overrides (request body unchanged). */
+  provider_options: Record<string, unknown> | null;
+}
+
+export function resolveModelCapabilities(
+  override: ModelOverride | undefined,
+  apiCaps:
+    | {
+        supports_tools: boolean | null;
+        is_reasoning: boolean | null;
+        max_output_tokens?: number | null;
+      }
+    | null
+    | undefined,
+): ResolvedCapabilities {
+  return {
+    supports_tools:
+      override?.supports_tools ?? apiCaps?.supports_tools ?? true,
+    is_reasoning: override?.is_reasoning ?? apiCaps?.is_reasoning ?? true,
+    vision: override?.vision ?? false,
+    max_output_tokens:
+      override?.max_output_tokens ?? apiCaps?.max_output_tokens ?? null,
+    provider_options:
+      override?.provider_options &&
+      Object.keys(override.provider_options).length > 0
+        ? override.provider_options
+        : null,
+  };
 }
 
 interface AppState {
@@ -51,6 +119,20 @@ interface AppState {
 
   /** Per-model capability overrides keyed by model id. */
   modelOverrides: Record<string, ModelOverride>;
+
+  /** Last-known remote model list per provider config id. Written on a
+   *  successful `listRemoteModels` fetch, overwritten on the next one.
+   *  Persisted so Home can resolve the active model's API-reported
+   *  capabilities (tools / reasoning / context window) without re-hitting
+   *  the network every render. The user's explicit overrides live in
+   *  `modelOverrides` and always win over this cache on merge. */
+  remoteModelsCache: Record<string, RemoteModelInfo[]>;
+
+  /** User-added models keyed by provider-config id. Identical shape to
+   *  `remoteModelsCache` so the picker can merge both without caring
+   *  about source. Used when the provider doesn't expose `/v1/models` or
+   *  the user wants to track a private deployment. */
+  manualModels: Record<string, RemoteModelInfo[]>;
 
   /** Sidebar collapsed — persisted so it sticks across reloads. */
   navCollapsed: boolean;
@@ -69,6 +151,11 @@ interface AppState {
   /** Explicitly allow-listed tool names (manual mode only). */
   selectedTools: string[];
 
+  /** Pending approval requests pushed from the backend. Not persisted —
+   *  if the app restarts, in-flight tool calls are gone too. Render
+   *  inline in the chat as cards with Allow / Reject buttons. */
+  pendingApprovals: PendingApproval[];
+
   // Ephemeral UI state — intentionally NOT persisted (see `partialize`).
   settingsOpen: boolean;
 
@@ -83,6 +170,11 @@ interface AppState {
 
   setModelOverride: (modelId: string, override: ModelOverride | null) => void;
 
+  setRemoteModels: (configId: string, models: RemoteModelInfo[]) => void;
+
+  addManualModel: (configId: string, model: RemoteModelInfo) => void;
+  removeManualModel: (configId: string, modelId: string) => void;
+
   openSettings: () => void;
   closeSettings: () => void;
 
@@ -94,6 +186,11 @@ interface AppState {
 
   setToolsAutoMode: (v: boolean) => void;
   setSelectedTools: (tools: string[]) => void;
+
+  upsertPendingApproval: (req: PendingApproval) => void;
+  removePendingApproval: (requestId: string) => void;
+  setPendingApprovals: (list: PendingApproval[]) => void;
+  clearPendingApprovals: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,11 +246,14 @@ export const useAppStore = create<AppState>()(
       activeProviderConfigId: null,
       agents: [],
       modelOverrides: {},
+      remoteModelsCache: {},
+      manualModels: {},
       navCollapsed: false,
       activeSessionId: null,
       sessionListNonce: 0,
       toolsAutoMode: true,
       selectedTools: [],
+      pendingApprovals: [],
       settingsOpen: false,
 
       openSettings: () => set({ settingsOpen: true }),
@@ -169,6 +269,28 @@ export const useAppStore = create<AppState>()(
 
       setToolsAutoMode: (v) => set({ toolsAutoMode: v }),
       setSelectedTools: (tools) => set({ selectedTools: tools }),
+
+      upsertPendingApproval: (req) =>
+        set((s) => {
+          // De-dupe on request_id (multiple tabs / re-emit safety).
+          const idx = s.pendingApprovals.findIndex(
+            (p) => p.request_id === req.request_id,
+          );
+          if (idx === -1) {
+            return { pendingApprovals: [...s.pendingApprovals, req] };
+          }
+          const next = s.pendingApprovals.slice();
+          next[idx] = req;
+          return { pendingApprovals: next };
+        }),
+      removePendingApproval: (requestId) =>
+        set((s) => ({
+          pendingApprovals: s.pendingApprovals.filter(
+            (p) => p.request_id !== requestId,
+          ),
+        })),
+      setPendingApprovals: (list) => set({ pendingApprovals: list }),
+      clearPendingApprovals: () => set({ pendingApprovals: [] }),
 
       addAgent: (agent) => {
         const entry: AgentPreset = { id: newId(), ...agent };
@@ -196,6 +318,34 @@ export const useAppStore = create<AppState>()(
         });
       },
 
+      setRemoteModels: (configId, models) => {
+        set((s) => ({
+          remoteModelsCache: { ...s.remoteModelsCache, [configId]: models },
+        }));
+      },
+
+      addManualModel: (configId, model) => {
+        set((s) => {
+          const current = s.manualModels[configId] ?? [];
+          // De-dup on id — re-adding overwrites display_name / capabilities
+          // (lets the user "fix" a typo by re-saving).
+          const next = current.filter((m) => m.id !== model.id);
+          next.unshift(model);
+          return {
+            manualModels: { ...s.manualModels, [configId]: next },
+          };
+        });
+      },
+      removeManualModel: (configId, modelId) => {
+        set((s) => {
+          const current = s.manualModels[configId] ?? [];
+          const next = current.filter((m) => m.id !== modelId);
+          return {
+            manualModels: { ...s.manualModels, [configId]: next },
+          };
+        });
+      },
+
       addProviderConfig: (config) => {
         const entry: ProviderConfig = { id: newId(), ...config };
         set((s) => ({
@@ -218,7 +368,14 @@ export const useAppStore = create<AppState>()(
             s.activeProviderConfigId === id
               ? (next[0]?.id ?? null)
               : s.activeProviderConfigId;
-          return { providerConfigs: next, activeProviderConfigId: activeId };
+          const { [id]: _drop, ...remoteModelsCache } = s.remoteModelsCache;
+          const { [id]: _drop2, ...manualModels } = s.manualModels;
+          return {
+            providerConfigs: next,
+            activeProviderConfigId: activeId,
+            remoteModelsCache,
+            manualModels,
+          };
         });
       },
       setActiveProviderConfig: (id) => {
@@ -234,6 +391,8 @@ export const useAppStore = create<AppState>()(
         activeProviderConfigId: state.activeProviderConfigId,
         agents: state.agents,
         modelOverrides: state.modelOverrides,
+        remoteModelsCache: state.remoteModelsCache,
+        manualModels: state.manualModels,
         navCollapsed: state.navCollapsed,
         toolsAutoMode: state.toolsAutoMode,
         selectedTools: state.selectedTools,
@@ -259,5 +418,29 @@ export function useActiveProviderConfig(): ProviderConfig | null {
     const id = s.activeProviderConfigId;
     if (!id) return null;
     return s.providerConfigs.find((c) => c.id === id) ?? null;
+  });
+}
+
+/** Resolve capability flags for a model. Consults:
+ *  1. The user's explicit override in `modelOverrides`.
+ *  2. The cached API capabilities from the last `listRemoteModels` fetch
+ *     against the owning provider config (pass `providerConfigId`).
+ *  3. The opinionated defaults in `resolveModelCapabilities`.
+ *
+ *  Pass both ids where possible so Home gets real context-window + API
+ *  caps the same way the Settings screen does. */
+export function useResolvedModelCapabilities(
+  modelId: string | null | undefined,
+  providerConfigId?: string | null,
+): ResolvedCapabilities {
+  return useAppStore((s) => {
+    const override = modelId ? s.modelOverrides[modelId] : undefined;
+    const list =
+      providerConfigId ? s.remoteModelsCache[providerConfigId] : undefined;
+    const apiCaps =
+      list && modelId
+        ? (list.find((m) => m.id === modelId)?.capabilities ?? null)
+        : null;
+    return resolveModelCapabilities(override, apiCaps);
   });
 }

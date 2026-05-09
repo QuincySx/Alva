@@ -9,9 +9,16 @@ import {
   Search,
   Settings as SettingsIcon,
   Sparkles,
+  X,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { createSession, listSessions, type SessionInfo } from "../agent-bridge";
+import {
+  HAS_TAURI,
+  createSession,
+  deleteSession,
+  listSessions,
+  type SessionInfo,
+} from "../agent-bridge";
 import { useAppStore } from "../store/appStore";
 
 export type RouteId =
@@ -94,6 +101,30 @@ export function NavSidebar({
     onNavigate("home");
   };
 
+  // Confirm + delete + refresh. If the deleted session was the active
+  // one, drop the active id so Home falls back to the empty landing —
+  // the user gets a clear "session is gone" signal instead of a stuck
+  // placeholder.
+  const handleDeleteSession = async (
+    e: React.MouseEvent<HTMLButtonElement>,
+    id: string,
+    title: string,
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const ok = window.confirm(`删除任务"${title || "未命名"}"? 此操作不可撤销。`);
+    if (!ok) return;
+    try {
+      await deleteSession(id);
+      if (activeSessionId === id) {
+        setActiveSessionId(null);
+      }
+      bumpSessionList();
+    } catch (err) {
+      console.error("delete session failed", err);
+    }
+  };
+
   return (
     <nav className="h-full flex flex-col bg-neutral-950 border-r border-neutral-900 text-neutral-200">
       {/* Header: brand + collapse toggle (expanded) or just the toggle (collapsed) */}
@@ -119,20 +150,30 @@ export function NavSidebar({
         )}
       </div>
 
-      {/* New task button */}
+      {/* New task button — disabled in browser-only mode (no Tauri runtime), where
+          create_session would throw an opaque IPC error that the user wouldn't see. */}
       <div className={`shrink-0 ${collapsed ? "px-1.5 py-2" : "px-3 py-2"}`}>
         <button
           type="button"
           onClick={handleNewTask}
-          disabled={creating}
-          className={`w-full rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors flex items-center ${
+          disabled={creating || !HAS_TAURI}
+          className={`w-full rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors flex items-center ${
             collapsed ? "justify-center h-9" : "gap-2 px-3 h-9"
           }`}
-          title="新建任务"
+          title={
+            HAS_TAURI
+              ? "新建任务"
+              : "需要桌面运行时 — 请用 `cargo tauri dev` 启动"
+          }
         >
           <Plus size={16} className="shrink-0" />
           {!collapsed && <span>新建任务</span>}
         </button>
+        {!HAS_TAURI && !collapsed && (
+          <div className="mt-2 text-[10px] leading-snug text-amber-400/80">
+            浏览器模式：无法创建任务，请用桌面端
+          </div>
+        )}
       </div>
 
       {/* Nav items — do NOT scroll. shrink-0 keeps them pinned. */}
@@ -184,15 +225,14 @@ export function NavSidebar({
               sessions.map((s) => {
                 const active = s.id === activeSessionId;
                 return (
-                  <button
+                  <div
                     key={s.id}
-                    type="button"
-                    onClick={() => handleSelectSession(s.id)}
-                    className={`w-full flex items-start gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                    className={`group relative flex items-start gap-2 pl-3 pr-1.5 py-1.5 text-xs transition-colors cursor-pointer ${
                       active
                         ? "bg-neutral-800 text-white"
                         : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
                     }`}
+                    onClick={() => handleSelectSession(s.id)}
                   >
                     <MessageSquare
                       size={12}
@@ -201,7 +241,15 @@ export function NavSidebar({
                       }`}
                     />
                     <span className="flex-1 min-w-0 truncate">{s.title}</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteSession(e, s.id, s.title)}
+                      title="删除任务"
+                      className="shrink-0 p-1 rounded text-neutral-600 opacity-0 group-hover:opacity-100 hover:bg-neutral-700 hover:text-red-400 transition-all"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 );
               })
             )}
