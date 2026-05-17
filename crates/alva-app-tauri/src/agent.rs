@@ -32,7 +32,9 @@ use alva_llm_provider::{
     AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
 };
 
-use crate::sqlite_session::{SessionSummary, SqliteEvalSession, SqliteEvalSessionManager};
+use crate::sqlite_session::{
+    SessionSummary, SqliteEvalSession, SqliteEvalSessionManager, SqliteSessionRegistry,
+};
 
 // ---------------------------------------------------------------------------
 // State
@@ -64,6 +66,14 @@ pub struct AppState {
     /// Cache key: "provider:model:base_url|ws=...|plugin_hash"
     current_agent_key: RwLock<Option<String>>,
     session_manager: Arc<SqliteEvalSessionManager>,
+    /// SessionRegistry trait impl backed by the SAME SQLite connection as
+    /// `session_manager`. Available for new code that wants the trait API
+    /// (e.g., third-party extensions / future Tauri commands). The legacy
+    /// `session_manager` still owns the column-tied operations
+    /// (preview / plugin_config / workspace mapping) — they coexist on
+    /// the same `sessions` table row.
+    #[allow(dead_code)]
+    pub session_registry: Arc<SqliteSessionRegistry>,
     /// In-memory cache of loaded session entries. The db is the source of
     /// truth for `list_sessions`; this cache keeps the Arcs alive while
     /// they're in active use (BaseAgent.swap_session needs the Arc to
@@ -88,11 +98,16 @@ impl AppState {
             .map_err(|e| format!("create ~/.alva: {e}"))?;
         let db_path = alva_dir.join("sessions.db");
         let manager = SqliteEvalSessionManager::open(db_path)?;
+        // Registry shares the manager's connection — both write/read the
+        // same `sessions` table (legacy columns from manager, registry-
+        // shaped columns from registry; one row per session).
+        let registry = Arc::new(SqliteSessionRegistry::new(manager.conn().clone()));
         Ok(Self {
             tokio,
             agent: RwLock::new(None),
             current_agent_key: RwLock::new(None),
             session_manager: Arc::new(manager),
+            session_registry: registry,
             sessions: RwLock::new(Vec::new()),
             active_session_id: RwLock::new(None),
             pending_approvals: Arc::new(RwLock::new(std::collections::HashMap::new())),

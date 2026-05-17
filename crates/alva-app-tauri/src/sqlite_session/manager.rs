@@ -82,6 +82,14 @@ impl SqliteEvalSessionManager {
         })
     }
 
+    /// Shared reference to the underlying SQLite connection. Lets callers
+    /// construct adapters that need to read/write the same DB — most
+    /// importantly `SqliteSessionRegistry`, which mirrors metadata into
+    /// the `sessions` table from the SessionRegistry trait side.
+    pub fn conn(&self) -> &Arc<Mutex<Connection>> {
+        &self.conn
+    }
+
     // -----------------------------------------------------------------------
     // Workspace CRUD
     // -----------------------------------------------------------------------

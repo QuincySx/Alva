@@ -738,4 +738,63 @@ mod tests {
         assert!(reg.get("s1").await.is_some());
         assert!(reg.get("does-not-exist").await.is_none());
     }
+
+    /// Coexistence guard: SqliteEvalSessionManager (legacy) and
+    /// SqliteSessionRegistry (trait) share the same SQLite connection +
+    /// `sessions` table in production (see AppState::new). A row written
+    /// by the legacy `create_session` path must be readable by
+    /// `registry.metadata`, otherwise an in-flight Tauri command writing
+    /// via the manager would create a row that's invisible to any future
+    /// registry consumer. The new columns get their CREATE-TABLE defaults
+    /// (status='idle', metadata_json='{}', etc.) so the registry decode
+    /// is non-lossy on legacy rows.
+    #[tokio::test]
+    async fn registry_sees_sessions_created_via_legacy_manager() {
+        use crate::sqlite_session::SqliteEvalSessionManager;
+        use std::fs;
+        // Need an on-disk DB because SqliteEvalSessionManager::open takes
+        // a path. Build a unique path under std::env::temp_dir() so the
+        // test stays hermetic without pulling in tempfile as a dep.
+        let unique = format!(
+            "alva-registry-coexist-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        );
+        let db_path = std::env::temp_dir().join(unique);
+        let _ = fs::remove_file(&db_path); // safety: ignore if absent
+
+        let manager = SqliteEvalSessionManager::open(db_path.clone()).expect("manager open");
+        let registry = SqliteSessionRegistry::new(manager.conn().clone());
+
+        // Legacy create_session writes 3 columns (session_id / created_at /
+        // preview); the rest default per schema.
+        let session = manager.create_session("hello legacy").await;
+        let sid = session.session_id().to_string();
+
+        // Registry must see the row. Defaults apply for the trait fields.
+        let meta = registry
+            .metadata(&sid)
+            .await
+            .expect("registry must see legacy-created session");
+        assert_eq!(meta.session_id, sid);
+        assert_eq!(meta.status, SessionStatus::Idle);
+        assert!(meta.title.is_none());
+        assert!(meta.metadata.is_empty());
+        assert!(meta.archived_at.is_none());
+
+        // And vice versa: archiving via registry, then the row should
+        // still be deletable via legacy delete_session — proving the
+        // two views agree on row identity.
+        registry.archive(&sid).await.expect("archive ok");
+        let after = registry.metadata(&sid).await.unwrap();
+        assert!(after.archived_at.is_some());
+
+        // tempdir auto-cleanup
+        drop(manager);
+        drop(registry);
+        let _ = fs::remove_file(&db_path);
+    }
 }
