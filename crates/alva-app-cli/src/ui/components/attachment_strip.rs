@@ -110,3 +110,181 @@ impl AttachmentStrip {
         frame.render_widget(para, area);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for Attachment + AttachmentStrip. Render is skipped
+    //! (pure ratatui passthrough with no branching); we cover the
+    //! extension→kind mapping and the cursor state machine instead.
+    use super::*;
+
+    fn att(p: &str) -> Attachment {
+        Attachment::auto(PathBuf::from(p))
+    }
+
+    // ─── Attachment::auto + file_name ──────────────────────────────────
+
+    #[test]
+    fn auto_detects_image_extensions() {
+        for ext in ["png", "jpg", "jpeg", "gif", "webp", "bmp"] {
+            let a = att(&format!("photo.{ext}"));
+            assert_eq!(
+                a.kind,
+                AttachmentKind::Image,
+                "lowercase .{ext} must classify as Image"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_falls_back_to_file_for_other_extensions_and_no_extension() {
+        // Each of these must classify as File
+        for path in ["notes.txt", "readme.md", "lib.rs", "Makefile", "no_extension"] {
+            let a = att(path);
+            assert_eq!(a.kind, AttachmentKind::File, "{path} must classify as File");
+        }
+    }
+
+    #[test]
+    fn auto_is_case_sensitive_for_extensions() {
+        // Pin current behavior: the match is lowercase-literal-only, so
+        // `PNG`/`JPG`/etc currently classify as File. If a future PR
+        // normalises to ASCII-lowercase before matching, this test will
+        // break loudly so the change is deliberate.
+        let a = att("PHOTO.PNG");
+        assert_eq!(
+            a.kind,
+            AttachmentKind::File,
+            "uppercase .PNG currently classifies as File (case-sensitive match)"
+        );
+    }
+
+    #[test]
+    fn file_name_returns_question_mark_for_pathological_paths() {
+        // PathBuf::from("") has no file_name() — guard against panic
+        let a = att("");
+        assert_eq!(a.file_name(), "?", "empty path must yield '?' placeholder");
+
+        // Trailing-slash dir-style path also has no file_name in std
+        let dir = Attachment::auto(PathBuf::from("/some/dir/"));
+        // file_name() of "/some/dir/" is "dir" per std::path semantics —
+        // pin actual behavior so it's documented
+        assert_eq!(dir.file_name(), "dir");
+    }
+
+    // ─── AttachmentStrip cursor state machine ──────────────────────────
+
+    #[test]
+    fn strip_starts_empty_and_push_appends_in_order() {
+        let mut s = AttachmentStrip::new();
+        assert!(s.is_empty());
+        assert_eq!(s.items().len(), 0);
+
+        s.push(att("a.png"));
+        s.push(att("b.txt"));
+        assert!(!s.is_empty());
+        assert_eq!(s.items().len(), 2);
+        assert_eq!(s.items()[0].file_name(), "a.png");
+        assert_eq!(s.items()[1].file_name(), "b.txt");
+    }
+
+    #[test]
+    fn select_next_advances_and_wraps_around() {
+        let mut s = AttachmentStrip::new();
+        s.push(att("a.png"));
+        s.push(att("b.png"));
+        s.push(att("c.png"));
+
+        s.select_next();
+        s.select_next();
+        // selected = 2 (last)
+        s.select_next();
+        // Wrap to 0
+        assert_eq!(s.selected, 0, "select_next at last must wrap to 0");
+    }
+
+    #[test]
+    fn select_prev_decrements_and_wraps_without_underflow() {
+        let mut s = AttachmentStrip::new();
+        s.push(att("a.png"));
+        s.push(att("b.png"));
+        s.push(att("c.png"));
+
+        // selected starts at 0 — prev must wrap to len-1, not underflow
+        s.select_prev();
+        assert_eq!(s.selected, 2, "select_prev at 0 must wrap to len-1");
+
+        s.select_prev();
+        assert_eq!(s.selected, 1);
+    }
+
+    #[test]
+    fn select_methods_are_no_op_on_empty_strip() {
+        let mut s = AttachmentStrip::new();
+        // Both must not panic on % 0 / underflow on 0-1
+        s.select_next();
+        s.select_prev();
+        assert_eq!(s.selected, 0);
+    }
+
+    #[test]
+    fn remove_selected_returns_removed_entry_and_clamps_cursor() {
+        let mut s = AttachmentStrip::new();
+        s.push(att("a.png"));
+        s.push(att("b.png"));
+        s.push(att("c.png"));
+        s.select_next();
+        s.select_next(); // selected = 2 (last)
+
+        let removed = s.remove_selected().expect("remove must return Some");
+        assert_eq!(removed.file_name(), "c.png");
+        assert_eq!(s.items().len(), 2);
+        // After removing last item, selected must clamp to new last (1)
+        // — otherwise next render would index OOB
+        assert_eq!(s.selected, 1, "cursor must clamp to new last index");
+
+        // Remove middle — selected (1) stays in range, points to what was [2]
+        let removed = s.remove_selected().expect("remove must return Some");
+        assert_eq!(removed.file_name(), "b.png");
+        assert_eq!(s.items().len(), 1);
+        assert_eq!(s.selected, 0, "cursor must clamp again");
+    }
+
+    #[test]
+    fn remove_selected_on_empty_returns_none_without_panic() {
+        let mut s = AttachmentStrip::new();
+        assert!(s.remove_selected().is_none());
+        // Cursor stays at 0 after popping last
+        s.push(att("a.png"));
+        let _ = s.remove_selected();
+        assert!(s.is_empty());
+        assert_eq!(s.selected, 0, "after removing only item, selected must be 0");
+        // Removing again is still safe
+        assert!(s.remove_selected().is_none());
+    }
+
+    #[test]
+    fn drain_empties_buffer_and_resets_cursor() {
+        let mut s = AttachmentStrip::new();
+        s.push(att("a.png"));
+        s.push(att("b.png"));
+        s.select_next(); // selected = 1
+
+        let drained = s.drain();
+        assert_eq!(drained.len(), 2, "drain must return all items");
+        assert!(s.is_empty(), "drain must empty the strip");
+        assert_eq!(s.selected, 0, "drain must reset cursor to 0");
+    }
+
+    #[test]
+    fn clear_empties_buffer_and_resets_cursor() {
+        let mut s = AttachmentStrip::new();
+        s.push(att("a.png"));
+        s.push(att("b.png"));
+        s.select_next();
+
+        s.clear();
+        assert!(s.is_empty());
+        assert_eq!(s.selected, 0, "clear must reset cursor to 0");
+    }
+}

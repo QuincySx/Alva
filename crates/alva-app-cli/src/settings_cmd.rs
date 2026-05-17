@@ -22,7 +22,7 @@
 //! visible to the desktop app on its next IPC call (the Tauri side never
 //! caches — re-reads the file every `lookup_provider`).
 
-use alva_app_core::config::{self, AlvaConfig, ProviderEntry};
+use alva_app_core::config::{self, ProviderEntry};
 
 const KNOWN_KINDS: &[&str] = &["anthropic", "openai-chat", "openai-responses", "gemini"];
 

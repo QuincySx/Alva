@@ -93,11 +93,6 @@ pub fn print_divider() {
     );
 }
 
-pub fn print_prompt() {
-    eprint!("{} ", ">".bold().cyan());
-    io::stderr().flush().ok();
-}
-
 pub fn print_session_resumed(id: &str, count: usize, summary: &str) {
     eprintln!(
         "{}",

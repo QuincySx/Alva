@@ -38,7 +38,7 @@ pub fn render_diff<'a>(diff: &str, theme: &Theme) -> Text<'a> {
 /// Render an old_string → new_string inline diff (for FileEdit permission dialogs).
 ///
 /// Shows the old text in red and the new text in green, separated by a divider.
-pub fn render_inline_diff<'a>(old: &str, new: &str, theme: &Theme) -> Text<'a> {
+pub fn render_inline_diff<'a>(old: &str, new: &str, _theme: &Theme) -> Text<'a> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Old section

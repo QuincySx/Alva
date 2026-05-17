@@ -49,7 +49,7 @@ pub(crate) async fn run_repl(
     agent: &BaseAgent,
     config: &ProviderConfig,
     workspace: &std::path::Path,
-    paths: &AlvaPaths,
+    _paths: &AlvaPaths,
     session_manager: &JsonFileSessionManager,
     checkpoint_mgr: &checkpoint::CheckpointManager,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
@@ -523,25 +523,25 @@ pub(crate) async fn run_repl(
 struct ReplPrompt;
 
 impl reedline::Prompt for ReplPrompt {
-    fn render_prompt_left(&self) -> std::borrow::Cow<str> {
+    fn render_prompt_left(&self) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Borrowed("")
     }
-    fn render_prompt_right(&self) -> std::borrow::Cow<str> {
+    fn render_prompt_right(&self) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Borrowed("")
     }
     fn render_prompt_indicator(
         &self,
         _mode: reedline::PromptEditMode,
-    ) -> std::borrow::Cow<str> {
+    ) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Borrowed("> ")
     }
-    fn render_prompt_multiline_indicator(&self) -> std::borrow::Cow<str> {
+    fn render_prompt_multiline_indicator(&self) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Borrowed("· ")
     }
     fn render_prompt_history_search_indicator(
         &self,
         history_search: reedline::PromptHistorySearch,
-    ) -> std::borrow::Cow<str> {
+    ) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Owned(format!("(reverse-i-search '{}'): ", history_search.term))
     }
 }

@@ -3,7 +3,7 @@
 //! Provides a thin abstraction over crossterm events, adding a periodic
 //! [`TerminalEvent::Tick`] variant that drives animations (spinner, etc.).
 
-use crossterm::event::{self, Event, KeyEvent, MouseEvent, MouseEventKind};
+use crossterm::event::{self, Event, KeyEvent, MouseEvent};
 use std::time::Duration;
 
 /// Terminal events consumed by the TUI application loop.

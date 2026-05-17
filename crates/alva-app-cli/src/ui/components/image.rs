@@ -23,7 +23,7 @@ impl ImageView {
     /// (we don't propagate Err so callers can degrade gracefully — fall
     /// back to a placeholder text in the message stream).
     pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
-        let mut picker = ImgPicker::from_query_stdio().ok()?;
+        let picker = ImgPicker::from_query_stdio().ok()?;
         let img = image::ImageReader::open(path).ok()?.decode().ok()?;
         Some(Self { state: picker.new_resize_protocol(img) })
     }

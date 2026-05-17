@@ -96,3 +96,88 @@ impl Completer for SlashCompleter {
         self.matches(line).len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Pure-logic tests for SlashCompleter. No reedline runtime — we
+    //! construct directly and assert via the Completer trait methods.
+
+    use super::*;
+
+    fn registry() -> Vec<String> {
+        // Realistic-shaped fixture; `model` overlaps with the
+        // `extras` list inside `new()` to exercise the dedup branch.
+        vec!["clear", "help", "model", "status"]
+            .into_iter()
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn new_merges_extras_dedups_and_sorts() {
+        let c = SlashCompleter::new(registry());
+        // `model` exists in both registry + extras — must appear ONCE
+        let model_count = c.commands.iter().filter(|s| s == &"model").count();
+        assert_eq!(model_count, 1, "duplicate `model` not dedup'd");
+        // Sorted alphabetically — `auto` (from extras) before `clear`
+        let auto_idx = c.commands.iter().position(|s| s == "auto").unwrap();
+        let clear_idx = c.commands.iter().position(|s| s == "clear").unwrap();
+        assert!(auto_idx < clear_idx, "commands should be sorted alphabetically");
+    }
+
+    #[test]
+    fn matches_empty_query_returns_all() {
+        let c = SlashCompleter::new(registry());
+        let m = c.matches("");
+        assert_eq!(m.len(), c.commands.len(), "empty query matches all");
+    }
+
+    #[test]
+    fn matches_prefix_filter_works() {
+        let c = SlashCompleter::new(registry());
+        // Prefix `c` should match `clear` (from registry)
+        let m = c.matches("c");
+        assert!(m.iter().any(|s| *s == "clear"), "missing `clear`: {m:?}");
+        // Prefix `re` should match `resume`+`rewind` (extras) but not `model`
+        let m = c.matches("re");
+        assert!(m.iter().any(|s| *s == "resume"), "missing `resume`: {m:?}");
+        assert!(m.iter().any(|s| *s == "rewind"), "missing `rewind`: {m:?}");
+        assert!(!m.iter().any(|s| *s == "model"), "model should not match `re`");
+    }
+
+    #[test]
+    fn matches_no_match_returns_empty() {
+        let c = SlashCompleter::new(registry());
+        let m = c.matches("zzz-nope");
+        assert!(m.is_empty(), "no-match should be empty: {m:?}");
+    }
+
+    #[test]
+    fn complete_total_partial_are_consistent() {
+        let mut c = SlashCompleter::new(registry());
+        let complete = c.complete("re", 0);
+        let total = c.total_completions("re", 0);
+        let partial_all = c.partial_complete("re", 0, 0, 100);
+        assert_eq!(complete.len(), total, "complete and total disagree");
+        assert_eq!(partial_all.len(), total, "partial(0..100) and total disagree");
+
+        // partial_complete with start=1 should skip first match
+        let partial_skip = c.partial_complete("re", 0, 1, 100);
+        assert_eq!(partial_skip.len(), total.saturating_sub(1), "partial skip wrong");
+        // Returned suggestions carry the command name in `.value`
+        for s in &complete {
+            assert!(s.value.starts_with("re"), "value not re-prefixed: {}", s.value);
+        }
+    }
+
+    #[test]
+    fn space_in_input_short_circuits_all_methods() {
+        // Once the user types a space, completion is over (arg to a
+        // command, not a command name). All three Completer entry points
+        // must short-circuit to empty / 0.
+        let mut c = SlashCompleter::new(registry());
+        assert!(c.complete("clear hi", 0).is_empty());
+        assert_eq!(c.total_completions("clear hi", 0), 0);
+        assert!(c.partial_complete("clear hi", 0, 0, 10).is_empty());
+    }
+}
