@@ -152,6 +152,11 @@ impl ReadUrlTool {
         params: Input,
         _ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
+        // SSRF defense (T6 / 3C path) is enforced by SecurityMiddleware
+        // via the `url_aware_tools` map on SecurityGuard — when this tool
+        // runs, the middleware has already inspected the URL and routed
+        // it through HITL approval if needed. The tool itself stays
+        // simple and assumes the request has been allowed.
         let max_length = params.max_length.unwrap_or(50_000);
 
         // Extract domain for rate limiting
