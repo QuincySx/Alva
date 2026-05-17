@@ -49,6 +49,17 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
 
+  // When the modal is opened with a programmatic tab request from elsewhere
+  // (e.g. NavSidebar "我的 Agent" → openSettings("agents")), consume the
+  // store-side hint and switch to that tab. Cleared on read so re-opens
+  // start fresh on whatever the user last viewed.
+  const consumeInitialTab = useAppStore((s) => s.consumeSettingsInitialTab);
+  useEffect(() => {
+    if (!open) return;
+    const t = consumeInitialTab();
+    if (t) setTab(t);
+  }, [open, consumeInitialTab]);
+
   return (
     <Modal open={open} onClose={onClose}>
       <div className="flex flex-1 min-h-0">

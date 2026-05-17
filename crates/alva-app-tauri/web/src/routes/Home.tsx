@@ -526,23 +526,7 @@ export default function Home({ onNavigate }: HomeProps) {
 
   // No active session — empty-state landing with quick-access shortcuts
   if (!activeSessionId) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center bg-neutral-950 text-neutral-100 px-6">
-        <div className="max-w-md w-full space-y-10">
-          <div className="text-center space-y-2">
-            <div className="text-2xl font-semibold">Alva Agent</div>
-            <div className="text-sm text-neutral-500">选择左侧任务继续，或新建一个</div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <ShortcutCard icon={<Settings2 size={16} />} label="模型设置" onClick={openSettings} />
-            <ShortcutCard icon={<Puzzle size={16} />} label="插件管理" onClick={() => onNavigate("skills")} />
-            <ShortcutCard icon={<Plug size={16} />} label="MCP 服务" onClick={() => onNavigate("mcp")} />
-            <ShortcutCard icon={<Sparkles size={16} />} label="技能" onClick={() => onNavigate("skills")} />
-          </div>
-        </div>
-      </div>
-    );
+    return <EmptyLanding onNavigate={onNavigate} />;
   }
 
   return (
@@ -1097,8 +1081,58 @@ function extractIsError(result: unknown): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Shortcut card for empty-state landing
+// Empty-state landing + shortcut cards
 // ---------------------------------------------------------------------------
+
+function EmptyLanding({
+  onNavigate,
+}: {
+  onNavigate: (id: import("../components/NavSidebar").RouteId) => void;
+}) {
+  const openSettings = useAppStore((s) => s.openSettings);
+  const setSkillsInitialTab = useAppStore((s) => s.setSkillsInitialTab);
+  return (
+    <div className="flex h-full flex-col items-center justify-center bg-neutral-950 text-neutral-100 px-6">
+      <div className="max-w-md w-full space-y-10">
+        <div className="text-center space-y-2">
+          <div className="text-2xl font-semibold">Alva Agent</div>
+          <div className="text-sm text-neutral-500">选择左侧任务继续，或新建一个</div>
+        </div>
+        {/* sm: breakpoint — under 640px (mobile / narrow split-view) the
+            2-col grid forces ~80px-wide cards and the labels wrap one
+            character per line. Drop to 1-col on narrow viewports. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <ShortcutCard
+            icon={<Settings2 size={16} />}
+            label="模型设置"
+            onClick={() => openSettings("models")}
+          />
+          <ShortcutCard
+            icon={<Puzzle size={16} />}
+            label="插件管理"
+            onClick={() => {
+              setSkillsInitialTab("plugins");
+              onNavigate("skills");
+            }}
+          />
+          <ShortcutCard
+            icon={<Plug size={16} />}
+            label="MCP 服务"
+            onClick={() => onNavigate("mcp")}
+          />
+          <ShortcutCard
+            icon={<Sparkles size={16} />}
+            label="技能"
+            onClick={() => {
+              setSkillsInitialTab("skills");
+              onNavigate("skills");
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ShortcutCard({
   icon,

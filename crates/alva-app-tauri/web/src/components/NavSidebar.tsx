@@ -43,6 +43,13 @@ const NAV_ITEMS: NavItem[] = [
   { id: "agents", label: "我的 Agent", icon: <Bot size={16} /> },
 ];
 
+// "agents" is a dead-end route (Placeholder telling the user to use
+// Settings → 我的 Agent). Redirect the click to the actual editor so
+// the nav item is useful instead of an instruction sign.
+const NAV_AS_SETTINGS_TAB: Partial<Record<RouteId, "models" | "agents">> = {
+  agents: "agents",
+};
+
 interface NavSidebarProps {
   current: RouteId;
   onNavigate: (id: RouteId) => void;
@@ -62,6 +69,7 @@ export function NavSidebar({
   const setActiveSessionId = useAppStore((s) => s.setActiveSessionId);
   const sessionListNonce = useAppStore((s) => s.sessionListNonce);
   const bumpSessionList = useAppStore((s) => s.bumpSessionList);
+  const openSettings = useAppStore((s) => s.openSettings);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -179,12 +187,15 @@ export function NavSidebar({
       {/* Nav items — do NOT scroll. shrink-0 keeps them pinned. */}
       <ul className="shrink-0 py-2">
         {NAV_ITEMS.map((item) => {
-          const active = item.id === current;
+          const settingsTab = NAV_AS_SETTINGS_TAB[item.id];
+          const active = item.id === current && !settingsTab;
           return (
             <li key={item.id}>
               <button
                 type="button"
-                onClick={() => onNavigate(item.id)}
+                onClick={() =>
+                  settingsTab ? openSettings(settingsTab) : onNavigate(item.id)
+                }
                 title={collapsed ? item.label : undefined}
                 className={`w-full flex items-center transition-colors ${
                   collapsed

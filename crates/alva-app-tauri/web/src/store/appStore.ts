@@ -158,6 +158,14 @@ interface AppState {
 
   // Ephemeral UI state — intentionally NOT persisted (see `partialize`).
   settingsOpen: boolean;
+  /** Tab the SettingsModal should jump to on next open. Set by callers
+   *  (e.g. NavSidebar "我的 Agent", Home empty-state "模型设置"), then
+   *  consumed and cleared by the modal so it doesn't stick around. */
+  settingsInitialTab: "models" | "agents" | null;
+  /** Tab the Skills route should jump to on next mount. Set by Home
+   *  empty-state shortcut cards so "插件管理" lands on plugins and
+   *  "技能" lands on skills instead of both defaulting to plugins. */
+  skillsInitialTab: "plugins" | "skills" | null;
 
   addProviderConfig: (config: Omit<ProviderConfig, "id">) => ProviderConfig;
   updateProviderConfig: (id: string, updates: Partial<Omit<ProviderConfig, "id">>) => void;
@@ -175,8 +183,11 @@ interface AppState {
   addManualModel: (configId: string, model: RemoteModelInfo) => void;
   removeManualModel: (configId: string, modelId: string) => void;
 
-  openSettings: () => void;
+  openSettings: (tab?: "models" | "agents") => void;
   closeSettings: () => void;
+  consumeSettingsInitialTab: () => "models" | "agents" | null;
+  setSkillsInitialTab: (tab: "plugins" | "skills") => void;
+  consumeSkillsInitialTab: () => "plugins" | "skills" | null;
 
   toggleNavCollapsed: () => void;
   setNavCollapsed: (v: boolean) => void;
@@ -255,9 +266,23 @@ export const useAppStore = create<AppState>()(
       selectedTools: [],
       pendingApprovals: [],
       settingsOpen: false,
+      settingsInitialTab: null,
+      skillsInitialTab: null,
 
-      openSettings: () => set({ settingsOpen: true }),
+      openSettings: (tab) =>
+        set({ settingsOpen: true, settingsInitialTab: tab ?? null }),
       closeSettings: () => set({ settingsOpen: false }),
+      consumeSettingsInitialTab: () => {
+        const v = _get().settingsInitialTab;
+        if (v !== null) set({ settingsInitialTab: null });
+        return v;
+      },
+      setSkillsInitialTab: (tab) => set({ skillsInitialTab: tab }),
+      consumeSkillsInitialTab: () => {
+        const v = _get().skillsInitialTab;
+        if (v !== null) set({ skillsInitialTab: null });
+        return v;
+      },
 
       toggleNavCollapsed: () =>
         set((s) => ({ navCollapsed: !s.navCollapsed })),

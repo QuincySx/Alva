@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavSidebar, type RouteId } from "./components/NavSidebar";
 import { ResizableSplit } from "./components/ResizableSplit";
 import { SettingsModal } from "./components/SettingsModal";
@@ -47,6 +47,44 @@ export default function App() {
   const closeSettings = useAppStore((s) => s.closeSettings);
   const navCollapsed = useAppStore((s) => s.navCollapsed);
   const toggleNavCollapsed = useAppStore((s) => s.toggleNavCollapsed);
+  const setNavCollapsed = useAppStore((s) => s.setNavCollapsed);
+
+  // Auto-collapse the sidebar on narrow viewports (mobile-like split-view,
+  // small desktop windows) where 220px of nav eats ~50% of horizontal
+  // space. Only acts on THRESHOLD CROSSINGS, not every resize event — so a
+  // user who manually expands the sidebar while narrow stays expanded
+  // (effect doesn't fight). On expand back past the threshold, we revert
+  // ONLY the collapses we initiated. (React rules: 逻辑值 用 useRef.)
+  const autoCollapsedRef = useRef(false);
+  const prevNarrowRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const NARROW = 640;
+    const apply = () => {
+      const narrow = window.innerWidth < NARROW;
+      const wasNarrow = prevNarrowRef.current;
+      prevNarrowRef.current = narrow;
+      const state = useAppStore.getState();
+      if (wasNarrow === null) {
+        if (narrow && !state.navCollapsed) {
+          autoCollapsedRef.current = true;
+          setNavCollapsed(true);
+        }
+        return;
+      }
+      if (!wasNarrow && narrow) {
+        if (!state.navCollapsed) {
+          autoCollapsedRef.current = true;
+          setNavCollapsed(true);
+        }
+      } else if (wasNarrow && !narrow && autoCollapsedRef.current) {
+        autoCollapsedRef.current = false;
+        setNavCollapsed(false);
+      }
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, [setNavCollapsed]);
 
   // Cmd/Ctrl+B — macOS standard for sidebar toggle (VS Code / Mail both use it).
   // Suppressed while a modal is open so the modal owns the keyboard — otherwise
@@ -77,7 +115,7 @@ export default function App() {
           <NavSidebar
             current={route}
             onNavigate={setRoute}
-            onOpenSettings={openSettings}
+            onOpenSettings={() => openSettings()}
             onCollapse={toggleNavCollapsed}
             collapsed={navCollapsed}
           />

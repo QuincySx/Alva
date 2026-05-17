@@ -12,7 +12,7 @@ export function ModelPicker() {
   return (
     <button
       type="button"
-      onClick={openSettings}
+      onClick={() => openSettings("models")}
       className="flex items-center gap-2 rounded-md bg-neutral-900 border border-neutral-800 hover:border-neutral-700 px-3 py-1.5 text-sm"
       title="点击打开模型设置"
     >

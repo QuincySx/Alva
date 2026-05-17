@@ -9,6 +9,7 @@ import {
   type SkillInfo,
   type SkillSourceInfo,
 } from "../agent-bridge";
+import { useAppStore } from "../store/appStore";
 
 type Tab = "plugins" | "skills";
 
@@ -18,7 +19,23 @@ const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
 ];
 
 export default function Skills() {
-  const [tab, setTab] = useState<Tab>("plugins");
+  // Hydrate the starting tab from any pending hint set by Home's
+  // empty-state shortcut cards (插件管理 → plugins, 技能 → skills).
+  // Without this, both cards would land on "plugins" since that's the
+  // hardcoded default — making the "技能" shortcut misleading.
+  //
+  // The useState initializer must be PURE — StrictMode invokes it twice
+  // and any side effect (clearing the hint) would consume the value on
+  // the first call and leave the second call with null. So: read via
+  // getState (no subscribe), and clear in an effect AFTER mount.
+  const [tab, setTab] = useState<Tab>(
+    () => useAppStore.getState().skillsInitialTab ?? "plugins",
+  );
+  useEffect(() => {
+    if (useAppStore.getState().skillsInitialTab !== null) {
+      useAppStore.setState({ skillsInitialTab: null });
+    }
+  }, []);
   const [query, setQuery] = useState("");
 
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
