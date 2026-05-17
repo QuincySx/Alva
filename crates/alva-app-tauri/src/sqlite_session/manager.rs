@@ -1,6 +1,10 @@
 // INPUT:  rusqlite, SqliteEvalSession, schema
-// OUTPUT: SqliteEvalSessionManager, StoredModel, StoredWorkspace, SessionSummary
-// POS:    Manages the SQLite DB — CRUD for models, workspaces, sessions.
+// OUTPUT: SqliteEvalSessionManager, StoredWorkspace, SessionSummary
+// POS:    Legacy session/workspace CRUD over SQLite. New code should prefer
+//         SqliteSessionRegistry (sqlite_session/registry.rs) for the
+//         SessionRegistry-shaped operations; this struct stays for the live
+//         workspace + plugin_config + run_metadata methods until they're
+//         migrated.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -17,15 +21,6 @@ use super::sqlite_session::SqliteEvalSession;
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredModel {
-    pub model_id: String,
-    pub provider: String,
-    pub api_key: String,
-    pub base_url: Option<String>,
-    pub display_name: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredWorkspace {
@@ -88,67 +83,6 @@ impl SqliteEvalSessionManager {
     }
 
     // -----------------------------------------------------------------------
-    // Model CRUD
-    // -----------------------------------------------------------------------
-
-    pub fn upsert_model(&self, model: &StoredModel) {
-        let conn = self.conn.lock().unwrap();
-        let _ = conn.execute(
-            "INSERT INTO models (model_id, provider, api_key, base_url, display_name)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(model_id) DO UPDATE SET
-                 provider = excluded.provider,
-                 api_key = excluded.api_key,
-                 base_url = excluded.base_url,
-                 display_name = excluded.display_name",
-            params![model.model_id, model.provider, model.api_key, model.base_url, model.display_name],
-        );
-    }
-
-    pub fn list_models(&self) -> Vec<StoredModel> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = match conn.prepare(
-            "SELECT model_id, provider, api_key, base_url, display_name FROM models ORDER BY model_id",
-        ) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-        stmt.query_map([], |row| {
-            Ok(StoredModel {
-                model_id: row.get(0)?,
-                provider: row.get(1)?,
-                api_key: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                base_url: row.get(3)?,
-                display_name: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            })
-        })
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default()
-    }
-
-    pub fn get_model(&self, model_id: &str) -> Option<StoredModel> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT model_id, provider, api_key, base_url, display_name FROM models WHERE model_id = ?1",
-            params![model_id],
-            |row| Ok(StoredModel {
-                model_id: row.get(0)?,
-                provider: row.get(1)?,
-                api_key: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                base_url: row.get(3)?,
-                display_name: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            }),
-        ).ok()
-    }
-
-    pub fn delete_model(&self, model_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM models WHERE model_id = ?1", params![model_id])
-            .map(|n| n > 0)
-            .unwrap_or(false)
-    }
-
-    // -----------------------------------------------------------------------
     // Workspace CRUD
     // -----------------------------------------------------------------------
 
@@ -190,41 +124,6 @@ impl SqliteEvalSessionManager {
                 created_at: row.get(3)?,
             }),
         ).ok()
-    }
-
-    pub fn list_workspaces(&self) -> Vec<StoredWorkspace> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = match conn.prepare(
-            "SELECT workspace_id, path, permissions, created_at FROM workspaces ORDER BY created_at DESC",
-        ) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-        stmt.query_map([], |row| {
-            Ok(StoredWorkspace {
-                workspace_id: row.get(0)?,
-                path: row.get(1)?,
-                permissions: row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "{}".into()),
-                created_at: row.get(3)?,
-            })
-        })
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default()
-    }
-
-    pub fn update_workspace_permissions(&self, workspace_id: &str, permissions: &str) {
-        let conn = self.conn.lock().unwrap();
-        let _ = conn.execute(
-            "UPDATE workspaces SET permissions = ?2 WHERE workspace_id = ?1",
-            params![workspace_id, permissions],
-        );
-    }
-
-    pub fn delete_workspace(&self, workspace_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM workspaces WHERE workspace_id = ?1", params![workspace_id])
-            .map(|n| n > 0)
-            .unwrap_or(false)
     }
 
     // -----------------------------------------------------------------------
@@ -354,16 +253,6 @@ impl SqliteEvalSessionManager {
             params![session_id],
             |row| row.get(0),
         ).ok()
-    }
-
-    // -- Session ↔ Model ----------------------------------------------------
-
-    pub fn set_session_model(&self, session_id: &str, model_id: &str) {
-        let conn = self.conn.lock().unwrap();
-        let _ = conn.execute(
-            "UPDATE sessions SET model_id = ?2 WHERE session_id = ?1",
-            params![session_id, model_id],
-        );
     }
 
     // -- Session plugin config ----------------------------------------------

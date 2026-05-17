@@ -12,16 +12,10 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
          PRAGMA foreign_keys=ON;",
     )?;
 
-    // -- Models: globally configured LLM providers --------------------------
-    conn.execute_batch("
-        CREATE TABLE IF NOT EXISTS models (
-            model_id     TEXT PRIMARY KEY,
-            provider     TEXT NOT NULL,            -- anthropic / openai / openai-responses
-            api_key      TEXT NOT NULL DEFAULT '',
-            base_url     TEXT,
-            display_name TEXT NOT NULL DEFAULT ''
-        );
-    ")?;
+    // Note: the legacy `models` table (proto-design predating the frontend
+    // localStorage model store) is no longer created here — it had zero
+    // callers. Existing on-disk DBs keep the orphan table; we don't drop it
+    // since dropping is destructive and a stray empty table is harmless.
 
     // -- Workspaces: directories the agent operates in ----------------------
     conn.execute_batch("
