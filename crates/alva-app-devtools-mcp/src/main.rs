@@ -50,6 +50,11 @@ pub struct AlvaDevtools {
 
 impl AlvaDevtools {
     pub fn new(base_url: String) -> Self {
+        // Trim ONE trailing slash so the `format!("{}/api/...", base_url)`
+        // pattern at every tool method doesn't produce `//api/...` if the
+        // caller set ALVA_DEBUG_URL with a trailing slash. Done once here
+        // so every format! site can stay unchanged.
+        let base_url = base_url.trim_end_matches('/').to_string();
         Self {
             client: reqwest::Client::new(),
             base_url,
@@ -183,4 +188,69 @@ async fn main() {
     let service = server.serve(stdio()).await.expect("failed to start MCP server");
 
     service.waiting().await.expect("MCP server terminated unexpectedly");
+}
+
+#[cfg(test)]
+mod tests {
+    //! Pure-Rust surface tests — no MCP transport, no live HTTP.
+    //! Anything that hits `self.client.get/post` would need wiremock; that
+    //! belongs to the broader HTTP-mock proposal, not this crate's break-zero.
+
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn new_stores_base_url() {
+        let dev = AlvaDevtools::new("http://example:9229".to_string());
+        assert_eq!(dev.base_url, "http://example:9229");
+    }
+
+    #[test]
+    fn inspect_params_deserialize() {
+        let p: InspectParams =
+            serde_json::from_value(json!({ "view": "MainPanel" })).expect("deserialize");
+        assert_eq!(p.view, "MainPanel");
+
+        // `view` is required — missing it should error
+        let err = serde_json::from_value::<InspectParams>(json!({})).unwrap_err();
+        assert!(format!("{err}").contains("view"), "missing-view error should mention field: {err}");
+    }
+
+    #[test]
+    fn action_params_deserialize_with_nested_json_args() {
+        let p: ActionParams = serde_json::from_value(json!({
+            "target": "MainPanel",
+            "method": "set_title",
+            "args": { "title": "New Title", "count": 3 },
+        }))
+        .expect("deserialize");
+        assert_eq!(p.target, "MainPanel");
+        assert_eq!(p.method, "set_title");
+        assert_eq!(p.args["title"], "New Title");
+        assert_eq!(p.args["count"], 3);
+    }
+
+    /// Regression: `AlvaDevtools::new` trims trailing slashes from
+    /// base_url so the `format!("{}/api/...", base_url)` pattern at every
+    /// tool method (alva_views, alva_inspect, alva_action, alva_screenshot,
+    /// alva_shutdown) doesn't produce malformed `//api/...` URLs. T7 fix.
+    #[test]
+    fn base_url_trailing_slash_is_trimmed() {
+        let dev = AlvaDevtools::new("http://example:9229/".to_string());
+        assert_eq!(dev.base_url, "http://example:9229", "single trailing slash trimmed");
+
+        // Multiple trailing slashes should all go — `trim_end_matches('/')`
+        // strips repeatedly.
+        let dev = AlvaDevtools::new("http://example:9229///".to_string());
+        assert_eq!(dev.base_url, "http://example:9229", "multiple trailing slashes trimmed");
+
+        // No trailing slash is unchanged
+        let dev = AlvaDevtools::new("http://example:9229".to_string());
+        assert_eq!(dev.base_url, "http://example:9229", "unchanged when no trailing slash");
+
+        // Format! site no longer produces `//api/...`
+        let dev = AlvaDevtools::new("http://example:9229/".to_string());
+        let url = format!("{}/api/inspect/views", dev.base_url);
+        assert_eq!(url, "http://example:9229/api/inspect/views");
+    }
 }

@@ -1427,10 +1427,10 @@ async fn ensure_agent(
         builder = builder.extension(Box::new(InteractionExtension));
     }
     if on("task", true) {
-        builder = builder.extension(Box::new(TaskExtension));
+        builder = builder.extension(Box::new(TaskExtension::default()));
     }
     if on("team", true) {
-        builder = builder.extension(Box::new(TeamExtension));
+        builder = builder.extension(Box::new(TeamExtension::default()));
     }
     if on("planning", true) {
         builder = builder.extension(Box::new(PlanningExtension));

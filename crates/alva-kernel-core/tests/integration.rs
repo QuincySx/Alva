@@ -101,7 +101,7 @@ async fn simple_echo_run() {
     let mut state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Echo bot.".to_string(),
+        system_prompt: vec!["Echo bot.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -168,7 +168,7 @@ async fn run_with_middleware() {
 
     let config = AgentConfig {
         middleware: mw_stack,
-        system_prompt: "Echo bot with middleware.".to_string(),
+        system_prompt: vec!["Echo bot with middleware.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -204,7 +204,7 @@ async fn cancellation_mid_run() {
     let mut state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Test.".to_string(),
+        system_prompt: vec!["Test.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -248,7 +248,7 @@ async fn session_persists_across_check() {
     let mut state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Persist test.".to_string(),
+        system_prompt: vec!["Persist test.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -333,7 +333,7 @@ async fn no_follow_up_means_single_pass() {
     let mut state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Echo bot.".to_string(),
+        system_prompt: vec!["Echo bot.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -369,7 +369,7 @@ async fn message_events_share_the_same_message_id() {
     let mut state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Echo bot.".to_string(),
+        system_prompt: vec!["Echo bot.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -493,7 +493,7 @@ async fn claude_style_tool_call_deltas_merge_into_one_tool_use() {
     let mut state = make_state_with_model(Arc::new(ClaudeStyleToolDeltaModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Tool caller.".to_string(),
+        system_prompt: vec!["Tool caller.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -591,7 +591,7 @@ async fn malformed_tool_arguments_fail_fast() {
     let mut state = make_state_with_model(Arc::new(MalformedToolDeltaModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Tool caller.".to_string(),
+        system_prompt: vec!["Tool caller.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -686,7 +686,7 @@ async fn stream_error_emits_message_error_event() {
     let mut state = make_state_with_model(Arc::new(StreamErrorModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Failing bot.".to_string(),
+        system_prompt: vec!["Failing bot.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -786,7 +786,7 @@ async fn after_llm_call_failure_emits_message_error_event() {
 
     let config = AgentConfig {
         middleware,
-        system_prompt: "Echo bot.".to_string(),
+        system_prompt: vec!["Echo bot.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -971,7 +971,7 @@ async fn cancellation_between_tool_calls_stops_remaining_tools() {
 
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Tool caller.".to_string(),
+        system_prompt: vec!["Tool caller.".to_string()],
         max_iterations: 100,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -1081,7 +1081,7 @@ async fn context_hooks_fire_at_lifecycle_points() {
     };
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: String::new(),
+        system_prompt: vec![],
         max_iterations: 5,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -1210,7 +1210,7 @@ async fn assemble_can_inject_extra_message() {
     };
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: String::new(),
+        system_prompt: vec![],
         max_iterations: 5,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -1352,7 +1352,7 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
     };
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: String::new(),
+        system_prompt: vec![],
         max_iterations: 5,
         model_config: ModelConfig::default(),
         context_window: 0,
@@ -1394,7 +1394,7 @@ async fn context_hooks_disabled_by_default() {
     };
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: String::new(),
+        system_prompt: vec![],
         max_iterations: 5,
         model_config: ModelConfig::default(),
         context_window: 0,

@@ -6,6 +6,6 @@ pub mod manager;
 pub mod schema;
 pub mod sqlite_session;
 
-pub use manager::{SessionSummary, SqliteEvalSessionManager, StoredModel, StoredWorkspace};
+pub use manager::{SessionSummary, SqliteEvalSessionManager, StoredWorkspace};
 #[allow(unused_imports)]
 pub use sqlite_session::SqliteEvalSession;

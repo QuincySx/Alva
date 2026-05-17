@@ -225,7 +225,7 @@ fn main() {
 
     let config = AgentConfig {
         middleware: stack,
-        system_prompt: "You are a demo assistant.".to_string(),
+        system_prompt: vec!["You are a demo assistant.".to_string()],
         max_iterations: 100,
         model_config: alva_kernel_abi::ModelConfig::default(),
         context_window: 0,

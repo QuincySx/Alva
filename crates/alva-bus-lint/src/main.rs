@@ -325,3 +325,108 @@ fn record_crate(c: String, self_crate: &str, out: &mut BTreeSet<String>) {
     }
     out.insert(norm);
 }
+
+#[cfg(test)]
+mod tests {
+    //! Pure-helper tests for the lint internals. The end-to-end main()
+    //! pass needs a real workspace tree; that's covered by running the
+    //! binary in CI rather than from these unit tests.
+
+    use super::*;
+
+    // -- parse_package_name -------------------------------------------------
+
+    #[test]
+    fn parse_package_name_happy() {
+        let toml = r#"[package]
+name = "alva-bus-lint"
+version = "0.1.0"
+"#;
+        assert_eq!(parse_package_name(toml), Some("alva-bus-lint".to_string()));
+    }
+
+    #[test]
+    fn parse_package_name_ignores_name_outside_package_section() {
+        // A `name = "..."` line under [[bin]] or [dependencies] must not
+        // be mistaken for the package name.
+        let toml = r#"[package]
+version = "0.1.0"
+
+[[bin]]
+name = "alva-bus-lint"
+path = "src/main.rs"
+"#;
+        assert_eq!(parse_package_name(toml), None, "must only read [package].name");
+    }
+
+    #[test]
+    fn parse_package_name_handles_extra_whitespace() {
+        let toml = r#"[package]
+name      =     "spaced-name"
+"#;
+        assert_eq!(parse_package_name(toml), Some("spaced-name".to_string()));
+    }
+
+    // -- record_crate -------------------------------------------------------
+
+    #[test]
+    fn record_crate_normalizes_dashes_and_filters_std() {
+        let mut out = BTreeSet::new();
+        // std/core/alloc are always dropped
+        record_crate("std".into(), "", &mut out);
+        record_crate("core".into(), "", &mut out);
+        record_crate("alloc".into(), "", &mut out);
+        // dashes normalized to underscores when stored
+        record_crate("alva-kernel-abi".into(), "", &mut out);
+        record_crate("alva-agent-core".into(), "", &mut out);
+        assert_eq!(
+            out.iter().cloned().collect::<Vec<_>>(),
+            vec!["alva_agent_core".to_string(), "alva_kernel_abi".to_string()]
+        );
+    }
+
+    #[test]
+    fn record_crate_filters_self_crate() {
+        let mut out = BTreeSet::new();
+        // self_crate is already in the normalized (underscore) form.
+        record_crate("alva-kernel-abi".into(), "alva_kernel_abi", &mut out);
+        record_crate("alva-agent-core".into(), "alva_kernel_abi", &mut out);
+        assert!(
+            out.iter().all(|c| c != "alva_kernel_abi"),
+            "self crate must not appear in surface set"
+        );
+        assert!(out.contains("alva_agent_core"));
+    }
+
+    // -- has_marker (drives the whole lint trigger) -------------------------
+
+    #[test]
+    fn has_marker_matches_path_last_segment() {
+        // Trait with `#[bus_cap]` — the marker must be detected
+        let file: syn::File = syn::parse_str(
+            "#[bus_cap]\ntrait Foo {}",
+        )
+        .unwrap();
+        let attrs = match &file.items[0] {
+            syn::Item::Trait(t) => &t.attrs,
+            _ => panic!("expected Item::Trait"),
+        };
+        assert!(has_marker(attrs, "bus_cap"));
+        assert!(!has_marker(attrs, "bus_event"), "non-matching name should be false");
+    }
+
+    #[test]
+    fn has_marker_matches_fully_qualified_marker_path() {
+        // Some crates apply the attr fully-qualified: `#[alva_macros::bus_cap]`.
+        // `has_marker` checks the LAST path segment so this should still trip.
+        let file: syn::File = syn::parse_str(
+            "#[alva_macros::bus_cap]\ntrait Foo {}",
+        )
+        .unwrap();
+        let attrs = match &file.items[0] {
+            syn::Item::Trait(t) => &t.attrs,
+            _ => panic!("expected Item::Trait"),
+        };
+        assert!(has_marker(attrs, "bus_cap"), "must match on fully-qualified path");
+    }
+}

@@ -259,3 +259,65 @@ pub type SharedBrowserManager = Arc<Mutex<BrowserManager>>;
 pub fn shared_browser_manager() -> SharedBrowserManager {
     Arc::new(Mutex::new(BrowserManager::new()))
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests target the "no Chrome required" surface of `BrowserManager`:
+    //! empty-state queries and error paths when an instance id is absent.
+    //! Anything that would launch a real Chrome (`start`, `navigate`, etc.)
+    //! is out of scope — those need a full chromiumoxide-runnable test rig
+    //! with a binary on PATH and are a separate proposal.
+
+    use super::*;
+
+    #[test]
+    fn new_returns_empty_state() {
+        let mgr = BrowserManager::new();
+        assert!(mgr.instance_ids().is_empty(), "fresh manager has no ids");
+        assert!(!mgr.is_running("default"), "fresh manager has no 'default'");
+        assert!(mgr.get("default").is_none(), "fresh manager has no instance");
+    }
+
+    #[test]
+    fn default_equals_new() {
+        // Default impl is currently `Self::new()` — guard so a future
+        // refactor doesn't silently change the empty-state contract.
+        let d = BrowserManager::default();
+        assert!(d.instance_ids().is_empty());
+        assert!(!d.is_running("any"));
+    }
+
+    #[tokio::test]
+    async fn stop_unknown_id_returns_clear_error() {
+        let mut mgr = BrowserManager::new();
+        let err = mgr.stop("ghost").await.expect_err("absent stop should err");
+        assert!(err.contains("ghost"), "error should mention the id: {err}");
+        assert!(err.contains("not found"), "error should mention 'not found': {err}");
+    }
+
+    #[tokio::test]
+    async fn list_tabs_unknown_id_returns_clear_error() {
+        let mgr = BrowserManager::new();
+        let err = mgr.list_tabs("ghost").await.expect_err("absent list_tabs should err");
+        assert!(err.contains("ghost"));
+        assert!(err.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn active_page_unknown_id_returns_clear_error() {
+        let mgr = BrowserManager::new();
+        let err = mgr.active_page("ghost").await.expect_err("absent active_page should err");
+        assert!(err.contains("ghost"));
+        assert!(err.contains("not found"));
+    }
+
+    /// `stop_all` on an empty manager must be a clean no-op — exercised
+    /// by `BrowserExtension::finalize`-style shutdown paths.
+    #[tokio::test]
+    async fn stop_all_on_empty_is_noop() {
+        let mut mgr = BrowserManager::new();
+        mgr.stop_all().await;
+        // Still empty after — and the test passes if no panic / no hang.
+        assert!(mgr.instance_ids().is_empty());
+    }
+}

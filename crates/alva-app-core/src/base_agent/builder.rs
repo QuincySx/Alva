@@ -86,26 +86,34 @@ impl BaseAgentBuilder {
         self
     }
 
-    // -- Direct tool/middleware (internal only) ---------------------------------
-    // These bypass the Extension abstraction. Kept for eval harnesses and
-    // internal wiring within app-core; NOT for external crate consumption.
+    // -- Direct tool/middleware (eval harnesses + integration tests) -----------
+    // These bypass the Extension abstraction. Production code should register
+    // tools/middleware via Extension; these escape hatches exist so eval
+    // harnesses and this crate's `tests/e2e_*` integration tests don't have
+    // to wrap every mock tool in a one-shot Extension. `#[doc(hidden)]` keeps
+    // them out of the public API surface to discourage misuse from
+    // application code.
 
-    pub(crate) fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
+    #[doc(hidden)]
+    pub fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
         self.extra_tools.extend(tools);
         self
     }
 
-    pub(crate) fn tool(mut self, tool: Box<dyn Tool>) -> Self {
+    #[doc(hidden)]
+    pub fn tool(mut self, tool: Box<dyn Tool>) -> Self {
         self.extra_tools.push(tool);
         self
     }
 
-    pub(crate) fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
+    #[doc(hidden)]
+    pub fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
         self.extra_middleware.extend(mws);
         self
     }
 
-    pub(crate) fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
+    #[doc(hidden)]
+    pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
         self.extra_middleware.push(mw);
         self
     }

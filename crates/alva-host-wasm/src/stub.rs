@@ -114,3 +114,86 @@ impl Stream for StubStream {
         std::task::Poll::Ready(self.events[idx].take())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! StubLanguageModel powers the smoke probe + native agent.rs tests +
+    //! wasm-bindgen entry demos. Pin its contract so a refactor that
+    //! quietly changes the response shape (e.g. drops `Done`, emits two
+    //! `TextDelta`s) doesn't slip through.
+
+    use super::*;
+    use std::future::poll_fn;
+    use std::pin::Pin;
+
+    #[test]
+    fn default_response_is_stub_response() {
+        let m = StubLanguageModel::default();
+        assert_eq!(m.response, "stub-response");
+    }
+
+    #[test]
+    fn model_id_is_constant_stub() {
+        let m = StubLanguageModel::default();
+        assert_eq!(m.model_id(), "stub");
+        // Custom-response instance still reports "stub" — model_id is
+        // about identity, not output.
+        let custom = StubLanguageModel::new("anything");
+        assert_eq!(custom.model_id(), "stub");
+    }
+
+    #[tokio::test]
+    async fn complete_returns_custom_response_as_assistant_message() {
+        let m = StubLanguageModel::new("hello");
+        let config = ModelConfig::default();
+        let resp = m.complete(&[], &[], &config).await.expect("complete");
+        let msg = &resp.message;
+        assert_eq!(msg.role, MessageRole::Assistant);
+        assert_eq!(msg.content.len(), 1);
+        match &msg.content[0] {
+            ContentBlock::Text { text } => assert_eq!(text, "hello"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+        assert!(msg.tool_call_id.is_none(), "stub never sets tool_call_id");
+    }
+
+    #[tokio::test]
+    async fn stream_yields_exactly_text_delta_then_done() {
+        let m = StubLanguageModel::new("hi");
+        let config = ModelConfig::default();
+        let mut s = m.stream(&[], &[], &config);
+
+        // Event 1: TextDelta with response text
+        let e1 = poll_fn(|cx| Pin::new(&mut s).poll_next(cx)).await;
+        match e1 {
+            Some(StreamEvent::TextDelta { text }) => assert_eq!(text, "hi"),
+            other => panic!("expected TextDelta, got {other:?}"),
+        }
+
+        // Event 2: Done
+        let e2 = poll_fn(|cx| Pin::new(&mut s).poll_next(cx)).await;
+        assert!(matches!(e2, Some(StreamEvent::Done)), "expected Done, got {e2:?}");
+
+        // Event 3: stream terminates
+        let e3 = poll_fn(|cx| Pin::new(&mut s).poll_next(cx)).await;
+        assert!(e3.is_none(), "stream should terminate after Done");
+    }
+
+    /// Re-polling after termination must be safe (return `None` again,
+    /// no panic). Some downstream stream combinators poll past `None`.
+    #[tokio::test]
+    async fn stream_poll_after_termination_is_none_safe() {
+        let m = StubLanguageModel::default();
+        let config = ModelConfig::default();
+        let mut s = m.stream(&[], &[], &config);
+        // Drain
+        for _ in 0..2 {
+            let _ = poll_fn(|cx| Pin::new(&mut s).poll_next(cx)).await;
+        }
+        // Two extra polls — both must return None without panic
+        for _ in 0..2 {
+            let e = poll_fn(|cx| Pin::new(&mut s).poll_next(cx)).await;
+            assert!(e.is_none());
+        }
+    }
+}

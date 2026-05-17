@@ -178,7 +178,8 @@ let agent = BaseAgent::builder()
 | `scripts/ci-check-deps.sh` | CI 强制 crate 边界规则。Rule 17 = SDK 不得依赖 app/host。19 个 crate 必须 wasm32-clean。 |
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object）。 |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app。 |
-| `Cargo.toml` | Rust workspace，管理 29 个 crate。 |
+| `Cargo.toml` | Rust workspace，管理 30 个 crate。 |
+| `alva-bus-lint` | CI lint binary：扫 `#[bus_cap]` trait 的跨 crate 类型表面，配合 `docs/BUS-RULES.md` 防止 bus 退化为 God Object。 |
 | `sdk/python/` | Python 插件 SDK（`alva_sdk` 包）。供第三方用 Python 写 `alva-app-extension-loader` 的子进程插件，不在 Cargo workspace 里。 |
 
 ---

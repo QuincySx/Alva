@@ -92,7 +92,7 @@ async fn full_run_produces_skeleton_events_in_order() {
 
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
-        system_prompt: "Skeleton event test.".to_string(),
+        system_prompt: vec!["Skeleton event test.".to_string()],
         max_iterations: 10,
         model_config: ModelConfig::default(),
         context_window: 0,
