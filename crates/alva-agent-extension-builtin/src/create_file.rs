@@ -73,7 +73,6 @@ impl CreateFileTool {
 
         // Detect if file already exists — determine overwrite vs create
         let is_overwrite = fs.exists(path_str).await.unwrap_or(false);
-        let mut staleness_warning: Option<String> = None;
 
         // Prepare content — preserve line endings of existing file
         let final_content = if is_overwrite {
@@ -100,16 +99,12 @@ impl CreateFileTool {
             .map_err(|e| AgentError::ToolError { tool_name: "create_file".into(), message: e.to_string() })?;
 
         let action = if is_overwrite { "overwritten" } else { "created" };
-        let mut summary = format!(
+        let summary = format!(
             "File {}: {} ({} bytes)",
             action,
             file_path.display(),
             final_content.len()
         );
-
-        if let Some(warning) = staleness_warning.take() {
-            summary.push_str(&format!("\n\nWarning: {}", warning));
-        }
 
         Ok(ToolOutput {
             content: vec![ToolContent::text(summary)],
@@ -120,5 +115,139 @@ impl CreateFileTool {
                 "bytes_written": final_content.len(),
             })),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use crate::MockToolFs;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext, ToolFs};
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+        fs: MockToolFs,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn tool_fs(&self) -> Option<&dyn ToolFs> {
+            Some(&self.fs)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn create_new_file_succeeds() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new(),
+        };
+        let tool = CreateFileTool;
+
+        let output = tool
+            .execute(
+                json!({
+                    "path": "hello.txt",
+                    "content": "hi there",
+                }),
+                &ctx,
+            )
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error, "expected success, got: {}", output.model_text());
+        assert!(output.model_text().contains("created"));
+
+        let stored = ctx
+            .fs
+            .read_file("/workspace/hello.txt")
+            .await
+            .expect("file should be written");
+        assert_eq!(stored, b"hi there");
+    }
+
+    #[tokio::test]
+    async fn overwrite_preserves_crlf_line_endings() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/win.txt", b"old\r\nlines\r\n"),
+        };
+        let tool = CreateFileTool;
+
+        let output = tool
+            .execute(
+                json!({
+                    "path": "win.txt",
+                    "content": "new\nshiny\nlines",
+                }),
+                &ctx,
+            )
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        assert!(output.model_text().contains("overwritten"));
+
+        let stored = ctx
+            .fs
+            .read_file("/workspace/win.txt")
+            .await
+            .expect("file should still exist");
+        assert_eq!(stored, b"new\r\nshiny\r\nlines");
+    }
+
+    #[tokio::test]
+    async fn missing_workspace_returns_tool_error() {
+        struct NoWorkspaceCtx {
+            cancel: CancellationToken,
+        }
+        impl ToolExecutionContext for NoWorkspaceCtx {
+            fn cancel_token(&self) -> &CancellationToken {
+                &self.cancel
+            }
+            fn session_id(&self) -> &str {
+                "test-session"
+            }
+            fn workspace(&self) -> Option<&Path> {
+                None
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        let ctx = NoWorkspaceCtx { cancel: CancellationToken::new() };
+        let tool = CreateFileTool;
+        let err = tool
+            .execute(
+                json!({
+                    "path": "x.txt",
+                    "content": "y",
+                }),
+                &ctx,
+            )
+            .await
+            .expect_err("should error without workspace");
+        assert!(
+            err.to_string().contains("workspace") || err.to_string().contains("filesystem"),
+            "unexpected error: {err}"
+        );
     }
 }

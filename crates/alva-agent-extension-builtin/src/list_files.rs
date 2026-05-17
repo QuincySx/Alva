@@ -131,3 +131,114 @@ impl ListFilesTool {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use crate::MockToolFs;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext, ToolFs};
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+        fs: MockToolFs,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn tool_fs(&self) -> Option<&dyn ToolFs> {
+            Some(&self.fs)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn lists_immediate_children_non_recursive() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new()
+                .with_file("/workspace/a.txt", b"a")
+                .with_file("/workspace/b.txt", b"b")
+                .with_file("/workspace/sub/c.txt", b"c"),
+        };
+        let tool = ListFilesTool;
+
+        let output = tool
+            .execute(json!({}), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error, "got: {}", output.model_text());
+        let text = output.model_text();
+        assert!(text.contains("a.txt"), "missing a.txt: {text}");
+        assert!(text.contains("b.txt"), "missing b.txt: {text}");
+        // sub is a directory — appears with trailing /
+        assert!(text.contains("sub/"), "missing sub/: {text}");
+        // Non-recursive: should NOT list "sub/c.txt"
+        assert!(!text.contains("c.txt"), "should not recurse: {text}");
+    }
+
+    #[tokio::test]
+    async fn recursive_lists_nested_files() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new()
+                .with_file("/workspace/top.txt", b"t")
+                .with_file("/workspace/nested/inner.txt", b"i"),
+        };
+        let tool = ListFilesTool;
+
+        let output = tool
+            .execute(json!({ "recursive": true, "max_depth": 3 }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        let text = output.model_text();
+        assert!(text.contains("top.txt"));
+        assert!(text.contains("nested/inner.txt"), "missing nested file: {text}");
+    }
+
+    #[tokio::test]
+    async fn missing_workspace_returns_error() {
+        struct NoWorkspaceCtx {
+            cancel: CancellationToken,
+        }
+        impl ToolExecutionContext for NoWorkspaceCtx {
+            fn cancel_token(&self) -> &CancellationToken {
+                &self.cancel
+            }
+            fn session_id(&self) -> &str {
+                "test-session"
+            }
+            fn workspace(&self) -> Option<&Path> {
+                None
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+        let ctx = NoWorkspaceCtx { cancel: CancellationToken::new() };
+        let tool = ListFilesTool;
+        let err = tool
+            .execute(json!({}), &ctx)
+            .await
+            .expect_err("should error without workspace");
+        assert!(err.to_string().contains("filesystem") || err.to_string().contains("workspace"));
+    }
+}

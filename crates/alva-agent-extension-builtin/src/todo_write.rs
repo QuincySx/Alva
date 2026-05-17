@@ -78,3 +78,118 @@ impl TodoWriteTool {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use crate::MockToolFs;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext, ToolFs};
+    use serde_json::json;
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+        fs: MockToolFs,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn tool_fs(&self) -> Option<&dyn ToolFs> {
+            Some(&self.fs)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn writes_to_default_claude_md_when_no_file_path() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new(),
+        };
+        let tool = TodoWriteTool;
+
+        let output = tool
+            .execute(json!({ "content": "- first todo" }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        let stored = ctx
+            .fs
+            .read_file("/workspace/CLAUDE.md")
+            .await
+            .expect("should write to default path");
+        let text = String::from_utf8(stored).unwrap();
+        assert_eq!(text, "- first todo\n");
+    }
+
+    #[tokio::test]
+    async fn appends_to_existing_file_with_separating_newline() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new()
+                .with_file("/workspace/notes.md", b"existing line without trailing newline"),
+        };
+        let tool = TodoWriteTool;
+
+        let output = tool
+            .execute(
+                json!({ "content": "appended", "file_path": "notes.md" }),
+                &ctx,
+            )
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        let stored = ctx
+            .fs
+            .read_file("/workspace/notes.md")
+            .await
+            .unwrap();
+        let text = String::from_utf8(stored).unwrap();
+        assert_eq!(text, "existing line without trailing newline\nappended\n");
+    }
+
+    #[tokio::test]
+    async fn missing_workspace_returns_error() {
+        struct NoWorkspaceCtx {
+            cancel: CancellationToken,
+        }
+        impl ToolExecutionContext for NoWorkspaceCtx {
+            fn cancel_token(&self) -> &CancellationToken {
+                &self.cancel
+            }
+            fn session_id(&self) -> &str {
+                "test-session"
+            }
+            fn workspace(&self) -> Option<&Path> {
+                None
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+        let ctx = NoWorkspaceCtx { cancel: CancellationToken::new() };
+        let tool = TodoWriteTool;
+        let err = tool
+            .execute(json!({ "content": "x" }), &ctx)
+            .await
+            .expect_err("should error without workspace");
+        assert!(err.to_string().contains("workspace"));
+    }
+}

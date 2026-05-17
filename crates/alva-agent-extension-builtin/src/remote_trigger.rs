@@ -128,3 +128,151 @@ impl Tool for RemoteTriggerTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use super::*;
+    use alva_kernel_abi::CancellationToken;
+
+    struct TestContext {
+        cancel: CancellationToken,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    fn ctx() -> TestContext {
+        TestContext {
+            cancel: CancellationToken::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn list_returns_empty_stub_disclosure() {
+        let tool = RemoteTriggerTool;
+        let out = tool
+            .execute(json!({ "action": "list" }), &ctx())
+            .await
+            .expect("list should succeed");
+
+        assert!(!out.is_error);
+        let text = out.model_text();
+        assert!(text.contains("No remote triggers configured"), "got: {text}");
+        assert!(text.contains("not yet wired"), "stub disclosure missing: {text}");
+    }
+
+    #[tokio::test]
+    async fn get_with_id_echoes_and_stub_disclaims() {
+        let tool = RemoteTriggerTool;
+        let out = tool
+            .execute(
+                json!({ "action": "get", "trigger_id": "trigger-abc12345" }),
+                &ctx(),
+            )
+            .await
+            .expect("get should succeed");
+
+        let text = out.model_text();
+        assert!(text.contains("trigger-abc12345"), "id missing: {text}");
+        assert!(text.contains("not yet wired"), "stub disclosure missing: {text}");
+    }
+
+    #[tokio::test]
+    async fn get_without_trigger_id_errors() {
+        let tool = RemoteTriggerTool;
+        let err = tool
+            .execute(json!({ "action": "get" }), &ctx())
+            .await
+            .expect_err("get without trigger_id should error");
+
+        assert!(format!("{err}").contains("trigger_id"), "expected trigger_id in error: {err}");
+    }
+
+    /// Combined coverage: create accepts an optional body (omit OR pass an
+    /// arbitrary object); both must succeed and return a `trigger-XXXXXXXX`
+    /// id. Saves a test slot vs splitting into two.
+    #[tokio::test]
+    async fn create_accepts_optional_body_and_returns_prefixed_id() {
+        let tool = RemoteTriggerTool;
+
+        // With body
+        let out = tool
+            .execute(
+                json!({ "action": "create", "body": { "url": "https://example.com" } }),
+                &ctx(),
+            )
+            .await
+            .expect("create with body should succeed");
+        let text = out.model_text();
+        assert!(text.contains("trigger-"), "id prefix missing: {text}");
+        assert!(text.contains("example.com"), "body echo missing: {text}");
+
+        // Without body — defaults to `{}`
+        let out2 = tool
+            .execute(json!({ "action": "create" }), &ctx())
+            .await
+            .expect("create without body should succeed (defaults to {})");
+        assert!(out2.model_text().contains("trigger-"), "id prefix missing on no-body: {}", out2.model_text());
+    }
+
+    #[tokio::test]
+    async fn update_without_trigger_id_errors() {
+        let tool = RemoteTriggerTool;
+        let err = tool
+            .execute(
+                json!({ "action": "update", "body": { "x": 1 } }),
+                &ctx(),
+            )
+            .await
+            .expect_err("update without trigger_id should error");
+
+        assert!(format!("{err}").contains("trigger_id"), "expected trigger_id in error: {err}");
+    }
+
+    #[tokio::test]
+    async fn run_without_trigger_id_errors() {
+        let tool = RemoteTriggerTool;
+        let err = tool
+            .execute(json!({ "action": "run" }), &ctx())
+            .await
+            .expect_err("run without trigger_id should error");
+
+        assert!(format!("{err}").contains("trigger_id"), "expected trigger_id in error: {err}");
+    }
+
+    #[tokio::test]
+    async fn unknown_action_surfaces_as_tool_output_error() {
+        let tool = RemoteTriggerTool;
+        let out = tool
+            .execute(json!({ "action": "delete" }), &ctx())
+            .await
+            .expect("unknown action returns Ok(error output)");
+
+        assert!(out.is_error);
+        assert!(out.model_text().contains("Invalid action"));
+    }
+
+    #[test]
+    fn is_read_only_distinguishes_mutating_actions() {
+        let tool = RemoteTriggerTool;
+        assert!(tool.is_read_only(&json!({ "action": "list" })));
+        assert!(tool.is_read_only(&json!({ "action": "get" })));
+        assert!(!tool.is_read_only(&json!({ "action": "create" })));
+        assert!(!tool.is_read_only(&json!({ "action": "update" })));
+        assert!(!tool.is_read_only(&json!({ "action": "run" })));
+        // Defensive: unknown / missing action → NOT read-only.
+        assert!(!tool.is_read_only(&json!({ "action": "delete" })));
+        assert!(!tool.is_read_only(&json!({})));
+    }
+}

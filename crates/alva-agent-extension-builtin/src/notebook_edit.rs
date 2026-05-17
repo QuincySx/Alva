@@ -194,3 +194,146 @@ impl NotebookEditTool {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use crate::MockToolFs;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext, ToolFs};
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+        fs: MockToolFs,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn tool_fs(&self) -> Option<&dyn ToolFs> {
+            Some(&self.fs)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    fn make_notebook() -> Vec<u8> {
+        let nb = json!({
+            "cells": [
+                {
+                    "id": "cell-1",
+                    "cell_type": "code",
+                    "source": ["print('hi')\n"],
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": null,
+                }
+            ],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        });
+        serde_json::to_vec(&nb).unwrap()
+    }
+
+    #[tokio::test]
+    async fn replaces_existing_cell_source() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/nb.ipynb", &make_notebook()),
+        };
+        let tool = NotebookEditTool;
+
+        let output = tool
+            .execute(
+                json!({
+                    "notebook_path": "nb.ipynb",
+                    "cell_id": "cell-1",
+                    "new_source": "x = 42",
+                    "edit_mode": "replace",
+                }),
+                &ctx,
+            )
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error, "got: {}", output.model_text());
+        assert!(output.model_text().contains("replaced"));
+
+        let written = ctx
+            .fs
+            .read_file("/workspace/nb.ipynb")
+            .await
+            .expect("file should exist");
+        let nb: Value = serde_json::from_slice(&written).expect("valid json");
+        let cell = &nb["cells"][0];
+        assert_eq!(cell["id"], "cell-1");
+        // source is stored as an array of lines (with trailing newline)
+        let src = cell["source"].as_array().unwrap();
+        assert_eq!(src.len(), 1);
+        assert_eq!(src[0].as_str().unwrap(), "x = 42\n");
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_cell_returns_error_output() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/nb.ipynb", &make_notebook()),
+        };
+        let tool = NotebookEditTool;
+
+        let output = tool
+            .execute(
+                json!({
+                    "notebook_path": "nb.ipynb",
+                    "cell_id": "does-not-exist",
+                    "edit_mode": "delete",
+                }),
+                &ctx,
+            )
+            .await
+            .expect("execution should succeed with error output");
+
+        assert!(output.is_error);
+        assert!(output.model_text().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn replace_without_new_source_returns_tool_error() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/nb.ipynb", &make_notebook()),
+        };
+        let tool = NotebookEditTool;
+
+        let err = tool
+            .execute(
+                json!({
+                    "notebook_path": "nb.ipynb",
+                    "cell_id": "cell-1",
+                    "edit_mode": "replace",
+                }),
+                &ctx,
+            )
+            .await
+            .expect_err("replace without new_source should error");
+        assert!(
+            err.to_string().contains("new_source is required"),
+            "unexpected error: {err}"
+        );
+    }
+}

@@ -19,6 +19,7 @@ regex = "1"
 glob = "0.3"
 tracing = "0.1"
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
 
 # Native-only: process + fs + walkdir
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -30,6 +31,15 @@ alva-agent-context = { path = "../alva-agent-context" }
 
 [dev-dependencies]
 tempfile = "3"
+# Loop 16 added `#[tokio::test(flavor = "multi_thread", worker_threads = 4)]`
+# concurrency tests on services. The regular tokio dep above only has `rt`
+# (single-thread runtime); `rt-multi-thread` is enabled here only for tests.
+tokio = { version = "1", features = ["rt-multi-thread"] }
+# wiremock: HTTP mock server for testing `web` feature tools
+# (internet_search + read_url). Approved by user decision 2026-05-17 (option 2A).
+# Only compiled into the test profile; zero impact on production binary.
+# Smoke wiring verified by tests/wiremock_smoke.rs.
+wiremock = "0.6"
 
 [features]
 default = ["core", "utility"]

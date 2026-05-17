@@ -161,3 +161,97 @@ impl FindFilesTool {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext};
+    use tempfile::TempDir;
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn finds_files_matching_glob() {
+        let dir = TempDir::new().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("main.rs"), "fn main() {}").unwrap();
+        std::fs::write(root.join("lib.rs"), "pub fn foo() {}").unwrap();
+        std::fs::write(root.join("README.md"), "hello").unwrap();
+
+        let ctx = TestContext {
+            workspace: root.to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = FindFilesTool;
+
+        let output = tool
+            .execute(json!({ "pattern": "*.rs" }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        let text = output.model_text();
+        assert!(text.contains("main.rs"), "missing main.rs: {text}");
+        assert!(text.contains("lib.rs"), "missing lib.rs: {text}");
+        assert!(!text.contains("README.md"), "should not match README.md: {text}");
+    }
+
+    #[tokio::test]
+    async fn empty_result_returns_no_files_message() {
+        let dir = TempDir::new().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+
+        let ctx = TestContext {
+            workspace: root.to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = FindFilesTool;
+
+        let output = tool
+            .execute(json!({ "pattern": "*.no_such_extension" }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        assert!(output.model_text().contains("No files found"));
+    }
+
+    #[tokio::test]
+    async fn invalid_glob_pattern_returns_tool_error() {
+        let dir = TempDir::new().expect("tempdir");
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = FindFilesTool;
+
+        // `[` opens an unterminated character class, which `glob::Pattern::new` rejects.
+        let err = tool
+            .execute(json!({ "pattern": "[" }), &ctx)
+            .await
+            .expect_err("should error on invalid glob");
+        assert!(err.to_string().contains("Invalid glob"), "unexpected error: {err}");
+    }
+}

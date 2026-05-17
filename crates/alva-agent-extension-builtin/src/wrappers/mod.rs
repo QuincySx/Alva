@@ -8,7 +8,9 @@ pub mod security;
 pub mod shell;
 #[cfg(not(target_family = "wasm"))]
 pub mod system_context;
+#[cfg(feature = "task")]
 pub mod task;
+#[cfg(feature = "team")]
 pub mod team;
 pub mod utility;
 pub mod web;
@@ -23,7 +25,9 @@ pub use security::SecurityExtension;
 pub use shell::ShellExtension;
 #[cfg(not(target_family = "wasm"))]
 pub use system_context::SystemContextExtension;
+#[cfg(feature = "task")]
 pub use task::TaskExtension;
+#[cfg(feature = "team")]
 pub use team::TeamExtension;
 pub use utility::UtilityExtension;
 pub use web::WebExtension;

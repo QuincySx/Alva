@@ -119,3 +119,186 @@ impl Tool for ExitWorktreeTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    use super::*;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext};
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    /// Initialise a repo with a worktree. Returns (tempdir, main_repo_path, worktree_path).
+    /// Returns None if git is unavailable.
+    fn init_repo_with_worktree() -> Option<(tempfile::TempDir, PathBuf, PathBuf)> {
+        if Command::new("git").arg("--version").output().is_err() {
+            return None;
+        }
+
+        let parent = tempfile::TempDir::new().expect("tempdir");
+        let repo = parent.path().join("repo");
+        std::fs::create_dir(&repo).expect("mkdir repo");
+
+        let git = |args: &[&str], cwd: &Path| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .env("GIT_AUTHOR_NAME", "tester")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "tester")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                // Override any user-level config that would force commit/tag signing.
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .output()
+                .expect("git");
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+
+        git(&["init", "-q", "-b", "main"], &repo);
+        std::fs::write(repo.join("a.txt"), "x").expect("write");
+        git(&["add", "."], &repo);
+        git(&["commit", "-q", "-m", "init"], &repo);
+
+        // Place worktree *inside* the repo so that its parent dir is itself a git
+        // working tree — required for `git worktree remove` invoked from parent.
+        let wt = repo.join("wt");
+        git(
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "branch/wt",
+                wt.to_str().unwrap(),
+                "HEAD",
+            ],
+            &repo,
+        );
+
+        Some((parent, repo, wt))
+    }
+
+    #[tokio::test]
+    async fn keep_action_returns_success_without_running_git() {
+        // 'keep' does not need a real git repo
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = ExitWorktreeTool;
+
+        let output = tool
+            .execute(json!({ "action": "keep" }), &ctx)
+            .await
+            .expect("execute should succeed");
+
+        assert!(!output.is_error);
+        assert!(
+            output.model_text().contains("Worktree kept"),
+            "unexpected: {}",
+            output.model_text()
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_action_returns_error_output() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = ExitWorktreeTool;
+
+        let output = tool
+            .execute(json!({ "action": "nope" }), &ctx)
+            .await
+            .expect("execute should succeed with error output");
+
+        assert!(output.is_error);
+        assert!(
+            output.model_text().contains("Invalid action"),
+            "unexpected: {}",
+            output.model_text()
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_action_field_returns_tool_error() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = ExitWorktreeTool;
+
+        let err = tool
+            .execute(json!({}), &ctx)
+            .await
+            .expect_err("missing 'action' should fail deserialisation");
+        assert!(err.to_string().contains("action"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn is_destructive_only_when_removing() {
+        let tool = ExitWorktreeTool;
+        assert!(tool.is_destructive(&json!({ "action": "remove" })));
+        assert!(!tool.is_destructive(&json!({ "action": "keep" })));
+        assert!(!tool.is_destructive(&json!({})));
+    }
+
+    #[tokio::test]
+    async fn remove_action_removes_worktree() {
+        let Some((_parent, _repo, wt)) = init_repo_with_worktree() else {
+            eprintln!("git not available — skipping remove_action_removes_worktree");
+            return;
+        };
+
+        assert!(wt.exists(), "precondition: worktree should exist");
+
+        let ctx = TestContext {
+            workspace: wt.clone(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = ExitWorktreeTool;
+
+        let output = tool
+            .execute(json!({ "action": "remove" }), &ctx)
+            .await
+            .expect("execute should succeed");
+
+        assert!(!output.is_error, "remove failed: {}", output.model_text());
+        assert!(
+            output.model_text().contains("removed successfully"),
+            "unexpected: {}",
+            output.model_text()
+        );
+        assert!(!wt.exists(), "worktree dir should be gone");
+    }
+}

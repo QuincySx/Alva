@@ -4,13 +4,80 @@
 //         environment variables, background execution, description, and git operation tracking.
 //! execute_shell — run shell commands via ToolFs
 
-use alva_kernel_abi::{AgentError, ProgressEvent, Tool, ToolContent, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{
+    AgentError, CancellationToken, ProgressEvent, Tool, ToolContent, ToolExecutionContext,
+    ToolFsExecResult, ToolOutput,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
+use std::path::Path;
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::process::Command;
 
 use crate::local_fs::LocalToolFs;
+
+// Foreground exec path — bypasses `ToolFs::exec` so we can `select!` on the
+// caller's CancellationToken alongside timeout / wait. `ToolFs::exec`'s
+// trait signature has no token slot; rather than break that public API for
+// every adapter, we spawn directly here and rely on `kill_on_drop(true)`
+// for cleanup. When the user cancels, the wait future is dropped, the
+// owned Child drops, and the OS receives SIGKILL.
+enum ForegroundOutcome {
+    Output(ToolFsExecResult),
+    TimedOut,
+    Cancelled,
+    SpawnFailed(String),
+}
+
+async fn exec_foreground_cancellable(
+    command: &str,
+    cwd: &Path,
+    timeout_ms: u64,
+    cancel: &CancellationToken,
+) -> ForegroundOutcome {
+    let mut cmd = Command::new("sh");
+    cmd.kill_on_drop(true);
+    cmd.arg("-c").arg(command);
+    cmd.current_dir(cwd);
+    // `spawn()` inherits stdio from the parent by default; `wait_with_output()`
+    // only reads captured pipes. Explicit `piped()` here is what
+    // `Command::output()` does internally — required to get stdout/stderr.
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return ForegroundOutcome::SpawnFailed(e.to_string()),
+    };
+
+    // `wait_with_output` consumes the Child; dropping this future drops the
+    // Child which (via kill_on_drop) terminates the process group.
+    let wait_fut = child.wait_with_output();
+    tokio::pin!(wait_fut);
+
+    // `CancellationToken::cancelled()` needs `&mut`; clone the shared
+    // watch handle so we don't have to plumb a mut borrow through the
+    // tool API.
+    let mut cancel = cancel.clone();
+    let duration = Duration::from_millis(timeout_ms);
+
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => ForegroundOutcome::Cancelled,
+        _ = tokio::time::sleep(duration) => ForegroundOutcome::TimedOut,
+        result = &mut wait_fut => match result {
+            Ok(output) => ForegroundOutcome::Output(ToolFsExecResult {
+                stdout: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
+                exit_code: output.status.code().unwrap_or(-1),
+            }),
+            Err(e) => ForegroundOutcome::SpawnFailed(e.to_string()),
+        }
+    }
+}
 
 /// Default timeout in milliseconds (120 seconds).
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
@@ -169,8 +236,33 @@ impl ExecuteShellTool {
             }
         }
 
-        match fs.exec(&effective_command, cwd, timeout_ms).await {
-            Ok(result) => {
+        // Resolve cwd against workspace for the direct spawn path. The
+        // foreground branch no longer routes through `ToolFs::exec` — we
+        // spawn directly to gain CancellationToken support (see comment on
+        // `exec_foreground_cancellable`). Test/MockToolFs injection still
+        // applies to background path + read/write/list_dir/exists.
+        let resolved_cwd = match cwd {
+            Some(rel) => {
+                let p = Path::new(rel);
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    workspace.join(p)
+                }
+            }
+            None => workspace.to_path_buf(),
+        };
+        let _ = &fs; // foreground path bypasses fs; binding kept for background
+
+        match exec_foreground_cancellable(
+            &effective_command,
+            &resolved_cwd,
+            timeout_ms,
+            ctx.cancel_token(),
+        )
+        .await
+        {
+            ForegroundOutcome::Output(result) => {
                 // Report progress events (for real-time UI streaming)
                 for line in result.stdout.lines() {
                     ctx.report_progress(ProgressEvent::StdoutLine {
@@ -231,20 +323,227 @@ impl ExecuteShellTool {
                     details: Some(details),
                 })
             }
-            Err(AgentError::ToolError { message, .. }) if message.contains("timed out") => {
-                Ok(ToolOutput {
-                    content: vec![ToolContent::text(format!(
-                        "Command timed out after {}ms",
-                        timeout_ms
-                    ))],
-                    is_error: true,
-                    details: Some(json!({ "timed_out": true, "timeout_ms": timeout_ms })),
-                })
-            }
-            Err(e) => Err(AgentError::ToolError {
+            ForegroundOutcome::TimedOut => Ok(ToolOutput {
+                content: vec![ToolContent::text(format!(
+                    "Command timed out after {}ms",
+                    timeout_ms
+                ))],
+                is_error: true,
+                details: Some(json!({ "timed_out": true, "timeout_ms": timeout_ms })),
+            }),
+            ForegroundOutcome::Cancelled => Ok(ToolOutput {
+                content: vec![ToolContent::text(
+                    "Command cancelled by user".to_string(),
+                )],
+                is_error: true,
+                details: Some(json!({ "cancelled": true })),
+            }),
+            ForegroundOutcome::SpawnFailed(msg) => Err(AgentError::ToolError {
                 tool_name: "execute_shell".into(),
-                message: format!("Failed to execute command: {}", e),
+                message: format!("Failed to execute command: {}", msg),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext};
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    fn make_ctx() -> (TestContext, TempDir) {
+        let dir = TempDir::new().expect("tempdir");
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        (ctx, dir)
+    }
+
+    #[tokio::test]
+    async fn echo_captures_stdout_and_zero_exit() {
+        let (ctx, _dir) = make_ctx();
+        let tool = ExecuteShellTool;
+
+        let output = tool
+            .execute(json!({ "command": "echo hi" }), &ctx)
+            .await
+            .expect("execute should succeed");
+
+        assert!(!output.is_error, "echo should have exit 0");
+        let text = output.model_text();
+        assert!(text.contains("hi"), "expected 'hi' in output: {text}");
+        assert!(text.contains("exit_code: 0"), "exit_code missing: {text}");
+    }
+
+    #[tokio::test]
+    async fn nonzero_exit_marks_is_error() {
+        let (ctx, _dir) = make_ctx();
+        let tool = ExecuteShellTool;
+
+        // `exit 3` returns code 3 deterministically
+        let output = tool
+            .execute(json!({ "command": "exit 3" }), &ctx)
+            .await
+            .expect("execute should succeed");
+
+        assert!(output.is_error, "nonzero exit should set is_error");
+        let text = output.model_text();
+        assert!(text.contains("exit_code: 3"), "expected exit 3: {text}");
+    }
+
+    #[tokio::test]
+    async fn stderr_is_appended_to_output() {
+        let (ctx, _dir) = make_ctx();
+        let tool = ExecuteShellTool;
+
+        // Send to stderr only
+        let output = tool
+            .execute(
+                json!({ "command": "echo oops 1>&2" }),
+                &ctx,
+            )
+            .await
+            .expect("execute should succeed");
+
+        assert!(!output.is_error, "exit 0 even with stderr");
+        let text = output.model_text();
+        assert!(text.contains("oops"), "expected 'oops' in output: {text}");
+    }
+
+    #[tokio::test]
+    async fn timeout_returns_timeout_output() {
+        let (ctx, _dir) = make_ctx();
+        let tool = ExecuteShellTool;
+
+        // 100ms timeout, sleep 5s — should be killed
+        let output = tool
+            .execute(
+                json!({ "command": "sleep 5", "timeout": 100 }),
+                &ctx,
+            )
+            .await
+            .expect("timeout should produce ToolOutput, not Err");
+
+        assert!(output.is_error, "timed-out command should be marked error");
+        let text = output.model_text();
+        assert!(
+            text.contains("timed out"),
+            "expected 'timed out' in output: {text}"
+        );
+        let details = output.details.as_ref().expect("details present");
+        assert_eq!(details.get("timed_out").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn env_vars_are_injected() {
+        let (ctx, _dir) = make_ctx();
+        let tool = ExecuteShellTool;
+
+        let mut env = serde_json::Map::new();
+        env.insert("MY_VAR".to_string(), json!("vault-secret"));
+
+        let output = tool
+            .execute(
+                json!({
+                    "command": "echo $MY_VAR",
+                    "env": env,
+                }),
+                &ctx,
+            )
+            .await
+            .expect("execute should succeed");
+
+        assert!(!output.is_error);
+        let text = output.model_text();
+        assert!(
+            text.contains("vault-secret"),
+            "env var not injected: {text}"
+        );
+    }
+
+    #[test]
+    fn detect_git_operation_matches_known_prefixes() {
+        assert_eq!(detect_git_operation("git push origin main"), Some("git push"));
+        assert_eq!(detect_git_operation("  git commit -m 'x'"), Some("git commit"));
+        assert_eq!(detect_git_operation("ls"), None);
+        assert_eq!(detect_git_operation("git status"), None); // not in tracked list
+    }
+
+    /// Bug T4 regression guard: cancellation token must actually terminate
+    /// the child mid-flight. Before this fix, only the `timeout` parameter
+    /// could kill long-running commands — `CancellationToken::cancel()`
+    /// was silently ignored because `LocalToolFs::exec` had no cancel
+    /// slot in its signature.
+    #[tokio::test]
+    async fn cancellation_kills_running_command() {
+        let (ctx, _dir) = make_ctx();
+        let tool = ExecuteShellTool;
+        let token = ctx.cancel.clone();
+
+        // Long sleep with a generous timeout — without cancellation this
+        // would block for 10s. We assert it returns in under ~1s after
+        // the cancel.
+        let start = std::time::Instant::now();
+        let cancel_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            token.cancel();
+        });
+
+        let output = tool
+            .execute(
+                json!({
+                    "command": "sleep 10",
+                    "timeout": 60_000u64,
+                }),
+                &ctx,
+            )
+            .await
+            .expect("cancel should produce ToolOutput, not Err");
+
+        cancel_task.await.expect("cancel task should join");
+        let elapsed = start.elapsed();
+
+        assert!(output.is_error, "cancelled command should be marked error");
+        let text = output.model_text();
+        assert!(
+            text.contains("cancelled"),
+            "expected 'cancelled' in output: {text}"
+        );
+        let details = output.details.as_ref().expect("details present");
+        assert_eq!(
+            details.get("cancelled").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        // Must return well under the 10s sleep — the kill happened.
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "cancel didn't kill promptly: {elapsed:?}"
+        );
     }
 }

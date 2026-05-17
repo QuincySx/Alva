@@ -357,3 +357,118 @@ impl ReadFileTool {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use crate::MockToolFs;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext, ToolFs};
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+        fs: MockToolFs,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn tool_fs(&self) -> Option<&dyn ToolFs> {
+            Some(&self.fs)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn reads_text_file_with_line_numbers() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/hello.txt", b"line1\nline2\nline3"),
+        };
+        let tool = ReadFileTool;
+
+        let output = tool
+            .execute(json!({ "path": "hello.txt" }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error, "expected success, got: {}", output.model_text());
+        let text = output.model_text();
+        assert!(text.contains("line1"));
+        assert!(text.contains("line2"));
+        assert!(text.contains("line3"));
+        // Line numbers (right-padded to width 6)
+        assert!(text.contains("1\tline1"), "missing line number prefix: {text}");
+    }
+
+    #[tokio::test]
+    async fn missing_file_returns_error_output() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new(),
+        };
+        let tool = ReadFileTool;
+
+        let output = tool
+            .execute(json!({ "path": "nope.txt" }), &ctx)
+            .await
+            .expect("execution should succeed with error output");
+
+        assert!(output.is_error);
+        assert!(output.model_text().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn offset_beyond_eof_returns_message() {
+        let ctx = TestContext {
+            workspace: PathBuf::from("/workspace"),
+            cancel: CancellationToken::new(),
+            fs: MockToolFs::new().with_file("/workspace/short.txt", b"only one line"),
+        };
+        let tool = ReadFileTool;
+
+        let output = tool
+            .execute(json!({ "path": "short.txt", "offset": 100 }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        assert!(output.model_text().contains("beyond end of file"));
+    }
+
+    #[test]
+    fn parse_page_range_single_page() {
+        assert_eq!(parse_page_range("5").unwrap(), (5, 5));
+    }
+
+    #[test]
+    fn parse_page_range_caps_at_20() {
+        // request 1-100 → clamped to 1-20
+        assert_eq!(parse_page_range("1-100").unwrap(), (1, 20));
+    }
+
+    #[test]
+    fn parse_page_range_rejects_zero() {
+        assert!(parse_page_range("0").is_err());
+    }
+
+    #[test]
+    fn detect_image_mime_png() {
+        let png_hdr = [0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A];
+        assert_eq!(detect_image_mime(&png_hdr), Some("image/png"));
+    }
+}

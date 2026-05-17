@@ -9,6 +9,7 @@
 // Tool implementations and Extension wrappers are added task-by-task
 // during the rest of the refactor.
 
+pub mod services;
 pub mod truncate;
 pub mod wrappers;
 

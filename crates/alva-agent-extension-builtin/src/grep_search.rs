@@ -369,3 +369,127 @@ impl GrepSearchTool {
         Ok(ToolOutput::text(final_output))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use alva_kernel_abi::{CancellationToken, ToolExecutionContext};
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    struct TestContext {
+        workspace: PathBuf,
+        cancel: CancellationToken,
+    }
+
+    impl ToolExecutionContext for TestContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&Path> {
+            Some(&self.workspace)
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn finds_matching_files_default_mode() {
+        let dir = TempDir::new().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("a.rs"), "let needle = 1;\nlet x = 2;\n").unwrap();
+        std::fs::write(root.join("b.rs"), "no match here\n").unwrap();
+        std::fs::write(root.join("c.rs"), "another needle line\n").unwrap();
+
+        let ctx = TestContext {
+            workspace: root.to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = GrepSearchTool;
+
+        let output = tool
+            .execute(json!({ "pattern": "needle" }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        let text = output.model_text();
+        assert!(text.contains("a.rs"), "missing a.rs: {text}");
+        assert!(text.contains("c.rs"), "missing c.rs: {text}");
+        assert!(!text.contains("b.rs"), "should not list b.rs: {text}");
+    }
+
+    #[tokio::test]
+    async fn no_match_returns_message() {
+        let dir = TempDir::new().expect("tempdir");
+        std::fs::write(dir.path().join("a.txt"), "alpha beta gamma").unwrap();
+
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = GrepSearchTool;
+
+        let output = tool
+            .execute(json!({ "pattern": "z_no_such_string_z" }), &ctx)
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        assert!(output.model_text().contains("No matches found"));
+    }
+
+    #[tokio::test]
+    async fn invalid_regex_returns_tool_error() {
+        let dir = TempDir::new().expect("tempdir");
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = GrepSearchTool;
+
+        // Unbalanced parenthesis — invalid regex.
+        let err = tool
+            .execute(json!({ "pattern": "(foo" }), &ctx)
+            .await
+            .expect_err("should error on invalid regex");
+        assert!(err.to_string().contains("Invalid regex"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn content_mode_includes_line_numbers() {
+        let dir = TempDir::new().expect("tempdir");
+        std::fs::write(
+            dir.path().join("file.txt"),
+            "line one\nfind me line\nline three\n",
+        )
+        .unwrap();
+
+        let ctx = TestContext {
+            workspace: dir.path().to_path_buf(),
+            cancel: CancellationToken::new(),
+        };
+        let tool = GrepSearchTool;
+
+        let output = tool
+            .execute(
+                json!({ "pattern": "find me", "output_mode": "content" }),
+                &ctx,
+            )
+            .await
+            .expect("execution should succeed");
+
+        assert!(!output.is_error);
+        let text = output.model_text();
+        assert!(text.contains("find me line"), "missing match: {text}");
+        // Default for content mode is line_numbers = true: should contain ":2:" path-line-line marker
+        assert!(text.contains(":2:"), "missing line number 2: {text}");
+    }
+}
