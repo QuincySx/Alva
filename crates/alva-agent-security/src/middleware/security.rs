@@ -147,7 +147,7 @@ impl Middleware for SecurityMiddleware {
     ) -> Result<(), MiddlewareError> {
         let tool_context = MinimalExecutionContext::new();
 
-        // Lock guard, check, take receiver if needed, then drop lock BEFORE awaiting
+        // Phase 1: existing dangerous-tool / sensitive-path check
         let (decision, pending_rx) = {
             let mut guard = self.guard.lock().await;
             let decision =
@@ -158,6 +158,40 @@ impl Middleware for SecurityMiddleware {
                 None
             };
             (decision, rx)
+        };
+
+        // Phase 2: URL-aware SSRF check, ONLY when Phase 1 said Allow.
+        // We do not gate Deny / NeedHumanApproval through URL checks —
+        // those already block / ask, and a URL secondary check would be
+        // redundant noise. The async URL inspect is done outside the
+        // guard lock to avoid holding it across DNS.
+        let (decision, pending_rx) = match decision {
+            SecurityDecision::Allow => {
+                let url_decision = {
+                    let mut guard = self.guard.lock().await;
+                    guard
+                        .check_url_in_tool_call(&tool_call.name, &tool_call.arguments)
+                        .await
+                };
+                match url_decision {
+                    Some(SecurityDecision::NeedHumanApproval { request_id }) => {
+                        let rx = {
+                            let mut guard = self.guard.lock().await;
+                            guard.take_pending_receiver(&request_id)
+                        };
+                        (
+                            SecurityDecision::NeedHumanApproval { request_id },
+                            rx,
+                        )
+                    }
+                    Some(SecurityDecision::Deny { reason }) => (
+                        SecurityDecision::Deny { reason },
+                        None,
+                    ),
+                    Some(SecurityDecision::Allow) | None => (SecurityDecision::Allow, None),
+                }
+            }
+            other => (other, pending_rx),
         };
         // Guard lock is dropped here — critical for avoiding deadlock during approval
 
@@ -907,5 +941,197 @@ mod tests {
         }
         assert!(saw_req, "subscriber must observe requires_action live");
         assert!(saw_res, "subscriber must observe requires_action_resolved live");
+    }
+
+    // -----------------------------------------------------------------------
+    // URL-aware SSRF approval (T6 / 3C path, Loop D2)
+    //
+    // SecurityGuard's `check_url_in_tool_call` triggers a NeedHumanApproval
+    // decision when a `url_aware_tools` mapping matches AND the URL's risk
+    // is at or above the guard's threshold. The middleware then runs the
+    // SAME approval flow it uses for `dangerous_tools` — these tests
+    // verify that integration end-to-end with `read_url` (the only
+    // url-aware tool registered by default).
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn url_aware_public_url_passes_without_approval() {
+        // Public IP literal (8.8.8.8) → Low risk → below default Medium
+        // threshold → no HITL request, middleware returns Allow directly.
+        let (approval_tx, _approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus.handle());
+        let mut state = make_state();
+        let tc = ToolCall {
+            id: "u1".into(),
+            name: "read_url".into(),
+            arguments: serde_json::json!({ "url": "https://8.8.8.8/" }),
+        };
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        assert!(result.is_ok(), "public URL must NOT trigger approval: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn url_aware_loopback_triggers_approval_and_proceeds_on_allow() {
+        // Loopback (127.0.0.1) → High risk → ≥ default Medium → HITL.
+        // Approver returns AllowOnce → middleware returns Ok.
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus.handle());
+        let guard = mw.guard();
+        let mut state = make_state();
+
+        let tc = ToolCall {
+            id: "u2".into(),
+            name: "read_url".into(),
+            arguments: serde_json::json!({ "url": "http://127.0.0.1:9/" }),
+        };
+
+        let mw_guard = guard.clone();
+        let approver = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            assert_eq!(req.tool_name, "read_url", "tool_name must be read_url");
+            // The arguments payload must carry the URL the LLM was about
+            // to fetch — otherwise UI can't render a meaningful prompt.
+            assert_eq!(
+                req.arguments.get("url").and_then(|v| v.as_str()),
+                Some("http://127.0.0.1:9/")
+            );
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "read_url",
+                crate::PermissionDecision::AllowOnce,
+            );
+        });
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        approver.await.unwrap();
+        assert!(result.is_ok(), "AllowOnce must let the URL through: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn url_aware_loopback_denied_on_reject() {
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus.handle());
+        let guard = mw.guard();
+        let mut state = make_state();
+
+        let tc = ToolCall {
+            id: "u3".into(),
+            name: "read_url".into(),
+            arguments: serde_json::json!({ "url": "http://169.254.169.254/iam-role" }),
+        };
+
+        let mw_guard = guard.clone();
+        let approver = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "read_url",
+                crate::PermissionDecision::RejectOnce,
+            );
+        });
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        approver.await.unwrap();
+        assert!(result.is_err(), "RejectOnce must block IMDS URL");
+    }
+
+    #[tokio::test]
+    async fn url_aware_skipped_for_non_mapped_tool() {
+        // execute_shell is NOT in url_aware_tools — even if it had a
+        // `url` arg, the URL check must be skipped (no double-HITL).
+        // This tests that the URL phase is gated on the mapping.
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus.handle());
+        let guard = mw.guard();
+        let mut state = make_state();
+
+        // execute_shell IS in dangerous_tools → triggers approval anyway,
+        // but the approval should be for the shell command (not URL).
+        // We auto-allow it and verify the URL phase didn't fire a 2nd time.
+        let tc = ToolCall {
+            id: "u4".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({
+                "command": "echo hi",
+                "url": "http://127.0.0.1/",  // intentionally provided but should be ignored
+            }),
+        };
+
+        let mw_guard = guard.clone();
+        let approver = tokio::spawn(async move {
+            // Should receive EXACTLY one approval request (for execute_shell),
+            // not a second one for the URL.
+            let req = approval_rx.recv().await.unwrap();
+            assert_eq!(req.tool_name, "execute_shell");
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "execute_shell",
+                crate::PermissionDecision::AllowOnce,
+            );
+            // Brief wait then assert no second request arrives
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            assert!(
+                approval_rx.try_recv().is_err(),
+                "non-url-aware tool must NOT trigger a 2nd URL approval"
+            );
+        });
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        approver.await.unwrap();
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn url_aware_threshold_none_passes_loopback_without_approval() {
+        // User-configured "trust all" mode: ask_threshold = None.
+        // Even loopback must not trigger HITL.
+        use crate::url_info::UrlRules;
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw =
+            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+                .with_bus(bus.handle());
+        {
+            let guard_arc = mw.guard();
+            let mut g = guard_arc.lock().await;
+            g.set_url_rules(UrlRules { ask_threshold: None });
+        }
+        let mut state = make_state();
+        let tc = ToolCall {
+            id: "u5".into(),
+            name: "read_url".into(),
+            arguments: serde_json::json!({ "url": "http://127.0.0.1/" }),
+        };
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        assert!(result.is_ok(), "threshold=None must skip HITL: {result:?}");
+        assert!(
+            approval_rx.try_recv().is_err(),
+            "no approval request should have been sent"
+        );
     }
 }

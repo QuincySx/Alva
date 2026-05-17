@@ -19,6 +19,7 @@ use crate::permission::PermissionManager;
 use crate::rules::{PermissionRules, RuleDecision};
 use crate::sandbox::{SandboxConfig, SandboxMode};
 use crate::sensitive_paths::SensitivePathFilter;
+use crate::url_info::{inspect_url, UrlInfo, UrlRisk, UrlRules};
 
 /// The outcome of a security check before tool execution.
 #[derive(Debug, Clone)]
@@ -39,6 +40,13 @@ const DEFAULT_DANGEROUS_TOOLS: &[&str] = &[
     "file_edit",
     "browser_action",
     "browser_navigate",
+];
+
+/// Default mapping of tools whose arguments contain a URL that needs SSRF
+/// inspection, to the JSON arg key holding that URL.
+/// Added to during construction; user can extend via `add_url_aware_tool`.
+const DEFAULT_URL_AWARE_TOOLS: &[(&str, &str)] = &[
+    ("read_url", "url"),
 ];
 
 /// Default JSON keys that contain file paths in tool arguments.
@@ -119,6 +127,15 @@ pub struct SecurityGuard {
     path_keys: HashSet<String>,
     /// Pending approval receivers keyed by request ID.
     pending_receivers: std::collections::HashMap<String, tokio::sync::oneshot::Receiver<crate::permission::PermissionDecision>>,
+    /// URL fetch policy (SSRF defense / T6 3C path).
+    /// Single knob: `ask_threshold` — default Medium means private/loopback/
+    /// link-local/DNS-fail trigger HITL approval; public URLs auto-pass.
+    /// See `crate::url_info` for the IP classification map.
+    url_rules: UrlRules,
+    /// Tools whose arguments contain a URL needing SSRF inspection.
+    /// Maps tool_name → arg_name (JSON key with the URL string).
+    /// Consulted by SecurityMiddleware in `before_tool_call`.
+    url_aware_tools: std::collections::HashMap<String, String>,
 }
 
 impl SecurityGuard {
@@ -149,6 +166,11 @@ impl SecurityGuard {
             dangerous_tools: DEFAULT_DANGEROUS_TOOLS.iter().map(|s| s.to_string()).collect(),
             path_keys: DEFAULT_PATH_KEYS.iter().map(|s| s.to_string()).collect(),
             pending_receivers: std::collections::HashMap::new(),
+            url_rules: UrlRules::default(),
+            url_aware_tools: DEFAULT_URL_AWARE_TOOLS
+                .iter()
+                .map(|(t, a)| (t.to_string(), a.to_string()))
+                .collect(),
         }
     }
 
@@ -187,6 +209,76 @@ impl SecurityGuard {
     /// Get a reference to the current permission rules.
     pub fn permission_rules(&self) -> &PermissionRules {
         &self.permission_rules
+    }
+
+    /// Set URL rules (currently just the HITL ask-threshold).
+    pub fn set_url_rules(&mut self, rules: UrlRules) {
+        self.url_rules = rules;
+    }
+
+    /// Get a reference to the current URL rules.
+    pub fn url_rules(&self) -> &UrlRules {
+        &self.url_rules
+    }
+
+    /// Inspect a URL: parse + DNS-resolve + classify, no fetch.
+    /// Pure delegate to `crate::url_info::inspect_url` — see that
+    /// function for the failure semantics (parse-fail / DNS-fail both
+    /// produce `UrlRisk::High` with `ip_class = None`).
+    pub async fn inspect_url(&self, url: &str) -> UrlInfo {
+        inspect_url(url).await
+    }
+
+    /// Compare a risk level against `url_rules.ask_threshold`.
+    /// Returns true if the caller (e.g. `read_url`) must request HITL
+    /// approval before proceeding.
+    pub fn should_ask_for_url(&self, risk: UrlRisk) -> bool {
+        self.url_rules.should_ask(risk)
+    }
+
+    /// Add or replace a URL-aware tool mapping (e.g. `("read_url", "url")`).
+    pub fn add_url_aware_tool(&mut self, tool: impl Into<String>, arg: impl Into<String>) {
+        self.url_aware_tools.insert(tool.into(), arg.into());
+    }
+
+    /// Replace the entire URL-aware tools map.
+    pub fn set_url_aware_tools(&mut self, m: std::collections::HashMap<String, String>) {
+        self.url_aware_tools = m;
+    }
+
+    /// SSRF check for tool calls whose args carry a URL.
+    /// Called by SecurityMiddleware AFTER the main `check_tool_call`
+    /// returned Allow — chains a second decision based on URL risk.
+    ///
+    /// Returns:
+    /// - `Some(NeedHumanApproval { request_id })` — risk ≥ threshold; a
+    ///   pending approval has been registered and the middleware should
+    ///   run the same HITL flow it uses for `dangerous_tools`.
+    /// - `Some(Allow)` — URL inspected and below threshold, explicit OK.
+    /// - `None` — tool is not URL-aware (no mapping exists) or its args
+    ///   don't carry the expected key, so the middleware should proceed.
+    pub async fn check_url_in_tool_call(
+        &mut self,
+        tool_name: &str,
+        args: &Value,
+    ) -> Option<SecurityDecision> {
+        let arg_name = self.url_aware_tools.get(tool_name)?;
+        let url = args.get(arg_name).and_then(|v| v.as_str())?;
+        let info = inspect_url(url).await;
+        if !self.url_rules.should_ask(info.risk) {
+            return Some(SecurityDecision::Allow);
+        }
+        // Risk above threshold — register pending approval. The
+        // middleware will see `NeedHumanApproval` and reuse its existing
+        // notifier-and-receiver dance.
+        let request_id = format!("url-{}", uuid::Uuid::new_v4());
+        let rx = self.permission_manager.request_approval(
+            request_id.clone(),
+            tool_name,
+            args,
+        );
+        self.pending_receivers.insert(request_id.clone(), rx);
+        Some(SecurityDecision::NeedHumanApproval { request_id })
     }
 
     /// Set the permission mode.
@@ -732,5 +824,63 @@ mod tests {
         guard.resolve_permission(&request_id, "execute_shell", crate::permission::PermissionDecision::AllowOnce);
         let decision = rx.unwrap().await.unwrap();
         assert_eq!(decision, crate::permission::PermissionDecision::AllowOnce);
+    }
+
+    // ─── URL inspection (Loop C of T6 3C path) ────────────────────────
+
+    fn fresh_guard() -> SecurityGuard {
+        SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        )
+    }
+
+    #[test]
+    fn url_rules_default_is_some_medium_threshold() {
+        // Default construction must give Some(Medium) — confirms the
+        // wiring in `with_mode_handle` actually plumbs UrlRules::default()
+        // and that nothing replaced it with `Default::default()` elsewhere
+        // (which would give a different field in some future refactor).
+        let g = fresh_guard();
+        assert_eq!(g.url_rules().ask_threshold, Some(UrlRisk::Medium));
+    }
+
+    #[test]
+    fn set_url_rules_overrides_threshold() {
+        let mut g = fresh_guard();
+        g.set_url_rules(UrlRules { ask_threshold: Some(UrlRisk::High) });
+        assert_eq!(g.url_rules().ask_threshold, Some(UrlRisk::High));
+
+        g.set_url_rules(UrlRules { ask_threshold: None });
+        assert_eq!(g.url_rules().ask_threshold, None);
+    }
+
+    #[test]
+    fn should_ask_for_url_delegates_to_threshold() {
+        let g = fresh_guard(); // default Medium
+        assert!(!g.should_ask_for_url(UrlRisk::Low));
+        assert!(g.should_ask_for_url(UrlRisk::Medium));
+        assert!(g.should_ask_for_url(UrlRisk::High));
+    }
+
+    #[tokio::test]
+    async fn inspect_url_through_guard_returns_high_for_imds() {
+        // Smoke-check the delegate: SecurityGuard.inspect_url must hit
+        // the same classifier `url_info::inspect_url` does, so IMDS
+        // still resolves to High. If this fails, the delegate forgot to
+        // await or is calling a stale function.
+        let g = fresh_guard();
+        let info = g.inspect_url("http://169.254.169.254/latest/meta-data/").await;
+        assert_eq!(info.risk, UrlRisk::High);
+        assert_eq!(info.ip_class, Some(crate::url_info::IpClass::LinkLocal));
+    }
+
+    #[tokio::test]
+    async fn inspect_url_through_guard_is_low_for_public_literal() {
+        let g = fresh_guard();
+        let info = g.inspect_url("https://8.8.8.8/").await;
+        assert_eq!(info.risk, UrlRisk::Low);
+        // Default threshold (Medium) → Low must NOT trigger HITL
+        assert!(!g.should_ask_for_url(info.risk));
     }
 }

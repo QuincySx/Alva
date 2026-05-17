@@ -18,6 +18,7 @@ pub mod mode_control;
 pub mod classifier;
 pub mod middleware;
 pub mod pending_actions;
+pub mod url_info;
 pub(crate) mod path_utils;
 
 pub use guard::{SecurityGuard, SecurityDecision};
