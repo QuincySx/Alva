@@ -68,64 +68,72 @@ if [[ ! -f "$ENT_PLIST" ]]; then
     exit 1
 fi
 
-# 3. Build the test binary without running it.
-echo "==> Building eval_agent_tools test binary…"
+# 3. Build the warmup binary AND the test binary.
+echo "==> Building lnp_warmup + eval_agent_tools…"
+cargo build -p alva-app-core --example lnp_warmup --quiet
 cargo test -p alva-app-core --test eval_agent_tools --no-run --quiet
 
-# 4. Locate the just-built binary (newest, non-.d under target/debug/deps).
+# 4. Locate built binaries.
 TEST_BIN=$(ls -t target/debug/deps/eval_agent_tools-* 2>/dev/null \
     | grep -v '\.d$' \
     | head -1 || true)
+WARMUP_BIN="target/debug/examples/lnp_warmup"
 
 if [[ -z "${TEST_BIN}" || ! -x "$TEST_BIN" ]]; then
     echo "error: could not locate built eval_agent_tools binary" >&2
     exit 1
 fi
-echo "==> Test binary: $TEST_BIN"
-
-# 5. Codesign with stable identity + entitlements. --force overrides
-#    cargo's transient ad-hoc signature. Capture stderr to surface
-#    entitlement / cert issues (e.g. trying to inject a
-#    com.apple.developer.* entitlement with a self-signed cert leaves
-#    the binary with a malformed signature → Gatekeeper SIGKILLs it
-#    on launch).
-echo "==> Signing with identity \"$SIGN_ID\" + entitlements…"
-CODESIGN_OUT=$(codesign --force --sign "$SIGN_ID" --entitlements "$ENT_PLIST" "$TEST_BIN" 2>&1) || {
-    echo "error: codesign failed:" >&2
-    echo "$CODESIGN_OUT" >&2
-    exit 1
-}
-[[ -n "$CODESIGN_OUT" ]] && echo "  $CODESIGN_OUT"
-
-# 6. Verify the signature took. Use --verify --strict (the real check
-#    for "is this signature structurally valid"), not the Authority=
-#    line in `codesign -dv` output — single-v doesn't print Authority
-#    at all for many cert chains, so grepping for it was a false alarm.
-if ! codesign --verify --strict "$TEST_BIN" 2>&1; then
-    echo "error: codesign --verify --strict failed — signature is malformed." >&2
-    echo "       This usually means an entitlement in $ENT_PLIST requires" >&2
-    echo "       a real Apple Developer cert, not the self-signed one." >&2
+if [[ ! -x "$WARMUP_BIN" ]]; then
+    echo "error: could not locate built lnp_warmup binary at $WARMUP_BIN" >&2
     exit 1
 fi
-# Display the cert chain for the user (-dvv shows Authority lines).
-echo "==> Signed cert chain:"
+echo "==> Warmup bin: $WARMUP_BIN"
+echo "==> Test bin:   $TEST_BIN"
+
+# 5. Codesign BOTH binaries with the stable identity + entitlements.
+#    Critical: TCC keys permission grants on codesign identity, so all
+#    binaries that share the network grant must share the same identity.
+sign_bin() {
+    local bin="$1"
+    local label="$2"
+    echo "==> Signing $label with identity \"$SIGN_ID\" + entitlements…"
+    local out
+    out=$(codesign --force --sign "$SIGN_ID" --entitlements "$ENT_PLIST" "$bin" 2>&1) || {
+        echo "error: codesign of $bin failed:" >&2
+        echo "$out" >&2
+        exit 1
+    }
+    [[ -n "$out" ]] && echo "  $out"
+    if ! codesign --verify --strict "$bin" 2>&1; then
+        echo "error: codesign --verify --strict failed for $bin." >&2
+        exit 1
+    fi
+}
+sign_bin "$WARMUP_BIN" "lnp_warmup"
+sign_bin "$TEST_BIN"   "eval_agent_tools"
+
+echo "==> Signed cert chain (test bin):"
 codesign -dvv "$TEST_BIN" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier" | sed 's/^/    /'
 
-# 7. Always run the warmup first — it's idempotent and finishes
-#    immediately once the permission has been granted.
+# 7. Run the LNP (Local Network Privacy) warmup. This uses Bonjour /
+#    DNSServiceBrowse to provoke the macOS Local Network prompt — the
+#    ONLY documented way to register a non-Apple binary in TCC. BSD
+#    sockets alone (which std::net / tokio / hyper use) cannot trigger
+#    the prompt, which is why our previous tcp-retry warmup never
+#    surfaced one. Once granted, all binaries sharing this codesign
+#    identity inherit the permission.
 echo
-echo "==> Running warmup probe (Local Network access check)…"
-echo "    If macOS shows a prompt asking to allow Local Network access,"
-echo "    CLICK ALLOW. The warmup will retry for ~60s to give you time."
+echo "==> Running LNP warmup (Bonjour-based prompt trigger)…"
+echo "    If macOS shows a Local Network access prompt — CLICK ALLOW."
 echo
 set +e
-EVAL_SKIP_PROBE=1 "$TEST_BIN" --ignored --nocapture --test-threads=1 eval_warmup
+"$WARMUP_BIN"
 WARMUP_RC=$?
 set -e
 
 if [[ $WARMUP_RC -ne 0 ]]; then
     echo
-    echo "==> Warmup test exited non-zero. See output above for diagnosis." >&2
+    echo "==> LNP warmup exited non-zero. See output above for diagnosis." >&2
     exit $WARMUP_RC
 fi
 
