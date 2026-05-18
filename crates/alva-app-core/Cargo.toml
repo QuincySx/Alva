@@ -60,4 +60,5 @@ tokio-test = "0.4"
 tempfile = "3"
 tokio-stream = "0.1"
 serde_yaml = "0.9"
+wiremock = "0.6"
 alva-test = { path = "../alva-test" }
