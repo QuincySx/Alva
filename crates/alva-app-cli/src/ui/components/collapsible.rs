@@ -148,3 +148,135 @@ impl CollapsibleBlock {
             .add_modifier(Modifier::ITALIC)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for CollapsibleBlock — constructor presets, badge/open
+    //! builders, the toggle flip, height(width) word-wrap arithmetic
+    //! and body_text() plain-string export.
+    //!
+    //! render() needs a Frame so is intentionally not exercised. The
+    //! height contract IS exercised because it feeds the conversation
+    //! view's scrolling math — a wrong height makes the user see less
+    //! than is actually there (or padded blank rows).
+    use super::*;
+
+    fn body_from_strings(lines: &[&str]) -> CollapsibleBody {
+        Text::from(lines.iter().map(|s| Line::raw(s.to_string())).collect::<Vec<_>>())
+    }
+
+    // -- Constructors + defaults -------------------------------------------
+
+    #[test]
+    fn thinking_ctor_defaults_closed_no_badge() {
+        let b = CollapsibleBlock::thinking("hdr", Text::raw("body"));
+        assert!(matches!(b.kind, CollapsibleKind::Thinking));
+        assert_eq!(b.header, "hdr");
+        assert!(!b.open, "fresh blocks must start closed");
+        assert!(b.badge.is_none());
+    }
+
+    #[test]
+    fn tool_call_ctor_uses_tool_call_kind() {
+        let b = CollapsibleBlock::tool_call("hdr", Text::raw("body"));
+        assert!(matches!(b.kind, CollapsibleKind::ToolCall));
+        assert!(!b.open);
+    }
+
+    #[test]
+    fn log_ctor_uses_log_kind() {
+        let b = CollapsibleBlock::log("hdr", Text::raw("body"));
+        assert!(matches!(b.kind, CollapsibleKind::Log));
+        assert!(!b.open);
+    }
+
+    // -- Builders -----------------------------------------------------------
+
+    #[test]
+    fn with_badge_sets_badge_and_chains() {
+        let b = CollapsibleBlock::log("hdr", Text::raw("body")).with_badge("done");
+        assert_eq!(b.badge.as_deref(), Some("done"));
+        assert!(!b.open, "with_badge must not flip open");
+    }
+
+    #[test]
+    fn opened_sets_open_true_and_chains() {
+        let b = CollapsibleBlock::log("hdr", Text::raw("body")).opened();
+        assert!(b.open);
+        assert!(b.badge.is_none(), "opened must not touch badge");
+    }
+
+    #[test]
+    fn toggle_flips_open_back_and_forth() {
+        let mut b = CollapsibleBlock::log("hdr", Text::raw("body"));
+        assert!(!b.open);
+        b.toggle();
+        assert!(b.open);
+        b.toggle();
+        assert!(!b.open, "double toggle must return to original state");
+    }
+
+    // -- height(width) ------------------------------------------------------
+
+    #[test]
+    fn height_closed_is_always_one() {
+        let b = CollapsibleBlock::log("hdr", body_from_strings(&["a", "b", "c"]));
+        assert_eq!(b.height(80), 1, "closed block hides body — only header row counts");
+    }
+
+    #[test]
+    fn height_open_no_wrap_is_one_plus_lines() {
+        // 3 short lines, width 80 → 1 (header) + 3 (body) = 4.
+        let b = CollapsibleBlock::log("hdr", body_from_strings(&["a", "bb", "ccc"])).opened();
+        assert_eq!(b.height(80), 4);
+    }
+
+    #[test]
+    fn height_open_with_wrap_uses_div_ceil() {
+        // Line of width 25 wrapped to width 10 → ceil(25/10) = 3 visual rows.
+        // header (1) + 3 (one wrapped line) = 4.
+        let long = "x".repeat(25);
+        let b = CollapsibleBlock::log("hdr", body_from_strings(&[long.as_str()])).opened();
+        assert_eq!(b.height(10), 4);
+    }
+
+    #[test]
+    fn height_open_empty_line_counts_as_one_row() {
+        // Empty line shouldn't be div_ceil(0/width) = 0 (that would
+        // hide it). The implementation guards with `if line_w == 0 { 1 }`.
+        let b = CollapsibleBlock::log("hdr", body_from_strings(&[""])).opened();
+        assert_eq!(b.height(80), 2, "empty line must still occupy 1 row");
+    }
+
+    #[test]
+    fn height_open_with_zero_width_does_not_divide_by_zero() {
+        // Width 0 should not panic — width.max(1) is the guard inside
+        // height(). Pin this regression: dropping `.max(1)` would
+        // panic in a div_ceil(_, 0) call.
+        let b = CollapsibleBlock::log("hdr", body_from_strings(&["abc"])).opened();
+        // Just call it — assertion is "no panic". Result is best-effort.
+        let _ = b.height(0);
+    }
+
+    // -- body_text ----------------------------------------------------------
+
+    #[test]
+    fn body_text_joins_lines_with_newlines() {
+        let b = CollapsibleBlock::log("hdr", body_from_strings(&["first", "second", "third"]));
+        assert_eq!(b.body_text(), "first\nsecond\nthird");
+    }
+
+    #[test]
+    fn body_text_concatenates_multi_span_line() {
+        // Each Line can have multiple Spans (styled fragments). body_text()
+        // should glue them back into a single string per line — UI export /
+        // copy-to-clipboard contract.
+        let line = Line::from(vec![
+            Span::raw("hello "),
+            Span::raw("world"),
+        ]);
+        let body = Text::from(vec![line]);
+        let b = CollapsibleBlock::log("hdr", body);
+        assert_eq!(b.body_text(), "hello world");
+    }
+}

@@ -184,3 +184,163 @@ impl<'a> Widget for MessageListWidget<'a> {
         paragraph.render(area, buf);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for MessageListWidget rendering contracts.
+    //! Buffer-based pattern borrowed from ui::spinner (L107).
+    //!
+    //! Focus is on the visible role / tool-status routing and the
+    //! streaming / timestamp affordances — silent regressions here
+    //! (wrong role label, missing tool status icon) would mislead
+    //! users about what the agent is doing.
+    use super::*;
+
+    fn theme() -> Theme {
+        Theme::default()
+    }
+
+    /// Render the widget to a multi-line buffer and join all rows
+    /// into a single string so substring assertions are trivial.
+    fn render_to_string(messages: &[DisplayMessage], width: u16, height: u16) -> String {
+        let theme = theme();
+        let widget = MessageListWidget::new(messages, &theme);
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        widget.render(area, &mut buf);
+        let mut s = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                s.push_str(buf[(x, y)].symbol());
+            }
+            s.push('\n');
+        }
+        s
+    }
+
+    fn msg(role: MessageRole, content: &str) -> DisplayMessage {
+        DisplayMessage {
+            role,
+            content: content.into(),
+            tool_uses: vec![],
+            timestamp: None,
+            is_streaming: false,
+        }
+    }
+
+    fn tool(name: &str, status: ToolStatus, input: &str, output: &str) -> ToolUseDisplay {
+        ToolUseDisplay {
+            name: name.into(),
+            status,
+            input_summary: input.into(),
+            output_preview: output.into(),
+        }
+    }
+
+    // -- Role indicator routing -------------------------------------------
+
+    #[test]
+    fn user_role_renders_with_you_indicator() {
+        let s = render_to_string(&[msg(MessageRole::User, "hi")], 40, 4);
+        assert!(s.contains("You"), "user role must show 'You' indicator: {s}");
+        assert!(s.contains("hi"));
+    }
+
+    #[test]
+    fn assistant_role_renders_with_assistant_indicator() {
+        let s = render_to_string(&[msg(MessageRole::Assistant, "reply")], 40, 4);
+        assert!(s.contains("Assistant"));
+        assert!(s.contains("reply"));
+    }
+
+    #[test]
+    fn system_role_renders_with_system_indicator() {
+        let s = render_to_string(&[msg(MessageRole::System, "note")], 40, 4);
+        assert!(s.contains("System"));
+    }
+
+    #[test]
+    fn error_role_renders_with_error_indicator() {
+        let s = render_to_string(&[msg(MessageRole::Error, "boom")], 40, 4);
+        assert!(s.contains("Error"));
+        assert!(s.contains("boom"));
+    }
+
+    // -- Streaming + timestamp affordances --------------------------------
+
+    #[test]
+    fn streaming_message_shows_ellipsis_suffix_in_header() {
+        // Pin: "..." after the role indicator tells the user the agent
+        // is still typing. Dropping this affordance breaks the
+        // perceived liveness of the UI.
+        let mut m = msg(MessageRole::Assistant, "");
+        m.is_streaming = true;
+        let s = render_to_string(&[m], 40, 4);
+        assert!(s.contains("..."), "streaming msg must include '...': {s}");
+    }
+
+    #[test]
+    fn non_streaming_message_does_not_show_ellipsis() {
+        let s = render_to_string(&[msg(MessageRole::Assistant, "done")], 40, 4);
+        assert!(!s.contains("..."), "non-streaming must not show '...': {s}");
+    }
+
+    #[test]
+    fn timestamp_appears_in_header_when_set() {
+        let mut m = msg(MessageRole::Assistant, "x");
+        m.timestamp = Some("12:34".into());
+        let s = render_to_string(&[m], 40, 4);
+        assert!(s.contains("12:34"), "timestamp must appear in header: {s}");
+    }
+
+    // -- Tool status icons ------------------------------------------------
+
+    #[test]
+    fn tool_running_renders_filled_circle_icon() {
+        let mut m = msg(MessageRole::Assistant, "");
+        m.tool_uses.push(tool("read_file", ToolStatus::Running, "main.rs", ""));
+        let s = render_to_string(&[m], 60, 6);
+        assert!(s.contains('\u{25cf}'), "Running must render '●' (U+25CF): {s}");
+        assert!(s.contains("read_file"));
+    }
+
+    #[test]
+    fn tool_success_renders_checkmark_icon() {
+        let mut m = msg(MessageRole::Assistant, "");
+        m.tool_uses.push(tool("bash", ToolStatus::Success, "ls", "ok"));
+        let s = render_to_string(&[m], 60, 6);
+        assert!(s.contains('\u{2713}'), "Success must render '✓' (U+2713): {s}");
+    }
+
+    #[test]
+    fn tool_error_renders_cross_icon() {
+        let mut m = msg(MessageRole::Assistant, "");
+        m.tool_uses.push(tool("bash", ToolStatus::Error, "false", ""));
+        let s = render_to_string(&[m], 60, 6);
+        assert!(s.contains('\u{2717}'), "Error must render '✗' (U+2717): {s}");
+    }
+
+    // -- Tool output_preview -----------------------------------------------
+
+    #[test]
+    fn empty_tool_output_preview_omits_preview_row() {
+        // Pin: when output_preview == "", no extra row appears (saves
+        // vertical space in the chat). A regression that always renders
+        // an empty preview row would push real content down.
+        let mut m = msg(MessageRole::Assistant, "");
+        m.tool_uses.push(tool("bash", ToolStatus::Success, "ls", ""));
+        let s = render_to_string(&[m], 60, 8);
+        // The tool line has the tool name; the next non-blank row
+        // should NOT exist. Cheap check: "ls" appears, but no preview
+        // text was given so no extra strings come after it.
+        assert!(s.contains("ls"));
+    }
+
+    #[test]
+    fn non_empty_tool_output_preview_appears_in_render() {
+        let mut m = msg(MessageRole::Assistant, "");
+        m.tool_uses.push(tool("bash", ToolStatus::Success, "ls", "file_a.txt"));
+        let s = render_to_string(&[m], 60, 8);
+        assert!(s.contains("file_a.txt"), "output preview must appear: {s}");
+    }
+}

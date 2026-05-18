@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 // Re-export shared utilities from app-core so builtins.rs can use them.
 pub use alva_app_core::{estimate_cost_usd, format_token_count};
 
@@ -16,8 +14,6 @@ pub enum CommandResult {
     },
     /// Session was compacted
     Compact { summary: String },
-    /// No output needed
-    Skip,
     /// Error occurred
     Error(String),
 }
@@ -38,17 +34,11 @@ impl TokenUsage {
     pub fn estimated_cost_usd(&self) -> f64 {
         estimate_cost_usd(self.input_tokens, self.output_tokens)
     }
-
-    /// Human-readable compact number (e.g., "1.5K", "2.3M").
-    pub fn format_total(&self) -> String {
-        format_token_count(self.total())
-    }
 }
 
 /// Context available to commands during execution
 pub struct CommandContext<'a> {
     pub workspace: &'a std::path::Path,
-    pub home_dir: std::path::PathBuf,
     pub model: &'a str,
     pub session_id: &'a str,
     /// Number of messages in the current session.
@@ -59,8 +49,6 @@ pub struct CommandContext<'a> {
     pub tool_names: Vec<String>,
     /// Whether plan mode is active.
     pub plan_mode: bool,
-    /// Arbitrary extra key-value data.
-    pub extra: HashMap<String, String>,
 }
 
 /// A slash command
@@ -83,4 +71,56 @@ pub trait Command: Send + Sync {
 
     /// Execute the command
     fn execute(&self, args: &str, ctx: &CommandContext) -> CommandResult;
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `TokenUsage` — thin wrapper around utils::estimate_cost_usd
+    //! used by the CLI status bar to show "session totals". Core arithmetic
+    //! is pinned in alva-app-core/src/utils.rs tests; here we pin the
+    //! wrapper's Default + total + delegation behavior.
+    use super::*;
+
+    #[test]
+    fn default_yields_zero_input_zero_output_zero_total() {
+        let u = TokenUsage::default();
+        assert_eq!(u.input_tokens, 0);
+        assert_eq!(u.output_tokens, 0);
+        assert_eq!(u.total(), 0);
+    }
+
+    #[test]
+    fn total_sums_input_and_output() {
+        let u = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 250,
+        };
+        assert_eq!(u.total(), 350);
+    }
+
+    #[test]
+    fn estimated_cost_delegates_to_utils_at_published_rates() {
+        // 1M input → $3, 1M output → $15, combined = $18. If this
+        // diverges from utils::estimate_cost_usd, the wrapper has
+        // started its own (wrong) computation.
+        let u = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+        };
+        assert_eq!(u.estimated_cost_usd(), 18.0);
+    }
+
+    #[test]
+    fn clone_produces_independent_equal_value() {
+        // TokenUsage derives Clone — pin that mutating the original
+        // doesn't affect the clone (and field values match).
+        let original = TokenUsage {
+            input_tokens: 42,
+            output_tokens: 7,
+        };
+        let cloned = original.clone();
+        assert_eq!(cloned.input_tokens, 42);
+        assert_eq!(cloned.output_tokens, 7);
+        assert_eq!(cloned.total(), original.total());
+    }
 }

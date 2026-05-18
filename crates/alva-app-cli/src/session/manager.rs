@@ -54,9 +54,30 @@ impl JsonFileSessionManager {
     }
 
     fn save_index(&self, entries: &[SessionSummary]) {
-        let _ = fs::create_dir_all(&self.sessions_dir);
-        if let Ok(json) = serde_json::to_string_pretty(entries) {
-            let _ = fs::write(&self.index_path, json);
+        if let Err(e) = fs::create_dir_all(&self.sessions_dir) {
+            tracing::warn!(
+                dir = ?self.sessions_dir,
+                error = %e,
+                "save_index: failed to create sessions dir; index write will likely also fail",
+            );
+        }
+        match serde_json::to_string_pretty(entries) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&self.index_path, &json) {
+                    tracing::warn!(
+                        path = ?self.index_path,
+                        error = %e,
+                        "save_index: failed to write index — session list may show stale state",
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    entries = entries.len(),
+                    "save_index: failed to serialize entries; index unchanged",
+                );
+            }
         }
     }
 
@@ -199,7 +220,9 @@ impl JsonFileSessionManager {
             "middleware_names": Vec::<String>::new(),
         });
         let event = alva_kernel_abi::agent_session::SessionEvent::system(snapshot);
-        let _ = session.append(event).await;
+        // `AgentSession::append` returns `()` (infallible by trait
+        // contract); concrete impls absorb their own I/O errors.
+        session.append(event).await;
     }
 
     /// Build a structured `RunRecord` from the session's full event log and
@@ -239,5 +262,70 @@ fn truncate_preview(s: &str) -> String {
         format!("{}...", truncated)
     } else {
         truncated
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `truncate_preview`, the session-list display helper.
+    //! Already correctly chars-based (unlike the byte-slice bugs the
+    //! UTF-8 panic bus fixed in L56-L63); these tests pin down the
+    //! 80-char limit + "..." marker contract.
+    use super::*;
+
+    #[test]
+    fn truncate_preview_empty_string_returned_unchanged() {
+        assert_eq!(truncate_preview(""), "");
+    }
+
+    #[test]
+    fn truncate_preview_short_ascii_returned_unchanged_no_marker() {
+        assert_eq!(truncate_preview("hello"), "hello");
+    }
+
+    #[test]
+    fn truncate_preview_ascii_exact_80_chars_no_marker() {
+        // s.chars().take(80).collect() returns the whole string when
+        // s has exactly 80 chars → truncated.len() == s.len() → no marker.
+        let s = "a".repeat(80);
+        assert_eq!(truncate_preview(&s), s);
+        assert!(!truncate_preview(&s).ends_with("..."), "no marker at exact boundary");
+    }
+
+    #[test]
+    fn truncate_preview_ascii_over_80_chars_truncates_with_marker() {
+        let s = "a".repeat(120);
+        let out = truncate_preview(&s);
+        // First 80 chars + "..." = 83 bytes
+        assert_eq!(out.len(), 83);
+        assert!(out.ends_with("..."));
+        let kept = out.strip_suffix("...").unwrap();
+        assert_eq!(kept.len(), 80);
+        assert!(kept.chars().all(|c| c == 'a'));
+    }
+
+    #[test]
+    fn truncate_preview_cjk_counts_chars_not_bytes() {
+        // 100 CJK chars = 300 bytes. chars().take(80) keeps 80 chars
+        // = 240 bytes. 240 < 300 → marker added.
+        let s = "中".repeat(100);
+        assert_eq!(s.len(), 300);
+        let out = truncate_preview(&s);
+        assert!(out.ends_with("..."));
+        let kept = out.strip_suffix("...").unwrap();
+        // Should be 80 CJK chars × 3 bytes = 240 bytes
+        assert_eq!(kept.chars().count(), 80);
+        assert_eq!(kept.len(), 240);
+    }
+
+    #[test]
+    fn truncate_preview_emoji_treated_as_one_char() {
+        // 81 4-byte emojis = 324 bytes. chars().take(80) keeps 80 emojis
+        // = 320 bytes. 320 < 324 → marker added.
+        let s = "🦀".repeat(81);
+        let out = truncate_preview(&s);
+        assert!(out.ends_with("..."));
+        let kept = out.strip_suffix("...").unwrap();
+        assert_eq!(kept.chars().count(), 80, "exactly 80 emojis kept");
     }
 }

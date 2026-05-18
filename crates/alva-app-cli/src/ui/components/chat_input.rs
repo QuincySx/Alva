@@ -157,3 +157,188 @@ impl ChatInput {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for ChatInput value/insert + handle_event routing +
+    //! slash/@ trigger emission. render() needs a Frame so is not
+    //! exercised; the routing + trigger logic is the route every
+    //! keystroke actually takes.
+    use super::*;
+    use crossterm::event::{KeyEventKind, KeyEventState};
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
+        Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        })
+    }
+
+    fn ch(c: char) -> Event {
+        key(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    // -- value / set_value / clear ----------------------------------------
+
+    #[test]
+    fn new_starts_empty() {
+        let ci = ChatInput::new("type here");
+        assert_eq!(ci.value(), "");
+    }
+
+    #[test]
+    fn set_value_then_value_round_trips() {
+        let mut ci = ChatInput::new("ph");
+        ci.set_value("hello world");
+        assert_eq!(ci.value(), "hello world");
+    }
+
+    #[test]
+    fn set_value_preserves_multiline() {
+        // Pin: lines split + rejoin must preserve the newline structure
+        // (set_value uses v.lines() then value() joins with "\n").
+        let mut ci = ChatInput::new("ph");
+        ci.set_value("first\nsecond\nthird");
+        assert_eq!(ci.value(), "first\nsecond\nthird");
+    }
+
+    #[test]
+    fn set_value_empty_string_is_normalized_to_single_empty_line() {
+        // Pin: set_value("") still leaves a usable buffer (one empty
+        // line, NOT zero lines — TextArea::new(vec![]) would panic).
+        let mut ci = ChatInput::new("ph");
+        ci.set_value("");
+        assert_eq!(ci.value(), "");
+        // Smoke that it's still usable: setting a real value afterwards.
+        ci.set_value("recovered");
+        assert_eq!(ci.value(), "recovered");
+    }
+
+    #[test]
+    fn clear_resets_value_to_empty() {
+        let mut ci = ChatInput::new("ph");
+        ci.set_value("anything");
+        ci.clear();
+        assert_eq!(ci.value(), "");
+    }
+
+    // -- insert_text -------------------------------------------------------
+
+    #[test]
+    fn insert_text_single_line_appends_at_cursor() {
+        let mut ci = ChatInput::new("ph");
+        ci.insert_text("hello");
+        assert_eq!(ci.value(), "hello");
+    }
+
+    #[test]
+    fn insert_text_multiline_inserts_newlines() {
+        let mut ci = ChatInput::new("ph");
+        ci.insert_text("a\nb\nc");
+        assert_eq!(ci.value(), "a\nb\nc");
+    }
+
+    // -- handle_event: Enter + Ctrl+C -------------------------------------
+
+    #[test]
+    fn enter_on_empty_buffer_returns_none() {
+        // Pin: empty (and whitespace-only) submits must NOT fire. The
+        // guard is `if v.trim().is_empty()`.
+        let mut ci = ChatInput::new("ph");
+        let act = ci.handle_event(key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(act, ChatInputAction::None));
+    }
+
+    #[test]
+    fn enter_on_whitespace_only_buffer_returns_none() {
+        let mut ci = ChatInput::new("ph");
+        ci.set_value("   \t  ");
+        let act = ci.handle_event(key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(act, ChatInputAction::None));
+    }
+
+    #[test]
+    fn enter_on_nonempty_buffer_returns_submit_with_value() {
+        let mut ci = ChatInput::new("ph");
+        ci.set_value("ship it");
+        let act = ci.handle_event(key(KeyCode::Enter, KeyModifiers::NONE));
+        match act {
+            ChatInputAction::Submit(v) => assert_eq!(v, "ship it"),
+            other => panic!("expected Submit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn shift_enter_does_not_submit() {
+        // Pin: Shift+Enter is the "insert newline" affordance; must
+        // fall through to the editor, NOT trigger Submit. Without the
+        // `!m.contains(SHIFT)` guard, users couldn't compose multiline
+        // messages.
+        let mut ci = ChatInput::new("ph");
+        ci.set_value("line one");
+        let act = ci.handle_event(key(KeyCode::Enter, KeyModifiers::SHIFT));
+        assert!(
+            !matches!(act, ChatInputAction::Submit(_)),
+            "Shift+Enter must NOT submit, got {act:?}"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_returns_cancel() {
+        let mut ci = ChatInput::new("ph");
+        let act = ci.handle_event(key(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(matches!(act, ChatInputAction::Cancel));
+    }
+
+    // -- slash / @ trigger emission ---------------------------------------
+
+    #[test]
+    fn typing_slash_emits_slash_trigger_with_empty_token() {
+        // After typing a single '/' the cursor is right after it,
+        // so the token portion is "" — the parent uses this to open
+        // an empty-filter command palette.
+        let mut ci = ChatInput::new("ph");
+        let act = ci.handle_event(ch('/'));
+        match act {
+            ChatInputAction::SlashTrigger(token) => assert_eq!(token, ""),
+            other => panic!("expected SlashTrigger, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn typing_slash_then_letters_emits_slash_trigger_with_growing_token() {
+        // Live-filter contract: every keystroke after '/' must re-emit
+        // with the current partial token so the palette stays in sync.
+        let mut ci = ChatInput::new("ph");
+        ci.handle_event(ch('/'));
+        ci.handle_event(ch('h'));
+        ci.handle_event(ch('e'));
+        let act = ci.handle_event(ch('l'));
+        match act {
+            ChatInputAction::SlashTrigger(token) => assert_eq!(token, "hel"),
+            other => panic!("expected SlashTrigger('hel'), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn typing_at_emits_at_trigger() {
+        let mut ci = ChatInput::new("ph");
+        ci.handle_event(ch('@'));
+        let act = ci.handle_event(ch('s'));
+        match act {
+            ChatInputAction::AtTrigger(token) => assert_eq!(token, "s"),
+            other => panic!("expected AtTrigger, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn typing_plain_text_emits_changed_not_trigger() {
+        // No leading '/' or '@' → just `Changed`. Pin so the cursor_token
+        // heuristic doesn't accidentally fire on plain words.
+        let mut ci = ChatInput::new("ph");
+        let act = ci.handle_event(ch('h'));
+        assert!(matches!(act, ChatInputAction::Changed));
+    }
+}

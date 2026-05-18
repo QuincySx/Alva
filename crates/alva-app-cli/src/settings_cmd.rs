@@ -249,18 +249,14 @@ pub fn try_load_provider_from_shared() -> Option<alva_llm_provider::ProviderConf
     if entry.api_key.is_empty() && std::env::var("ALVA_API_KEY").ok().filter(|s| !s.is_empty()).is_none() {
         return None;
     }
-    let model = entry.model.clone().unwrap_or_else(|| match kind {
-        "anthropic" => "claude-opus-4-7".to_string(),
-        "openai-chat" | "openai-responses" => "gpt-4o".to_string(),
-        "gemini" => "gemini-2.5-pro".to_string(),
-        _ => "gpt-4o".to_string(),
-    });
-    let base_url = entry.base_url.clone().unwrap_or_else(|| match kind {
-        "anthropic" => "https://api.anthropic.com".to_string(),
-        "gemini" => "https://generativelanguage.googleapis.com".to_string(),
-        // openai-chat / openai-responses / unknown
-        _ => "https://api.openai.com/v1".to_string(),
-    });
+    let model = entry
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_kind(kind).to_string());
+    let base_url = entry
+        .base_url
+        .clone()
+        .unwrap_or_else(|| default_base_url_for_kind(kind).to_string());
     Some(alva_llm_provider::ProviderConfig {
         api_key: entry.api_key.clone(),
         model,
@@ -269,4 +265,164 @@ pub fn try_load_provider_from_shared() -> Option<alva_llm_provider::ProviderConf
         custom_headers: std::collections::HashMap::new(),
         kind: Some(kind.to_string()),
     })
+}
+
+/// Default model name to use when a provider entry has no `model` set.
+/// Unknown kinds fall back to a sensible OpenAI default rather than
+/// erroring — the user sees a working config and can override later.
+fn default_model_for_kind(kind: &str) -> &'static str {
+    match kind {
+        "anthropic" => "claude-opus-4-7",
+        "openai-chat" | "openai-responses" => "gpt-4o",
+        "gemini" => "gemini-2.5-pro",
+        _ => "gpt-4o",
+    }
+}
+
+/// Default base URL to use when a provider entry has no `base_url` set.
+/// openai-chat / openai-responses / unknown all fall through to the
+/// official OpenAI endpoint.
+fn default_base_url_for_kind(kind: &str) -> &'static str {
+    match kind {
+        "anthropic" => "https://api.anthropic.com",
+        "gemini" => "https://generativelanguage.googleapis.com",
+        _ => "https://api.openai.com/v1",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `mask` — the API-key display helper used by `alva
+    //! settings list/get`. Already correctly uses `chars()`-based
+    //! truncation (chars-based slicing was the team's established
+    //! pattern; setup.rs's byte-slice variant fixed in L63 was the
+    //! outlier). These tests pin down the existing contract:
+    //! - empty   → "(empty)"
+    //! - n ≤ 8   → "•" repeated n times (don't leak short keys)
+    //! - n > 8   → "<first-4 chars>…<last-4 chars>" (note: ASCII ellipsis
+    //!   `…` is one char, not "...")
+    //!
+    //! Note: setup.rs has a parallel `mask_api_key` with a slightly
+    //! different output format (`...` not `…`, "****" not "•"*n). Both
+    //! coexist; consolidation requires picking one canonical format,
+    //! which is a user-visible decision deferred to a later loop.
+    use super::*;
+
+    #[test]
+    fn mask_empty_string_returns_empty_placeholder() {
+        assert_eq!(mask(""), "(empty)");
+    }
+
+    #[test]
+    fn mask_short_keys_render_as_bullet_repeat() {
+        // n ≤ 8 → "•" repeated exactly n times so the displayed length
+        // tells the reader the key length without revealing characters.
+        assert_eq!(mask("a"), "•");
+        assert_eq!(mask("abcd"), "••••");
+        assert_eq!(mask("abcdefgh"), "••••••••", "exactly 8 chars → 8 bullets");
+    }
+
+    #[test]
+    fn mask_nine_chars_starts_showing_preview_with_ellipsis() {
+        // 9-char boundary: first 4 + … + last 4. Note overlap intentional:
+        // when n=9, head="abcd" and tail starts at skip(5) → "fghi" so
+        // char 'e' (index 4) is the only one hidden.
+        assert_eq!(mask("abcdefghi"), "abcd…fghi");
+    }
+
+    #[test]
+    fn mask_typical_ascii_key_shows_first_and_last_four() {
+        let key = "sk-ant-1234567890abcdefghijklmnopqr";
+        assert_eq!(key.chars().count(), 35);
+        assert_eq!(mask(key), "sk-a…opqr");
+    }
+
+    #[test]
+    fn mask_cjk_chars_no_panic_chars_based() {
+        // 9 CJK chars = 27 bytes. Old byte-slice would PANIC at byte 4
+        // (mid-2nd-char). chars-based is fine. First 4 + … + last 4.
+        let key = "中文中文中文中文中"; // 9 chars
+        assert_eq!(key.chars().count(), 9);
+        assert_eq!(key.len(), 27);
+        assert_eq!(mask(key), "中文中文…文中文中");
+    }
+
+    #[test]
+    fn mask_emoji_mixed_in_key_no_panic() {
+        // chars().count() treats each emoji as 1 char regardless of byte width.
+        let key = "sk-🦀-test-key-abc"; // 17 chars
+        assert!(key.chars().count() > 8);
+        let masked = mask(key);
+        // first 4 chars: "sk-🦀"
+        assert!(masked.starts_with("sk-🦀"), "got: {}", masked);
+        assert!(masked.contains('…'));
+    }
+
+    // -- default_model_for_kind / default_base_url_for_kind --------------
+
+    #[test]
+    fn default_model_for_kind_known_providers() {
+        assert_eq!(default_model_for_kind("anthropic"), "claude-opus-4-7");
+        assert_eq!(default_model_for_kind("openai-chat"), "gpt-4o");
+        assert_eq!(default_model_for_kind("openai-responses"), "gpt-4o");
+        assert_eq!(default_model_for_kind("gemini"), "gemini-2.5-pro");
+    }
+
+    #[test]
+    fn default_model_for_kind_unknown_falls_back_to_gpt4o() {
+        assert_eq!(default_model_for_kind(""), "gpt-4o");
+        assert_eq!(default_model_for_kind("future-provider"), "gpt-4o");
+        assert_eq!(default_model_for_kind("ANTHROPIC"), "gpt-4o", "match is case-sensitive");
+    }
+
+    #[test]
+    fn default_base_url_for_kind_known_providers() {
+        assert_eq!(default_base_url_for_kind("anthropic"), "https://api.anthropic.com");
+        assert_eq!(
+            default_base_url_for_kind("gemini"),
+            "https://generativelanguage.googleapis.com"
+        );
+        // Both openai-chat and openai-responses share the openai endpoint.
+        assert_eq!(default_base_url_for_kind("openai-chat"), "https://api.openai.com/v1");
+        assert_eq!(default_base_url_for_kind("openai-responses"), "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn default_base_url_for_kind_unknown_falls_back_to_openai() {
+        assert_eq!(default_base_url_for_kind(""), "https://api.openai.com/v1");
+        assert_eq!(default_base_url_for_kind("xyz"), "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn known_kinds_all_have_explicit_defaults() {
+        // Invariant guard: every entry in KNOWN_KINDS must have a
+        // non-fallback default for both model and base_url. Without
+        // this test, a future commit could add a kind to KNOWN_KINDS
+        // (so `alva settings set <kind>` validates it) but forget to
+        // teach the defaults — users get the openai fallback silently.
+        //
+        // We can't introspect "did the match arm hit the fallback?",
+        // but we can encode the expectation: every known kind should
+        // produce defaults that are NOT both the bare openai fallbacks.
+        // Iterate and verify each kind has at least one of model/base_url
+        // distinct from the generic fallback pair (gpt-4o, openai.com).
+        let openai_fallback_model = default_model_for_kind("__definitely_unknown__");
+        let openai_fallback_url = default_base_url_for_kind("__definitely_unknown__");
+        for kind in KNOWN_KINDS {
+            let model = default_model_for_kind(kind);
+            let url = default_base_url_for_kind(kind);
+            // openai-chat/responses are themselves intended to hit the
+            // openai fallback, so the assertion holds only for the
+            // non-openai kinds.
+            if !kind.starts_with("openai") {
+                assert!(
+                    model != openai_fallback_model || url != openai_fallback_url,
+                    "kind `{}` falls through to the generic openai default; \
+                     was a new provider added to KNOWN_KINDS without teaching \
+                     default_model_for_kind / default_base_url_for_kind?",
+                    kind,
+                );
+            }
+        }
+    }
 }

@@ -181,3 +181,258 @@ impl<T: Clone> Component for Picker<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for Picker<T> — filter + paging + wrap + handle_event
+    //! routing. render() needs a Frame so is not exercised; the
+    //! state mutations covered here are what actually decide which
+    //! item ends up selected when the user hits Enter.
+    use super::*;
+    use crossterm::event::{KeyEventKind, KeyEventState};
+
+    fn picker_of(items: &[&str]) -> Picker<&'static str> {
+        let owned: Vec<(&'static str, String)> = items
+            .iter()
+            .map(|s| {
+                let leaked: &'static str = Box::leak(s.to_string().into_boxed_str());
+                (leaked, leaked.to_string())
+            })
+            .collect();
+        Picker::new(owned, "Pick")
+    }
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
+        Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        })
+    }
+
+    // -- Construction / defaults ------------------------------------------
+
+    #[test]
+    fn new_picks_first_item_by_default() {
+        let p = picker_of(&["alpha", "beta", "gamma"]);
+        assert_eq!(p.selected_label(), Some("alpha"));
+        assert_eq!(p.selected_value().copied(), Some("alpha"));
+        assert!(!p.is_empty());
+    }
+
+    #[test]
+    fn empty_items_yields_no_selection() {
+        let p: Picker<&'static str> = Picker::new(vec![], "Empty");
+        assert!(p.is_empty());
+        assert_eq!(p.selected_label(), None);
+        assert_eq!(p.selected_value(), None);
+    }
+
+    // -- Builders -----------------------------------------------------------
+
+    #[test]
+    fn page_size_clamps_zero_to_one() {
+        // page_size(0) would cause div-by-zero in refilter() and
+        // render() (see `self.selected / self.page_size`). The
+        // `.max(1)` guard is the only protection.
+        let p = picker_of(&["a", "b"]).page_size(0);
+        // Smoke: advance through items without panic.
+        let mut p = p;
+        p.next();
+        p.next();
+        assert!(p.selected_label().is_some());
+    }
+
+    #[test]
+    fn show_query_chains_returns_self_state() {
+        // Builder pattern smoke — just verify chain doesn't drop state.
+        let p = picker_of(&["a", "b"]).show_query(true).page_size(3);
+        assert_eq!(p.selected_label(), Some("a"));
+    }
+
+    // -- set_query / filter -----------------------------------------------
+
+    #[test]
+    fn set_query_filters_case_insensitive_substring() {
+        let mut p = picker_of(&["Apple", "banana", "Cherry"]);
+        p.set_query("an");
+        // "Apple" matches "ap"? no — "an" matches "banana".
+        assert_eq!(p.selected_label(), Some("banana"));
+    }
+
+    #[test]
+    fn set_query_uppercase_still_matches_lowercase_labels() {
+        let mut p = picker_of(&["banana", "apple"]);
+        p.set_query("BAN");
+        assert_eq!(p.selected_label(), Some("banana"));
+    }
+
+    #[test]
+    fn set_query_empty_restores_full_list() {
+        let mut p = picker_of(&["a", "b", "c"]);
+        p.set_query("a");
+        p.set_query("");
+        // First item once again selectable + total restored.
+        assert_eq!(p.selected_label(), Some("a"));
+        assert!(!p.is_empty());
+    }
+
+    #[test]
+    fn set_query_no_match_yields_empty() {
+        let mut p = picker_of(&["a", "b"]);
+        p.set_query("zzz");
+        assert!(p.is_empty());
+        assert_eq!(p.selected_label(), None);
+    }
+
+    #[test]
+    fn set_query_resets_out_of_bounds_selection() {
+        // Move selection to last, then filter so list shrinks below
+        // the prior selected index. selected must reset to 0 rather
+        // than indexing past the end.
+        let mut p = picker_of(&["alpha", "beta", "gamma"]);
+        p.next();
+        p.next(); // selected = 2 ("gamma")
+        assert_eq!(p.selected_label(), Some("gamma"));
+        p.set_query("al"); // only "alpha" survives — selected was 2, out of bounds.
+        assert_eq!(p.selected_label(), Some("alpha"));
+    }
+
+    // -- set_items ---------------------------------------------------------
+
+    #[test]
+    fn set_items_replaces_and_refilters() {
+        let mut p = picker_of(&["old1", "old2"]);
+        p.next(); // selected=1
+        let owned: Vec<(&'static str, String)> = vec![
+            ("new-a", "new-a".into()),
+            ("new-b", "new-b".into()),
+            ("new-c", "new-c".into()),
+        ];
+        p.set_items(owned);
+        // refilter ran — selected stays within new bounds.
+        assert_eq!(p.selected_label(), Some("new-b"));
+    }
+
+    // -- next / prev wrap --------------------------------------------------
+
+    #[test]
+    fn next_wraps_at_end() {
+        let mut p = picker_of(&["a", "b"]);
+        p.next(); // selected=1
+        p.next(); // wrap back to 0
+        assert_eq!(p.selected_label(), Some("a"));
+    }
+
+    #[test]
+    fn prev_wraps_at_start() {
+        let mut p = picker_of(&["a", "b", "c"]);
+        // From 0, prev should wrap to last (2).
+        p.prev();
+        assert_eq!(p.selected_label(), Some("c"));
+    }
+
+    #[test]
+    fn next_and_prev_on_empty_filter_are_no_op() {
+        // Pin: 0-len list. next/prev must NOT panic (index out of
+        // bounds in modulo or subtraction).
+        let mut p = picker_of(&["a"]);
+        p.set_query("zz");
+        assert!(p.is_empty());
+        p.next();
+        p.prev();
+        // Still empty, still no selection.
+        assert_eq!(p.selected_label(), None);
+    }
+
+    // -- page nav ----------------------------------------------------------
+
+    #[test]
+    fn page_next_advances_by_page_size_and_cycles() {
+        // page_size=2, items: 0..5 → pages of [0,1] [2,3] [4]
+        let mut p = picker_of(&["0","1","2","3","4"]).page_size(2);
+        assert_eq!(p.selected_label(), Some("0"));
+        p.page_next();
+        // page 1 starts at index 2.
+        assert_eq!(p.selected_label(), Some("2"));
+        p.page_next();
+        // page 2 starts at index 4.
+        assert_eq!(p.selected_label(), Some("4"));
+        p.page_next();
+        // wrap to page 0.
+        assert_eq!(p.selected_label(), Some("0"));
+    }
+
+    #[test]
+    fn page_next_last_page_clamps_to_last_index_not_overshoot() {
+        // page_size=3, items: 4 → pages [0,1,2] [3]. Last page only
+        // has one item; selected must clamp to 3, not overshoot.
+        let mut p = picker_of(&["0","1","2","3"]).page_size(3);
+        p.page_next();
+        assert_eq!(p.selected_label(), Some("3"));
+    }
+
+    // -- handle_event ------------------------------------------------------
+
+    #[test]
+    fn down_advances_selection() {
+        let mut p = picker_of(&["a", "b"]);
+        let act = p.handle_event(key(KeyCode::Down, KeyModifiers::NONE));
+        assert!(matches!(act, ComponentAction::None));
+        assert_eq!(p.selected_label(), Some("b"));
+    }
+
+    #[test]
+    fn ctrl_n_advances_like_down() {
+        let mut p = picker_of(&["a", "b"]);
+        p.handle_event(key(KeyCode::Char('n'), KeyModifiers::CONTROL));
+        assert_eq!(p.selected_label(), Some("b"));
+    }
+
+    #[test]
+    fn enter_submits_current_label() {
+        let mut p = picker_of(&["only-choice"]);
+        let act = p.handle_event(key(KeyCode::Enter, KeyModifiers::NONE));
+        match act {
+            ComponentAction::Submit(s) => assert_eq!(s, "only-choice"),
+            other => panic!("expected Submit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tab_acts_like_enter() {
+        // Tab is the typeahead-confirm key in command palettes.
+        let mut p = picker_of(&["only-choice"]);
+        let act = p.handle_event(key(KeyCode::Tab, KeyModifiers::NONE));
+        match act {
+            ComponentAction::Submit(s) => assert_eq!(s, "only-choice"),
+            other => panic!("expected Submit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enter_on_empty_filter_returns_none() {
+        // No selection to submit — must NOT panic on selected_label()
+        // returning None.
+        let mut p = picker_of(&["a"]);
+        p.set_query("zz");
+        let act = p.handle_event(key(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(act, ComponentAction::None));
+    }
+
+    #[test]
+    fn esc_returns_dismiss() {
+        let mut p = picker_of(&["a"]);
+        let act = p.handle_event(key(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(matches!(act, ComponentAction::Dismiss));
+    }
+
+    #[test]
+    fn unknown_key_bubbles() {
+        let mut p = picker_of(&["a"]);
+        let ev = key(KeyCode::Char('x'), KeyModifiers::NONE);
+        let act = p.handle_event(ev);
+        assert!(matches!(act, ComponentAction::Bubble(_)));
+    }
+}

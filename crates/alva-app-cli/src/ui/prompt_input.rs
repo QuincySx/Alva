@@ -146,3 +146,181 @@ impl<'a> Widget for PromptInputWidget<'a> {
         footer_paragraph.render(footer_area, buf);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for InputMode (prefix/label routing) + PromptInputWidget
+    //! render (mode prefix, input text, footer with mode/model/tokens).
+    //! Buffer pattern from ui::spinner (L107) / ui::message_list (L108).
+    use super::*;
+
+    fn theme() -> Theme {
+        Theme::default()
+    }
+
+    fn render_to_string(widget: PromptInputWidget<'_>, width: u16, height: u16) -> String {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        widget.render(area, &mut buf);
+        let mut s = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                s.push_str(buf[(x, y)].symbol());
+            }
+            s.push('\n');
+        }
+        s
+    }
+
+    // -- InputMode::prefix per variant ------------------------------------
+
+    #[test]
+    fn prefix_normal_is_angle_bracket() {
+        assert_eq!(InputMode::Normal.prefix(), "> ");
+    }
+
+    #[test]
+    fn prefix_command_is_slash() {
+        assert_eq!(InputMode::Command.prefix(), "/ ");
+    }
+
+    #[test]
+    fn prefix_shell_is_bang() {
+        assert_eq!(InputMode::Shell.prefix(), "! ");
+    }
+
+    #[test]
+    fn prefix_vim_is_colon() {
+        assert_eq!(InputMode::Vim.prefix(), ": ");
+    }
+
+    #[test]
+    fn prefix_variants_are_mutually_distinct() {
+        // Pin: users distinguish modes ONLY by this prefix; collapsing
+        // any two to the same string makes mode-switching invisible.
+        use std::collections::HashSet;
+        let prefixes: HashSet<_> = [
+            InputMode::Normal.prefix(),
+            InputMode::Command.prefix(),
+            InputMode::Shell.prefix(),
+            InputMode::Vim.prefix(),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(prefixes.len(), 4, "all 4 prefixes must be unique");
+    }
+
+    // -- InputMode::label per variant -------------------------------------
+
+    #[test]
+    fn label_strings_match_each_mode() {
+        assert_eq!(InputMode::Normal.label(), "NORMAL");
+        assert_eq!(InputMode::Command.label(), "COMMAND");
+        assert_eq!(InputMode::Shell.label(), "SHELL");
+        assert_eq!(InputMode::Vim.label(), "VIM");
+    }
+
+    // -- PromptInputWidget builders ---------------------------------------
+
+    #[test]
+    fn new_defaults_cursor_to_input_len_and_mode_to_normal() {
+        // Builder default contract: cursor lands at end of input, mode
+        // Normal, no model name, 0 tokens. Render reflects all of these.
+        let theme = theme();
+        let s = render_to_string(PromptInputWidget::new("hi", &theme), 40, 4);
+        assert!(s.contains("> "), "default mode must render '> ' prefix: {s}");
+        assert!(s.contains("hi"), "input text must appear: {s}");
+        assert!(s.contains("NORMAL"), "default mode label must be NORMAL: {s}");
+        // Default model_name is "" — still shows the trailing space chrome
+        // around it but no specific name to check.
+        assert!(s.contains("0T"), "default token_count=0 must show '0T': {s}");
+    }
+
+    // -- Render: mode prefix + input text ---------------------------------
+
+    #[test]
+    fn render_uses_command_prefix_when_mode_command() {
+        let theme = theme();
+        let s = render_to_string(
+            PromptInputWidget::new("help", &theme).mode(InputMode::Command),
+            40,
+            4,
+        );
+        // Slash prefix at the input line.
+        assert!(s.contains("/ help"), "command-mode line must show '/ help': {s}");
+        assert!(s.contains("COMMAND"), "footer must show COMMAND label: {s}");
+    }
+
+    #[test]
+    fn render_uses_shell_prefix_when_mode_shell() {
+        let theme = theme();
+        let s = render_to_string(
+            PromptInputWidget::new("ls", &theme).mode(InputMode::Shell),
+            40,
+            4,
+        );
+        assert!(s.contains("! ls"));
+        assert!(s.contains("SHELL"));
+    }
+
+    #[test]
+    fn render_uses_vim_prefix_when_mode_vim() {
+        let theme = theme();
+        let s = render_to_string(
+            PromptInputWidget::new("q", &theme).mode(InputMode::Vim),
+            40,
+            4,
+        );
+        assert!(s.contains(": q"));
+        assert!(s.contains("VIM"));
+    }
+
+    // -- Render: footer (model + tokens) ----------------------------------
+
+    #[test]
+    fn render_footer_includes_model_name() {
+        let theme = theme();
+        let s = render_to_string(
+            PromptInputWidget::new("", &theme).model_name("claude-sonnet-4-5"),
+            60,
+            4,
+        );
+        assert!(
+            s.contains("claude-sonnet-4-5"),
+            "footer must include model name: {s}"
+        );
+    }
+
+    #[test]
+    fn render_footer_includes_token_count_with_t_suffix() {
+        // Pin: footer renders "<N>T" — the "T" suffix tells the user
+        // the number is tokens (not messages / lines). Dropping the
+        // suffix makes the number ambiguous.
+        let theme = theme();
+        let s = render_to_string(
+            PromptInputWidget::new("", &theme).token_count(12345),
+            60,
+            4,
+        );
+        assert!(s.contains("12345T"), "footer must show '12345T': {s}");
+    }
+
+    #[test]
+    fn render_footer_includes_all_three_segments_at_once() {
+        // Compose all three: mode label + model + tokens. Pin that
+        // the three Spans don't accidentally collapse (e.g. format
+        // refactor losing one).
+        let theme = theme();
+        let s = render_to_string(
+            PromptInputWidget::new("", &theme)
+                .mode(InputMode::Command)
+                .model_name("gpt-4o")
+                .token_count(42),
+            70,
+            4,
+        );
+        assert!(s.contains("COMMAND"));
+        assert!(s.contains("gpt-4o"));
+        assert!(s.contains("42T"));
+    }
+}

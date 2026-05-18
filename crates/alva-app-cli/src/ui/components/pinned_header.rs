@@ -54,3 +54,46 @@ impl<'a> PinnedHeader<'a> {
         frame.render_widget(para, area);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the PinnedHeader builder + max_rows clamp invariant.
+    //! Fields are `pub` so direct assertion suffices — no Frame /
+    //! TestBackend needed. render() is intentionally not exercised
+    //! here (would require backend setup for marginal value over the
+    //! builder pins).
+    use super::*;
+
+    #[test]
+    fn new_stores_question_with_default_max_rows_4() {
+        let h = PinnedHeader::new("hello");
+        assert_eq!(h.question, "hello");
+        assert_eq!(h.max_rows, 4, "default max_rows must be 4");
+    }
+
+    #[test]
+    fn max_rows_builder_accepts_positive_value() {
+        let h = PinnedHeader::new("q").max_rows(7);
+        assert_eq!(h.max_rows, 7);
+        // question survives the builder chain.
+        assert_eq!(h.question, "q");
+    }
+
+    #[test]
+    fn max_rows_clamps_zero_to_one() {
+        // Safety invariant: max_rows must be at least 1, otherwise
+        // render() would compute a 2-row area (0 + 2 borders) that
+        // leaves no room for any question text. Pin so a future
+        // refactor doesn't drop the `.max(1)` call.
+        let h = PinnedHeader::new("q").max_rows(0);
+        assert_eq!(h.max_rows, 1, "max_rows(0) must clamp to 1");
+    }
+
+    #[test]
+    fn max_rows_one_passes_through_unchanged() {
+        // The boundary case: 1 is the minimum and must NOT be clamped
+        // (or doubled) — passes through verbatim.
+        let h = PinnedHeader::new("q").max_rows(1);
+        assert_eq!(h.max_rows, 1);
+    }
+}

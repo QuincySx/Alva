@@ -217,3 +217,168 @@ impl AgentSession for JsonFileAgentSession {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for JsonFileAgentSession — the CLI's on-disk session
+    //! backend. Mirror of the deferred-flush contract pinned in
+    //! sqlite_session::tests, but for the *eager*-persist model:
+    //!   * every write triggers a full file rewrite
+    //!   * restore round-trips events + snapshot (base64) via the
+    //!     restore_events path (so the messages projection rebuilds)
+    //!   * clear deletes the file
+    //!
+    //! tempfile dev-dep already available in alva-app-cli.
+    use super::*;
+    use serde_json::json;
+
+    fn session_path(dir: &Path, label: &str) -> PathBuf {
+        dir.join(format!("{label}.json"))
+    }
+
+    #[tokio::test]
+    async fn new_at_assigns_random_id_and_does_not_create_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "fresh");
+
+        let s = JsonFileAgentSession::new_at(path.clone());
+        assert!(!s.session_id().is_empty());
+        assert_eq!(s.file_path(), path.as_path());
+        // No write yet — file should not exist.
+        assert!(!path.exists(), "no persist before first write");
+    }
+
+    #[tokio::test]
+    async fn with_id_at_honors_caller_provided_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "explicit");
+        let s = JsonFileAgentSession::with_id_at(path, "explicit-id-99".into());
+        assert_eq!(s.session_id(), "explicit-id-99");
+    }
+
+    #[tokio::test]
+    async fn append_eagerly_persists_to_disk() {
+        // Core contract: append → file exists immediately (NOT deferred
+        // like the sqlite_session backend). Regressions converting this
+        // to lazy/deferred would lose data on CLI crash before flush.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "eager");
+        let s = JsonFileAgentSession::with_id_at(path.clone(), "eager-id".into());
+
+        assert!(!path.exists(), "file must not exist before first append");
+        s.append(SessionEvent::user_message(json!("hello"))).await;
+        assert!(path.exists(), "file must exist after first append");
+
+        // File parses back as a SessionFile with one event.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let parsed: SessionFile = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed.session_id, "eager-id");
+        assert_eq!(parsed.events.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn restore_round_trips_events_into_new_session_instance() {
+        // Full re-open cycle: write via one session, drop it, then a
+        // new JsonFileAgentSession::with_id_at the same path runs
+        // restore() and sees the same events. This is the actual
+        // CLI session-resume code path.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "rtrip");
+        {
+            let writer = JsonFileAgentSession::with_id_at(path.clone(), "rtrip-id".into());
+            writer.append(SessionEvent::user_message(json!("first"))).await;
+            writer.append(SessionEvent::progress(json!({"k": "v"}))).await;
+        }
+
+        let reader = JsonFileAgentSession::with_id_at(path, "rtrip-id".into());
+        reader.restore().await.expect("restore ok");
+
+        let events = reader.query(&EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        }).await;
+        assert_eq!(events.len(), 2);
+        let types: Vec<_> = events.iter().map(|m| m.event.event_type.clone()).collect();
+        assert!(types.iter().any(|t| t == "user"));
+        assert!(types.iter().any(|t| t == "progress"));
+    }
+
+    #[tokio::test]
+    async fn snapshot_bytes_round_trip_via_base64() {
+        // Pin: snapshot is encoded as base64 on persist and decoded on
+        // restore — any drift between B64.encode and B64.decode would
+        // silently corrupt the compact-restore path.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "snap");
+        let snap: Vec<u8> = (0u8..=255).collect(); // full byte-range smoke
+        {
+            let writer = JsonFileAgentSession::with_id_at(path.clone(), "snap-id".into());
+            writer.save_snapshot(&snap).await;
+        }
+
+        let reader = JsonFileAgentSession::with_id_at(path, "snap-id".into());
+        reader.restore().await.expect("restore ok");
+        let got = reader.load_snapshot().await.expect("snapshot present");
+        assert_eq!(got, snap, "snapshot bytes must round-trip exactly");
+    }
+
+    #[tokio::test]
+    async fn rollback_after_re_persists_truncated_events() {
+        // Pin: rollback also triggers persist (so the disk file
+        // reflects the truncation). Without this, a rollback in
+        // memory would diverge from the disk on next restore.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "rollback");
+        let writer = JsonFileAgentSession::with_id_at(path.clone(), "rb-id".into());
+        writer.append(SessionEvent::user_message(json!("keep-1"))).await;
+        let pivot = SessionEvent::user_message(json!("pivot"));
+        let pivot_uuid = pivot.uuid.clone();
+        writer.append(pivot).await;
+        writer.append(SessionEvent::user_message(json!("drop-1"))).await;
+        writer.append(SessionEvent::user_message(json!("drop-2"))).await;
+
+        let dropped = writer.rollback_after(&pivot_uuid).await;
+        assert_eq!(dropped, 2, "must drop the two events after pivot");
+
+        // Verify on-disk state matches: a new reader restored from the
+        // same path must see only the 2 surviving events.
+        let reader = JsonFileAgentSession::with_id_at(path, "rb-id".into());
+        reader.restore().await.expect("restore");
+        let events = reader.query(&EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        }).await;
+        assert_eq!(events.len(), 2, "disk file must reflect post-rollback state");
+    }
+
+    #[tokio::test]
+    async fn clear_removes_session_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "to-clear");
+        let s = JsonFileAgentSession::with_id_at(path.clone(), "clear-id".into());
+        s.append(SessionEvent::user_message(json!("doomed"))).await;
+        assert!(path.exists());
+
+        s.clear().await.expect("clear ok");
+        assert!(!path.exists(), "file must be removed after clear");
+    }
+
+    #[tokio::test]
+    async fn restore_on_missing_file_is_a_no_op_not_error() {
+        // Pin: opening a fresh session at a non-existent path then
+        // calling restore() must NOT error — this is what happens on
+        // first launch with a new session id.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "missing");
+        assert!(!path.exists());
+
+        let s = JsonFileAgentSession::with_id_at(path, "new-id".into());
+        s.restore().await.expect("restore on missing must succeed");
+
+        let events = s.query(&EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        }).await;
+        assert!(events.is_empty(), "no events loaded from non-existent file");
+    }
+}

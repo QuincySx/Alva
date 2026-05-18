@@ -112,8 +112,7 @@ mod tests {
     //! pinpoints the registry, not whatever real command happened to be
     //! standing in for it.
     use super::*;
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::Mutex;
 
     use super::super::types::TokenUsage;
@@ -154,14 +153,12 @@ mod tests {
     fn test_ctx() -> CommandContext<'static> {
         CommandContext {
             workspace: Path::new("/tmp/wsp"),
-            home_dir: PathBuf::from("/tmp/home"),
             model: "claude-sonnet-4-20250514",
             session_id: "sid",
             message_count: 0,
             token_usage: TokenUsage::default(),
             tool_names: vec![],
             plan_mode: false,
-            extra: HashMap::new(),
         }
     }
 
@@ -281,4 +278,31 @@ mod tests {
         assert!(reg.find("clear").is_some());
     }
 
+    /// Isolated alias dispatch test using a TestCmd. The
+    /// `find_by_alias_works` test above relies on the bundled
+    /// `cost`→`usage` alias as a fixture; if that alias is ever renamed
+    /// or removed, that test fails for the wrong reason (looks like a
+    /// dispatch regression but is actually a builtin contract change).
+    /// This test pins dispatch logic for ARBITRARY aliases independent
+    /// of any builtin, and exercises the `with_aliases` test helper.
+    #[test]
+    fn find_resolves_arbitrary_test_cmd_aliases() {
+        let mut reg = CommandRegistry::new();
+        reg.register(Box::new(
+            TestCmd::new("primary").with_aliases(vec!["alt1", "alt2"]),
+        ));
+
+        // Each alias must route to the same command — and that command's
+        // name() must be the primary one (not the alias).
+        for needle in ["primary", "alt1", "alt2"] {
+            let cmd = reg
+                .find(needle)
+                .unwrap_or_else(|| panic!("`{needle}` must resolve"));
+            assert_eq!(cmd.name(), "primary", "alias `{needle}` returned wrong command");
+        }
+
+        // Unregistered alias still resolves to None (regression guard
+        // against `.contains(&name)` accidentally becoming an open match).
+        assert!(reg.find("alt3").is_none());
+    }
 }

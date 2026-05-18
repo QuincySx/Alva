@@ -198,11 +198,7 @@ pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
     eprintln!();
 
     // Step 5: Confirm
-    let key_preview = if api_key.len() > 8 {
-        format!("{}...{}", &api_key[..4], &api_key[api_key.len()-4..])
-    } else {
-        "****".to_string()
-    };
+    let key_preview = mask_api_key(&api_key);
     eprintln!("{}", "Configuration:".bold());
     eprintln!("  Provider:  {}", preset.name.cyan());
     eprintln!("  Base URL:  {}", base_url.as_str().white());
@@ -248,4 +244,86 @@ pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
 
     eprintln!();
     Some(config)
+}
+
+/// Mask an API key for display as `<first-4>...<last-4>`. Operates on
+/// chars (not bytes) so it never panics on multi-byte UTF-8 chars —
+/// API keys are almost always ASCII, but a user could paste anything
+/// here, and a panic during the setup flow would break first-run.
+///
+/// Keys with 8 or fewer chars are masked entirely as `****` to avoid
+/// leaking most of a short key.
+fn mask_api_key(key: &str) -> String {
+    let total_chars = key.chars().count();
+    if total_chars <= 8 {
+        return "****".to_string();
+    }
+    let first_4: String = key.chars().take(4).collect();
+    // Take the last 4 chars by reversing, taking 4, then reversing back.
+    let last_4: String = key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{}...{}", first_4, last_4)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `mask_api_key` — the chars-based replacement for the
+    //! old `&api_key[..4]` / `&api_key[len-4..]` byte slicing that
+    //! could panic if a user pasted unicode content as their API key.
+    use super::*;
+
+    #[test]
+    fn mask_api_key_typical_ascii_key_shows_first_and_last_four() {
+        // Realistic Anthropic-shaped key (35 chars).
+        let key = "sk-ant-1234567890abcdefghijklmnopqr";
+        assert_eq!(key.chars().count(), 35);
+        assert_eq!(mask_api_key(key), "sk-a...opqr");
+    }
+
+    #[test]
+    fn mask_api_key_short_key_masked_entirely() {
+        // ≤8 chars → "****", don't leak any prefix/suffix
+        assert_eq!(mask_api_key(""), "****");
+        assert_eq!(mask_api_key("abcd"), "****");
+        assert_eq!(mask_api_key("abcdefgh"), "****", "exactly 8 chars → masked");
+    }
+
+    #[test]
+    fn mask_api_key_boundary_9_chars_starts_showing_preview() {
+        // 9 chars is the smallest size that shows preview.
+        assert_eq!(mask_api_key("abcdefghi"), "abcd...fghi");
+    }
+
+    #[test]
+    fn mask_api_key_unicode_chars_no_panic_and_correct_count() {
+        // Regression: pre-fix `&api_key[..4]` would panic if byte 4 was
+        // mid-char. With chars()-based we want "first 4 chars" semantics:
+        // 9 CJK chars = 27 bytes. Old code: `&[..4]` is bytes 0..4 which
+        // is INSIDE the 2nd CJK char (bytes 3..6) → PANIC.
+        let key = "中文中文中文中文中"; // 9 chars, 27 bytes
+        assert_eq!(key.chars().count(), 9);
+        assert_eq!(key.len(), 27);
+        // Must not panic. First 4 chars + "..." + last 4 chars.
+        let masked = mask_api_key(key);
+        assert_eq!(masked, "中文中文...文中文中");
+    }
+
+    #[test]
+    fn mask_api_key_emoji_in_middle_no_panic() {
+        // Mix of ASCII and emoji somewhere in the key — the byte
+        // positions of the boundary chars matter for the old code,
+        // but with chars() it just works.
+        let key = "sk-🦀-test-key-abc";
+        // count chars not bytes — should be > 8 → preview shown
+        assert!(key.chars().count() > 8);
+        let masked = mask_api_key(key);
+        assert!(masked.starts_with("sk-🦀"), "first 4 chars include the emoji: {}", masked);
+        assert!(masked.contains("..."));
+    }
 }

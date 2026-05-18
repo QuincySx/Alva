@@ -747,13 +747,10 @@ fn git_current_branch(cwd: &std::path::Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
 
     fn test_ctx() -> CommandContext<'static> {
         CommandContext {
             workspace: std::path::Path::new("/tmp/test-workspace"),
-            home_dir: std::path::PathBuf::from("/tmp/test-home"),
             model: "claude-sonnet-4-20250514",
             session_id: "test-session-123",
             message_count: 42,
@@ -770,7 +767,6 @@ mod tests {
                 "Grep".to_string(),
             ],
             plan_mode: false,
-            extra: HashMap::new(),
         }
     }
 

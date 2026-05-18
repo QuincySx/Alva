@@ -109,14 +109,106 @@ pub(crate) async fn handle_approval(agent: &BaseAgent, req: ApprovalRequest) {
     let mut input = String::new();
     let _ = io::stdin().lock().read_line(&mut input);
 
-    let decision = match input.trim().to_lowercase().as_str() {
-        "y" | "yes" | "" => PermissionDecision::AllowOnce,
-        "a" | "always" => PermissionDecision::AllowAlways,
-        "d" | "deny" => PermissionDecision::RejectAlways,
-        _ => PermissionDecision::RejectOnce,
-    };
+    let decision = parse_approval_input(&input);
 
     agent
         .resolve_permission(&req.request_id, &req.tool_name, decision)
         .await;
+}
+
+/// Map a raw approval-prompt response into a `PermissionDecision`.
+///
+/// Extracted from `handle_approval` so the (security-critical)
+/// "user text → permission" mapping is unit-testable without going
+/// through stdin / a BaseAgent. Behavior:
+///
+/// - "y" / "yes" / "" (empty)        → AllowOnce  (default accept)
+/// - "a" / "always"                  → AllowAlways
+/// - "d" / "deny"                    → RejectAlways
+/// - anything else                   → RejectOnce
+///
+/// Input is trimmed of surrounding whitespace and lowercased before
+/// matching, so "Y\n", "  YES  ", "Always" all behave identically
+/// to the lowercase forms above.
+pub(crate) fn parse_approval_input(input: &str) -> PermissionDecision {
+    match input.trim().to_lowercase().as_str() {
+        "y" | "yes" | "" => PermissionDecision::AllowOnce,
+        "a" | "always" => PermissionDecision::AllowAlways,
+        "d" | "deny" => PermissionDecision::RejectAlways,
+        _ => PermissionDecision::RejectOnce,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for parse_approval_input — the HITL permission text-to-
+    //! decision mapping. Misrouting here flips user intent: a user
+    //! typing "deny" might get AllowOnce, which is a security
+    //! regression with no compile-time signal. All variants + the
+    //! trim + lowercase normalization are pinned.
+    use super::*;
+
+    #[test]
+    fn lowercase_y_is_allow_once() {
+        assert_eq!(parse_approval_input("y"), PermissionDecision::AllowOnce);
+    }
+
+    #[test]
+    fn lowercase_yes_is_allow_once() {
+        assert_eq!(parse_approval_input("yes"), PermissionDecision::AllowOnce);
+    }
+
+    #[test]
+    fn empty_string_is_allow_once_default() {
+        // "Just press Enter" is the default-accept affordance — pin
+        // that the empty string maps to AllowOnce, NOT RejectOnce.
+        assert_eq!(parse_approval_input(""), PermissionDecision::AllowOnce);
+    }
+
+    #[test]
+    fn lowercase_a_is_allow_always() {
+        assert_eq!(parse_approval_input("a"), PermissionDecision::AllowAlways);
+    }
+
+    #[test]
+    fn lowercase_always_is_allow_always() {
+        assert_eq!(parse_approval_input("always"), PermissionDecision::AllowAlways);
+    }
+
+    #[test]
+    fn lowercase_d_is_reject_always() {
+        assert_eq!(parse_approval_input("d"), PermissionDecision::RejectAlways);
+    }
+
+    #[test]
+    fn lowercase_deny_is_reject_always() {
+        assert_eq!(parse_approval_input("deny"), PermissionDecision::RejectAlways);
+    }
+
+    #[test]
+    fn unknown_input_is_reject_once_not_allow() {
+        // Pin: anything outside the explicit set defaults to REJECT
+        // (RejectOnce), not Allow. This is the safe-by-default
+        // direction — a typo should NOT grant access.
+        assert_eq!(parse_approval_input("maybe"), PermissionDecision::RejectOnce);
+        assert_eq!(parse_approval_input("?"), PermissionDecision::RejectOnce);
+        assert_eq!(parse_approval_input("nope"), PermissionDecision::RejectOnce);
+    }
+
+    #[test]
+    fn input_is_trimmed_before_matching() {
+        // Trailing newlines come from read_line; leading whitespace
+        // can arrive via terminal noise. Both must normalize away.
+        assert_eq!(parse_approval_input("y\n"), PermissionDecision::AllowOnce);
+        assert_eq!(parse_approval_input("  yes  "), PermissionDecision::AllowOnce);
+        assert_eq!(parse_approval_input("\tdeny\n"), PermissionDecision::RejectAlways);
+    }
+
+    #[test]
+    fn matching_is_case_insensitive() {
+        assert_eq!(parse_approval_input("Y"), PermissionDecision::AllowOnce);
+        assert_eq!(parse_approval_input("YES"), PermissionDecision::AllowOnce);
+        assert_eq!(parse_approval_input("Always"), PermissionDecision::AllowAlways);
+        assert_eq!(parse_approval_input("DENY"), PermissionDecision::RejectAlways);
+    }
 }

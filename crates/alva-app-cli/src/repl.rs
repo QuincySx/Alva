@@ -29,18 +29,15 @@ fn build_command_context<'a>(
     tokens: &TokenUsage,
     tool_names: Vec<String>,
     plan_mode: bool,
-    home_dir: &std::path::Path,
 ) -> CommandContext<'a> {
     CommandContext {
         workspace,
-        home_dir: home_dir.to_path_buf(),
         model: &config.model,
         session_id,
         message_count,
         token_usage: tokens.clone(),
         tool_names,
         plan_mode,
-        extra: std::collections::HashMap::new(),
     }
 }
 
@@ -56,7 +53,6 @@ pub(crate) async fn run_repl(
 ) {
     let registry = CommandRegistry::new();
     let mut tokens = TokenUsage::default();
-    let home_dir = dirs::home_dir().unwrap_or_default();
 
     // Auto-resume latest or start new
     let (mut session_id, mut active_session) = match session_manager.latest() {
@@ -425,7 +421,6 @@ pub(crate) async fn run_repl(
                         &tokens,
                         tool_names,
                         plan_mode,
-                        &home_dir,
                     );
 
                     if let Some(result) = registry.execute(trimmed, &ctx) {
@@ -479,7 +474,6 @@ pub(crate) async fn run_repl(
                             CommandResult::Error(e) => {
                                 output::print_error(&e);
                             }
-                            CommandResult::Skip => {}
                         }
                     }
                     continue;

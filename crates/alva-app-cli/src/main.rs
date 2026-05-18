@@ -21,7 +21,6 @@ mod checkpoint;
 mod commands;
 mod context;
 mod event_handler;
-mod history;
 mod output;
 mod bundled_skills;
 mod plugins;

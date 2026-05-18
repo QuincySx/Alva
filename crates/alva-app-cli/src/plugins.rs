@@ -322,3 +322,145 @@ fn build_event(name: &str, data: &Value) -> Result<ExtensionEvent, String> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    //! Tests for `build_event` — parses a plugin event name and
+    //! optional `--data` JSON into an `ExtensionEvent`. Used by
+    //! `alva plugins exec <dir> <event> --data JSON`, the fast path
+    //! for plugin authors to test their handler without running a
+    //! full agent loop. Errors here cost developer time, so the
+    //! field-handling contract is worth pinning down.
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn build_event_agent_start_takes_no_data() {
+        let ev = build_event("agent_start", &json!({})).unwrap();
+        assert!(matches!(ev, ExtensionEvent::AgentStart));
+    }
+
+    #[test]
+    fn build_event_dot_in_name_normalized_to_underscore() {
+        // The CLI accepts "agent.start" as an alias for "agent_start";
+        // build_event replaces dots with underscores before matching.
+        let ev = build_event("agent.start", &json!({})).unwrap();
+        assert!(matches!(ev, ExtensionEvent::AgentStart));
+        // Multi-dot too
+        let ev2 = build_event("before.tool.call", &json!({"tool_name": "t"})).unwrap();
+        assert!(matches!(ev2, ExtensionEvent::BeforeToolCall { .. }));
+    }
+
+    #[test]
+    fn build_event_agent_end_with_error() {
+        let ev = build_event("agent_end", &json!({"error": "boom"})).unwrap();
+        match ev {
+            ExtensionEvent::AgentEnd { error } => assert_eq!(error.as_deref(), Some("boom")),
+            other => panic!("expected AgentEnd, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_event_agent_end_without_error_is_none() {
+        let ev = build_event("agent_end", &json!({})).unwrap();
+        match ev {
+            ExtensionEvent::AgentEnd { error } => assert!(error.is_none()),
+            other => panic!("expected AgentEnd, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_event_before_tool_call_full() {
+        let ev = build_event(
+            "before_tool_call",
+            &json!({"tool_name": "read_file", "tool_call_id": "tc-1", "arguments": {"path": "/x"}}),
+        )
+        .unwrap();
+        match ev {
+            ExtensionEvent::BeforeToolCall { tool_name, tool_call_id, arguments } => {
+                assert_eq!(tool_name, "read_file");
+                assert_eq!(tool_call_id, "tc-1");
+                assert_eq!(arguments["path"], "/x");
+            }
+            other => panic!("expected BeforeToolCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_event_before_tool_call_missing_tool_name_is_err() {
+        let err = build_event("before_tool_call", &json!({})).unwrap_err();
+        assert!(err.contains("tool_name"), "err message should mention field: {err}");
+    }
+
+    #[test]
+    fn build_event_before_tool_call_defaults_when_optional_fields_missing() {
+        // tool_call_id defaults to "stub-id", arguments defaults to {}.
+        let ev = build_event("before_tool_call", &json!({"tool_name": "t"})).unwrap();
+        match ev {
+            ExtensionEvent::BeforeToolCall { tool_call_id, arguments, .. } => {
+                assert_eq!(tool_call_id, "stub-id");
+                assert!(arguments.is_object() && arguments.as_object().unwrap().is_empty());
+            }
+            other => panic!("expected BeforeToolCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_event_after_tool_call_with_result_text() {
+        let ev = build_event(
+            "after_tool_call",
+            &json!({"tool_name": "edit", "tool_call_id": "tc-2", "result": {"text": "done"}}),
+        )
+        .unwrap();
+        match ev {
+            ExtensionEvent::AfterToolCall { tool_name, tool_call_id, result } => {
+                assert_eq!(tool_name, "edit");
+                assert_eq!(tool_call_id, "tc-2");
+                // ToolOutput::text("done") → first content block is Text("done")
+                assert_eq!(result.content[0].as_text(), Some("done"));
+            }
+            other => panic!("expected AfterToolCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_event_after_tool_call_missing_tool_name_is_err() {
+        let err = build_event("after_tool_call", &json!({})).unwrap_err();
+        assert!(err.contains("tool_name"));
+    }
+
+    #[test]
+    fn build_event_after_tool_call_missing_result_text_gives_empty() {
+        let ev = build_event("after_tool_call", &json!({"tool_name": "t"})).unwrap();
+        match ev {
+            ExtensionEvent::AfterToolCall { result, .. } => {
+                // No result.text → empty string content
+                assert_eq!(result.content[0].as_text(), Some(""));
+            }
+            other => panic!("expected AfterToolCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_event_input_with_text() {
+        let ev = build_event("input", &json!({"text": "hello"})).unwrap();
+        match ev {
+            ExtensionEvent::Input { text } => assert_eq!(text, "hello"),
+            other => panic!("expected Input, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_event_input_missing_text_is_err() {
+        let err = build_event("input", &json!({})).unwrap_err();
+        assert!(err.contains("text"), "err should mention field: {err}");
+    }
+
+    #[test]
+    fn build_event_unknown_event_returns_err_with_help_hint() {
+        let err = build_event("definitely_not_an_event", &json!({})).unwrap_err();
+        assert!(err.contains("unknown event"));
+        assert!(err.contains("definitely_not_an_event"));
+        assert!(err.contains("--help"), "err should point user to --help: {err}");
+    }
+}
+
