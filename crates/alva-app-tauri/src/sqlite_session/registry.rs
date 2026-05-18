@@ -44,13 +44,6 @@ impl SqliteSessionRegistry {
     pub fn new(conn: Arc<Mutex<Connection>>) -> Self {
         Self { conn }
     }
-
-    /// Shared reference to the underlying connection (used by callers that
-    /// need to mix raw SQL with registry calls — e.g. the legacy manager
-    /// during the transition).
-    pub fn conn(&self) -> &Arc<Mutex<Connection>> {
-        &self.conn
-    }
 }
 
 // ─── Row decode helpers ───────────────────────────────────────────────

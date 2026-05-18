@@ -185,21 +185,26 @@ fn build_request(
     provider: &str,
     api_key: &str,
     base_url: &str,
-) -> reqwest::RequestBuilder {
+) -> Result<reqwest::RequestBuilder, String> {
     let url = resolve_models_url(provider, base_url);
+    // Client::builder().build() can fail when the system's TLS backend
+    // can't initialize (missing CA store, broken certs, etc.). Surface
+    // that as a user-visible error rather than panicking the Tauri IPC
+    // handler.
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
-        .expect("reqwest client");
+        .map_err(|e| format!("failed to build reqwest client (TLS/cert init): {e}"))?;
 
     let req = client.get(&url);
-    match provider {
+    let req = match provider {
         "anthropic" => req
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
         "gemini" => req.header("x-goog-api-key", api_key),
         _ => req.bearer_auth(api_key),
-    }
+    };
+    Ok(req)
 }
 
 pub async fn fetch_remote_models(
@@ -211,7 +216,7 @@ pub async fn fetch_remote_models(
         return Err("api_key is empty".into());
     }
     let url = resolve_models_url(provider, base_url);
-    let resp = build_request(provider, api_key, base_url)
+    let resp = build_request(provider, api_key, base_url)?
         .send()
         .await
         .map_err(|e| format!("request failed: {e} (url: {url})"))?;
@@ -375,5 +380,277 @@ pub async fn test_connection(
             input_tokens: None,
             output_tokens: None,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the URL-routing helpers used by `fetch_remote_models`.
+    //! Wrong routing → wrong endpoint → 404 / auth errors that confuse
+    //! users; these tests pin the per-provider behavior + /v1 suffix
+    //! handling that has been hand-tuned over time.
+    use super::*;
+
+    // -- is_openrouter -----------------------------------------------------
+
+    #[test]
+    fn is_openrouter_detects_canonical_host() {
+        assert!(is_openrouter("https://openrouter.ai"));
+        assert!(is_openrouter("https://openrouter.ai/api/v1"));
+        assert!(is_openrouter("https://openrouter.ai/"));
+    }
+
+    #[test]
+    fn is_openrouter_negative_cases() {
+        assert!(!is_openrouter("https://api.openai.com"));
+        assert!(!is_openrouter("https://api.anthropic.com"));
+        assert!(!is_openrouter("https://router.example.com"));
+        assert!(!is_openrouter(""));
+    }
+
+    // -- resolve_models_url: OpenRouter ------------------------------------
+
+    #[test]
+    fn resolve_models_url_openrouter_with_api_v1_appends_models() {
+        let url = resolve_models_url("openai-chat", "https://openrouter.ai/api/v1");
+        assert_eq!(url, "https://openrouter.ai/api/v1/models");
+    }
+
+    #[test]
+    fn resolve_models_url_openrouter_without_api_v1_adds_full_path() {
+        let url = resolve_models_url("openai-chat", "https://openrouter.ai");
+        assert_eq!(url, "https://openrouter.ai/api/v1/models");
+    }
+
+    #[test]
+    fn resolve_models_url_openrouter_trims_trailing_slash() {
+        let url = resolve_models_url("openai-chat", "https://openrouter.ai/");
+        assert_eq!(url, "https://openrouter.ai/api/v1/models");
+    }
+
+    // -- resolve_models_url: openai / openai-responses / anthropic --------
+
+    #[test]
+    fn resolve_models_url_openai_without_v1_adds_v1_models() {
+        assert_eq!(
+            resolve_models_url("openai", "https://api.openai.com"),
+            "https://api.openai.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn resolve_models_url_openai_with_v1_avoids_double_v1() {
+        // Regression guard against `https://...v1/v1/models` doubling.
+        assert_eq!(
+            resolve_models_url("openai", "https://api.openai.com/v1"),
+            "https://api.openai.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn resolve_models_url_openai_responses_uses_same_v1_path() {
+        assert_eq!(
+            resolve_models_url("openai-responses", "https://api.openai.com"),
+            "https://api.openai.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn resolve_models_url_anthropic_uses_v1_models() {
+        assert_eq!(
+            resolve_models_url("anthropic", "https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/models"
+        );
+        // Also with the /v1 suffix in base
+        assert_eq!(
+            resolve_models_url("anthropic", "https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn resolve_models_url_strips_trailing_slash_before_routing() {
+        // The trim_end_matches('/') happens before the per-provider
+        // switch, so every branch should yield the same URL with/without
+        // a trailing slash on the base.
+        let a = resolve_models_url("openai", "https://api.openai.com/v1/");
+        let b = resolve_models_url("openai", "https://api.openai.com/v1");
+        assert_eq!(a, b);
+    }
+
+    // -- resolve_models_url: gemini ---------------------------------------
+
+    #[test]
+    fn resolve_models_url_gemini_uses_v1beta_models() {
+        assert_eq!(
+            resolve_models_url("gemini", "https://generativelanguage.googleapis.com"),
+            "https://generativelanguage.googleapis.com/v1beta/models"
+        );
+    }
+
+    #[test]
+    fn resolve_models_url_gemini_with_v1beta_avoids_double() {
+        assert_eq!(
+            resolve_models_url("gemini", "https://generativelanguage.googleapis.com/v1beta"),
+            "https://generativelanguage.googleapis.com/v1beta/models"
+        );
+    }
+
+    // -- resolve_models_url: unknown provider fallback --------------------
+
+    #[test]
+    fn resolve_models_url_unknown_provider_falls_back_to_v1_models() {
+        // Match arm `_ => v1_models(b)` — preserves backward-compat for
+        // proxies/wrappers that aren't explicitly named.
+        assert_eq!(
+            resolve_models_url("future-provider", "https://my-proxy.example.com"),
+            "https://my-proxy.example.com/v1/models"
+        );
+    }
+
+    // -- extract_openrouter_capabilities -----------------------------------
+    //
+    // Construct RawModelEntry via serde_json::from_str so the test reads
+    // like a real OpenRouter API response slice. This doubles as a fixture
+    // reference for future wiremock-based fetch_remote_models tests.
+
+    fn parse_entry(json: &str) -> RawModelEntry {
+        serde_json::from_str(json).expect("RawModelEntry JSON fixture is malformed")
+    }
+
+    #[test]
+    fn extract_caps_bare_entry_yields_all_none() {
+        // Minimal OpenAI/Anthropic-shaped entry — only `id`. All capability
+        // fields stay None and the UI hides their chips.
+        let entry = parse_entry(r#"{ "id": "gpt-4o" }"#);
+        let caps = extract_openrouter_capabilities(&entry);
+        assert_eq!(caps.context_window, None);
+        assert_eq!(caps.supports_tools, None);
+        assert_eq!(caps.is_reasoning, None);
+        assert_eq!(caps.max_output_tokens, None);
+    }
+
+    #[test]
+    fn extract_caps_context_length_passes_through() {
+        let entry = parse_entry(r#"{ "id": "anthropic/claude-3.7-sonnet", "context_length": 200000 }"#);
+        let caps = extract_openrouter_capabilities(&entry);
+        assert_eq!(caps.context_window, Some(200_000));
+    }
+
+    #[test]
+    fn extract_caps_supports_tools_via_tools_keyword() {
+        let entry = parse_entry(
+            r#"{ "id": "x", "supported_parameters": ["tools", "temperature"] }"#,
+        );
+        assert_eq!(
+            extract_openrouter_capabilities(&entry).supports_tools,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn extract_caps_supports_tools_via_tool_choice_keyword() {
+        // OpenRouter sometimes exposes only `tool_choice` for OpenAI-style
+        // function calling models — must still be treated as tool-capable.
+        let entry = parse_entry(
+            r#"{ "id": "x", "supported_parameters": ["tool_choice"] }"#,
+        );
+        assert_eq!(
+            extract_openrouter_capabilities(&entry).supports_tools,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn extract_caps_supports_tools_via_function_call_keyword() {
+        // Legacy OpenAI naming — older models surface `function_call` instead
+        // of `tools`. Still considered tool-capable.
+        let entry = parse_entry(
+            r#"{ "id": "x", "supported_parameters": ["function_call"] }"#,
+        );
+        assert_eq!(
+            extract_openrouter_capabilities(&entry).supports_tools,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn extract_caps_supports_tools_false_when_none_of_the_keywords() {
+        // `supported_parameters` is present but none of the three tool keys —
+        // result should be `Some(false)`, NOT `None`. UI uses the
+        // distinction: Some(false) shows "no tools" chip, None shows "?".
+        let entry = parse_entry(
+            r#"{ "id": "x", "supported_parameters": ["temperature", "top_p"] }"#,
+        );
+        assert_eq!(
+            extract_openrouter_capabilities(&entry).supports_tools,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn extract_caps_is_reasoning_true_when_keyword_present() {
+        let entry = parse_entry(
+            r#"{ "id": "openai/o1", "supported_parameters": ["reasoning", "tools"] }"#,
+        );
+        let caps = extract_openrouter_capabilities(&entry);
+        assert_eq!(caps.is_reasoning, Some(true));
+        assert_eq!(caps.supports_tools, Some(true));
+    }
+
+    #[test]
+    fn extract_caps_is_reasoning_false_when_other_params_present() {
+        let entry = parse_entry(
+            r#"{ "id": "x", "supported_parameters": ["temperature"] }"#,
+        );
+        assert_eq!(
+            extract_openrouter_capabilities(&entry).is_reasoning,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn extract_caps_max_output_tokens_from_top_provider() {
+        // Real OpenRouter shape: { "top_provider": { "max_completion_tokens": 8192 } }
+        let entry = parse_entry(
+            r#"{ "id": "x", "top_provider": { "max_completion_tokens": 8192 } }"#,
+        );
+        assert_eq!(
+            extract_openrouter_capabilities(&entry).max_output_tokens,
+            Some(8192)
+        );
+    }
+
+    #[test]
+    fn extract_caps_max_output_tokens_none_when_top_provider_missing_field() {
+        // top_provider block exists but the nested field is absent — the
+        // serde default for max_completion_tokens is None, so caps stays None.
+        let entry = parse_entry(r#"{ "id": "x", "top_provider": {} }"#);
+        assert_eq!(
+            extract_openrouter_capabilities(&entry).max_output_tokens,
+            None
+        );
+    }
+
+    #[test]
+    fn extract_caps_full_realistic_openrouter_entry() {
+        // Approximates a real `/api/v1/models` row for a reasoning model
+        // with tool support — exercises all four capability fields at
+        // once. Doubles as a fixture reference for wiremock tests.
+        let entry = parse_entry(
+            r#"{
+                "id": "anthropic/claude-3.7-sonnet:thinking",
+                "display_name": "Claude 3.7 Sonnet (Thinking)",
+                "owned_by": "anthropic",
+                "context_length": 200000,
+                "supported_parameters": ["tools", "tool_choice", "reasoning", "temperature"],
+                "top_provider": { "max_completion_tokens": 64000 }
+            }"#,
+        );
+        let caps = extract_openrouter_capabilities(&entry);
+        assert_eq!(caps.context_window, Some(200_000));
+        assert_eq!(caps.supports_tools, Some(true));
+        assert_eq!(caps.is_reasoning, Some(true));
+        assert_eq!(caps.max_output_tokens, Some(64_000));
     }
 }

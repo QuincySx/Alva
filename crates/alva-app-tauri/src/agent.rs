@@ -938,7 +938,27 @@ pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<()
     // Delete from the db first — source of truth.
     let manager = state.session_manager.clone();
     let target = id.clone();
-    let _ = tokio::task::spawn_blocking(move || manager.delete_session(&target)).await;
+    match tokio::task::spawn_blocking(move || manager.delete_session(&target)).await {
+        Ok(true) => {} // happy path: row removed
+        Ok(false) => {
+            tracing::debug!(
+                session_id = %id,
+                "delete_session: row not present in DB (already gone or never persisted)",
+            );
+        }
+        Err(e) => {
+            // JoinError (panic in the blocking task or runtime shutdown).
+            // We still proceed with in-memory + workspace cleanup below
+            // because the user's intent is "delete this session" — but a
+            // stale DB row may resurrect on next launch, so log loudly so
+            // the operator can correlate "ghost session reappears" reports.
+            tracing::warn!(
+                session_id = %id,
+                error = %e,
+                "delete_session task failed; DB row may still exist and session could reappear on next launch",
+            );
+        }
+    }
 
     // Drop any cached entry.
     {
@@ -1082,10 +1102,16 @@ pub async fn respond_approval(
         .resolve_permission(&pa.request_id, &pa.tool_name, parsed)
         .await;
 
-    let _ = app.emit(
+    if let Err(e) = app.emit(
         "approval_resolved",
         serde_json::json!({ "request_id": pa.request_id }),
-    );
+    ) {
+        tracing::warn!(
+            request_id = %pa.request_id,
+            error = %e,
+            "failed to emit approval_resolved; UI may show stuck Pending prompt",
+        );
+    }
     Ok(())
 }
 
@@ -1211,13 +1237,19 @@ pub async fn send_message(
                 break;
             }
         }
-        let _ = app_handle.emit(
+        if let Err(e) = app_handle.emit(
             "agent_event",
             serde_json::json!({
                 "session_id": sid_for_events,
                 "event": { "type": "RunChannelClosed" },
             }),
-        );
+        ) {
+            tracing::warn!(
+                session_id = %sid_for_events,
+                error = %e,
+                "failed to emit RunChannelClosed; UI spinner may not stop",
+            );
+        }
 
         // Persist the whole session event log to sqlite now that the run
         // has ended. SqliteEvalSession uses deferred flush, so without this
@@ -1552,7 +1584,12 @@ async fn ensure_agent(
         let mut pending = state.pending_approvals.write().await;
         if !pending.is_empty() {
             pending.clear();
-            let _ = app.emit("approvals_cleared", ());
+            if let Err(e) = app.emit("approvals_cleared", ()) {
+                tracing::warn!(
+                    error = %e,
+                    "failed to emit approvals_cleared; stale approvals may stay visible",
+                );
+            }
         }
     }
 

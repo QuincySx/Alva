@@ -331,3 +331,198 @@ impl AgentSession for SqliteEvalSession {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for SqliteEvalSession's deferred-flush contract:
+    //!   * `append` writes to the inner InMemoryAgentSession only —
+    //!     SQLite is untouched until flush/close
+    //!   * `flush` bulk-persists events + snapshot in a single
+    //!     DELETE-then-INSERT transaction (replace semantics)
+    //!   * `restore` rebuilds inner state from SQLite using
+    //!     `restore_events` so the messages projection is rebuilt
+    //!     (not just the raw event log)
+    //!   * `clear` removes the sessions row + cascades to events
+    //!
+    //! In-memory SQLite + the public AgentSession trait — no fs side
+    //! effects, no new dev-dep.
+    use super::*;
+    use crate::sqlite_session::schema::init_schema;
+    use serde_json::json;
+
+    fn shared_conn() -> Arc<Mutex<Connection>> {
+        let conn = Connection::open_in_memory().expect("open in-memory");
+        init_schema(&conn).expect("init_schema");
+        Arc::new(Mutex::new(conn))
+    }
+
+    /// Direct SQL count of persisted events for a given session_id.
+    fn db_event_count(conn: &Arc<Mutex<Connection>>, sid: &str) -> i64 {
+        let c = conn.lock().unwrap();
+        c.query_row(
+            "SELECT COUNT(*) FROM events WHERE session_id = ?1",
+            params![sid],
+            |r| r.get(0),
+        )
+        .unwrap_or(0)
+    }
+
+    /// Direct SQL count of session rows for a given session_id.
+    fn db_session_row_count(conn: &Arc<Mutex<Connection>>, sid: &str) -> i64 {
+        let c = conn.lock().unwrap();
+        c.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE session_id = ?1",
+            params![sid],
+            |r| r.get(0),
+        )
+        .unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn new_generates_unique_session_id() {
+        let conn = shared_conn();
+        let s1 = SqliteEvalSession::new(conn.clone());
+        let s2 = SqliteEvalSession::new(conn);
+        assert!(!s1.session_id().is_empty());
+        assert_ne!(
+            s1.session_id(),
+            s2.session_id(),
+            "two ::new must produce different ids"
+        );
+    }
+
+    #[tokio::test]
+    async fn with_id_honors_caller_provided_id() {
+        let conn = shared_conn();
+        let session = SqliteEvalSession::with_id(conn, "explicit-id-42".into());
+        assert_eq!(session.session_id(), "explicit-id-42");
+    }
+
+    #[tokio::test]
+    async fn append_is_deferred_no_db_write_before_flush() {
+        // Core contract: append goes to inner only — DB rows appear
+        // only after flush(). Regressions here would convert every
+        // append into a sync SQLite write, killing latency.
+        let conn = shared_conn();
+        let session = SqliteEvalSession::with_id(conn.clone(), "deferred".into());
+
+        session
+            .append(SessionEvent::user_message(json!("hello")))
+            .await;
+        session
+            .append(SessionEvent::progress(json!({"step": 1})))
+            .await;
+
+        // Inner sees them.
+        let in_memory = session.query(&EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        }).await;
+        assert_eq!(in_memory.len(), 2);
+
+        // But DB is still empty for this session — no flush yet.
+        assert_eq!(
+            db_event_count(&conn, "deferred"),
+            0,
+            "append must not write to SQLite before flush"
+        );
+    }
+
+    #[tokio::test]
+    async fn flush_persists_events_and_creates_session_row() {
+        let conn = shared_conn();
+        let session = SqliteEvalSession::with_id(conn.clone(), "flush-test".into());
+        session
+            .append(SessionEvent::user_message(json!("one")))
+            .await;
+        session
+            .append(SessionEvent::user_message(json!("two")))
+            .await;
+        session
+            .append(SessionEvent::user_message(json!("three")))
+            .await;
+
+        session.flush().await.expect("flush ok");
+
+        // ensure_session_row should have created exactly one sessions row.
+        assert_eq!(db_session_row_count(&conn, "flush-test"), 1);
+        // All 3 events landed in events.
+        assert_eq!(db_event_count(&conn, "flush-test"), 3);
+    }
+
+    #[tokio::test]
+    async fn flush_uses_replace_semantics_not_append() {
+        // Pin: persist_to_db does DELETE-then-bulk-INSERT, so a second
+        // flush with the SAME inner state must NOT double the rows.
+        // Without this guarantee, repeated flushes during a run would
+        // multiply events arithmetically.
+        let conn = shared_conn();
+        let session = SqliteEvalSession::with_id(conn.clone(), "replace".into());
+        session
+            .append(SessionEvent::user_message(json!("x")))
+            .await;
+        session
+            .append(SessionEvent::user_message(json!("y")))
+            .await;
+
+        session.flush().await.expect("first flush");
+        session.flush().await.expect("second flush");
+        // Still 2 — replace, not append.
+        assert_eq!(db_event_count(&conn, "replace"), 2);
+    }
+
+    #[tokio::test]
+    async fn restore_round_trips_events_into_new_session_instance() {
+        // Full end-to-end: persist via session A, then create session B
+        // pointing at the SAME DB with the SAME id, call restore(),
+        // and verify events come back. This is the actual UI re-open
+        // path.
+        let conn = shared_conn();
+        {
+            let writer = SqliteEvalSession::with_id(conn.clone(), "roundtrip".into());
+            writer
+                .append(SessionEvent::user_message(json!("first")))
+                .await;
+            writer
+                .append(SessionEvent::progress(json!({"k": "v"})))
+                .await;
+            writer.flush().await.expect("flush ok");
+        }
+
+        let reader = SqliteEvalSession::with_id(conn.clone(), "roundtrip".into());
+        reader.restore().await.expect("restore ok");
+
+        let events = reader.query(&EventQuery {
+            limit: usize::MAX,
+            ..Default::default()
+        }).await;
+        assert_eq!(events.len(), 2, "restore must reload both events");
+        // event_type passthrough — confirms emitter/serde decode worked.
+        let types: Vec<_> = events.iter().map(|m| m.event.event_type.clone()).collect();
+        assert!(types.iter().any(|t| t == "user"));
+        assert!(types.iter().any(|t| t == "progress"));
+    }
+
+    #[tokio::test]
+    async fn clear_removes_session_row_and_cascades_to_events() {
+        // clear() deletes the sessions row; the FK ON DELETE CASCADE
+        // schema (verified in schema tests) is what removes events.
+        // Together they leave the DB clean — pin both.
+        let conn = shared_conn();
+        let session = SqliteEvalSession::with_id(conn.clone(), "to-clear".into());
+        session
+            .append(SessionEvent::user_message(json!("doomed")))
+            .await;
+        session.flush().await.expect("flush");
+        assert_eq!(db_session_row_count(&conn, "to-clear"), 1);
+        assert_eq!(db_event_count(&conn, "to-clear"), 1);
+
+        session.clear().await.expect("clear ok");
+        assert_eq!(db_session_row_count(&conn, "to-clear"), 0);
+        assert_eq!(
+            db_event_count(&conn, "to-clear"),
+            0,
+            "FK ON DELETE CASCADE must wipe events for the cleared session"
+        );
+    }
+}
