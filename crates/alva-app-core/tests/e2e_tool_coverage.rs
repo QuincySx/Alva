@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use alva_app_core::base_agent::{BaseAgent, PermissionMode};
-use alva_app_core::extension::ApprovalExtension;
+use alva_app_core::extension::{ApprovalExtension, PermissionExtension};
 use alva_app_core::AgentEvent;
 use alva_agent_extension_builtin::notebook_edit::NotebookEditTool;
 use alva_test::fixtures::make_assistant_message;
@@ -48,6 +48,11 @@ async fn build_agent_with_responses(
     let agent = BaseAgent::builder()
         .workspace(workspace)
         .system_prompt("You are a test assistant.")
+        // PermissionExtension publishes the PermissionModeService on the
+        // bus. Without it, `agent.set_permission_mode(...)` is a silent
+        // no-op (the lookup misses, the call returns), and Plan-mode
+        // tests would falsely pass writes.
+        .extension(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
         .extension(Box::new(approval_ext))
         .extension(Box::new(alva_app_core::extension::CoreExtension))
         .extension(Box::new(alva_app_core::extension::ShellExtension))
@@ -67,6 +72,8 @@ async fn build_agent_with_responses(
         .await
         .expect("build should succeed");
 
+    // Mode is initialized to AcceptShell via the extension; reasserting
+    // here is a no-op but keeps the intent visible at the call site.
     agent.set_permission_mode(PermissionMode::AcceptShell);
 
     // Auto-approve approval requests via the bus-published SecurityGuard.
@@ -285,6 +292,13 @@ async fn stage1_execute_shell_runs_command_in_accept_shell_mode() {
 
 #[tokio::test]
 async fn stage1_skill_tool_invokes_stub_and_echoes_name() {
+    // STUB CONTRACT: SkillTool is wired into the registry but its impl is
+    // a stub — see crate::skill_tool source (`Skill execution is not yet
+    // wired to the skill registry`). This test pins what the stub
+    // CURRENTLY guarantees end-to-end: tool resolves through registry,
+    // input is echoed back, and the stub's "not yet wired" marker is in
+    // the output. When the real SkillRegistry lands, drop the `not yet
+    // wired` assert and add a real skill-invocation assert in lockstep.
     let tmp = tempfile::tempdir().unwrap();
 
     let agent = build_agent_with_responses(
@@ -304,16 +318,26 @@ async fn stage1_skill_tool_invokes_stub_and_echoes_name() {
     let text = out.model_text();
     assert!(text.contains("commit"), "skill name should appear: {text}");
     assert!(text.contains("--amend"), "args should appear: {text}");
+    assert!(
+        text.contains("not yet wired"),
+        "skill is a stub — output should declare it (when this fails, the \
+         real registry has landed and the test needs to be rewritten): {text}"
+    );
 }
 
 #[tokio::test]
 async fn stage1_tool_search_returns_stub_with_query() {
+    // STUB CONTRACT: ToolSearchTool is registered but its impl is a stub
+    // (`Tool registry search is not yet wired`). This test pins the stub
+    // contract: query echo + max_results echo + "not yet wired" marker.
+    // When ToolRegistry-aware search lands, replace these asserts with
+    // ones that look up the actual registry contents.
     let tmp = tempfile::tempdir().unwrap();
 
     let agent = build_agent_with_responses(
         tmp.path(),
         vec![
-            tool_use_message("1", "tool_search", serde_json::json!({ "query": "file" })),
+            tool_use_message("1", "tool_search", serde_json::json!({ "query": "file", "max_results": 7 })),
             make_assistant_message("done"),
         ],
     )
@@ -324,7 +348,13 @@ async fn stage1_tool_search_returns_stub_with_query() {
 
     let out = tool_result_for(&events, "tool_search");
     assert!(!out.is_error);
-    assert!(out.model_text().contains("file"), "query should appear: {}", out.model_text());
+    let text = out.model_text();
+    assert!(text.contains("file"), "query should appear: {text}");
+    assert!(text.contains("7"), "max_results should appear: {text}");
+    assert!(
+        text.contains("not yet wired"),
+        "tool_search is a stub — output should declare it: {text}"
+    );
 }
 
 #[tokio::test]
@@ -407,24 +437,61 @@ async fn stage1_todo_write_appends_to_default_file() {
 }
 
 #[tokio::test]
-async fn stage1_enter_plan_mode_succeeds() {
+async fn stage1_enter_plan_mode_tool_stub_and_real_plan_mode_blocks_writes() {
+    // Two contracts in one test:
+    //
+    // (a) STUB: the enter_plan_mode TOOL is currently a stub — see
+    //     src/enter_plan_mode.rs: "In a full implementation, this would
+    //     set a flag on the session/context". So calling the tool does
+    //     NOT actually switch session mode. Pin the stub's text contract.
+    //
+    // (b) REAL: the production plan-mode behavior is driven by
+    //     `set_permission_mode(PermissionMode::Plan)` from the UI layer,
+    //     enforced by PlanModeMiddleware. Verify that PATH end-to-end
+    //     by switching mode and asserting a create_file gets blocked.
     let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().canonicalize().unwrap();
 
+    // (a) Stub: tool returns the canned message, mode does NOT change.
     let agent = build_agent_with_responses(
-        tmp.path(),
+        &ws,
         vec![
             tool_use_message("1", "enter_plan_mode", serde_json::json!({})),
             make_assistant_message("done"),
         ],
     )
     .await;
-
     let rx = agent.prompt_text("Enter plan mode.");
     let events = collect_events(rx).await;
-
     let out = tool_result_for(&events, "enter_plan_mode");
-    assert!(!out.is_error, "enter_plan_mode should succeed: {}", out.model_text());
-    assert!(agent_ended_cleanly(&events));
+    assert!(!out.is_error);
+    assert!(
+        out.model_text().contains("Entered planning mode"),
+        "stub should return its canned message: {}",
+        out.model_text()
+    );
+
+    // (b) Real plan mode (set via the UI-layer API) DOES block writes.
+    agent.set_permission_mode(PermissionMode::Plan);
+    let new_target = ws.join("blocked.txt");
+    let new_model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "2",
+            "create_file",
+            serde_json::json!({ "path": new_target.to_str().unwrap(), "content": "x" }),
+        ))
+        .with_response(make_assistant_message("attempted"));
+    agent.set_model(Arc::new(new_model)).await;
+
+    let rx2 = agent.prompt_text("Create a file in plan mode.");
+    let events2 = collect_events(rx2).await;
+    let blocked = tool_result_for(&events2, "create_file");
+    assert!(
+        blocked.is_error && blocked.model_text().to_lowercase().contains("blocked"),
+        "create_file in Plan mode must be blocked: {}",
+        blocked.model_text()
+    );
+    assert!(!new_target.exists(), "blocked create_file must not have written");
 }
 
 // ===========================================================================
@@ -441,8 +508,11 @@ async fn stage2_read_url_fetches_from_wiremock_server() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/html")
-                .set_body_string("<html><body><h1>Hello E2E</h1></body></html>"),
+                .set_body_string(
+                    "<html><body><h1>Hello E2E from wiremock</h1><p>marker-string-xyz</p></body></html>",
+                ),
         )
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -461,11 +531,18 @@ async fn stage2_read_url_fetches_from_wiremock_server() {
     let rx = agent.prompt_text("Read the URL.");
     let events = collect_events(rx).await;
 
-    // SecurityMiddleware's URL-aware SSRF check may classify 127.0.0.1 as
-    // high-risk and route through HITL — our auto-approver answers
-    // AllowOnce, so the tool runs either way. Verify ToolExecutionEnd and
-    // a clean terminal state; a hang would surface as test timeout.
-    assert!(ran_tool(&events, "read_url"), "read_url should have executed");
+    // SecurityMiddleware's URL-aware SSRF check on 127.0.0.1 routes through
+    // HITL; our auto-approver answers AllowOnce, so the fetch proceeds.
+    let out = tool_result_for(&events, "read_url");
+    assert!(!out.is_error, "read_url should succeed: {}", out.model_text());
+    assert!(
+        out.model_text().contains("marker-string-xyz"),
+        "read_url result should contain the wiremock body marker, got: {}",
+        out.model_text()
+    );
+    // Drop the MockServer — its Drop verifies `.expect(1)` was satisfied,
+    // panicking the test if the mock was never hit.
+    drop(server);
     assert!(agent_ended_cleanly(&events));
 }
 
@@ -485,19 +562,51 @@ async fn stage2_read_url_with_malformed_url_returns_terminal_state() {
     let rx = agent.prompt_text("Read garbage URL.");
     let events = collect_events(rx).await;
 
-    // SecurityMiddleware's SSRF check may deny `not-a-real-url` outright
-    // (Deny is emitted as a tool-end with is_error=true) OR the URL parser
-    // may reject it inside the tool itself. Either way, the agent must
-    // terminate — the failure we're pinning is "hang", not "any specific
-    // error shape".
+    // Strengthened: malformed URL must NOT silently succeed. Three valid
+    // outcomes (all "deterministic failure"):
+    //   (i)  Tool runs, returns is_error=true (most common).
+    //   (ii) Middleware blocks before execute — emits ToolExecutionEnd
+    //        with is_error=true and a "blocked" message.
+    //   (iii) Loop detection / dangling tool fires and the agent ends with
+    //         an error WITHOUT a ToolExecutionEnd for read_url at all
+    //         (acceptable — the call simply never completed).
+    // Forbidden: a ToolExecutionEnd with is_error=false (a silent ok).
+    let read_end = events.iter().find_map(|e| match e {
+        AgentEvent::ToolExecutionEnd { tool_call, result } if tool_call.name == "read_url" => {
+            Some(result.clone())
+        }
+        _ => None,
+    });
+    if let Some(out) = read_end {
+        assert!(
+            out.is_error,
+            "malformed URL must NOT return a successful ToolExecutionEnd, got: {}",
+            out.model_text()
+        );
+        let msg = out.model_text().to_lowercase();
+        assert!(
+            msg.contains("blocked")
+                || msg.contains("invalid")
+                || msg.contains("error")
+                || msg.contains("scheme")
+                || msg.contains("url")
+                || msg.contains("failed")
+                || msg.contains("relative"),
+            "error message should explain the URL failure, got: {}",
+            out.model_text()
+        );
+    }
+    // Either way, no hang.
     assert!(events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
 }
 
 #[tokio::test]
 async fn stage2_internet_search_executes_and_returns_terminal_state() {
-    // Does NOT assert DDG content — that would be flaky. Only verifies
-    // the tool resolves through the pipeline and the agent reaches a
-    // clean terminal state.
+    // internet_search hits api.duckduckgo.com directly — the URL is
+    // hardcoded so wiremock can't substitute. We strengthen what we CAN
+    // pin: tool must reach ToolExecutionEnd (not be silently dropped by
+    // middleware), and its output must mention the query we sent OR
+    // surface a network/HTTP error — never "ok with no signal".
     let tmp = tempfile::tempdir().unwrap();
 
     let agent = build_agent_with_responses(
@@ -506,7 +615,7 @@ async fn stage2_internet_search_executes_and_returns_terminal_state() {
             tool_use_message(
                 "1",
                 "internet_search",
-                serde_json::json!({ "query": "rust", "max_results": 1 }),
+                serde_json::json!({ "query": "unique-query-marker-zzz", "max_results": 1 }),
             ),
             make_assistant_message("done"),
         ],
@@ -516,10 +625,32 @@ async fn stage2_internet_search_executes_and_returns_terminal_state() {
     let rx = agent.prompt_text("Search.");
     let events = collect_events(rx).await;
 
-    // DDG hit may fail (offline CI / blocked) or middleware may deny
-    // the outbound HTTP — both surface as deterministic terminal states.
-    // Pin only that the agent terminates and either started executing the
-    // tool OR explicitly errored without hanging.
+    let out = tool_result_for(&events, "internet_search");
+    let text = out.model_text();
+    // Either:
+    //   - success: DDG echoes the query in some form (search header / no
+    //     results message references the term); OR
+    //   - failure: tool flags is_error with a network/HTTP message.
+    if out.is_error {
+        let lower = text.to_lowercase();
+        assert!(
+            lower.contains("http")
+                || lower.contains("network")
+                || lower.contains("timeout")
+                || lower.contains("dns")
+                || lower.contains("failed")
+                || lower.contains("error"),
+            "if internet_search errored, message should explain why: {text}"
+        );
+    } else {
+        assert!(
+            text.contains("unique-query-marker-zzz")
+                || text.to_lowercase().contains("no results")
+                || text.to_lowercase().contains("search")
+                || text.to_lowercase().contains("result"),
+            "successful internet_search should reference the query or report no results: {text}"
+        );
+    }
     assert!(events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
 }
 
@@ -580,11 +711,11 @@ async fn stage2_task_list_after_create_includes_new_task() {
 }
 
 #[tokio::test]
-async fn stage2_task_update_with_unknown_id_reaches_service() {
-    // task_update needs a real task_id that we can't statically script
-    // (IDs are generated at runtime). Instead, drive an update against a
-    // known-missing ID and assert the tool resolved through the pipeline
-    // and produced a deterministic response from the service.
+async fn stage2_task_update_happy_path_marks_task_completed() {
+    // True happy-path: create a task, parse its id, update its status,
+    // then `task_get` to verify the new status is persisted. This is the
+    // full create→update→read round trip — the prior version only tested
+    // the unknown-id failure branch.
     let tmp = tempfile::tempdir().unwrap();
 
     let agent = build_agent_with_responses(
@@ -592,27 +723,57 @@ async fn stage2_task_update_with_unknown_id_reaches_service() {
         vec![
             tool_use_message(
                 "1",
-                "task_update",
-                serde_json::json!({ "task_id": "nonexistent-id-xyz", "status": "completed" }),
+                "task_create",
+                serde_json::json!({ "subject": "updatable", "description": "first" }),
             ),
-            make_assistant_message("done"),
+            make_assistant_message("created"),
         ],
     )
     .await;
-    let rx = agent.prompt_text("Update a task.");
-    let events = collect_events(rx).await;
 
-    let upd = tool_result_for(&events, "task_update");
-    // The service either errors (is_error=true) or returns a structured
-    // not-found / no-changes response. Either way the tool resolved.
-    let text_lower = upd.model_text().to_lowercase();
+    let rx = agent.prompt_text("Create.");
+    let events = collect_events(rx).await;
+    let created = tool_result_for(&events, "task_create");
+    let task_id = created
+        .model_text()
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("ID: ").map(|s| s.to_string()))
+        .expect("task_create should expose ID line");
+
+    // Step 2: update the task we just made.
+    let upd_model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "2",
+            "task_update",
+            serde_json::json!({ "task_id": task_id.clone(), "status": "completed" }),
+        ))
+        .with_response(make_assistant_message("updated"));
+    agent.set_model(Arc::new(upd_model)).await;
+    let rx2 = agent.prompt_text("Update.");
+    let events2 = collect_events(rx2).await;
+
+    let upd_out = tool_result_for(&events2, "task_update");
+    assert!(!upd_out.is_error, "happy-path update should succeed: {}", upd_out.model_text());
+
+    // Step 3: re-fetch and assert the status changed.
+    let get_model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "3",
+            "task_get",
+            serde_json::json!({ "task_id": task_id }),
+        ))
+        .with_response(make_assistant_message("got"));
+    agent.set_model(Arc::new(get_model)).await;
+    let rx3 = agent.prompt_text("Get.");
+    let events3 = collect_events(rx3).await;
+
+    let got_out = tool_result_for(&events3, "task_get");
+    assert!(!got_out.is_error, "task_get should succeed: {}", got_out.model_text());
+    let got_text_lower = got_out.model_text().to_lowercase();
     assert!(
-        upd.is_error
-            || text_lower.contains("not")
-            || text_lower.contains("update")
-            || text_lower.contains("nonexistent"),
-        "task_update should reach the service and produce a deterministic output: {}",
-        upd.model_text()
+        got_text_lower.contains("completed"),
+        "task_get after update should report 'completed' status: {}",
+        got_out.model_text()
     );
 }
 
@@ -666,11 +827,16 @@ async fn stage2_task_get_returns_state_for_created_task() {
 }
 
 #[tokio::test]
-async fn stage2_exit_plan_mode_succeeds() {
+async fn stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes() {
+    // Mirror of enter_plan_mode test:
+    //   (a) STUB: exit_plan_mode tool just returns its canned message.
+    //   (b) REAL: leaving Plan mode via set_permission_mode lets
+    //       create_file succeed again.
     let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().canonicalize().unwrap();
 
     let agent = build_agent_with_responses(
-        tmp.path(),
+        &ws,
         vec![
             tool_use_message("1", "exit_plan_mode", serde_json::json!({})),
             make_assistant_message("done"),
@@ -678,16 +844,58 @@ async fn stage2_exit_plan_mode_succeeds() {
     )
     .await;
 
+    // (a) Stub text contract.
     let rx = agent.prompt_text("Exit plan.");
     let events = collect_events(rx).await;
-
     let out = tool_result_for(&events, "exit_plan_mode");
     assert!(!out.is_error);
     assert!(
         out.model_text().contains("Exited planning"),
-        "should confirm exit: {}",
+        "exit_plan_mode stub should return its canned message: {}",
         out.model_text()
     );
+
+    // (b) Real plan-mode round trip: Plan → blocks; back to AcceptShell → allows.
+    agent.set_permission_mode(PermissionMode::Plan);
+    let blocked_path = ws.join("plan-blocked.txt");
+    let blocked_model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "2",
+            "create_file",
+            serde_json::json!({ "path": blocked_path.to_str().unwrap(), "content": "x" }),
+        ))
+        .with_response(make_assistant_message("attempted"));
+    agent.set_model(Arc::new(blocked_model)).await;
+    let rx2 = agent.prompt_text("Create in plan mode.");
+    let events2 = collect_events(rx2).await;
+    let blocked = tool_result_for(&events2, "create_file");
+    assert!(
+        blocked.is_error && blocked.model_text().to_lowercase().contains("blocked"),
+        "create_file in Plan mode should be blocked: {}",
+        blocked.model_text()
+    );
+
+    // Now exit plan mode (production API) and verify write goes through.
+    agent.set_permission_mode(PermissionMode::AcceptShell);
+    let allowed_path = ws.join("post-exit.txt");
+    let allow_model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "3",
+            "create_file",
+            serde_json::json!({ "path": allowed_path.to_str().unwrap(), "content": "y" }),
+        ))
+        .with_response(make_assistant_message("done"));
+    agent.set_model(Arc::new(allow_model)).await;
+    let rx3 = agent.prompt_text("Create after exit.");
+    let events3 = collect_events(rx3).await;
+    let allowed = tool_result_for(&events3, "create_file");
+    assert!(
+        !allowed.is_error,
+        "after leaving Plan mode, create_file should succeed: {}",
+        allowed.model_text()
+    );
+    assert!(allowed_path.exists(), "post-exit create_file should have written");
+    assert_eq!(std::fs::read_to_string(&allowed_path).unwrap(), "y");
 }
 
 // ===========================================================================
@@ -790,21 +998,30 @@ async fn stage3_grep_then_read_then_edit_chain() {
 }
 
 #[tokio::test]
-async fn stage3_shell_then_grep_chain_terminates_cleanly() {
+async fn stage3_shell_output_feeds_into_grep() {
+    // Strengthened: assert the shell's filesystem side-effect happens
+    // AND grep finds the content the shell produced. This proves the
+    // workspace state mutated by tool N is visible to tool N+1 — the
+    // whole point of chaining tools.
     let tmp = tempfile::tempdir().unwrap();
-    let touched = tmp.path().join("touched.txt");
+    let ws = tmp.path().canonicalize().unwrap();
+    let touched = ws.join("touched.txt");
 
     let agent = build_agent_with_responses(
-        tmp.path(),
+        &ws,
         vec![
             tool_use_message(
                 "1",
                 "execute_shell",
                 serde_json::json!({
-                    "command": format!("printf 'matchme' > {}", touched.display()),
+                    "command": format!("printf 'matchme-shell-output' > {}", touched.display()),
                 }),
             ),
-            tool_use_message("2", "grep_search", serde_json::json!({ "pattern": "matchme" })),
+            tool_use_message(
+                "2",
+                "grep_search",
+                serde_json::json!({ "pattern": "matchme-shell-output" }),
+            ),
             make_assistant_message("done"),
         ],
     )
@@ -813,11 +1030,28 @@ async fn stage3_shell_then_grep_chain_terminates_cleanly() {
     let rx = agent.prompt_text("Shell then grep.");
     let events = collect_events(rx).await;
 
-    assert!(ran_tool(&events, "execute_shell"));
-    assert!(ran_tool(&events, "grep_search"));
-    // Bash classifier may flag `>` redirect as destructive and deny in
-    // Auto mode; we don't pin shell success, only the pipeline reaching
-    // a deterministic terminal state.
+    // Shell side-effect must be real, not just "no panic".
+    let shell_out = tool_result_for(&events, "execute_shell");
+    assert!(
+        !shell_out.is_error,
+        "shell printf-to-file should succeed (classifier treats `printf` as Unknown → auto-approved in AcceptShell mode): {}",
+        shell_out.model_text()
+    );
+    assert!(touched.exists(), "shell should have created touched.txt");
+    assert_eq!(
+        std::fs::read_to_string(&touched).unwrap(),
+        "matchme-shell-output",
+        "file content should match what printf wrote"
+    );
+
+    // Grep must find what shell wrote.
+    let grep_out = tool_result_for(&events, "grep_search");
+    assert!(!grep_out.is_error, "grep_search should succeed: {}", grep_out.model_text());
+    let grep_text = grep_out.model_text();
+    assert!(
+        grep_text.contains("touched.txt") || grep_text.contains("matchme-shell-output"),
+        "grep should report the file/match created by shell: {grep_text}"
+    );
     assert!(agent_ended_cleanly(&events));
 }
 
