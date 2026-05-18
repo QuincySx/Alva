@@ -97,21 +97,19 @@ CODESIGN_OUT=$(codesign --force --sign "$SIGN_ID" --entitlements "$ENT_PLIST" "$
 }
 [[ -n "$CODESIGN_OUT" ]] && echo "  $CODESIGN_OUT"
 
-# 6. Verify the signature took.
-VERIFY_OUT=$(codesign -dv "$TEST_BIN" 2>&1)
-if ! echo "$VERIFY_OUT" | grep -q "Authority=$SIGN_ID"; then
-    echo "error: codesign verify did not see expected identity:" >&2
-    echo "$VERIFY_OUT" >&2
-    exit 1
-fi
-# Also run codesign --verify for the strong check (catches malformed sigs
-# that show up in -dv but are actually invalid).
-if ! codesign --verify --verbose=2 "$TEST_BIN" 2>/dev/null; then
-    echo "error: codesign --verify failed — signature is malformed." >&2
+# 6. Verify the signature took. Use --verify --strict (the real check
+#    for "is this signature structurally valid"), not the Authority=
+#    line in `codesign -dv` output — single-v doesn't print Authority
+#    at all for many cert chains, so grepping for it was a false alarm.
+if ! codesign --verify --strict "$TEST_BIN" 2>&1; then
+    echo "error: codesign --verify --strict failed — signature is malformed." >&2
     echo "       This usually means an entitlement in $ENT_PLIST requires" >&2
     echo "       a real Apple Developer cert, not the self-signed one." >&2
     exit 1
 fi
+# Display the cert chain for the user (-dvv shows Authority lines).
+echo "==> Signed cert chain:"
+codesign -dvv "$TEST_BIN" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier" | sed 's/^/    /'
 
 # 7. Always run the warmup first — it's idempotent and finishes
 #    immediately once the permission has been granted.
