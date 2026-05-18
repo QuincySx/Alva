@@ -24,7 +24,14 @@ struct Input {
     blocked_domains: Option<Vec<String>>,
 }
 
-/// DuckDuckGo API response (partial)
+/// DuckDuckGo API response (partial).
+///
+/// **Field name quirk**: DDG returns `AbstractURL` and `FirstURL` with
+/// the acronym in ALL CAPS. serde's `rename_all = "PascalCase"` would
+/// only match `AbstractUrl` / `FirstUrl`, so those two fields need
+/// explicit `#[serde(rename = ...)]` overrides — otherwise the URLs
+/// silently deserialize as empty strings and every search result loses
+/// its link. See test `ddg_response_pascal_case_deserialization`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct DdgResponse {
@@ -32,7 +39,7 @@ struct DdgResponse {
     abstract_text: String,
     #[serde(default)]
     abstract_source: String,
-    #[serde(default)]
+    #[serde(default, rename = "AbstractURL")]
     abstract_url: String,
     #[serde(default)]
     heading: String,
@@ -45,7 +52,7 @@ struct DdgResponse {
 struct DdgRelatedTopic {
     #[serde(default)]
     text: String,
-    #[serde(default)]
+    #[serde(default, rename = "FirstURL")]
     first_url: String,
 }
 
@@ -228,4 +235,244 @@ fn urlencoding(s: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    //! Pure-logic tests for internet_search helpers. We do NOT exercise
+    //! `execute_impl` because its `reqwest::Client` URL is hard-coded to
+    //! DDG — testing the request path would require either a refactor
+    //! (inject base URL) or hitting a real network (CI-flaky + rate
+    //! limit). The helpers cover the domain-filtering and URL-encoding
+    //! logic, which is where the business behavior actually lives.
+    use super::*;
+
+    // ─── urlencoding ──────────────────────────────────────────────────
+
+    #[test]
+    fn urlencoding_preserves_unreserved_chars() {
+        // RFC 3986 unreserved: A-Z a-z 0-9 - _ . ~
+        assert_eq!(urlencoding("AZaz09-_.~"), "AZaz09-_.~");
+    }
+
+    #[test]
+    fn urlencoding_encodes_space_as_plus() {
+        // Form-encoding convention used by DDG's query param
+        assert_eq!(urlencoding("hello world"), "hello+world");
+        assert_eq!(urlencoding(" "), "+");
+    }
+
+    #[test]
+    fn urlencoding_percent_encodes_special_bytes() {
+        // `&` `=` `?` `#` `/` etc. must be percent-encoded or DDG will
+        // misparse the query.
+        assert_eq!(urlencoding("a&b"), "a%26b");
+        assert_eq!(urlencoding("a=b"), "a%3Db");
+        assert_eq!(urlencoding("a?b"), "a%3Fb");
+        assert_eq!(urlencoding("a/b"), "a%2Fb");
+    }
+
+    #[test]
+    fn urlencoding_handles_utf8_multibyte() {
+        // UTF-8 encoded "中" = 0xE4 0xB8 0xAD → "%E4%B8%AD"
+        assert_eq!(urlencoding("中"), "%E4%B8%AD");
+    }
+
+    // ─── extract_domain_from_url ──────────────────────────────────────
+
+    #[test]
+    fn extract_domain_strips_https_scheme() {
+        assert_eq!(
+            extract_domain_from_url("https://example.com/path?q=1").as_deref(),
+            Some("example.com")
+        );
+    }
+
+    #[test]
+    fn extract_domain_strips_http_scheme() {
+        assert_eq!(
+            extract_domain_from_url("http://docs.rs/foo/bar").as_deref(),
+            Some("docs.rs")
+        );
+    }
+
+    #[test]
+    fn extract_domain_drops_port() {
+        assert_eq!(
+            extract_domain_from_url("http://localhost:8080/api").as_deref(),
+            Some("localhost")
+        );
+    }
+
+    #[test]
+    fn extract_domain_lowercases() {
+        // Domains are case-insensitive — pin the normalisation so
+        // `Example.COM` matches a configured allow-list of `example.com`.
+        assert_eq!(
+            extract_domain_from_url("https://Example.COM/").as_deref(),
+            Some("example.com")
+        );
+    }
+
+    #[test]
+    fn extract_domain_rejects_url_without_scheme() {
+        // No http:// or https:// prefix → None. Pinned so a future
+        // "smart" URL parser change doesn't silently start accepting
+        // schemeless inputs (which the rest of the code path doesn't
+        // expect).
+        assert!(extract_domain_from_url("example.com/path").is_none());
+        assert!(extract_domain_from_url("ftp://example.com/").is_none());
+    }
+
+    // ─── domain_matches ───────────────────────────────────────────────
+
+    #[test]
+    fn domain_matches_exact() {
+        assert!(domain_matches(
+            "https://docs.rs/foo",
+            &["docs.rs".to_string()]
+        ));
+        assert!(!domain_matches(
+            "https://docs.rs/foo",
+            &["example.com".to_string()]
+        ));
+    }
+
+    #[test]
+    fn domain_matches_includes_subdomains() {
+        // `github.com` configured → should match `api.github.com`,
+        // `raw.githubusercontent.com` does NOT (different root).
+        assert!(domain_matches(
+            "https://api.github.com/repos",
+            &["github.com".to_string()]
+        ));
+        assert!(!domain_matches(
+            "https://raw.githubusercontent.com/foo",
+            &["github.com".to_string()]
+        ));
+    }
+
+    #[test]
+    fn domain_matches_is_case_insensitive_in_both_directions() {
+        // URL has uppercase; allow-list has mixed case.
+        assert!(domain_matches(
+            "https://Docs.RS/foo",
+            &["DOCS.rs".to_string()]
+        ));
+    }
+
+    #[test]
+    fn domain_matches_returns_false_for_unparseable_url() {
+        // No scheme → extract_domain_from_url returns None → no match
+        assert!(!domain_matches(
+            "example.com",
+            &["example.com".to_string()]
+        ));
+    }
+
+    // ─── should_include_result ────────────────────────────────────────
+
+    #[test]
+    fn should_include_no_filters_accepts_everything() {
+        assert!(should_include_result(
+            "https://anywhere.example.com/x",
+            &None,
+            &None
+        ));
+    }
+
+    #[test]
+    fn should_include_allowed_filters_in() {
+        let allowed = Some(vec!["docs.rs".to_string()]);
+        assert!(should_include_result("https://docs.rs/foo", &allowed, &None));
+        assert!(!should_include_result(
+            "https://example.com/foo",
+            &allowed,
+            &None
+        ));
+    }
+
+    #[test]
+    fn should_include_blocked_filters_out() {
+        let blocked = Some(vec!["spam.example".to_string()]);
+        assert!(!should_include_result(
+            "https://spam.example/x",
+            &None,
+            &blocked
+        ));
+        assert!(should_include_result(
+            "https://safe.example/x",
+            &None,
+            &blocked
+        ));
+    }
+
+    #[test]
+    fn should_include_blocked_overrides_allowed() {
+        // Same domain in both lists — blocked must win. Pin this so a
+        // future refactor doesn't accidentally invert the precedence
+        // (which would silently let blocked content through when the
+        // user added the domain to both lists by mistake).
+        let allowed = Some(vec!["evil.com".to_string()]);
+        let blocked = Some(vec!["evil.com".to_string()]);
+        assert!(!should_include_result(
+            "https://evil.com/x",
+            &allowed,
+            &blocked
+        ));
+    }
+
+    #[test]
+    fn should_include_empty_lists_are_no_op() {
+        // `Some(vec![])` for allowed must NOT block everything — only
+        // a non-empty allowed list filters.
+        let allowed_empty = Some(Vec::<String>::new());
+        let blocked_empty = Some(Vec::<String>::new());
+        assert!(should_include_result(
+            "https://anything.example/",
+            &allowed_empty,
+            &blocked_empty
+        ));
+    }
+
+    // ─── DdgResponse JSON deserialization ─────────────────────────────
+
+    #[test]
+    fn ddg_response_pascal_case_deserialization() {
+        // DDG returns PascalCase fields; we use #[serde(rename_all =
+        // "PascalCase")]. Pin a representative payload so a future
+        // typo on `rename_all` would surface here, not in production.
+        let json = r#"{
+            "AbstractText": "Rust is a language",
+            "AbstractSource": "Wikipedia",
+            "AbstractURL": "https://en.wikipedia.org/wiki/Rust",
+            "Heading": "Rust (programming language)",
+            "RelatedTopics": [
+                {"Text": "Cargo - Rust's package manager", "FirstURL": "https://crates.io"}
+            ]
+        }"#;
+        let parsed: DdgResponse = serde_json::from_str(json).expect("DDG-shaped json must parse");
+        assert_eq!(parsed.abstract_text, "Rust is a language");
+        assert_eq!(parsed.abstract_source, "Wikipedia");
+        // AbstractURL has all-caps URL — covered by the explicit
+        // #[serde(rename = "AbstractURL")] (T11 fix). Without it the
+        // PascalCase rule produces `AbstractUrl` and DDG's payload
+        // wouldn't match → empty string in production.
+        assert_eq!(parsed.abstract_url, "https://en.wikipedia.org/wiki/Rust");
+        assert_eq!(parsed.heading, "Rust (programming language)");
+        assert_eq!(parsed.related_topics.len(), 1);
+        assert_eq!(parsed.related_topics[0].text, "Cargo - Rust's package manager");
+        assert_eq!(parsed.related_topics[0].first_url, "https://crates.io");
+    }
+
+    #[test]
+    fn ddg_response_handles_missing_fields_with_defaults() {
+        // Empty {} should parse to all-defaults thanks to #[serde(default)].
+        let parsed: DdgResponse = serde_json::from_str("{}").expect("empty json must parse");
+        assert!(parsed.abstract_text.is_empty());
+        assert!(parsed.abstract_source.is_empty());
+        assert!(parsed.abstract_url.is_empty());
+        assert!(parsed.heading.is_empty());
+        assert!(parsed.related_topics.is_empty());
+    }
 }

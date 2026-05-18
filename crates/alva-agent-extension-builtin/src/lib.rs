@@ -315,3 +315,159 @@ pub fn register_builtin_tools(registry: &mut alva_kernel_abi::ToolRegistry) {
         registry.register(Box::new(crate::agent_tool::AgentTool));
     }
 }
+
+#[cfg(test)]
+mod tool_preset_tests {
+    //! Tests for `tool_presets::*` — pin the tool sets each Extension
+    //! advertises. Adding a new tool to a module but forgetting to add
+    //! it to its preset would silently leave that tool unreachable to
+    //! agents using the wrapping Extension; the agent would only see
+    //! `ToolNotFound` at runtime.
+    //!
+    //! Tests assume all features are enabled (workspace runs with
+    //! `cargo test --all-features`).
+    use super::tool_presets;
+
+    fn names(tools: Vec<Box<dyn alva_kernel_abi::tool::Tool>>) -> Vec<String> {
+        let mut names: Vec<String> = tools.iter().map(|t| t.name().to_string()).collect();
+        names.sort();
+        names
+    }
+
+    fn contains_all(actual: &[String], expected: &[&str]) {
+        for e in expected {
+            assert!(
+                actual.iter().any(|n| n == e),
+                "expected tool {e:?} in preset, got {actual:?}"
+            );
+        }
+    }
+
+    // -- Individual presets ------------------------------------------------
+
+    #[cfg(all(feature = "core", not(target_family = "wasm")))]
+    #[test]
+    fn file_io_preset_includes_all_six_core_file_tools() {
+        let got = names(tool_presets::file_io());
+        contains_all(
+            &got,
+            &["read_file", "create_file", "file_edit", "list_files", "find_files", "grep_search"],
+        );
+        assert_eq!(got.len(), 6, "file_io must have exactly 6 tools, got {got:?}");
+    }
+
+    #[cfg(all(feature = "core", not(target_family = "wasm")))]
+    #[test]
+    fn shell_preset_includes_execute_shell() {
+        let got = names(tool_presets::shell());
+        contains_all(&got, &["execute_shell"]);
+    }
+
+    #[cfg(all(feature = "core", not(target_family = "wasm")))]
+    #[test]
+    fn interaction_preset_includes_ask_human() {
+        let got = names(tool_presets::interaction());
+        contains_all(&got, &["ask_human"]);
+    }
+
+    #[cfg(all(feature = "worktree", not(target_family = "wasm")))]
+    #[test]
+    fn worktree_preset_includes_enter_and_exit() {
+        let got = names(tool_presets::worktree());
+        contains_all(&got, &["enter_worktree", "exit_worktree"]);
+    }
+
+    #[cfg(feature = "task")]
+    #[test]
+    fn task_preset_includes_all_six_task_tools() {
+        let got = names(tool_presets::task_management());
+        contains_all(
+            &got,
+            &["task_create", "task_update", "task_get", "task_list", "task_output", "task_stop"],
+        );
+    }
+
+    #[cfg(feature = "team")]
+    #[test]
+    fn team_preset_includes_create_delete_send() {
+        let got = names(tool_presets::team());
+        contains_all(&got, &["team_create", "team_delete", "send_message"]);
+    }
+
+    #[cfg(feature = "core")]
+    #[test]
+    fn planning_preset_includes_plan_mode_signals() {
+        // Pin: enter_plan_mode + exit_plan_mode are wasm-safe (pure
+        // mode signaling); todo_write is native-only but feature-gated
+        // separately. At least the two mode tools must always show
+        // up when `core` is on.
+        let got = names(tool_presets::planning());
+        contains_all(&got, &["enter_plan_mode", "exit_plan_mode"]);
+    }
+
+    #[cfg(feature = "utility")]
+    #[test]
+    fn utility_preset_includes_config_skill_tool_search() {
+        let got = names(tool_presets::utility());
+        contains_all(&got, &["config", "skill", "tool_search"]);
+    }
+
+    #[cfg(all(feature = "web", not(target_family = "wasm")))]
+    #[test]
+    fn web_preset_includes_internet_search_and_read_url() {
+        let got = names(tool_presets::web());
+        contains_all(&got, &["internet_search", "read_url"]);
+    }
+
+    #[cfg(all(feature = "notebook", not(target_family = "wasm")))]
+    #[test]
+    fn notebook_preset_includes_notebook_edit() {
+        let got = names(tool_presets::notebook());
+        contains_all(&got, &["notebook_edit"]);
+    }
+
+    // -- all_standard is the union ---------------------------------------
+
+    #[test]
+    fn all_standard_count_equals_sum_of_individual_presets() {
+        // Pin: all_standard composes from each preset by extending;
+        // a refactor that dropped a preset extension would silently
+        // shrink the standard set.
+        let total: usize = tool_presets::file_io().len()
+            + tool_presets::shell().len()
+            + tool_presets::interaction().len()
+            + tool_presets::task_management().len()
+            + tool_presets::team().len()
+            + tool_presets::planning().len()
+            + tool_presets::worktree().len()
+            + tool_presets::utility().len()
+            + tool_presets::web().len()
+            + tool_presets::notebook().len()
+            + tool_presets::schedule().len();
+        assert_eq!(
+            tool_presets::all_standard().len(),
+            total,
+            "all_standard must equal sum of preset lengths"
+        );
+    }
+
+    #[test]
+    fn all_standard_includes_a_tool_from_each_enabled_preset() {
+        // Pin: spot-check that one signature tool from each major
+        // preset survives the all_standard() composition. Catches
+        // a refactor that dropped, say, `.extend(web())`.
+        let got = names(tool_presets::all_standard());
+        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        {
+            assert!(got.contains(&"read_file".to_string()));
+            assert!(got.contains(&"execute_shell".to_string()));
+            assert!(got.contains(&"ask_human".to_string()));
+        }
+        #[cfg(all(feature = "web", not(target_family = "wasm")))]
+        assert!(got.contains(&"internet_search".to_string()));
+        #[cfg(feature = "task")]
+        assert!(got.contains(&"task_create".to_string()));
+        #[cfg(feature = "team")]
+        assert!(got.contains(&"team_create".to_string()));
+    }
+}

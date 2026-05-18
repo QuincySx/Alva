@@ -27,6 +27,8 @@ use alva_kernel_abi::adapter::anthropic::AnthropicAdapter;
 use alva_kernel_abi::adapter::{StreamDecodeState, ToolAdapter};
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::Message;
+
+use crate::util::truncate_for_log;
 use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
 use alva_kernel_abi::tool::Tool;
@@ -213,7 +215,7 @@ impl LanguageModel for AnthropicProvider {
         let body_str = serde_json::to_string(&body).unwrap_or_default();
         tracing::debug!(
             body_len = body_str.len(),
-            body_preview = &body_str[..body_str.len().min(500)],
+            body_preview = truncate_for_log(&body_str, 500),
             "LLM request body"
         );
 
@@ -254,7 +256,7 @@ impl LanguageModel for AnthropicProvider {
         tracing::debug!(
             status = %status,
             body_len = resp_text.len(),
-            body_preview = &resp_text[..resp_text.len().min(500)],
+            body_preview = truncate_for_log(&resp_text, 500),
             "LLM response"
         );
 
@@ -374,7 +376,7 @@ impl LanguageModel for AnthropicProvider {
                             Err(e) => {
                                 tracing::warn!(
                                     error = %e,
-                                    data = &data[..data.len().min(200)],
+                                    data = truncate_for_log(data, 200),
                                     "failed to parse Anthropic SSE chunk, skipping"
                                 );
                                 continue;
@@ -505,5 +507,27 @@ fn apply_anthropic_thinking(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Provider-specific regression tests. The helper-level coverage
+    //! lives in `crate::util::tests` after L72's DRY consolidation;
+    //! here we keep the Anthropic-locale realistic regression
+    //! (Chinese error response).
+    use crate::util::truncate_for_log;
+
+    #[test]
+    fn anthropic_chinese_error_response_at_500_bytes_no_crash() {
+        // Realistic: Anthropic returns a localized error message in
+        // Chinese. 200 CJK chars × 3 bytes = 600 bytes; byte 500 falls
+        // inside the 167th char.
+        let s = "中".repeat(200);
+        assert_eq!(s.len(), 600);
+        assert!(!s.is_char_boundary(500));
+        let out = truncate_for_log(&s, 500);
+        assert!(out.len() <= 500);
+        assert!(out.is_char_boundary(out.len()));
     }
 }

@@ -24,6 +24,7 @@ use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
 use alva_kernel_abi::tool::Tool;
 
 use crate::config::ProviderConfig;
+use crate::util::truncate_for_log;
 
 /// OpenAI-compatible LLM provider.
 pub struct OpenAIChatProvider {
@@ -201,7 +202,7 @@ impl LanguageModel for OpenAIChatProvider {
         let body_str = serde_json::to_string(&body).unwrap_or_default();
         tracing::debug!(
             body_len = body_str.len(),
-            body_preview = &body_str[..body_str.len().min(500)],
+            body_preview = truncate_for_log(&body_str, 500),
             "LLM request body"
         );
 
@@ -222,7 +223,7 @@ impl LanguageModel for OpenAIChatProvider {
         tracing::debug!(
             status = %status,
             body_len = resp_text.len(),
-            body_preview = &resp_text[..resp_text.len().min(500)],
+            body_preview = truncate_for_log(&resp_text, 500),
             "LLM response"
         );
 
@@ -273,7 +274,7 @@ impl LanguageModel for OpenAIChatProvider {
             "LLM stream request"
         );
         tracing::debug!(
-            body_preview = &body_str[..body_str.len().min(500)],
+            body_preview = truncate_for_log(&body_str, 500),
             "LLM stream request body"
         );
 
@@ -332,7 +333,7 @@ impl LanguageModel for OpenAIChatProvider {
                     first_chunk_logged = true;
                     tracing::debug!(
                         bytes = chunk.len(),
-                        preview = &chunk_str[..chunk_str.len().min(300)],
+                        preview = truncate_for_log(&chunk_str, 300),
                         "first SSE chunk received"
                     );
                 }
@@ -357,7 +358,7 @@ impl LanguageModel for OpenAIChatProvider {
                             Err(e) => {
                                 tracing::warn!(
                                     error = %e,
-                                    data = &data[..data.len().min(200)],
+                                    data = truncate_for_log(data, 200),
                                     "failed to parse SSE chunk, skipping"
                                 );
                                 continue;
@@ -390,5 +391,26 @@ impl LanguageModel for OpenAIChatProvider {
 
     fn provider_id(&self) -> &str {
         "openai-chat"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Provider-specific regression test. Helper-level coverage lives
+    //! in `crate::util::tests`; here we keep the Chinese-locale
+    //! regression for the Chat Completions API (most common locale
+    //! for this provider in Asian deployments).
+    use crate::util::truncate_for_log;
+
+    #[test]
+    fn openai_chat_chinese_response_at_500_bytes_no_crash() {
+        // Chat Completions API with Chinese user prompt → Chinese
+        // assistant reply. 50× "你好，让我来帮你。" > 500 bytes;
+        // byte 500 falls inside a CJK char.
+        let s = "你好，让我来帮你。".repeat(50);
+        assert!(s.len() > 500);
+        let out = truncate_for_log(&s, 500);
+        assert!(out.len() <= 500);
+        assert!(out.is_char_boundary(out.len()));
     }
 }

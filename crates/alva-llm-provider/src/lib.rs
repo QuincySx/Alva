@@ -43,6 +43,10 @@ mod provider;
 pub mod rate_limit;
 pub mod registry;
 
+/// UTF-8 safe slice helper for `tracing` macros' body/data preview
+/// fields, shared by all 4 provider implementations.
+pub(crate) mod util;
+
 pub use config::ProviderConfig;
 pub use provider::anthropic::AnthropicProvider;
 pub use provider::gemini::GeminiProvider;

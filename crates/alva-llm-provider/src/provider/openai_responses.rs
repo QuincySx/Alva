@@ -21,6 +21,7 @@ use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
 use alva_kernel_abi::tool::Tool;
 
 use crate::config::ProviderConfig;
+use crate::util::truncate_for_log;
 
 /// OpenAI Responses API provider.
 pub struct OpenAIResponsesProvider {
@@ -130,7 +131,7 @@ impl LanguageModel for OpenAIResponsesProvider {
         let body_str = serde_json::to_string(&body).unwrap_or_default();
         tracing::debug!(
             body_len = body_str.len(),
-            body_preview = &body_str[..body_str.len().min(500)],
+            body_preview = truncate_for_log(&body_str, 500),
             "LLM request body"
         );
 
@@ -151,7 +152,7 @@ impl LanguageModel for OpenAIResponsesProvider {
         tracing::debug!(
             status = %status,
             body_len = resp_text.len(),
-            body_preview = &resp_text[..resp_text.len().min(500)],
+            body_preview = truncate_for_log(&resp_text, 500),
             "LLM response"
         );
 
@@ -202,7 +203,7 @@ impl LanguageModel for OpenAIResponsesProvider {
             "LLM stream request"
         );
         tracing::debug!(
-            body_preview = &body_str[..body_str.len().min(500)],
+            body_preview = truncate_for_log(&body_str, 500),
             "LLM stream request body"
         );
 
@@ -273,7 +274,7 @@ impl LanguageModel for OpenAIResponsesProvider {
                                 tracing::warn!(
                                     error = %e,
                                     event_type = ?state.event_type,
-                                    data = &data[..data.len().min(200)],
+                                    data = truncate_for_log(data, 200),
                                     "failed to parse SSE chunk"
                                 );
                                 state.event_type = None;
@@ -309,5 +310,27 @@ impl LanguageModel for OpenAIResponsesProvider {
 
     fn provider_id(&self) -> &str {
         "openai-responses"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Provider-specific regression test. Helper-level coverage lives
+    //! in `crate::util::tests`; here we keep the OpenAI Responses
+    //! locale-realistic scenario (reasoning trace with emoji).
+    use crate::util::truncate_for_log;
+
+    #[test]
+    fn openai_responses_reasoning_trace_with_emoji_at_500_bytes_no_crash() {
+        // Realistic: OpenAI Responses returns reasoning content with
+        // emoji at varied byte positions; tracing macro must not panic.
+        let s = format!(
+            "{}🤔{}",
+            "Reasoning step: ".repeat(30), // ~480 ASCII bytes
+            " continued".repeat(5),
+        );
+        // Must not panic regardless of where 🤔 lands relative to 500.
+        let out = truncate_for_log(&s, 500);
+        assert!(out.is_char_boundary(out.len()));
     }
 }

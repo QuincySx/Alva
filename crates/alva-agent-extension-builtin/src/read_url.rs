@@ -460,3 +460,227 @@ fn extract_href(tag: &str) -> Option<String> {
         Some(trimmed[..end].to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Pure-logic tests for read_url helpers. The reqwest fetch path
+    //! takes a user-supplied URL so wiremock can drive it end-to-end,
+    //! but that integration belongs in tests/read_url_*.rs (deferred);
+    //! this module covers the local-only logic that runs before/after
+    //! the network call.
+    use super::*;
+
+    // ─── extract_domain ───────────────────────────────────────────────
+
+    #[test]
+    fn extract_domain_strips_scheme_and_path() {
+        assert_eq!(
+            extract_domain("https://example.com/foo/bar?q=1").as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(
+            extract_domain("http://docs.rs/").as_deref(),
+            Some("docs.rs")
+        );
+    }
+
+    #[test]
+    fn extract_domain_drops_port() {
+        assert_eq!(
+            extract_domain("http://localhost:8080/api").as_deref(),
+            Some("localhost")
+        );
+    }
+
+    #[test]
+    fn extract_domain_lowercases() {
+        assert_eq!(
+            extract_domain("HTTPS://Example.COM/").as_deref(),
+            None,
+            "scheme prefix match is case-sensitive — pinned current behaviour"
+        );
+        assert_eq!(
+            extract_domain("https://Example.COM/").as_deref(),
+            Some("example.com")
+        );
+    }
+
+    #[test]
+    fn extract_domain_rejects_unknown_scheme() {
+        // ftp:// / file:// / no-scheme → None
+        assert!(extract_domain("ftp://example.com/").is_none());
+        assert!(extract_domain("example.com/path").is_none());
+    }
+
+    // ─── extract_href ─────────────────────────────────────────────────
+
+    #[test]
+    fn extract_href_handles_three_quoting_styles() {
+        // double-quoted (most common)
+        assert_eq!(
+            extract_href("a href=\"https://x.com\" class=\"link\"").as_deref(),
+            Some("https://x.com")
+        );
+        // single-quoted
+        assert_eq!(
+            extract_href("a href='https://y.com'").as_deref(),
+            Some("https://y.com")
+        );
+        // unquoted (HTML5 permits — terminates at whitespace or `>`)
+        assert_eq!(
+            extract_href("a href=https://z.com class=link").as_deref(),
+            Some("https://z.com")
+        );
+    }
+
+    #[test]
+    fn extract_href_returns_none_when_attribute_missing() {
+        assert!(extract_href("a class=\"foo\"").is_none());
+        assert!(extract_href("p").is_none());
+    }
+
+    #[test]
+    fn extract_href_is_case_insensitive_on_attribute_name() {
+        // <a HREF="..."> in legacy HTML should still resolve
+        assert_eq!(
+            extract_href("a HREF=\"https://upper.com\"").as_deref(),
+            Some("https://upper.com")
+        );
+    }
+
+    // ─── html_to_markdown ─────────────────────────────────────────────
+
+    #[test]
+    fn html_to_markdown_renders_headings() {
+        let md = html_to_markdown("<h1>Title</h1><h2>Sub</h2><h3>Sub2</h3>");
+        assert!(md.contains("# Title"), "h1 → '# Title': {md}");
+        assert!(md.contains("## Sub"), "h2 → '## Sub': {md}");
+        assert!(md.contains("### Sub2"), "h3 → '### Sub2': {md}");
+    }
+
+    #[test]
+    fn html_to_markdown_renders_links_with_href() {
+        let md = html_to_markdown("Click <a href=\"https://example.com\">here</a> now.");
+        // Pinned format: [text](url) markdown style
+        assert!(
+            md.contains("[here](https://example.com)"),
+            "link not rendered as markdown: {md}"
+        );
+    }
+
+    #[test]
+    fn html_to_markdown_strips_script_and_style_content() {
+        // Script/style content must be DROPPED, not rendered
+        let md = html_to_markdown(
+            "<p>visible</p><script>alert('XSS')</script><style>body{color:red}</style><p>also visible</p>",
+        );
+        assert!(md.contains("visible"), "real content missing: {md}");
+        assert!(!md.contains("alert"), "script content leaked: {md}");
+        assert!(!md.contains("color:red"), "style content leaked: {md}");
+        assert!(!md.contains("XSS"), "script content leaked: {md}");
+    }
+
+    #[test]
+    fn html_to_markdown_decodes_common_entities() {
+        let md = html_to_markdown("AT&amp;T &lt;3 &quot;quoted&quot; &#39;apos&#39;");
+        assert!(md.contains("AT&T"), "&amp; not decoded: {md}");
+        assert!(md.contains("<3"), "&lt; not decoded: {md}");
+        assert!(md.contains("\"quoted\""), "&quot; not decoded: {md}");
+        assert!(md.contains("'apos'"), "&#39; not decoded: {md}");
+    }
+
+    #[test]
+    fn html_to_markdown_renders_lists() {
+        let md = html_to_markdown("<ul><li>one</li><li>two</li></ul>");
+        // Each li → newline + "- " prefix
+        assert!(md.contains("- one"), "missing - one: {md}");
+        assert!(md.contains("- two"), "missing - two: {md}");
+    }
+
+    #[test]
+    fn html_to_markdown_collapses_excessive_blank_lines() {
+        // <p><p><p><p> would produce many \n\n; pin the cap at 2
+        let md = html_to_markdown("<p>a</p><p>b</p><p>c</p>");
+        // No run of 3+ consecutive \n
+        assert!(
+            !md.contains("\n\n\n"),
+            "3+ consecutive newlines escaped collapse: {md:?}"
+        );
+        assert!(md.contains('a') && md.contains('b') && md.contains('c'));
+    }
+
+    #[test]
+    fn html_to_markdown_emphasis_tags() {
+        let md = html_to_markdown("<strong>bold</strong> and <em>italic</em>");
+        assert!(md.contains("**bold**"), "strong → **bold**: {md}");
+        assert!(md.contains("*italic*"), "em → *italic*: {md}");
+    }
+
+    // ─── UrlCache ─────────────────────────────────────────────────────
+
+    #[test]
+    fn url_cache_insert_then_get_roundtrips() {
+        let mut cache = UrlCache::new();
+        cache.insert("https://x.com".into(), "body".into(), "text/html".into());
+        let got = cache.get("https://x.com");
+        let (content, ct) = got.expect("must hit");
+        assert_eq!(content, "body");
+        assert_eq!(ct, "text/html");
+    }
+
+    #[test]
+    fn url_cache_get_miss_returns_none() {
+        let mut cache = UrlCache::new();
+        assert!(cache.get("never-inserted").is_none());
+    }
+
+    #[test]
+    fn url_cache_lru_evicts_oldest_at_capacity() {
+        let mut cache = UrlCache::new();
+        // Insert MAX + 1 entries → first one must be evicted
+        for i in 0..=CACHE_MAX_ENTRIES {
+            cache.insert(format!("u{i}"), format!("body{i}"), "text/html".into());
+        }
+        // u0 was the very first → evicted
+        assert!(cache.get("u0").is_none(), "u0 should have been LRU-evicted");
+        // u1..uN should still be present
+        assert!(cache.get("u1").is_some());
+        assert!(cache.get(&format!("u{CACHE_MAX_ENTRIES}")).is_some());
+    }
+
+    #[test]
+    fn url_cache_get_promotes_to_mru_so_it_survives_next_eviction() {
+        // Touch entry 0 after inserting MAX entries → it becomes MRU →
+        // subsequent insert evicts entry 1 (now the LRU), not entry 0.
+        let mut cache = UrlCache::new();
+        for i in 0..CACHE_MAX_ENTRIES {
+            cache.insert(format!("u{i}"), format!("body{i}"), "text/html".into());
+        }
+        let _ = cache.get("u0"); // promotes u0 to MRU
+        // Adding one more triggers eviction
+        cache.insert("new".into(), "x".into(), "text/html".into());
+        // u0 should survive; u1 (next-oldest after u0 was promoted) should be gone
+        assert!(cache.get("u0").is_some(), "u0 was promoted, must survive");
+        assert!(cache.get("u1").is_none(), "u1 became LRU, must be evicted");
+    }
+
+    #[test]
+    fn url_cache_rate_limit_blocks_after_threshold() {
+        let mut cache = UrlCache::new();
+        // First RATE_LIMIT_PER_DOMAIN requests must pass; the (N+1)th
+        // must return false until the window slides.
+        for i in 0..RATE_LIMIT_PER_DOMAIN {
+            assert!(
+                cache.check_rate_limit("example.com"),
+                "request {i} should pass under threshold"
+            );
+        }
+        assert!(
+            !cache.check_rate_limit("example.com"),
+            "request {} must be rate-limited",
+            RATE_LIMIT_PER_DOMAIN + 1
+        );
+        // Different domain is independent
+        assert!(cache.check_rate_limit("other.com"));
+    }
+}
