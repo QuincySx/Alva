@@ -357,6 +357,184 @@ fn shutdown_endpoint() {
 }
 
 // ---------------------------------------------------------------------------
+// Loop 148 gap-fill: router.rs error paths not previously covered
+//
+// Pre-existing tests cover happy paths and the high-level "without
+// registry" 503 cases. The following pin the validation error paths
+// — malformed JSON and missing-field 400 responses — that frontend
+// consumers rely on for actionable error messages. A refactor that
+// surfaced these as 500 / hung connection / unwrap panic would
+// silently degrade the developer experience.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_log_level_malformed_json_returns_400_with_error_message() {
+    let (layer, log_handle) = LogCaptureLayer::new(100);
+    let _guard = tracing_subscriber::registry().with(layer).set_default();
+    let server = DebugServer::builder()
+        .port(19250)
+        .with_log_handle(log_handle)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Body is not valid JSON at all — must NOT panic / 500; must 400
+    // with a diagnostic that lets the frontend display "fix your JSON".
+    let resp = http_put("127.0.0.1:19250", "/api/logs/level", "{not json");
+    assert!(
+        resp.contains("malformed JSON body"),
+        "expected diagnostic 'malformed JSON body' in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn set_log_level_missing_filter_field_returns_400_with_field_name() {
+    let (layer, log_handle) = LogCaptureLayer::new(100);
+    let _guard = tracing_subscriber::registry().with(layer).set_default();
+    let server = DebugServer::builder()
+        .port(19251)
+        .with_log_handle(log_handle)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Valid JSON but missing the required 'filter' field — diagnostic
+    // MUST name the missing field by name so frontend can guide user.
+    let resp = http_put(
+        "127.0.0.1:19251",
+        "/api/logs/level",
+        r#"{"other_key": "warn"}"#,
+    );
+    assert!(
+        resp.contains("missing 'filter' field"),
+        "expected diagnostic naming 'filter' field in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn action_malformed_json_returns_400_with_error_message() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19252)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post("127.0.0.1:19252", "/api/action", "{not json");
+    assert!(
+        resp.contains("malformed JSON body"),
+        "expected diagnostic 'malformed JSON body' in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn action_missing_target_field_returns_400_with_field_name() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19253)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post(
+        "127.0.0.1:19253",
+        "/api/action",
+        r#"{"method": "send_message", "args": {}}"#,
+    );
+    assert!(
+        resp.contains("missing 'target' field"),
+        "expected diagnostic naming 'target' field in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn action_missing_method_field_returns_400_with_field_name() {
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19254)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let resp = http_post(
+        "127.0.0.1:19254",
+        "/api/action",
+        r#"{"target": "chat_panel", "args": {}}"#,
+    );
+    assert!(
+        resp.contains("missing 'method' field"),
+        "expected diagnostic naming 'method' field in: {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+#[test]
+fn action_with_missing_args_field_defaults_to_empty_object() {
+    // SILENT BACKWARD-COMPAT CONTRACT: when the client omits `args`
+    // entirely, router defaults it to `{}` rather than rejecting.
+    // Frontend callers like `actions.call(target, method)` (no args)
+    // rely on this. A refactor that started 400'ing missing-args
+    // would silently break every action call site that doesn't
+    // pass arguments.
+    let registry = make_test_registry();
+    let server = DebugServer::builder()
+        .port(19255)
+        .with_action_registry(registry)
+        .build()
+        .unwrap();
+    let mut handle = server.start();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // make_test_registry registers chat_panel.send_message which
+    // checks args.text — without args this hits a downstream error
+    // (NOT a 400 from missing 'args' field). The router accepting
+    // missing 'args' is what we pin here.
+    let resp = http_post(
+        "127.0.0.1:19255",
+        "/api/action",
+        r#"{"target": "chat_panel", "method": "send_message"}"#,
+    );
+    assert!(
+        !resp.contains("missing 'args' field"),
+        "router MUST NOT reject missing 'args' (it defaults to {{}}): {}",
+        resp
+    );
+    // Sanity: the request reached the registry (got past JSON validation).
+    // Either it returns ok (if method tolerates missing args) or returns
+    // an error_type from the registry layer — both prove router defaulted
+    // args correctly.
+    assert!(
+        resp.contains(r#""ok":true"#) || resp.contains(r#""ok":false"#),
+        "expected a structured ok/error response from registry layer (not a 400 'missing args'): {}",
+        resp
+    );
+
+    handle.shutdown();
+}
+
+// ---------------------------------------------------------------------------
 // HTTP helpers using raw std::net (zero extra dependencies)
 // ---------------------------------------------------------------------------
 
