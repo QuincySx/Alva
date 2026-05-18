@@ -474,3 +474,108 @@ pub enum LoaderError {
     #[error("manifest error: {0}")]
     Manifest(String),
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `aep_to_core_event_type` reverse-mapping +
+    //! LoaderError contracts — 3 tests covering 3 distinct contracts.
+    //!
+    //! 1. **Reverse-mapping wire ⇄ core**: this helper is the INVERSE
+    //!    of `proxy.rs::core_event_to_aep_name` (forward direction
+    //!    pinned in proxy.rs tests). Two non-obvious asymmetries
+    //!    distinguish it from a naïve identity / strip-prefix:
+    //!    - `on_agent_*` → `agent_*` (drop `on_` prefix; tool/* are
+    //!      symmetric with no prefix to strip)
+    //!    - `on_user_message` → `"input"` (NOT `"user_message"`; core
+    //!      event_type() for Input is literally "input"; a naïve
+    //!      `strip_prefix("on_")` would silently break Input routing)
+    //!
+    //!    Forward-compat: unknown names return None (NOT a fallback),
+    //!    so future-protocol plugins don't crash dispatch on names
+    //!    the host doesn't know.
+    //!
+    //!    One parametric test pins all 5 known mappings + 3 unknown
+    //!    cases in one pass. Round-trip composition with
+    //!    `core_event_to_aep_name` can't be expressed here because
+    //!    that function is private to proxy.rs; the two halves stay
+    //!    in lockstep via the two crates' separate tests.
+    //!
+    //! 2. **LoaderError wrapped Display chain-through**: only the
+    //!    Proxy variant is pinned as representative of the
+    //!    thiserror `#[error("X: {0}")]` chain-through pattern that
+    //!    silently breaks if `{0}` is dropped. The same pattern
+    //!    applies to the Io variant (with `#[source]`); the
+    //!    literal-only StatePoisoned variant and the payload-only
+    //!    Manifest variant test thiserror's derive macro itself
+    //!    (deleted; see L152 dispatcher precedent).
+    //!
+    //! 3. **LoaderError From<ProxyError>**: the `#[from]` impl
+    //!    produces the named variant for `?` callers; a variant
+    //!    rename would silently break match arms in scan/start paths.
+    use super::*;
+
+    #[test]
+    fn aep_to_core_event_type_maps_each_wire_name_per_table() {
+        // Table-driven over 5 known mappings + 3 unknown/edge cases.
+        // The "drops on_ prefix for agent_*" + "on_user_message →
+        // input (NOT user_message)" asymmetries are the load-bearing
+        // pins documented in the mod docstring; each row has a label
+        // so panic output names the broken contract.
+        let cases: &[(&str, Option<&str>, &str)] = &[
+            // ── symmetric (no on_ prefix to strip)
+            ("before_tool_call", Some("before_tool_call"), "symmetric tool call"),
+            ("after_tool_call", Some("after_tool_call"), "symmetric tool call"),
+            // ── drops on_ prefix
+            ("on_agent_start", Some("agent_start"), "on_ prefix dropped"),
+            ("on_agent_end", Some("agent_end"), "on_ prefix dropped"),
+            // ── CRITICAL ASYMMETRY: NOT a naïve strip_prefix("on_")
+            ("on_user_message", Some("input"), "on_user_message → input (NOT user_message)"),
+            // ── forward-compat: unknown names return None
+            ("on_llm_call_start", None, "future-protocol name → None"),
+            ("totally_made_up_event", None, "unknown name → None"),
+            ("", None, "empty string → None"),
+        ];
+        for (wire, expected, label) in cases {
+            assert_eq!(
+                aep_to_core_event_type(wire),
+                *expected,
+                "case {label:?} failed for wire name {wire:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn loader_error_proxy_display_chains_inner_proxy_message_through() {
+        // Representative wrapped-Display test: `#[error("proxy error:
+        // {0}")]` chains ProxyError's Display via `{0}`. A refactor
+        // dropping `{0}` would silently lose inner diagnostic. The
+        // Io variant uses the same pattern (one representative
+        // suffices); StatePoisoned + Manifest test thiserror's
+        // literal / payload-interpolation derive (deleted; see
+        // dispatcher L152 precedent).
+        let bad = b"{not json";
+        let serde_err = serde_json::from_slice::<serde_json::Value>(bad).unwrap_err();
+        let proxy_err = ProxyError::Serialization(serde_err);
+        let proxy_msg = proxy_err.to_string();
+        let e = LoaderError::Proxy(proxy_err);
+        let s = e.to_string();
+        assert!(s.starts_with("proxy error:"), "prefix missing: {s}");
+        assert!(s.contains(&proxy_msg), "inner proxy message lost: {s}");
+    }
+
+    #[test]
+    fn from_proxy_error_produces_proxy_variant_for_question_mark_callers() {
+        // Pin: `#[from] ProxyError` → callers using `?` get
+        // LoaderError::Proxy(_). A variant rename would silently
+        // break match arms in scan/start paths.
+        let bad = b"{nope";
+        let proxy_err = ProxyError::Serialization(
+            serde_json::from_slice::<serde_json::Value>(bad).unwrap_err(),
+        );
+        let e: LoaderError = proxy_err.into();
+        match e {
+            LoaderError::Proxy(_) => {}
+            other => panic!("expected Proxy variant, got {other:?}"),
+        }
+    }
+}

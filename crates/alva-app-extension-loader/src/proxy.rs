@@ -387,3 +387,193 @@ pub enum ProxyError {
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for proxy.rs pure-sync helpers — 7 tests covering 3
+    //! contract families:
+    //!
+    //! 1. **`core_event_to_aep_name` wire-name translation** —
+    //!    `ExtensionEvent` variants map to AEP RPC method names that
+    //!    DIFFER from `ExtensionEvent::event_type()`. e.g.
+    //!    `AgentStart` → AEP `"on_agent_start"` but event_type
+    //!    returns `"agent_start"`; `Input` → `"on_user_message"` not
+    //!    `"input"`. A silent change to use event_type() would rename
+    //!    every plugin RPC method — no compile-time hint, every
+    //!    deployed plugin breaks. One parametric test pins all 5
+    //!    variants in one pass.
+    //!
+    //! 2. **`core_event_to_params` wire JSON shape** — produces the
+    //!    object plugins receive. Three simple shapes (AgentStart /
+    //!    AgentEnd / Input) merged into one test; the two complex
+    //!    shapes (BeforeToolCall typed serialization, AfterToolCall
+    //!    ad-hoc camelCase) kept as separate tests because their
+    //!    assertion sets are substantially different.
+    //!
+    //! 3. **`action_to_event_result` decision branches** — Continue
+    //!    passthrough + Block reason propagation + a merged forward-
+    //!    compat/defensive test covering unsupported variants AND
+    //!    malformed JSON (both fall into the same `_ => Continue`
+    //!    catch-all branch).
+    //!
+    //! Removed: EVENT_TIMEOUT and PHASE3_STATE_PLACEHOLDER literal
+    //! pins — both are internal consts with no external spec; the
+    //! PHASE3 placeholder is implicitly verified by the shape tests
+    //! (which assert it appears in the wire payload via the source
+    //! const, so renaming the const breaks the shape tests).
+    use super::*;
+    use alva_kernel_abi::tool::execution::ToolOutput;
+
+    // -- core_event_to_aep_name: parametric over 5 variants -------------
+
+    #[test]
+    fn aep_name_each_variant_maps_to_spec_wire_name() {
+        // CRITICAL asymmetries: AgentStart/AgentEnd carry an "on_"
+        // prefix that event_type() doesn't; Input maps to
+        // "on_user_message" (NOT "input"). Either silent change
+        // would rename plugin RPC methods. The parametric loop
+        // pins all 5 variants in one pass.
+        let cases: Vec<(ExtensionEvent, &str)> = vec![
+            (ExtensionEvent::AgentStart, "on_agent_start"),
+            (ExtensionEvent::AgentEnd { error: None }, "on_agent_end"),
+            (
+                ExtensionEvent::BeforeToolCall {
+                    tool_name: "x".into(),
+                    tool_call_id: "id".into(),
+                    arguments: serde_json::json!({}),
+                },
+                "before_tool_call",
+            ),
+            (
+                ExtensionEvent::AfterToolCall {
+                    tool_name: "x".into(),
+                    tool_call_id: "id".into(),
+                    result: ToolOutput::text(""),
+                },
+                "after_tool_call",
+            ),
+            (ExtensionEvent::Input { text: "hi".into() }, "on_user_message"),
+        ];
+        for (event, expected) in cases {
+            assert_eq!(
+                core_event_to_aep_name(&event),
+                Some(expected),
+                "wire name mismatch for event {event:?}"
+            );
+        }
+    }
+
+    // -- core_event_to_params: 3 simple shapes merged + 2 complex kept --
+
+    #[test]
+    fn params_simple_shapes_for_agent_start_agent_end_and_input() {
+        // AgentStart: only stateHandle. AgentEnd: stateHandle + error.
+        // Input: stateHandle + message.text (NOT bare text; plugins
+        // read params.message.text per spec).
+        let v = core_event_to_params(&ExtensionEvent::AgentStart).unwrap();
+        assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
+        assert_eq!(
+            v.as_object().expect("must be an object").len(),
+            1,
+            "AgentStart payload must contain only stateHandle: {v}"
+        );
+
+        let v = core_event_to_params(&ExtensionEvent::AgentEnd {
+            error: Some("oom".into()),
+        })
+        .unwrap();
+        assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
+        assert_eq!(v["error"], serde_json::json!("oom"));
+
+        let v = core_event_to_params(&ExtensionEvent::Input {
+            text: "hello".into(),
+        })
+        .unwrap();
+        assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
+        assert_eq!(v["message"]["text"], serde_json::json!("hello"));
+    }
+
+    #[test]
+    fn params_before_tool_call_serializes_typed_params_shape() {
+        // Pin: BeforeToolCall uses the typed BeforeToolCallParams
+        // struct; verify the serialized JSON contains tool_call_id /
+        // tool_name / arguments. A refactor that switched to an
+        // ad-hoc shape would fail this test.
+        let ev = ExtensionEvent::BeforeToolCall {
+            tool_name: "shell".into(),
+            tool_call_id: "tc-1".into(),
+            arguments: serde_json::json!({"cmd": "ls"}),
+        };
+        let v = core_event_to_params(&ev).unwrap();
+        assert!(v.is_object(), "BeforeToolCall params must serialize to object: {v}");
+        let serialized = v.to_string();
+        assert!(serialized.contains("tc-1"), "tool_call_id must appear: {serialized}");
+        assert!(serialized.contains("shell"), "tool_name must appear: {serialized}");
+        assert!(serialized.contains("ls"), "argument value must appear: {serialized}");
+    }
+
+    #[test]
+    fn params_after_tool_call_uses_camel_case_state_handle_and_includes_result() {
+        // Pin: AfterToolCall uses an ad-hoc JSON (not a typed struct)
+        // with camelCase keys (stateHandle / toolCall). This deviates
+        // from BeforeToolCall's typed shape — comment in source notes
+        // a typed struct will land later; pin current behavior.
+        let ev = ExtensionEvent::AfterToolCall {
+            tool_name: "shell".into(),
+            tool_call_id: "tc-9".into(),
+            result: ToolOutput::text("done"),
+        };
+        let v = core_event_to_params(&ev).unwrap();
+        assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
+        assert_eq!(v["toolCall"]["id"], serde_json::json!("tc-9"));
+        assert_eq!(v["toolCall"]["name"], serde_json::json!("shell"));
+        assert!(v.get("result").is_some(), "result key required: {v}");
+    }
+
+    // -- action_to_event_result: 3 decision branches --------------------
+
+    #[test]
+    fn action_continue_passes_through_to_event_result_continue() {
+        let v = serde_json::json!({"action": "continue"});
+        let r = action_to_event_result("p", "on_agent_start", v);
+        assert!(matches!(r, EventResult::Continue));
+    }
+
+    #[test]
+    fn action_block_propagates_reason_verbatim() {
+        // Pin: Block.reason MUST round-trip — that string surfaces to
+        // the user (e.g. "tool blocked: rate limit"). Losing it would
+        // leave the user staring at a bare "blocked".
+        let v = serde_json::json!({"action": "block", "reason": "rate limit"});
+        let r = action_to_event_result("p", "before_tool_call", v);
+        match r {
+            EventResult::Block { reason } => assert_eq!(reason, "rate limit"),
+            other => panic!("expected Block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn action_catch_all_continues_for_unsupported_variants_and_malformed_input() {
+        // Both forward-compat (unsupported Modify variant defined in
+        // protocol but not implemented) AND defensive (malformed JSON
+        // that doesn't deserialize as ExtensionAction) fall into the
+        // same `_ => EventResult::Continue` catch-all branch. A
+        // refactor that panicked or Blocked here would crash hosts
+        // when a new-protocol plugin shipped, OR when a buggy plugin
+        // sent garbage.
+        let modify = serde_json::json!({
+            "action": "modify",
+            "modified_arguments": {"k": "v"}
+        });
+        assert!(
+            matches!(action_to_event_result("p", "before_tool_call", modify), EventResult::Continue),
+            "unsupported Modify variant must downgrade to Continue, not crash"
+        );
+
+        let malformed = serde_json::json!({"this": "is not an ExtensionAction"});
+        assert!(
+            matches!(action_to_event_result("p", "after_tool_call", malformed), EventResult::Continue),
+            "malformed action JSON must defensively Continue"
+        );
+    }
+}

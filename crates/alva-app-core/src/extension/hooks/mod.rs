@@ -196,10 +196,12 @@ impl HooksSettings {
         match event {
             HookEvent::PreToolUse => &self.pre_tool_use,
             HookEvent::PostToolUse => &self.post_tool_use,
-            // PostToolUseFailure currently reuses PostToolUse hooks.
-            // TODO: add a dedicated `post_tool_use_failure` field to HooksSettings
-            // when the settings schema is extended to support it.
-            HookEvent::PostToolUseFailure => &self.post_tool_use,
+            // Distinct field as of L81 — previously routed to
+            // post_tool_use which conflated success vs failure hooks.
+            // Legacy configs without `PostToolUseFailure` get an empty
+            // vec (no failure hooks fire), matching the absence of
+            // dedicated failure handling that existed before.
+            HookEvent::PostToolUseFailure => &self.post_tool_use_failure,
             HookEvent::SessionStart => &self.session_start,
             HookEvent::SessionEnd => &self.session_end,
             HookEvent::Notification => &self.notification,
@@ -298,5 +300,48 @@ mod tests {
         assert_eq!(output.should_continue, Some(false));
         assert_eq!(output.stop_reason.as_deref(), Some("blocked"));
         assert_eq!(output.additional_context.as_deref(), Some("extra info"));
+    }
+
+    #[test]
+    fn configs_for_routes_post_tool_use_failure_to_dedicated_field() {
+        // Regression for L81: PostToolUseFailure used to route to
+        // `post_tool_use`, conflating success and failure hooks. Now
+        // it routes to the dedicated `post_tool_use_failure` field.
+        let success_cfg = HookConfig {
+            matcher: Some("Bash".to_string()),
+            hooks: vec![],
+        };
+        let failure_cfg = HookConfig {
+            matcher: Some("Bash".to_string()),
+            hooks: vec![],
+        };
+        let settings = HooksSettings {
+            post_tool_use: vec![success_cfg.clone()],
+            post_tool_use_failure: vec![failure_cfg.clone(), failure_cfg.clone()],
+            ..Default::default()
+        };
+
+        // Success path returns ONLY success hooks.
+        let success_configs = settings.configs_for(HookEvent::PostToolUse);
+        assert_eq!(success_configs.len(), 1, "success path: 1 hook");
+
+        // Failure path returns ONLY failure hooks.
+        let failure_configs = settings.configs_for(HookEvent::PostToolUseFailure);
+        assert_eq!(failure_configs.len(), 2, "failure path: 2 hooks, not conflated");
+    }
+
+    #[test]
+    fn configs_for_legacy_settings_no_failure_field_yields_empty() {
+        // Backward-compat guard: a HooksSettings deserialized from a
+        // pre-L81 config (no `PostToolUseFailure` key) must still load
+        // (serde(default)) and produce empty failure hooks. Old
+        // behavior was "PostToolUse hooks fire on failure too"; new
+        // behavior is "no failure hooks unless user opts in". This
+        // is intentional (the conflation was a bug, not a feature).
+        let json = r#"{"PostToolUse": [{"matcher": "Bash", "hooks": []}]}"#;
+        let settings: HooksSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.post_tool_use.len(), 1);
+        assert_eq!(settings.post_tool_use_failure.len(), 0, "missing field → empty");
+        assert_eq!(settings.configs_for(HookEvent::PostToolUseFailure).len(), 0);
     }
 }

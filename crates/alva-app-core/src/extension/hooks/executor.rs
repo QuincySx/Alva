@@ -105,11 +105,28 @@ impl HookExecutor {
             }
         };
 
-        // Write JSON input to stdin
+        // Write JSON input to stdin. Failures are best-effort logged
+        // (hooks that don't read stdin won't trigger this; hooks that
+        // do but close stdin early will leave us writing to a broken
+        // pipe). We don't abort the hook on write failure — the child
+        // may still produce useful output — but we log so users can
+        // correlate "hook didn't see my input" reports with broken
+        // pipe / closed-early scenarios.
         if let Some(mut stdin) = child.stdin.take() {
             let json = serde_json::to_string(input).unwrap_or_default();
-            let _ = stdin.write_all(json.as_bytes()).await;
-            let _ = stdin.write_all(b"\n").await;
+            if let Err(e) = stdin.write_all(json.as_bytes()).await {
+                tracing::warn!(
+                    error = %e,
+                    bytes = json.len(),
+                    "hook stdin: failed to write JSON input; hook may see truncated/no input",
+                );
+            }
+            if let Err(e) = stdin.write_all(b"\n").await {
+                tracing::warn!(
+                    error = %e,
+                    "hook stdin: failed to write trailing newline; hook may hang on read_line",
+                );
+            }
             drop(stdin);
         }
 

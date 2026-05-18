@@ -381,3 +381,132 @@ pub enum SubprocessError {
 // covers `&Path` so we do not need the bare type beyond that.
 #[allow(dead_code)]
 fn _assert_path_available(_: &Path) {}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `default_launcher` wire flags + lifecycle timeouts +
+    //! `LauncherOverride::default()`.
+    //!
+    //! Two load-bearing silent contracts:
+    //!
+    //! 1. **Python launcher MUST include `-u`** — unbuffered stdout/stderr.
+    //!    Without it, the Python plugin's `print()` output is buffered
+    //!    and won't be flushed until the buffer fills or the process
+    //!    exits; that breaks JSON-RPC frame alignment (frames arrive
+    //!    in chunks at arbitrary boundaries instead of one-line-per-
+    //!    frame), and the dispatcher silently fails to parse.
+    //!
+    //! 2. **JS launcher MUST include `--enable-source-maps`** —
+    //!    without it, Node stack traces show the bundled file:line
+    //!    instead of the original TS/JS source, making plugin
+    //!    debugging effectively impossible. The flag is silent: a
+    //!    refactor that "simplified" the args list would compile + run
+    //!    fine until a user tried to debug a plugin crash.
+    //!
+    //! Lifecycle constants pin the shutdown windows: 3s graceful
+    //! (gives plugin time to flush state + close streams), 2s OS reap
+    //! safety net. Silent change of either changes user-visible exit
+    //! latency or breaks plugins that take >0ms to clean up.
+    use super::*;
+    use crate::manifest::Runtime;
+
+    // -- Lifecycle constants --------------------------------------------
+
+    #[test]
+    fn graceful_shutdown_timeout_is_three_seconds() {
+        // Pin: 3s window between stdin-close and force-kill. Silent
+        // change to 0s = plugins lose flush window; to 30s = CLI exit
+        // hangs for half a minute on plugin misbehavior.
+        assert_eq!(GRACEFUL_SHUTDOWN_TIMEOUT, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn hard_kill_timeout_is_two_seconds() {
+        // Pin: 2s OS-reap safety net after `kill`. Silent change to 0
+        // means the runtime returns Ok before the OS actually freed
+        // the PID, racing with the next spawn.
+        assert_eq!(HARD_KILL_TIMEOUT, Duration::from_secs(2));
+    }
+
+    // -- LauncherOverride::default --------------------------------------
+
+    #[test]
+    fn launcher_override_default_is_empty_program_and_no_args_or_env() {
+        // Pin: derived Default. The `program` defaults to empty string
+        // (NOT "python3" / "node") — defaulting to a real launcher
+        // here would silently hijack the per-runtime resolution path
+        // in `default_launcher`.
+        let lo = LauncherOverride::default();
+        assert_eq!(lo.program, "");
+        assert!(lo.prepend_args.is_empty());
+        assert!(lo.env.is_empty());
+    }
+
+    // -- default_launcher: Python --------------------------------------
+
+    #[test]
+    fn default_launcher_python_uses_python3_program() {
+        // Pin: `python3`, NOT `python` (the latter resolves to
+        // Python 2 on some macOS / older Linux distros; the alva-sdk
+        // requires Python 3+).
+        let lo = default_launcher(Runtime::Python);
+        assert_eq!(lo.program, "python3");
+    }
+
+    #[test]
+    fn default_launcher_python_prepends_unbuffered_dash_u_flag() {
+        // CRITICAL SILENT PIN: `-u` unbuffers stdout/stderr. Without
+        // it, Python's line-buffered print() output is held until the
+        // buffer fills, and JSON-RPC frames over stdio arrive in
+        // arbitrary chunks instead of one-frame-per-line — the
+        // dispatcher's line reader then silently fails to parse.
+        let lo = default_launcher(Runtime::Python);
+        assert_eq!(
+            lo.prepend_args,
+            vec!["-u".to_string()],
+            "Python launcher MUST prepend `-u` for unbuffered stdio"
+        );
+    }
+
+    #[test]
+    fn default_launcher_python_has_no_extra_env_vars_by_default() {
+        // Pin: env empty by default. A regression that auto-injected
+        // e.g. PYTHONPATH would leak host paths into every plugin
+        // subprocess, breaking hermetic execution.
+        let lo = default_launcher(Runtime::Python);
+        assert!(lo.env.is_empty(), "Python launcher must not inject env vars by default");
+    }
+
+    // -- default_launcher: JavaScript ----------------------------------
+
+    #[test]
+    fn default_launcher_javascript_uses_node_program() {
+        // Pin: `node`, not e.g. `nodejs` (Debian-specific binary name)
+        // or `deno` / `bun`. Bare `node` lets PATH resolution find
+        // the user's chosen Node install.
+        let lo = default_launcher(Runtime::Javascript);
+        assert_eq!(lo.program, "node");
+    }
+
+    #[test]
+    fn default_launcher_javascript_prepends_enable_source_maps_flag() {
+        // CRITICAL SILENT PIN: `--enable-source-maps` lets Node V8
+        // resolve transpiled (TS/bundled) plugin stack traces back to
+        // original source positions. Without it, plugin crashes
+        // surface as `dist/bundle.js:1:982347`-style frames that are
+        // useless for debugging. The flag is silent: dropping it
+        // doesn't affect success paths, only error legibility.
+        let lo = default_launcher(Runtime::Javascript);
+        assert_eq!(
+            lo.prepend_args,
+            vec!["--enable-source-maps".to_string()],
+            "JavaScript launcher MUST prepend --enable-source-maps for source-mapped stack traces"
+        );
+    }
+
+    #[test]
+    fn default_launcher_javascript_has_no_extra_env_vars_by_default() {
+        let lo = default_launcher(Runtime::Javascript);
+        assert!(lo.env.is_empty(), "JS launcher must not inject env vars by default");
+    }
+}

@@ -56,9 +56,16 @@ pub struct HooksSettings {
     /// Hooks that run before tool execution
     #[serde(rename = "PreToolUse")]
     pub pre_tool_use: Vec<HookConfig>,
-    /// Hooks that run after tool execution
+    /// Hooks that run after tool execution (success path only)
     #[serde(rename = "PostToolUse")]
     pub post_tool_use: Vec<HookConfig>,
+    /// Hooks that run after tool execution that errored. Distinct from
+    /// `post_tool_use` so users can register failure-specific handlers
+    /// (alerting, retry orchestration, audit) without polluting success
+    /// hooks. Missing in legacy configs → empty vec (no failure hooks
+    /// fire, matching the silent-failure behavior of pre-L81 versions).
+    #[serde(rename = "PostToolUseFailure")]
+    pub post_tool_use_failure: Vec<HookConfig>,
     /// Hooks that run at session start
     #[serde(rename = "SessionStart")]
     pub session_start: Vec<HookConfig>,

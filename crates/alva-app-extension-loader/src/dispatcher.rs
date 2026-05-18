@@ -479,3 +479,92 @@ pub enum DispatchError {
     #[error("shutdown already called")]
     ShutdownAlreadyCalled,
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for NoopHostHandler + DispatchError silent contracts.
+    //!
+    //! 1. **NoopHostHandler**: returns RpcError with code =
+    //!    METHOD_NOT_FOUND (-32601 per JSON-RPC 2.0) and a diagnostic
+    //!    message that names the requested method. A silent change to
+    //!    INTERNAL_ERROR (-32603) would mislead plugins into treating
+    //!    the response as a host-side bug and triggering retry logic.
+    //!
+    //! 2. **DispatchError Display + From**: only contracts that aren't
+    //!    pure thiserror-derive are pinned —
+    //!    - Subprocess Display: chains inner Display through `{0}`
+    //!      interpolation (Serialization uses the same pattern; one
+    //!      representative test suffices)
+    //!    - Rpc Display: non-standard `code={} message={}` format
+    //!      pulling from inner RpcError fields — a refactor collapsing
+    //!      to `{0}` would let RpcError's own Display take over and
+    //!      silently change log lines that downstream alerting greps
+    //!    - From<SubprocessError>: `#[from]` produces the named variant
+    //!      (silent contract: rename would silently break `?` callers'
+    //!      match arms; same applies to From<serde_json::Error> but
+    //!      one representative test suffices)
+    use super::*;
+    use crate::protocol::error_codes;
+
+    #[tokio::test]
+    async fn noop_handler_request_returns_method_not_found_with_method_name_in_diagnostic() {
+        // Two pins in one call: the JSON-RPC 2.0 wire code (-32601)
+        // and the diagnostic includes the rejected method name so
+        // plugin authors can identify which method was unimplemented
+        // from logs without --verbose.
+        let handler = NoopHostHandler;
+        let err = handler
+            .handle_request("host/some.specific.method".to_string(), None)
+            .await
+            .expect_err("noop must reject every method");
+        assert_eq!(err.code, error_codes::METHOD_NOT_FOUND);
+        assert_eq!(err.code, -32601, "JSON-RPC 2.0 spec value pin");
+        assert!(
+            err.message.contains("host/some.specific.method"),
+            "diagnostic must include requested method: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn dispatch_error_subprocess_display_chains_inner_message_through() {
+        // Pin: `#[error("subprocess error: {0}")]` chains the wrapped
+        // Display. A refactor dropping `{0}` would silently lose inner
+        // diagnostic. Same pattern applies to Serialization; one
+        // representative test covers the thiserror chain-through
+        // behavior for both variants.
+        let inner = SubprocessError::AlreadyClosed;
+        let inner_msg = inner.to_string();
+        let e = DispatchError::Subprocess(inner);
+        let s = e.to_string();
+        assert!(s.starts_with("subprocess error:"), "prefix missing: {s}");
+        assert!(s.contains(&inner_msg), "inner subprocess message lost: {s}");
+    }
+
+    #[test]
+    fn dispatch_error_rpc_display_uses_custom_code_and_message_format() {
+        // CRITICAL: the Display attr is
+        // `#[error("rpc error: code={} message={}", .0.code, .0.message)]`.
+        // A refactor to `#[error("{0}")]` would let RpcError's own
+        // Display take over and silently change log lines.
+        let e = DispatchError::Rpc(RpcError::new(-32601, "method 'x' not found"));
+        assert_eq!(
+            e.to_string(),
+            "rpc error: code=-32601 message=method 'x' not found"
+        );
+    }
+
+    #[test]
+    fn from_subprocess_error_produces_named_subprocess_variant() {
+        // Pin: `#[from] SubprocessError` → DispatchError::Subprocess(_)
+        // via `?`. A rename of the variant would silently break match
+        // arms in scan/start paths. Same applies to From<serde_json::Error>;
+        // one representative test covers the #[from] contract for both.
+        let inner = SubprocessError::AlreadyClosed;
+        let e: DispatchError = inner.into();
+        match e {
+            DispatchError::Subprocess(_) => {}
+            other => panic!("expected Subprocess variant, got {other:?}"),
+        }
+    }
+}
