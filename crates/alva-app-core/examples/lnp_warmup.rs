@@ -194,13 +194,74 @@ fn main() {
     eprintln!();
     if results_seen > 0 {
         eprintln!(
-            "✓ Discovered {} reply event(s). LNP is granted — your binary should now\n\
-             appear in System Settings → Privacy & Security → Local Network.",
+            "✓ Discovered {} reply event(s). Bonjour path OK.",
             results_seen
         );
         eprintln!();
-        eprintln!("Test that BSD sockets now work to your target:");
-        let _ = test_bsd_connect();
+        eprintln!("==> Now triggering BSD-socket connect to register binary in TCC.");
+        eprintln!("    The first connect attempt provokes the prompt but is expected");
+        eprintln!("    to fail-fast with EHOSTUNREACH. The PROMPT shows up shortly");
+        eprintln!("    AFTER. We'll then sleep 60s — keep an eye on your screen,");
+        eprintln!("    click ALLOW on the macOS prompt when it appears, then we");
+        eprintln!("    retry the connect to verify the grant landed.");
+        eprintln!();
+
+        let target = bsd_connect_target();
+        if let Some(addr) = target {
+            eprintln!("==> attempt 1: connect to {addr} (expected to fail and queue the prompt)");
+            match std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
+                Ok(_) => {
+                    eprintln!(
+                        "✓ Already granted! No prompt needed — your codesign identity\n\
+                         had Local Network access previously."
+                    );
+                    return;
+                }
+                Err(e) => eprintln!(
+                    "  ✗ failed as expected: {e} (raw_os_error={:?})\n\
+                     \n\
+                     Now WAITING 60 seconds for the macOS prompt to surface.\n\
+                     ⚠️  Look at your screen and click ALLOW when the dialog appears.",
+                    e.raw_os_error()
+                ),
+            }
+
+            // Long sleep with countdown so the user knows the process is still alive
+            // and the prompt has a real chance to land + be clicked.
+            for remaining in (1..=60).rev() {
+                if remaining % 10 == 0 || remaining <= 5 {
+                    eprintln!("  …{remaining} s remaining (click ALLOW on the prompt)");
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+
+            eprintln!();
+            eprintln!("==> attempt 2: retry connect to {addr}");
+            match std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
+                Ok(s) => eprintln!(
+                    "✓ CONNECTED. Local Network grant is live for this codesign\n\
+                     identity. All future binaries signed with alva-eval-signing\n\
+                     (or whatever EVAL_SIGN_IDENTITY is set to) will inherit it.\n\
+                     local={:?} peer={:?}",
+                    s.local_addr().ok(),
+                    s.peer_addr().ok()
+                ),
+                Err(e) => eprintln!(
+                    "✗ STILL failing: {e} (raw_os_error={:?})\n\
+                     \n\
+                     Diagnose:\n\
+                       1. Did you actually click Allow on the prompt? (Sometimes\n\
+                          the prompt is hidden under other windows.)\n\
+                       2. Check System Settings → Privacy & Security → Local\n\
+                          Network — is there an entry for the binary / its\n\
+                          codesign identity, toggled ON?\n\
+                       3. If no entry appeared, the prompt may not have fired\n\
+                          at all (running over SSH, no GUI session). Re-run\n\
+                          inside iTerm/Terminal.app.",
+                    e.raw_os_error()
+                ),
+            }
+        }
     } else {
         eprintln!(
             "⚠ No discovery replies in 60 s. Either:\n\
@@ -214,8 +275,8 @@ fn main() {
     }
 }
 
-fn test_bsd_connect() -> std::io::Result<()> {
-    let target = std::env::var("EVAL_BASE_URL")
+fn bsd_connect_target() -> Option<std::net::SocketAddr> {
+    let raw = std::env::var("EVAL_BASE_URL")
         .ok()
         .as_deref()
         .and_then(|u| {
@@ -226,15 +287,5 @@ fn test_bsd_connect() -> std::io::Result<()> {
                 .map(|s| s.to_string())
         })
         .unwrap_or_else(|| "10.10.1.100:10443".into());
-    eprintln!("  trying: TcpStream::connect({target})…");
-    let addr: std::net::SocketAddr = target
-        .parse()
-        .map_err(|_| std::io::Error::other("could not parse EVAL_BASE_URL host:port"))?;
-    let s = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
-    eprintln!(
-        "  ✓ connected (local={:?}, peer={:?})",
-        s.local_addr().ok(),
-        s.peer_addr().ok()
-    );
-    Ok(())
+    raw.parse().ok()
 }
