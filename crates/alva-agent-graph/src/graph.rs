@@ -230,3 +230,196 @@ impl<S: Send + 'static> Default for StateGraph<S> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for StateGraph::compile() — the validation gate that
+    //! produces a CompiledGraph (or a ConfigError for any of 5
+    //! malformed-graph cases).
+    //!
+    //! Two contract families are pinned here:
+    //!
+    //! 1. **5 ConfigError paths** — each error message must include the
+    //!    offending name so users can diagnose without guesswork:
+    //!    - entry_point not set
+    //!    - entry_point references an unknown node
+    //!    - direct edge source unknown (and not START)
+    //!    - direct edge target unknown (and not END)
+    //!    - conditional edge source unknown (and not START)
+    //!
+    //! 2. **3 sentinel special-cases (silent contracts)** — `START` and
+    //!    `END` bypass the registration check. A refactor that typo'd
+    //!    the constant comparison (e.g., `!= "__start__"` instead of
+    //!    `!= START`) would silently break every START/END edge — no
+    //!    compile-time hint. Each sentinel-allow path gets its own pin.
+    use super::*;
+    use std::pin::Pin;
+
+    type State = i32;
+
+    /// Trivial async passthrough node used for shape-only tests.
+    fn passthrough() -> impl Fn(State) -> Pin<Box<dyn std::future::Future<Output = State> + Send>>
+           + Send + Sync + 'static {
+        |s: State| Box::pin(async move { s })
+    }
+
+    // -- new() + Default -------------------------------------------------
+
+    #[test]
+    fn new_initializes_empty_state() {
+        let g: StateGraph<State> = StateGraph::new();
+        assert!(g.nodes.is_empty());
+        assert!(g.edges.is_empty());
+        assert!(g.entry_point.is_none());
+        assert!(g.merge_fn.is_none());
+    }
+
+    #[test]
+    fn default_delegates_to_new_with_same_empty_state() {
+        // Pin: Default MUST call ::new() — if someone breaks the
+        // delegation (e.g. fills different defaults), graph behavior
+        // diverges between `let g = StateGraph::new()` and
+        // `let g: StateGraph<_> = Default::default()`.
+        let g: StateGraph<State> = StateGraph::default();
+        assert!(g.nodes.is_empty());
+        assert!(g.edges.is_empty());
+        assert!(g.entry_point.is_none());
+        assert!(g.merge_fn.is_none());
+    }
+
+    // -- 5 ConfigError paths --------------------------------------------
+
+    #[test]
+    fn compile_fails_when_entry_point_not_set() {
+        let g: StateGraph<State> = StateGraph::new();
+        let err = g.compile().expect_err("missing entry must error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Entry point not set"),
+            "diagnostic must say entry-point-not-set: {msg}"
+        );
+    }
+
+    #[test]
+    fn compile_fails_when_entry_point_node_unregistered_includes_name() {
+        // Diagnostic must include the offending name — a refactor that
+        // dropped `{}` from the format string would surface "does not
+        // exist as a node" garbage to users with no clue which name was wrong.
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.set_entry_point("ghost");
+        let err = g.compile().expect_err("missing entry-target must error");
+        let msg = err.to_string();
+        assert!(msg.contains("does not exist as a node"), "{msg}");
+        assert!(msg.contains("ghost"), "must name the missing entry: {msg}");
+    }
+
+    #[test]
+    fn compile_fails_when_direct_edge_source_unknown_includes_name() {
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("real", passthrough());
+        g.set_entry_point("real");
+        g.add_edge("phantom", "real"); // source unknown, not START
+        let err = g.compile().expect_err("unknown source must error");
+        let msg = err.to_string();
+        assert!(msg.contains("Edge source"), "{msg}");
+        assert!(msg.contains("phantom"), "must name the unknown source: {msg}");
+    }
+
+    #[test]
+    fn compile_fails_when_direct_edge_target_unknown_includes_name() {
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("real", passthrough());
+        g.set_entry_point("real");
+        g.add_edge("real", "missing"); // target unknown, not END
+        let err = g.compile().expect_err("unknown target must error");
+        let msg = err.to_string();
+        assert!(msg.contains("Edge target"), "{msg}");
+        assert!(msg.contains("missing"), "must name the unknown target: {msg}");
+    }
+
+    #[test]
+    fn compile_fails_when_conditional_edge_source_unknown_includes_name() {
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("real", passthrough());
+        g.set_entry_point("real");
+        g.add_conditional_edge("phantom_cond", |_| END.to_string());
+        let err = g.compile().expect_err("unknown conditional source must error");
+        let msg = err.to_string();
+        assert!(msg.contains("Conditional edge source"), "{msg}");
+        assert!(
+            msg.contains("phantom_cond"),
+            "must name the unknown conditional source: {msg}"
+        );
+    }
+
+    // -- 3 sentinel special-cases (silent contract pins) -----------------
+
+    #[test]
+    fn compile_allows_direct_edge_from_start_sentinel() {
+        // PIN: START is special — it MUST NOT be required to exist as
+        // a registered node. A refactor that typo'd `!= START` would
+        // silently break every "START → first_node" edge.
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("first", passthrough());
+        g.set_entry_point("first");
+        g.add_edge(START, "first");
+        let compiled = g.compile().expect("START source must be allowed");
+        assert_eq!(compiled.entry_point, "first");
+    }
+
+    #[test]
+    fn compile_allows_direct_edge_to_end_sentinel() {
+        // PIN: END is special — it MUST NOT be required to exist as
+        // a registered node. A refactor that typo'd `!= END` would
+        // silently break every "last_node → END" edge.
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("last", passthrough());
+        g.set_entry_point("last");
+        g.add_edge("last", END);
+        g.compile().expect("END target must be allowed");
+    }
+
+    #[test]
+    fn compile_allows_conditional_edge_from_start_sentinel() {
+        // PIN: START works as a conditional source too — distinct
+        // code path (Edge::Conditional vs Edge::Direct) so pinned
+        // separately. A refactor that fixed one and missed the other
+        // would silently break conditional routing from START.
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("first", passthrough());
+        g.set_entry_point("first");
+        g.add_conditional_edge(START, |_| "first".to_string());
+        g.compile().expect("START as conditional source must be allowed");
+    }
+
+    // -- Happy path ------------------------------------------------------
+
+    #[test]
+    fn compile_happy_path_returns_compiled_graph_preserving_entry_and_counts() {
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("a", passthrough());
+        g.add_node("b", passthrough());
+        g.set_entry_point("a");
+        g.add_edge("a", "b");
+        g.add_edge("b", END);
+        let compiled = g.compile().expect("valid graph must compile");
+        assert_eq!(compiled.entry_point, "a");
+        assert_eq!(compiled.nodes.len(), 2);
+        assert_eq!(compiled.edges.len(), 2);
+        assert!(compiled.merge_fn.is_none(), "no merge_fn set → none on output");
+    }
+
+    #[test]
+    fn compile_preserves_merge_fn_when_set() {
+        // Pin: set_merge → compile carries merge_fn through to the
+        // CompiledGraph. A refactor that forgot to forward it would
+        // silently break parallel-execution semantics (executor would
+        // fall back to last-update instead of using the merge).
+        let mut g: StateGraph<State> = StateGraph::new();
+        g.add_node("a", passthrough());
+        g.set_entry_point("a");
+        g.set_merge(|base, _updates: Vec<State>| base);
+        let compiled = g.compile().expect("merged graph must compile");
+        assert!(compiled.merge_fn.is_some(), "set_merge must round-trip through compile");
+    }
+}

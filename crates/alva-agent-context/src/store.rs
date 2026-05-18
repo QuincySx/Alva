@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use alva_kernel_abi::AgentMessage;
 
 use crate::types::*;
+use crate::util::truncate_for_display;
 
 /// Per-agent context container. Stores entries organized by layer.
 pub struct ContextStore {
@@ -115,7 +116,9 @@ impl ContextStore {
                     priority: e.metadata.priority,
                     estimated_tokens: e.metadata.estimated_tokens,
                     origin: e.metadata.origin.clone(),
-                    age_turns: self.turn_index.saturating_sub(0), // TODO: per-entry turn tracking
+                    age_turns: self
+                        .turn_index
+                        .saturating_sub(e.metadata.created_at_turn.unwrap_or(self.turn_index)),
                     last_referenced_turns: None,
                     preview: preview_message(&e.message, 100),
                 })
@@ -139,7 +142,13 @@ impl ContextStore {
     // Write
     // =====================================================================
 
-    pub fn append(&mut self, entry: ContextEntry) {
+    pub fn append(&mut self, mut entry: ContextEntry) {
+        // Stamp the current turn index so `snapshot` can compute a real
+        // per-entry `age_turns`. Skip if the caller already set it
+        // (tests / replays may inject explicit values).
+        if entry.metadata.created_at_turn.is_none() {
+            entry.metadata.created_at_turn = Some(self.turn_index);
+        }
         self.entries.push(entry);
     }
 
@@ -332,16 +341,17 @@ pub fn count_tokens_via(text: &str, counter: &dyn alva_kernel_abi::TokenCounter)
     counter.count_tokens(text)
 }
 
-/// Extract a preview of a message (first N chars).
+/// Extract a preview of a message (first N **bytes**, UTF-8 safe).
+///
+/// Note: parameter is named `max_chars` for historical reasons but is
+/// actually a byte limit. `truncate_for_display` backs off to the
+/// previous char boundary so multi-byte chars (emoji, CJK) at the
+/// cutoff don't panic.
 fn preview_message(msg: &AgentMessage, max_chars: usize) -> String {
     match msg {
         AgentMessage::Standard(m) => {
             let text = m.text_content();
-            if text.len() > max_chars {
-                format!("{}...", &text[..max_chars])
-            } else {
-                text
-            }
+            truncate_for_display(&text, max_chars, "...")
         }
         AgentMessage::Extension { type_name, .. } => {
             format!("[extension: {}]", type_name)
@@ -661,5 +671,78 @@ mod tests {
         // Last 3 are 500, 400, 300 (reversed iteration) → total = 1200, avg = 400
         assert_eq!(p.total_result_tokens, 1200);
         assert_eq!(p.avg_result_tokens, 400);
+    }
+
+    #[test]
+    fn preview_message_multibyte_safe_at_byte_boundary() {
+        // Regression for L74: `preview_message` used `&text[..max_chars]`
+        // which panics if byte `max_chars` lands inside a multi-byte
+        // UTF-8 char. `max_chars` is actually a byte limit despite its
+        // name, and message text routinely contains unicode.
+        //
+        // Construct: 98 ASCII + 1×4-byte emoji + 50 ASCII = 152 bytes.
+        // Use max_chars=100 (matches the actual caller at store.rs:120).
+        // Byte 100 falls inside the emoji (bytes 98..102).
+        let text = format!("{}{}{}", "a".repeat(98), "🦀", "b".repeat(50));
+        assert_eq!(text.len(), 152);
+        assert!(!text.is_char_boundary(100), "test premise: byte 100 mid-emoji");
+        let msg = AgentMessage::Standard(Message {
+            id: "test".to_string(),
+            role: MessageRole::User,
+            content: vec![ContentBlock::Text { text: text.clone() }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        });
+        // Must not panic.
+        let preview = preview_message(&msg, 100);
+        assert!(preview.ends_with("..."));
+        // Kept portion must end on a char boundary.
+        let kept = preview.strip_suffix("...").unwrap();
+        assert!(kept.is_char_boundary(kept.len()));
+        assert!(kept.len() <= 100);
+    }
+
+    #[test]
+    fn snapshot_age_turns_differs_per_entry_after_turn_advances() {
+        // Regression for L77: `age_turns` was `turn_index.saturating_sub(0)`
+        // — a no-op that made every entry report the same age (the
+        // current turn_index). The fix stamps `created_at_turn` on
+        // append and computes `turn_index - created_at_turn` per entry.
+        let mut store = test_store();
+
+        // Append entry A at turn 0
+        store.append(test_entry("A", ContextLayer::RuntimeInject, 50));
+
+        // Advance two turns, then append entry B
+        store.increment_turn();
+        store.increment_turn();
+        store.append(test_entry("B", ContextLayer::RuntimeInject, 50));
+
+        // Advance one more turn, then snapshot
+        store.increment_turn();
+        let snap = store.snapshot();
+
+        // turn_index is now 3.
+        // A was stamped at turn 0 → age = 3 - 0 = 3
+        // B was stamped at turn 2 → age = 3 - 2 = 1
+        let a = snap.entries.iter().find(|e| e.id == "A").expect("entry A in snapshot");
+        let b = snap.entries.iter().find(|e| e.id == "B").expect("entry B in snapshot");
+        assert_eq!(a.age_turns, 3, "A appended at turn 0 should age 3 turns");
+        assert_eq!(b.age_turns, 1, "B appended at turn 2 should age 1 turn");
+        assert_ne!(
+            a.age_turns, b.age_turns,
+            "different append times must yield different ages — guards against the no-op regression",
+        );
+    }
+
+    #[test]
+    fn snapshot_age_turns_zero_for_freshly_appended_entry() {
+        // Edge case: an entry appended right before snapshot (no
+        // turn advance in between) should age 0.
+        let mut store = test_store();
+        store.append(test_entry("fresh", ContextLayer::RuntimeInject, 10));
+        let snap = store.snapshot();
+        assert_eq!(snap.entries[0].age_turns, 0);
     }
 }

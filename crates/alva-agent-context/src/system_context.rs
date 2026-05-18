@@ -13,6 +13,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::util::truncate_for_display;
+
 /// Collect system-level context for the given workspace.
 ///
 /// Currently gathers:
@@ -81,11 +83,7 @@ async fn get_git_status(workspace: &Path) -> Option<String> {
         .await
         .ok()?;
     let status_text = String::from_utf8_lossy(&status.stdout);
-    let status_text = if status_text.len() > 2000 {
-        format!("{}...(truncated)", &status_text[..2000])
-    } else {
-        status_text.to_string()
-    };
+    let status_text = truncate_for_display(&status_text, 2000, "...(truncated)");
 
     // 3. Recent commits (last 5)
     let log = tokio::process::Command::new("git")
@@ -173,6 +171,10 @@ async fn load_context_files(workspace: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The CJK-path git-status regression for `truncate_for_display` lives
+    // in `crate::util::tests`; this module retains only context-collection
+    // integration tests.
 
     #[tokio::test]
     async fn get_user_context_includes_date() {

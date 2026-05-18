@@ -11,6 +11,7 @@ use alva_kernel_abi::AgentMessage;
 use crate::sdk::ContextHandle;
 use crate::store::{ContextStore, estimate_tokens};
 use crate::types::*;
+use crate::util::truncate_for_display;
 
 /// Optional memory backend — allows the context handle to delegate
 /// memory operations without depending on `alva-agent-memory` directly.
@@ -94,12 +95,7 @@ impl ContextHandleImpl {
             match msg {
                 AgentMessage::Standard(m) => {
                     let content = m.text_content();
-                    if content.len() > 200 {
-                        text.push_str(&content[..200]);
-                        text.push_str("...");
-                    } else {
-                        text.push_str(&content);
-                    }
+                    text.push_str(&truncate_for_display(&content, 200, "..."));
                     text.push('\n');
                 }
                 AgentMessage::Extension { type_name, .. } => {
@@ -390,10 +386,11 @@ impl ContextHandle for ContextHandleImpl {
         let text = Self::messages_to_text(&messages);
 
         if !hints.is_empty() {
+            let truncated = truncate_for_display(&text, 4000, "");
             format!(
                 "[Summary of {} messages]\n{}\nHints: {}",
                 messages.len(),
-                if text.len() > 4000 { &text[..4000] } else { &text },
+                truncated,
                 hints.join(", ")
             )
         } else {

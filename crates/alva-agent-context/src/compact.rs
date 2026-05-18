@@ -13,6 +13,7 @@
 use alva_kernel_abi::{AgentMessage, ContentBlock, Message, MessageRole};
 
 use crate::store::estimate_tokens;
+use crate::util::truncate_for_display;
 
 /// Result of a compaction operation.
 #[derive(Debug, Clone)]
@@ -120,11 +121,7 @@ pub fn compact_messages(
     if !preserved_thinking.is_empty() {
         summary_content.push_str("\n\nPreserved reasoning:\n");
         for thought in &preserved_thinking {
-            let truncated = if thought.len() > 500 {
-                format!("{}...", &thought[..500])
-            } else {
-                thought.clone()
-            };
+            let truncated = truncate_for_display(thought, 500, "...");
             summary_content.push_str(&format!("- {}\n", truncated));
         }
     }
@@ -511,5 +508,46 @@ mod tests {
             let content = m.text_content();
             assert!(content.is_char_boundary(content.len()));
         }
+    }
+
+    #[test]
+    fn compact_messages_preserved_thinking_multibyte_safe_at_500_bytes() {
+        // Regression for the bug just fixed: the preserved_thinking
+        // truncation used `&thought[..500]`, which panics if byte 500
+        // lands inside a multi-byte UTF-8 char (4-byte emoji, 3-byte
+        // CJK). Reasoning content from a model can easily contain
+        // unicode beyond 500 bytes — e.g., a Chinese-language reasoning
+        // trace, or English with emoji.
+        //
+        // Construct: 498 ASCII + 1 4-byte emoji + 100 ASCII = 602 bytes.
+        // Byte 500 falls inside the emoji (bytes 498..502). The old
+        // code would panic with "byte index 500 is not a char boundary".
+        let reasoning = format!("{}{}{}", "x".repeat(498), "🦀", "y".repeat(100));
+        assert_eq!(reasoning.len(), 602);
+        assert!(!reasoning.is_char_boundary(500), "test premise: byte 500 mid-emoji");
+
+        let msgs = vec![assistant_msg_with_reasoning("answer", &reasoning)];
+        let config = CompactionConfig {
+            preserve_recent: 0, // all messages are "old" → reasoning extracted
+            preserve_thinking: true,
+            ..Default::default()
+        };
+        // Must not panic.
+        let result = compact_messages(&msgs, &config, "summary");
+
+        // The synthesized summary message (messages[0]) carries the
+        // preserved-reasoning content; the `summary` field is just
+        // the passed-in summary_text argument.
+        let summary_msg_text = match &result.messages[0] {
+            AgentMessage::Standard(m) => m.text_content(),
+            _ => panic!("expected Standard summary message"),
+        };
+        assert!(
+            summary_msg_text.contains("Preserved reasoning:"),
+            "synthesized summary message should contain reasoning header"
+        );
+        // Truncated thought present + ends with "..." marker.
+        assert!(summary_msg_text.contains("- xxxxx"));
+        assert!(summary_msg_text.contains("...\n"));
     }
 }

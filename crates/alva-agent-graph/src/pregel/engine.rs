@@ -197,3 +197,174 @@ impl<S: Send + 'static> CompiledGraph<S> {
         Ok(targets)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `CompiledGraph::resolve_next_nodes` — the pure-sync
+    //! edge-routing slice shared by the invoke loop and execute_sends.
+    //!
+    //! Three load-bearing contracts:
+    //!
+    //! 1. **END fallback when no edges match** — a node with no
+    //!    outgoing edges is a leaf; resolve must return `vec![END]`
+    //!    (NOT panic, NOT Err). A refactor that changed this fallback
+    //!    would crash every otherwise-valid terminal node.
+    //!
+    //! 2. **Router receives `&state`, not a clone or `&from`** — the
+    //!    Conditional router closure is user-defined and routinely
+    //!    inspects state fields to decide the next branch. A typo
+    //!    that called `router(&current)` instead of `router(state)`
+    //!    would silently route every conditional edge identically.
+    //!
+    //! 3. **All matching edges accumulate, including mixed types** —
+    //!    fan-out via multiple Direct edges + Conditional edges from
+    //!    the same node is the static-routing fan-out primitive.
+    use super::*;
+    use crate::graph::Edge;
+    use crate::pregel::CompiledGraph;
+    use std::collections::HashMap;
+
+    type State = i32;
+
+    fn empty_graph() -> CompiledGraph<State> {
+        CompiledGraph {
+            nodes: HashMap::new(),
+            edges: Vec::new(),
+            entry_point: "n".to_string(),
+            merge_fn: None,
+        }
+    }
+
+    // -- END fallback ----------------------------------------------------
+
+    #[test]
+    fn no_matching_edges_returns_end_fallback() {
+        // Leaf node contract: no outgoing edges → vec![END]. A change
+        // to panic / Err / empty vec would crash every terminal node.
+        let g = empty_graph();
+        let next = g.resolve_next_nodes("leaf", &0).expect("must not error");
+        assert_eq!(next, vec![END.to_string()]);
+    }
+
+    #[test]
+    fn edges_for_other_nodes_do_not_match_returns_end_fallback() {
+        // Pin: edges matching OTHER `from` values are ignored — they
+        // don't accidentally route us. Verifies the `if from == current`
+        // guard, not just edges.is_empty().
+        let mut g = empty_graph();
+        g.edges.push(Edge::Direct { from: "other".into(), to: "x".into() });
+        g.edges.push(Edge::Direct { from: "another".into(), to: "y".into() });
+        let next = g.resolve_next_nodes("me", &0).unwrap();
+        assert_eq!(next, vec![END.to_string()], "no edge matches `me` → END fallback");
+    }
+
+    // -- Direct edges ----------------------------------------------------
+
+    #[test]
+    fn single_direct_edge_returns_target() {
+        let mut g = empty_graph();
+        g.edges.push(Edge::Direct { from: "a".into(), to: "b".into() });
+        let next = g.resolve_next_nodes("a", &0).unwrap();
+        assert_eq!(next, vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn multiple_direct_edges_from_same_source_collected_in_order() {
+        // Pin: fan-out via several Direct edges from one source →
+        // all targets collected in declaration order. resolve_next_nodes
+        // itself does NOT sort/dedup (that's the caller's job, see
+        // pregel/parallel.rs); a refactor that started sorting here
+        // would silently change scheduling order in the single-send
+        // fast path.
+        let mut g = empty_graph();
+        g.edges.push(Edge::Direct { from: "src".into(), to: "z".into() });
+        g.edges.push(Edge::Direct { from: "src".into(), to: "a".into() });
+        g.edges.push(Edge::Direct { from: "src".into(), to: "m".into() });
+        let next = g.resolve_next_nodes("src", &0).unwrap();
+        assert_eq!(
+            next,
+            vec!["z".to_string(), "a".to_string(), "m".to_string()],
+            "must preserve declaration order (no sort/dedup at this layer)"
+        );
+    }
+
+    #[test]
+    fn end_as_direct_target_passes_through_verbatim() {
+        // END is a sentinel literal, NOT special-cased in this layer —
+        // it's just a string the layer above (invoke loop) recognises.
+        // Pin: resolve_next_nodes treats it as any other target.
+        let mut g = empty_graph();
+        g.edges.push(Edge::Direct { from: "n".into(), to: END.into() });
+        let next = g.resolve_next_nodes("n", &0).unwrap();
+        assert_eq!(next, vec![END.to_string()]);
+    }
+
+    // -- Conditional edges -----------------------------------------------
+
+    #[test]
+    fn conditional_edge_router_is_called_with_state_reference() {
+        // CRITICAL PIN: router receives the *state*, not the `current`
+        // name or a clone. A refactor that passed e.g. `router(&current)`
+        // would silently make every conditional edge route to the
+        // same target regardless of state.
+        let mut g = empty_graph();
+        g.edges.push(Edge::Conditional {
+            from: "n".into(),
+            router: Box::new(|s: &State| format!("branch-{s}")),
+        });
+        let next = g.resolve_next_nodes("n", &42).unwrap();
+        assert_eq!(next, vec!["branch-42".to_string()]);
+    }
+
+    #[test]
+    fn mixed_direct_and_conditional_edges_all_collected() {
+        // Pin: both Edge variants accumulate from the same source,
+        // in declaration order. Useful for "default + override" routing
+        // patterns.
+        let mut g = empty_graph();
+        g.edges.push(Edge::Direct { from: "n".into(), to: "static_first".into() });
+        g.edges.push(Edge::Conditional {
+            from: "n".into(),
+            router: Box::new(|_| "dynamic_second".into()),
+        });
+        g.edges.push(Edge::Direct { from: "n".into(), to: "static_third".into() });
+        let next = g.resolve_next_nodes("n", &0).unwrap();
+        assert_eq!(
+            next,
+            vec![
+                "static_first".to_string(),
+                "dynamic_second".to_string(),
+                "static_third".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn unrelated_conditional_edges_do_not_invoke_router() {
+        // Pin: if a Conditional edge's `from` doesn't match, its
+        // router MUST NOT be called. A regression that swapped the
+        // `if from == current` guard for unconditional invocation
+        // could trigger user-side side effects in routers.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let called = Arc::new(AtomicBool::new(false));
+        let called_inner = Arc::clone(&called);
+
+        let mut g = empty_graph();
+        g.edges.push(Edge::Conditional {
+            from: "other".into(),
+            router: Box::new(move |_| {
+                called_inner.store(true, Ordering::SeqCst);
+                "nope".to_string()
+            }),
+        });
+
+        let next = g.resolve_next_nodes("me", &0).unwrap();
+        assert_eq!(next, vec![END.to_string()]);
+        assert!(
+            !called.load(Ordering::SeqCst),
+            "router for unrelated `from` MUST NOT be invoked"
+        );
+    }
+}

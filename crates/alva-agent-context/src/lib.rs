@@ -43,6 +43,9 @@ pub mod system_context;
 pub mod middleware;
 pub mod scope;
 
+/// Small UTF-8-safe display utilities shared across modules.
+pub(crate) mod util;
+
 pub use middleware::CompactionMiddleware;
 
 pub use plugin::{ContextError, ContextHooks};
