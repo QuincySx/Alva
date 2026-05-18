@@ -451,6 +451,166 @@ async fn run_attempt(case: &EvalCase) -> AttemptOutcome {
 // Driver
 // ---------------------------------------------------------------------------
 
+/// Local Network Privacy warmup: macOS 15 (Sequoia) gates outbound TCP
+/// to RFC1918 (10.x / 192.168.x / 172.16-31.x) on a per-binary-identity
+/// basis. The first connect from a new identity fails fast with
+/// EHOSTUNREACH while the system queues a GUI prompt. This test stays
+/// alive long enough for that prompt to surface and for the user to
+/// click Allow, retrying every few seconds. Once granted, all later
+/// runs of binaries signed with the same identity inherit the decision.
+///
+/// Run this once after first build, in a GUI terminal (iTerm /
+/// Terminal.app), and click Allow when macOS prompts:
+///
+/// ```bash
+/// ./scripts/run-eval.sh --warmup-only
+/// ```
+#[tokio::test]
+#[ignore]
+async fn eval_warmup() {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let url = eval_base_url();
+    let host_port = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split('/')
+        .next()
+        .unwrap_or("");
+    let addr = match host_port.to_socket_addrs().ok().and_then(|mut i| i.next()) {
+        Some(a) => a,
+        None => {
+            eprintln!("[warmup] could not resolve {host_port}");
+            return;
+        }
+    };
+
+    eprintln!("\n[warmup] target = {addr}");
+    eprintln!("[warmup] ⚠️  If a macOS prompt appears asking to allow Local Network");
+    eprintln!("[warmup]     access — CLICK ALLOW. The test will keep retrying for");
+    eprintln!("[warmup]     up to ~60 seconds to give you time.");
+    eprintln!();
+
+    let max_attempts = 12;
+    let between = Duration::from_secs(5);
+    for attempt in 1..=max_attempts {
+        eprint!("[warmup] attempt {attempt}/{max_attempts} → ");
+        match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
+            Ok(s) => {
+                eprintln!(
+                    "✓ CONNECTED — Local Network access granted (local={:?}).",
+                    s.local_addr().ok()
+                );
+                eprintln!(
+                    "[warmup] You can now run the full eval. The grant is per\n\
+                     [warmup] codesign identity, so it persists across rebuilds\n\
+                     [warmup] that re-sign with the same identity."
+                );
+                return;
+            }
+            Err(e) => {
+                eprintln!(
+                    "✗ {e} (raw_os_error={:?}) — sleeping {}s",
+                    e.raw_os_error(),
+                    between.as_secs()
+                );
+            }
+        }
+        tokio::time::sleep(between).await;
+    }
+    eprintln!(
+        "[warmup] ✗ never connected within {} attempts.\n\
+         [warmup] Possible reasons:\n\
+         [warmup]   - You're running over SSH / headless: no GUI prompt can appear.\n\
+         [warmup]     Re-run inside a GUI terminal (iTerm / Terminal.app).\n\
+         [warmup]   - Prompt fired but was dismissed. Check System Settings →\n\
+         [warmup]     Privacy & Security → Local Network and verify the entry\n\
+         [warmup]     for this binary's terminal (or for cargo / alva-eval-signing)\n\
+         [warmup]     is toggled ON.\n\
+         [warmup]   - Binary not signed with stable identity. Re-run via\n\
+         [warmup]     scripts/run-eval.sh which signs with alva-eval-signing.",
+        max_attempts
+    );
+}
+
+/// Minimal `std::net::TcpStream::connect` probe — bypasses all of
+/// reqwest/hyper/tokio. Confirms whether the issue is at the Rust
+/// process-level networking syscall or higher in the stack.
+#[tokio::test]
+#[ignore]
+async fn eval_raw_tcp_probe() {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let url = eval_base_url();
+    let host_port = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split('/')
+        .next()
+        .unwrap_or("");
+    eprintln!("\n[raw_tcp_probe] target = {host_port}");
+
+    let addrs: Vec<_> = host_port.to_socket_addrs().map(|i| i.collect()).unwrap_or_default();
+    eprintln!("[raw_tcp_probe] getaddrinfo returned {} addrs: {:?}", addrs.len(), addrs);
+
+    for (i, addr) in addrs.iter().enumerate() {
+        eprintln!("\n[raw_tcp_probe] attempt #{} → {addr}", i + 1);
+        match TcpStream::connect_timeout(addr, Duration::from_secs(5)) {
+            Ok(s) => {
+                eprintln!("[raw_tcp_probe]   ✓ connected, local addr = {:?}, peer = {:?}",
+                    s.local_addr().ok(), s.peer_addr().ok());
+            }
+            Err(e) => {
+                eprintln!("[raw_tcp_probe]   ✗ failed: {e} (raw_os_error = {:?})", e.raw_os_error());
+            }
+        }
+    }
+
+    // For comparison: also try the blocking `connect` (no timeout) which
+    // takes a different code path through std::net.
+    eprintln!("\n[raw_tcp_probe] now trying TcpStream::connect (no timeout)…");
+    match TcpStream::connect(host_port) {
+        Ok(s) => eprintln!("[raw_tcp_probe]   ✓ connected peer={:?}", s.peer_addr().ok()),
+        Err(e) => eprintln!("[raw_tcp_probe]   ✗ {e} (raw_os_error = {:?})", e.raw_os_error()),
+    }
+}
+
+/// Standalone probe that fires a real reqwest GET to the configured
+/// endpoint and unwinds the full error chain. Used to diagnose
+/// "HTTP request failed" without going through the full agent stack.
+#[tokio::test]
+#[ignore]
+async fn eval_reqwest_probe() {
+    let url = format!("{}/models", eval_base_url());
+    eprintln!("\n[reqwest_probe] GET {url}");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("client");
+    let r = client
+        .get(&url)
+        .bearer_auth(eval_api_key())
+        .send()
+        .await;
+    match r {
+        Ok(resp) => {
+            eprintln!("[reqwest_probe] STATUS = {}", resp.status());
+            let body = resp.text().await.unwrap_or_default();
+            eprintln!("[reqwest_probe] body (first 300): {}", &body[..body.len().min(300)]);
+        }
+        Err(e) => {
+            use std::error::Error as _;
+            eprintln!("[reqwest_probe] ERROR top: {e}");
+            eprintln!("[reqwest_probe] Debug:     {e:?}");
+            let mut src: Option<&dyn std::error::Error> = e.source();
+            let mut depth = 1;
+            while let Some(s) = src {
+                eprintln!("[reqwest_probe]   caused by ({depth}): {s}");
+                src = s.source();
+                depth += 1;
+            }
+        }
+    }
+}
+
 #[tokio::test]
 #[ignore]
 async fn eval_agent_tools_main() {
