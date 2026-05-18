@@ -142,3 +142,117 @@ fn is_fatal_stderr(line: &str) -> bool {
     ];
     patterns.iter().any(|p| lower.contains(p))
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for `is_fatal_stderr` + `BridgeProcess::spawn` error-path
+    //! diagnostic format.
+    //!
+    //! `is_fatal_stderr` decides which stderr lines from the Node.js
+    //! bridge go to `warn!` (user-visible) vs `debug!` (silently
+    //! filtered). The 11-pattern list is silent state — a typo like
+    //! "rate_limt" would let real rate-limit errors silently downgrade
+    //! to debug and the user sees a black-box hang with no alert.
+    //!
+    //! `BridgeProcess::spawn` ProcessError messages MUST include the
+    //! attempted `node_path` so users can diagnose "node not found"
+    //! type errors without re-running with strace.
+    use super::*;
+
+    // -- is_fatal_stderr: 11 patterns (table-driven) --------------------
+
+    #[test]
+    fn is_fatal_stderr_detects_each_pattern_in_realistic_stderr_lines() {
+        // Each row exercises one of the 11 patterns embedded in a
+        // realistic stderr line (substring match, not exact). Both
+        // underscore and space forms covered for the dual-emit
+        // patterns (Anthropic SDK emits both depending on layer).
+        // ECONNREFUSED row also exercises case-insensitivity.
+        let positive_cases = [
+            ("authentication_error", "authentication_error: invalid key"),
+            ("authentication error", "Got: authentication error from server"),
+            ("invalid_api_key", "invalid_api_key"),
+            ("invalid api key", "Got an invalid API key for request"),
+            ("unauthorized", "401 Unauthorized"),
+            ("rate_limit", "rate_limit exceeded"),
+            ("rate limit", "hit a rate limit at provider"),
+            ("quota_exceeded", "quota_exceeded for org-id"),
+            ("billing", "Your billing account is suspended"),
+            ("overloaded", "overloaded — please retry"),
+            ("connection_refused", "connection_refused on socket"),
+            ("econnrefused", "Error: ECONNREFUSED 127.0.0.1:443"),
+        ];
+        for (pattern, line) in positive_cases {
+            assert!(
+                is_fatal_stderr(line),
+                "pattern {pattern:?} must classify {line:?} as fatal"
+            );
+        }
+    }
+
+    // -- is_fatal_stderr: behavior pins (separate contracts) ------------
+
+    #[test]
+    fn is_fatal_stderr_is_case_insensitive() {
+        // Pin: the function lowercases the input first. A refactor
+        // that dropped the .to_lowercase() would silently let
+        // "AUTHENTICATION_ERROR" (e.g. screaming-snake from a JS
+        // throw) bypass the filter.
+        assert!(is_fatal_stderr("AUTHENTICATION_ERROR"));
+        assert!(is_fatal_stderr("Authentication_Error"));
+        assert!(is_fatal_stderr("UNAUTHORIZED"));
+    }
+
+    #[test]
+    fn is_fatal_stderr_uses_substring_contains_not_exact_match() {
+        // Pin: patterns are matched via `.contains()`, so the pattern
+        // can appear anywhere in the line (typical for "Error: <json
+        // blob with rate_limit field>"). A refactor to `.starts_with`
+        // or `==` would silently drop most real-world errors.
+        assert!(is_fatal_stderr("prefix middle rate_limit suffix"));
+    }
+
+    #[test]
+    fn is_fatal_stderr_returns_false_for_unrelated_lines() {
+        // Negative pin: regular debug/info lines must NOT be promoted
+        // to warn. This is the noise floor — failure means spam.
+        assert!(!is_fatal_stderr(""));
+        assert!(!is_fatal_stderr("[bridge] connected successfully"));
+        assert!(!is_fatal_stderr("Stream chunk received: 42 bytes"));
+        assert!(!is_fatal_stderr("Tool execution completed"));
+    }
+
+    // -- BridgeProcess::spawn error-diagnostic pin -----------------------
+
+    #[tokio::test]
+    async fn spawn_with_nonexistent_node_path_returns_process_error_naming_path() {
+        // Pin: ProcessError diagnostic MUST include the attempted
+        // `node_path` AND the OS error text so users can diagnose
+        // (e.g.) "node not installed" without re-running with strace.
+        //
+        // Use a path that definitely doesn't exist as a binary.
+        let cfg = BridgeSpawnConfig {
+            node_path: "/nonexistent/bin/this-node-does-not-exist-xyz123".into(),
+            script_path: "/tmp/never-read.js".into(),
+            config_json: "{}".into(),
+            env: vec![],
+        };
+        let result = BridgeProcess::spawn(cfg).await;
+        match result {
+            Err(RuntimeError::ProcessError(msg)) => {
+                assert!(
+                    msg.contains("Failed to spawn Node.js bridge"),
+                    "diagnostic prefix missing: {msg}"
+                );
+                assert!(
+                    msg.contains("/nonexistent/bin/this-node-does-not-exist-xyz123"),
+                    "node_path must appear in diagnostic for debuggability: {msg}"
+                );
+            }
+            Err(other) => panic!("expected ProcessError, got {other:?}"),
+            // BridgeProcess has no Debug impl, so Ok variant can't
+            // print its inner — bare message is fine.
+            Ok(_) => panic!("expected spawn to fail on nonexistent node path"),
+        }
+    }
+}

@@ -373,4 +373,169 @@ mod tests {
         assert!(matches!(&events[0], RuntimeEvent::Error { .. }));
         assert!(matches!(&events[1], RuntimeEvent::Completed { .. }));
     }
+
+    // -- Loop 150 gap-fill: parse_stream_delta SSE wire + edge SdkMessage
+    //    branches that were 0-test until now --------------------------
+
+    // -- parse_stream_delta: 5 wire-shape pins --------------------------
+
+    #[test]
+    fn parse_stream_delta_text_delta_yields_text_delta_event() {
+        // CRITICAL: Anthropic SSE `content_block_delta` with
+        // `delta.type == "text_delta"` → StreamEvent::TextDelta.
+        // A silent rename of either string would drop EVERY streamed
+        // text chunk from the SSE pipeline; the UI would stay blank
+        // through the entire response until the final Completed event.
+        let event = serde_json::json!({
+            "type": "content_block_delta",
+            "delta": {"type": "text_delta", "text": "hello world"}
+        });
+        match parse_stream_delta(&event) {
+            Some(StreamEvent::TextDelta { text }) => assert_eq!(text, "hello world"),
+            other => panic!("expected TextDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_stream_delta_thinking_delta_yields_reasoning_delta() {
+        // Extended-thinking SSE: `thinking_delta` carries a `thinking`
+        // field (NOT `text`). A silent change to read `text` here would
+        // make every extended-thinking stream surface as empty
+        // ReasoningDelta — Claude's reasoning UI panel would stay blank.
+        let event = serde_json::json!({
+            "type": "content_block_delta",
+            "delta": {"type": "thinking_delta", "thinking": "let me think"}
+        });
+        match parse_stream_delta(&event) {
+            Some(StreamEvent::ReasoningDelta { text }) => assert_eq!(text, "let me think"),
+            other => panic!("expected ReasoningDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_stream_delta_input_json_delta_uses_event_index_as_tool_id() {
+        // SILENT CONTRACT: tool-args streaming arrives as
+        // `input_json_delta` chunks; the chunk doesn't carry the tool
+        // ID directly. Mapping uses the outer `event.index` field
+        // (set by `content_block_start` upstream) stringified as the
+        // RuntimeEvent::ToolCallDelta.id. A refactor that read
+        // delta.id or skipped the index lookup would route every
+        // streamed arg fragment to id="" and the UI would merge them
+        // all into one bogus tool call.
+        let event = serde_json::json!({
+            "type": "content_block_delta",
+            "index": 3,
+            "delta": {"type": "input_json_delta", "partial_json": "{\"k\":"}
+        });
+        match parse_stream_delta(&event) {
+            Some(StreamEvent::ToolCallDelta {
+                id,
+                name,
+                arguments_delta,
+            }) => {
+                assert_eq!(id, "3", "index 3 → id \"3\"");
+                assert!(name.is_none(), "name is unknown at delta time");
+                assert_eq!(arguments_delta, "{\"k\":");
+            }
+            other => panic!("expected ToolCallDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_stream_delta_input_json_delta_defaults_index_to_zero_when_missing() {
+        // Pin: when the event omits `index` entirely (defensive
+        // upstream), the code path defaults to "0" via
+        // `.unwrap_or(0).to_string()`. A change here could panic or
+        // produce silent "".
+        let event = serde_json::json!({
+            "type": "content_block_delta",
+            "delta": {"type": "input_json_delta", "partial_json": "x"}
+        });
+        match parse_stream_delta(&event) {
+            Some(StreamEvent::ToolCallDelta { id, .. }) => assert_eq!(id, "0"),
+            other => panic!("expected ToolCallDelta with id=\"0\", got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_stream_delta_unknown_event_type_returns_none_for_forward_compat() {
+        // Forward-compat pin: SSE specs evolve; unknown top-level
+        // event types (e.g. "message_delta", "content_block_start",
+        // future "audio_delta") MUST return None rather than panic.
+        let event = serde_json::json!({
+            "type": "some_future_event",
+            "delta": {"type": "text_delta", "text": "x"}
+        });
+        assert!(parse_stream_delta(&event).is_none());
+    }
+
+    #[test]
+    fn parse_stream_delta_unknown_delta_type_returns_none_for_forward_compat() {
+        // Forward-compat pin: within content_block_delta, unknown
+        // delta types (future "audio_chunk", "image_delta") MUST
+        // return None.
+        let event = serde_json::json!({
+            "type": "content_block_delta",
+            "delta": {"type": "future_delta_type", "text": "x"}
+        });
+        assert!(parse_stream_delta(&event).is_none());
+    }
+
+    // -- Edge SdkMessage / BridgeMessage branches -----------------------
+
+    #[test]
+    fn map_bridge_done_returns_empty_vec_no_runtime_events_emitted() {
+        // SILENT CONTRACT: BridgeMessage::Done is a transport-layer
+        // signal (SDK finished writing) that MUST NOT produce a
+        // RuntimeEvent. The Completed event already fires from the
+        // preceding Result message. A refactor that emitted a
+        // duplicate Completed here would double-fire and break
+        // downstream consumers that count completion exactly once.
+        let mut mapper = EventMapper::new();
+        let events = mapper.map(BridgeMessage::Done);
+        assert!(events.is_empty(), "Done must emit zero events, got {events:?}");
+    }
+
+    #[test]
+    fn map_bridge_permission_request_emits_permission_event_with_description_none() {
+        // Pin: PermissionRequest payload propagates request_id /
+        // tool_name / tool_input verbatim; description defaults to None.
+        // A refactor that auto-populated description (e.g. from
+        // tool_name) would silently change UI prompt text.
+        let mut mapper = EventMapper::new();
+        let events = mapper.map(BridgeMessage::PermissionRequest {
+            request_id: "req-1".into(),
+            tool_name: "Bash".into(),
+            tool_input: serde_json::json!({"cmd": "ls"}),
+        });
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RuntimeEvent::PermissionRequest {
+                request_id,
+                tool_name,
+                tool_input,
+                description,
+            } => {
+                assert_eq!(request_id, "req-1");
+                assert_eq!(tool_name, "Bash");
+                assert_eq!(*tool_input, serde_json::json!({"cmd": "ls"}));
+                assert!(description.is_none(), "description must default to None");
+            }
+            other => panic!("expected PermissionRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_sdk_message_unknown_silently_returns_empty_vec_for_forward_compat() {
+        // CRITICAL forward-compat: when the Claude SDK introduces a
+        // new SdkMessage variant the host hasn't learned about yet,
+        // the catch-all `SdkMessage::Unknown` returns vec![]. A
+        // refactor to panic / Err would make a single new SDK message
+        // type crash every host that hadn't been upgraded.
+        let mut mapper = EventMapper::new();
+        let events = mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::Unknown,
+        });
+        assert!(events.is_empty(), "Unknown SdkMessage must emit zero events for forward-compat");
+    }
 }

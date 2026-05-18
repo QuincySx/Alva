@@ -170,3 +170,237 @@ pub(crate) struct BridgeConfig {
     pub sdk_executable_path: Option<String>,
     pub env: HashMap<String, String>,
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for ClaudeAdapterConfig + PermissionMode + BridgeConfig.
+    //!
+    //! Two load-bearing contract families:
+    //!
+    //! 1. **PermissionMode wire-string consistency + spec values** —
+    //!    there are TWO parallel code paths that produce SDK wire
+    //!    values:
+    //!    - `as_sdk_str()` (explicit match arms)
+    //!    - serde `#[serde(rename_all = "camelCase")]` (derived)
+    //!
+    //!    Both reach the same Claude Agent SDK on the wire. The
+    //!    parametric test below pins THREE things in one pass per
+    //!    variant: (a) `as_sdk_str()` returns the SDK-spec literal
+    //!    (e.g. `acceptEdits` NOT snake_case `accept_edits` nor
+    //!    PascalCase `AcceptEdits`); (b) serde emits the same literal;
+    //!    (c) both paths agree (so a refactor adding a new variant
+    //!    that updates only one path is caught). CRITICAL: the
+    //!    camelCase casing is mandated by the SDK protocol — a
+    //!    regression to snake_case would make Claude reject the
+    //!    option and silently fall back to default permission mode.
+    //!
+    //! 2. **BridgeConfig `skip_serializing_if` behaviors** — the
+    //!    bridge protocol sends fields as JSON args; absent fields
+    //!    are interpreted as "let SDK use its default". A refactor
+    //!    that dropped a `skip_serializing_if` attr would start
+    //!    sending `"field": null` and break SDK consumers that
+    //!    distinguish "unset" from "explicitly null".
+    use super::*;
+
+    // -- PermissionMode wire pins (literal value + serde/as_sdk_str
+    //    consistency) ---------------------------------------------------
+
+    #[test]
+    fn permission_mode_each_variant_emits_spec_camel_case_on_both_wire_paths() {
+        // Pins three things per variant in one pass:
+        //   (a) as_sdk_str() returns the SDK-spec literal
+        //   (b) serde camelCase emits the same literal
+        //   (c) both paths agree (catches refactors that update only
+        //       one path when adding a new variant)
+        //
+        // Spec literals: Default→"default", AcceptEdits→"acceptEdits",
+        // BypassPermissions→"bypassPermissions", Plan→"plan",
+        // DontAsk→"dontAsk". A regression to snake_case (e.g.
+        // "accept_edits") or PascalCase would make Claude silently
+        // reject the option and fall back to default permission mode.
+        let cases = [
+            (PermissionMode::Default, "default"),
+            (PermissionMode::AcceptEdits, "acceptEdits"),
+            (PermissionMode::BypassPermissions, "bypassPermissions"),
+            (PermissionMode::Plan, "plan"),
+            (PermissionMode::DontAsk, "dontAsk"),
+        ];
+        for (variant, expected_wire) in cases {
+            assert_eq!(
+                variant.as_sdk_str(),
+                expected_wire,
+                "as_sdk_str spec value mismatch for {variant:?}"
+            );
+            let serde_token = serde_json::to_value(&variant).unwrap();
+            let serde_str = serde_token
+                .as_str()
+                .expect("PermissionMode serialises as string");
+            assert_eq!(
+                serde_str, expected_wire,
+                "serde emit mismatch for {variant:?}: got {serde_str:?}"
+            );
+        }
+    }
+
+    // -- PermissionMode Default impl pin --------------------------------
+
+    #[test]
+    fn permission_mode_default_impl_yields_default_variant() {
+        // Pin: #[default] is on `Default`. A refactor that moved the
+        // attribute to e.g. `AcceptEdits` would silently grant edit
+        // permission to every Claude session that didn't opt out.
+        let m: PermissionMode = Default::default();
+        assert!(matches!(m, PermissionMode::Default));
+    }
+
+    // -- ClaudeAdapterConfig::default smoke ------------------------------
+
+    #[test]
+    fn claude_adapter_config_default_has_none_paths_and_default_permission() {
+        // Pin the all-empty/None default state — every Option is None,
+        // every collection is empty, every bool is false, permission
+        // is the safe Default variant. A regression e.g. setting
+        // use_bedrock=true by default would silently route every
+        // session through Bedrock with no opt-in.
+        let c = ClaudeAdapterConfig::default();
+        assert!(c.node_path.is_none());
+        assert!(c.sdk_package_path.is_none());
+        assert!(c.api_key.is_none());
+        assert!(c.api_base_url.is_none());
+        assert!(c.model.is_none());
+        assert!(c.max_budget_usd.is_none());
+        assert!(c.effort.is_none());
+        assert!(matches!(c.permission_mode, PermissionMode::Default));
+        assert!(c.allowed_tools.is_empty());
+        assert!(c.disallowed_tools.is_empty());
+        assert!(c.sandbox.is_none());
+        assert!(c.mcp_servers.is_empty());
+        assert!(!c.use_bedrock, "use_bedrock must NOT default to true");
+        assert!(!c.use_vertex, "use_vertex must NOT default to true");
+        assert!(!c.use_azure, "use_azure must NOT default to true");
+        assert!(c.agents.is_empty());
+        assert!(c.setting_sources.is_empty());
+        assert!(c.persist_session.is_none());
+        assert!(c.env.is_empty());
+    }
+
+    // -- BridgeConfig skip_serializing_if pins ---------------------------
+
+    fn empty_bridge_config() -> BridgeConfig {
+        BridgeConfig {
+            prompt: "".into(),
+            cwd: None,
+            system_prompt: None,
+            streaming: false,
+            max_turns: None,
+            resume_session: None,
+            api_key: None,
+            api_base_url: None,
+            model: None,
+            effort: None,
+            max_budget_usd: None,
+            permission_mode: "default".into(),
+            allowed_tools: vec![],
+            disallowed_tools: vec![],
+            sandbox: None,
+            mcp_servers: HashMap::new(),
+            agents: HashMap::new(),
+            setting_sources: vec![],
+            persist_session: None,
+            sdk_executable_path: None,
+            env: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn bridge_config_none_max_turns_omitted_from_json() {
+        // Pin: max_turns=None must NOT appear in the JSON sent to the
+        // bridge — the SDK distinguishes absent (use default) from
+        // explicit null. Dropping the skip_serializing_if attr would
+        // start sending `"max_turns": null` and trip SDK validation.
+        let cfg = empty_bridge_config();
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(json.get("max_turns").is_none(), "max_turns=None must be omitted: {json}");
+    }
+
+    #[test]
+    fn bridge_config_none_resume_session_omitted_from_json() {
+        let cfg = empty_bridge_config();
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            json.get("resume_session").is_none(),
+            "resume_session=None must be omitted: {json}"
+        );
+    }
+
+    #[test]
+    fn bridge_config_none_sandbox_omitted_from_json() {
+        let cfg = empty_bridge_config();
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(json.get("sandbox").is_none(), "sandbox=None must be omitted: {json}");
+    }
+
+    #[test]
+    fn bridge_config_empty_agents_omitted_from_json() {
+        // Pin: agents={} (empty HashMap) must be omitted via
+        // skip_serializing_if = "HashMap::is_empty". Sending `"agents": {}`
+        // would be interpreted by the SDK as "explicitly clear agents"
+        // rather than "use default agent set".
+        let cfg = empty_bridge_config();
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(json.get("agents").is_none(), "empty agents must be omitted: {json}");
+    }
+
+    #[test]
+    fn bridge_config_empty_setting_sources_omitted_from_json() {
+        let cfg = empty_bridge_config();
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            json.get("setting_sources").is_none(),
+            "empty setting_sources must be omitted: {json}"
+        );
+    }
+
+    #[test]
+    fn bridge_config_none_persist_session_omitted_from_json() {
+        let cfg = empty_bridge_config();
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            json.get("persist_session").is_none(),
+            "persist_session=None must be omitted: {json}"
+        );
+    }
+
+    #[test]
+    fn bridge_config_present_values_serialize_with_field_present() {
+        // Positive pin: when fields ARE set, they DO appear. Guards
+        // against a refactor that accidentally moved skip_serializing_if
+        // from `is_none` / `is_empty` to a stricter predicate.
+        let mut cfg = empty_bridge_config();
+        cfg.max_turns = Some(7);
+        cfg.resume_session = Some("sess-1".into());
+        cfg.agents.insert("worker".into(), serde_json::json!({"k": "v"}));
+        cfg.setting_sources.push("user".into());
+        cfg.persist_session = Some(true);
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(json["max_turns"], serde_json::json!(7));
+        assert_eq!(json["resume_session"], serde_json::json!("sess-1"));
+        assert!(json.get("agents").is_some());
+        assert_eq!(json["setting_sources"], serde_json::json!(["user"]));
+        assert_eq!(json["persist_session"], serde_json::json!(true));
+    }
+
+    // -- SandboxConfig serde round-trip ---------------------------------
+
+    #[test]
+    fn sandbox_config_roundtrip_preserves_enabled_flag() {
+        // SandboxConfig is sent inside BridgeConfig and back; the
+        // enabled flag is binary (no other fields yet). Round-trip
+        // ensures derive Serialize/Deserialize stays paired.
+        let cfg = SandboxConfig { enabled: true };
+        let v = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(v, serde_json::json!({"enabled": true}));
+        let back: SandboxConfig = serde_json::from_value(v).unwrap();
+        assert!(back.enabled);
+    }
+}
