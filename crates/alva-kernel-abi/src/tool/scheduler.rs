@@ -289,16 +289,10 @@ impl ToolLockRegistry {
         id
     }
 
-    /// Internal: remove a tracked holder when its guard drops.
-    fn untrack_holder(&self, key: &str, id: u64) {
-        let mut state = self.inspect.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(entries) = state.holders.get_mut(key) {
-            entries.retain(|e| e.id != id);
-            if entries.is_empty() {
-                state.holders.remove(key);
-            }
-        }
-    }
+    // Untracking happens inline in `HolderTicket::drop` (below) — there was
+    // once a `fn untrack_holder(key, id)` helper here, but the Drop impl
+    // batches all the holds via `holds.drain(..)` and so it inlined the
+    // same logic. The standalone helper became dead and was removed.
 
     /// Acquire all locks for one tool invocation. Returns a [`ToolLockGuards`]
     /// that releases them on drop.

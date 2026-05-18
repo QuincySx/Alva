@@ -334,3 +334,160 @@ impl Default for ProviderRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for ProviderRegistry CRUD + the shorthand methods' error
+    //! formatting. A misformatted error message ("provider/model"
+    //! instead of "provider:model") confuses users trying to find the
+    //! right config entry; a register that doesn't replace on conflict
+    //! silently leaves stale handlers wired.
+    use super::*;
+
+    /// Minimal Provider impl for registry tests. Only `id()` and
+    /// `language_model()` are required by the trait; we deliberately
+    /// reject all language_model lookups so we can prove the registry
+    /// itself errors BEFORE calling the provider when the provider
+    /// isn't registered (i.e. the failure path goes through the
+    /// registry's own NoSuchModel branch).
+    struct StubProvider {
+        id: &'static str,
+    }
+    impl Provider for StubProvider {
+        fn id(&self) -> &str {
+            self.id
+        }
+        fn language_model(
+            &self,
+            _model_id: &str,
+        ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
+            Err(ProviderError::UnsupportedFunctionality(
+                "stub".to_string(),
+            ))
+        }
+    }
+
+    fn stub(id: &'static str) -> Arc<dyn Provider> {
+        Arc::new(StubProvider { id })
+    }
+
+    // -- CRUD --------------------------------------------------------------
+
+    #[test]
+    fn new_is_empty() {
+        let r = ProviderRegistry::new();
+        assert!(r.get("anything").is_none());
+        assert!(r.provider_ids().is_empty());
+    }
+
+    #[test]
+    fn default_equals_new() {
+        let r: ProviderRegistry = Default::default();
+        assert!(r.get("anything").is_none());
+    }
+
+    #[test]
+    fn register_then_get_returns_the_same_provider_handle() {
+        let mut r = ProviderRegistry::new();
+        r.register(stub("openai"));
+        let p = r.get("openai").expect("registered provider must be retrievable");
+        assert_eq!(p.id(), "openai");
+    }
+
+    #[test]
+    fn register_with_existing_id_replaces_doc_contract() {
+        // Pinned doc comment: "Replaces any existing provider with the
+        // same ID." Without this, a re-register would keep the stale
+        // first provider — silent wiring bug.
+        let mut r = ProviderRegistry::new();
+        r.register(stub("p"));
+        // Re-register with a different concrete instance but same id.
+        let new_instance = stub("p");
+        r.register(new_instance.clone());
+        let got = r.get("p").expect("provider still exists after re-register");
+        // Verify the stored Arc is the SAME pointer as the latest
+        // registration — proves replacement, not duplicate-keep.
+        assert!(
+            Arc::ptr_eq(got, &new_instance),
+            "second register must replace the first, not coexist"
+        );
+    }
+
+    #[test]
+    fn get_unknown_returns_none() {
+        let mut r = ProviderRegistry::new();
+        r.register(stub("openai"));
+        assert!(r.get("anthropic").is_none());
+    }
+
+    #[test]
+    fn provider_ids_lists_all_registered() {
+        let mut r = ProviderRegistry::new();
+        r.register(stub("openai"));
+        r.register(stub("anthropic"));
+        let mut ids: Vec<&str> = r.provider_ids();
+        ids.sort();
+        assert_eq!(ids, vec!["anthropic", "openai"]);
+    }
+
+    // -- Shorthand error formatting ---------------------------------------
+    //
+    // Each shorthand builds `NoSuchModel { model_id: "p:m", model_type: "..." }`
+    // when the provider isn't registered. Pin the ":" separator and
+    // the per-method model_type label.
+
+    #[test]
+    fn language_model_unknown_provider_uses_colon_format_and_language_type() {
+        let r = ProviderRegistry::new();
+        // Avoid `.unwrap_err()` — `Arc<dyn LanguageModel>` doesn't impl
+        // Debug, so we destructure the Result manually.
+        match r.language_model("oai", "gpt-4o") {
+            Err(ProviderError::NoSuchModel { model_id, model_type }) => {
+                assert_eq!(model_id, "oai:gpt-4o", "must use ':' separator");
+                assert_eq!(model_type, "language");
+            }
+            Err(other) => panic!("expected NoSuchModel, got {other:?}"),
+            Ok(_) => panic!("expected Err on unregistered provider"),
+        }
+    }
+
+    #[test]
+    fn embedding_model_unknown_provider_labels_embedding_type() {
+        let r = ProviderRegistry::new();
+        match r.embedding_model("oai", "ada") {
+            Err(ProviderError::NoSuchModel { model_id, model_type }) => {
+                assert_eq!(model_id, "oai:ada");
+                assert_eq!(model_type, "embedding");
+            }
+            Err(other) => panic!("expected NoSuchModel, got {other:?}"),
+            Ok(_) => panic!("expected Err"),
+        }
+    }
+
+    #[test]
+    fn image_model_unknown_provider_labels_image_type() {
+        let r = ProviderRegistry::new();
+        match r.image_model("oai", "dalle") {
+            Err(ProviderError::NoSuchModel { model_type, .. }) => {
+                assert_eq!(model_type, "image");
+            }
+            Err(other) => panic!("expected NoSuchModel, got {other:?}"),
+            Ok(_) => panic!("expected Err"),
+        }
+    }
+
+    // -- ProviderError Display --------------------------------------------
+
+    #[test]
+    fn no_such_model_display_includes_both_type_and_id() {
+        // Pin user-facing error message format. Drop either field
+        // and the user can't tell what went wrong.
+        let e = ProviderError::NoSuchModel {
+            model_id: "oai:gpt-4o".to_string(),
+            model_type: "language".to_string(),
+        };
+        let s = format!("{e}");
+        assert!(s.contains("language"));
+        assert!(s.contains("oai:gpt-4o"));
+    }
+}

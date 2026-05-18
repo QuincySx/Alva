@@ -230,3 +230,178 @@ impl TokenCounter for HeuristicTokenCounter {
         self.context_window_size
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for model-layer value types: ModelConfig Default,
+    //! ReasoningEffort parse/as_str/budget invariants, CompletionResponse
+    //! constructors, HeuristicTokenCounter chars/4 fallback.
+    //!
+    //! ReasoningEffort.parse() ingests user-typed strings (API requests,
+    //! config files) — missing case-insensitivity or trim defense
+    //! silently rejects "MEDIUM " or " high\n" from real configs.
+    //! `suggested_token_budget` is the Anthropic thinking-mode mapping;
+    //! a monotonicity flip would mean higher effort gets a smaller
+    //! budget — opposite of intent, no compile-time signal.
+    use super::*;
+    use serde_json::json;
+
+    // -- ModelConfig Default -----------------------------------------------
+
+    #[test]
+    fn model_config_default_is_all_none_empty_false() {
+        let c = ModelConfig::default();
+        assert!(c.temperature.is_none());
+        assert!(c.max_tokens.is_none());
+        assert!(c.stop_sequences.is_empty());
+        assert!(c.top_p.is_none());
+        assert!(c.reasoning_effort.is_none());
+        assert!(c.extra_body.is_none());
+        assert!(!c.disable_tools, "Default disable_tools must be false");
+    }
+
+    // -- ReasoningEffort::parse / as_str -----------------------------------
+
+    #[test]
+    fn parse_all_six_lowercase_variants() {
+        assert_eq!(ReasoningEffort::parse("none"), Some(ReasoningEffort::None));
+        assert_eq!(ReasoningEffort::parse("minimal"), Some(ReasoningEffort::Minimal));
+        assert_eq!(ReasoningEffort::parse("low"), Some(ReasoningEffort::Low));
+        assert_eq!(ReasoningEffort::parse("medium"), Some(ReasoningEffort::Medium));
+        assert_eq!(ReasoningEffort::parse("high"), Some(ReasoningEffort::High));
+        assert_eq!(ReasoningEffort::parse("xhigh"), Some(ReasoningEffort::XHigh));
+    }
+
+    #[test]
+    fn parse_is_case_insensitive() {
+        assert_eq!(ReasoningEffort::parse("MEDIUM"), Some(ReasoningEffort::Medium));
+        assert_eq!(ReasoningEffort::parse("High"), Some(ReasoningEffort::High));
+        assert_eq!(ReasoningEffort::parse("xHIGH"), Some(ReasoningEffort::XHigh));
+    }
+
+    #[test]
+    fn parse_trims_surrounding_whitespace() {
+        assert_eq!(ReasoningEffort::parse("  low  "), Some(ReasoningEffort::Low));
+        assert_eq!(ReasoningEffort::parse("\tmedium\n"), Some(ReasoningEffort::Medium));
+    }
+
+    #[test]
+    fn parse_unknown_returns_none() {
+        assert_eq!(ReasoningEffort::parse(""), None);
+        assert_eq!(ReasoningEffort::parse("ultra"), None);
+        assert_eq!(ReasoningEffort::parse("highish"), None);
+    }
+
+    #[test]
+    fn as_str_roundtrips_through_parse_for_all_variants() {
+        // Pin: parse(as_str(v)) == Some(v) for every variant — the
+        // canonical lowercase form must always be parse-able. Without
+        // this, a future rename of as_str's output silently breaks
+        // serialize-then-deserialize loops.
+        for v in [
+            ReasoningEffort::None,
+            ReasoningEffort::Minimal,
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::XHigh,
+        ] {
+            assert_eq!(
+                ReasoningEffort::parse(v.as_str()),
+                Some(v),
+                "round-trip failed for variant {v:?} via as_str() = {:?}",
+                v.as_str(),
+            );
+        }
+    }
+
+    // -- ReasoningEffort serde --------------------------------------------
+
+    #[test]
+    fn serde_uses_lowercase_string() {
+        // #[serde(rename_all = "lowercase")] pin — Anthropic / OpenAI
+        // wire formats expect "low" / "medium" / etc.
+        assert_eq!(serde_json::to_value(ReasoningEffort::Medium).unwrap(), json!("medium"));
+        assert_eq!(serde_json::to_value(ReasoningEffort::XHigh).unwrap(), json!("xhigh"));
+    }
+
+    #[test]
+    fn serde_deserializes_lowercase() {
+        let m: ReasoningEffort = serde_json::from_value(json!("medium")).unwrap();
+        assert_eq!(m, ReasoningEffort::Medium);
+    }
+
+    // -- ReasoningEffort::suggested_token_budget --------------------------
+
+    #[test]
+    fn suggested_budget_none_variant_returns_none() {
+        // ReasoningEffort::None = "explicit no reasoning"; budget is
+        // intentionally None, NOT Some(0). Anthropic uses
+        // `thinking: {type:"disabled"}` rather than `budget_tokens: 0`.
+        assert_eq!(ReasoningEffort::None.suggested_token_budget(), None);
+    }
+
+    #[test]
+    fn suggested_budget_is_monotonically_increasing_for_active_levels() {
+        // Pin the SEMANTIC contract: higher reasoning effort →
+        // higher token budget. A refactor that scrambled the
+        // budgets would silently flip user intent (Asked "High",
+        // got fewer tokens than "Low").
+        let order = [
+            ReasoningEffort::Minimal,
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::XHigh,
+        ];
+        let budgets: Vec<u32> = order
+            .iter()
+            .map(|e| e.suggested_token_budget().expect("active level must have Some budget"))
+            .collect();
+        for w in budgets.windows(2) {
+            assert!(
+                w[0] < w[1],
+                "monotonicity broken: {} >= {} in {budgets:?}",
+                w[0], w[1]
+            );
+        }
+    }
+
+    // -- CompletionResponse -----------------------------------------------
+
+    #[test]
+    fn from_message_ctor_leaves_raw_none() {
+        let m = Message::user("hi");
+        let r = CompletionResponse::from_message(m.clone());
+        assert!(r.raw.is_none(), "from_message must NOT synthesize a raw blob");
+        assert_eq!(r.message.id, m.id);
+    }
+
+    #[test]
+    fn from_message_trait_impl_delegates_to_ctor() {
+        let m = Message::user("hi");
+        let r: CompletionResponse = m.clone().into();
+        assert!(r.raw.is_none());
+        assert_eq!(r.message.id, m.id);
+    }
+
+    // -- HeuristicTokenCounter --------------------------------------------
+
+    #[test]
+    fn heuristic_counter_counts_text_len_over_four() {
+        let c = HeuristicTokenCounter::new(8192);
+        assert_eq!(c.count_tokens(""), 0);
+        // "abc" len=3, 3/4 = 0 (integer division — pinned current behavior)
+        assert_eq!(c.count_tokens("abc"), 0);
+        // 4 chars → 1 token
+        assert_eq!(c.count_tokens("abcd"), 1);
+        // 12 chars → 3 tokens
+        assert_eq!(c.count_tokens("abcdefghijkl"), 3);
+    }
+
+    #[test]
+    fn heuristic_counter_returns_configured_context_window() {
+        let c = HeuristicTokenCounter::new(123_456);
+        assert_eq!(c.context_window(), 123_456);
+    }
+}

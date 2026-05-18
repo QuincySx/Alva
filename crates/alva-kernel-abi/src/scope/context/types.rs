@@ -79,6 +79,11 @@ pub struct ContextMetadata {
     pub created_at: i64,
     /// Last time this entry was referenced by subsequent messages.
     pub last_referenced_at: Option<i64>,
+    /// Turn index of the store at the moment this entry was appended.
+    /// `None` for entries created before the store stamps them (the
+    /// store fills it in `append()`). Snapshot uses `store.turn_index
+    /// - created_at_turn` to compute `age_turns` per entry.
+    pub created_at_turn: Option<usize>,
 }
 
 impl ContextMetadata {
@@ -94,6 +99,7 @@ impl ContextMetadata {
             origin: EntryOrigin::System,
             created_at: chrono::Utc::now().timestamp_millis(),
             last_referenced_at: None,
+            created_at_turn: None,
         }
     }
 
@@ -109,6 +115,14 @@ impl ContextMetadata {
 
     pub fn with_origin(mut self, origin: EntryOrigin) -> Self {
         self.origin = origin;
+        self
+    }
+
+    /// Stamp the turn index at which this entry enters the store.
+    /// Called by `ContextStore::append` if the caller hasn't already
+    /// set it; allows tests or replays to provide a specific value.
+    pub fn with_turn(mut self, turn: usize) -> Self {
+        self.created_at_turn = Some(turn);
         self
     }
 }
