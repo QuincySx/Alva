@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Outbound network client (used when sandboxed; harmless otherwise). -->
+    <!-- Outbound network client. The only entitlement that adhoc /
+         self-signed certs can carry without breaking the signature.
+         Anything under `com.apple.developer.*` requires an Apple
+         Developer Program cert to inject, and trying to do so leaves
+         the binary with a malformed signature → Gatekeeper SIGKILL. -->
     <key>com.apple.security.network.client</key>
-    <true/>
-    <!-- Outbound multicast/broadcast — sometimes required for Local Network
-         Privacy to register the binary as a valid network actor. -->
-    <key>com.apple.developer.networking.multicast</key>
     <true/>
 </dict>
 </plist>

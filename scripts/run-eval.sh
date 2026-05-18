@@ -84,13 +84,33 @@ fi
 echo "==> Test binary: $TEST_BIN"
 
 # 5. Codesign with stable identity + entitlements. --force overrides
-#    cargo's transient ad-hoc signature.
+#    cargo's transient ad-hoc signature. Capture stderr to surface
+#    entitlement / cert issues (e.g. trying to inject a
+#    com.apple.developer.* entitlement with a self-signed cert leaves
+#    the binary with a malformed signature → Gatekeeper SIGKILLs it
+#    on launch).
 echo "==> Signing with identity \"$SIGN_ID\" + entitlements…"
-codesign --force --sign "$SIGN_ID" --entitlements "$ENT_PLIST" "$TEST_BIN"
+CODESIGN_OUT=$(codesign --force --sign "$SIGN_ID" --entitlements "$ENT_PLIST" "$TEST_BIN" 2>&1) || {
+    echo "error: codesign failed:" >&2
+    echo "$CODESIGN_OUT" >&2
+    exit 1
+}
+[[ -n "$CODESIGN_OUT" ]] && echo "  $CODESIGN_OUT"
 
 # 6. Verify the signature took.
-if ! codesign -dv "$TEST_BIN" 2>&1 | grep -q "Authority=$SIGN_ID"; then
-    echo "warning: codesign verify did not see expected identity" >&2
+VERIFY_OUT=$(codesign -dv "$TEST_BIN" 2>&1)
+if ! echo "$VERIFY_OUT" | grep -q "Authority=$SIGN_ID"; then
+    echo "error: codesign verify did not see expected identity:" >&2
+    echo "$VERIFY_OUT" >&2
+    exit 1
+fi
+# Also run codesign --verify for the strong check (catches malformed sigs
+# that show up in -dv but are actually invalid).
+if ! codesign --verify --verbose=2 "$TEST_BIN" 2>/dev/null; then
+    echo "error: codesign --verify failed — signature is malformed." >&2
+    echo "       This usually means an entitlement in $ENT_PLIST requires" >&2
+    echo "       a real Apple Developer cert, not the self-signed one." >&2
+    exit 1
 fi
 
 # 7. Always run the warmup first — it's idempotent and finishes
