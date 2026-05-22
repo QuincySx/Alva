@@ -31,10 +31,10 @@ use super::{
     common::tool_id, AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter,
     StreamDecodeState,
 };
-use crate::base::content::ContentBlock;
-use crate::base::message::{Message, MessageRole, UsageMetadata};
-use crate::base::stream::{StopReason, StreamEvent};
-use crate::tool::ToolDefinition;
+use crate::content::ContentBlock;
+use crate::message::{Message, MessageRole, UsageMetadata};
+use crate::stream::{StopReason, StreamEvent};
+use crate::tool_def::ToolDefinition;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GeminiAdapter;
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn encode_tool_result_resolves_name_from_preceding_tool_use() {
-        use crate::tool::execution::ToolContent;
+        use crate::tool_payload::ToolContent;
         let msgs = vec![
             Message {
                 id: "a".into(),

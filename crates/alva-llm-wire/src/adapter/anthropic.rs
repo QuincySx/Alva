@@ -15,9 +15,9 @@ use super::{
     common::tool_id, AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter,
     StreamDecodeState,
 };
-use crate::base::message::{Message, MessageRole, UsageMetadata};
-use crate::base::stream::{StopReason, StreamEvent};
-use crate::tool::ToolDefinition;
+use crate::message::{Message, MessageRole, UsageMetadata};
+use crate::stream::{StopReason, StreamEvent};
+use crate::tool_def::ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // AnthropicAdapter
@@ -81,10 +81,10 @@ impl ProtocolAdapter for AnthropicAdapter {
                     let mut blocks: Vec<Value> = Vec::new();
                     for b in &m.content {
                         match b {
-                            crate::base::content::ContentBlock::Text { text } => {
+                            crate::content::ContentBlock::Text { text } => {
                                 blocks.push(serde_json::json!({"type": "text", "text": text}));
                             }
-                            crate::base::content::ContentBlock::Reasoning {
+                            crate::content::ContentBlock::Reasoning {
                                 text,
                                 signature,
                             } => {
@@ -103,7 +103,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                                     }));
                                 }
                             }
-                            crate::base::content::ContentBlock::ToolUse { id, name, input } => {
+                            crate::content::ContentBlock::ToolUse { id, name, input } => {
                                 // Anthropic expects its own toolu_* ids; pass through normalized
                                 // form (which is already toolu_*-prefixed after decode).
                                 blocks.push(serde_json::json!({
@@ -149,7 +149,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                     // instead of pushing a new one.
                     let mut blocks: Vec<Value> = Vec::new();
                     for b in &m.content {
-                        if let crate::base::content::ContentBlock::ToolResult {
+                        if let crate::content::ContentBlock::ToolResult {
                             id,
                             content,
                             is_error,
@@ -225,7 +225,7 @@ impl ProtocolAdapter for AnthropicAdapter {
             .and_then(Value::as_array)
             .ok_or(AdapterError::MissingField("content"))?;
 
-        let mut blocks: Vec<crate::base::content::ContentBlock> = Vec::new();
+        let mut blocks: Vec<crate::content::ContentBlock> = Vec::new();
         for b in content_arr {
             let block_type = b
                 .get("type")
@@ -235,7 +235,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                 "text" => {
                     if let Some(text) = b.get("text").and_then(Value::as_str) {
                         if !text.is_empty() {
-                            blocks.push(crate::base::content::ContentBlock::Text {
+                            blocks.push(crate::content::ContentBlock::Text {
                                 text: text.to_string(),
                             });
                         }
@@ -249,7 +249,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                         .get("input")
                         .cloned()
                         .unwrap_or_else(|| Value::Object(Map::new()));
-                    blocks.push(crate::base::content::ContentBlock::ToolUse { id, name, input });
+                    blocks.push(crate::content::ContentBlock::ToolUse { id, name, input });
                 }
                 "thinking" => {
                     // Preserve the signature so the block can be echoed back
@@ -263,7 +263,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                         .get("signature")
                         .and_then(Value::as_str)
                         .map(String::from);
-                    blocks.push(crate::base::content::ContentBlock::Reasoning {
+                    blocks.push(crate::content::ContentBlock::Reasoning {
                         text,
                         signature,
                     });
@@ -511,7 +511,7 @@ fn parse_usage(v: &Value) -> Option<UsageMetadata> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::base::content::ContentBlock;
+    use crate::content::ContentBlock;
 
     #[test]
     fn encode_tools_dedupes() {
@@ -532,7 +532,7 @@ mod tests {
         // tool_result, which Anthropic rejects as "tool_use ids were found
         // without tool_result blocks immediately after". Encoder must merge
         // them into a single user message.
-        use crate::tool::execution::ToolContent;
+        use crate::tool_payload::ToolContent;
 
         let assistant = Message {
             id: "m1".into(),

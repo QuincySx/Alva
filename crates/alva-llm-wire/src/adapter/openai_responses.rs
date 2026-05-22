@@ -23,10 +23,10 @@ use super::{
     common::{schema_fix, tool_id},
     AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter, StreamDecodeState,
 };
-use crate::base::content::ContentBlock;
-use crate::base::message::{Message, MessageRole, UsageMetadata};
-use crate::base::stream::{StopReason, StreamEvent};
-use crate::tool::ToolDefinition;
+use crate::content::ContentBlock;
+use crate::message::{Message, MessageRole, UsageMetadata};
+use crate::stream::{StopReason, StreamEvent};
+use crate::tool_def::ToolDefinition;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OpenAIResponsesAdapter;

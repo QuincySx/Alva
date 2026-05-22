@@ -1,19 +1,17 @@
-// INPUT:  serde_json, crate::{base::message::Message, base::stream::StreamEvent, tool::Tool}
+// INPUT:  serde_json, crate::{message::Message, stream::StreamEvent, tool_def::ToolDefinition}
 // OUTPUT: ToolAdapter trait, AdapterError, EncodedMessages, DecodedResponse, StreamDecodeState
 // POS:    Provider-neutral tool / message serialization contract. 4 concrete impls (Anthropic /
-//         OpenAI Chat / OpenAI Responses / Gemini) translate normalized alva-kernel-abi types into
+//         OpenAI Chat / OpenAI Responses / Gemini) translate normalized alva-llm-wire types into
 //         each LLM provider's wire JSON and back. Pure data transformation — no HTTP, no reqwest,
 //         wasm-friendly. See AMP models/adapter-layer.md for the reference design.
 
 //! Tool / message serialization adapters for different LLM provider APIs.
 //!
-//! **Why this lives in kernel-abi, not llm-provider**: adapters are the
-//! serialization contract *of* the kernel-abi types (`Tool`, `Message`,
-//! `ContentBlock`, `StreamEvent`). They only consume / produce
-//! `serde_json::Value` — no HTTP, no runtime. Keeping them here means
-//! any SDK consumer gets 4-provider tool-calling for free, including
-//! wasm consumers that can't pull in `alva-llm-provider` (which
-//! depends on reqwest).
+//! **Why this lives in alva-llm-wire**: adapters are the serialization contract
+//! *of* the wire types (`Message`, `ContentBlock`, `StreamEvent`). They only
+//! consume / produce `serde_json::Value` — no HTTP, no runtime. Keeping them
+//! here means any SDK consumer gets 4-provider tool-calling for free, including
+//! wasm consumers that can't pull in `alva-llm-provider` (which depends on reqwest).
 //!
 //! # Adapters
 //!
@@ -26,7 +24,7 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use alva_kernel_abi::adapter::{ProtocolAdapter, anthropic::AnthropicAdapter};
+//! use alva_llm_wire::adapter::{ProtocolAdapter, anthropic::AnthropicAdapter};
 //!
 //! let adapter = AnthropicAdapter::new();
 //! let encoded = adapter.encode_messages(&messages);
@@ -39,9 +37,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::base::message::{Message, UsageMetadata};
-use crate::base::stream::StreamEvent;
-use crate::tool::ToolDefinition;
+use crate::message::{Message, UsageMetadata};
+use crate::stream::StreamEvent;
+use crate::tool_def::ToolDefinition;
 
 pub mod common;
 
