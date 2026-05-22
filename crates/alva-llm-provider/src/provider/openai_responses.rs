@@ -18,7 +18,7 @@ use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
-use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::tool::{Tool, ToolDefinition};
 
 use crate::config::ProviderConfig;
 use crate::util::truncate_for_log;
@@ -114,7 +114,8 @@ impl LanguageModel for OpenAIResponsesProvider {
         let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let adapter = OpenAIResponsesAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let api_tools = adapter.encode_tools(tools);
+        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let api_tools = adapter.encode_tools(&tool_defs);
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
         let body = build_body(&self.model, max_tokens, &encoded, &api_tools, config, false);
 
@@ -188,7 +189,8 @@ impl LanguageModel for OpenAIResponsesProvider {
 
         let adapter = OpenAIResponsesAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let api_tools = adapter.encode_tools(tools);
+        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let api_tools = adapter.encode_tools(&tool_defs);
         let body = build_body(&model, max_tokens, &encoded, &api_tools, config, true);
 
         let body_str = serde_json::to_string(&body).unwrap_or_default();

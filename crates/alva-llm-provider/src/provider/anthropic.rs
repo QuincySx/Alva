@@ -31,7 +31,7 @@ use alva_kernel_abi::base::message::Message;
 use crate::util::truncate_for_log;
 use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
-use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::tool::{Tool, ToolDefinition};
 
 use crate::config::ProviderConfig;
 use crate::rate_limit::RateLimitState;
@@ -198,7 +198,8 @@ impl LanguageModel for AnthropicProvider {
 
         let adapter = AnthropicAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let api_tools = adapter.encode_tools(tools);
+        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let api_tools = adapter.encode_tools(&tool_defs);
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
         let body = build_body(&self.model, max_tokens, &encoded, &api_tools, config, false);
 
@@ -299,7 +300,8 @@ impl LanguageModel for AnthropicProvider {
 
         let adapter = AnthropicAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let api_tools = adapter.encode_tools(tools);
+        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let api_tools = adapter.encode_tools(&tool_defs);
         let body = build_body(&model, max_tokens, &encoded, &api_tools, config, true);
 
         let body_str = serde_json::to_string(&body).unwrap_or_default();
