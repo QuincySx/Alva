@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 alva-kernel-bus = { path = "../alva-kernel-bus" }
+alva-llm-wire = { path = "../alva-llm-wire" }
 alva-macros = { path = "../alva-macros" }
 async-trait = "0.1"
 schemars = "1"

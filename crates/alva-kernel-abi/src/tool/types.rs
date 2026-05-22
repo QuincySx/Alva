@@ -10,15 +10,10 @@ use crate::base::error::AgentError;
 
 // ---------------------------------------------------------------------------
 // ToolDefinition — JSON Schema description for LLM function calling
+// (definition relocated to alva-llm-wire; re-exported here for backward compat)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDefinition {
-    pub name: String,
-    pub description: String,
-    /// JSON Schema object describing parameters
-    pub parameters: serde_json::Value,
-}
+pub use alva_llm_wire::tool_def::ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // ToolCall — wire type flowing through the agent loop

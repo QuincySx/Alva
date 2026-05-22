@@ -29,11 +29,14 @@ check_no_workspace_deps() {
     fi
 }
 
+# Rule 0a: alva-llm-wire has ZERO workspace deps
+check_no_workspace_deps "alva-llm-wire"
+
 # Rule 0: alva-kernel-bus has ZERO workspace deps
 check_no_workspace_deps "alva-kernel-bus"
 
-# Rule 1: alva-kernel-abi only depends on alva-kernel-bus
-check_no_workspace_deps "alva-kernel-abi" "alva-kernel-bus"
+# Rule 1: alva-kernel-abi only depends on alva-kernel-bus + alva-llm-wire
+check_no_workspace_deps "alva-kernel-abi" "alva-kernel-bus|alva-llm-wire"
 
 # Rule 2: alva-kernel-core only depends on alva-kernel-abi
 check_no_workspace_deps "alva-kernel-core" "alva-kernel-abi"
@@ -108,6 +111,7 @@ echo ""
 echo "Checking hard SDK → app/host boundary (transitive)..."
 
 SDK_CRATES=(
+    alva-llm-wire
     alva-kernel-abi
     alva-kernel-bus
     alva-kernel-core
@@ -178,6 +182,7 @@ check_wasm() {
 
 # Skip if wasm32 target is not installed — the dep check still runs.
 if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+    check_wasm "alva-llm-wire"
     check_wasm "alva-kernel-bus"
     check_wasm "alva-kernel-abi"
     check_wasm "alva-kernel-core"
@@ -201,7 +206,7 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
         echo -e "${RED}FAILED: wasm32 invariant broken${NC}"
         exit 1
     fi
-    echo -e "${GREEN}PASSED: 19 crates wasm32-clean${NC}"
+    echo -e "${GREEN}PASSED: 20 crates wasm32-clean${NC}"
 
     # Stronger check: actually BUILD (link) alva-host-wasm for wasm32 at
     # least once, to catch issues cargo check misses (missing symbols,
