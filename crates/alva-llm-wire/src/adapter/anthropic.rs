@@ -12,9 +12,11 @@
 use serde_json::{Map, Value};
 
 use super::{
-    common::tool_id, AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter,
-    StreamDecodeState,
+    common::tool_id, AdapterError, DecodedRequest, DecodedResponse, EncodedMessages,
+    ProtocolAdapter, SseFrame, StreamDecodeState, StreamEncodeState,
 };
+use crate::config::{ModelConfig, ReasoningEffort};
+use crate::content::ContentBlock;
 use crate::message::{Message, MessageRole, UsageMetadata};
 use crate::stream::{StopReason, StreamEvent};
 use crate::tool_def::ToolDefinition;
@@ -217,6 +219,527 @@ impl ProtocolAdapter for AnthropicAdapter {
             },
             messages: api_messages,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.4 — decode_request
+    // -----------------------------------------------------------------------
+
+    fn decode_request(&self, body: &Value) -> Result<DecodedRequest, AdapterError> {
+        // -- model (required) ------------------------------------------------
+        let model = body
+            .get("model")
+            .and_then(Value::as_str)
+            .ok_or(AdapterError::MissingField("model"))?
+            .to_string();
+
+        // -- system → prepend as System message ------------------------------
+        let mut messages: Vec<Message> = Vec::new();
+
+        if let Some(system_val) = body.get("system") {
+            match system_val {
+                Value::String(s) if !s.is_empty() => {
+                    messages.push(Message::system(s));
+                }
+                Value::Array(arr) => {
+                    // array of {type:"text", text:...} blocks — join their text
+                    let joined: String = arr
+                        .iter()
+                        .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                        .filter_map(|b| b.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    if !joined.is_empty() {
+                        messages.push(Message::system(&joined));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // -- messages[] ------------------------------------------------------
+        if let Some(msg_arr) = body.get("messages").and_then(Value::as_array) {
+            for m in msg_arr {
+                let role_str = m.get("role").and_then(Value::as_str).unwrap_or("user");
+                let role = match role_str {
+                    "user" => MessageRole::User,
+                    "assistant" => MessageRole::Assistant,
+                    _ => MessageRole::User,
+                };
+
+                let content_val = m.get("content");
+                let blocks: Vec<ContentBlock> = match content_val {
+                    // content is a plain string → single Text block
+                    Some(Value::String(s)) => {
+                        vec![ContentBlock::Text { text: s.clone() }]
+                    }
+                    // content is an array of typed blocks
+                    Some(Value::Array(arr)) => {
+                        let mut blks: Vec<ContentBlock> = Vec::new();
+                        for b in arr {
+                            let block_type =
+                                b.get("type").and_then(Value::as_str).unwrap_or("");
+                            match block_type {
+                                "text" => {
+                                    if let Some(text) =
+                                        b.get("text").and_then(Value::as_str)
+                                    {
+                                        blks.push(ContentBlock::Text {
+                                            text: text.to_string(),
+                                        });
+                                    }
+                                }
+                                "tool_use" => {
+                                    // Anthropic ids are already toolu_*-prefixed;
+                                    // to_normalized is idempotent for those.
+                                    let raw_id =
+                                        b.get("id").and_then(Value::as_str).unwrap_or("");
+                                    let id = tool_id::to_normalized(raw_id);
+                                    let name = b
+                                        .get("name")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let input = b
+                                        .get("input")
+                                        .cloned()
+                                        .unwrap_or_else(|| Value::Object(Map::new()));
+                                    blks.push(ContentBlock::ToolUse { id, name, input });
+                                }
+                                "tool_result" => {
+                                    let tool_use_id = b
+                                        .get("tool_use_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("");
+                                    let id = tool_id::to_normalized(tool_use_id);
+                                    // content can be string or array
+                                    let content_str = match b.get("content") {
+                                        Some(Value::String(s)) => s.clone(),
+                                        Some(v) => v.to_string(),
+                                        None => String::new(),
+                                    };
+                                    let is_error = b
+                                        .get("is_error")
+                                        .and_then(Value::as_bool)
+                                        .unwrap_or(false);
+                                    blks.push(ContentBlock::ToolResult {
+                                        id,
+                                        content: vec![
+                                            crate::tool_payload::ToolContent::Text {
+                                                text: content_str,
+                                            },
+                                        ],
+                                        is_error,
+                                    });
+                                }
+                                "thinking" => {
+                                    let text = b
+                                        .get("thinking")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let signature = b
+                                        .get("signature")
+                                        .and_then(Value::as_str)
+                                        .map(String::from);
+                                    blks.push(ContentBlock::Reasoning { text, signature });
+                                }
+                                "image" => {
+                                    return Err(AdapterError::UnexpectedFormat(
+                                        "image input not supported".into(),
+                                    ));
+                                }
+                                // Forward-compat: skip unknown block types.
+                                _ => {}
+                            }
+                        }
+                        blks
+                    }
+                    _ => vec![],
+                };
+
+                messages.push(Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    role,
+                    content: blocks,
+                    tool_call_id: None,
+                    usage: None,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                });
+            }
+        }
+
+        // -- tools[] ---------------------------------------------------------
+        // Anthropic shape: {name, description, input_schema}
+        let tools: Vec<ToolDefinition> = body
+            .get("tools")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| {
+                        let name = t.get("name").and_then(Value::as_str)?.to_string();
+                        let description = t
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let parameters = t
+                            .get("input_schema")
+                            .cloned()
+                            .unwrap_or_else(|| Value::Object(Map::new()));
+                        Some(ToolDefinition { name, description, parameters })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // -- config ----------------------------------------------------------
+        let temperature =
+            body.get("temperature").and_then(Value::as_f64).map(|v| v as f32);
+        let top_p = body.get("top_p").and_then(Value::as_f64).map(|v| v as f32);
+        let max_tokens =
+            body.get("max_tokens").and_then(Value::as_u64).map(|v| v as u32);
+        let stop_sequences: Vec<String> = body
+            .get("stop_sequences")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // thinking.budget_tokens → nearest ReasoningEffort
+        let reasoning_effort = body
+            .pointer("/thinking/budget_tokens")
+            .and_then(Value::as_u64)
+            .map(|budget| {
+                let budget = budget as u32;
+                // Pick the variant whose suggested_token_budget() is closest.
+                let candidates = [
+                    ReasoningEffort::Minimal,
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                    ReasoningEffort::XHigh,
+                ];
+                candidates
+                    .iter()
+                    .min_by_key(|e| {
+                        let b = e.suggested_token_budget().unwrap_or(0);
+                        (b as i64 - budget as i64).unsigned_abs()
+                    })
+                    .copied()
+                    .unwrap_or(ReasoningEffort::Medium)
+            });
+
+        let config = ModelConfig {
+            temperature,
+            top_p,
+            max_tokens,
+            reasoning_effort,
+            stop_sequences,
+            ..ModelConfig::default()
+        };
+
+        // -- stream ----------------------------------------------------------
+        let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+
+        Ok(DecodedRequest { model, messages, tools, config, stream })
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.5 — encode_response
+    // -----------------------------------------------------------------------
+
+    fn encode_response(&self, resp: &DecodedResponse) -> Result<Value, AdapterError> {
+        let mut content: Vec<Value> = Vec::new();
+        let mut has_tool_use = false;
+
+        for block in &resp.message.content {
+            match block {
+                ContentBlock::Text { text } => {
+                    content.push(serde_json::json!({"type": "text", "text": text}));
+                }
+                ContentBlock::ToolUse { id, name, input } => {
+                    has_tool_use = true;
+                    content.push(serde_json::json!({
+                        "type": "tool_use",
+                        "id": id,
+                        "name": name,
+                        "input": input,
+                    }));
+                }
+                ContentBlock::Reasoning { text, signature } => {
+                    // SIGNATURE RULE: only emit thinking block when signature is Some.
+                    // Anthropic 400s on a thinking block without a signature.
+                    if let Some(sig) = signature {
+                        content.push(serde_json::json!({
+                            "type": "thinking",
+                            "thinking": text,
+                            "signature": sig,
+                        }));
+                    }
+                    // If signature is None, omit the block entirely.
+                }
+                // ToolResult / Image not expected in an assistant response; skip.
+                _ => {}
+            }
+        }
+
+        let stop_reason = if has_tool_use { "tool_use" } else { "end_turn" };
+
+        let usage_src = resp.message.usage.as_ref().or(resp.usage.as_ref());
+        let usage = match usage_src {
+            Some(u) => serde_json::json!({
+                "input_tokens": u.input_tokens,
+                "output_tokens": u.output_tokens,
+            }),
+            None => serde_json::json!({
+                "input_tokens": 0_u32,
+                "output_tokens": 0_u32,
+            }),
+        };
+
+        Ok(serde_json::json!({
+            "id": &resp.message.id,
+            "type": "message",
+            "role": "assistant",
+            "model": "",
+            "content": content,
+            "stop_reason": stop_reason,
+            "stop_sequence": null,
+            "usage": usage,
+        }))
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.6 — encode_stream_event
+    // -----------------------------------------------------------------------
+
+    fn encode_stream_event(
+        &self,
+        ev: &StreamEvent,
+        st: &mut StreamEncodeState,
+    ) -> Result<Vec<SseFrame>, AdapterError> {
+        // Helper to produce one named SSE frame (no sequence_number — Anthropic
+        // doesn't use it; keep frames lean).
+        macro_rules! frame {
+            ($event_name:expr, $data:expr) => {
+                SseFrame {
+                    event: Some($event_name.to_string()),
+                    data: $data,
+                }
+            };
+        }
+
+        let mut out: Vec<SseFrame> = Vec::new();
+
+        match ev {
+            StreamEvent::Start => {
+                if !st.started {
+                    st.started = true;
+                    if st.response_id.is_empty() {
+                        st.response_id = format!("msg_{}", uuid::Uuid::new_v4().simple());
+                    }
+                    out.push(frame!(
+                        "message_start",
+                        serde_json::json!({
+                            "type": "message_start",
+                            "message": {
+                                "id": &st.response_id,
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [],
+                                "model": "",
+                                "stop_reason": null,
+                                "usage": { "input_tokens": 0_u32, "output_tokens": 0_u32 }
+                            }
+                        })
+                    ));
+                }
+            }
+
+            StreamEvent::TextDelta { text } => {
+                // Open a text content block if not already open.
+                if !st.text_item_open {
+                    st.text_item_open = true;
+                    st.text_item_index = st.block_index;
+                    out.push(frame!(
+                        "content_block_start",
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": st.block_index,
+                            "content_block": { "type": "text", "text": "" }
+                        })
+                    ));
+                    // Don't advance block_index yet — delta uses same index.
+                }
+                out.push(frame!(
+                    "content_block_delta",
+                    serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": st.text_item_index,
+                        "delta": { "type": "text_delta", "text": text }
+                    })
+                ));
+            }
+
+            StreamEvent::ReasoningDelta { text } => {
+                // Open a thinking block if none is open.
+                if !st.text_item_open {
+                    st.text_item_open = true;
+                    st.text_item_index = st.block_index;
+                    out.push(frame!(
+                        "content_block_start",
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": st.block_index,
+                            "content_block": { "type": "thinking", "thinking": "" }
+                        })
+                    ));
+                }
+                out.push(frame!(
+                    "content_block_delta",
+                    serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": st.text_item_index,
+                        "delta": { "type": "thinking_delta", "thinking": text }
+                    })
+                ));
+            }
+
+            StreamEvent::ReasoningBlock { .. } => {
+                // Full accumulated thinking block — no additional frame needed
+                // in the stream encoding path (content_block_stop will close it).
+            }
+
+            StreamEvent::ToolCallStart { id, name } => {
+                // Close any currently-open text/thinking block first.
+                if st.text_item_open {
+                    out.push(frame!(
+                        "content_block_stop",
+                        serde_json::json!({
+                            "type": "content_block_stop",
+                            "index": st.text_item_index
+                        })
+                    ));
+                    st.text_item_open = false;
+                    st.block_index += 1;
+                }
+                let provider_id = tool_id::to_provider(id);
+                let tool_block_index = st.block_index;
+                // Store the block index for this tool call so delta/end can find it.
+                st.output_index = tool_block_index;
+                st.tool_args.entry(id.clone()).or_default();
+                out.push(frame!(
+                    "content_block_start",
+                    serde_json::json!({
+                        "type": "content_block_start",
+                        "index": tool_block_index,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": provider_id,
+                            "name": name,
+                            "input": {}
+                        }
+                    })
+                ));
+                // Advance block_index so the next block gets a fresh index.
+                st.block_index += 1;
+            }
+
+            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+                // Accumulate args and emit input_json_delta at the tool's block index.
+                st.tool_args
+                    .entry(id.clone())
+                    .or_default()
+                    .push_str(arguments_delta);
+                out.push(frame!(
+                    "content_block_delta",
+                    serde_json::json!({
+                        "type": "content_block_delta",
+                        // output_index was set by ToolCallStart to the tool block's index.
+                        "index": st.output_index,
+                        "delta": { "type": "input_json_delta", "partial_json": arguments_delta }
+                    })
+                ));
+            }
+
+            StreamEvent::ToolCallEnd { id } => {
+                out.push(frame!(
+                    "content_block_stop",
+                    serde_json::json!({
+                        "type": "content_block_stop",
+                        "index": st.output_index
+                    })
+                ));
+                // Remove accumulated args (not echoed in Anthropic's stream).
+                st.tool_args.remove(id);
+            }
+
+            StreamEvent::Usage(u) => {
+                // Stash for embedding in message_delta later.
+                st.usage = Some(u.clone());
+            }
+
+            StreamEvent::Stop { reason } => {
+                // Close any open text/thinking block.
+                if st.text_item_open {
+                    out.push(frame!(
+                        "content_block_stop",
+                        serde_json::json!({
+                            "type": "content_block_stop",
+                            "index": st.text_item_index
+                        })
+                    ));
+                    st.text_item_open = false;
+                }
+
+                let stop_reason_str = match reason {
+                    StopReason::EndTurn => "end_turn",
+                    StopReason::ToolUse => "tool_use",
+                    StopReason::MaxTokens => "max_tokens",
+                    StopReason::StopSequence => "stop_sequence",
+                    StopReason::Other(s) => s.as_str(),
+                };
+
+                let usage_val = match &st.usage {
+                    Some(u) => serde_json::json!({
+                        "output_tokens": u.output_tokens,
+                    }),
+                    None => serde_json::json!({ "output_tokens": 0_u32 }),
+                };
+
+                out.push(frame!(
+                    "message_delta",
+                    serde_json::json!({
+                        "type": "message_delta",
+                        "delta": { "stop_reason": stop_reason_str, "stop_sequence": null },
+                        "usage": usage_val,
+                    })
+                ));
+            }
+
+            StreamEvent::Done => {
+                out.push(frame!(
+                    "message_stop",
+                    serde_json::json!({ "type": "message_stop" })
+                ));
+            }
+
+            StreamEvent::Error(msg) => {
+                out.push(frame!(
+                    "error",
+                    serde_json::json!({
+                        "type": "error",
+                        "error": { "type": "api_error", "message": msg }
+                    })
+                ));
+            }
+        }
+
+        Ok(out)
     }
 
     fn decode_response(&self, response: &Value) -> Result<DecodedResponse, AdapterError> {
@@ -727,5 +1250,274 @@ mod tests {
         });
         let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
         assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::StopSequence }));
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.4 — decode_request tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn anthropic_decode_request_system_and_tools() {
+        let body = serde_json::json!({
+            "model": "claude-3-5-sonnet-20241022",
+            "system": "You are a helpful assistant.",
+            "messages": [
+                { "role": "user", "content": "Hello" }
+            ],
+            "tools": [
+                {
+                    "name": "read_file",
+                    "description": "Reads a file",
+                    "input_schema": { "type": "object", "properties": { "path": { "type": "string" } } }
+                }
+            ]
+        });
+        let req = AnthropicAdapter.decode_request(&body).unwrap();
+        assert_eq!(req.model, "claude-3-5-sonnet-20241022");
+        // System message should be prepended
+        assert!(matches!(req.messages[0].role, MessageRole::System));
+        assert_eq!(req.messages[0].text_content(), "You are a helpful assistant.");
+        // User message follows
+        assert!(req.messages.iter().any(|m| matches!(m.role, MessageRole::User)));
+        // Tools parsed correctly
+        assert_eq!(req.tools.len(), 1);
+        assert_eq!(req.tools[0].name, "read_file");
+        assert_eq!(req.tools[0].description, "Reads a file");
+    }
+
+    #[test]
+    fn anthropic_decode_request_rejects_image() {
+        let body = serde_json::json!({
+            "model": "claude-3-5-sonnet-20241022",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "abc" } }
+                ]
+            }]
+        });
+        assert!(matches!(
+            AnthropicAdapter.decode_request(&body),
+            Err(AdapterError::UnexpectedFormat(_))
+        ));
+    }
+
+    #[test]
+    fn anthropic_decode_request_thinking_budget_maps_effort() {
+        // budget_tokens=16384 → ReasoningEffort::High (suggested_token_budget() = 16384)
+        let body = serde_json::json!({
+            "model": "claude-opus-4-5",
+            "messages": [{ "role": "user", "content": "think hard" }],
+            "thinking": { "type": "enabled", "budget_tokens": 16384 }
+        });
+        let req = AnthropicAdapter.decode_request(&body).unwrap();
+        assert_eq!(req.config.reasoning_effort, Some(ReasoningEffort::High));
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.5 — encode_response tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn anthropic_encode_response_text_and_tool() {
+        use crate::message::UsageMetadata;
+        use super::super::DecodedResponse;
+
+        let dr = DecodedResponse {
+            message: Message {
+                id: "msg_01".into(),
+                role: MessageRole::Assistant,
+                content: vec![
+                    ContentBlock::Text { text: "Let me help.".into() },
+                    ContentBlock::ToolUse {
+                        id: "toolu_abc".into(),
+                        name: "read_file".into(),
+                        input: serde_json::json!({"path": "/etc/hosts"}),
+                    },
+                ],
+                tool_call_id: None,
+                usage: Some(UsageMetadata {
+                    input_tokens: 42,
+                    output_tokens: 15,
+                    total_tokens: 57,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
+                }),
+                timestamp: 0,
+            },
+            usage: None,
+        };
+
+        let v = AnthropicAdapter.encode_response(&dr).unwrap();
+        assert_eq!(v["type"], "message");
+        assert_eq!(v["role"], "assistant");
+        assert_eq!(v["stop_reason"], "tool_use");
+        let content = v["content"].as_array().unwrap();
+        assert!(content.iter().any(|b| b["type"] == "tool_use" && b["name"] == "read_file"));
+        assert_eq!(v["usage"]["input_tokens"], 42);
+    }
+
+    #[test]
+    fn anthropic_encode_response_omits_unsigned_thinking() {
+        use super::super::DecodedResponse;
+
+        // Reasoning block WITHOUT signature — must be omitted
+        let dr_no_sig = DecodedResponse {
+            message: Message {
+                id: "msg_02".into(),
+                role: MessageRole::Assistant,
+                content: vec![
+                    ContentBlock::Reasoning { text: "thoughts".into(), signature: None },
+                    ContentBlock::Text { text: "answer".into() },
+                ],
+                tool_call_id: None,
+                usage: None,
+                timestamp: 0,
+            },
+            usage: None,
+        };
+        let v = AnthropicAdapter.encode_response(&dr_no_sig).unwrap();
+        let content = v["content"].as_array().unwrap();
+        assert!(
+            !content.iter().any(|b| b["type"] == "thinking"),
+            "thinking block with no signature must be omitted"
+        );
+        // Text block still present
+        assert!(content.iter().any(|b| b["type"] == "text"));
+
+        // Reasoning block WITH signature — must be emitted
+        let dr_with_sig = DecodedResponse {
+            message: Message {
+                id: "msg_03".into(),
+                role: MessageRole::Assistant,
+                content: vec![
+                    ContentBlock::Reasoning {
+                        text: "deep thoughts".into(),
+                        signature: Some("sig_abc123".into()),
+                    },
+                ],
+                tool_call_id: None,
+                usage: None,
+                timestamp: 0,
+            },
+            usage: None,
+        };
+        let v2 = AnthropicAdapter.encode_response(&dr_with_sig).unwrap();
+        let content2 = v2["content"].as_array().unwrap();
+        assert!(
+            content2.iter().any(|b| b["type"] == "thinking" && b["signature"] == "sig_abc123"),
+            "thinking block with signature must appear"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.6 — encode_stream_event tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn anthropic_encode_stream_text_then_stop() {
+        use crate::message::UsageMetadata;
+        use super::super::StreamEncodeState;
+
+        let mut st = StreamEncodeState::default();
+        let mut frames: Vec<SseFrame> = Vec::new();
+
+        for ev in [
+            StreamEvent::Start,
+            StreamEvent::TextDelta { text: "hi".into() },
+            StreamEvent::Usage(UsageMetadata {
+                input_tokens: 10,
+                output_tokens: 5,
+                total_tokens: 15,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+            }),
+            StreamEvent::Stop { reason: StopReason::EndTurn },
+            StreamEvent::Done,
+        ] {
+            frames.extend(AnthropicAdapter.encode_stream_event(&ev, &mut st).unwrap());
+        }
+
+        let event_names: Vec<&str> =
+            frames.iter().filter_map(|f| f.event.as_deref()).collect();
+
+        assert!(event_names.contains(&"message_start"), "missing message_start: {event_names:?}");
+        assert!(
+            event_names.contains(&"content_block_delta"),
+            "missing content_block_delta: {event_names:?}"
+        );
+        assert!(event_names.contains(&"message_delta"), "missing message_delta: {event_names:?}");
+        assert!(event_names.contains(&"message_stop"), "missing message_stop: {event_names:?}");
+
+        // The message_delta must carry stop_reason == "end_turn"
+        let msg_delta = frames
+            .iter()
+            .find(|f| f.event.as_deref() == Some("message_delta"))
+            .unwrap();
+        assert_eq!(
+            msg_delta.data.pointer("/delta/stop_reason").and_then(|v| v.as_str()),
+            Some("end_turn"),
+            "message_delta stop_reason must be end_turn"
+        );
+    }
+
+    #[test]
+    fn anthropic_encode_stream_tool_args() {
+        use super::super::StreamEncodeState;
+
+        let mut st = StreamEncodeState::default();
+        let mut frames: Vec<SseFrame> = Vec::new();
+
+        for ev in [
+            StreamEvent::ToolCallStart { id: "toolu_01".into(), name: "read_file".into() },
+            StreamEvent::ToolCallDelta {
+                id: "toolu_01".into(),
+                name: None,
+                arguments_delta: "{\"path\":".into(),
+            },
+            StreamEvent::ToolCallDelta {
+                id: "toolu_01".into(),
+                name: None,
+                arguments_delta: "\"/a\"}".into(),
+            },
+            StreamEvent::ToolCallEnd { id: "toolu_01".into() },
+        ] {
+            frames.extend(AnthropicAdapter.encode_stream_event(&ev, &mut st).unwrap());
+        }
+
+        // Verify content_block_start for tool_use
+        let start_frame = frames
+            .iter()
+            .find(|f| f.event.as_deref() == Some("content_block_start"))
+            .expect("content_block_start must be emitted");
+        assert_eq!(
+            start_frame.data.pointer("/content_block/type").and_then(|v| v.as_str()),
+            Some("tool_use")
+        );
+
+        // Verify two input_json_delta fragments
+        let delta_frames: Vec<_> = frames
+            .iter()
+            .filter(|f| {
+                f.event.as_deref() == Some("content_block_delta")
+                    && f.data.pointer("/delta/type").and_then(|v| v.as_str())
+                        == Some("input_json_delta")
+            })
+            .collect();
+        assert_eq!(delta_frames.len(), 2, "expected 2 input_json_delta frames");
+        assert_eq!(
+            delta_frames[0].data.pointer("/delta/partial_json").and_then(|v| v.as_str()),
+            Some("{\"path\":")
+        );
+        assert_eq!(
+            delta_frames[1].data.pointer("/delta/partial_json").and_then(|v| v.as_str()),
+            Some("\"/a\"}")
+        );
+
+        // Verify content_block_stop
+        assert!(
+            frames.iter().any(|f| f.event.as_deref() == Some("content_block_stop")),
+            "content_block_stop must be emitted"
+        );
     }
 }

@@ -361,4 +361,8 @@ pub struct StreamEncodeState {
     /// The `output_index` at which the currently-open text/message item was
     /// started. Stored so we can emit text deltas at the correct stable index.
     pub text_item_index: usize,
+    /// Current Anthropic content-block index (monotonically increasing).
+    /// Used by `AnthropicAdapter::encode_stream_event` to assign the correct
+    /// `index` field to `content_block_start/delta/stop` frames.
+    pub block_index: usize,
 }
