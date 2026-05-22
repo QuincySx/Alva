@@ -21,8 +21,10 @@ use serde_json::{Map, Value};
 
 use super::{
     common::{schema_fix, tool_id},
-    AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter, StreamDecodeState,
+    AdapterError, DecodedRequest, DecodedResponse, EncodedMessages, ProtocolAdapter,
+    StreamDecodeState,
 };
+use crate::config::ModelConfig;
 use crate::content::ContentBlock;
 use crate::message::{Message, MessageRole, UsageMetadata};
 use crate::stream::{StopReason, StreamEvent};
@@ -219,6 +221,188 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
         })
     }
 
+    fn decode_request(&self, body: &Value) -> Result<DecodedRequest, AdapterError> {
+        // -- model (required) ------------------------------------------------
+        let model = body
+            .get("model")
+            .and_then(Value::as_str)
+            .ok_or(AdapterError::MissingField("model"))?
+            .to_string();
+
+        // -- messages --------------------------------------------------------
+        let mut messages: Vec<Message> = Vec::new();
+
+        // instructions → system message (prepended)
+        if let Some(instructions) = body.get("instructions").and_then(Value::as_str) {
+            if !instructions.is_empty() {
+                messages.push(Message::system(instructions));
+            }
+        }
+
+        // input[] → messages
+        if let Some(input_arr) = body.get("input").and_then(Value::as_array) {
+            for item in input_arr {
+                let role_str = item.get("role").and_then(Value::as_str).unwrap_or("user");
+                let role = match role_str {
+                    "user" => MessageRole::User,
+                    "assistant" => MessageRole::Assistant,
+                    "system" => MessageRole::System,
+                    "tool" => MessageRole::Tool,
+                    _ => MessageRole::User,
+                };
+
+                // Handle function_call items → ToolUse content block
+                let item_type = item.get("type").and_then(Value::as_str).unwrap_or("message");
+                if item_type == "function_call" {
+                    let raw_id =
+                        item.get("call_id").and_then(Value::as_str).unwrap_or("unknown");
+                    let id = tool_id::to_normalized(raw_id);
+                    let name = item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let args_str =
+                        item.get("arguments").and_then(Value::as_str).unwrap_or("{}");
+                    let input: Value =
+                        serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
+                    messages.push(Message {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        role: MessageRole::Assistant,
+                        content: vec![ContentBlock::ToolUse { id, name, input }],
+                        tool_call_id: None,
+                        usage: None,
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                    });
+                    continue;
+                }
+
+                if item_type == "function_call_output" {
+                    let raw_id =
+                        item.get("call_id").and_then(Value::as_str).unwrap_or("unknown");
+                    let id = tool_id::to_normalized(raw_id);
+                    let output =
+                        item.get("output").and_then(Value::as_str).unwrap_or("").to_string();
+                    messages.push(Message {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        role: MessageRole::Tool,
+                        content: vec![ContentBlock::ToolResult {
+                            id: id.clone(),
+                            content: vec![crate::tool_payload::ToolContent::Text {
+                                text: output,
+                            }],
+                            is_error: false,
+                        }],
+                        tool_call_id: Some(id),
+                        usage: None,
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                    });
+                    continue;
+                }
+
+                // Regular message items — parse content field
+                let content_val = item.get("content");
+                let blocks: Vec<ContentBlock> = match content_val {
+                    // content is a plain string
+                    Some(Value::String(s)) => {
+                        vec![ContentBlock::Text { text: s.clone() }]
+                    }
+                    // content is an array of typed parts
+                    Some(Value::Array(parts)) => {
+                        let mut blks: Vec<ContentBlock> = Vec::new();
+                        for part in parts {
+                            let part_type =
+                                part.get("type").and_then(Value::as_str).unwrap_or("");
+                            match part_type {
+                                "input_image" | "image_url" | "image" => {
+                                    return Err(AdapterError::UnexpectedFormat(
+                                        "image input not supported".into(),
+                                    ));
+                                }
+                                "input_text" | "output_text" | "text" => {
+                                    if let Some(text) =
+                                        part.get("text").and_then(Value::as_str)
+                                    {
+                                        blks.push(ContentBlock::Text {
+                                            text: text.to_string(),
+                                        });
+                                    }
+                                }
+                                // Skip unknown part types for forward-compat
+                                _ => {}
+                            }
+                        }
+                        blks
+                    }
+                    // No content field — empty
+                    _ => vec![],
+                };
+
+                messages.push(Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    role,
+                    content: blocks,
+                    tool_call_id: None,
+                    usage: None,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                });
+            }
+        }
+
+        // -- tools -----------------------------------------------------------
+        // Responses API tool shape is FLAT: { type, name, description, parameters }
+        // (NOT nested under a "function" key like Chat Completions).
+        let tools: Vec<ToolDefinition> = body
+            .get("tools")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| {
+                        let name = t.get("name").and_then(Value::as_str)?.to_string();
+                        let description = t
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let parameters = t
+                            .get("parameters")
+                            .cloned()
+                            .unwrap_or_else(|| Value::Object(Map::new()));
+                        Some(ToolDefinition { name, description, parameters })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // -- config ----------------------------------------------------------
+        let temperature = body
+            .get("temperature")
+            .and_then(Value::as_f64)
+            .map(|v| v as f32);
+        let top_p = body.get("top_p").and_then(Value::as_f64).map(|v| v as f32);
+        let max_tokens = body
+            .get("max_output_tokens")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32);
+        let reasoning_effort = body
+            .pointer("/reasoning/effort")
+            .and_then(Value::as_str)
+            .and_then(crate::config::ReasoningEffort::parse);
+
+        let config = ModelConfig {
+            temperature,
+            top_p,
+            max_tokens,
+            reasoning_effort,
+            ..ModelConfig::default()
+        };
+
+        // -- stream ----------------------------------------------------------
+        let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+
+        Ok(DecodedRequest { model, messages, tools, config, stream })
+    }
+
     fn decode_stream_event(
         &self,
         event: &Value,
@@ -336,6 +520,33 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ReasoningEffort;
+    use crate::message::MessageRole;
+
+    #[test]
+    fn responses_decode_request_basic() {
+        let body = serde_json::json!({
+            "model": "gpt-x",
+            "instructions": "be brief",
+            "input": [{"role":"user","content":[{"type":"input_text","text":"hi"}]}],
+            "tools": [{"type":"function","name":"read","description":"d","parameters":{"type":"object"}}],
+            "stream": true,
+            "reasoning": {"effort":"high"}
+        });
+        let r = OpenAIResponsesAdapter::new().decode_request(&body).unwrap();
+        assert_eq!(r.model, "gpt-x");
+        assert!(r.stream);
+        assert_eq!(r.tools[0].name, "read");
+        assert_eq!(r.config.reasoning_effort, Some(ReasoningEffort::High));
+        assert!(matches!(r.messages[0].role, MessageRole::System));
+        assert!(r.messages.iter().any(|m| matches!(m.role, MessageRole::User)));
+    }
+
+    #[test]
+    fn responses_decode_request_rejects_image() {
+        let body = serde_json::json!({"model":"m","input":[{"role":"user","content":[{"type":"input_image","image_url":"x"}]}]});
+        assert!(matches!(OpenAIResponsesAdapter::new().decode_request(&body), Err(AdapterError::UnexpectedFormat(_))));
+    }
 
     #[test]
     fn encode_tools_flat_not_nested() {
