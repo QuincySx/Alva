@@ -8,6 +8,10 @@ description = "Alva App Gateway — HTTP routing layer that proxies LLM requests
 name = "alva_app_gateway"
 path = "src/lib.rs"
 
+[[bin]]
+name = "alva-app-gateway"
+path = "src/main.rs"
+
 [dependencies]
 alva-llm-wire = { path = "../alva-llm-wire" }
 alva-llm-provider = { path = "../alva-llm-provider" }

@@ -19,6 +19,92 @@ use alva_app_gateway::app;
 use alva_llm_provider::{AliasRouter, ProviderConfig};
 
 // ---------------------------------------------------------------------------
+// Test: image content block is rejected with 400 before upstream is contacted
+// ---------------------------------------------------------------------------
+
+/// Verify that a `/v1/messages` request containing an image content block
+/// returns HTTP 400 at the decode_request step — before any upstream call is
+/// made.  The "upstream" URL points at a port that is never bound, which
+/// proves the rejection is purely in-process.
+#[tokio::test]
+async fn gateway_image_input_returns_400() {
+    // Set a dummy env var so build_router succeeds (api_key_env lookup).
+    std::env::set_var("DUMMY_GW_KEY_IMAGE_TEST", "dummy-key");
+
+    // Build an AliasRouter with one Anthropic-kind route pointing at an
+    // unreachable address — the request must be rejected before any upstream
+    // connection attempt.
+    let mut router = AliasRouter::new();
+    router.insert(
+        "claude-x".into(),
+        ProviderConfig {
+            kind: Some("anthropic".into()),
+            base_url: "http://127.0.0.1:19999".into(), // nothing listening here
+            api_key: "dummy-key".into(),
+            model: "claude-3-5-sonnet-20241022".into(),
+            max_tokens: 1024,
+            custom_headers: Default::default(),
+        },
+    );
+
+    // Start the gateway on an ephemeral port.
+    let gw_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind gateway");
+    let gw_addr = gw_listener.local_addr().expect("gateway addr");
+    let gw_url = format!("http://{}", gw_addr);
+
+    let gw_router = app(Arc::new(router));
+    let _gw_handle = tokio::spawn(async move {
+        axum::serve(gw_listener, gw_router).await.ok();
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    // POST /v1/messages with an image content block (Anthropic wire format).
+    // decode_request in AnthropicAdapter returns AdapterError::UnexpectedFormat
+    // for any block with type == "image", which the gateway maps to HTTP 400.
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{gw_url}/v1/messages"))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "model": "claude-x",
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBOR"
+                    }
+                }]
+            }]
+        }))
+        .send()
+        .await
+        .expect("send image-input request to gateway");
+
+    assert_eq!(
+        resp.status().as_u16(),
+        400,
+        "image input must be rejected with HTTP 400 (decode_request fires before upstream)"
+    );
+
+    // Optionally verify the error body mentions the rejection cause.
+    let body: serde_json::Value = resp.json().await.expect("parse error response as JSON");
+    let msg = body
+        .pointer("/error/message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        msg.contains("image"),
+        "error message should mention 'image', got: '{msg}'"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Mock upstream OpenAI-Chat-compatible server (non-streaming)
 // ---------------------------------------------------------------------------
 
