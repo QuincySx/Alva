@@ -13,3 +13,6 @@
 
 pub mod config;
 pub mod raw_tool;
+pub mod server;
+
+pub use server::{app, serve, GatewayError};
