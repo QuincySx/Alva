@@ -349,4 +349,16 @@ pub struct StreamEncodeState {
     /// (or equivalent) frame. Set when a `StreamEvent::Usage` is received
     /// before the stop event.
     pub usage: Option<UsageMetadata>,
+    /// Accumulated tool-call argument fragments keyed by tool-call id.
+    /// Each `ToolCallDelta` appends its `arguments_delta` here; `ToolCallEnd`
+    /// reads the complete string, emits it in `response.output_item.done`,
+    /// then removes the entry.
+    pub tool_args: std::collections::HashMap<String, String>,
+    /// Whether a text/message output item is currently open (has received at
+    /// least one `TextDelta`). Used to correctly advance `output_index` when
+    /// a `ToolCallStart` arrives mid-stream.
+    pub text_item_open: bool,
+    /// The `output_index` at which the currently-open text/message item was
+    /// started. Stored so we can emit text deltas at the correct stable index.
+    pub text_item_index: usize,
 }

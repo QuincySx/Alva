@@ -567,7 +567,30 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
             }
             "response.incomplete" => {
                 // Response was cut short (token limit or timeout).
+                // Mirror response.completed: emit Usage (if present), Stop, then Done
+                // so consumers waiting for Done are not left hanging.
+                if let Some(usage) = event.pointer("/response/usage") {
+                    let (cache_creation_input_tokens, cache_read_input_tokens) =
+                        super::common::cache_usage::extract_openai_compat(usage);
+                    out.push(StreamEvent::Usage(UsageMetadata {
+                        input_tokens: usage
+                            .get("input_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0) as u32,
+                        output_tokens: usage
+                            .get("output_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0) as u32,
+                        total_tokens: usage
+                            .get("total_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0) as u32,
+                        cache_creation_input_tokens,
+                        cache_read_input_tokens,
+                    }));
+                }
                 out.push(StreamEvent::Stop { reason: StopReason::MaxTokens });
+                out.push(StreamEvent::Done);
             }
             "response.failed" => {
                 out.push(StreamEvent::Stop { reason: StopReason::Other("failed".to_string()) });
@@ -622,11 +645,16 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
             }
 
             StreamEvent::TextDelta { text } => {
+                // FIX 3: open a new text/message item if none is currently open.
+                if !st.text_item_open {
+                    st.text_item_index = st.output_index;
+                    st.text_item_open = true;
+                }
                 out.push(frame!(
                     "response.output_text.delta",
                     serde_json::json!({
                         "type": "response.output_text.delta",
-                        "output_index": st.output_index,
+                        "output_index": st.text_item_index,
                         "content_index": 0,
                         "delta": text,
                     })
@@ -654,29 +682,43 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
 
             StreamEvent::ToolCallStart { id, name } => {
                 let provider_id = tool_id::to_provider(id);
+                // FIX 3: if a text item was open, close it and advance output_index
+                // so the tool item gets a distinct index.
+                if st.text_item_open {
+                    st.text_item_open = false;
+                    st.output_index += 1;
+                }
+                let tool_index = st.output_index;
                 out.push(frame!(
                     "response.output_item.added",
                     serde_json::json!({
                         "type": "response.output_item.added",
-                        "output_index": st.output_index,
+                        "output_index": tool_index,
                         "item": {
                             "type": "function_call",
-                            "call_id": provider_id,
+                            "call_id": &provider_id,
                             "name": name,
                             "arguments": "",
                         }
                     })
                 ));
+                // Advance past the tool item so any subsequent text gets a fresh index.
                 st.output_index += 1;
             }
 
-            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+            StreamEvent::ToolCallDelta { id, name, arguments_delta } => {
                 let provider_id = tool_id::to_provider(id);
+                // FIX 4: accumulate argument fragments for this tool call.
+                st.tool_args
+                    .entry(id.clone())
+                    .or_default()
+                    .push_str(arguments_delta);
                 out.push(frame!(
                     "response.function_call_arguments.delta",
                     serde_json::json!({
                         "type": "response.function_call_arguments.delta",
-                        "call_id": provider_id,
+                        "call_id": &provider_id,
+                        "name": name,
                         "delta": arguments_delta,
                     })
                 ));
@@ -684,11 +726,14 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
 
             StreamEvent::ToolCallEnd { id } => {
                 let provider_id = tool_id::to_provider(id);
+                // FIX 4: read the accumulated arguments and clear the buffer.
+                let accumulated_args = st.tool_args.remove(id).unwrap_or_default();
                 out.push(frame!(
                     "response.function_call_arguments.done",
                     serde_json::json!({
                         "type": "response.function_call_arguments.done",
-                        "call_id": provider_id,
+                        "call_id": &provider_id,
+                        "arguments": &accumulated_args,
                     })
                 ));
                 out.push(frame!(
@@ -697,7 +742,8 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                         "type": "response.output_item.done",
                         "item": {
                             "type": "function_call",
-                            "call_id": provider_id,
+                            "call_id": &provider_id,
+                            "arguments": &accumulated_args,
                         }
                     })
                 ));
@@ -712,39 +758,67 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
             }
 
             StreamEvent::Stop { reason } => {
-                let (event_name, status) = match reason {
-                    StopReason::EndTurn | StopReason::ToolUse | StopReason::StopSequence => {
-                        ("response.completed", "completed")
+                // FIX 5: ensure response_id is never empty (Start may have been skipped).
+                if st.response_id.is_empty() {
+                    st.response_id = format!("resp_{}", uuid::Uuid::new_v4());
+                }
+
+                match reason {
+                    StopReason::Other(msg) => {
+                        // FIX 1: StopReason::Other represents an upstream failure.
+                        // Emit response.failed with the error message.
+                        out.push(frame!(
+                            "response.failed",
+                            serde_json::json!({
+                                "type": "response.failed",
+                                "response": {
+                                    "id": &st.response_id,
+                                    "object": "response",
+                                    "status": "failed",
+                                    "error": {
+                                        "message": msg,
+                                    }
+                                }
+                            })
+                        ));
                     }
-                    StopReason::MaxTokens => ("response.incomplete", "incomplete"),
-                    StopReason::Other(_) => ("response.completed", "completed"),
-                };
+                    _ => {
+                        let (event_name, status) = match reason {
+                            StopReason::EndTurn
+                            | StopReason::ToolUse
+                            | StopReason::StopSequence => ("response.completed", "completed"),
+                            StopReason::MaxTokens => ("response.incomplete", "incomplete"),
+                            // Other is handled above; this branch is unreachable.
+                            StopReason::Other(_) => unreachable!(),
+                        };
 
-                let usage_val = match &st.usage {
-                    Some(u) => serde_json::json!({
-                        "input_tokens": u.input_tokens,
-                        "output_tokens": u.output_tokens,
-                        "total_tokens": u.total_tokens,
-                    }),
-                    None => serde_json::json!({
-                        "input_tokens": 0_u32,
-                        "output_tokens": 0_u32,
-                        "total_tokens": 0_u32,
-                    }),
-                };
+                        let usage_val = match &st.usage {
+                            Some(u) => serde_json::json!({
+                                "input_tokens": u.input_tokens,
+                                "output_tokens": u.output_tokens,
+                                "total_tokens": u.total_tokens,
+                            }),
+                            None => serde_json::json!({
+                                "input_tokens": 0_u32,
+                                "output_tokens": 0_u32,
+                                "total_tokens": 0_u32,
+                            }),
+                        };
 
-                out.push(frame!(
-                    event_name,
-                    serde_json::json!({
-                        "type": event_name,
-                        "response": {
-                            "id": &st.response_id,
-                            "object": "response",
-                            "status": status,
-                            "usage": usage_val,
-                        }
-                    })
-                ));
+                        out.push(frame!(
+                            event_name,
+                            serde_json::json!({
+                                "type": event_name,
+                                "response": {
+                                    "id": &st.response_id,
+                                    "object": "response",
+                                    "status": status,
+                                    "usage": usage_val,
+                                }
+                            })
+                        ));
+                    }
+                }
             }
 
             StreamEvent::Done => {
@@ -925,12 +999,14 @@ mod tests {
 
     #[test]
     fn decode_stream_incomplete_emits_max_tokens_stop() {
+        // FIX 2: response.incomplete now emits Stop{MaxTokens} + Done (was: Stop only).
         let mut state = StreamDecodeState::new();
         state.event_type = Some("response.incomplete".into());
         let ev = serde_json::json!({});
         let out = OpenAIResponsesAdapter.decode_stream_event(&ev, &mut state).unwrap();
-        assert_eq!(out.len(), 1);
+        assert_eq!(out.len(), 2, "expected Stop + Done (len 2), got: {out:?}");
         assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+        assert!(matches!(out[1], StreamEvent::Done));
     }
 
     #[test]
@@ -1007,5 +1083,222 @@ mod tests {
         assert!(outs.iter().any(|o| o["type"] == "function_call" && o["name"] == "read"));
         assert!(outs.iter().any(|o| o["type"] == "message"));
         assert_eq!(v["usage"]["input_tokens"], 3);
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX 1: StopReason::Other must produce response.failed, not response.completed
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn encode_stop_other_emits_response_failed_not_completed() {
+        use crate::stream::{StreamEvent, StopReason};
+        use super::super::StreamEncodeState;
+        let a = OpenAIResponsesAdapter::new();
+        let mut st = StreamEncodeState::default();
+        // Feed a Start first so response_id is set.
+        a.encode_stream_event(&StreamEvent::Start, &mut st).unwrap();
+        let frames = a
+            .encode_stream_event(&StreamEvent::Stop { reason: StopReason::Other("boom".into()) }, &mut st)
+            .unwrap();
+        let event_names: Vec<_> = frames.iter().filter_map(|f| f.event.as_deref()).collect();
+        assert!(
+            event_names.contains(&"response.failed"),
+            "expected response.failed frame, got: {event_names:?}"
+        );
+        assert!(
+            !event_names.contains(&"response.completed"),
+            "must NOT emit response.completed for Other stop, got: {event_names:?}"
+        );
+        // The failed frame must carry the error message.
+        let failed_frame = frames.iter().find(|f| f.event.as_deref() == Some("response.failed")).unwrap();
+        let error_msg = failed_frame
+            .data
+            .pointer("/response/error/message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert_eq!(error_msg, "boom", "error.message must carry the Other reason string");
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX 2: response.incomplete must also emit StreamEvent::Done
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn decode_stream_incomplete_emits_stop_and_done() {
+        let mut state = StreamDecodeState::new();
+        state.event_type = Some("response.incomplete".into());
+        // Include usage to verify it is extracted too (mirrors response.completed behaviour).
+        let ev = serde_json::json!({
+            "response": { "usage": { "input_tokens": 5, "output_tokens": 10, "total_tokens": 15 } }
+        });
+        let out = OpenAIResponsesAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        // Expect: [Usage, Stop{MaxTokens}, Done]
+        assert_eq!(out.len(), 3, "expected Usage + Stop + Done (len 3), got: {out:?}");
+        assert!(matches!(out[0], StreamEvent::Usage(_)));
+        assert!(
+            matches!(&out[1], StreamEvent::Stop { reason: StopReason::MaxTokens }),
+            "second event must be Stop{{MaxTokens}}, got: {:?}", out[1]
+        );
+        assert!(matches!(out[2], StreamEvent::Done), "last event must be Done");
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX 3: output_index is distinct for text and tool items (and non-decreasing)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn encode_interleaved_text_tool_text_output_indices_are_distinct() {
+        use crate::stream::{StreamEvent, StopReason};
+        use super::super::StreamEncodeState;
+
+        let a = OpenAIResponsesAdapter::new();
+        let mut st = StreamEncodeState::default();
+        let mut all_frames: Vec<SseFrame> = Vec::new();
+
+        // Sequence: Start → TextDelta("a") → ToolCallStart → ToolCallDelta → ToolCallEnd → TextDelta("b")
+        for ev in [
+            StreamEvent::Start,
+            StreamEvent::TextDelta { text: "a".into() },
+            StreamEvent::ToolCallStart { id: "t1".into(), name: "read".into() },
+            StreamEvent::ToolCallDelta { id: "t1".into(), name: None, arguments_delta: "{\"p\":1}".into() },
+            StreamEvent::ToolCallEnd { id: "t1".into() },
+            StreamEvent::TextDelta { text: "b".into() },
+        ] {
+            all_frames.extend(a.encode_stream_event(&ev, &mut st).unwrap());
+        }
+
+        // Collect output_indices from text-delta frames and the tool output_item.added frame.
+        let first_text_index = all_frames
+            .iter()
+            .find(|f| f.event.as_deref() == Some("response.output_text.delta")
+                && f.data.get("delta").and_then(|v| v.as_str()) == Some("a"))
+            .and_then(|f| f.data.get("output_index").and_then(|v| v.as_u64()))
+            .expect("first text delta frame");
+
+        let tool_index = all_frames
+            .iter()
+            .find(|f| f.event.as_deref() == Some("response.output_item.added"))
+            .and_then(|f| f.data.get("output_index").and_then(|v| v.as_u64()))
+            .expect("output_item.added frame");
+
+        let second_text_index = all_frames
+            .iter()
+            .filter(|f| f.event.as_deref() == Some("response.output_text.delta"))
+            .last()  // the last text delta is "b"
+            .and_then(|f| f.data.get("output_index").and_then(|v| v.as_u64()))
+            .expect("second text delta frame");
+
+        assert_ne!(
+            first_text_index, tool_index,
+            "first text delta (index {first_text_index}) and tool item (index {tool_index}) must not share output_index"
+        );
+        assert_ne!(
+            second_text_index, tool_index,
+            "second text delta (index {second_text_index}) and tool item (index {tool_index}) must not share output_index"
+        );
+        // All indices must be non-decreasing across frames (not just these three).
+        let indices: Vec<u64> = all_frames
+            .iter()
+            .filter_map(|f| f.data.get("output_index").and_then(|v| v.as_u64()))
+            .collect();
+        assert!(
+            indices.windows(2).all(|w| w[0] <= w[1]),
+            "output_index must be non-decreasing: {indices:?}"
+        );
+
+        // Also verify the existing monotonic sequence_number test still passes.
+        let seqs: Vec<i64> = all_frames
+            .iter()
+            .filter_map(|f| f.data.get("sequence_number").and_then(|v| v.as_i64()))
+            .collect();
+        assert!(
+            seqs.windows(2).all(|w| w[0] < w[1]),
+            "sequence_number must be strictly monotonic: {seqs:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX 4: accumulated arguments are emitted in response.output_item.done
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn encode_tool_call_end_includes_accumulated_arguments() {
+        use crate::stream::StreamEvent;
+        use super::super::StreamEncodeState;
+
+        let a = OpenAIResponsesAdapter::new();
+        let mut st = StreamEncodeState::default();
+        let mut all_frames: Vec<SseFrame> = Vec::new();
+
+        for ev in [
+            StreamEvent::ToolCallStart { id: "t1".into(), name: "read".into() },
+            StreamEvent::ToolCallDelta {
+                id: "t1".into(),
+                name: None,
+                arguments_delta: "{\"p\":".into(),
+            },
+            StreamEvent::ToolCallDelta {
+                id: "t1".into(),
+                name: None,
+                arguments_delta: "1}".into(),
+            },
+            StreamEvent::ToolCallEnd { id: "t1".into() },
+        ] {
+            all_frames.extend(a.encode_stream_event(&ev, &mut st).unwrap());
+        }
+
+        let done_frame = all_frames
+            .iter()
+            .find(|f| f.event.as_deref() == Some("response.output_item.done"))
+            .expect("response.output_item.done frame must be emitted");
+
+        let args = done_frame
+            .data
+            .pointer("/item/arguments")
+            .and_then(|v| v.as_str())
+            .expect("item.arguments must be present in output_item.done");
+
+        assert_eq!(args, "{\"p\":1}", "accumulated arguments must equal the concatenated deltas");
+    }
+
+    // -----------------------------------------------------------------------
+    // FIX 5: response_id fallback when Start was skipped
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn encode_stop_without_start_generates_nonempty_response_id() {
+        use crate::stream::{StreamEvent, StopReason};
+        use super::super::StreamEncodeState;
+
+        let a = OpenAIResponsesAdapter::new();
+        // Fresh state — no Start event fed, response_id is empty string.
+        let mut st = StreamEncodeState::default();
+        assert!(st.response_id.is_empty(), "precondition: response_id starts empty");
+
+        let frames = a
+            .encode_stream_event(&StreamEvent::Stop { reason: StopReason::EndTurn }, &mut st)
+            .unwrap();
+
+        let completed_frame = frames
+            .iter()
+            .find(|f| f.event.as_deref() == Some("response.completed"))
+            .expect("response.completed frame must be emitted");
+
+        let response_id = completed_frame
+            .data
+            .pointer("/response/id")
+            .and_then(|v| v.as_str())
+            .expect("response.id must be present in the completed frame");
+
+        assert!(
+            !response_id.is_empty(),
+            "response.id must not be empty when Start was skipped"
+        );
+        assert!(
+            response_id.starts_with("resp_"),
+            "generated id must start with 'resp_', got: {response_id}"
+        );
+        // The state should also be updated so subsequent frames use the same id.
+        assert_eq!(st.response_id, response_id, "st.response_id must match the emitted id");
     }
 }
