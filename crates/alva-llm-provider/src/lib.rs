@@ -53,4 +53,4 @@ pub use provider::gemini::GeminiProvider;
 pub use provider::openai_chat::OpenAIChatProvider;
 pub use provider::openai_responses::OpenAIResponsesProvider;
 pub use rate_limit::{RateLimitCheck, RateLimitState, RateLimitType};
-pub use registry::{build_provider_registry, ConfigProviderAdapter};
+pub use registry::{build_provider_registry, AliasRouter, ConfigProviderAdapter};

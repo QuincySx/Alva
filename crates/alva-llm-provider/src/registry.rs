@@ -73,6 +73,60 @@ impl Provider for ConfigProviderAdapter {
     }
 }
 
+/// Maps client-facing model aliases to their upstream [`ProviderConfig`]s.
+///
+/// Each alias can point to an independently configured upstream (different
+/// provider kind, base URL, API key, etc.). Resolution reuses
+/// [`ConfigProviderAdapter`]'s kind→provider switch — the mapping logic is
+/// never duplicated here.
+///
+/// This is the multi-alias counterpart of [`build_provider_registry`]'s
+/// single-active-provider model.
+///
+/// # Example
+/// ```rust,ignore
+/// let mut router = AliasRouter::new();
+/// router.insert("fast".into(), cfg_for_deepseek);
+/// router.insert("smart".into(), cfg_for_claude);
+/// let lm = router.resolve("fast").expect("alias must exist");
+/// ```
+pub struct AliasRouter {
+    routes: std::collections::HashMap<String, ProviderConfig>,
+}
+
+impl AliasRouter {
+    /// Create an empty router.
+    pub fn new() -> Self {
+        Self { routes: std::collections::HashMap::new() }
+    }
+
+    /// Register or replace the upstream config for `alias`.
+    pub fn insert(&mut self, alias: String, cfg: ProviderConfig) {
+        self.routes.insert(alias, cfg);
+    }
+
+    /// Return the upstream protocol id (e.g. `"openai-chat"`, `"anthropic"`)
+    /// for `alias`, or `None` if the alias is not registered.
+    pub fn upstream_protocol(&self, alias: &str) -> Option<&'static str> {
+        self.routes.get(alias).map(provider_id_from_config)
+    }
+
+    /// Resolve `alias` to a ready [`LanguageModel`], or `None` if the alias
+    /// is unknown. Construction is delegated entirely to
+    /// [`ConfigProviderAdapter`] — no kind→provider switch here.
+    pub fn resolve(&self, alias: &str) -> Option<Arc<dyn LanguageModel>> {
+        let cfg = self.routes.get(alias)?.clone();
+        let model = cfg.model.clone();
+        ConfigProviderAdapter::new(cfg).language_model(&model).ok()
+    }
+}
+
+impl Default for AliasRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Convenience: build a `ProviderRegistry` containing a single active
 /// provider derived from `config`. Suitable for hosts that have one
 /// active provider per session (CLI, Tauri).
@@ -146,5 +200,22 @@ mod tests {
         let reg = build_provider_registry(&cfg(Some("gemini")));
         let ids: Vec<&str> = reg.provider_ids();
         assert_eq!(ids, vec!["gemini"]);
+    }
+
+    #[test]
+    fn alias_router_resolves_and_reports_protocol() {
+        let mut r = AliasRouter::new();
+        r.insert("gpt-via-ds".into(), ProviderConfig {
+            api_key: "k".into(),
+            model: "deepseek-chat".into(),
+            base_url: "https://api.deepseek.com/v1".into(),
+            max_tokens: 1024,
+            custom_headers: Default::default(),
+            kind: Some("openai-chat".into()),
+        });
+        assert_eq!(r.upstream_protocol("gpt-via-ds"), Some("openai-chat"));
+        assert!(r.resolve("gpt-via-ds").is_some());
+        assert!(r.resolve("missing").is_none());
+        assert_eq!(r.upstream_protocol("missing"), None);
     }
 }
