@@ -20,12 +20,12 @@ use serde_json::{Map, Value};
 
 use super::{
     common::{schema_fix, tool_id},
-    AdapterError, DecodedResponse, EncodedMessages, StreamDecodeState, ToolAdapter,
+    AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter, StreamDecodeState,
 };
 use crate::base::content::ContentBlock;
 use crate::base::message::{Message, MessageRole, UsageMetadata};
 use crate::base::stream::{StopReason, StreamEvent};
-use crate::tool::Tool;
+use crate::tool::ToolDefinition;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OpenAIChatAdapter;
@@ -36,18 +36,18 @@ impl OpenAIChatAdapter {
     }
 }
 
-impl ToolAdapter for OpenAIChatAdapter {
+impl ProtocolAdapter for OpenAIChatAdapter {
     fn provider(&self) -> &'static str {
         "openai-chat"
     }
 
-    fn encode_tools(&self, tools: &[&dyn Tool]) -> Vec<Value> {
+    fn encode_tools(&self, tools: &[ToolDefinition]) -> Vec<Value> {
         let mut seen = std::collections::HashSet::new();
         tools
             .iter()
-            .filter(|t| seen.insert(t.name().to_string()))
+            .filter(|t| seen.insert(t.name.clone()))
             .map(|t| {
-                let mut params = t.parameters_schema();
+                let mut params = t.parameters.clone();
                 // AMP `YLR`: OpenAI-compat backends reject properties missing `type`.
                 schema_fix::fill_missing_types(&mut params);
                 // Ensure an explicit additionalProperties on object nodes — some
@@ -56,8 +56,8 @@ impl ToolAdapter for OpenAIChatAdapter {
                 serde_json::json!({
                     "type": "function",
                     "function": {
-                        "name": t.name(),
-                        "description": t.description(),
+                        "name": &t.name,
+                        "description": &t.description,
                         "parameters": params,
                     }
                 })
@@ -327,35 +327,19 @@ impl ToolAdapter for OpenAIChatAdapter {
 mod tests {
     use super::*;
 
-    struct MockTool {
-        n: &'static str,
-        schema: Value,
-    }
-    #[async_trait::async_trait]
-    impl Tool for MockTool {
-        fn name(&self) -> &str { self.n }
-        fn description(&self) -> &str { "" }
-        fn parameters_schema(&self) -> Value { self.schema.clone() }
-        async fn execute(&self, _i: Value, _c: &dyn crate::tool::execution::ToolExecutionContext)
-            -> Result<crate::tool::execution::ToolOutput, crate::base::error::AgentError>
-        {
-            unreachable!()
-        }
-    }
-
     #[test]
     fn encode_tools_wraps_function_and_fixes_schema() {
         // Schema missing `type` on properties — YLR should patch it.
-        let t = MockTool {
-            n: "read",
-            schema: serde_json::json!({
+        let tools = vec![ToolDefinition {
+            name: "read".into(),
+            description: String::new(),
+            parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "tags": { "items": { "type": "string" } }
                 }
             }),
-        };
-        let tools: Vec<&dyn Tool> = vec![&t];
+        }];
         let encoded = OpenAIChatAdapter.encode_tools(&tools);
         assert_eq!(encoded[0]["type"], "function");
         assert_eq!(encoded[0]["function"]["name"], "read");

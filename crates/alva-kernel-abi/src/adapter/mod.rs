@@ -26,7 +26,7 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use alva_kernel_abi::adapter::{ToolAdapter, anthropic::AnthropicAdapter};
+//! use alva_kernel_abi::adapter::{ProtocolAdapter, anthropic::AnthropicAdapter};
 //!
 //! let adapter = AnthropicAdapter::new();
 //! let encoded = adapter.encode_messages(&messages);
@@ -41,7 +41,7 @@ use serde_json::Value;
 
 use crate::base::message::{Message, UsageMetadata};
 use crate::base::stream::StreamEvent;
-use crate::tool::Tool;
+use crate::tool::ToolDefinition;
 
 pub mod common;
 
@@ -51,7 +51,7 @@ pub mod openai_chat;
 pub mod openai_responses;
 
 // ---------------------------------------------------------------------------
-// ToolAdapter trait
+// ProtocolAdapter trait (formerly ToolAdapter)
 // ---------------------------------------------------------------------------
 
 /// Provider-neutral contract for translating normalized `Message` / `Tool` /
@@ -67,19 +67,19 @@ pub mod openai_responses;
 ///
 /// Adapters are stateless by construction (take `&self`); streaming decode
 /// uses an explicit `&mut StreamDecodeState` to accumulate partial JSON.
-pub trait ToolAdapter: Send + Sync {
+pub trait ProtocolAdapter: Send + Sync {
     /// Provider identifier, e.g. `"anthropic"`, `"openai-chat"`, `"gemini"`.
     /// Used for tracing and debug logs.
     fn provider(&self) -> &'static str;
 
-    /// Encode a list of alva tools into the provider's `tools` field. Each
+    /// Encode a list of tool definitions into the provider's `tools` field. Each
     /// element is a JSON value ready to be spliced into the request body.
     ///
     /// Adapters handle provider-specific quirks: Anthropic passes schema
     /// through as-is; OpenAI Chat wraps in `{type:"function", function:{}}`
     /// and fixes missing property `type`s (YLR); Gemini wraps the whole
     /// list in a single `functionDeclarations[]` tool.
-    fn encode_tools(&self, tools: &[&dyn Tool]) -> Vec<Value>;
+    fn encode_tools(&self, tools: &[ToolDefinition]) -> Vec<Value>;
 
     /// Encode a normalized conversation into the provider's messages shape.
     ///
@@ -104,6 +104,11 @@ pub trait ToolAdapter: Send + Sync {
         state: &mut StreamDecodeState,
     ) -> Result<Vec<StreamEvent>, AdapterError>;
 }
+
+/// Backwards-compatibility alias: `ToolAdapter` resolves to `ProtocolAdapter`.
+/// Existing `use alva_kernel_abi::adapter::ToolAdapter` imports continue to
+/// work while callers migrate to the new name.
+pub use self::ProtocolAdapter as ToolAdapter;
 
 // ---------------------------------------------------------------------------
 // EncodedMessages

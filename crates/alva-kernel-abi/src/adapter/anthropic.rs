@@ -12,12 +12,12 @@
 use serde_json::{Map, Value};
 
 use super::{
-    common::tool_id, AdapterError, DecodedResponse, EncodedMessages, StreamDecodeState,
-    ToolAdapter,
+    common::tool_id, AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter,
+    StreamDecodeState,
 };
 use crate::base::message::{Message, MessageRole, UsageMetadata};
 use crate::base::stream::{StopReason, StreamEvent};
-use crate::tool::Tool;
+use crate::tool::ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // AnthropicAdapter
@@ -33,22 +33,22 @@ impl AnthropicAdapter {
     }
 }
 
-impl ToolAdapter for AnthropicAdapter {
+impl ProtocolAdapter for AnthropicAdapter {
     fn provider(&self) -> &'static str {
         "anthropic"
     }
 
-    fn encode_tools(&self, tools: &[&dyn Tool]) -> Vec<Value> {
+    fn encode_tools(&self, tools: &[ToolDefinition]) -> Vec<Value> {
         // AMP `Bx`: dedupe by name, schema passthrough.
         let mut seen = std::collections::HashSet::new();
         tools
             .iter()
-            .filter(|t| seen.insert(t.name().to_string()))
+            .filter(|t| seen.insert(t.name.clone()))
             .map(|t| {
                 serde_json::json!({
-                    "name": t.name(),
-                    "description": t.description(),
-                    "input_schema": t.parameters_schema(),
+                    "name": &t.name,
+                    "description": &t.description,
+                    "input_schema": t.parameters.clone(),
                 })
             })
             .collect()
@@ -515,22 +515,11 @@ mod tests {
 
     #[test]
     fn encode_tools_dedupes() {
-        struct MockTool(&'static str);
-        #[async_trait::async_trait]
-        impl Tool for MockTool {
-            fn name(&self) -> &str { self.0 }
-            fn description(&self) -> &str { "" }
-            fn parameters_schema(&self) -> Value { serde_json::json!({"type":"object"}) }
-            async fn execute(&self, _i: Value, _c: &dyn crate::tool::execution::ToolExecutionContext)
-                -> Result<crate::tool::execution::ToolOutput, crate::base::error::AgentError>
-            {
-                unreachable!()
-            }
-        }
-        let a = MockTool("x");
-        let b = MockTool("x"); // duplicate
-        let c = MockTool("y");
-        let tools: Vec<&dyn Tool> = vec![&a, &b, &c];
+        let tools = vec![
+            ToolDefinition { name: "x".into(), description: String::new(), parameters: serde_json::json!({"type":"object"}) },
+            ToolDefinition { name: "x".into(), description: String::new(), parameters: serde_json::json!({"type":"object"}) }, // duplicate
+            ToolDefinition { name: "y".into(), description: String::new(), parameters: serde_json::json!({"type":"object"}) },
+        ];
         let encoded = AnthropicAdapter.encode_tools(&tools);
         assert_eq!(encoded.len(), 2);
         assert_eq!(encoded[0]["name"], "x");

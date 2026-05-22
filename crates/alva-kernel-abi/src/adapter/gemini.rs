@@ -28,13 +28,13 @@
 use serde_json::{Map, Value};
 
 use super::{
-    common::tool_id, AdapterError, DecodedResponse, EncodedMessages, StreamDecodeState,
-    ToolAdapter,
+    common::tool_id, AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter,
+    StreamDecodeState,
 };
 use crate::base::content::ContentBlock;
 use crate::base::message::{Message, MessageRole, UsageMetadata};
 use crate::base::stream::{StopReason, StreamEvent};
-use crate::tool::Tool;
+use crate::tool::ToolDefinition;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GeminiAdapter;
@@ -45,12 +45,12 @@ impl GeminiAdapter {
     }
 }
 
-impl ToolAdapter for GeminiAdapter {
+impl ProtocolAdapter for GeminiAdapter {
     fn provider(&self) -> &'static str {
         "gemini"
     }
 
-    fn encode_tools(&self, tools: &[&dyn Tool]) -> Vec<Value> {
+    fn encode_tools(&self, tools: &[ToolDefinition]) -> Vec<Value> {
         if tools.is_empty() {
             return vec![];
         }
@@ -58,9 +58,9 @@ impl ToolAdapter for GeminiAdapter {
             .iter()
             .map(|t| {
                 serde_json::json!({
-                    "name": t.name(),
-                    "description": t.description(),
-                    "parameters": convert_schema(&t.parameters_schema()),
+                    "name": &t.name,
+                    "description": &t.description,
+                    "parameters": convert_schema(&t.parameters),
                 })
             })
             .collect();
@@ -416,35 +416,19 @@ fn find_name_for_id(messages: &[Message], target_id: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    struct MockTool {
-        n: &'static str,
-        schema: Value,
-    }
-    #[async_trait::async_trait]
-    impl Tool for MockTool {
-        fn name(&self) -> &str { self.n }
-        fn description(&self) -> &str { "" }
-        fn parameters_schema(&self) -> Value { self.schema.clone() }
-        async fn execute(&self, _i: Value, _c: &dyn crate::tool::execution::ToolExecutionContext)
-            -> Result<crate::tool::execution::ToolOutput, crate::base::error::AgentError>
-        {
-            unreachable!()
-        }
-    }
-
     #[test]
     fn encode_tools_wraps_function_declarations_and_maps_type_enum() {
-        let t = MockTool {
-            n: "read",
-            schema: serde_json::json!({
+        let tools = vec![ToolDefinition {
+            name: "read".into(),
+            description: String::new(),
+            parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "examples": ["/a", "/b"] }
                 },
                 "required": ["path"]
             }),
-        };
-        let tools: Vec<&dyn Tool> = vec![&t];
+        }];
         let encoded = GeminiAdapter.encode_tools(&tools);
         assert_eq!(encoded.len(), 1);
         let decls = encoded[0]["functionDeclarations"].as_array().unwrap();
