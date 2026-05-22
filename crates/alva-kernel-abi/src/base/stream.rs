@@ -1,9 +1,28 @@
 // INPUT:  serde, crate::base::message::UsageMetadata
-// OUTPUT: pub enum StreamEvent
+// OUTPUT: pub enum StreamEvent, pub enum StopReason
 // POS:    Streaming event enum representing incremental deltas from a language model response.
 use serde::{Deserialize, Serialize};
 
 use crate::base::message::UsageMetadata;
+
+/// Cross-protocol terminal reason. Maps to Chat finish_reason /
+/// Anthropic stop_reason / Responses status (see gateway spec §7).
+///
+/// Wire format (externally-tagged, snake_case):
+///   EndTurn       → `"end_turn"`
+///   ToolUse       → `"tool_use"`
+///   MaxTokens     → `"max_tokens"`
+///   StopSequence  → `"stop_sequence"`
+///   Other("x")    → `{"other": "x"}`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum StopReason {
+    EndTurn,
+    ToolUse,
+    MaxTokens,
+    StopSequence,
+    Other(String),
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamEvent {
@@ -40,6 +59,9 @@ pub enum StreamEvent {
         id: String,
     },
     Usage(UsageMetadata),
+    /// Terminal reason, emitted right before `Done`. Lets a gateway
+    /// reconstruct the inbound protocol's terminal frame.
+    Stop { reason: StopReason },
     Done,
     Error(String),
 }
@@ -180,5 +202,22 @@ mod tests {
     fn error_newtype_serializes_under_variant_key() {
         let v = roundtrip(&StreamEvent::Error("boom".into()));
         assert_eq!(v, json!({ "Error": "boom" }));
+    }
+
+    // -- StopReason / Stop variant -------------------------------------------
+
+    #[test]
+    fn stop_serializes_with_reason() {
+        let v = roundtrip(&StreamEvent::Stop { reason: StopReason::MaxTokens });
+        assert_eq!(v, json!({ "Stop": { "reason": "max_tokens" } }));
+    }
+
+    #[test]
+    fn stop_reason_other_carries_string() {
+        // StopReason::Other is an externally-tagged newtype variant, so with
+        // #[serde(rename_all = "snake_case")] it serializes as
+        // { "other": "refusal" }.
+        let v = roundtrip(&StreamEvent::Stop { reason: StopReason::Other("refusal".into()) });
+        assert_eq!(v, json!({ "Stop": { "reason": { "other": "refusal" } } }));
     }
 }
