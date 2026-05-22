@@ -23,6 +23,7 @@ alva-kernel-core = { path = "../alva-kernel-core" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 alva-protocol-skill = { path = "../alva-protocol-skill" }
+alva-app-gateway = { path = "../alva-app-gateway" }
 alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin" }
 alva-app-extension-browser = { path = "../alva-app-extension-browser" }
 alva-app-extension-memory = { path = "../alva-app-extension-memory" }

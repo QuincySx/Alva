@@ -57,6 +57,8 @@ fn main() {
             agent::open_session_workspace,
             agent::respond_approval,
             agent::list_pending_approvals,
+            agent::start_gateway,
+            agent::stop_gateway,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");
