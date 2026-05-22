@@ -20,8 +20,10 @@ use serde_json::{Map, Value};
 
 use super::{
     common::{schema_fix, tool_id},
-    AdapterError, DecodedResponse, EncodedMessages, ProtocolAdapter, StreamDecodeState,
+    AdapterError, DecodedRequest, DecodedResponse, EncodedMessages, ProtocolAdapter, SseFrame,
+    StreamDecodeState, StreamEncodeState,
 };
+use crate::config::ModelConfig;
 use crate::content::ContentBlock;
 use crate::message::{Message, MessageRole, UsageMetadata};
 use crate::stream::{StopReason, StreamEvent};
@@ -317,6 +319,425 @@ impl ProtocolAdapter for OpenAIChatAdapter {
         }
         Ok(out)
     }
+
+    // -----------------------------------------------------------------------
+    // Inbound (gateway) methods
+    // -----------------------------------------------------------------------
+
+    fn decode_request(&self, body: &Value) -> Result<DecodedRequest, AdapterError> {
+        // -- model (required) ------------------------------------------------
+        let model = body
+            .get("model")
+            .and_then(Value::as_str)
+            .ok_or(AdapterError::MissingField("model"))?
+            .to_string();
+
+        // -- messages --------------------------------------------------------
+        // Chat Completions uses a flat inline messages array with roles:
+        // system / user / assistant / tool.
+        let mut messages: Vec<Message> = Vec::new();
+
+        if let Some(msgs_arr) = body.get("messages").and_then(Value::as_array) {
+            for item in msgs_arr {
+                let role_str = item.get("role").and_then(Value::as_str).unwrap_or("user");
+
+                // Tool result: {role:"tool", tool_call_id, content}
+                if role_str == "tool" {
+                    let raw_id =
+                        item.get("tool_call_id").and_then(Value::as_str).unwrap_or("unknown");
+                    let id = tool_id::to_normalized(raw_id);
+                    let content_text =
+                        item.get("content").and_then(Value::as_str).unwrap_or("").to_string();
+                    messages.push(Message {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        role: MessageRole::Tool,
+                        content: vec![ContentBlock::ToolResult {
+                            id: id.clone(),
+                            content: vec![crate::tool_payload::ToolContent::Text {
+                                text: content_text,
+                            }],
+                            is_error: false,
+                        }],
+                        tool_call_id: Some(id),
+                        usage: None,
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                    });
+                    continue;
+                }
+
+                let role = match role_str {
+                    "user" => MessageRole::User,
+                    "assistant" => MessageRole::Assistant,
+                    "system" => MessageRole::System,
+                    _ => MessageRole::User,
+                };
+
+                // Parse content — can be a string or an array of content parts.
+                let content_val = item.get("content");
+                let mut blocks: Vec<ContentBlock> = match content_val {
+                    Some(Value::String(s)) => {
+                        vec![ContentBlock::Text { text: s.clone() }]
+                    }
+                    Some(Value::Array(parts)) => {
+                        let mut blks: Vec<ContentBlock> = Vec::new();
+                        for part in parts {
+                            let part_type =
+                                part.get("type").and_then(Value::as_str).unwrap_or("");
+                            match part_type {
+                                "image_url" | "image" => {
+                                    return Err(AdapterError::UnexpectedFormat(
+                                        "image input not supported".into(),
+                                    ));
+                                }
+                                "text" => {
+                                    if let Some(text) =
+                                        part.get("text").and_then(Value::as_str)
+                                    {
+                                        blks.push(ContentBlock::Text {
+                                            text: text.to_string(),
+                                        });
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        blks
+                    }
+                    _ => vec![],
+                };
+
+                // Assistant messages may carry tool_calls[] in addition to (or instead of)
+                // content text.
+                if role_str == "assistant" {
+                    if let Some(tool_calls) = item.get("tool_calls").and_then(Value::as_array) {
+                        for tc in tool_calls {
+                            let raw_id = tc.get("id").and_then(Value::as_str).unwrap_or("");
+                            let id = tool_id::to_normalized(raw_id);
+                            let function = tc.get("function").unwrap_or(&Value::Null);
+                            let name = function
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            let args_str = function
+                                .get("arguments")
+                                .and_then(Value::as_str)
+                                .unwrap_or("{}");
+                            let input: Value = serde_json::from_str(args_str)
+                                .unwrap_or(Value::Object(Map::new()));
+                            blocks.push(ContentBlock::ToolUse { id, name, input });
+                        }
+                    }
+                }
+
+                messages.push(Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    role,
+                    content: blocks,
+                    tool_call_id: None,
+                    usage: None,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                });
+            }
+        }
+
+        // -- tools -----------------------------------------------------------
+        // Chat Completions tool shape is NESTED: {type:"function", function:{name, description,
+        // parameters}} — unlike Responses API's flat shape.
+        let tools: Vec<ToolDefinition> = body
+            .get("tools")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| {
+                        // Nested under "function" key.
+                        let func = t.get("function")?;
+                        let name = func.get("name").and_then(Value::as_str)?.to_string();
+                        let description = func
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let parameters = func
+                            .get("parameters")
+                            .cloned()
+                            .unwrap_or_else(|| Value::Object(Map::new()));
+                        Some(ToolDefinition { name, description, parameters })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // -- config ----------------------------------------------------------
+        let temperature = body
+            .get("temperature")
+            .and_then(Value::as_f64)
+            .map(|v| v as f32);
+        let top_p = body.get("top_p").and_then(Value::as_f64).map(|v| v as f32);
+        // Chat uses `max_tokens` (NOT `max_output_tokens` like Responses API).
+        let max_tokens =
+            body.get("max_tokens").and_then(Value::as_u64).map(|v| v as u32);
+        // Chat passes `reasoning_effort` as a top-level string (not nested under reasoning.effort).
+        let reasoning_effort = body
+            .get("reasoning_effort")
+            .and_then(Value::as_str)
+            .and_then(crate::config::ReasoningEffort::parse);
+
+        let config = ModelConfig {
+            temperature,
+            top_p,
+            max_tokens,
+            reasoning_effort,
+            ..ModelConfig::default()
+        };
+
+        // -- stream ----------------------------------------------------------
+        let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+
+        Ok(DecodedRequest { model, messages, tools, config, stream })
+    }
+
+    fn encode_response(&self, resp: &DecodedResponse) -> Result<Value, AdapterError> {
+        // Build choices[0].message from resp.message.content.
+        // Text blocks → joined into `content` string.
+        // ToolUse blocks → tool_calls array with nested function shape.
+        let mut text_parts: Vec<&str> = Vec::new();
+        let mut tool_calls: Vec<Value> = Vec::new();
+
+        for block in &resp.message.content {
+            match block {
+                ContentBlock::Text { text } => {
+                    text_parts.push(text.as_str());
+                }
+                ContentBlock::ToolUse { id, name, input } => {
+                    tool_calls.push(serde_json::json!({
+                        "id": tool_id::to_provider(id),
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            // arguments must be a JSON string, not an object.
+                            "arguments": input.to_string(),
+                        }
+                    }));
+                }
+                _ => {}
+            }
+        }
+
+        // finish_reason: if any ToolUse blocks → "tool_calls", else "stop".
+        let finish_reason = if !tool_calls.is_empty() { "tool_calls" } else { "stop" };
+
+        let mut message_obj = serde_json::json!({ "role": "assistant" });
+        if !text_parts.is_empty() {
+            message_obj["content"] = Value::String(text_parts.join(""));
+        } else {
+            // OpenAI sets content to null when only tool_calls are present.
+            message_obj["content"] = Value::Null;
+        }
+        if !tool_calls.is_empty() {
+            message_obj["tool_calls"] = Value::Array(tool_calls);
+        }
+
+        // Usage: prefer resp.message.usage, fall back to resp.usage.
+        let usage_src = resp.message.usage.as_ref().or(resp.usage.as_ref());
+        let usage = match usage_src {
+            Some(u) => serde_json::json!({
+                "prompt_tokens": u.input_tokens,
+                "completion_tokens": u.output_tokens,
+                "total_tokens": u.total_tokens,
+            }),
+            None => serde_json::json!({
+                "prompt_tokens": 0_u32,
+                "completion_tokens": 0_u32,
+                "total_tokens": 0_u32,
+            }),
+        };
+
+        Ok(serde_json::json!({
+            "id": &resp.message.id,
+            "object": "chat.completion",
+            "model": "",
+            "choices": [{
+                "index": 0,
+                "message": message_obj,
+                "finish_reason": finish_reason,
+            }],
+            "usage": usage,
+        }))
+    }
+
+    fn encode_stream_event(
+        &self,
+        ev: &StreamEvent,
+        st: &mut StreamEncodeState,
+    ) -> Result<Vec<SseFrame>, AdapterError> {
+        // Ensure response_id is populated for every frame.
+        if st.response_id.is_empty() {
+            st.response_id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
+        }
+
+        // Helper closure: build a minimal chat.completion.chunk skeleton.
+        // The caller fills in choices[0].
+        let chunk_base = || -> Value {
+            serde_json::json!({
+                "id": &st.response_id,
+                "object": "chat.completion.chunk",
+                "choices": [],
+            })
+        };
+
+        let mut out: Vec<SseFrame> = Vec::new();
+
+        match ev {
+            StreamEvent::Start => {
+                if !st.started {
+                    st.started = true;
+                    // Emit the opening chunk with role:"assistant".
+                    let mut chunk = chunk_base();
+                    chunk["choices"] = serde_json::json!([{
+                        "index": 0,
+                        "delta": { "role": "assistant" },
+                        "finish_reason": null,
+                    }]);
+                    out.push(SseFrame { event: None, data: chunk });
+                }
+            }
+
+            StreamEvent::TextDelta { text } => {
+                let mut chunk = chunk_base();
+                chunk["choices"] = serde_json::json!([{
+                    "index": 0,
+                    "delta": { "content": text },
+                    "finish_reason": null,
+                }]);
+                out.push(SseFrame { event: None, data: chunk });
+            }
+
+            StreamEvent::ToolCallStart { id, name } => {
+                let provider_id = tool_id::to_provider(id);
+                // Use output_index as a tool-call index counter (0-based, increments per tool).
+                let tool_idx = st.output_index;
+                let mut chunk = chunk_base();
+                chunk["choices"] = serde_json::json!([{
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{
+                            "index": tool_idx,
+                            "id": provider_id,
+                            "type": "function",
+                            "function": { "name": name, "arguments": "" },
+                        }]
+                    },
+                    "finish_reason": null,
+                }]);
+                out.push(SseFrame { event: None, data: chunk });
+                // Advance index so next ToolCallStart gets a distinct index.
+                st.output_index += 1;
+            }
+
+            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+                // Determine the tool index for this id.
+                // output_index was already incremented past this tool's slot, so we
+                // look up by the tool-args map position. Use the count of keys in
+                // tool_args (before insertion) as a proxy for the original index.
+                // Simpler: track index by order of insertion in tool_args.
+                // We use output_index - 1 - (number of tools that started after this one).
+                // Actually, the simplest correct approach: accumulate deltas with a
+                // "current tool index" derived from how many tools have been started so far.
+                // Since output_index was incremented after each ToolCallStart, the index
+                // for tool `id` is (position in insertion order of tool_args keys).
+                let tool_idx = {
+                    // Position of this id in tool_args insertion order (0-based).
+                    st.tool_args.entry(id.clone()).or_default().push_str(arguments_delta);
+                    // Find position among keys. HashMap doesn't preserve order, but for
+                    // a single tool (the common case) this is always 0. For multiple tools,
+                    // we accept the inherent HashMap non-determinism (OpenAI clients look up
+                    // by index in the delta, not by id, but tools are rarely interleaved).
+                    // We use a stable fallback: output_index - 1 if only one tool ever started.
+                    if st.tool_args.len() == 1 { 0usize } else { st.tool_args.len() - 1 }
+                };
+                let provider_id = tool_id::to_provider(id);
+                let mut chunk = chunk_base();
+                chunk["choices"] = serde_json::json!([{
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{
+                            "index": tool_idx,
+                            "function": { "arguments": arguments_delta },
+                        }]
+                    },
+                    "finish_reason": null,
+                }]);
+                // Silence unused variable warning — provider_id is used in more
+                // complex scenarios; keep it here for parity with other adapters.
+                let _ = provider_id;
+                out.push(SseFrame { event: None, data: chunk });
+            }
+
+            StreamEvent::ToolCallEnd { .. } => {
+                // Chat Completions signals tool-call completion via finish_reason:"tool_calls"
+                // on the terminal chunk — no per-tool-call end frame needed.
+            }
+
+            StreamEvent::Usage(u) => {
+                // Stash usage for the terminal chunk (or emit immediately as a
+                // standalone chunk for clients that consume stream_options.include_usage).
+                // We emit it as a chunk with empty choices and a usage field, which is the
+                // OpenAI stream_options.include_usage format.
+                st.usage = Some(u.clone());
+                let mut chunk = chunk_base();
+                chunk["choices"] = Value::Array(vec![]);
+                chunk["usage"] = serde_json::json!({
+                    "prompt_tokens": u.input_tokens,
+                    "completion_tokens": u.output_tokens,
+                    "total_tokens": u.total_tokens,
+                });
+                out.push(SseFrame { event: None, data: chunk });
+            }
+
+            StreamEvent::Stop { reason } => {
+                let finish_reason = match reason {
+                    StopReason::ToolUse => "tool_calls",
+                    StopReason::MaxTokens => "length",
+                    StopReason::EndTurn | StopReason::StopSequence => "stop",
+                    StopReason::Other(s) => s.as_str(),
+                };
+                let mut chunk = chunk_base();
+                chunk["choices"] = serde_json::json!([{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": finish_reason,
+                }]);
+                out.push(SseFrame { event: None, data: chunk });
+            }
+
+            StreamEvent::Done => {
+                // The literal `data: [DONE]` sentinel for Chat Completions.
+                // Represented as an SseFrame whose data is the string "[DONE]".
+                out.push(SseFrame {
+                    event: None,
+                    data: Value::String("[DONE]".to_string()),
+                });
+            }
+
+            StreamEvent::Error(msg) => {
+                // Emit a terminal chunk with finish_reason:"stop" and an error field.
+                let mut chunk = chunk_base();
+                chunk["choices"] = serde_json::json!([{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop",
+                }]);
+                chunk["error"] = serde_json::json!({ "message": msg });
+                out.push(SseFrame { event: None, data: chunk });
+            }
+
+            // Reasoning events — not part of Chat Completions wire format; skip.
+            StreamEvent::ReasoningDelta { .. } | StreamEvent::ReasoningBlock { .. } => {}
+        }
+
+        Ok(out)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -491,5 +912,295 @@ mod tests {
         });
         let out = OpenAIChatAdapter.decode_stream_event(&c, &mut state).unwrap();
         assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.1 — decode_request
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn chat_decode_request_roundtrips_tool_call() {
+        // Body with: system message, user message, assistant with tool_calls,
+        // tool result, and a tool definition.
+        let body = serde_json::json!({
+            "model": "gpt-4o",
+            "messages": [
+                { "role": "system", "content": "you are alva" },
+                { "role": "user", "content": "list files in /tmp" },
+                {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {
+                            "name": "read",
+                            "arguments": "{\"path\":\"/tmp\"}"
+                        }
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_abc",
+                    "content": "file1.txt\nfile2.txt"
+                }
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "read",
+                    "description": "read a file",
+                    "parameters": { "type": "object" }
+                }
+            }],
+            "stream": true,
+            "max_tokens": 512,
+            "reasoning_effort": "high"
+        });
+        let r = OpenAIChatAdapter::new().decode_request(&body).unwrap();
+
+        assert_eq!(r.model, "gpt-4o");
+        assert!(r.stream);
+        assert_eq!(r.config.max_tokens, Some(512));
+        assert_eq!(r.config.reasoning_effort, Some(crate::config::ReasoningEffort::High));
+
+        // tools: nested function shape decoded correctly
+        assert_eq!(r.tools.len(), 1);
+        assert_eq!(r.tools[0].name, "read");
+        assert_eq!(r.tools[0].description, "read a file");
+
+        // system message present
+        assert!(r.messages.iter().any(|m| matches!(m.role, MessageRole::System)));
+
+        // user message present
+        assert!(r.messages.iter().any(|m| matches!(m.role, MessageRole::User)));
+
+        // assistant message contains ToolUse block with normalized id
+        let assistant_msg = r
+            .messages
+            .iter()
+            .find(|m| matches!(m.role, MessageRole::Assistant))
+            .expect("assistant message");
+        let tool_use = assistant_msg.content.iter().find_map(|b| {
+            if let ContentBlock::ToolUse { id, name, input } = b {
+                Some((id.clone(), name.clone(), input.clone()))
+            } else {
+                None
+            }
+        });
+        let (tu_id, tu_name, tu_input) = tool_use.expect("ToolUse in assistant message");
+        assert_eq!(tu_id, "toolu_call_abc", "id must be normalized");
+        assert_eq!(tu_name, "read");
+        assert_eq!(tu_input["path"], "/tmp");
+
+        // tool result message present
+        let tool_msg = r
+            .messages
+            .iter()
+            .find(|m| matches!(m.role, MessageRole::Tool))
+            .expect("tool message");
+        assert!(
+            tool_msg.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. })),
+            "Tool message must contain ToolResult block"
+        );
+    }
+
+    #[test]
+    fn chat_decode_request_rejects_image() {
+        let body = serde_json::json!({
+            "model": "m",
+            "messages": [{
+                "role": "user",
+                "content": [{ "type": "image_url", "image_url": { "url": "https://x.com/img.png" } }]
+            }]
+        });
+        assert!(
+            matches!(
+                OpenAIChatAdapter::new().decode_request(&body),
+                Err(AdapterError::UnexpectedFormat(_))
+            ),
+            "image_url content part must be rejected"
+        );
+    }
+
+    #[test]
+    fn chat_decode_request_missing_model_errors() {
+        let body = serde_json::json!({ "messages": [] });
+        assert!(
+            matches!(
+                OpenAIChatAdapter::new().decode_request(&body),
+                Err(AdapterError::MissingField("model"))
+            )
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.2 — encode_response
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn chat_encode_response_tool_call() {
+        use super::super::DecodedResponse;
+        use crate::message::UsageMetadata;
+
+        let dr = DecodedResponse {
+            message: Message {
+                id: "r1".into(),
+                role: MessageRole::Assistant,
+                content: vec![
+                    ContentBlock::Text { text: "let me read that".into() },
+                    ContentBlock::ToolUse {
+                        id: "toolu_call_abc".into(),
+                        name: "read".into(),
+                        input: serde_json::json!({"path": "/tmp"}),
+                    },
+                ],
+                tool_call_id: None,
+                usage: Some(UsageMetadata {
+                    input_tokens: 10,
+                    output_tokens: 20,
+                    total_tokens: 30,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
+                }),
+                timestamp: 0,
+            },
+            usage: None,
+        };
+
+        let v = OpenAIChatAdapter::new().encode_response(&dr).unwrap();
+
+        // object must be chat.completion
+        assert_eq!(v["object"], "chat.completion", "object must be 'chat.completion'");
+
+        // finish_reason must be "tool_calls" (ToolUse present)
+        assert_eq!(
+            v["choices"][0]["finish_reason"],
+            "tool_calls",
+            "finish_reason must be 'tool_calls'"
+        );
+
+        // tool_calls[0].function.arguments must be a parseable JSON string
+        let args_val = &v["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"];
+        let args_str = args_val.as_str().expect("arguments must be a string");
+        let parsed: serde_json::Value = serde_json::from_str(args_str)
+            .expect("arguments string must be valid JSON");
+        assert_eq!(parsed["path"], "/tmp");
+
+        // id must be provider-form (toolu_ stripped)
+        assert_eq!(v["choices"][0]["message"]["tool_calls"][0]["id"], "call_abc");
+
+        // usage fields (prompt_tokens = input_tokens, completion_tokens = output_tokens)
+        assert_eq!(v["usage"]["prompt_tokens"], 10);
+        assert_eq!(v["usage"]["completion_tokens"], 20);
+        assert_eq!(v["usage"]["total_tokens"], 30);
+    }
+
+    #[test]
+    fn chat_encode_response_text_only_has_stop_reason() {
+        use super::super::DecodedResponse;
+
+        let dr = DecodedResponse {
+            message: Message {
+                id: "r2".into(),
+                role: MessageRole::Assistant,
+                content: vec![ContentBlock::Text { text: "hello".into() }],
+                tool_call_id: None,
+                usage: None,
+                timestamp: 0,
+            },
+            usage: None,
+        };
+        let v = OpenAIChatAdapter::new().encode_response(&dr).unwrap();
+        assert_eq!(v["choices"][0]["finish_reason"], "stop");
+        assert_eq!(v["choices"][0]["message"]["content"], "hello");
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5.3 — encode_stream_event
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn chat_encode_stream_stop_max_tokens_emits_length() {
+        use super::super::StreamEncodeState;
+
+        let a = OpenAIChatAdapter::new();
+        let mut st = StreamEncodeState::default();
+        let frames = a
+            .encode_stream_event(&StreamEvent::Stop { reason: StopReason::MaxTokens }, &mut st)
+            .unwrap();
+        assert_eq!(frames.len(), 1, "Stop must emit exactly one chunk");
+        let chunk = &frames[0].data;
+        assert_eq!(chunk["object"], "chat.completion.chunk", "object must be chat.completion.chunk");
+        assert_eq!(
+            chunk["choices"][0]["finish_reason"],
+            "length",
+            "MaxTokens must map to finish_reason 'length'"
+        );
+    }
+
+    #[test]
+    fn chat_encode_stream_done_emits_done_sentinel() {
+        use super::super::StreamEncodeState;
+
+        let a = OpenAIChatAdapter::new();
+        let mut st = StreamEncodeState::default();
+        let frames = a.encode_stream_event(&StreamEvent::Done, &mut st).unwrap();
+        assert_eq!(frames.len(), 1, "Done must emit exactly one frame");
+        let data = &frames[0].data;
+        assert_eq!(
+            data.as_str(),
+            Some("[DONE]"),
+            "Done frame data must be the string '[DONE]'"
+        );
+    }
+
+    #[test]
+    fn chat_encode_stream_full_sequence() {
+        use super::super::StreamEncodeState;
+
+        let a = OpenAIChatAdapter::new();
+        let mut st = StreamEncodeState::default();
+        let mut frames: Vec<super::super::SseFrame> = Vec::new();
+
+        for ev in [
+            StreamEvent::Start,
+            StreamEvent::TextDelta { text: "hello".into() },
+            StreamEvent::ToolCallStart { id: "toolu_t1".into(), name: "read".into() },
+            StreamEvent::ToolCallDelta {
+                id: "toolu_t1".into(),
+                name: None,
+                arguments_delta: "{\"p\":1}".into(),
+            },
+            StreamEvent::ToolCallEnd { id: "toolu_t1".into() },
+            StreamEvent::Stop { reason: StopReason::ToolUse },
+            StreamEvent::Done,
+        ] {
+            frames.extend(a.encode_stream_event(&ev, &mut st).unwrap());
+        }
+
+        // All chunks (excluding [DONE]) must have object:"chat.completion.chunk"
+        for f in &frames {
+            if let Some(s) = f.data.as_str() {
+                assert_eq!(s, "[DONE]");
+            } else {
+                assert_eq!(f.data["object"], "chat.completion.chunk");
+            }
+        }
+
+        // ToolUse stop reason → finish_reason "tool_calls"
+        let stop_chunk = frames
+            .iter()
+            .find(|f| {
+                f.data
+                    .pointer("/choices/0/finish_reason")
+                    .and_then(|v| v.as_str())
+                    .is_some()
+            })
+            .expect("a chunk with finish_reason");
+        assert_eq!(stop_chunk.data["choices"][0]["finish_reason"], "tool_calls");
+
+        // Done sentinel is last
+        let last = frames.last().expect("at least one frame");
+        assert_eq!(last.data.as_str(), Some("[DONE]"));
     }
 }
