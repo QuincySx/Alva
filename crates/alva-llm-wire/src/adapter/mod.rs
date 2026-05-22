@@ -345,4 +345,8 @@ pub struct StreamEncodeState {
     /// that emit a distinct first frame (e.g. a `[DONE]` sentinel) check
     /// this to know whether the stream has been opened.
     pub started: bool,
+    /// Stashed usage metadata to embed in the final `response.completed`
+    /// (or equivalent) frame. Set when a `StreamEvent::Usage` is received
+    /// before the stop event.
+    pub usage: Option<UsageMetadata>,
 }

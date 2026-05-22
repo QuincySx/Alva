@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
 use super::{
     common::{schema_fix, tool_id},
     AdapterError, DecodedRequest, DecodedResponse, EncodedMessages, ProtocolAdapter,
-    StreamDecodeState,
+    SseFrame, StreamDecodeState, StreamEncodeState,
 };
 use crate::config::ModelConfig;
 use crate::content::ContentBlock;
@@ -576,6 +576,196 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
         }
         Ok(out)
     }
+
+    fn encode_stream_event(
+        &self,
+        ev: &StreamEvent,
+        st: &mut StreamEncodeState,
+    ) -> Result<Vec<SseFrame>, AdapterError> {
+        // Helper: emit one named SSE frame, bumping st.seq each time so
+        // sequence_number is strictly monotonic across all frames in a stream.
+        macro_rules! frame {
+            ($event_name:expr, $data:expr) => {{
+                let seq = st.seq;
+                st.seq += 1;
+                let mut data: serde_json::Value = $data;
+                // Inject sequence_number into every frame's data object.
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("sequence_number".to_string(), serde_json::Value::from(seq));
+                }
+                SseFrame {
+                    event: Some($event_name.to_string()),
+                    data,
+                }
+            }};
+        }
+
+        let mut out: Vec<SseFrame> = Vec::new();
+
+        match ev {
+            StreamEvent::Start => {
+                if !st.started {
+                    st.started = true;
+                    st.response_id = format!("resp_{}", uuid::Uuid::new_v4());
+                    out.push(frame!(
+                        "response.created",
+                        serde_json::json!({
+                            "type": "response.created",
+                            "response": {
+                                "id": &st.response_id,
+                                "object": "response",
+                                "status": "in_progress",
+                            }
+                        })
+                    ));
+                }
+            }
+
+            StreamEvent::TextDelta { text } => {
+                out.push(frame!(
+                    "response.output_text.delta",
+                    serde_json::json!({
+                        "type": "response.output_text.delta",
+                        "output_index": st.output_index,
+                        "content_index": 0,
+                        "delta": text,
+                    })
+                ));
+            }
+
+            StreamEvent::ReasoningDelta { text } => {
+                // Responses API uses `response.reasoning_summary_text.delta` for
+                // streaming reasoning summaries. Emit it so callers that care can
+                // forward it; consumers that don't know this event name will ignore it.
+                out.push(frame!(
+                    "response.reasoning_summary_text.delta",
+                    serde_json::json!({
+                        "type": "response.reasoning_summary_text.delta",
+                        "output_index": st.output_index,
+                        "delta": text,
+                    })
+                ));
+            }
+
+            StreamEvent::ReasoningBlock { .. } => {
+                // Completed reasoning block — no direct Responses API equivalent
+                // for a "done" reasoning event in streaming; skip silently.
+            }
+
+            StreamEvent::ToolCallStart { id, name } => {
+                let provider_id = tool_id::to_provider(id);
+                out.push(frame!(
+                    "response.output_item.added",
+                    serde_json::json!({
+                        "type": "response.output_item.added",
+                        "output_index": st.output_index,
+                        "item": {
+                            "type": "function_call",
+                            "call_id": provider_id,
+                            "name": name,
+                            "arguments": "",
+                        }
+                    })
+                ));
+                st.output_index += 1;
+            }
+
+            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+                let provider_id = tool_id::to_provider(id);
+                out.push(frame!(
+                    "response.function_call_arguments.delta",
+                    serde_json::json!({
+                        "type": "response.function_call_arguments.delta",
+                        "call_id": provider_id,
+                        "delta": arguments_delta,
+                    })
+                ));
+            }
+
+            StreamEvent::ToolCallEnd { id } => {
+                let provider_id = tool_id::to_provider(id);
+                out.push(frame!(
+                    "response.function_call_arguments.done",
+                    serde_json::json!({
+                        "type": "response.function_call_arguments.done",
+                        "call_id": provider_id,
+                    })
+                ));
+                out.push(frame!(
+                    "response.output_item.done",
+                    serde_json::json!({
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "function_call",
+                            "call_id": provider_id,
+                        }
+                    })
+                ));
+            }
+
+            StreamEvent::Usage(u) => {
+                // Stash usage so it can be embedded in the response.completed frame.
+                // The OpenAI Responses API carries usage inside the completed event's
+                // response object rather than as a standalone event.
+                st.usage = Some(u.clone());
+                // Return empty — no frame emitted here.
+            }
+
+            StreamEvent::Stop { reason } => {
+                let (event_name, status) = match reason {
+                    StopReason::EndTurn | StopReason::ToolUse | StopReason::StopSequence => {
+                        ("response.completed", "completed")
+                    }
+                    StopReason::MaxTokens => ("response.incomplete", "incomplete"),
+                    StopReason::Other(_) => ("response.completed", "completed"),
+                };
+
+                let usage_val = match &st.usage {
+                    Some(u) => serde_json::json!({
+                        "input_tokens": u.input_tokens,
+                        "output_tokens": u.output_tokens,
+                        "total_tokens": u.total_tokens,
+                    }),
+                    None => serde_json::json!({
+                        "input_tokens": 0_u32,
+                        "output_tokens": 0_u32,
+                        "total_tokens": 0_u32,
+                    }),
+                };
+
+                out.push(frame!(
+                    event_name,
+                    serde_json::json!({
+                        "type": event_name,
+                        "response": {
+                            "id": &st.response_id,
+                            "object": "response",
+                            "status": status,
+                            "usage": usage_val,
+                        }
+                    })
+                ));
+            }
+
+            StreamEvent::Done => {
+                // No frame emitted — the SSE connection is closed by the transport layer.
+            }
+
+            StreamEvent::Error(msg) => {
+                out.push(frame!(
+                    "response.failed",
+                    serde_json::json!({
+                        "type": "response.failed",
+                        "error": {
+                            "message": msg,
+                        }
+                    })
+                ));
+            }
+        }
+
+        Ok(out)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -754,6 +944,31 @@ mod tests {
             StreamEvent::Stop { reason: StopReason::Other(s) } => assert_eq!(s, "failed"),
             _ => panic!("expected Stop{{Other(\"failed\")}}"),
         }
+    }
+
+    #[test]
+    fn responses_encode_stream_text_then_stop() {
+        use crate::stream::{StreamEvent, StopReason};
+        use crate::message::UsageMetadata;
+        use super::super::StreamEncodeState;
+        let a = OpenAIResponsesAdapter::new();
+        let mut st = StreamEncodeState::default();
+        let mut frames = vec![];
+        for ev in [
+            StreamEvent::Start,
+            StreamEvent::TextDelta { text: "hi".into() },
+            StreamEvent::Usage(UsageMetadata { input_tokens:1, output_tokens:1, total_tokens:2, cache_creation_input_tokens:None, cache_read_input_tokens:None }),
+            StreamEvent::Stop { reason: StopReason::EndTurn },
+            StreamEvent::Done,
+        ] {
+            frames.extend(a.encode_stream_event(&ev, &mut st).unwrap());
+        }
+        let names: Vec<_> = frames.iter().filter_map(|f| f.event.as_deref()).collect();
+        assert!(names.contains(&"response.created"));
+        assert!(names.contains(&"response.output_text.delta"));
+        assert!(names.contains(&"response.completed"));
+        let seqs: Vec<i64> = frames.iter().filter_map(|f| f.data.get("sequence_number").and_then(|v| v.as_i64())).collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "sequence_number must be monotonic: {seqs:?}");
     }
 
     #[test]
