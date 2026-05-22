@@ -1,6 +1,6 @@
 # alva-llm-wire + 协议网关 设计文档
 
-> 状态：草案 v2（已过 agent 技术 review 并据其修订；待用户 review）
+> 状态：草案 v2.1（两轮 agent 技术 review，第二轮判定 READY TO PLAN；已折入 3 处精度修正）
 > 日期：2026-05-22
 > 参考：[ZhiYi-R/moon-bridge](https://github.com/ZhiYi-R/moon-bridge)（Go 协议转换网关）
 >
@@ -319,7 +319,8 @@ struct RouteConfig { kind: String, base_url: String, api_key_env: String, model:
 
 - **单元（`alva-llm-wire`）**：每个入站 adapter 的 `decode_request` round-trip——构造一个真实的入站请求 JSON（取自各家官方示例），解码成 `DecodedRequest`，断言 messages/tools/config 正确；再 `encode_response`/`encode_stream_event` 的 golden 测试（规范化结果 → 线格式，比对期望 JSON）。
 - **跨协议矩阵**：Responses 入 → Chat 出、Anthropic 入 → Responses 出 等组合，断言 `DecodedRequest` 经上游 adapter 出站后体形正确。
-- **StopReason 映射**：每协议终止帧的 `finish_reason`/`stop_reason`/`status` 对照 §7 表逐项断言（含 MaxTokens、ToolUse）。
+- **StopReason 映射**：每协议终止帧的 `finish_reason`/`stop_reason`/`status` 对照 §7 表逐项断言（含 MaxTokens、ToolUse）。Responses 的 `ToolUse` **不是靠 status 表达**（status 仍 `completed`），编码端要补 `function_call` output item——单测要覆盖这点。
+- **事件顺序**：`decode_stream_event` 对一个带 `finish_reason` 的上游 chunk，断言产出顺序为 `[Usage?, Stop{reason}, Done]`（`Stop` 在 `Done` 前、`Usage` 后）——网关终止帧正确性依赖这个顺序。
 - **交错流式（最脆，必测）**：构造 文本→tool_call→文本→reasoning 交错的上游流，断言 Responses 入站重建的 `output_index`/`content_index`/`sequence_number` 单调且合法——这是合成索引最易出错处。
 - **集成（`alva-app-gateway`）**：复用 `alva-app-core/tests/e2e_http_test.rs` 的 mock 上游 server 模式——起网关 + mock 上游，发一个 Responses 请求，断言 (a) 上游收到的是翻译后的 Chat 请求 (b) 客户端收到的是 Responses 格式响应；流式与非流式各一条。
 - **image 拒绝**：带 image block 的入站请求断言返回 400（非静默丢）。
@@ -331,10 +332,10 @@ struct RouteConfig { kind: String, base_url: String, api_key_env: String, model:
 
 - **下沉的 blast radius**：靠 kernel-abi re-export，全工作区 `use alva_kernel_abi::base::message::Message`、`use alva_kernel_abi::adapter::...` 等路径不变（已核对：provider 全走 `alva_kernel_abi::adapter::*`，rename + re-export 后不需改 import）。
 - **`encode_tools` 改签名的真实影响面（比初稿大）**：`&[&dyn Tool]` → `&[ToolDefinition]` 涉及 **8 个生产调用点**（4 provider × complete/stream 各一：`anthropic.rs:201,302`、`openai_responses.rs:117,191`、`openai_chat.rs:181,262`、`gemini.rs:181,255`）+ **5 处 trait/impl 签名**（`adapter/{mod,anthropic,openai_chat,openai_responses,gemini}.rs`）+ 各 adapter 的 in-file 测试（构造 `&dyn Tool` 的辅助需改成 `ToolDefinition`）。不是"4 行"。`LanguageModel::complete/stream` 仍收 `&[&dyn Tool]`，`.definition()` 转换在每个 provider 内做。
-- **`StreamEvent::Stop` 是跨切面 kernel 改动**：新增枚举变体会让所有穷尽 match `StreamEvent` 的消费者（`run.rs` 等）编译报错，须各加一臂。属于 additive 但要全工作区扫一遍。
+- **`StreamEvent::Stop` 的真实影响面（已全工作区核对）**：穷尽 match（无 `_ =>`）只有**一处**——`alva-kernel-core/src/run.rs:369-454`，须加一臂（放进现有 `Start|Done|...` 边界组即可，除非要用 reason）。其余消费者都有 wildcard（`app-cli/ui/app.rs:1219`、`e2e_http_test.rs` 的 `_ => {}`）或只是构造 `StreamEvent`（engine-adapter 的 `parse_stream_delta` 返回 `_ => None`）。另需改 **4 个 `decode_stream_event`** 去 emit `Stop` + 它们现有的 finish_reason 测试（如 `openai_chat.rs:472-477`）。`run.rs` 不会用到 reason（`Message` 无 stop_reason 字段，`message.rs:34-44`）——`Stop` 只服务网关/流式编码路径；**不要**为此给 `Message` 加字段（YAGNI，无消费者）。
 - **改名**：`ToolAdapter` → `ProtocolAdapter`，保留 deprecated 别名一个周期。注意 `McpToolAdapter`（`alva-protocol-mcp` / `alva-app-core`）是**无关**的 `Tool` impl，不是这个 trait——rename 用 grep 时别误伤。
 - **分阶段**（每阶段可独立编译 + 测试通过）：
-  0. **类型隔离（前置必做）**：拆 `tool/execution.rs` 把 `ToolContent`/`ToolOutput` 移到 serde-clean 模块；拆 `model/mod.rs` 把 `ModelConfig`/`ReasoningEffort` 剥出。两步都在 kernel-abi 内完成，纯重排，全绿。
+  0. **类型隔离（前置必做）**：拆 `tool/execution.rs` 把 `ToolContent`/`ToolOutput` 移到 serde-clean 模块；拆 `model/mod.rs` 把 `ModelConfig`/`ReasoningEffort` 剥出。两步都在 kernel-abi 内完成，纯重排，全绿。**验收标准**：拆出的子模块必须在**旧的扁平路径和模块路径都 re-export**——多数消费者走扁平 `alva_kernel_abi::ModelConfig`（`lib.rs:41/45`，path-stable），但有 5 处走模块路径 `alva_kernel_abi::model::ModelConfig`（`app-tauri/src/provider_api.rs:13`、`host-wasm/src/{agent.rs:27,smoke.rs:28,stub.rs:21}`、`app-core/tests/scope_integration.rs:14`），故 `model/mod.rs` 必须 `pub use` 新值类型模块内容，否则这 5 处断。
   1. 新增 `StreamEvent::Stop{reason}` + `StopReason` + 改 4 个 `decode_stream_event` 填充 + 全工作区 match 补臂，全绿（出站行为增强，无回归）。
   2. 抽 `alva-llm-wire`：下沉 content/message/stream/ModelConfig/ReasoningEffort/ToolDefinition + adapter 模块 + 改名，kernel-abi re-export，全绿（纯搬运）。
   3. `encode_tools` 改签名 + 上述 8 调用点 + 测试适配，全绿。
