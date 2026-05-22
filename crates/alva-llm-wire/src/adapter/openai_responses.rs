@@ -403,6 +403,71 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
         Ok(DecodedRequest { model, messages, tools, config, stream })
     }
 
+    fn encode_response(&self, resp: &DecodedResponse) -> Result<Value, AdapterError> {
+        // Collect all text blocks into one message item; each ToolUse becomes
+        // a separate function_call item — mirroring decode_response's parsing.
+        let mut text_parts: Vec<Value> = Vec::new();
+        let mut output: Vec<Value> = Vec::new();
+
+        for block in &resp.message.content {
+            match block {
+                ContentBlock::Text { text } => {
+                    text_parts.push(serde_json::json!({
+                        "type": "output_text",
+                        "text": text,
+                    }));
+                }
+                ContentBlock::ToolUse { id, name, input } => {
+                    output.push(serde_json::json!({
+                        "type": "function_call",
+                        "call_id": tool_id::to_provider(id),
+                        "name": name,
+                        "arguments": input.to_string(),
+                    }));
+                }
+                // Reasoning: skip for v1 (no Responses API reasoning output_item yet).
+                // ToolResult / Image: not expected in an assistant response; skip.
+                _ => {}
+            }
+        }
+
+        // Prepend the message item (containing all text parts) if there is any text.
+        if !text_parts.is_empty() {
+            output.insert(
+                0,
+                serde_json::json!({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": text_parts,
+                }),
+            );
+        }
+
+        // Usage: prefer resp.message.usage, fall back to resp.usage, emit zeros if absent.
+        let usage_src = resp.message.usage.as_ref().or(resp.usage.as_ref());
+        let usage = match usage_src {
+            Some(u) => serde_json::json!({
+                "input_tokens": u.input_tokens,
+                "output_tokens": u.output_tokens,
+                "total_tokens": u.total_tokens,
+            }),
+            None => serde_json::json!({
+                "input_tokens": 0_u32,
+                "output_tokens": 0_u32,
+                "total_tokens": 0_u32,
+            }),
+        };
+
+        Ok(serde_json::json!({
+            "id": &resp.message.id,
+            "object": "response",
+            "status": "completed",
+            "model": "",
+            "output": output,
+            "usage": usage,
+        }))
+    }
+
     fn decode_stream_event(
         &self,
         event: &Value,
@@ -689,5 +754,43 @@ mod tests {
             StreamEvent::Stop { reason: StopReason::Other(s) } => assert_eq!(s, "failed"),
             _ => panic!("expected Stop{{Other(\"failed\")}}"),
         }
+    }
+
+    #[test]
+    fn responses_encode_response_text_and_tool() {
+        use crate::content::ContentBlock;
+        use crate::message::{Message, MessageRole, UsageMetadata};
+        use super::DecodedResponse;
+        let dr = DecodedResponse {
+            message: Message {
+                id: "r1".into(),
+                role: MessageRole::Assistant,
+                content: vec![
+                    ContentBlock::Text { text: "hello".into() },
+                    ContentBlock::ToolUse {
+                        id: "toolu_a".into(),
+                        name: "read".into(),
+                        input: serde_json::json!({"p": "/x"}),
+                    },
+                ],
+                tool_call_id: None,
+                usage: Some(UsageMetadata {
+                    input_tokens: 3,
+                    output_tokens: 4,
+                    total_tokens: 7,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
+                }),
+                timestamp: 0,
+            },
+            usage: None,
+        };
+        let v = OpenAIResponsesAdapter::new().encode_response(&dr).unwrap();
+        assert_eq!(v["object"], "response");
+        assert_eq!(v["status"], "completed");
+        let outs = v["output"].as_array().unwrap();
+        assert!(outs.iter().any(|o| o["type"] == "function_call" && o["name"] == "read"));
+        assert!(outs.iter().any(|o| o["type"] == "message"));
+        assert_eq!(v["usage"]["input_tokens"], 3);
     }
 }
