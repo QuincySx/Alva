@@ -33,7 +33,7 @@ use super::{
 };
 use crate::base::content::ContentBlock;
 use crate::base::message::{Message, MessageRole, UsageMetadata};
-use crate::base::stream::StreamEvent;
+use crate::base::stream::{StopReason, StreamEvent};
 use crate::tool::Tool;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -293,10 +293,26 @@ impl ToolAdapter for GeminiAdapter {
                 cache_read_input_tokens,
             }));
         }
-        // finishReason == "STOP" is the closest analog to "this was the last
-        // event" but Gemini's stream just closes — the provider will emit
-        // StreamEvent::Done itself when the byte stream ends. We don't emit
-        // Done here to avoid double-emit.
+        // Map finishReason from any candidate that carries it.
+        // Gemini values: STOP, MAX_TOKENS, SAFETY, RECITATION, LANGUAGE, OTHER, BLOCKLIST,
+        // PROHIBITED_CONTENT, SPII, MALFORMED_FUNCTION_CALL, IMAGE_SAFETY, UNEXPECTED_TOOL_CALL.
+        // We check every candidate and emit Stop on the first finishReason we encounter,
+        // since streaming chunks deliver one candidate at a time and the last chunk carries it.
+        if let Some(candidates) = event.get("candidates").and_then(Value::as_array) {
+            for candidate in candidates {
+                if let Some(finish_reason) = candidate.get("finishReason").and_then(Value::as_str) {
+                    if !finish_reason.is_empty() {
+                        let reason = match finish_reason {
+                            "STOP" => StopReason::EndTurn,
+                            "MAX_TOKENS" => StopReason::MaxTokens,
+                            other => StopReason::Other(other.to_lowercase()),
+                        };
+                        out.push(StreamEvent::Stop { reason });
+                        break;
+                    }
+                }
+            }
+        }
         Ok(out)
     }
 }
@@ -542,6 +558,7 @@ mod tests {
             }]
         });
         let out = GeminiAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        // ToolCallStart + ToolCallDelta + ToolCallEnd — no finishReason in this event
         assert_eq!(out.len(), 3);
         match &out[0] {
             StreamEvent::ToolCallStart { id, name } => {
@@ -562,6 +579,54 @@ mod tests {
                 assert!(id.starts_with("toolu_"));
             }
             _ => panic!("expected ToolCallEnd"),
+        }
+    }
+
+    #[test]
+    fn decode_stream_finish_reason_stop_emits_end_turn() {
+        let mut state = StreamDecodeState::new();
+        let ev = serde_json::json!({
+            "candidates": [{
+                "content": { "parts": [{ "text": "done" }] },
+                "finishReason": "STOP"
+            }],
+            "usageMetadata": { "promptTokenCount": 5, "candidatesTokenCount": 3, "totalTokenCount": 8 }
+        });
+        let out = GeminiAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        // TextDelta, Stop, Usage
+        let stop = out.iter().find(|e| matches!(e, StreamEvent::Stop { .. }));
+        assert!(stop.is_some(), "expected a Stop event");
+        assert!(matches!(stop.unwrap(), StreamEvent::Stop { reason: StopReason::EndTurn }));
+    }
+
+    #[test]
+    fn decode_stream_finish_reason_max_tokens_emits_max_tokens() {
+        let mut state = StreamDecodeState::new();
+        let ev = serde_json::json!({
+            "candidates": [{
+                "content": { "parts": [] },
+                "finishReason": "MAX_TOKENS"
+            }]
+        });
+        let out = GeminiAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+    }
+
+    #[test]
+    fn decode_stream_finish_reason_safety_emits_other() {
+        let mut state = StreamDecodeState::new();
+        let ev = serde_json::json!({
+            "candidates": [{
+                "content": { "parts": [] },
+                "finishReason": "SAFETY"
+            }]
+        });
+        let out = GeminiAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            StreamEvent::Stop { reason: StopReason::Other(s) } => assert_eq!(s, "safety"),
+            _ => panic!("expected Stop{{Other(\"safety\")}}"),
         }
     }
 }

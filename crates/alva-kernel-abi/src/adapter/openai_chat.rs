@@ -24,7 +24,7 @@ use super::{
 };
 use crate::base::content::ContentBlock;
 use crate::base::message::{Message, MessageRole, UsageMetadata};
-use crate::base::stream::StreamEvent;
+use crate::base::stream::{StopReason, StreamEvent};
 use crate::tool::Tool;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -273,7 +273,8 @@ impl ToolAdapter for OpenAIChatAdapter {
                     }
                 }
                 // finish_reason signals the whole message is done — emit
-                // ToolCallEnd for any tool calls still open in this stream.
+                // ToolCallEnd for any tool calls still open in this stream,
+                // then emit Stop with the mapped reason.
                 let finish_reason = choice
                     .get("finish_reason")
                     .and_then(Value::as_str)
@@ -284,6 +285,13 @@ impl ToolAdapter for OpenAIChatAdapter {
                         out.push(StreamEvent::ToolCallEnd { id });
                     }
                     state.block_type.clear();
+                    let reason = match finish_reason {
+                        "tool_calls" => StopReason::ToolUse,
+                        "length" => StopReason::MaxTokens,
+                        "stop" => StopReason::EndTurn,
+                        other => StopReason::Other(other.to_string()),
+                    };
+                    out.push(StreamEvent::Stop { reason });
                 }
             }
         }
@@ -469,11 +477,35 @@ mod tests {
         }
         assert_eq!(state.tool_input_buf["toolu_call_abc"], "{\"path\":\"/a\"}");
 
-        // Third chunk: finish_reason present → emits ToolCallEnd
+        // Third chunk: finish_reason present → emits ToolCallEnd then Stop
         let c3 = serde_json::json!({
             "choices": [{ "delta": {}, "finish_reason": "tool_calls" }]
         });
         let out3 = OpenAIChatAdapter.decode_stream_event(&c3, &mut state).unwrap();
+        assert_eq!(out3.len(), 2, "expected ToolCallEnd + Stop");
         assert!(matches!(&out3[0], StreamEvent::ToolCallEnd { .. }));
+        assert!(matches!(&out3[1], StreamEvent::Stop { reason: StopReason::ToolUse }));
+    }
+
+    #[test]
+    fn decode_stream_finish_stop_emits_end_turn() {
+        let mut state = StreamDecodeState::new();
+        let c = serde_json::json!({
+            "choices": [{ "delta": {}, "finish_reason": "stop" }]
+        });
+        let out = OpenAIChatAdapter.decode_stream_event(&c, &mut state).unwrap();
+        // No open tool calls → only Stop
+        assert_eq!(out.len(), 1);
+        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::EndTurn }));
+    }
+
+    #[test]
+    fn decode_stream_finish_length_emits_max_tokens() {
+        let mut state = StreamDecodeState::new();
+        let c = serde_json::json!({
+            "choices": [{ "delta": {}, "finish_reason": "length" }]
+        });
+        let out = OpenAIChatAdapter.decode_stream_event(&c, &mut state).unwrap();
+        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
     }
 }

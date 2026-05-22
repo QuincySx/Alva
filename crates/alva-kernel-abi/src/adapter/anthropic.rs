@@ -16,7 +16,7 @@ use super::{
     ToolAdapter,
 };
 use crate::base::message::{Message, MessageRole, UsageMetadata};
-use crate::base::stream::StreamEvent;
+use crate::base::stream::{StopReason, StreamEvent};
 use crate::tool::Tool;
 
 // ---------------------------------------------------------------------------
@@ -454,6 +454,20 @@ impl ToolAdapter for AnthropicAdapter {
                 if let Some(usage) = event.get("usage").and_then(parse_usage) {
                     out.push(StreamEvent::Usage(usage));
                 }
+                // delta.stop_reason: end_turn | tool_use | max_tokens | stop_sequence
+                if let Some(stop_reason_str) = event
+                    .pointer("/delta/stop_reason")
+                    .and_then(Value::as_str)
+                {
+                    let reason = match stop_reason_str {
+                        "end_turn" => StopReason::EndTurn,
+                        "tool_use" => StopReason::ToolUse,
+                        "max_tokens" => StopReason::MaxTokens,
+                        "stop_sequence" => StopReason::StopSequence,
+                        other => StopReason::Other(other.to_string()),
+                    };
+                    out.push(StreamEvent::Stop { reason });
+                }
             }
             "message_stop" => {
                 out.push(StreamEvent::Done);
@@ -676,5 +690,53 @@ mod tests {
         let stop = serde_json::json!({ "type": "message_stop" });
         let out = AnthropicAdapter.decode_stream_event(&stop, &mut state).unwrap();
         assert!(matches!(out[0], StreamEvent::Done));
+    }
+
+    #[test]
+    fn decode_stream_message_delta_emits_stop_with_reason() {
+        let mut state = StreamDecodeState::new();
+        // Anthropic message_delta with end_turn
+        let ev = serde_json::json!({
+            "type": "message_delta",
+            "delta": { "stop_reason": "end_turn", "stop_sequence": null },
+            "usage": { "output_tokens": 42 }
+        });
+        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        // Usage first, then Stop
+        assert!(matches!(out[0], StreamEvent::Usage(_)));
+        assert!(matches!(&out[1], StreamEvent::Stop { reason: StopReason::EndTurn }));
+    }
+
+    #[test]
+    fn decode_stream_message_delta_tool_use_stop_reason() {
+        let mut state = StreamDecodeState::new();
+        let ev = serde_json::json!({
+            "type": "message_delta",
+            "delta": { "stop_reason": "tool_use" }
+        });
+        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::ToolUse }));
+    }
+
+    #[test]
+    fn decode_stream_message_delta_max_tokens_stop_reason() {
+        let mut state = StreamDecodeState::new();
+        let ev = serde_json::json!({
+            "type": "message_delta",
+            "delta": { "stop_reason": "max_tokens" }
+        });
+        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+    }
+
+    #[test]
+    fn decode_stream_message_delta_stop_sequence_stop_reason() {
+        let mut state = StreamDecodeState::new();
+        let ev = serde_json::json!({
+            "type": "message_delta",
+            "delta": { "stop_reason": "stop_sequence" }
+        });
+        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::StopSequence }));
     }
 }

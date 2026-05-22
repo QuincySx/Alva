@@ -25,7 +25,7 @@ use super::{
 };
 use crate::base::content::ContentBlock;
 use crate::base::message::{Message, MessageRole, UsageMetadata};
-use crate::base::stream::StreamEvent;
+use crate::base::stream::{StopReason, StreamEvent};
 use crate::tool::Tool;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -310,7 +310,18 @@ impl ToolAdapter for OpenAIResponsesAdapter {
                         cache_read_input_tokens,
                     }));
                 }
+                // Map response.completed → EndTurn (natural completion).
+                // The response payload does not carry a fine-grained finish_reason
+                // equivalent; EndTurn is the correct semantic for a completed response.
+                out.push(StreamEvent::Stop { reason: StopReason::EndTurn });
                 out.push(StreamEvent::Done);
+            }
+            "response.incomplete" => {
+                // Response was cut short (token limit or timeout).
+                out.push(StreamEvent::Stop { reason: StopReason::MaxTokens });
+            }
+            "response.failed" => {
+                out.push(StreamEvent::Stop { reason: StopReason::Other("failed".to_string()) });
             }
             _ => {}
         }
@@ -443,14 +454,39 @@ mod tests {
     }
 
     #[test]
-    fn decode_stream_completed_emits_usage_and_done() {
+    fn decode_stream_completed_emits_usage_stop_and_done() {
         let mut state = StreamDecodeState::new();
         state.event_type = Some("response.completed".into());
         let ev = serde_json::json!({
             "response": { "usage": { "input_tokens": 1, "output_tokens": 2, "total_tokens": 3 } }
         });
         let out = OpenAIResponsesAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert_eq!(out.len(), 3, "expected Usage + Stop + Done");
         assert!(matches!(out[0], StreamEvent::Usage(_)));
-        assert!(matches!(out[1], StreamEvent::Done));
+        assert!(matches!(&out[1], StreamEvent::Stop { reason: StopReason::EndTurn }));
+        assert!(matches!(out[2], StreamEvent::Done));
+    }
+
+    #[test]
+    fn decode_stream_incomplete_emits_max_tokens_stop() {
+        let mut state = StreamDecodeState::new();
+        state.event_type = Some("response.incomplete".into());
+        let ev = serde_json::json!({});
+        let out = OpenAIResponsesAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+    }
+
+    #[test]
+    fn decode_stream_failed_emits_other_stop() {
+        let mut state = StreamDecodeState::new();
+        state.event_type = Some("response.failed".into());
+        let ev = serde_json::json!({});
+        let out = OpenAIResponsesAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            StreamEvent::Stop { reason: StopReason::Other(s) } => assert_eq!(s, "failed"),
+            _ => panic!("expected Stop{{Other(\"failed\")}}"),
+        }
     }
 }
