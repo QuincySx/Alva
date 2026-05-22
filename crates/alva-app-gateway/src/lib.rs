@@ -12,3 +12,4 @@
 //! [`AliasRouter`]: alva_llm_provider::AliasRouter
 
 pub mod config;
+pub mod raw_tool;
