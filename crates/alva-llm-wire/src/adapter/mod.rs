@@ -101,6 +101,49 @@ pub trait ProtocolAdapter: Send + Sync {
         event: &Value,
         state: &mut StreamDecodeState,
     ) -> Result<Vec<StreamEvent>, AdapterError>;
+
+    // -----------------------------------------------------------------------
+    // Inbound (gateway) methods — default impl returns InboundUnsupported.
+    // Override these in protocol adapters that act as a gateway endpoint.
+    // -----------------------------------------------------------------------
+
+    /// Decode an inbound client request (this protocol's wire format) into a
+    /// neutral [`DecodedRequest`] that can be forwarded to any outbound adapter.
+    ///
+    /// The default implementation returns
+    /// [`AdapterError::InboundUnsupported`] — override in adapters that
+    /// need to serve as a gateway endpoint.
+    fn decode_request(&self, _body: &serde_json::Value) -> Result<DecodedRequest, AdapterError> {
+        Err(AdapterError::InboundUnsupported(self.provider()))
+    }
+
+    /// Encode a neutral [`DecodedResponse`] back into this protocol's
+    /// non-streaming response JSON body.
+    ///
+    /// The default implementation returns
+    /// [`AdapterError::InboundUnsupported`] — override in adapters that
+    /// need to serve as a gateway endpoint.
+    fn encode_response(
+        &self,
+        _resp: &DecodedResponse,
+    ) -> Result<serde_json::Value, AdapterError> {
+        Err(AdapterError::InboundUnsupported(self.provider()))
+    }
+
+    /// Encode a single neutral [`StreamEvent`] into this protocol's SSE
+    /// frame(s). The `state` argument carries response-level counters that
+    /// must stay consistent across all frames for a single streaming response.
+    ///
+    /// The default implementation returns
+    /// [`AdapterError::InboundUnsupported`] — override in adapters that
+    /// need to serve as a gateway endpoint.
+    fn encode_stream_event(
+        &self,
+        _ev: &crate::stream::StreamEvent,
+        _st: &mut StreamEncodeState,
+    ) -> Result<Vec<SseFrame>, AdapterError> {
+        Err(AdapterError::InboundUnsupported(self.provider()))
+    }
 }
 
 /// Backwards-compatibility alias: `ToolAdapter` resolves to `ProtocolAdapter`.
@@ -215,6 +258,9 @@ pub enum AdapterError {
     /// JSON parse failure on a fragment (e.g. partial tool-input JSON
     /// that failed to finalize at the end of a tool-use block).
     Parse(String),
+    /// The inbound (gateway) direction is not implemented for this protocol.
+    /// Argument is the provider name from [`ProtocolAdapter::provider`].
+    InboundUnsupported(&'static str),
 }
 
 impl std::fmt::Display for AdapterError {
@@ -223,8 +269,80 @@ impl std::fmt::Display for AdapterError {
             AdapterError::MissingField(name) => write!(f, "missing field: {name}"),
             AdapterError::UnexpectedFormat(msg) => write!(f, "unexpected format: {msg}"),
             AdapterError::Parse(msg) => write!(f, "parse error: {msg}"),
+            AdapterError::InboundUnsupported(p) => {
+                write!(f, "inbound not supported for protocol: {p}")
+            }
         }
     }
 }
 
 impl std::error::Error for AdapterError {}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_inbound_is_unsupported() {
+        let a = crate::adapter::gemini::GeminiAdapter::new();
+        assert!(matches!(
+            a.decode_request(&serde_json::json!({})),
+            Err(AdapterError::InboundUnsupported(_))
+        ));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Inbound (gateway) types
+// ---------------------------------------------------------------------------
+
+/// Output of [`ProtocolAdapter::decode_request`]: an inbound wire request
+/// parsed from a client's protocol-specific body into a neutral form that
+/// can be forwarded to any outbound adapter.
+pub struct DecodedRequest {
+    /// The model identifier string from the inbound request body.
+    pub model: String,
+    /// Conversation turns decoded into normalized [`Message`] values.
+    pub messages: Vec<crate::message::Message>,
+    /// Tool definitions decoded from the inbound request body.
+    pub tools: Vec<crate::tool_def::ToolDefinition>,
+    /// Sampling / generation configuration from the inbound request body.
+    pub config: crate::config::ModelConfig,
+    /// Whether the client requested a streaming response.
+    pub stream: bool,
+}
+
+/// One SSE frame to write to a client: an optional event name (the `event:`
+/// line) plus the JSON payload that goes in the `data:` line.
+pub struct SseFrame {
+    /// Optional SSE `event:` name. `None` → omit the `event:` line.
+    pub event: Option<String>,
+    /// JSON payload for the `data:` line.
+    pub data: serde_json::Value,
+}
+
+/// Cross-event state for [`ProtocolAdapter::encode_stream_event`].
+///
+/// Tracks the identifiers and sequence counters that must stay consistent
+/// across all SSE frames for a single streaming response. Each concrete
+/// protocol uses the fields it needs and ignores the rest.
+#[derive(Default)]
+pub struct StreamEncodeState {
+    /// The response / completion id to embed in every frame (e.g.
+    /// `chatcmpl-…` for OpenAI-style protocols).
+    pub response_id: String,
+    /// Monotonically increasing sequence number; some protocols (OpenAI
+    /// Responses API) require a per-frame integer index.
+    pub seq: i64,
+    /// Current output/content block index within the response (used by
+    /// protocols that index content parts separately from the message).
+    pub output_index: usize,
+    /// Whether the opening / prologue frame has been emitted. Protocols
+    /// that emit a distinct first frame (e.g. a `[DONE]` sentinel) check
+    /// this to know whether the stream has been opened.
+    pub started: bool,
+}
