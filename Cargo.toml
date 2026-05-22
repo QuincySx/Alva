@@ -26,6 +26,7 @@ members = [
     "crates/alva-app-devtools-mcp",
     "crates/alva-environment",
     "crates/alva-llm-provider",
+    "crates/alva-llm-wire",
     "crates/alva-host-wasm",
     "crates/alva-app-extension-browser",
     "crates/alva-app-extension-memory",
