@@ -31,6 +31,7 @@ members = [
     "crates/alva-app-extension-browser",
     "crates/alva-app-extension-memory",
     "crates/alva-app-extension-loader",
+    "crates/alva-app-gateway",
 ]
 resolver = "2"
 

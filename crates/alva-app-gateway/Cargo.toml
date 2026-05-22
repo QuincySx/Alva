@@ -1,0 +1,24 @@
+[package]
+name = "alva-app-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "Alva App Gateway — HTTP routing layer that proxies LLM requests to upstream providers via AliasRouter"
+
+[lib]
+name = "alva_app_gateway"
+path = "src/lib.rs"
+
+[dependencies]
+alva-llm-wire = { path = "../alva-llm-wire" }
+alva-llm-provider = { path = "../alva-llm-provider" }
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+async-trait = "0.1"
+futures = "0.3"
+
+[dev-dependencies]
+serde_json = "1"
