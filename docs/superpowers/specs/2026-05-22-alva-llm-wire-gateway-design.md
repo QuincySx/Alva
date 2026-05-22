@@ -1,8 +1,10 @@
 # alva-llm-wire + 协议网关 设计文档
 
-> 状态：草案（待 review）
+> 状态：草案 v2（已过 agent 技术 review 并据其修订；待用户 review）
 > 日期：2026-05-22
 > 参考：[ZhiYi-R/moon-bridge](https://github.com/ZhiYi-R/moon-bridge)（Go 协议转换网关）
+>
+> **v2 修订（依据 agent review，均已对照代码核实）**：①撤销 §12 usage 误判（usage 在 `Message.usage`，没丢）；②依赖补 `uuid`/`chrono`（非"只 serde"）；③`ContentBlock`/`ModelConfig` 下沉前需先拆 `execution.rs`/`model/mod.rs`（新增 Phase 0）；④新增 `StreamEvent::Stop{reason}`——原 `StreamEvent` 无终止原因，流式无法重建合规终止帧；⑤多模态列为 v1 非目标且显式 400（现 `encode_messages` 不处理 image，会静默丢）；⑥reasoning `signature` 跨协议往返规则；⑦`encode_tools` 影响面更正为 8 调用点+签名+测试；⑧网关需自有配置层（`ProviderConfig` 无 `listen`/`api_key_env`）。
 
 ---
 
@@ -34,6 +36,7 @@
 - **不做** moon-bridge 那套 `CorePluginHooks` 插件体系（deepseek thinking 重放、apply_patch 代理展开、websearch/visual 扩展）。先把核心管线打通；钩子留待后续按需。
 - **不做** 计费 / 配额 / 多租户鉴权。网关 v1 只做协议翻译 + 路由 + 转发。
 - **不在网关里执行工具**。网关是纯中转：把入站请求里的 tool 定义透传给上游，把上游回吐的 tool_call 透传回客户端。
+- **不做多模态（图片/音频）入站转发**（v1 非目标）。`ContentBlock::Image` 存在（`content.rs:13`）但**没有任何 adapter 的 `encode_messages` 处理它**——直接转发会被静默丢弃。v1 的 `decode_request` 遇到 image block 应**显式报错（400）而非静默丢**；要支持得先给三个出站 adapter 补 image 编码（单列任务）。
 
 ---
 
@@ -53,7 +56,7 @@
 依赖只能往下指（遵守 AGENTS.md Rule 17：SDK 不得依赖 app/host）：
 
 ```
-NEW  alva-llm-wire        L1 基础库 · 依赖仅 serde / serde_json（按需 schemars）· wasm-clean
+NEW  alva-llm-wire        L1 基础库 · 依赖 serde / serde_json / uuid / chrono（按需 schemars）· wasm-clean
       ├─ 类型: Message / ContentBlock / StreamEvent / UsageMetadata
       │        ToolDefinition / ModelConfig / ReasoningEffort
       ├─ trait ProtocolAdapter (4 协议 × 双向)
@@ -79,7 +82,7 @@ NEW  alva-llm-wire        L1 基础库 · 依赖仅 serde / serde_json（按需 
 
 ### 5.1 `alva-llm-wire`（新 crate）
 
-**Cargo 依赖**：`serde`（derive）、`serde_json`；仅当下沉的某个类型确有 `#[derive(JsonSchema)]` 时才加 `schemars`。**不得**依赖 `alva-kernel-bus` / `alva-macros` / 任何框架 crate（搬运阶段需确认 `ToolDefinition` 等是否带 schemars 派生，有则一并迁入并保持 wire crate 自洽）。
+**Cargo 依赖**：`serde`（derive）、`serde_json`、**`uuid`**、**`chrono`**（`Message::user/system` 构造器与 `decode_response` 用 `uuid::Uuid::new_v4()` + `chrono::Utc::now()` 生成 id/timestamp——见 `message.rs:49,54`、`anthropic.rs:282`，故"只 serde"是错的；二者均 wasm-safe）；仅当下沉类型确有 `#[derive(JsonSchema)]` 时才加 `schemars`。**不得**依赖 `alva-kernel-bus` / `alva-macros` / 任何框架 crate。
 
 **下沉的类型**（从 `alva-kernel-abi` 移入，原处改为 `pub use alva_llm_wire::...` re-export）：
 
@@ -89,7 +92,12 @@ NEW  alva-llm-wire        L1 基础库 · 依赖仅 serde / serde_json（按需 
 - `model` 中的 `ModelConfig` / `ReasoningEffort`
 - `tool/types.rs` 中的 `ToolDefinition`（纯值类型 `{ name, description, parameters }`）
 
-> 这些类型当前的耦合：`content` 无内部依赖；`message` → `content`；`stream` → `message`；`ModelConfig`/`ReasoningEffort`/`ToolDefinition` 仅依赖 serde。故整体可干净下沉。**留在 kernel-abi 不动**的是：`Tool` trait（可执行，依赖 bus/执行环境）、`LanguageModel`/`Provider`/`ProviderRegistry`、`AgentError`、session/scope/runtime 等框架契约。
+> **耦合现实（已核对，比初稿想的多两处文件拆分）**：
+> - `message` → `content`、`stream` → `message`：干净。
+> - **`content` 不是无依赖**：`ContentBlock::ToolResult` 持有 `Vec<crate::tool::execution::ToolContent>`（`content.rs:35`），而 `tool/execution.rs:11` `use alva_kernel_bus::BusHandle`。`ToolContent`/`ToolOutput` 本身是纯 serde 类型（`execution.rs:46-92`），但必须**先把它们从 bus 耦合的 `execution.rs` 拆出**到一个 serde-clean 模块，`ContentBlock` 才能下沉。
+> - **`ModelConfig`/`ReasoningEffort` 不在独立文件**：与 `LanguageModel`（`model/mod.rs:161`）、`#[crate::bus_cap] TokenCounter`（`:203`）、`use crate::tool::Tool`（`:11`）同住 `model/mod.rs`。需**拆 `model/mod.rs`**，把这两个值类型剥到独立模块再下沉。
+>
+> 这两处拆分是下沉的**前置必做项**（见 §11 Phase 0），不是纯搜索替换。**留在 kernel-abi 不动**的是：`Tool` trait（可执行，依赖 bus/执行环境）、`LanguageModel`/`Provider`/`ProviderRegistry`、`AgentError`、`ToolExecutionContext`、session/scope/runtime 等框架契约。
 
 **`ProtocolAdapter` trait**（由现 `ToolAdapter` 改名 + 扩充）：
 
@@ -140,6 +148,15 @@ pub struct StreamEncodeState { /* 协议私有缓冲 */ }
 ```
 
 `AdapterError` 增加 `InboundUnsupported(&'static str)` 变体。
+
+**必须给 `StreamEvent` 增加终止原因（关键，否则流式不可用）**：现 `StreamEvent`（`stream.rs:9-45`）只有 `Start/TextDelta/ReasoningDelta/ReasoningBlock/ToolCall*/Usage/Done/Error`——**没有 stop/finish 原因**。`decode_stream_event` 读到 `finish_reason` 后就地消费、不入事件（`openai_chat.rs:277-287`）。但每个入站协议的终止帧都**必须**带它（Chat `finish_reason`、Anthropic `message_delta.stop_reason`、Responses `response.completed.status`）。所以新增：
+
+```rust
+pub enum StopReason { EndTurn, ToolUse, MaxTokens, StopSequence, Other(String) }
+// StreamEvent 增加： Stop { reason: StopReason },   // 在 Done 之前发
+```
+
+四个出站 adapter 的 `decode_stream_event` 同步改为把 `finish_reason`/`stop_reason` 映射成 `StopReason` 并发 `StreamEvent::Stop`。这是一处 kernel-abi（下沉后在 wire crate）的**跨切面改动**，影响所有 `StreamEvent` 消费者（`run.rs` 等）的穷尽 match——见 §11。`DecodedRequest` 文档补一句：遇 `ContentBlock::Image` 返回 `AdapterError`（v1 不转发多模态，见 §2）。
 
 **适配器矩阵**（✓ = 本设计实现）：
 
@@ -211,9 +228,12 @@ POST /v1/{responses|chat/completions|messages}   (协议 IN)
         for ev in stream:
             IN_adapter.encode_stream_event(ev, &mut enc_state) → Vec<SseFrame>
             写入 axum SSE 响应
+            # 终止帧由 StreamEvent::Stop{reason} 映射成各协议 finish_reason/stop_reason
 ```
 
 **关键点**：上游那一截（`encode_* → HTTP → decode_*`）就是现有 `LanguageModel` 实现，**网关一行上游代码都不写**。新代码只在两端的 `IN_adapter` 入站方向。
+
+**流式只能做到"基本对称"，不是全无损**（见 §7）：纯文本 / reasoning delta / usage 可镜像；`StopReason` 需新增变体才能传（见 §5.1）；Responses 要求的 `output_index`/`content_index`/`sequence_number` 在扁平的 `StreamEvent` 里没有，须由 `StreamEncodeState` 合成——单文本块没问题，文本+工具+reasoning 交错时较脆，须专门测（§10）。
 
 ---
 
@@ -232,6 +252,20 @@ POST /v1/{responses|chat/completions|messages}   (协议 IN)
 - **Responses 入站**：请求体 `input[]` / `instructions` → `Message[]`；`tools[]` → `ToolDefinition[]`；`reasoning.effort` → `ReasoningEffort`。响应/流要发 `response.created` / `response.output_text.delta` / `response.completed` 等 named SSE，故 `StreamEncodeState` 需维护 response id + 递增 `sequence_number` + output item/content index。
 - **Chat 入站**：`messages[]`（system 内联）→ `Message[]`；`tools[].function` → `ToolDefinition[]`；`reasoning_effort` → effort。流式发 `chat.completion.chunk`（`choices[].delta`），`StreamEncodeState` 维护 chunk id + role 首帧。
 - **Anthropic 入站**：`system` 拆出 + `messages[]` → `Message[]`；`tools[]` → `ToolDefinition[]`；`thinking.budget_tokens` → effort（反向用 `suggested_token_budget` 的就近映射）。流式发 `message_start` / `content_block_delta(input_json_delta)` / `message_delta` / `message_stop`，`StreamEncodeState` 维护 block index。
+
+**跨协议有损点（必须显式处理，不能静默）**：
+
+- **StopReason 映射表**（`StreamEvent::Stop` ↔ 各协议）：
+
+  | StopReason | Chat finish_reason | Anthropic stop_reason | Responses status |
+  |---|---|---|---|
+  | EndTurn | `stop` | `end_turn` | `completed` |
+  | ToolUse | `tool_calls` | `tool_use` | `completed`(有 function_call) |
+  | MaxTokens | `length` | `max_tokens` | `incomplete` |
+  | StopSequence | `stop` | `stop_sequence` | `completed` |
+
+- **reasoning `signature` 往返不对称**：`ContentBlock::Reasoning.signature`（`content.rs`）是 Anthropic 的 attestation，**下一轮必须原样回传**，否则 Anthropic 400。跨协议时：上游≠Anthropic 时网关**剥掉 signature**；**不要**把无 signature 的 reasoning block 转发给 Anthropic 上游（会触发 400）。OpenAI reasoning 无 signature 槽，反向也无法补。
+- **多模态**：见 §2——v1 `decode_request` 遇 image 直接 400，不静默丢。
 
 > 出入站共享同一份"该协议线格式知识"集中在同一个 adapter 文件里（分「出站区 / 入站区」两节），降低漂移风险——比 moon-bridge 把 Client/Provider 拆两个文件更内聚。
 
@@ -258,7 +292,15 @@ routes:
     model: claude-sonnet-4-6
 ```
 
-每条 route 反序列化成一个 `ProviderConfig` 塞进 `AliasRouter`。入站协议由 HTTP 路径决定，与 route 无关——任意入站协议都可路由到任意 `kind` 上游。
+**注意 `ProviderConfig` 字段对不上**：它只有 `api_key`/`model`/`base_url`/`max_tokens`/`custom_headers`/`kind`（`config.rs:23-37`），**没有** `listen` / `api_key_env`。所以网关需要一层自己的配置结构：
+
+```rust
+struct GatewayConfig { listen: String, routes: HashMap<String, RouteConfig> }
+struct RouteConfig { kind: String, base_url: String, api_key_env: String, model: String, max_tokens: Option<u32> }
+// 加载时 RouteConfig → 解析 api_key_env 取环境变量 → 构造 ProviderConfig → 塞进 AliasRouter
+```
+
+入站协议由 HTTP 路径决定，与 route 无关——任意入站协议都可路由到任意 `kind` 上游。
 
 ---
 
@@ -277,22 +319,29 @@ routes:
 
 - **单元（`alva-llm-wire`）**：每个入站 adapter 的 `decode_request` round-trip——构造一个真实的入站请求 JSON（取自各家官方示例），解码成 `DecodedRequest`，断言 messages/tools/config 正确；再 `encode_response`/`encode_stream_event` 的 golden 测试（规范化结果 → 线格式，比对期望 JSON）。
 - **跨协议矩阵**：Responses 入 → Chat 出、Anthropic 入 → Responses 出 等组合，断言 `DecodedRequest` 经上游 adapter 出站后体形正确。
+- **StopReason 映射**：每协议终止帧的 `finish_reason`/`stop_reason`/`status` 对照 §7 表逐项断言（含 MaxTokens、ToolUse）。
+- **交错流式（最脆，必测）**：构造 文本→tool_call→文本→reasoning 交错的上游流，断言 Responses 入站重建的 `output_index`/`content_index`/`sequence_number` 单调且合法——这是合成索引最易出错处。
 - **集成（`alva-app-gateway`）**：复用 `alva-app-core/tests/e2e_http_test.rs` 的 mock 上游 server 模式——起网关 + mock 上游，发一个 Responses 请求，断言 (a) 上游收到的是翻译后的 Chat 请求 (b) 客户端收到的是 Responses 格式响应；流式与非流式各一条。
+- **image 拒绝**：带 image block 的入站请求断言返回 400（非静默丢）。
 - **wasm**：`alva-llm-wire` 进 `cargo check --target wasm32` 名单。
 
 ---
 
 ## 11. 迁移与影响面
 
-- **下沉的 blast radius**：靠 kernel-abi re-export，全工作区 `use alva_kernel_abi::base::message::Message` 等路径不变。唯一真改的是 `ProtocolAdapter::encode_tools` 签名（`&[&dyn Tool]` → `&[ToolDefinition]`）及其 4 个 provider 调用点（各一行 `.map(|t| t.definition())`）。
-- **改名**：`ToolAdapter` → `ProtocolAdapter`，保留 deprecated 别名一个周期。
+- **下沉的 blast radius**：靠 kernel-abi re-export，全工作区 `use alva_kernel_abi::base::message::Message`、`use alva_kernel_abi::adapter::...` 等路径不变（已核对：provider 全走 `alva_kernel_abi::adapter::*`，rename + re-export 后不需改 import）。
+- **`encode_tools` 改签名的真实影响面（比初稿大）**：`&[&dyn Tool]` → `&[ToolDefinition]` 涉及 **8 个生产调用点**（4 provider × complete/stream 各一：`anthropic.rs:201,302`、`openai_responses.rs:117,191`、`openai_chat.rs:181,262`、`gemini.rs:181,255`）+ **5 处 trait/impl 签名**（`adapter/{mod,anthropic,openai_chat,openai_responses,gemini}.rs`）+ 各 adapter 的 in-file 测试（构造 `&dyn Tool` 的辅助需改成 `ToolDefinition`）。不是"4 行"。`LanguageModel::complete/stream` 仍收 `&[&dyn Tool]`，`.definition()` 转换在每个 provider 内做。
+- **`StreamEvent::Stop` 是跨切面 kernel 改动**：新增枚举变体会让所有穷尽 match `StreamEvent` 的消费者（`run.rs` 等）编译报错，须各加一臂。属于 additive 但要全工作区扫一遍。
+- **改名**：`ToolAdapter` → `ProtocolAdapter`，保留 deprecated 别名一个周期。注意 `McpToolAdapter`（`alva-protocol-mcp` / `alva-app-core`）是**无关**的 `Tool` impl，不是这个 trait——rename 用 grep 时别误伤。
 - **分阶段**（每阶段可独立编译 + 测试通过）：
-  1. 抽 `alva-llm-wire`：下沉类型 + 改名 + re-export，全绿（纯搬运，零行为变化）。
-  2. `encode_tools` 改签名 + provider 调用点适配，全绿。
-  3. 给 3 个协议实现 `decode_request` / `encode_response` / `encode_stream_event` + 单元测试。
-  4. `AliasRouter`（alva-llm-provider）。
-  5. `alva-app-gateway`：HTTP 壳 + RawTool + 串线 + 集成测试。
-  6.（可选）`alva-app-tauri`/`cli` embed 入口。
+  0. **类型隔离（前置必做）**：拆 `tool/execution.rs` 把 `ToolContent`/`ToolOutput` 移到 serde-clean 模块；拆 `model/mod.rs` 把 `ModelConfig`/`ReasoningEffort` 剥出。两步都在 kernel-abi 内完成，纯重排，全绿。
+  1. 新增 `StreamEvent::Stop{reason}` + `StopReason` + 改 4 个 `decode_stream_event` 填充 + 全工作区 match 补臂，全绿（出站行为增强，无回归）。
+  2. 抽 `alva-llm-wire`：下沉 content/message/stream/ModelConfig/ReasoningEffort/ToolDefinition + adapter 模块 + 改名，kernel-abi re-export，全绿（纯搬运）。
+  3. `encode_tools` 改签名 + 上述 8 调用点 + 测试适配，全绿。
+  4. 给 3 个协议实现 `decode_request` / `encode_response` / `encode_stream_event`（含 StopReason 映射、image 拒绝、signature 处理）+ 单元/golden 测试。
+  5. `AliasRouter` + `GatewayConfig` 包装层（alva-llm-provider / gateway）。
+  6. `alva-app-gateway`：HTTP 壳 + RawTool + 串线 + 集成测试（含交错流式用例）。
+  7.（可选）`alva-app-tauri`/`cli` embed 入口。
 
 ---
 
@@ -301,4 +350,4 @@ routes:
 - `RawTool` 的 `parameters_schema()` 直接返回 `ToolDefinition.parameters`——确认现有 `Tool::definition()` 与各出站 `encode_tools` 对 schema 的归一化（`normalize_llm_tool_schema`）在"定义来自外部客户端"时是否仍适用（外部 schema 可能不规范）。
 - 是否需要在 v1 暴露 `/v1/models`（列出别名）供客户端发现。倾向：做，成本低。
 - 配置热重载：v1 先不做，重启生效。
-- **usage 透传**：现 `CompletionResponse { message, raw }` 不带独立 usage 字段（provider 的 `complete()` 在 `decode_response` 后只取 message + raw，丢了 `DecodedResponse.usage`）。网关非流式要回吐 token 用量，需补一条路：要么给 `CompletionResponse` 加 `usage: Option<UsageMetadata>`，要么网关用上游 adapter 对 `raw` 重跑 `decode_response` 取 usage。倾向前者（顺手修这个既有信息丢失）。流式路径 usage 走 `StreamEvent` 末帧，无此问题。
+- ~~usage 透传需补字段~~ **（已撤销——原判断有误）**：usage 没有丢。`decode_response` 把它写进 `Message.usage`（`message.rs:42`，由 `anthropic.rs:285` / `openai_chat.rs:206` 填充），`CompletionResponse.message.usage` 直接可读。网关非流式从这里取用量即可，**无需**给 `CompletionResponse` 加字段。流式 usage 走 `StreamEvent::Usage` 帧。
