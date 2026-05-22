@@ -448,7 +448,9 @@ impl LlmCallFn for ActualLlmCall {
                 StreamEvent::Start
                 | StreamEvent::Done
                 | StreamEvent::ReasoningDelta { .. }
-                | StreamEvent::ToolCallEnd { .. } => {
+                | StreamEvent::ToolCallEnd { .. }
+                // agent loop doesn't consume stop reason (Message has no stop_reason field; Stop serves the gateway path)
+                | StreamEvent::Stop { .. } => {
                     // Boundary signals / UI progress — no builder state to update.
                 }
             }
