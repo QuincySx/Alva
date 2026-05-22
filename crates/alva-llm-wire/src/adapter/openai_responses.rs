@@ -594,6 +594,7 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
             }
             "response.failed" => {
                 out.push(StreamEvent::Stop { reason: StopReason::Other("failed".to_string()) });
+                out.push(StreamEvent::Done);
             }
             _ => {}
         }
@@ -1015,11 +1016,29 @@ mod tests {
         state.event_type = Some("response.failed".into());
         let ev = serde_json::json!({});
         let out = OpenAIResponsesAdapter.decode_stream_event(&ev, &mut state).unwrap();
-        assert_eq!(out.len(), 1);
+        // Now emits [Stop{Other("failed")}, Done] — len 2.
+        assert_eq!(out.len(), 2, "expected Stop + Done, got: {out:?}");
         match &out[0] {
             StreamEvent::Stop { reason: StopReason::Other(s) } => assert_eq!(s, "failed"),
             _ => panic!("expected Stop{{Other(\"failed\")}}"),
         }
+        assert!(matches!(out[1], StreamEvent::Done), "second event must be Done");
+    }
+
+    #[test]
+    fn decode_stream_failed_emits_stop_and_done() {
+        let mut state = StreamDecodeState::new();
+        state.event_type = Some("response.failed".into());
+        let ev = serde_json::json!({});
+        let out = OpenAIResponsesAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        assert!(
+            out.iter().any(|e| matches!(e, StreamEvent::Stop { .. })),
+            "response.failed must emit Stop: {out:?}"
+        );
+        assert!(
+            matches!(out.last(), Some(StreamEvent::Done)),
+            "response.failed must end with Done: {out:?}"
+        );
     }
 
     #[test]
@@ -1148,7 +1167,7 @@ mod tests {
 
     #[test]
     fn encode_interleaved_text_tool_text_output_indices_are_distinct() {
-        use crate::stream::{StreamEvent, StopReason};
+        use crate::stream::StreamEvent;
         use super::super::StreamEncodeState;
 
         let a = OpenAIResponsesAdapter::new();
