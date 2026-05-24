@@ -472,6 +472,27 @@ export async function getSessionRecord(id: string): Promise<RunRecord> {
   return await safeInvoke<RunRecord>("get_session_record", { id });
 }
 
+// --- protocol gateway --------------------------------------------------------
+
+export async function startGateway(
+  cfg: { provider: string; model: string; api_key: string; base_url?: string | null },
+  port: number,
+): Promise<string> {
+  return await safeInvoke<string>("start_gateway", {
+    req: {
+      provider: cfg.provider,
+      model: cfg.model,
+      api_key: cfg.api_key,
+      base_url: cfg.base_url || null,
+    },
+    port,
+  });
+}
+
+export async function stopGateway(): Promise<void> {
+  await safeInvoke<void>("stop_gateway", {});
+}
+
 /** Loose-typed raw SessionEvent log for the Raw Events inspector tab. */
 export async function listSessionEvents(id: string): Promise<unknown[]> {
   return await safeInvokeOr<unknown[]>("list_session_events", { id }, []);

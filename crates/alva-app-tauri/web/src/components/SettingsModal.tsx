@@ -27,6 +27,8 @@ import {
 import {
   listAllSkills,
   listRemoteModels,
+  startGateway,
+  stopGateway,
   testProviderConnection,
   type ConnectionTestResult,
   type RemoteModelInfo,
@@ -279,6 +281,50 @@ function ProviderEditor({
   // indistinguishable from a remote one.
   const [manualIdDraft, setManualIdDraft] = useState("");
   const [manualNameDraft, setManualNameDraft] = useState("");
+
+  // --- 允许转发 (gateway) state -------------------------------------------
+  const [gatewayOn, setGatewayOn] = useState(false);
+  const [gatewayPort, setGatewayPort] = useState("8787");
+  const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
+  const [gatewayBusy, setGatewayBusy] = useState(false);
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+
+  const toggleGateway = async (next: boolean) => {
+    setGatewayError(null);
+    setGatewayBusy(true);
+    try {
+      if (next) {
+        const port = parseInt(gatewayPort, 10);
+        if (!Number.isFinite(port) || port < 1 || port > 65535) {
+          throw new Error("端口需为 1–65535");
+        }
+        const url = await startGateway(
+          {
+            provider: config.provider,
+            model: config.model,
+            api_key: config.api_key,
+            base_url: config.base_url || null,
+          },
+          port,
+        );
+        setGatewayUrl(url);
+        setGatewayOn(true);
+      } else {
+        await stopGateway();
+        setGatewayOn(false);
+        setGatewayUrl(null);
+      }
+    } catch (e) {
+      setGatewayError(
+        typeof e === "string" ? e : (e as Error).message ?? String(e),
+      );
+      // Leave toggle reflecting the real state (failed to turn on → stays off)
+    } finally {
+      setGatewayBusy(false);
+    }
+  };
+  // -------------------------------------------------------------------------
+
   const submitManualModel = () => {
     const id = manualIdDraft.trim();
     if (!id) return;
@@ -628,6 +674,86 @@ function ProviderEditor({
               </div>
             </div>
           )}
+        </div>
+
+        {/* 允许转发 — protocol gateway toggle */}
+        <div className="pt-4 border-t border-neutral-800 space-y-3">
+          <div>
+            <div className="text-xs text-neutral-400 mb-2">允许转发</div>
+            <p className="text-[11px] text-neutral-500 mb-3">
+              对外暴露 OpenAI/Anthropic 接口，翻译转发到此模型
+            </p>
+
+            <div className="flex items-center gap-3 mb-3">
+              {/* Port input */}
+              <label className="flex items-center gap-1.5 text-xs text-neutral-400">
+                端口
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={gatewayPort}
+                  onChange={(e) => setGatewayPort(e.target.value)}
+                  disabled={gatewayOn}
+                  className="w-20 rounded bg-neutral-900 border border-neutral-800 px-2 py-1 text-xs font-mono outline-none focus:border-neutral-600 disabled:opacity-40"
+                />
+              </label>
+
+              {/* Toggle switch */}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={gatewayOn}
+                  disabled={gatewayBusy || !hasKey}
+                  onChange={(e) => toggleGateway(e.target.checked)}
+                  className="h-4 w-4 accent-blue-500 disabled:opacity-40"
+                />
+                <span className="text-xs text-neutral-300">
+                  {gatewayBusy
+                    ? gatewayOn
+                      ? "停止中…"
+                      : "启动中…"
+                    : gatewayOn
+                    ? "运行中"
+                    : "已停止"}
+                </span>
+              </label>
+
+              {!hasKey && (
+                <span className="text-[10px] text-neutral-500">
+                  先填 API Key
+                </span>
+              )}
+            </div>
+
+            {/* Running status line */}
+            {gatewayOn && gatewayUrl && (
+              <div className="rounded border border-green-900/60 bg-green-950/30 text-green-300 px-3 py-2 text-xs flex items-center gap-2">
+                <CheckCircle2 size={13} />
+                <span className="font-mono break-all flex-1">
+                  转发中：{gatewayUrl} → {config.model}
+                </span>
+                <button
+                  type="button"
+                  title="复制地址"
+                  onClick={() => navigator.clipboard.writeText(gatewayUrl)}
+                  className="shrink-0 text-green-400 hover:text-green-200 text-[10px] underline"
+                >
+                  复制
+                </button>
+              </div>
+            )}
+
+            {/* Error */}
+            {gatewayError && (
+              <div className="rounded border border-red-900/50 bg-red-950/30 text-red-200 px-3 py-2 text-xs">
+                <div className="font-medium mb-1">转发启动失败</div>
+                <div className="font-mono text-[11px] whitespace-pre-wrap break-all">
+                  {gatewayError}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="pt-4 border-t border-neutral-800">
