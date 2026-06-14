@@ -64,6 +64,11 @@ impl Registrar {
     }
 
     /// 向 typed bus 提供一个能力(供运行期/晚期读取)。
+    ///
+    /// **单值语义**:bus 按类型 `T` 存单个值,后 `provide::<T>` 覆盖先前的——
+    /// 不会报错也不会合并。同一 `T` 应只由一个 plugin 提供;若需"多个同类型贡献者"
+    /// (如多种通信渠道),让那个 `T` 自身是个注册表(如 `SpawnCommunicationRegistry`),
+    /// 贡献者在 `finalize()` 里往注册表登记,而不是各自 `provide` 同一 `T`。
     pub fn provide<T: Send + Sync + ?Sized + 'static>(&self, value: Arc<T>) {
         self.bus_writer.provide(value);
     }
