@@ -99,13 +99,12 @@ impl BaseAgentBuilder {
         self
     }
 
-    // -- Direct tool/middleware (eval harnesses + integration tests) -----------
-    // These bypass the Extension abstraction. Production code should register
-    // tools/middleware via Extension; these escape hatches exist so eval
-    // harnesses and this crate's `tests/e2e_*` integration tests don't have
-    // to wrap every mock tool in a one-shot Extension. `#[doc(hidden)]` keeps
-    // them out of the public API surface to discourage misuse from
-    // application code.
+    // -- Direct tool/middleware registration -----------------------------------
+    // `tool()` / `tools()` bypass the Plugin abstraction; they stay
+    // `#[doc(hidden)]` as escape hatches for eval harnesses and this crate's
+    // `tests/e2e_*` integration tests that don't want to wrap every mock tool
+    // in a one-shot Plugin. `middleware()` / `middlewares()` are a different
+    // story — see their docs below.
 
     #[doc(hidden)]
     pub fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
@@ -119,13 +118,20 @@ impl BaseAgentBuilder {
         self
     }
 
-    #[doc(hidden)]
+    /// 批量注册运行期洋葱中间件。等价于对每个中间件调用 [`middleware`](Self::middleware)。
+    ///
+    /// 与单个版本一样,这是一等生产路径,无需套 Plugin 空壳。
     pub fn middlewares(mut self, mws: Vec<Arc<dyn Middleware>>) -> Self {
         self.extra_middleware.extend(mws);
         self
     }
 
-    #[doc(hidden)]
+    /// 注册一个运行期洋葱中间件。
+    ///
+    /// 单点中间件(如 loop-detection / tool-timeout / checkpoint)直接用此方法注册,
+    /// 不必套 Plugin 空壳——这是一等生产路径。需要跨层捆绑(tools + middleware +
+    /// bus 服务 + system prompt)的能力才用 `.plugin()`。中间件按各自 `priority()`
+    /// 排进洋葱栈。
     pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self {
         self.extra_middleware.push(mw);
         self
