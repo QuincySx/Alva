@@ -130,9 +130,9 @@ impl AgentBuilder {
         self
     }
 
-    /// Build the Agent. Runs the extension lifecycle
-    /// (`tools` → `activate` → `configure` → `finalize`), wires middleware,
-    /// and produces a ready-to-run `Agent`.
+    /// 构建 Agent。运行 Plugin 生命周期（`register` → `finalize`），装配
+    /// middleware，产出可运行的 `Agent`。旧的 `Extension` 实现经
+    /// `ExtensionAsPlugin` 适配器桥接。
     pub async fn build(self) -> Result<Agent, AgentError> {
         // 1. Validate required inputs.
         let model = self
@@ -192,7 +192,7 @@ impl AgentBuilder {
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
-        // 保留 bridge（Phase 4 才删）：
+        // 过渡期保留 bridge：待所有 Extension 迁移到 Plugin 后移除（见注入机制统一迁移计划 Phase 4）。
         middleware_stack.push_sorted(Arc::new(ExtensionBridgeMiddleware::new(host.clone())));
 
         // 6. Register the collected tools into a ToolRegistry.
@@ -228,7 +228,7 @@ impl AgentBuilder {
         }
         let tools_arc: Vec<Arc<dyn Tool>> = registry.list_arc();
 
-        // 10*. Assemble the final system prompt:
+        // 9. Assemble the final system prompt:
         //      [user-provided base]
         //      [extension contributions, in registration order]
         //      [Environment block — kernel-managed invariant: cwd + date]
@@ -248,12 +248,12 @@ impl AgentBuilder {
             self.workspace.as_deref(),
         );
 
-        // 11. Session — default to in-memory if not provided.
+        // 10. Session — default to in-memory if not provided.
         let session: Arc<dyn AgentSession> = self
             .session
             .unwrap_or_else(|| Arc::new(InMemoryAgentSession::new()));
 
-        // 12. AgentState
+        // 11. AgentState
         let state = AgentState {
             model,
             tools: tools_arc,
@@ -261,7 +261,7 @@ impl AgentBuilder {
             extensions: Extensions::new(),
         };
 
-        // 13. AgentConfig
+        // 12. AgentConfig
         let config = AgentConfig {
             middleware: middleware_stack,
             system_prompt,
@@ -274,7 +274,7 @@ impl AgentBuilder {
             context_token_budget: self.context_token_budget,
         };
 
-        // 14. Wrap up. The bus_writer is intentionally dropped here — any
+        // 13. Wrap up. The bus_writer is intentionally dropped here — any
         //     capabilities the caller / extensions wanted to register on it
         //     have already been published, and the run loop only needs the
         //     read-side `BusHandle`.

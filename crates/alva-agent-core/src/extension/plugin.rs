@@ -24,11 +24,12 @@ pub trait Plugin: Send + Sync {
         ""
     }
 
-    /// **装配阶段** — provide-only。
+    /// 唯一装配阶段：注册 tools / middleware / bus 服务 / system prompt / command。
     ///
-    /// 向 `r` 注册 tools / middleware / bus 服务 / system-prompt 片段 /
-    /// command。此刻别家 plugin 可能尚未运行，所以**不要**从 bus 读取别家
-    /// 将要提供的能力——要读放 [`finalize`](Self::finalize)。
+    /// **provide-only**：此处只“提供”能力，不要读取别的 plugin 提供的 bus 能力。
+    /// 即使先注册的 plugin 的结果在实现上可能可见，也**不保证**装配顺序——
+    /// 需要读别家能力的逻辑请放到运行期（middleware/tool 执行时）或
+    /// [`finalize`](Self::finalize)。
     async fn register(&self, r: &Registrar);
 
     /// **晚期钩子** — 在所有 `register()` 调用结束、完整 tool 集合与 model
