@@ -921,7 +921,11 @@ git commit -m "refactor: remove Extension trait + adapter; rename to Plugin/Regi
 
 **Files:** `AGENTS.md`、`crates/alva-kernel-abi/src/scope/context/traits.rs`（"8-hook" 注释）、spec 状态
 
-- [ ] **Step 1: 更新 AGENTS.md**
+- [ ] **Step 1: 更新 AGENTS.md + 所有 SDK doc 示例**
+
+> 注:迁移过程中,`base_agent/builder.rs` 的 struct doc 示例、`AGENTS.md`、`docs/ARCHITECTURE.md` 里凡是已迁移类型(Core/Shell/.../Memory/Security 等)仍写 `.extension(Box::new(X))` 的示例,统一改成 `.plugin(Box::new(X))`(经适配器虽能跑但不再地道)。这些 doc-only 更新集中到本步一次性做,不在每个迁移 Task 里反复改。
+
+更新 AGENTS.md:
 
 `alva-agent-core` 行：`Extension trait`→`Plugin trait`，方法列表改 `name/register/finalize`；
 `HostAPI/ExtensionContext`→`Registrar`；删 Event/`ExtensionBridgeMiddleware` 相关描述；
