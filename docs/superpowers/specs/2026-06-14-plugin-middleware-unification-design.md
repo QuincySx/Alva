@@ -74,16 +74,19 @@ pub trait Plugin: Send + Sync {
     /// 唯一装配阶段：注册 tools / middleware / bus 服务 / system prompt / command。
     async fn register(&self, r: &Registrar<'_>);
 
-    /// 可选的"晚期发现"——所有 plugin 注册完、model + 完整 tool 列表已知后才跑。
-    /// 默认空。只有 MCP / SubAgent 这种动态发现的才实现。
-    async fn discover_tools(&self, _cx: &LateContext) -> Vec<Arc<dyn Tool>> { vec![] }
+    /// 可选的晚期钩子——所有 plugin 的 register() 跑完、model + 完整 tool 列表
+    /// 已知后才跑。默认空。两个用途：
+    ///   (a) 动态发现 tool（MCP / SubAgent）；
+    ///   (b) 跨插件晚期接线——读别家在 register() 提供的 bus 能力，如
+    ///       BlackboardComm 把自己注册进 SpawnCommunicationRegistry（见 §3.5）。
+    async fn finalize(&self, _cx: &LateContext) -> Vec<Arc<dyn Tool>> { vec![] }
 }
 ```
 
-- `tools()` 折进 `register()`（`r.tools(...)`）。
+- `tools()` 折进 `register()`（`r.tools(...)`）——这是**唯一**的装配期 tool 入口。
 - `activate` + `configure` 合一为 `register()`。
-- `finalize()` 双出口降级为可选 `discover_tools()`。
-- 方法 6 → 3，生命周期 2 阶段 → 1 阶段（+ 1 个可选晚期回调）。
+- `finalize()` 保留为**可选晚期钩子**（默认空）：动态 tool 发现 +「provide 之后才能做」的跨插件接线。它不再是默认 6 方法之一，只有真需要的插件实现。
+- 方法 6 → 3（含 1 个默认空的可选晚期钩子），装配句柄 2 → 1。
 
 ### 3.2 跨层句柄：`Registrar`
 
@@ -95,7 +98,7 @@ impl Registrar<'_> {
     fn tool(&self, t: impl Tool + 'static);
     fn tools(&self, ts: Vec<Box<dyn Tool>>);
     fn middleware(&self, m: impl Middleware + 'static);
-    fn provide<T: ?Sized + 'static>(&self, svc: Arc<T>);     // bus 能力
+    fn provide<T: Send + Sync + ?Sized + 'static>(&self, svc: Arc<T>);  // bus 能力(签名同 BusWriter::provide)
     fn system_prompt(&self, layer: ContextLayer, text: impl Into<String>);
     fn command(&self, name: &str, desc: &str);
 
@@ -148,19 +151,29 @@ AgentBuilder::new()
 **不读**别家 plugin 提供的 bus 服务。需要读别家能力的：
 
 - 运行期通过 `Registrar::bus()` / middleware 拿到的 `BusHandle` 读；或
-- 在 `discover_tools(LateContext)` 晚期读。
+- 在 `finalize(LateContext)` 晚期读。
 
 → `register()` 调用顺序与结果无关，去掉了现有"全 activate → 全 configure"两趟的脆顺序依赖，
 **比现状更稳**。
 
+**例外（review 实测）**：`BlackboardCommExtension::configure()`（`blackboard_comm.rs:61-71`）
+当前在装配期 `bus.get::<dyn SpawnCommunicationRegistry>()` 读别家能力并把自己注册进去。
+这是唯一的装配期跨插件读。迁移后它移到 `finalize()`（§3.1 用途 b）——此时
+`SpawnCommRegistryPlugin` 已在 register() 阶段 provide 完，读取安全。`SubAgentPlugin`
+同理在 `finalize()` 读 `ProviderRegistry` / `SpawnCommunicationRegistry`（`agent_spawn.rs:221,269`）。
+其余 bus.get 调用（analytics / lsp / skills middleware）都在**运行期**，本就不受装配顺序影响。
+
 ### 3.6 装配流程（AgentBuilder 内）
 
-1. 收集所有 `Plugin`。
+1. 收集所有 `Plugin`，**保留默认替换契约**：`BaseAgentBuilder` 自动塞入的默认
+   `memory` / `security` / `system_context`，若用户已注册同 `name()` 的 plugin 则跳过
+   （沿用现有 skip-by-name 逻辑，仅把判断对象从 Extension 换成 Plugin）。
 2. 逐个 `plugin.register(&registrar)`（顺序无关，§3.5）。
 3. 收集裸 `.middleware()` + plugin 注册的 middleware，按 `MiddlewarePriority` 稳定排序
-   组装 `MiddlewareStack`（沿用现有逻辑）。
+   组装 `MiddlewareStack`。
 4. 注册所有 `register()` 阶段产出的 tool 到 registry。
-5. 逐个 `plugin.discover_tools(&late_ctx)`（此时 model + 完整 tool 列表已知），追加注册。
+5. 逐个 `plugin.finalize(&late_ctx)`（此时 model + 完整 tool 列表已知）：追加注册返回的
+   动态 tool + 执行跨插件晚期接线（§3.5 例外）。
 
 ---
 
@@ -172,7 +185,7 @@ AgentBuilder::new()
 | `HostAPI` + `ExtensionContext` | `Registrar` |
 | `FinalizeContext` | `LateContext` |
 | `Extension::activate` + `configure` | `Plugin::register` |
-| `Extension::finalize` | `Plugin::discover_tools` |
+| `Extension::finalize` | `Plugin::finalize`（签名 → `LateContext`，用途扩为 tool 发现 + 晚期接线） |
 | `XxxExtension`（保留的） | `XxxPlugin` |
 | `BaseAgentBuilder::extension()` | `BaseAgentBuilder::plugin()` |
 
@@ -181,11 +194,13 @@ AgentBuilder::new()
 ## 5. 迁移计划（高层；细节进实现计划）
 
 1. **新增** `Plugin` / `Registrar` / `LateContext`，`AgentBuilder` 支持 `.plugin()` + `.middleware()`。
-2. **重写** ~24 个 in-tree `impl Extension` → `impl Plugin`（机械、规律）：
+2. **重写** ~30 个 in-tree `impl Extension` → `impl Plugin`（普查 32 含 2 个测试替身；机械、规律）：
    - 6 个 tool-group → `register(){ r.tools(...) }`
    - 7 个 bus-publish → `register(){ r.provide(...) }`
    - 跨层（Security/Skills/Permission/Analytics/Pending/Lsp/SystemContext）→ `register()` 合并 activate+configure
-   - SubAgent → `discover_tools()`；MCP → `register()` 或 `discover_tools()`（按是否需晚期）
+   - SubAgent → `finalize()`（晚期读 ProviderRegistry/SpawnCommRegistry + 动态 tool）；
+     MCP → `register()` 或 `finalize()`（按是否需晚期发现）
+   - **BlackboardComm → `finalize()`**（装配期跨插件读改晚期接线，见 §3.5 例外）
 3. **删除** 7 个纯中间件空壳，改装配处 `.middleware()`。
 4. **删除** Event 层（`events.rs`、`on/on_as`、handler map、`emit`、bridge 事件路径）。
 5. **AEP loader** → `AepBridgeMiddleware`（§3.4）。
@@ -201,9 +216,11 @@ AgentBuilder::new()
 
 | 风险 | 缓解 |
 |---|---|
-| 两趟 → 一趟装配的顺序依赖 | provide-only 规矩（§3.5）；实现时 grep 现有 configure 是否有"读别家 bus"的反例 |
-| AEP `on_user_message` 语义降级 | `on_agent_start` + state 取文本；补桥接测试比对前后行为 |
-| 重命名 + 重写 24 处的 diff 噪声 | 一次性清爽重构（已确认接受）；按类别分批 commit |
+| 两趟 → 一趟装配的顺序依赖 | provide-only 规矩（§3.5）；review 已 grep 全部 configure 的"读别家 bus"反例，仅 BlackboardComm 1 处，已定向移到 finalize |
+| AEP `on_user_message` 语义降级 | review 确认 `AgentSession::messages()`（agent_session.rs:332）可在 `on_agent_start` 取最新用户文本；补桥接测试比对前后行为 |
+| **裸 middleware 排序行为变更** | 现状 `extra_middleware` 排在 extension middleware **之后**；新设计把裸 middleware 与 plugin middleware **一起按 priority 排序**。语义更正确，但可能改变现有洋葱序——迁移测试需快照排序结果比对 |
+| **多个 finalize 之间的顺序** | 若某 plugin 的 finalize 依赖另一 plugin finalize 产出的 tool，需定序。当前仅 SubAgent/MCP/BlackboardComm 用 finalize，互不依赖；实现时验证无交叉依赖，否则补显式优先级 |
+| 重命名 + 重写 ~30 处的 diff 噪声 | 一次性清爽重构（已确认接受）；按类别分批 commit |
 | 保留 middleware 顺序语义 | `MiddlewarePriority` 与稳定排序逻辑不动 |
 
 ---
