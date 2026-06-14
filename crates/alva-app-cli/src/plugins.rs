@@ -271,6 +271,13 @@ enum OwnedAepEvent {
 }
 
 impl OwnedAepEvent {
+    /// Lend out a borrowing [`AepEvent`] bound to `&self`.
+    ///
+    /// The returned `AepEvent<'_>` borrows this value's `String` /
+    /// `Value` / `ToolOutput` payload, so it is only valid while `self`
+    /// is alive. The exec path keeps `self` alive by moving the
+    /// `OwnedAepEvent` into the `spawn_blocking` closure and calling
+    /// `as_event()` inside it, so the borrow never outlives the owner.
     fn as_event(&self) -> AepEvent<'_> {
         match self {
             OwnedAepEvent::AgentStart => AepEvent::AgentStart,

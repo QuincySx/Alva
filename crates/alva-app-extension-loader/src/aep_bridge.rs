@@ -22,15 +22,42 @@
 //!
 //! There is no longer a dedicated "input" event in the kernel, so
 //! `on_user_message` is reconstructed inside `on_agent_start` by
-//! reading the latest user message text off the session.
+//! reading the latest user message off the session. `on_agent_start`
+//! can fire multiple times within one user turn (each tool loop), so
+//! the bridge deduplicates by the latest user message's id and only
+//! re-dispatches `on_user_message` when the message actually changes —
+//! preserving the old `input` event's "fires once per new input"
+//! semantics.
 //!
 //! Each hook iterates plugins sequentially; `dispatch_event_sync`
 //! internally short-circuits plugins that did not subscribe to the
 //! event, so a plugin only pays the JSON-RPC round-trip for events it
 //! asked for. The first plugin that returns `Block` from
 //! `before_tool_call` wins — same semantics the old `emit` loop had.
+//!
+//! ## Trust model — fail-open, non-authoritative
+//!
+//! AEP plugins are third-party subprocesses and are treated as an
+//! *enhancement* layer, **not** an authoritative security gate:
+//!
+//! - **Priority.** This middleware runs at
+//!   [`MiddlewarePriority::HOOKS`] (1500) — the same tier as other
+//!   user-installed extensions (e.g. `HooksExtension`). That is
+//!   deliberately **after** the built-in SECURITY tier (1000: auth /
+//!   permission / sandbox), so first-party security stays
+//!   authoritative and runs first. It is still **before**
+//!   GUARDRAIL (2000) / CONTEXT (3000) / OBSERVATION (5000) / RETRY
+//!   (6000), so a plugin `Block` on `before_tool_call` still pre-empts
+//!   logging and retries.
+//! - **Fail-open.** If a plugin's RPC errors or times out, the dispatch
+//!   is treated as `Continue` (the tool is allowed) — see
+//!   [`dispatch_outcome`](crate::proxy) and its test. A wedged or
+//!   crashed plugin therefore never blocks a tool. The threat model
+//!   assumes AEP plugins may misbehave; relying on one to *block*
+//!   something is unsupported — use built-in SECURITY-tier middleware
+//!   for hard gates.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
@@ -45,6 +72,11 @@ use crate::proxy::{AepDispatchResult, AepEvent, RemoteExtensionProxy};
 /// all loaded subprocess plugins.
 pub struct AepBridgeMiddleware {
     plugins: Vec<Arc<RemoteExtensionProxy>>,
+    /// Id of the most recently dispatched `on_user_message`, used to
+    /// avoid re-firing the event for the same user message across the
+    /// multiple `on_agent_start` calls that happen within one turn.
+    /// See the module-level "fires once per new input" note.
+    last_user_message_id: Mutex<Option<String>>,
 }
 
 impl AepBridgeMiddleware {
@@ -66,7 +98,10 @@ impl AepBridgeMiddleware {
                 }
             }
         }
-        Self { plugins }
+        Self {
+            plugins,
+            last_user_message_id: Mutex::new(None),
+        }
     }
 
     /// Dispatch one event to every plugin, returning the first `Block`
@@ -88,11 +123,15 @@ impl Middleware for AepBridgeMiddleware {
         "aep-bridge"
     }
 
-    /// Run in the security tier so a plugin `Block` on
-    /// `before_tool_call` rejects the tool before later middleware
-    /// (logging, retries) observes it.
+    /// Run in the user-hook tier (1500), not the built-in SECURITY
+    /// tier (1000). Third-party AEP plugins are an enhancement layer,
+    /// not an authoritative security gate — they must run *after*
+    /// first-party security (sandbox / permissions / PlanMode), but
+    /// still *before* GUARDRAIL/CONTEXT/OBSERVATION/RETRY so a plugin
+    /// `Block` on `before_tool_call` pre-empts logging and retries.
+    /// See the module-level "Trust model" note.
     fn priority(&self) -> i32 {
-        MiddlewarePriority::SECURITY
+        MiddlewarePriority::HOOKS
     }
 
     async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
@@ -103,9 +142,22 @@ impl Middleware for AepBridgeMiddleware {
         self.dispatch(&AepEvent::AgentStart)?;
 
         // `on_user_message` is reconstructed from session state — the
-        // kernel no longer emits a dedicated input event.
-        if let Some(text) = latest_user_message_text(state).await {
-            self.dispatch(&AepEvent::UserMessage { text: &text })?;
+        // kernel no longer emits a dedicated input event. Dedup by id
+        // so the same user message isn't re-sent on every tool-loop
+        // iteration's `on_agent_start`.
+        if let Some((id, text)) = latest_user_message(state).await {
+            let changed = {
+                let mut guard = self.last_user_message_id.lock().unwrap();
+                if guard.as_deref() == Some(id.as_str()) {
+                    false
+                } else {
+                    *guard = Some(id);
+                    true
+                }
+            };
+            if changed {
+                self.dispatch(&AepEvent::UserMessage { text: &text })?;
+            }
         }
         Ok(())
     }
@@ -157,9 +209,13 @@ impl Middleware for AepBridgeMiddleware {
     }
 }
 
-/// Pull the text of the most recent user message off the session, or
-/// `None` if there is no user message yet.
-async fn latest_user_message_text(state: &AgentState) -> Option<String> {
+/// Pull the `(id, text)` of the most recent user message off the
+/// session, or `None` if there is no user message yet.
+///
+/// `id` is the `Message::id` (a stable per-message uuid) and is used by
+/// `on_agent_start` to dedup repeated dispatch of the same user
+/// message across a turn's tool loop.
+async fn latest_user_message(state: &AgentState) -> Option<(String, String)> {
     state
         .session
         .messages()
@@ -170,7 +226,7 @@ async fn latest_user_message_text(state: &AgentState) -> Option<String> {
             AgentMessage::Standard(msg) | AgentMessage::Steering(msg)
                 if msg.role == MessageRole::User =>
             {
-                Some(msg.text_content())
+                Some((msg.id.clone(), msg.text_content()))
             }
             _ => None,
         })

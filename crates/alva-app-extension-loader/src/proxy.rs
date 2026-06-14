@@ -244,28 +244,7 @@ impl RemoteExtensionProxy {
         let method = format!("extension/{}", bare_name);
         let result = call_dispatcher_blocking(&self.dispatcher, &method, params);
 
-        match result {
-            Ok(value) => action_to_dispatch_result(&self.name, bare_name, value),
-            Err(DispatchError::Rpc(err)) => {
-                tracing::warn!(
-                    plugin = %self.name,
-                    event = bare_name,
-                    code = err.code,
-                    message = %err.message,
-                    "plugin returned rpc error"
-                );
-                AepDispatchResult::Continue
-            }
-            Err(e) => {
-                tracing::error!(
-                    plugin = %self.name,
-                    event = bare_name,
-                    error = %e,
-                    "dispatch failed"
-                );
-                AepDispatchResult::Continue
-            }
-        }
+        dispatch_outcome(&self.name, bare_name, result)
     }
 
     /// Drive an orderly shutdown: best-effort `shutdown` call, then
@@ -393,6 +372,45 @@ fn action_to_dispatch_result(plugin: &str, event: &str, value: Value) -> AepDisp
                 event = event,
                 action = ?other,
                 "plugin returned action not yet supported by host; treating as continue"
+            );
+            AepDispatchResult::Continue
+        }
+    }
+}
+
+/// Translate the raw dispatcher result into an [`AepDispatchResult`].
+///
+/// **Fail-open**: any transport-level failure — RPC error, timeout
+/// (surfaced as `ChannelClosed`), serialization, malformed response —
+/// maps to `Continue`. A wedged or crashed plugin therefore never
+/// blocks a tool; AEP plugins are an *enhancement* layer, not an
+/// authoritative security gate (the built-in SECURITY-tier middleware
+/// is). This matches the pre-decoupling `dispatch_event_sync` behavior
+/// exactly and is pinned by a test so it cannot silently flip to
+/// fail-closed.
+fn dispatch_outcome(
+    plugin: &str,
+    event: &str,
+    result: Result<Value, DispatchError>,
+) -> AepDispatchResult {
+    match result {
+        Ok(value) => action_to_dispatch_result(plugin, event, value),
+        Err(DispatchError::Rpc(err)) => {
+            tracing::warn!(
+                plugin = %plugin,
+                event = event,
+                code = err.code,
+                message = %err.message,
+                "plugin returned rpc error; failing open (continue)"
+            );
+            AepDispatchResult::Continue
+        }
+        Err(e) => {
+            tracing::error!(
+                plugin = %plugin,
+                event = event,
+                error = %e,
+                "dispatch failed; failing open (continue)"
             );
             AepDispatchResult::Continue
         }
@@ -622,6 +640,51 @@ mod tests {
         assert!(
             matches!(action_to_dispatch_result("p", "after_tool_call", malformed), AepDispatchResult::Continue),
             "malformed action JSON must defensively Continue"
+        );
+    }
+
+    // -- dispatch_outcome: fail-open on transport errors ---------------
+
+    #[test]
+    fn dispatch_outcome_ok_passes_action_through() {
+        // The Ok arm delegates to action_to_dispatch_result, so Block
+        // still propagates when the plugin actually responded.
+        let v = serde_json::json!({"action": "block", "reason": "nope"});
+        match dispatch_outcome("p", "before_tool_call", Ok(v)) {
+            AepDispatchResult::Block { reason } => assert_eq!(reason, "nope"),
+            other => panic!("expected Block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatch_outcome_fails_open_on_transport_errors() {
+        // CRITICAL trust-model pin: a wedged/crashed plugin must NOT
+        // block the tool. Every transport-level DispatchError maps to
+        // Continue (fail-open). If this ever flips to fail-closed, a
+        // single buggy third-party plugin could wedge every tool call.
+        use crate::dispatcher::DispatchError;
+        use crate::protocol::RpcError;
+
+        // Timeout surfaces as ChannelClosed (see call_dispatcher_blocking).
+        assert!(
+            matches!(
+                dispatch_outcome("p", "before_tool_call", Err(DispatchError::ChannelClosed)),
+                AepDispatchResult::Continue
+            ),
+            "timeout / channel-closed must fail open (Continue)"
+        );
+
+        // Plugin returned a JSON-RPC error object.
+        assert!(
+            matches!(
+                dispatch_outcome(
+                    "p",
+                    "before_tool_call",
+                    Err(DispatchError::Rpc(RpcError::new(-32603, "boom"))),
+                ),
+                AepDispatchResult::Continue
+            ),
+            "plugin RPC error must fail open (Continue)"
         );
     }
 }
