@@ -9,9 +9,7 @@ pub mod mock_fs;
 pub use mock_fs::MockToolFs;
 
 pub mod extension;
-pub use extension::{
-    Extension, ExtensionContext, ExtensionHost, FinalizeContext, HostAPI, RegisteredCommand,
-};
+pub use extension::{ExtensionHost, HostAPI, RegisteredCommand};
 
 pub mod agent;
 pub mod agent_builder;

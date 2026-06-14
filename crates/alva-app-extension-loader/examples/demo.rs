@@ -15,7 +15,7 @@
 use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 
-use alva_agent_core::extension::{Extension, ExtensionHost, HostAPI};
+use alva_agent_core::extension::{ExtensionHost, Plugin, Registrar};
 use alva_app_extension_loader::loader::SubprocessLoaderExtension;
 use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{AgentMessage, Message, ToolCall};
@@ -235,15 +235,21 @@ async fn main() {
     // ----- Wire up host + loader -----
     banner("bootstrap");
     let host = Arc::new(RwLock::new(ExtensionHost::new()));
-    let api = HostAPI::new(Arc::clone(&host), "subprocess-loader".to_string());
     let ext = SubprocessLoaderExtension::new(vec![temp.path().to_path_buf()]);
 
-    line("activate → storing HostAPI handle");
-    ext.activate(&api);
-
-    line("configure → spawning subprocesses + AEP handshake");
-    let count = ext.load_plugins().await.expect("load plugins");
-    line(format!("✓ {} plugins loaded", count));
+    line("register → spawning subprocesses + AEP handshake + bridge middleware");
+    let bus = alva_kernel_abi::Bus::new();
+    let bus_writer = bus.writer();
+    let bus_handle = bus_writer.handle();
+    let reg = Registrar::new(
+        Arc::clone(&host),
+        "subprocess-loader".to_string(),
+        bus_handle,
+        bus_writer,
+        temp.path().to_path_buf(),
+    );
+    ext.register(&reg).await;
+    line(format!("✓ {} plugins loaded", ext.loaded_count()));
     println!();
 
     // The loader registered exactly one middleware that owns the

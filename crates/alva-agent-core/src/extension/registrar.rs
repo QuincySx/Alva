@@ -107,13 +107,6 @@ impl Registrar {
         &self.plugin_name
     }
 
-    /// Inner `Arc<RwLock<ExtensionHost>>` clone — used by the transition-period
-    /// `ExtensionAsPlugin` adapter to construct a `HostAPI` without exposing
-    /// the host field as `pub`.
-    pub(crate) fn host_arc(&self) -> Arc<RwLock<super::host::ExtensionHost>> {
-        self.host.clone()
-    }
-
     /// Drain and return all tools that were registered via [`tool`] / [`tools`].
     ///
     /// Called by the builder after all plugins have run `register()`.
@@ -129,11 +122,9 @@ impl Registrar {
 // ---------------------------------------------------------------------------
 
 /// Late-phase context: all plugin `register()` calls have finished; model and
-/// the complete tool list are now available.
+/// the complete tool list are now available. Passed to [`Plugin::finalize`].
 ///
-/// Field layout mirrors [`FinalizeContext`](super::context::FinalizeContext)
-/// so the two types can be aligned in the future if the old Extension API is
-/// retired.
+/// [`Plugin::finalize`]: super::plugin::Plugin::finalize
 pub struct LateContext {
     pub bus: BusHandle,
     pub bus_writer: BusWriter,

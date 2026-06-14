@@ -65,39 +65,30 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use alva_agent_core::extension::{
-    Extension, ExtensionContext, HostAPI,
-};
+use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
 
 use crate::aep_bridge::AepBridgeMiddleware;
 use crate::manifest::PluginManifest;
 use crate::proxy::{ProxyError, RemoteExtensionProxy};
 
-/// First-party `Extension` that loads third-party subprocess plugins.
+/// First-party `Plugin` that loads third-party subprocess plugins.
 pub struct SubprocessLoaderExtension {
     state: Arc<LoaderState>,
 }
 
-/// Shared state between the extension and all handler closures.
+/// Shared state between the loader and its loaded plugin handles.
 ///
-/// Held in an `Arc` so `activate`'s handler closures can own a
-/// reference without borrowing `&self`. The plugin list is filled in
-/// by `configure` (async) after handlers have already been
-/// registered by `activate` (sync).
+/// Held in an `Arc` so callers can hold a cheap reference. The plugin
+/// list is filled in by `register` (async) via `load_plugins`.
 struct LoaderState {
     extensions_dirs: Vec<PathBuf>,
     plugins: RwLock<Vec<Arc<RemoteExtensionProxy>>>,
-    /// Cloned from the `HostAPI` handed to us during `activate()`.
-    /// Used by `configure` / `load_plugins` to register the
-    /// `AepBridgeMiddleware` via `api.middleware(...)` once the plugin
-    /// list is fully built.
-    api: RwLock<Option<HostAPI>>,
 }
 
 impl SubprocessLoaderExtension {
     /// Create a loader that will scan the given directories during
-    /// `configure`, in order. Earlier entries shadow later ones on
+    /// `register`, in order. Earlier entries shadow later ones on
     /// name conflicts (first-wins) — typical callers pass the
     /// project dir before the global dir.
     pub fn new(extensions_dirs: Vec<PathBuf>) -> Self {
@@ -105,36 +96,22 @@ impl SubprocessLoaderExtension {
             state: Arc::new(LoaderState {
                 extensions_dirs,
                 plugins: RwLock::new(Vec::new()),
-                api: RwLock::new(None),
             }),
         }
     }
 
-    /// Force-load plugins now without going through the `configure`
-    /// lifecycle. Tests and integration harnesses use this; real
-    /// hosts rely on the lifecycle calling `configure` for them.
+    /// Scan + start every plugin in the configured directories and
+    /// store the resulting proxies on `self`. Returns the number of
+    /// plugins loaded.
     ///
-    /// If `activate()` has already been called (which stores the
-    /// HostAPI handle), an [`AepBridgeMiddleware`] over the freshly
-    /// loaded plugins is registered with the host so the middleware
-    /// stack drives them.
+    /// This does **not** register the bridge middleware — that happens
+    /// in [`Plugin::register`], which calls this helper and then wires
+    /// an [`AepBridgeMiddleware`] over the loaded plugins via the
+    /// `Registrar`. Tests and integration harnesses that want to drive
+    /// the loader without the full lifecycle can call this directly.
     pub async fn load_plugins(&self) -> Result<usize, LoaderError> {
         let plugins = scan_and_start(&self.state.extensions_dirs).await?;
         let count = plugins.len();
-
-        // Register the bridge middleware if we have a HostAPI. The
-        // bridge owns Arc clones of the plugins, so the host drives
-        // them through the normal middleware stack.
-        {
-            let api_guard = self
-                .state
-                .api
-                .read()
-                .map_err(|_| LoaderError::StatePoisoned)?;
-            if let Some(ref api) = *api_guard {
-                api.middleware(Arc::new(AepBridgeMiddleware::new(plugins.clone())));
-            }
-        }
 
         let mut slot = self
             .state
@@ -191,7 +168,7 @@ impl SubprocessLoaderExtension {
 }
 
 #[async_trait]
-impl Extension for SubprocessLoaderExtension {
+impl Plugin for SubprocessLoaderExtension {
     fn name(&self) -> &str {
         "subprocess-loader"
     }
@@ -200,25 +177,12 @@ impl Extension for SubprocessLoaderExtension {
         "Dynamic loader for JS/Python plugins over AEP"
     }
 
-    fn activate(&self, api: &HostAPI) {
-        // Store the API handle so configure() can register the
-        // AepBridgeMiddleware via `api.middleware(...)` once plugins
-        // are loaded. We deliberately register NOTHING here — the
-        // plugins are not loaded yet (that happens in async configure),
-        // and the bridge needs the finished plugin list.
-        let mut api_slot = self
-            .state
-            .api
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
-        *api_slot = Some(api.clone());
-        tracing::debug!(
-            dirs = ?self.state.extensions_dirs,
-            "SubprocessLoaderExtension: api stored, waiting for configure"
-        );
-    }
-
-    async fn configure(&self, _ctx: &ExtensionContext) {
+    async fn register(&self, r: &Registrar) {
+        // Async-load the subprocess plugins, then register a single
+        // `AepBridgeMiddleware` that owns Arc clones of every plugin so
+        // the host drives them through the normal middleware stack.
+        // Best-effort: a load failure logs and registers nothing — one
+        // broken loader never aborts the whole agent build.
         match self.load_plugins().await {
             Ok(count) => {
                 tracing::info!(
@@ -233,8 +197,19 @@ impl Extension for SubprocessLoaderExtension {
                     dirs = ?self.state.extensions_dirs,
                     "failed to load subprocess plugins"
                 );
+                return;
             }
         }
+
+        // Build the bridge over the freshly-loaded plugin list.
+        let plugins = match self.state.plugins.read() {
+            Ok(guard) => guard.clone(),
+            Err(_) => {
+                tracing::error!("loader state poisoned; skipping bridge registration");
+                return;
+            }
+        };
+        r.middleware(Arc::new(AepBridgeMiddleware::new(plugins)));
     }
 }
 

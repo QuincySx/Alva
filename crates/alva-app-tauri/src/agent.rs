@@ -1484,7 +1484,7 @@ async fn ensure_agent(
         builder = builder.plugin(Box::new(TeamExtension::default()));
     }
     if on("planning", true) {
-        builder = builder.extension(Box::new(PlanningExtension));
+        builder = builder.plugin(Box::new(PlanningExtension));
     }
     if on("utility", true) {
         builder = builder.plugin(Box::new(UtilityExtension));
@@ -1563,7 +1563,7 @@ async fn ensure_agent(
     // Matches alva-app-cli::agent_setup; kept on by default so the two apps
     // expose the same plugin surface to users.
     if on("subprocess-loader", true) {
-        builder = builder.extension(Box::new(
+        builder = builder.plugin(Box::new(
             alva_app_extension_loader::loader::SubprocessLoaderExtension::new(vec![
                 paths.project_extensions_dir(),
                 paths.global_extensions_dir(),

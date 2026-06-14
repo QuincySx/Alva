@@ -4,30 +4,26 @@ use std::sync::Arc;
 use alva_kernel_core::middleware::Middleware;
 use alva_agent_security::SandboxMode;
 use alva_kernel_abi::{Bus, BusPlugin, CancellationToken, LanguageModel, PluginRegistrar, Tool};
-use alva_agent_core::extension::{ExtensionAsPlugin, Plugin};
+use alva_agent_core::extension::Plugin;
 
 use crate::error::EngineError;
 
 use super::agent::BaseAgent;
-use crate::extension::Extension;
 
 /// Builder for constructing a [`BaseAgent`].
 ///
-/// Internally the builder stores everything as `Plugin`. Capabilities can
-/// be registered either as native plugins via `.plugin()` or as legacy
-/// Extensions via `.extension()`; the latter are wrapped in
-/// `ExtensionAsPlugin` and stored alongside the native plugins. The
-/// builder ships sensible defaults (`MemoryExtension`, `SecurityExtension`,
+/// Capabilities are registered as plugins via `.plugin()`. The builder ships
+/// sensible defaults (`MemoryExtension`, `SecurityExtension`,
 /// `SystemContextExtension`) which are wired in automatically unless the
-/// caller registers any plugin or extension with the same `name()`. That
-/// is the only customization mechanism: there are no `with_memory` /
-/// `memory_service` / `security_middleware` setters.
+/// caller registers a plugin with the same `name()`. That is the only
+/// customization mechanism: there are no `with_memory` / `memory_service` /
+/// `security_middleware` setters.
 ///
 /// ```rust,ignore
 /// BaseAgent::builder()
 ///     .workspace(path)
-///     .extension(Box::new(CoreExtension))
-///     .extension(Box::new(ShellExtension))
+///     .plugin(Box::new(CoreExtension))
+///     .plugin(Box::new(ShellExtension))
 ///     .plugin(Box::new(SomePlugin))
 ///     .build(model).await?;
 /// ```
@@ -36,7 +32,7 @@ pub struct BaseAgentBuilder {
     pub(crate) system_prompt: String,
     pub(crate) sandbox_mode: SandboxMode,
 
-    // Plugins (extensions are wrapped via ExtensionAsPlugin)
+    // Plugins
     pub(crate) plugins: Vec<Box<dyn Plugin>>,
     // Direct tool/middleware (for special cases beyond extensions)
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
@@ -82,18 +78,10 @@ impl BaseAgentBuilder {
         self
     }
 
-    // -- Extensions -----------------------------------------------------------
+    // -- Plugins --------------------------------------------------------------
 
-    /// Register an extension. Extensions contribute tools and/or middleware.
-    /// This is the primary way to add capabilities to an agent.
-    pub fn extension(mut self, ext: Box<dyn Extension>) -> Self {
-        self.plugins.push(Box::new(ExtensionAsPlugin(ext)));
-        self
-    }
-
-    /// Register a plugin directly. Plugins are the newer, more capable form
-    /// of extensions. Extensions registered via `.extension()` are wrapped
-    /// in `ExtensionAsPlugin` and stored here too.
+    /// Register a plugin. Plugins contribute tools and/or middleware and are
+    /// the primary way to add capabilities to an agent.
     pub fn plugin(mut self, p: Box<dyn Plugin>) -> Self {
         self.plugins.push(p);
         self

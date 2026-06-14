@@ -143,7 +143,7 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
         .plugin(Box::new(approval_ext))
         .plugin(Box::new(alva_app_core::extension::CoreExtension))
         .plugin(Box::new(alva_app_core::extension::ShellExtension))
-        .extension(Box::new(alva_app_core::extension::PlanningExtension))
+        .plugin(Box::new(alva_app_core::extension::PlanningExtension))
         .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
         .plugin(Box::new(alva_app_core::extension::UtilityExtension))
         .plugin(Box::new(alva_app_core::extension::WebExtension))

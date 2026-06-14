@@ -14,7 +14,7 @@
 use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 
-use alva_agent_core::extension::{Extension, ExtensionHost, HostAPI};
+use alva_agent_core::extension::{ExtensionHost, Plugin, Registrar};
 use alva_app_extension_loader::loader::SubprocessLoaderExtension;
 use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{AgentMessage, Message, ToolCall};
@@ -159,19 +159,24 @@ async fn plugin_blocks_dangerous_shell_command() {
 
     // Wire up the host + loader like the real agent would.
     let host = Arc::new(RwLock::new(ExtensionHost::new()));
-    let api = HostAPI::new(Arc::clone(&host), "subprocess-loader".to_string());
     let ext = SubprocessLoaderExtension::new(vec![temp.path().to_path_buf()]);
 
-    // Phase 1 of lifecycle: sync activate registers handlers.
-    ext.activate(&api);
-
-    // Phase 2 of lifecycle: async configure would normally happen,
-    // but we do not have a real `ExtensionContext` in tests — we
-    // trigger the same plugin-loading code path via the public
-    // `load_plugins` helper.
-    let count = ext.load_plugins().await.expect("load plugins");
-    assert_eq!(count, 1, "expected exactly one plugin loaded");
-    assert_eq!(ext.loaded_count(), 1);
+    // Drive the single `register` lifecycle phase against a Registrar
+    // backed by the real host — this loads the subprocess plugins and
+    // registers the `AepBridgeMiddleware` on the host, exactly as the
+    // agent builder does.
+    let bus = alva_kernel_abi::Bus::new();
+    let bus_writer = bus.writer();
+    let bus_handle = bus_writer.handle();
+    let reg = Registrar::new(
+        Arc::clone(&host),
+        "subprocess-loader".to_string(),
+        bus_handle,
+        bus_writer,
+        temp.path().to_path_buf(),
+    );
+    ext.register(&reg).await;
+    assert_eq!(ext.loaded_count(), 1, "expected exactly one plugin loaded");
 
     // Grab the middleware the loader registered, and a state to drive it.
     let bridge = take_bridge(&host);

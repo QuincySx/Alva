@@ -57,7 +57,7 @@ async fn build_agent_with_responses(
         .plugin(Box::new(alva_app_core::extension::CoreExtension))
         .plugin(Box::new(alva_app_core::extension::ShellExtension))
         .plugin(Box::new(alva_app_core::extension::InteractionExtension))
-        .extension(Box::new(alva_app_core::extension::PlanningExtension))
+        .plugin(Box::new(alva_app_core::extension::PlanningExtension))
         .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
         .plugin(Box::new(alva_app_core::extension::TeamExtension::default()))
         .plugin(Box::new(alva_app_core::extension::UtilityExtension))

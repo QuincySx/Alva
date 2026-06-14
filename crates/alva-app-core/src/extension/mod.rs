@@ -5,8 +5,7 @@
 //! in this crate. The trait + HostAPI live in `alva-agent-core`.
 
 pub use alva_agent_core::extension::{
-    Extension, ExtensionContext, ExtensionHost, FinalizeContext, HostAPI, LateContext, Plugin,
-    Registrar, RegisteredCommand,
+    ExtensionHost, HostAPI, LateContext, Plugin, Registrar, RegisteredCommand,
 };
 
 // Folder-based built-in extensions

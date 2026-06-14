@@ -14,11 +14,10 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 
-use alva_agent_core::extension::{Extension, ExtensionContext};
+use alva_agent_core::extension::{Plugin, Registrar};
 use alva_agent_memory::{InMemoryBackend, MemoryService, NoopEmbeddingProvider};
 use alva_agent_security::SecurityGuard;
 use alva_app_core::base_agent::BaseAgent;
-use alva_kernel_abi::tool::Tool;
 use alva_test::fixtures::make_assistant_message;
 use alva_test::mock_provider::MockLanguageModel;
 use tokio::sync::Mutex;
@@ -78,16 +77,12 @@ impl CustomMemoryExt {
 }
 
 #[async_trait]
-impl Extension for CustomMemoryExt {
+impl Plugin for CustomMemoryExt {
     fn name(&self) -> &str {
         "memory"
     }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        Vec::new()
-    }
-
-    async fn configure(&self, ctx: &ExtensionContext) {
+    async fn register(&self, r: &Registrar) {
         self.activations.fetch_add(1, Ordering::SeqCst);
         // Seed a sentinel BEFORE publishing so the assertion below can
         // distinguish our service from a freshly-built default.
@@ -95,7 +90,7 @@ impl Extension for CustomMemoryExt {
             .store_entry("custom-sentinel", "from custom ext", "test")
             .await
             .expect("seed sentinel");
-        ctx.bus_writer
+        r.bus_writer()
             .provide::<MemoryService>(self.service.clone());
     }
 }
@@ -109,7 +104,7 @@ async fn custom_memory_extension_replaces_default() {
 
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
-        .extension(Box::new(CustomMemoryExt::new(activations.clone())))
+        .plugin(Box::new(CustomMemoryExt::new(activations.clone())))
         .build(model)
         .await
         .expect("build should succeed");
@@ -176,16 +171,12 @@ impl CustomSecurityExt {
 }
 
 #[async_trait]
-impl Extension for CustomSecurityExt {
+impl Plugin for CustomSecurityExt {
     fn name(&self) -> &str {
         "security"
     }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        Vec::new()
-    }
-
-    async fn configure(&self, _ctx: &ExtensionContext) {
+    async fn register(&self, _r: &Registrar) {
         self.activations.fetch_add(1, Ordering::SeqCst);
         *self.marker.lock().unwrap() = true;
     }
@@ -201,7 +192,7 @@ async fn custom_security_extension_replaces_default() {
 
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
-        .extension(Box::new(CustomSecurityExt::new(
+        .plugin(Box::new(CustomSecurityExt::new(
             activations.clone(),
             marker.clone(),
         )))

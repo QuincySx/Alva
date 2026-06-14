@@ -122,7 +122,7 @@ pub(crate) async fn build_agent(
         .plugin(Box::new(alva_app_core::extension::InteractionExtension))
         .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
         .plugin(Box::new(alva_app_core::extension::TeamExtension::default()))
-        .extension(Box::new(alva_app_core::extension::PlanningExtension))
+        .plugin(Box::new(alva_app_core::extension::PlanningExtension))
         .plugin(Box::new(alva_app_core::extension::UtilityExtension))
         .plugin(Box::new(alva_app_core::extension::WebExtension))
         .plugin(Box::new(alva_app_core::extension::BrowserExtension))
@@ -143,7 +143,7 @@ pub(crate) async fn build_agent(
         // Third-party subprocess plugins (JS / Python / anything).
         // Project dir shadows global on name conflicts — same convention
         // as skills and MCP configs above.
-        .extension(Box::new(
+        .plugin(Box::new(
             alva_app_extension_loader::loader::SubprocessLoaderExtension::new(vec![
                 paths.project_extensions_dir(),
                 paths.global_extensions_dir(),

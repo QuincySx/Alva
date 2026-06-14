@@ -14,9 +14,7 @@ use alva_kernel_core::state::{AgentConfig, AgentState};
 use tokio::sync::Mutex;
 
 use crate::agent::Agent;
-use crate::extension::{
-    Extension, ExtensionAsPlugin, ExtensionHost, LateContext, Plugin, Registrar,
-};
+use crate::extension::{ExtensionHost, LateContext, Plugin, Registrar};
 
 /// SDK-level builder for assembling an `Agent`.
 ///
@@ -88,10 +86,6 @@ impl AgentBuilder {
         self.context_window = n;
         self
     }
-    pub fn extension(mut self, e: Box<dyn Extension>) -> Self {
-        self.plugins.push(Box::new(ExtensionAsPlugin(e)));
-        self
-    }
     pub fn plugin(mut self, p: Box<dyn Plugin>) -> Self {
         self.plugins.push(p);
         self
@@ -130,8 +124,7 @@ impl AgentBuilder {
     }
 
     /// 构建 Agent。运行 Plugin 生命周期（`register` → `finalize`），装配
-    /// middleware，产出可运行的 `Agent`。旧的 `Extension` 实现经
-    /// `ExtensionAsPlugin` 适配器桥接。
+    /// middleware，产出可运行的 `Agent`。
     pub async fn build(self) -> Result<Agent, AgentError> {
         // 1. Validate required inputs.
         let model = self
