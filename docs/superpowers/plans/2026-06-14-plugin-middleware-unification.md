@@ -927,7 +927,8 @@ git commit -m "refactor: remove Extension trait + adapter; rename to Plugin/Regi
 > - `.extension(Box::new(X))` 示例(已迁移类型)→ 改 `.plugin(Box::new(X))`:`base_agent/builder.rs` struct doc、`AGENTS.md`、`docs/ARCHITECTURE.md`。
 > - 迁移后文件里 struct/模块 doc、`// INPUT:` 机器头注释仍写 `Extension`/`ExtensionContext`/`Extension::configure`/`Extension::activate`/`Extension::name` 的,改成 `Plugin`/`Registrar`/`Plugin::register`/`Plugin::name`。
 > - grep 线索:`grep -rn "Extension::configure\|Extension::activate\|crate::extension::{Extension\|\.extension(Box::new\|configure()" crates/ --include=*.rs`(逐条判断是真实代码还是 stale doc;真实代码到此应已无,剩的多是注释)。
-> 已知点:`provider_registry.rs:16`、`approval.rs:17/25`、`spawn_comm_registry.rs:1/11/29/65`、`tool_lock_registry.rs:1`、`communication.rs:177` 等(以最终 grep 为准)。
+> 已知点:`provider_registry.rs:16`、`approval.rs:17/25`、`spawn_comm_registry.rs:1/11/29/65`、`tool_lock_registry.rs:1`、`communication.rs:177`、`lsp/mod.rs:110`、`guard.rs:87`(`SecurityExtension::configure`→`register`)等(以最终 grep 为准)。
+> **需事实改正(非仅改名)**:`blackboard_comm.rs:26` 注释称 `SpawnCommunicationRegistry` 由 `BaseAgentBuilder::build()` 默认提供——错误,它是 opt-in(`SpawnCommRegistryExtension`);改成"需显式装配 SpawnCommRegistryExtension,否则 finalize 走 warn 跳过"。
 
 更新 AGENTS.md:
 
