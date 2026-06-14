@@ -107,6 +107,13 @@ impl Registrar {
         &self.plugin_name
     }
 
+    /// Inner `Arc<RwLock<ExtensionHost>>` clone — used by the transition-period
+    /// `ExtensionAsPlugin` adapter to construct a `HostAPI` without exposing
+    /// the host field as `pub`.
+    pub(crate) fn host_arc(&self) -> Arc<RwLock<super::host::ExtensionHost>> {
+        self.host.clone()
+    }
+
     /// Drain and return all tools that were registered via [`tool`] / [`tools`].
     ///
     /// Called by the builder after all plugins have run `register()`.
