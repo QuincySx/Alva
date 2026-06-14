@@ -6,7 +6,7 @@
 //!
 //! Modules:
 //!   base_agent/  — BaseAgent, BaseAgentBuilder, PermissionMode
-//!   extension/   — Extension trait, HostAPI, and all built-in
+//!   extension/   — Plugin trait, Registrar, and all built-in
 //!                  extensions (skills, mcp, hooks, agent_spawn, evaluation)
 //!   settings/    — Settings + HooksSettings types
 //!   paths/       — Workspace/global path resolution
@@ -72,7 +72,7 @@ pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};
 pub use utils::{estimate_cost_usd, format_token_count};
 
 // Extension runtime API
-pub use crate::extension::{ExtensionHost, HostAPI};
+pub use crate::extension::ExtensionHost;
 
 // Managed Agents parity surface — see docs/plans/2026-05-11-managed-agents-parity.md.
 pub use outcome::{

@@ -1,6 +1,6 @@
 //! ExtensionHost — runtime container for extension middleware and commands.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use alva_kernel_abi::CancellationToken;
 
 /// Command registered by an extension (metadata only).
@@ -81,72 +81,5 @@ impl ExtensionHost {
 impl Default for ExtensionHost {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// API handle given to extensions during activate().
-///
-/// `Clone` is cheap — `host` is `Arc` and `extension_name` is a short
-/// string. Aggregator extensions (e.g. `SubprocessLoaderPlugin`)
-/// clone the handle in `activate()` and reuse it in `configure()`.
-#[derive(Clone)]
-pub struct HostAPI {
-    host: Arc<RwLock<ExtensionHost>>,
-    extension_name: String,
-}
-
-impl HostAPI {
-    pub fn new(host: Arc<RwLock<ExtensionHost>>, extension_name: String) -> Self {
-        Self { host, extension_name }
-    }
-
-    /// Register a middleware. Called during activate(), collected by the builder.
-    pub fn middleware(&self, mw: Arc<dyn alva_kernel_core::middleware::Middleware>) {
-        let mut host = self.host.write().unwrap();
-        host.register_middleware(mw);
-    }
-
-    /// Register a /command (metadata only, routing is P3).
-    pub fn register_command(&self, name: &str, description: &str) {
-        let mut host = self.host.write().unwrap();
-        host.register_command(RegisteredCommand {
-            name: name.to_string(),
-            description: description.to_string(),
-            source_extension: self.extension_name.clone(),
-        });
-    }
-
-    /// Append a fragment to the agent's system prompt at a given
-    /// context layer. The layer decides cache placement:
-    ///   - `AlwaysPresent` / `OnDemand` / `Memory` → stable bucket
-    ///     (cacheable prefix)
-    ///   - `RuntimeInject` → dynamic bucket (per-turn volatile, not
-    ///     cached)
-    ///
-    /// Use `AlwaysPresent` for things like `<project_context>` /
-    /// CLAUDE.md / skill indexes. Use `RuntimeInject` for git status,
-    /// today's date, current directory listings, anything that varies
-    /// per turn.
-    pub fn append_system_prompt(
-        &self,
-        layer: alva_kernel_abi::scope::context::ContextLayer,
-        text: impl Into<String>,
-    ) {
-        let mut host = self.host.write().unwrap();
-        host.append_system_prompt(self.extension_name.clone(), layer, text.into());
-    }
-
-    /// Cancel the current agent loop.
-    pub fn shutdown(&self) {
-        let host = self.host.read().unwrap();
-        if let Some(ref cancel) = host.cancel_token {
-            let token = cancel.lock().unwrap();
-            token.cancel();
-        }
-    }
-
-    /// Get the extension name this API belongs to.
-    pub fn extension_name(&self) -> &str {
-        &self.extension_name
     }
 }

@@ -20,7 +20,7 @@ pub use sleeper::TokioSleeper;
 // These are **host-layer** re-exports intended for first-party code
 // that wires kernels and runtimes together. External Extension /
 // plugin authors should NOT import from this crate — they go through
-// `alva-app-core::Extension` and `HostAPI` instead.
+// `alva-app-core::{Plugin, Registrar}` instead.
 pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage, run_agent};
 pub use alva_kernel_core::{Middleware, MiddlewareStack};
 pub use alva_kernel_abi::{Tool, ToolExecutionContext, ToolRegistry, LanguageModel, Provider, ProviderRegistry};

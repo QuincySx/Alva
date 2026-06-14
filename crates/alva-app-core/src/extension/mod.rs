@@ -2,10 +2,10 @@
 //!
 //! Only the built-in Extension implementations (skills, mcp, hooks, evaluation,
 //! agent_spawn, and the flat wrappers for core/shell/task/team/etc) still live
-//! in this crate. The trait + HostAPI live in `alva-agent-core`.
+//! in this crate. The Plugin trait + Registrar live in `alva-agent-core`.
 
 pub use alva_agent_core::extension::{
-    ExtensionHost, HostAPI, LateContext, Plugin, Registrar, RegisteredCommand,
+    ExtensionHost, LateContext, Plugin, Registrar, RegisteredCommand,
 };
 
 // Folder-based built-in extensions

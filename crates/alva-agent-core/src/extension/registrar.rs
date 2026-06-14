@@ -45,11 +45,15 @@ impl Registrar {
     }
 
     /// 注册一个 LLM 可调用的 tool。
-    pub fn tool(&self, t: Box<dyn Tool>) {
-        self.tools.lock().unwrap().push(t);
+    ///
+    /// 取具体类型,内部装箱——调用点直接 `r.tool(MyTool::new())`,无需手动 `Box::new`。
+    pub fn tool<T: Tool + 'static>(&self, t: T) {
+        self.tools.lock().unwrap().push(Box::new(t));
     }
 
-    /// 注册一组 LLM 可调用的 tool。
+    /// 注册一组 LLM 可调用的 tool(批量,已装箱)。
+    ///
+    /// 适用于返回 `Vec<Box<dyn Tool>>` 的 preset 函数。
     pub fn tools(&self, ts: Vec<Box<dyn Tool>>) {
         self.tools.lock().unwrap().extend(ts);
     }
@@ -77,10 +81,10 @@ impl Registrar {
     }
 
     /// 注册一个 /command(元数据)。
-    pub fn command(&self, name: &str, description: &str) {
+    pub fn command(&self, name: impl Into<String>, description: impl Into<String>) {
         self.host.write().unwrap().register_command(RegisteredCommand {
-            name: name.to_string(),
-            description: description.to_string(),
+            name: name.into(),
+            description: description.into(),
             source_extension: self.plugin_name.clone(),
         });
     }
@@ -184,7 +188,7 @@ mod tests {
         let r = make_registrar();
         assert!(r.take_tools().is_empty(), "initially empty");
 
-        r.tool(Box::new(StubTool { label: "alpha" }));
+        r.tool(StubTool { label: "alpha" });
         r.tools(vec![
             Box::new(StubTool { label: "beta" }),
             Box::new(StubTool { label: "gamma" }),

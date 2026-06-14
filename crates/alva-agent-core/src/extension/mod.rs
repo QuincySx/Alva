@@ -9,6 +9,6 @@ mod host;
 mod plugin;
 mod registrar;
 
-pub use host::{ExtensionHost, HostAPI, RegisteredCommand};
+pub use host::{ExtensionHost, RegisteredCommand};
 pub use plugin::Plugin;
 pub use registrar::{LateContext, Registrar};

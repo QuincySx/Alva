@@ -90,8 +90,7 @@ impl Plugin for CustomMemoryPlugin {
             .store_entry("custom-sentinel", "from custom ext", "test")
             .await
             .expect("seed sentinel");
-        r.bus_writer()
-            .provide::<MemoryService>(self.service.clone());
+        r.provide::<MemoryService>(self.service.clone());
     }
 }
 

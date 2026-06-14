@@ -253,8 +253,8 @@ impl BaseAgentBuilder {
 
         // 7. Post-build harness wiring. The extension host now exists and
         //    extensions have already been activated/configured. We bind the
-        //    cancellation token so the host can cancel the loop via
-        //    `HostAPI::shutdown`. Steering/follow-up injection is no longer
+        //    cancellation token to the host so the running loop can be
+        //    cancelled. Steering/follow-up injection is no longer
         //    a kernel concern — users who need it opt in with the
         //    `PendingPlugin` (in `alva_app_core::extension::pending`).
         let current_cancel = Arc::new(std::sync::Mutex::new(CancellationToken::new()));

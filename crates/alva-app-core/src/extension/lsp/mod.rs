@@ -225,7 +225,7 @@ impl Plugin for LspPlugin {
     async fn register(&self, r: &Registrar) {
         // Tool (was `tools()`). The tool needs the `LspManager` Arc but it
         // reads the bus at execute time rather than holding a handle here.
-        r.tool(Box::new(LspDiagnosticsTool::new()));
+        r.tool(LspDiagnosticsTool::new());
 
         // Default backend: in-memory stub (was `configure()`). Real
         // LSP-backed impl lands later by registering a different
