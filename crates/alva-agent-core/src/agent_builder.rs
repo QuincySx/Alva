@@ -15,8 +15,7 @@ use tokio::sync::Mutex;
 
 use crate::agent::Agent;
 use crate::extension::{
-    Extension, ExtensionAsPlugin, ExtensionBridgeMiddleware, ExtensionHost, LateContext, Plugin,
-    Registrar,
+    Extension, ExtensionAsPlugin, ExtensionHost, LateContext, Plugin, Registrar,
 };
 
 /// SDK-level builder for assembling an `Agent`.
@@ -192,8 +191,6 @@ impl AgentBuilder {
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
-        // 过渡期保留 bridge：待所有 Extension 迁移到 Plugin 后移除（见注入机制统一迁移计划 Phase 4）。
-        middleware_stack.push_sorted(Arc::new(ExtensionBridgeMiddleware::new(host.clone())));
 
         // 6. Register the collected tools into a ToolRegistry.
         let mut registry = ToolRegistry::new();

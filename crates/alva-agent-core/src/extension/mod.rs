@@ -6,17 +6,13 @@
 //! (skills, mcp, hooks, evaluation, agent_spawn) live in `alva-app-core`.
 
 mod adapter;
-mod bridge;
 mod context;
-mod events;
 mod host;
 mod plugin;
 mod registrar;
 
 pub use adapter::ExtensionAsPlugin;
-pub use bridge::ExtensionBridgeMiddleware;
 pub use context::{ExtensionContext, FinalizeContext};
-pub use events::{EventResult, ExtensionEvent};
 pub use host::{ExtensionHost, HostAPI, RegisteredCommand};
 pub use plugin::Plugin;
 pub use registrar::{LateContext, Registrar};

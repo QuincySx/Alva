@@ -1,11 +1,7 @@
-//! ExtensionHost — runtime container for extension event handlers and commands.
+//! ExtensionHost — runtime container for extension middleware and commands.
 
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use alva_kernel_abi::CancellationToken;
-use super::events::{ExtensionEvent, EventResult};
-
-type HandlerFn = Box<dyn Fn(&ExtensionEvent) -> EventResult + Send + Sync>;
 
 /// Command registered by an extension (metadata only).
 pub struct RegisteredCommand {
@@ -14,9 +10,8 @@ pub struct RegisteredCommand {
     pub source_extension: String,
 }
 
-/// Runtime container for extension event handlers, middleware, and commands.
+/// Runtime container for extension middleware and commands.
 pub struct ExtensionHost {
-    handlers: HashMap<&'static str, Vec<(String, HandlerFn)>>,  // (extension_name, handler)
     middlewares: Vec<Arc<dyn alva_kernel_core::middleware::Middleware>>,
     commands: Vec<RegisteredCommand>,
     cancel_token: Option<Arc<std::sync::Mutex<CancellationToken>>>,
@@ -33,16 +28,11 @@ pub struct ExtensionHost {
 impl ExtensionHost {
     pub fn new() -> Self {
         Self {
-            handlers: HashMap::new(),
             middlewares: Vec::new(),
             commands: Vec::new(),
             cancel_token: None,
             system_prompt_additions: Vec::new(),
         }
-    }
-
-    pub fn register_handler(&mut self, event_type: &'static str, source: String, handler: HandlerFn) {
-        self.handlers.entry(event_type).or_default().push((source, handler));
     }
 
     pub fn register_middleware(&mut self, mw: Arc<dyn alva_kernel_core::middleware::Middleware>) {
@@ -77,41 +67,6 @@ impl ExtensionHost {
         &mut self,
     ) -> Vec<(String, alva_kernel_abi::scope::context::ContextLayer, String)> {
         std::mem::take(&mut self.system_prompt_additions)
-    }
-
-    /// Dispatch event to all registered handlers. Sequential, first Block/Handled wins.
-    pub fn emit(&self, event: &ExtensionEvent) -> EventResult {
-        let event_type = event.event_type();
-        if let Some(handlers) = self.handlers.get(event_type) {
-            for (ext_name, handler) in handlers {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    handler(event)
-                }));
-                match result {
-                    Ok(EventResult::Continue) => continue,
-                    Ok(r @ EventResult::Block { .. }) => {
-                        tracing::info!(extension = ext_name.as_str(), event = event_type, "extension blocked event");
-                        return r;
-                    }
-                    Ok(r @ EventResult::Handled) => {
-                        tracing::debug!(extension = ext_name.as_str(), event = event_type, "extension handled event");
-                        return r;
-                    }
-                    Err(panic) => {
-                        let msg = if let Some(s) = panic.downcast_ref::<String>() {
-                            s.clone()
-                        } else if let Some(s) = panic.downcast_ref::<&str>() {
-                            s.to_string()
-                        } else {
-                            "unknown panic".to_string()
-                        };
-                        tracing::error!(extension = ext_name.as_str(), event = event_type, error = msg.as_str(), "extension handler panicked");
-                        continue; // isolated: don't propagate
-                    }
-                }
-            }
-        }
-        EventResult::Continue
     }
 
     pub fn bind_agent(&mut self, cancel: Arc<std::sync::Mutex<CancellationToken>>) {
@@ -149,30 +104,6 @@ impl HostAPI {
     pub fn middleware(&self, mw: Arc<dyn alva_kernel_core::middleware::Middleware>) {
         let mut host = self.host.write().unwrap();
         host.register_middleware(mw);
-    }
-
-    /// Subscribe to an event type.
-    pub fn on(&self, event_type: &'static str, handler: impl Fn(&ExtensionEvent) -> EventResult + Send + Sync + 'static) {
-        let mut host = self.host.write().unwrap();
-        host.register_handler(event_type, self.extension_name.clone(), Box::new(handler));
-    }
-
-    /// Like [`on`](Self::on), but attribute the handler to a custom
-    /// `source_name` instead of this extension's own name.
-    ///
-    /// Used by aggregator extensions (e.g. `SubprocessLoaderExtension`)
-    /// that internally manage many third-party extensions and want each
-    /// to appear by its real name in the host's handler registry —
-    /// making individual plugins visible instead of collapsing them all
-    /// behind the loader's name.
-    pub fn on_as(
-        &self,
-        source_name: &str,
-        event_type: &'static str,
-        handler: impl Fn(&ExtensionEvent) -> EventResult + Send + Sync + 'static,
-    ) {
-        let mut host = self.host.write().unwrap();
-        host.register_handler(event_type, source_name.to_string(), Box::new(handler));
     }
 
     /// Register a /command (metadata only, routing is P3).

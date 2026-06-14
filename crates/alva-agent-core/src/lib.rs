@@ -10,8 +10,7 @@ pub use mock_fs::MockToolFs;
 
 pub mod extension;
 pub use extension::{
-    Extension, ExtensionBridgeMiddleware, ExtensionContext, ExtensionEvent, ExtensionHost,
-    EventResult, FinalizeContext, HostAPI, RegisteredCommand,
+    Extension, ExtensionContext, ExtensionHost, FinalizeContext, HostAPI, RegisteredCommand,
 };
 
 pub mod agent;

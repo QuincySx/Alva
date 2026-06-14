@@ -72,7 +72,7 @@ pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};
 pub use utils::{estimate_cost_usd, format_token_count};
 
 // Extension runtime API
-pub use crate::extension::{ExtensionEvent, EventResult, ExtensionHost, HostAPI};
+pub use crate::extension::{ExtensionHost, HostAPI};
 
 // Managed Agents parity surface — see docs/plans/2026-05-11-managed-agents-parity.md.
 pub use outcome::{

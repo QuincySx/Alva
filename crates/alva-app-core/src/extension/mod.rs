@@ -5,8 +5,8 @@
 //! in this crate. The trait + HostAPI + event dispatch live in `alva-agent-core`.
 
 pub use alva_agent_core::extension::{
-    Extension, ExtensionBridgeMiddleware, ExtensionContext, ExtensionEvent, ExtensionHost,
-    EventResult, FinalizeContext, HostAPI, LateContext, Plugin, Registrar, RegisteredCommand,
+    Extension, ExtensionContext, ExtensionHost, FinalizeContext, HostAPI, LateContext, Plugin,
+    Registrar, RegisteredCommand,
 };
 
 // Folder-based built-in extensions
