@@ -1,8 +1,8 @@
 // INPUT:  std::sync::Arc, async_trait, alva_agent_context::scope::{BlackboardCommunication, BoardRegistry}, alva_kernel_abi::SpawnCommunicationRegistry, crate::extension::{Plugin, Registrar, LateContext}
-// OUTPUT: BlackboardCommExtension
+// OUTPUT: BlackboardCommPlugin
 // POS:    Optional Plugin that registers a BlackboardCommunication into the SpawnCommunicationRegistry on the bus (in finalize/late phase) — opt-in wiring for sub-agent board sharing.
 
-//! `BlackboardCommExtension` — registers the Blackboard communication
+//! `BlackboardCommPlugin` — registers the Blackboard communication
 //! capability with the sub-agent spawn system.
 //!
 //! Without this extension, a child agent cannot be spawned with
@@ -24,11 +24,11 @@ use crate::extension::{LateContext, Plugin, Registrar};
 ///
 /// Needs the `SpawnCommunicationRegistry` to already be on the bus, which
 /// `BaseAgentBuilder::build()` provides by default.
-pub struct BlackboardCommExtension {
+pub struct BlackboardCommPlugin {
     board_registry: Arc<BoardRegistry>,
 }
 
-impl BlackboardCommExtension {
+impl BlackboardCommPlugin {
     /// Create with a fresh in-process `BoardRegistry`.
     pub fn new() -> Self {
         Self {
@@ -43,14 +43,14 @@ impl BlackboardCommExtension {
     }
 }
 
-impl Default for BlackboardCommExtension {
+impl Default for BlackboardCommPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for BlackboardCommExtension {
+impl Plugin for BlackboardCommPlugin {
     fn name(&self) -> &str {
         "blackboard-comm"
     }

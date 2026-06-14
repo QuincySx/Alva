@@ -8,7 +8,7 @@
 //!
 //! **Not registered by default.** The `BaseAgent` builder does not add
 //! this extension; callers that want mid-run steering opt in with
-//! `.plugin(Box::new(PendingExtension::new()))`. This keeps the
+//! `.plugin(Box::new(PendingPlugin::new()))`. This keeps the
 //! kernel free of steering-specific logic and lets downstream code
 //! subscribe to the service directly without an automatic forwarding
 //! layer.
@@ -44,7 +44,7 @@ pub struct PendingMessage {
 
 /// Bus Capability: out-of-band user-message queue for mid-loop injection.
 ///
-/// **Provider**: `PendingExtension::configure` — opt-in; the outer app
+/// **Provider**: `PendingPlugin::configure` — opt-in; the outer app
 /// registers this extension (see `alva-app-core/src/extension/pending.rs`).
 /// **Consumers**: outer harness (CLI / UI) that wants to inject a
 /// typed-ahead message while the agent is running;
@@ -206,11 +206,11 @@ impl Middleware for PendingMiddleware {
 /// The opt-in Extension. Publishes `Arc<dyn PendingService>` on the bus
 /// and registers a `PendingMiddleware` that drains unread messages at
 /// the start of each LLM call.
-pub struct PendingExtension {
+pub struct PendingPlugin {
     svc: Arc<PendingServiceImpl>,
 }
 
-impl PendingExtension {
+impl PendingPlugin {
     pub fn new() -> Self {
         Self {
             svc: Arc::new(PendingServiceImpl::new()),
@@ -224,14 +224,14 @@ impl PendingExtension {
     }
 }
 
-impl Default for PendingExtension {
+impl Default for PendingPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for PendingExtension {
+impl Plugin for PendingPlugin {
     fn name(&self) -> &str {
         "pending_messages"
     }

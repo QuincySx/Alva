@@ -1,4 +1,4 @@
-//! EvaluationExtension — wires a SprintContract in as middleware.
+//! EvaluationPlugin — wires a SprintContract in as middleware.
 
 use std::sync::Arc;
 
@@ -8,11 +8,11 @@ use crate::extension::{Plugin, Registrar};
 use crate::extension::evaluation::{SprintContract, SprintContractMiddleware};
 
 /// QA evaluation with sprint contract enforcement.
-pub struct EvaluationExtension {
+pub struct EvaluationPlugin {
     contract: Option<SprintContract>,
 }
 
-impl EvaluationExtension {
+impl EvaluationPlugin {
     pub fn new() -> Self {
         Self { contract: None }
     }
@@ -23,14 +23,14 @@ impl EvaluationExtension {
     }
 }
 
-impl Default for EvaluationExtension {
+impl Default for EvaluationPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for EvaluationExtension {
+impl Plugin for EvaluationPlugin {
     fn name(&self) -> &str { "evaluation" }
     fn description(&self) -> &str { "QA evaluation and sprint contract enforcement" }
 

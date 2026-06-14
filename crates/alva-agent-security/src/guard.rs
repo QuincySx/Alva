@@ -84,7 +84,7 @@ fn expand_home(path: &str) -> PathBuf {
 /// Bus Capability: unified security gate shared by middleware + HITL UI.
 /// Published on the bus wrapped in `tokio::sync::Mutex<SecurityGuard>`.
 ///
-/// **Provider**: `SecurityExtension::configure`
+/// **Provider**: `SecurityPlugin::configure`
 /// (`alva-agent-extension-builtin/src/wrappers/security.rs`). The
 /// default-replacement contract applies — register your own extension
 /// named `"security"` to swap the guard.

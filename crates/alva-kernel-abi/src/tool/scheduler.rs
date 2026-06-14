@@ -22,7 +22,7 @@
 //! inside one agent is cheap — no contention with self.
 //!
 //! Where these locks actually bite: **sub-agent parallel runs**. Multiple
-//! `SubAgentExtension` spawns share the same `ToolLockRegistry` via the bus;
+//! `SubAgentPlugin` spawns share the same `ToolLockRegistry` via the bus;
 //! if two sub-agents both try to edit `/src/foo.rs`, the second one's
 //! EditFile call will block until the first finishes. This is the scenario
 //! the registry is built for.

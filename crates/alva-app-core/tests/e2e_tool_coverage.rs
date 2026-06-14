@@ -7,14 +7,14 @@
 //! Stages:
 //!   1. Individual-tool coverage (10 tests) — one tool per test.
 //!   2. Network + task-service tests (8 tests) — read_url via wiremock,
-//!      task lifecycle through the TaskExtension's in-memory store.
+//!      task lifecycle through the TaskPlugin's in-memory store.
 //!   3. Combined-tool sequences (5 tests) — multi-turn LLM loops chaining
 //!      several real tools.
 
 use std::sync::Arc;
 
 use alva_app_core::base_agent::{BaseAgent, PermissionMode};
-use alva_app_core::extension::{ApprovalExtension, PermissionExtension};
+use alva_app_core::extension::{ApprovalPlugin, PermissionPlugin};
 use alva_app_core::AgentEvent;
 use alva_agent_extension_builtin::notebook_edit::NotebookEditTool;
 use alva_test::fixtures::make_assistant_message;
@@ -38,7 +38,7 @@ async fn build_agent_with_responses(
     workspace: &std::path::Path,
     responses: Vec<Message>,
 ) -> BaseAgent {
-    let (approval_ext, mut approval_rx) = ApprovalExtension::with_channel();
+    let (approval_ext, mut approval_rx) = ApprovalPlugin::with_channel();
 
     let mut model = MockLanguageModel::new();
     for r in responses {
@@ -48,20 +48,20 @@ async fn build_agent_with_responses(
     let agent = BaseAgent::builder()
         .workspace(workspace)
         .system_prompt("You are a test assistant.")
-        // PermissionExtension publishes the PermissionModeService on the
+        // PermissionPlugin publishes the PermissionModeService on the
         // bus. Without it, `agent.set_permission_mode(...)` is a silent
         // no-op (the lookup misses, the call returns), and Plan-mode
         // tests would falsely pass writes.
-        .plugin(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
+        .plugin(Box::new(PermissionPlugin::new().with_initial(PermissionMode::AcceptShell)))
         .plugin(Box::new(approval_ext))
-        .plugin(Box::new(alva_app_core::extension::CoreExtension))
-        .plugin(Box::new(alva_app_core::extension::ShellExtension))
-        .plugin(Box::new(alva_app_core::extension::InteractionExtension))
-        .plugin(Box::new(alva_app_core::extension::PlanningExtension))
-        .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
-        .plugin(Box::new(alva_app_core::extension::TeamExtension::default()))
-        .plugin(Box::new(alva_app_core::extension::UtilityExtension))
-        .plugin(Box::new(alva_app_core::extension::WebExtension))
+        .plugin(Box::new(alva_app_core::extension::CorePlugin))
+        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
+        .plugin(Box::new(alva_app_core::extension::InteractionPlugin))
+        .plugin(Box::new(alva_app_core::extension::PlanningPlugin))
+        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::UtilityPlugin))
+        .plugin(Box::new(alva_app_core::extension::WebPlugin))
         .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))

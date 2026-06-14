@@ -2,7 +2,7 @@
 // OUTPUT: RosterEntry, RosterEntryKind, MultiagentRoster, RosterError, MultiagentRosterCap
 // POS:    **Harness-level** declarative multiagent roster. Mirrors Anthropic Managed Agents
 //         `multiagent.agents[]`. The types live here in `alva-app-core` (not in
-//         `alva-agent-core`) because the consumer is an Extension — `SubAgentExtension` /
+//         `alva-agent-core`) because the consumer is an Extension — `SubAgentPlugin` /
 //         `AgentSpawnTool` — not the agent loop or builder kernel. Validation (size,
 //         distinctness, single self-ref) is exposed via `MultiagentRoster::validate`;
 //         whichever extension wires the roster into the bus (via `MultiagentRosterCap`)

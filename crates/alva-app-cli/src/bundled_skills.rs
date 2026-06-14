@@ -2,7 +2,7 @@
 // OUTPUT: ensure_extracted, BUNDLED_SKILLS_VERSION
 // POS:    Bundles the workspace-root skills tree (`assets/skills/`) into the
 //         binary at compile time and extracts it on first run to a versioned
-//         cache directory. The path is fed into SkillsExtension so agents see
+//         cache directory. The path is fed into SkillsPlugin so agents see
 //         the bundled skills alongside user/project ones.
 
 //! Built-in skill bundling.
@@ -15,7 +15,7 @@
 //!
 //! On first launch (or when the crate version changes) the tree is
 //! extracted to `<cache_dir>/alva/bundled-skills-v<VERSION>/`. The path
-//! is passed to `SkillsExtension` so the agent's skill loader picks them
+//! is passed to `SkillsPlugin` so the agent's skill loader picks them
 //! up like any other directory tree.
 //!
 //! Why a versioned cache dir: cleanly invalidates on upgrade — old
@@ -95,7 +95,7 @@ mod tests {
     /// Single test exercising:
     /// 1. `ensure_extracted` writes the bundled tree on first call
     /// 2. Second call is idempotent (no rewrite)
-    /// 3. `SkillsExtension::with_bundled` actually finds the extracted skills
+    /// 3. `SkillsPlugin::with_bundled` actually finds the extracted skills
     ///    end-to-end (proving the install→read pipeline works)
     ///
     /// All three checks share a single `XDG_CACHE_HOME` env var because Rust
@@ -122,7 +122,7 @@ mod tests {
         let mtime_after = fs::metadata(&skill_md).unwrap().modified().unwrap();
         assert_eq!(mtime_before, mtime_after, "second call must not rewrite");
 
-        // 3) End-to-end: SkillsExtension::with_bundled wires the extracted dir
+        // 3) End-to-end: SkillsPlugin::with_bundled wires the extracted dir
         //    as the bundled source, the underlying FsSkillRepository scans it,
         //    and the project-tooling skill is in the listed skills.
         let primary = tmp.path().join("project-skills");

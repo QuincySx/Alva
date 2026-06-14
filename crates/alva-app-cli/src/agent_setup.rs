@@ -95,7 +95,7 @@ pub(crate) async fn build_agent(
     };
     let provider_registry = alva_llm_provider::build_provider_registry(config);
     let (approval_ext, approval_rx) =
-        alva_app_core::extension::ApprovalExtension::with_channel();
+        alva_app_core::extension::ApprovalPlugin::with_channel();
     // Extension list is kept in lockstep with `alva-app-tauri::agent::ensure_agent`.
     // Same defaults, same kernel surface, same iteration cap — only storage
     // (JSON vs SQLite) and UI shell legitimately differ between the two apps.
@@ -104,47 +104,47 @@ pub(crate) async fn build_agent(
         .system_prompt(&system_prompt)
         .max_iterations(20)
         .plugin(Box::new(
-            alva_app_core::extension::ProviderRegistryExtension::new(provider_registry),
+            alva_app_core::extension::ProviderRegistryPlugin::new(provider_registry),
         ))
         .plugin(Box::new(
-            alva_app_core::extension::ToolLockRegistryExtension::new(),
+            alva_app_core::extension::ToolLockRegistryPlugin::new(),
         ))
         .plugin(Box::new(
-            alva_app_core::extension::AnalyticsExtension::new(),
+            alva_app_core::extension::AnalyticsPlugin::new(),
         ))
         .plugin(Box::new(approval_ext))
-        .plugin(Box::new(alva_app_core::extension::SkillsExtension::with_bundled(
+        .plugin(Box::new(alva_app_core::extension::SkillsPlugin::with_bundled(
             paths.project_skills_dir(),
             bundled_skill_dir(),
         )))
-        .plugin(Box::new(alva_app_core::extension::CoreExtension))
-        .plugin(Box::new(alva_app_core::extension::ShellExtension))
-        .plugin(Box::new(alva_app_core::extension::InteractionExtension))
-        .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
-        .plugin(Box::new(alva_app_core::extension::TeamExtension::default()))
-        .plugin(Box::new(alva_app_core::extension::PlanningExtension))
-        .plugin(Box::new(alva_app_core::extension::UtilityExtension))
-        .plugin(Box::new(alva_app_core::extension::WebExtension))
-        .plugin(Box::new(alva_app_core::extension::BrowserExtension))
+        .plugin(Box::new(alva_app_core::extension::CorePlugin))
+        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
+        .plugin(Box::new(alva_app_core::extension::InteractionPlugin))
+        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::PlanningPlugin))
+        .plugin(Box::new(alva_app_core::extension::UtilityPlugin))
+        .plugin(Box::new(alva_app_core::extension::WebPlugin))
+        .plugin(Box::new(alva_app_core::extension::BrowserPlugin))
         .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
         .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()))
         .middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()))
-        .plugin(Box::new(alva_app_core::extension::PermissionExtension::new()))
-        .plugin(Box::new(alva_app_core::extension::SubAgentExtension::new(3)))
-        .plugin(Box::new(alva_app_core::extension::McpExtension::new(vec![
+        .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
+        .plugin(Box::new(alva_app_core::extension::SubAgentPlugin::new(3)))
+        .plugin(Box::new(alva_app_core::extension::McpPlugin::new(vec![
             paths.global_mcp_config(),
             paths.project_mcp_config(),
         ])))
-        .plugin(Box::new(alva_app_core::extension::HooksExtension::new(
+        .plugin(Box::new(alva_app_core::extension::HooksPlugin::new(
             alva_app_core::settings::HooksSettings::default(),
         )))
         // Third-party subprocess plugins (JS / Python / anything).
         // Project dir shadows global on name conflicts — same convention
         // as skills and MCP configs above.
         .plugin(Box::new(
-            alva_app_extension_loader::loader::SubprocessLoaderExtension::new(vec![
+            alva_app_extension_loader::loader::SubprocessLoaderPlugin::new(vec![
                 paths.project_extensions_dir(),
                 paths.global_extensions_dir(),
             ]),

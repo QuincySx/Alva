@@ -17,7 +17,7 @@ mod extension;
 
 pub use executor::HookExecutor;
 pub use matcher::matches_hook;
-pub use extension::HooksExtension;
+pub use extension::HooksPlugin;
 
 use serde::{Deserialize, Serialize};
 

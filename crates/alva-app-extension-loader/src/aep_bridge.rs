@@ -42,7 +42,7 @@
 //!
 //! - **Priority.** This middleware runs at
 //!   [`MiddlewarePriority::HOOKS`] (1500) — the same tier as other
-//!   user-installed extensions (e.g. `HooksExtension`). That is
+//!   user-installed extensions (e.g. `HooksPlugin`). That is
 //!   deliberately **after** the built-in SECURITY tier (1000: auth /
 //!   permission / sandbox), so first-party security stays
 //!   authoritative and runs first. It is still **before**

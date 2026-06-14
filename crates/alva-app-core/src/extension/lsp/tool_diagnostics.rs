@@ -1,7 +1,7 @@
 // INPUT:  async_trait, serde, alva_kernel_abi::{Tool, ToolExecutionContext, ToolOutput, AgentError}, super::{LspDiagnostic, LspManager}
 // OUTPUT: LspDiagnosticsTool
 // POS:    Agent-callable tool surface for LSP diagnostics. Reads `dyn LspManager`
-//         from the bus on each call; if no manager is registered (i.e. LspExtension
+//         from the bus on each call; if no manager is registered (i.e. LspPlugin
 //         not installed), returns an empty diagnostics list.
 
 use async_trait::async_trait;

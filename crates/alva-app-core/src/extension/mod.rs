@@ -27,26 +27,26 @@ pub mod spawn_comm_registry;
 pub mod tool_lock_registry;
 
 // Re-export built-in extension types
-pub use skills::SkillsExtension;
-pub use mcp::McpExtension;
-pub use hooks::HooksExtension;
-pub use evaluation::EvaluationExtension;
-pub use agent_spawn::SubAgentExtension;
+pub use skills::SkillsPlugin;
+pub use mcp::McpPlugin;
+pub use hooks::HooksPlugin;
+pub use evaluation::EvaluationPlugin;
+pub use agent_spawn::SubAgentPlugin;
 pub use lsp::{
-    LspDiagnostic, LspDiagnosticsTool, LspExtension, LspManager, LspServerConfig, LspSeverity,
+    LspDiagnostic, LspDiagnosticsTool, LspPlugin, LspManager, LspServerConfig, LspSeverity,
     StubLspManager,
 };
 
 // Thin Extension wrappers now live in `alva-agent-extension-builtin::wrappers`.
 pub use alva_agent_extension_builtin::wrappers::{
-    BrowserExtension, CoreExtension, InteractionExtension, PlanningExtension, ShellExtension,
-    TaskExtension, TeamExtension, UtilityExtension, WebExtension,
+    BrowserPlugin, CorePlugin, InteractionPlugin, PlanningPlugin, ShellPlugin,
+    TaskPlugin, TeamPlugin, UtilityPlugin, WebPlugin,
 };
-pub use approval::ApprovalExtension;
-pub use blackboard_comm::BlackboardCommExtension;
-pub use analytics::{AnalyticsExtension, AnalyticsMiddleware};
-pub use permission::PermissionExtension;
-pub use pending::{PendingExtension, PendingMessage, PendingService, PendingServiceImpl};
-pub use provider_registry::ProviderRegistryExtension;
-pub use spawn_comm_registry::SpawnCommRegistryExtension;
-pub use tool_lock_registry::ToolLockRegistryExtension;
+pub use approval::ApprovalPlugin;
+pub use blackboard_comm::BlackboardCommPlugin;
+pub use analytics::{AnalyticsPlugin, AnalyticsMiddleware};
+pub use permission::PermissionPlugin;
+pub use pending::{PendingPlugin, PendingMessage, PendingService, PendingServiceImpl};
+pub use provider_registry::ProviderRegistryPlugin;
+pub use spawn_comm_registry::SpawnCommRegistryPlugin;
+pub use tool_lock_registry::ToolLockRegistryPlugin;

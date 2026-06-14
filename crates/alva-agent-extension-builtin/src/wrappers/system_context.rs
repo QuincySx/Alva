@@ -1,4 +1,4 @@
-//! Default `SystemContextExtension` — injects workspace context files
+//! Default `SystemContextPlugin` — injects workspace context files
 //! (CLAUDE.md / AGENTS.md) and git status into the system prompt.
 //!
 //! Mirrors pi-mono's `buildSystemPrompt` project-context section and
@@ -23,22 +23,22 @@ use async_trait::async_trait;
 
 /// Injects workspace-level context (CLAUDE.md / AGENTS.md, git status)
 /// into the system prompt during the register phase.
-pub struct SystemContextExtension;
+pub struct SystemContextPlugin;
 
-impl SystemContextExtension {
+impl SystemContextPlugin {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl Default for SystemContextExtension {
+impl Default for SystemContextPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for SystemContextExtension {
+impl Plugin for SystemContextPlugin {
     fn name(&self) -> &str {
         "system_context"
     }

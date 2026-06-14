@@ -24,7 +24,7 @@
 //!
 //! - [x] **Phase 1** — protocol types + manifest types
 //! - [x] **Phase 2** — subprocess runtime + JSON-RPC dispatcher
-//! - [x] **Phase 3** — `SubprocessLoaderExtension` + `RemoteExtensionProxy`
+//! - [x] **Phase 3** — `SubprocessLoaderPlugin` + `RemoteExtensionProxy`
 //! - [ ] **Phase 4** — Python SDK (`alva_sdk` package, separate repo)
 //! - [ ] **Phase 5** — JS SDK (`@alva/sdk` package, separate repo)
 //! - [ ] **Phase 6** — `host/memory.*` integration + first real E2E demo

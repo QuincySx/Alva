@@ -53,7 +53,7 @@
 //!
 //! Plugging in a persistent backend (e.g. SQLite, Postgres): implement
 //! [`TaskService`] on your own type and register an extension whose
-//! `name()` returns `"task"` — the default `TaskExtension` is then
+//! `name()` returns `"task"` — the default `TaskPlugin` is then
 //! skipped by `BaseAgent`'s name-based dedup.
 
 use std::collections::HashMap;

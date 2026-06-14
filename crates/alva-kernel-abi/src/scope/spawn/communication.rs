@@ -174,12 +174,12 @@ pub trait SpawnCommunication: Send + Sync {
 /// Bus Capability: registry of spawn-time communication plugins
 /// (blackboard, handoff, RPC, …).
 ///
-/// **Provider**: `SpawnCommRegistryExtension::configure`
+/// **Provider**: `SpawnCommRegistryPlugin::configure`
 /// (`alva-app-core/src/extension/spawn_comm_registry.rs`). Opt-in — the
 /// outer app must register the extension. No built-in default.
 /// **Consumers**: `AgentSpawnTool` (enumerates available `kind`s for
 /// its JSON-Schema, resolves a plugin by kind at spawn time);
-/// `BlackboardCommExtension` pulls the registry in its own `configure`
+/// `BlackboardCommPlugin` pulls the registry in its own `configure`
 /// to register itself as a communication plugin.
 /// **Why bus**: the registry is populated from multiple extensions at
 /// different times — spawn-comm registry extension provides the empty

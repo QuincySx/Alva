@@ -373,7 +373,7 @@ async fn run_analytics() -> i32 {
     if !path.exists() {
         eprintln!("No analytics data at {}", path.display());
         eprintln!();
-        eprintln!("Telemetry is collected by `AnalyticsExtension` (default-on in the");
+        eprintln!("Telemetry is collected by `AnalyticsPlugin` (default-on in the");
         eprintln!("CLI; toggle 'analytics' feature flag in Tauri). Run a session to");
         eprintln!("populate the file, then re-run this command.");
         return 0;

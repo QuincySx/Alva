@@ -241,7 +241,7 @@ impl BaseAgent {
     /// Resolve a pending permission request. Called by the UI layer (CLI/GUI).
     ///
     /// The `SecurityGuard` handle is looked up on the bus where the
-    /// `SecurityExtension` (or any user-provided replacement) publishes it.
+    /// `SecurityPlugin` (or any user-provided replacement) publishes it.
     pub async fn resolve_permission(
         &self,
         request_id: &str,

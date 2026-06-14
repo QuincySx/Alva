@@ -189,7 +189,7 @@ async fn e2e_tool_call_chain() {
 // ---------------------------------------------------------------------------
 // Follow-up and steering e2e tests removed — the kernel no longer has a
 // follow_up / steer path on BaseAgent. Mid-run interjection is now provided
-// by the opt-in `PendingExtension` in `alva_app_core::extension::pending`;
+// by the opt-in `PendingPlugin` in `alva_app_core::extension::pending`;
 // dedicated tests live next to that extension.
 
 // ---------------------------------------------------------------------------
@@ -495,8 +495,8 @@ async fn build_agent_with_workspace(
     BaseAgent::builder()
         .workspace(workspace)
         .system_prompt("You are a test assistant.")
-        .plugin(Box::new(alva_app_core::extension::CoreExtension))
-        .plugin(Box::new(alva_app_core::extension::ShellExtension))
+        .plugin(Box::new(alva_app_core::extension::CorePlugin))
+        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
         .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))

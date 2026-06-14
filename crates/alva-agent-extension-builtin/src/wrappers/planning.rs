@@ -3,10 +3,10 @@
 use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
 
-pub struct PlanningExtension;
+pub struct PlanningPlugin;
 
 #[async_trait]
-impl Plugin for PlanningExtension {
+impl Plugin for PlanningPlugin {
     fn name(&self) -> &str { "planning" }
     fn description(&self) -> &str { "Planning and worktree tools" }
     async fn register(&self, r: &Registrar) {

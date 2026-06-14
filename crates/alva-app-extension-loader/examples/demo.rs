@@ -16,7 +16,7 @@ use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 
 use alva_agent_core::extension::{ExtensionHost, Plugin, Registrar};
-use alva_app_extension_loader::loader::SubprocessLoaderExtension;
+use alva_app_extension_loader::loader::SubprocessLoaderPlugin;
 use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{AgentMessage, Message, ToolCall};
 use alva_kernel_core::{AgentState, Extensions, MiddlewareError};
@@ -235,7 +235,7 @@ async fn main() {
     // ----- Wire up host + loader -----
     banner("bootstrap");
     let host = Arc::new(RwLock::new(ExtensionHost::new()));
-    let ext = SubprocessLoaderExtension::new(vec![temp.path().to_path_buf()]);
+    let ext = SubprocessLoaderPlugin::new(vec![temp.path().to_path_buf()]);
 
     line("register → spawning subprocesses + AEP handshake + bridge middleware");
     let bus = alva_kernel_abi::Bus::new();

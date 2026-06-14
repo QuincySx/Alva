@@ -75,7 +75,7 @@ pub enum AnalyticsEvent {
 /// Bus Capability: telemetry sink. Multiple producers (kernel-core,
 /// middleware, host) record events; one sink consumes them.
 ///
-/// **Provider**: outer app via an `Extension` (e.g. `AnalyticsExtension`
+/// **Provider**: outer app via an `Extension` (e.g. `AnalyticsPlugin`
 /// in `alva-app-core`) that publishes a concrete impl on the bus.
 /// **Consumers**: every emit point that wants to be observed must be
 /// tolerant to the sink being absent — `bus.get::<dyn AnalyticsSink>()`

@@ -3,7 +3,7 @@
 //!
 //! `BaseAgentBuilder` no longer exposes `with_memory` / `memory_service` /
 //! `security_middleware` setters. Memory and security ship as default
-//! Extensions (`MemoryExtension`, `SecurityExtension` from
+//! Extensions (`MemoryPlugin`, `SecurityPlugin` from
 //! `alva-agent-extension-builtin`) and the only customization mechanism is
 //! to register your own extension with the same `name()` — the builder
 //! detects the duplicate and skips its default. These tests pin that
@@ -23,7 +23,7 @@ use alva_test::mock_provider::MockLanguageModel;
 use tokio::sync::Mutex;
 
 // ---------------------------------------------------------------------------
-// Test 1: default MemoryExtension is wired and publishes MemoryService on bus
+// Test 1: default MemoryPlugin is wired and publishes MemoryService on bus
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -41,7 +41,7 @@ async fn default_memory_extension_is_wired() {
     let svc = agent
         .bus()
         .get::<MemoryService>()
-        .expect("default MemoryExtension should publish MemoryService on the bus");
+        .expect("default MemoryPlugin should publish MemoryService on the bus");
 
     // Functional sanity check: the default service is empty and writeable.
     svc.store_entry("default-key", "default content", "test")
@@ -60,12 +60,12 @@ async fn default_memory_extension_is_wired() {
 
 /// Counts how many times `configure()` is called and seeds a marker entry
 /// in its own MemoryService, so the test can detect the override took.
-struct CustomMemoryExt {
+struct CustomMemoryPlugin {
     service: Arc<MemoryService>,
     activations: Arc<AtomicUsize>,
 }
 
-impl CustomMemoryExt {
+impl CustomMemoryPlugin {
     fn new(activations: Arc<AtomicUsize>) -> Self {
         let backend = Arc::new(InMemoryBackend::new());
         let embedder = Box::new(NoopEmbeddingProvider::new());
@@ -77,7 +77,7 @@ impl CustomMemoryExt {
 }
 
 #[async_trait]
-impl Plugin for CustomMemoryExt {
+impl Plugin for CustomMemoryPlugin {
     fn name(&self) -> &str {
         "memory"
     }
@@ -104,7 +104,7 @@ async fn custom_memory_extension_replaces_default() {
 
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
-        .plugin(Box::new(CustomMemoryExt::new(activations.clone())))
+        .plugin(Box::new(CustomMemoryPlugin::new(activations.clone())))
         .build(model)
         .await
         .expect("build should succeed");
@@ -112,13 +112,13 @@ async fn custom_memory_extension_replaces_default() {
     assert_eq!(
         activations.load(Ordering::SeqCst),
         1,
-        "custom MemoryExtension's configure() should have run exactly once"
+        "custom MemoryPlugin's configure() should have run exactly once"
     );
 
     let svc = agent
         .bus()
         .get::<MemoryService>()
-        .expect("custom MemoryExtension should publish MemoryService on the bus");
+        .expect("custom MemoryPlugin should publish MemoryService on the bus");
     let results = svc.search("sentinel", 10).await.expect("search");
     assert!(
         results.iter().any(|e| e.path == "custom-sentinel"),
@@ -128,7 +128,7 @@ async fn custom_memory_extension_replaces_default() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 3: default SecurityExtension is wired and publishes SecurityGuard on bus
+// Test 3: default SecurityPlugin is wired and publishes SecurityGuard on bus
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -146,7 +146,7 @@ async fn default_security_extension_is_wired() {
     let guard = agent
         .bus()
         .get::<Mutex<SecurityGuard>>()
-        .expect("default SecurityExtension should publish SecurityGuard on the bus");
+        .expect("default SecurityPlugin should publish SecurityGuard on the bus");
     // Just hold the lock briefly to make sure it's a real, usable handle.
     let _g = guard.lock().await;
 }
@@ -158,20 +158,20 @@ async fn default_security_extension_is_wired() {
 /// A custom "security" extension that does NOT register a SecurityGuard on
 /// the bus (it stores a marker instead). If the override mechanism works,
 /// the bus will not have a SecurityGuard published — proving the default
-/// SecurityExtension was skipped.
-struct CustomSecurityExt {
+/// SecurityPlugin was skipped.
+struct CustomSecurityPlugin {
     activations: Arc<AtomicUsize>,
     marker: Arc<StdMutex<bool>>,
 }
 
-impl CustomSecurityExt {
+impl CustomSecurityPlugin {
     fn new(activations: Arc<AtomicUsize>, marker: Arc<StdMutex<bool>>) -> Self {
         Self { activations, marker }
     }
 }
 
 #[async_trait]
-impl Plugin for CustomSecurityExt {
+impl Plugin for CustomSecurityPlugin {
     fn name(&self) -> &str {
         "security"
     }
@@ -192,7 +192,7 @@ async fn custom_security_extension_replaces_default() {
 
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
-        .plugin(Box::new(CustomSecurityExt::new(
+        .plugin(Box::new(CustomSecurityPlugin::new(
             activations.clone(),
             marker.clone(),
         )))
@@ -203,15 +203,15 @@ async fn custom_security_extension_replaces_default() {
     assert_eq!(
         activations.load(Ordering::SeqCst),
         1,
-        "custom SecurityExtension's configure() should have run exactly once"
+        "custom SecurityPlugin's configure() should have run exactly once"
     );
     assert!(
         *marker.lock().unwrap(),
-        "custom SecurityExtension marker should be set"
+        "custom SecurityPlugin marker should be set"
     );
     assert!(
         agent.bus().get::<Mutex<SecurityGuard>>().is_none(),
-        "the default SecurityExtension must NOT have been wired \
+        "the default SecurityPlugin must NOT have been wired \
          when the user registered their own 'security' extension"
     );
 }

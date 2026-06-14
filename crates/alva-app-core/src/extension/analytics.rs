@@ -1,5 +1,5 @@
 // INPUT:  std::sync, std::time, alva_kernel_abi::{AnalyticsEvent, AnalyticsSink, BusHandle, ToolCall, ToolOutput}, alva_kernel_core::{middleware::{Middleware, MiddlewareContext, MiddlewareError}, state::AgentState}, async_trait
-// OUTPUT: AnalyticsExtension, AnalyticsMiddleware
+// OUTPUT: AnalyticsPlugin, AnalyticsMiddleware
 // POS:    Telemetry pipeline. Extension publishes a JsonlSink on the bus and installs
 //         a middleware that emits ToolCallStart/ToolCallEnd events around every tool call.
 //         The trait + event types live in kernel-abi so kernel-core can also emit
@@ -26,13 +26,13 @@ use super::{Plugin, Registrar};
 /// Telemetry extension. Owns a `JsonlSink` writing to
 /// `<workspace>/.alva/analytics.jsonl` (override via [`Self::with_path`])
 /// and an `AnalyticsMiddleware` that records tool-call latency.
-pub struct AnalyticsExtension {
+pub struct AnalyticsPlugin {
     path_override: Option<PathBuf>,
     middleware: Arc<AnalyticsMiddleware>,
     sink: OnceLock<Arc<JsonlSink>>,
 }
 
-impl AnalyticsExtension {
+impl AnalyticsPlugin {
     pub fn new() -> Self {
         Self {
             path_override: None,
@@ -49,14 +49,14 @@ impl AnalyticsExtension {
     }
 }
 
-impl Default for AnalyticsExtension {
+impl Default for AnalyticsPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for AnalyticsExtension {
+impl Plugin for AnalyticsPlugin {
     fn name(&self) -> &str {
         "analytics"
     }
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn extension_metadata() {
-        let e = AnalyticsExtension::new();
+        let e = AnalyticsPlugin::new();
         assert_eq!(e.name(), "analytics");
         assert!(!e.description().is_empty());
     }

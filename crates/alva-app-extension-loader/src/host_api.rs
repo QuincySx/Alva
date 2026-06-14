@@ -22,7 +22,7 @@
 //! - `host/memory.*` — same reason, plus needs access to the current
 //!   memory backend through the bus. Phase 6.
 //! - `host/request_approval` — needs the approval channel from
-//!   `ApprovalExtension`, which we do not have a reference to here.
+//!   `ApprovalPlugin`, which we do not have a reference to here.
 //!   Phase 6 once we wire the approval bridge.
 
 use async_trait::async_trait;
@@ -32,7 +32,7 @@ use serde_json::Value;
 use crate::dispatcher::HostHandler;
 use crate::protocol::{error_codes, HostLogParams, LogLevel, RpcError};
 
-/// The production host handler wired in by `SubprocessLoaderExtension`.
+/// The production host handler wired in by `SubprocessLoaderPlugin`.
 ///
 /// Stateless for now — all it does is translate plugin RPC calls
 /// into `tracing` events. Hold-everything-in-one-struct keeps Phase 3.5

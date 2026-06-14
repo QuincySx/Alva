@@ -87,7 +87,7 @@ impl Default for ExtensionHost {
 /// API handle given to extensions during activate().
 ///
 /// `Clone` is cheap — `host` is `Arc` and `extension_name` is a short
-/// string. Aggregator extensions (e.g. `SubprocessLoaderExtension`)
+/// string. Aggregator extensions (e.g. `SubprocessLoaderPlugin`)
 /// clone the handle in `activate()` and reuse it in `configure()`.
 #[derive(Clone)]
 pub struct HostAPI {

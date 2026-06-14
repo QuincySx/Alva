@@ -1,4 +1,4 @@
-//! McpExtension — discovers and exposes tools from MCP servers.
+//! McpPlugin — discovers and exposes tools from MCP servers.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,11 +70,11 @@ impl McpTransport for StubTransport {
 /// 4. Provides an [`McpRuntimeTool`] for runtime server management.
 ///
 /// All errors are caught and logged — MCP failures never prevent agent startup.
-pub struct McpExtension {
+pub struct McpPlugin {
     config_paths: Vec<PathBuf>,
 }
 
-impl McpExtension {
+impl McpPlugin {
     /// Create a new MCP extension that will load config from the given paths.
     ///
     /// Typically called with `[paths.global_mcp_config(), paths.project_mcp_config()]`.
@@ -84,7 +84,7 @@ impl McpExtension {
 }
 
 #[async_trait]
-impl Plugin for McpExtension {
+impl Plugin for McpPlugin {
     fn name(&self) -> &str {
         "mcp"
     }
@@ -110,7 +110,7 @@ impl Plugin for McpExtension {
     }
 }
 
-impl McpExtension {
+impl McpPlugin {
     /// Internal helper: load config, create manager, connect, discover tools.
     async fn load_and_connect(&self) -> Result<Vec<Box<dyn Tool>>, Box<dyn std::error::Error + Send + Sync>> {
         // 1. Load and merge configs from all paths (later paths override earlier).

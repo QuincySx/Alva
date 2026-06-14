@@ -1,5 +1,5 @@
 // INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::ToolLockRegistry, crate::extension::{Extension, ExtensionContext}
-// OUTPUT: ToolLockRegistryExtension
+// OUTPUT: ToolLockRegistryPlugin
 // POS:    Publishes a single shared `ToolLockRegistry` on the bus so sub-agent parallel spawns contend on one lock map.
 
 //! Publishes a shared `ToolLockRegistry` onto the bus.
@@ -22,11 +22,11 @@ use alva_kernel_abi::ToolLockRegistry;
 use alva_agent_core::extension::{Plugin, Registrar};
 
 /// Extension that provides a shared [`ToolLockRegistry`] on the bus.
-pub struct ToolLockRegistryExtension {
+pub struct ToolLockRegistryPlugin {
     registry: Arc<ToolLockRegistry>,
 }
 
-impl ToolLockRegistryExtension {
+impl ToolLockRegistryPlugin {
     /// Fresh empty registry.
     pub fn new() -> Self {
         Self {
@@ -41,14 +41,14 @@ impl ToolLockRegistryExtension {
     }
 }
 
-impl Default for ToolLockRegistryExtension {
+impl Default for ToolLockRegistryPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for ToolLockRegistryExtension {
+impl Plugin for ToolLockRegistryPlugin {
     fn name(&self) -> &str {
         "tool-lock-registry"
     }

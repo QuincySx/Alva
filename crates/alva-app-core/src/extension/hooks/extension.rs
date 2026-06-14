@@ -1,4 +1,4 @@
-//! HooksExtension — runs shell-script hooks as middleware at PreToolUse,
+//! HooksPlugin — runs shell-script hooks as middleware at PreToolUse,
 //! PostToolUse, SessionStart, and SessionEnd events.
 
 use std::path::PathBuf;
@@ -16,18 +16,18 @@ use crate::settings::HooksSettings;
 
 /// Lifecycle hooks as middleware — runs shell scripts at PreToolUse, PostToolUse,
 /// SessionStart, and SessionEnd events.
-pub struct HooksExtension {
+pub struct HooksPlugin {
     settings: HooksSettings,
 }
 
-impl HooksExtension {
+impl HooksPlugin {
     pub fn new(settings: HooksSettings) -> Self {
         Self { settings }
     }
 }
 
 #[async_trait]
-impl Plugin for HooksExtension {
+impl Plugin for HooksPlugin {
     fn name(&self) -> &str { "hooks" }
     fn description(&self) -> &str { "Lifecycle hooks (shell scripts at tool/session events)" }
 

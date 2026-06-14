@@ -12,7 +12,7 @@ use crate::modes::PermissionMode;
 
 /// Bus Capability: lock-free knob for `SecurityGuard.permission_mode`.
 ///
-/// **Provider**: `SecurityExtension::configure`
+/// **Provider**: `SecurityPlugin::configure`
 /// (`alva-agent-extension-builtin/src/wrappers/security.rs`). The
 /// concrete impl is `SecurityModeHandle`, the same `Arc` the guard reads
 /// through, so a `set_mode` call is observed by the next

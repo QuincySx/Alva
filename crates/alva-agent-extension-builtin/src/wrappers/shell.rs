@@ -3,10 +3,10 @@
 use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
 
-pub struct ShellExtension;
+pub struct ShellPlugin;
 
 #[async_trait]
-impl Plugin for ShellExtension {
+impl Plugin for ShellPlugin {
     fn name(&self) -> &str { "shell" }
     fn description(&self) -> &str { "Shell execution" }
     async fn register(&self, r: &Registrar) { r.tools(crate::tool_presets::shell()); }

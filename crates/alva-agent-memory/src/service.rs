@@ -21,7 +21,7 @@ use crate::types::MemoryEntry;
 
 /// Bus Capability: unified memory CRUD + hybrid FTS/vector search.
 ///
-/// **Provider**: `MemoryExtension::configure`
+/// **Provider**: `MemoryPlugin::configure`
 /// (`alva-agent-extension-builtin/src/wrappers/memory.rs`). A default
 /// in-memory-backed extension is auto-registered by
 /// `BaseAgentBuilder::build` unless the caller supplies their own

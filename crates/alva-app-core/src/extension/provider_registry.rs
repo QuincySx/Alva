@@ -1,8 +1,8 @@
 // INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::ProviderRegistry, crate::extension::{Extension, ExtensionContext}
-// OUTPUT: ProviderRegistryExtension
+// OUTPUT: ProviderRegistryPlugin
 // POS:    Opt-in Extension that provides an `Arc<ProviderRegistry>` onto the bus so `AgentSpawnTool` can resolve per-spawn `model: "provider/id"` specs. Without this extension, the `model` field on `SpawnInput` must be left empty (child inherits the parent's model).
 
-//! `ProviderRegistryExtension` — publishes a user-supplied
+//! `ProviderRegistryPlugin` — publishes a user-supplied
 //! `ProviderRegistry` on the bus.
 //!
 //! `AgentSpawnTool` looks up `ProviderRegistry` on the bus when a
@@ -13,7 +13,7 @@
 //! ```rust,ignore
 //! BaseAgent::builder()
 //!     .workspace(path)
-//!     .extension(Box::new(ProviderRegistryExtension::new(registry)))
+//!     .extension(Box::new(ProviderRegistryPlugin::new(registry)))
 //!     .build(model).await?;
 //! ```
 use std::sync::Arc;
@@ -26,11 +26,11 @@ use alva_agent_core::extension::{Plugin, Registrar};
 
 /// Provides an `Arc<ProviderRegistry>` to the bus for dynamic per-spawn
 /// model resolution.
-pub struct ProviderRegistryExtension {
+pub struct ProviderRegistryPlugin {
     registry: Arc<ProviderRegistry>,
 }
 
-impl ProviderRegistryExtension {
+impl ProviderRegistryPlugin {
     /// Wrap a caller-supplied `ProviderRegistry`.
     pub fn new(registry: Arc<ProviderRegistry>) -> Self {
         Self { registry }
@@ -38,7 +38,7 @@ impl ProviderRegistryExtension {
 }
 
 #[async_trait]
-impl Plugin for ProviderRegistryExtension {
+impl Plugin for ProviderRegistryPlugin {
     fn name(&self) -> &str {
         "provider-registry"
     }

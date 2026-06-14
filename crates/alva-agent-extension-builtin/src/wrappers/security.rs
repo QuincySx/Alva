@@ -1,4 +1,4 @@
-//! Default `SecurityExtension` wrapping `SecurityMiddleware::for_workspace`.
+//! Default `SecurityPlugin` wrapping `SecurityMiddleware::for_workspace`.
 //!
 //! Ships the standard sandbox security middleware so `BaseAgent` is locked
 //! down by default. Users who want different security semantics should
@@ -23,13 +23,13 @@ use tokio::sync::Mutex;
 /// `Arc<Mutex<SecurityGuard>>` and `SecurityModeControl` on the bus so the
 /// outer harness (e.g. `BaseAgent::resolve_permission`) can resolve
 /// interactive permission prompts.
-pub struct SecurityExtension {
+pub struct SecurityPlugin {
     workspace: PathBuf,
     sandbox_mode: SandboxMode,
 }
 
-impl SecurityExtension {
-    /// Build a SecurityExtension for the given workspace + sandbox mode.
+impl SecurityPlugin {
+    /// Build a SecurityPlugin for the given workspace + sandbox mode.
     pub fn for_workspace(workspace: impl Into<PathBuf>, sandbox_mode: SandboxMode) -> Self {
         Self {
             workspace: workspace.into(),
@@ -39,7 +39,7 @@ impl SecurityExtension {
 }
 
 #[async_trait]
-impl Plugin for SecurityExtension {
+impl Plugin for SecurityPlugin {
     fn name(&self) -> &str {
         "security"
     }

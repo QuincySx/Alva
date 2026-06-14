@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alva_app_core::base_agent::{BaseAgent, PermissionMode};
-use alva_app_core::extension::{ApprovalExtension, PermissionExtension};
+use alva_app_core::extension::{ApprovalPlugin, PermissionPlugin};
 use alva_app_core::AgentEvent;
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 
@@ -128,7 +128,7 @@ fn build_model() -> Arc<dyn alva_kernel_abi::LanguageModel> {
 }
 
 async fn build_agent(workspace: &Path) -> BaseAgent {
-    let (approval_ext, mut approval_rx) = ApprovalExtension::with_channel();
+    let (approval_ext, mut approval_rx) = ApprovalPlugin::with_channel();
     let model = build_model();
 
     let agent = BaseAgent::builder()
@@ -139,14 +139,14 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
              and tracking tasks. Use the tools to complete the user's request. \
              When the work is done, briefly state what you did. Do not ask follow-up questions.",
         )
-        .plugin(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
+        .plugin(Box::new(PermissionPlugin::new().with_initial(PermissionMode::AcceptShell)))
         .plugin(Box::new(approval_ext))
-        .plugin(Box::new(alva_app_core::extension::CoreExtension))
-        .plugin(Box::new(alva_app_core::extension::ShellExtension))
-        .plugin(Box::new(alva_app_core::extension::PlanningExtension))
-        .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
-        .plugin(Box::new(alva_app_core::extension::UtilityExtension))
-        .plugin(Box::new(alva_app_core::extension::WebExtension))
+        .plugin(Box::new(alva_app_core::extension::CorePlugin))
+        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
+        .plugin(Box::new(alva_app_core::extension::PlanningPlugin))
+        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::UtilityPlugin))
+        .plugin(Box::new(alva_app_core::extension::WebPlugin))
         .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))

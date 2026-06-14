@@ -1,5 +1,5 @@
 // INPUT:  proxy::RemoteExtensionProxy, manifest::PluginManifest, tokio::fs, alva_agent_core::extension::*
-// OUTPUT: SubprocessLoaderExtension, LoaderError
+// OUTPUT: SubprocessLoaderPlugin, LoaderError
 // POS:    Phase 3 — the one Extension the host registers; internally manages N subprocess plugins.
 
 //! The first-party `Extension` that scans a directory for plugin
@@ -16,8 +16,8 @@
 //! ## Directory layout
 //!
 //! The loader accepts a **list** of extension directories, in
-//! priority order. This matches the `SkillsExtension` and
-//! `McpExtension` convention: typical setups pass the project dir
+//! priority order. This matches the `SkillsPlugin` and
+//! `McpPlugin` convention: typical setups pass the project dir
 //! first and the global dir second, so project plugins shadow
 //! same-named global plugins.
 //!
@@ -73,7 +73,7 @@ use crate::manifest::PluginManifest;
 use crate::proxy::{ProxyError, RemoteExtensionProxy};
 
 /// First-party `Plugin` that loads third-party subprocess plugins.
-pub struct SubprocessLoaderExtension {
+pub struct SubprocessLoaderPlugin {
     state: Arc<LoaderState>,
 }
 
@@ -86,7 +86,7 @@ struct LoaderState {
     plugins: RwLock<Vec<Arc<RemoteExtensionProxy>>>,
 }
 
-impl SubprocessLoaderExtension {
+impl SubprocessLoaderPlugin {
     /// Create a loader that will scan the given directories during
     /// `register`, in order. Earlier entries shadow later ones on
     /// name conflicts (first-wins) — typical callers pass the
@@ -168,7 +168,7 @@ impl SubprocessLoaderExtension {
 }
 
 #[async_trait]
-impl Plugin for SubprocessLoaderExtension {
+impl Plugin for SubprocessLoaderPlugin {
     fn name(&self) -> &str {
         "subprocess-loader"
     }

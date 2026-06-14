@@ -312,7 +312,7 @@ mod tests {
     }
 
     /// `stop_all` on an empty manager must be a clean no-op — exercised
-    /// by `BrowserExtension::finalize`-style shutdown paths.
+    /// by `BrowserPlugin::finalize`-style shutdown paths.
     #[tokio::test]
     async fn stop_all_on_empty_is_noop() {
         let mut mgr = BrowserManager::new();

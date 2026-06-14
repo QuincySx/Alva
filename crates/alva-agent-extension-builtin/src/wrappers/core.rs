@@ -3,10 +3,10 @@
 use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
 
-pub struct CoreExtension;
+pub struct CorePlugin;
 
 #[async_trait]
-impl Plugin for CoreExtension {
+impl Plugin for CorePlugin {
     fn name(&self) -> &str { "core" }
     fn description(&self) -> &str { "Core file I/O tools" }
     async fn register(&self, r: &Registrar) { r.tools(crate::tool_presets::file_io()); }

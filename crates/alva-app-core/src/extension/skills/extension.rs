@@ -1,4 +1,4 @@
-//! SkillsExtension — skill discovery, loading, and context injection.
+//! SkillsPlugin — skill discovery, loading, and context injection.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,14 +17,14 @@ use crate::extension::skills::skill_ports::skill_repository::SkillRepository;
 
 /// Skill system: discovery, loading, and context injection.
 /// Provides SearchSkillsTool + UseSkillTool and SkillInjectionMiddleware.
-pub struct SkillsExtension {
+pub struct SkillsPlugin {
     store: Arc<SkillStore>,
     loader: Arc<SkillLoader>,
     injector: Arc<SkillInjector>,
 }
 
-impl SkillsExtension {
-    /// Create a new SkillsExtension with the given skill directories.
+impl SkillsPlugin {
+    /// Create a new SkillsPlugin with the given skill directories.
     /// The first directory is used as primary (bundled/mbb/user subdirs).
     ///
     /// **Note**: only the first directory in `skill_dirs` is consulted.
@@ -60,7 +60,7 @@ impl SkillsExtension {
 }
 
 #[async_trait]
-impl Plugin for SkillsExtension {
+impl Plugin for SkillsPlugin {
     fn name(&self) -> &str { "skills" }
     fn description(&self) -> &str { "Skill discovery, loading, and context injection" }
 

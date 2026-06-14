@@ -1,7 +1,7 @@
 //! Team / multi-agent coordination tools.
 //!
 //! Owns a `TeamService` (default: `InMemoryTeamStore`) and publishes it
-//! on the bus during `configure()`. Mirror of [`TaskExtension`] — replace
+//! on the bus during `configure()`. Mirror of [`TaskPlugin`] — replace
 //! by registering an extension with `name() == "team"`.
 
 use std::sync::Arc;
@@ -11,11 +11,11 @@ use async_trait::async_trait;
 
 use crate::services::{InMemoryTeamStore, TeamService};
 
-pub struct TeamExtension {
+pub struct TeamPlugin {
     service: Arc<dyn TeamService>,
 }
 
-impl TeamExtension {
+impl TeamPlugin {
     pub fn new(service: Arc<dyn TeamService>) -> Self {
         Self { service }
     }
@@ -25,7 +25,7 @@ impl TeamExtension {
     }
 }
 
-impl Default for TeamExtension {
+impl Default for TeamPlugin {
     fn default() -> Self {
         Self {
             service: Arc::new(InMemoryTeamStore::new()),
@@ -34,7 +34,7 @@ impl Default for TeamExtension {
 }
 
 #[async_trait]
-impl Plugin for TeamExtension {
+impl Plugin for TeamPlugin {
     fn name(&self) -> &str {
         "team"
     }

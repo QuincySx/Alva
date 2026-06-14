@@ -124,7 +124,7 @@ impl AgentRuntimeBuilder {
     // `with_browser_tools` removed: browser is too heavy for the agent
     // layer. Apps that need browser automation should depend on
     // `alva-app-extension-browser` directly and inject its tools via
-    // `tool()` / `custom_tools`, or wire the BrowserExtension at the app
+    // `tool()` / `custom_tools`, or wire the BrowserPlugin at the app
     // extension layer.
 
     /// Set the max iterations for the agent loop (default: 100).
@@ -173,7 +173,7 @@ impl AgentRuntimeBuilder {
     /// - optional approval notifier and bus plugins
     ///
     /// Mid-run steering/interjection is NOT wired here — callers that
-    /// want it should add the opt-in `PendingExtension` (from
+    /// want it should add the opt-in `PendingPlugin` (from
     /// `alva_app_core::extension::pending`) via their own extension path.
     pub fn with_standard_agent_stack(mut self, sandbox_mode: SandboxMode) -> Self {
         self.standard_agent_stack = Some(sandbox_mode);

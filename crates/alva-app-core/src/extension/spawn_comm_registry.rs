@@ -1,13 +1,13 @@
 // INPUT:  std::sync::{Arc, Mutex}, std::collections::HashMap, async_trait, alva_kernel_abi::{SpawnCommunication, SpawnCommunicationRegistry}, crate::extension::{Extension, ExtensionContext}
-// OUTPUT: DefaultSpawnCommRegistry, SpawnCommRegistryExtension
-// POS:    Default in-process `SpawnCommunicationRegistry` (`Mutex<HashMap<kind, Arc<dyn SpawnCommunication>>>`) plus the opt-in `SpawnCommRegistryExtension` that publishes it onto the bus — wiring point for sub-agent comm plugins (e.g. BlackboardCommExtension).
+// OUTPUT: DefaultSpawnCommRegistry, SpawnCommRegistryPlugin
+// POS:    Default in-process `SpawnCommunicationRegistry` (`Mutex<HashMap<kind, Arc<dyn SpawnCommunication>>>`) plus the opt-in `SpawnCommRegistryPlugin` that publishes it onto the bus — wiring point for sub-agent comm plugins (e.g. BlackboardCommPlugin).
 
 //! Default `SpawnCommunicationRegistry` implementation + its opt-in
 //! Extension wrapper.
 //!
-//! `SpawnCommRegistryExtension` provides an empty registry on the bus so
+//! `SpawnCommRegistryPlugin` provides an empty registry on the bus so
 //! `AgentSpawnTool` can look up comm capabilities at spawn time. Other
-//! extensions (e.g. `BlackboardCommExtension`) register their
+//! extensions (e.g. `BlackboardCommPlugin`) register their
 //! capabilities via `Extension::configure()` by pulling the registry out
 //! of the bus and calling `register(...)`. Without this extension,
 //! `SpawnInput.comms: []` still works — only non-empty `comms` will
@@ -65,15 +65,15 @@ impl SpawnCommunicationRegistry for DefaultSpawnCommRegistry {
 /// Opt-in Extension that publishes an empty `DefaultSpawnCommRegistry` on
 /// the bus under `dyn SpawnCommunicationRegistry`.
 ///
-/// Other extensions (e.g. `BlackboardCommExtension`) consume this
+/// Other extensions (e.g. `BlackboardCommPlugin`) consume this
 /// registry during their own `configure()` to register their
 /// `SpawnCommunication` plugins. Without this extension installed, the
 /// `AgentSpawnTool` treats any non-empty `comms` spec as an error.
-pub struct SpawnCommRegistryExtension {
+pub struct SpawnCommRegistryPlugin {
     registry: Arc<DefaultSpawnCommRegistry>,
 }
 
-impl SpawnCommRegistryExtension {
+impl SpawnCommRegistryPlugin {
     /// Create with a fresh empty registry.
     pub fn new() -> Self {
         Self {
@@ -82,21 +82,21 @@ impl SpawnCommRegistryExtension {
     }
 }
 
-impl Default for SpawnCommRegistryExtension {
+impl Default for SpawnCommRegistryPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for SpawnCommRegistryExtension {
+impl Plugin for SpawnCommRegistryPlugin {
     fn name(&self) -> &str {
         "spawn-comm-registry"
     }
 
     fn description(&self) -> &str {
         "Provides an empty SpawnCommunicationRegistry to the bus; other \
-         extensions (e.g. BlackboardCommExtension) register communication \
+         extensions (e.g. BlackboardCommPlugin) register communication \
          plugins into it."
     }
 

@@ -1,7 +1,7 @@
 //! End-to-end loader smoke test.
 //!
 //! Writes a tiny Python plugin to a tempdir, registers
-//! `SubprocessLoaderExtension` with a real `ExtensionHost`, and drives
+//! `SubprocessLoaderPlugin` with a real `ExtensionHost`, and drives
 //! `before_tool_call` through the registered `AepBridgeMiddleware`'s
 //! hook — the same path the agent's middleware stack uses. The plugin
 //! blocks shell calls containing `"rm -rf"` and lets everything else
@@ -15,7 +15,7 @@ use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 
 use alva_agent_core::extension::{ExtensionHost, Plugin, Registrar};
-use alva_app_extension_loader::loader::SubprocessLoaderExtension;
+use alva_app_extension_loader::loader::SubprocessLoaderPlugin;
 use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{AgentMessage, Message, ToolCall};
 use alva_kernel_core::{AgentState, Extensions, Middleware, MiddlewareError};
@@ -159,7 +159,7 @@ async fn plugin_blocks_dangerous_shell_command() {
 
     // Wire up the host + loader like the real agent would.
     let host = Arc::new(RwLock::new(ExtensionHost::new()));
-    let ext = SubprocessLoaderExtension::new(vec![temp.path().to_path_buf()]);
+    let ext = SubprocessLoaderPlugin::new(vec![temp.path().to_path_buf()]);
 
     // Drive the single `register` lifecycle phase against a Registrar
     // backed by the real host — this loads the subprocess plugins and

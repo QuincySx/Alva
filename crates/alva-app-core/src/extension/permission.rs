@@ -13,7 +13,7 @@
 //!
 //! Plan mode is one form of permission mode, so co-locating the
 //! orchestrator with this concrete enforcer is the right granularity:
-//! one extension, one domain. Other subsystems (e.g. `SecurityExtension`)
+//! one extension, one domain. Other subsystems (e.g. `SecurityPlugin`)
 //! plug in by publishing their own control trait on the bus — no
 //! compile-time coupling.
 
@@ -27,12 +27,12 @@ use crate::base_agent::{PermissionMode, PermissionModeService};
 
 use super::{Plugin, Registrar};
 
-pub struct PermissionExtension {
+pub struct PermissionPlugin {
     middleware: Arc<PlanModeMiddleware>,
     initial: PermissionMode,
 }
 
-impl PermissionExtension {
+impl PermissionPlugin {
     pub fn new() -> Self {
         Self {
             middleware: Arc::new(PlanModeMiddleware::new(false)),
@@ -46,14 +46,14 @@ impl PermissionExtension {
     }
 }
 
-impl Default for PermissionExtension {
+impl Default for PermissionPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for PermissionExtension {
+impl Plugin for PermissionPlugin {
     fn name(&self) -> &str {
         "permission"
     }

@@ -1,5 +1,5 @@
 // INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, alva_agent_context::scope::SpawnScopeImpl, alva_agent_context::default_context_system, alva_agent_context::ContextHooksChain
-// OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentExtension
+// OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentPlugin
 // POS:    AI-driven sub-agent spawning — dynamic roles, optional per-spawn model, pluggable SpawnCommunication capabilities (blackboard etc).
 
 //! Agent spawn plugin — the AI primitive for creating sub-agents.
@@ -106,7 +106,7 @@ struct SpawnInput {
     /// Provider/model spec for this sub-agent (e.g.
     /// `anthropic/claude-haiku-4.5`). Leave empty (or unset) to inherit
     /// the parent's model. Requires a `ProviderRegistry` on the bus,
-    /// installed via `ProviderRegistryExtension`; otherwise setting this
+    /// installed via `ProviderRegistryPlugin`; otherwise setting this
     /// field will error.
     #[serde(default)]
     model: Option<String>,
@@ -270,7 +270,7 @@ impl AgentSpawnTool {
                     .ok_or_else(|| AgentError::ToolError {
                         tool_name: "agent".into(),
                         message: "ProviderRegistry not registered on bus. Install \
-                             `ProviderRegistryExtension` on the builder to enable \
+                             `ProviderRegistryPlugin` on the builder to enable \
                              the 'model' field in spawn input."
                             .into(),
                     })?;
@@ -481,18 +481,18 @@ use crate::extension::{LateContext, Plugin, Registrar};
 ///
 /// Uses `finalize()` because it needs the final tool list and model to
 /// construct the `SpawnScopeImpl` root scope.
-pub struct SubAgentExtension {
+pub struct SubAgentPlugin {
     max_depth: u32,
 }
 
-impl SubAgentExtension {
+impl SubAgentPlugin {
     pub fn new(max_depth: u32) -> Self {
         Self { max_depth }
     }
 }
 
 #[async_trait]
-impl Plugin for SubAgentExtension {
+impl Plugin for SubAgentPlugin {
     fn name(&self) -> &str { "sub-agents" }
     fn description(&self) -> &str { "Sub-agent spawning via the agent tool" }
 

@@ -1,4 +1,4 @@
-//! Default `MemoryExtension` wrapping an in-memory `MemoryService`.
+//! Default `MemoryPlugin` wrapping an in-memory `MemoryService`.
 //!
 //! Ships an `InMemoryBackend`-backed `MemoryService` so that `BaseAgent`
 //! gets memory by default with zero external dependencies. Users who
@@ -18,11 +18,11 @@ use async_trait::async_trait;
 /// Publishes `Arc<MemoryService>` as a bus capability during `configure()`
 /// so other extensions / middleware / the outer harness can pick it up via
 /// `bus.get::<MemoryService>()`.
-pub struct MemoryExtension {
+pub struct MemoryPlugin {
     service: Arc<MemoryService>,
 }
 
-impl MemoryExtension {
+impl MemoryPlugin {
     /// Wrap a caller-supplied `MemoryService`.
     pub fn new(service: MemoryService) -> Self {
         Self {
@@ -36,7 +36,7 @@ impl MemoryExtension {
     }
 }
 
-impl Default for MemoryExtension {
+impl Default for MemoryPlugin {
     fn default() -> Self {
         let backend = Arc::new(InMemoryBackend::new());
         let embedder = Box::new(NoopEmbeddingProvider::new());
@@ -45,7 +45,7 @@ impl Default for MemoryExtension {
 }
 
 #[async_trait]
-impl Plugin for MemoryExtension {
+impl Plugin for MemoryPlugin {
     fn name(&self) -> &str {
         "memory"
     }

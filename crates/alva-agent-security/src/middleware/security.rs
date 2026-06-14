@@ -81,7 +81,7 @@ pub struct ApprovalRequest {
 /// Bus Capability: fire-and-forget channel that wakes the HITL UI when
 /// a tool call needs human approval.
 ///
-/// **Provider**: `ApprovalExtension::configure`
+/// **Provider**: `ApprovalPlugin::configure`
 /// (`alva-app-core/src/extension/approval.rs`) for the opt-in flow;
 /// also installed by `AgentRuntimeBuilder::build` when the standard
 /// agent stack is enabled (`alva-host-native/src/builder.rs`).

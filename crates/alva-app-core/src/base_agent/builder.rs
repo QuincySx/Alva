@@ -13,8 +13,8 @@ use super::agent::BaseAgent;
 /// Builder for constructing a [`BaseAgent`].
 ///
 /// Capabilities are registered as plugins via `.plugin()`. The builder ships
-/// sensible defaults (`MemoryExtension`, `SecurityExtension`,
-/// `SystemContextExtension`) which are wired in automatically unless the
+/// sensible defaults (`MemoryPlugin`, `SecurityPlugin`,
+/// `SystemContextPlugin`) which are wired in automatically unless the
 /// caller registers a plugin with the same `name()`. That is the only
 /// customization mechanism: there are no `with_memory` / `memory_service` /
 /// `security_middleware` setters.
@@ -22,8 +22,8 @@ use super::agent::BaseAgent;
 /// ```rust,ignore
 /// BaseAgent::builder()
 ///     .workspace(path)
-///     .plugin(Box::new(CoreExtension))
-///     .plugin(Box::new(ShellExtension))
+///     .plugin(Box::new(CorePlugin))
+///     .plugin(Box::new(ShellPlugin))
 ///     .plugin(Box::new(SomePlugin))
 ///     .build(model).await?;
 /// ```
@@ -177,8 +177,8 @@ impl BaseAgentBuilder {
         ));
 
         // NOTE: There is no built-in default provide for
-        //   - `SpawnCommunicationRegistry` (install `SpawnCommRegistryExtension`)
-        //   - `ProviderRegistry` (install `ProviderRegistryExtension`)
+        //   - `SpawnCommunicationRegistry` (install `SpawnCommRegistryPlugin`)
+        //   - `ProviderRegistry` (install `ProviderRegistryPlugin`)
         //
         // Both are opt-in via `Extension`, matching the rest of the
         // framework's philosophy: the builder does not grow ad-hoc
@@ -194,7 +194,7 @@ impl BaseAgentBuilder {
         if !has_memory {
             self.plugins.insert(
                 0,
-                Box::new(alva_agent_extension_builtin::wrappers::MemoryExtension::default()),
+                Box::new(alva_agent_extension_builtin::wrappers::MemoryPlugin::default()),
             );
         }
         let has_security = self.plugins.iter().any(|p| p.name() == "security");
@@ -202,7 +202,7 @@ impl BaseAgentBuilder {
             self.plugins.insert(
                 0,
                 Box::new(
-                    alva_agent_extension_builtin::wrappers::SecurityExtension::for_workspace(
+                    alva_agent_extension_builtin::wrappers::SecurityPlugin::for_workspace(
                         &workspace,
                         self.sandbox_mode.clone(),
                     ),
@@ -213,7 +213,7 @@ impl BaseAgentBuilder {
         if !has_system_context {
             self.plugins.insert(
                 0,
-                Box::new(alva_agent_extension_builtin::wrappers::SystemContextExtension::new()),
+                Box::new(alva_agent_extension_builtin::wrappers::SystemContextPlugin::new()),
             );
         }
 
@@ -241,7 +241,7 @@ impl BaseAgentBuilder {
         }
 
         // 5c. Caller-supplied extra middleware (security middleware now
-        //     comes from the SecurityExtension in the extension stack).
+        //     comes from the SecurityPlugin in the extension stack).
         for mw in self.extra_middleware {
             agent_builder = agent_builder.middleware(mw);
         }
@@ -257,7 +257,7 @@ impl BaseAgentBuilder {
         //    cancellation token so the host can cancel the loop via
         //    `HostAPI::shutdown`. Steering/follow-up injection is no longer
         //    a kernel concern — users who need it opt in with the
-        //    `PendingExtension` (in `alva_app_core::extension::pending`).
+        //    `PendingPlugin` (in `alva_app_core::extension::pending`).
         let current_cancel = Arc::new(std::sync::Mutex::new(CancellationToken::new()));
         {
             let mut host = inner.host().write().unwrap();

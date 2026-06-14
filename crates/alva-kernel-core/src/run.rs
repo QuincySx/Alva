@@ -2,7 +2,7 @@
 // OUTPUT: pub async fn run_agent()
 // POS:    session-centric agent loop. Mid-run steering is NOT a kernel concern —
 //         external callers inject messages by appending them to the session directly
-//         (typically via an opt-in `PendingExtension` middleware). Before each LLM
+//         (typically via an opt-in `PendingPlugin` middleware). Before each LLM
 //         call, tool schemas are pre-baked against a `ToolSchemaContext` carrying the
 //         bus handle so `Tool::parameters_schema_with` sees live runtime state.
 use std::sync::Arc;

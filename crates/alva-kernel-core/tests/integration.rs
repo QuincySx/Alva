@@ -320,7 +320,7 @@ async fn session_persists_across_check() {
 
 // Test 5 (`follow_up_continues_after_natural_stop`) removed — the kernel's
 // follow-up injection path has been deleted. Steering/interjection is now
-// handled by the opt-in `PendingExtension` in app-core.
+// handled by the opt-in `PendingPlugin` in app-core.
 
 // ---------------------------------------------------------------------------
 // Test 6: no_follow_up_means_single_pass

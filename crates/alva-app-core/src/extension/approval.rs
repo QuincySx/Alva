@@ -2,7 +2,7 @@
 //! that needs human approval (e.g. `SecurityMiddleware`) can look it up via
 //! `bus.get::<ApprovalNotifier>()`.
 //!
-//! Construct via [`ApprovalExtension::with_channel`] to simultaneously obtain
+//! Construct via [`ApprovalPlugin::with_channel`] to simultaneously obtain
 //! the receiver half of the approval-request channel; the caller owns the
 //! receiver and processes `ApprovalRequest`s (UI prompt, auto-approve, etc.).
 
@@ -15,12 +15,12 @@ use tokio::sync::mpsc;
 
 /// Approval extension. Publishes an `ApprovalNotifier` on the bus during
 /// `configure()` so that security middleware can reach the UI.
-pub struct ApprovalExtension {
+pub struct ApprovalPlugin {
     notifier: Mutex<Option<ApprovalNotifier>>,
 }
 
-impl ApprovalExtension {
-    /// Create a new `ApprovalExtension` together with the receiver half of
+impl ApprovalPlugin {
+    /// Create a new `ApprovalPlugin` together with the receiver half of
     /// its approval-request channel. The extension publishes the notifier
     /// on the bus during `configure()`; the caller retains the receiver and
     /// processes approval requests however it wants (CLI prompt, auto-approve,
@@ -38,7 +38,7 @@ impl ApprovalExtension {
 }
 
 #[async_trait]
-impl Plugin for ApprovalExtension {
+impl Plugin for ApprovalPlugin {
     fn name(&self) -> &str {
         "approval"
     }

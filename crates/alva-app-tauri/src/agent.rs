@@ -17,11 +17,11 @@ use tokio::runtime::Handle;
 use tokio::sync::RwLock;
 
 use alva_app_core::extension::{
-    ApprovalExtension, BrowserExtension, CoreExtension,
-    HooksExtension, InteractionExtension,
-    McpExtension, PermissionExtension, PlanningExtension, ShellExtension, SkillsExtension,
-    SubAgentExtension, TaskExtension, TeamExtension, UtilityExtension,
-    WebExtension,
+    ApprovalPlugin, BrowserPlugin, CorePlugin,
+    HooksPlugin, InteractionPlugin,
+    McpPlugin, PermissionPlugin, PlanningPlugin, ShellPlugin, SkillsPlugin,
+    SubAgentPlugin, TaskPlugin, TeamPlugin, UtilityPlugin,
+    WebPlugin,
 };
 use alva_app_core::{AlvaPaths, BaseAgent, PermissionDecision};
 use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
@@ -264,7 +264,7 @@ pub struct SendMessageRequest {
     #[serde(default)]
     pub session_id: Option<String>,
     /// Skill names the user selected for this turn. Currently logged but not
-    /// wired into the agent (next batch: rebuild BaseAgent with SkillsExtension
+    /// wired into the agent (next batch: rebuild BaseAgent with SkillsPlugin
     /// targeting these skills).
     #[serde(default)]
     pub skill_names: Option<Vec<String>>,
@@ -273,7 +273,7 @@ pub struct SendMessageRequest {
     /// per-turn tool filtering is a future kernel enhancement.
     #[serde(default)]
     pub tool_names: Option<Vec<String>>,
-    /// Deprecated — SubAgentExtension is now always registered and the
+    /// Deprecated — SubAgentPlugin is now always registered and the
     /// `agent` tool appears in the ToolPicker like any other tool. Field
     /// kept for a release or two so older frontend builds don't 400.
     #[allow(dead_code)]
@@ -1445,7 +1445,7 @@ async fn ensure_agent(
     // Always-on; the registry only exposes the active provider's auth, so
     // sub-agents can pick a different model from the same provider.
     builder = builder.plugin(Box::new(
-        alva_app_core::extension::ProviderRegistryExtension::new(provider_registry),
+        alva_app_core::extension::ProviderRegistryPlugin::new(provider_registry),
     ));
 
     // ToolLockRegistry — serializes concurrent tool calls on shared
@@ -1453,7 +1453,7 @@ async fn ensure_agent(
     // running without it allows lost writes, which is a correctness bug
     // not an optimization.
     builder = builder.plugin(Box::new(
-        alva_app_core::extension::ToolLockRegistryExtension::new(),
+        alva_app_core::extension::ToolLockRegistryPlugin::new(),
     ));
 
     // Analytics — JSONL telemetry sink (.alva/analytics.jsonl) +
@@ -1461,13 +1461,13 @@ async fn ensure_agent(
     // ("analytics" feature flag) for users who want a leaner footprint.
     if on("analytics", true) {
         builder = builder
-            .plugin(Box::new(alva_app_core::extension::AnalyticsExtension::new()));
+            .plugin(Box::new(alva_app_core::extension::AnalyticsPlugin::new()));
     }
 
-    // Core 7 tools — always-on (CoreExtension + ShellExtension)
+    // Core 7 tools — always-on (CorePlugin + ShellPlugin)
     builder = builder
-        .plugin(Box::new(CoreExtension))
-        .plugin(Box::new(ShellExtension));
+        .plugin(Box::new(CorePlugin))
+        .plugin(Box::new(ShellPlugin));
 
     // Conditionally registered tool extensions. Defaults are kept in lockstep
     // with `alva-app-cli::agent_setup::build_agent` — both apps share the same
@@ -1475,25 +1475,25 @@ async fn ensure_agent(
     // differ. If you're tempted to flip a default here without doing the same
     // on the CLI side, don't — that's how the two drifted last time.
     if on("interaction", true) {
-        builder = builder.plugin(Box::new(InteractionExtension));
+        builder = builder.plugin(Box::new(InteractionPlugin));
     }
     if on("task", true) {
-        builder = builder.plugin(Box::new(TaskExtension::default()));
+        builder = builder.plugin(Box::new(TaskPlugin::default()));
     }
     if on("team", true) {
-        builder = builder.plugin(Box::new(TeamExtension::default()));
+        builder = builder.plugin(Box::new(TeamPlugin::default()));
     }
     if on("planning", true) {
-        builder = builder.plugin(Box::new(PlanningExtension));
+        builder = builder.plugin(Box::new(PlanningPlugin));
     }
     if on("utility", true) {
-        builder = builder.plugin(Box::new(UtilityExtension));
+        builder = builder.plugin(Box::new(UtilityPlugin));
     }
     if on("web", true) {
-        builder = builder.plugin(Box::new(WebExtension));
+        builder = builder.plugin(Box::new(WebPlugin));
     }
     if on("browser", true) {
-        builder = builder.plugin(Box::new(BrowserExtension));
+        builder = builder.plugin(Box::new(BrowserPlugin));
     }
 
     // System extensions
@@ -1507,7 +1507,7 @@ async fn ensure_agent(
     // after build, and that task forwards every request to the frontend
     // as an `approval_request` event for inline approval rendering.
     let approval_rx = if on("approval", true) {
-        let (approval_ext, rx) = ApprovalExtension::with_channel();
+        let (approval_ext, rx) = ApprovalPlugin::with_channel();
         builder = builder.plugin(Box::new(approval_ext));
         Some(rx)
     } else {
@@ -1518,24 +1518,24 @@ async fn ensure_agent(
         if bundled.is_none() {
             tracing::warn!("bundled skills extraction failed; continuing without them");
         }
-        builder = builder.plugin(Box::new(SkillsExtension::with_bundled(
+        builder = builder.plugin(Box::new(SkillsPlugin::with_bundled(
             paths.project_skills_dir(),
             bundled,
         )));
     }
     if on("mcp", true) {
-        builder = builder.plugin(Box::new(McpExtension::new(vec![
+        builder = builder.plugin(Box::new(McpPlugin::new(vec![
             paths.global_mcp_config(),
             paths.project_mcp_config(),
         ])));
     }
     if on("hooks", true) {
-        builder = builder.plugin(Box::new(HooksExtension::new(
+        builder = builder.plugin(Box::new(HooksPlugin::new(
             alva_app_core::settings::HooksSettings::default(),
         )));
     }
     if on("sub-agents", true) {
-        builder = builder.plugin(Box::new(SubAgentExtension::new(3)));
+        builder = builder.plugin(Box::new(SubAgentPlugin::new(3)));
     }
 
     // Middleware — registered directly without an Extension wrapper
@@ -1555,7 +1555,7 @@ async fn ensure_agent(
         builder = builder.middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()));
     }
     if on("permission", true) {
-        builder = builder.plugin(Box::new(PermissionExtension::new()));
+        builder = builder.plugin(Box::new(PermissionPlugin::new()));
     }
 
     // Third-party subprocess plugins (JS / Python / anything via AEP).
@@ -1564,7 +1564,7 @@ async fn ensure_agent(
     // expose the same plugin surface to users.
     if on("subprocess-loader", true) {
         builder = builder.plugin(Box::new(
-            alva_app_extension_loader::loader::SubprocessLoaderExtension::new(vec![
+            alva_app_extension_loader::loader::SubprocessLoaderPlugin::new(vec![
                 paths.project_extensions_dir(),
                 paths.global_extensions_dir(),
             ]),

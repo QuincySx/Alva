@@ -8,7 +8,7 @@
 //         toward, with a rubric, iteration limit, and observable state machine
 //         (pending → running → evaluating → satisfied | max_iterations_reached | failed |
 //         interrupted). Lives in `alva-app-core` because outcomes are an App concern:
-//         the SDK agent loop runs; harness-layer code (today: `EvaluationExtension` +
+//         the SDK agent loop runs; harness-layer code (today: `EvaluationPlugin` +
 //         `agent-graph`) decides whether an outcome was met. Storing the result on the
 //         session as a first-class entity lets UI / REST surface it without bespoke
 //         per-app plumbing.
@@ -272,7 +272,7 @@ pub enum OutcomeError {
 /// `session.outcome_evaluations[]` field + the evaluation state machine
 /// implied by `user.define_outcome` / `span.outcome_evaluation_*` events.
 ///
-/// **Who writes**: an evaluation harness (today: `EvaluationExtension`
+/// **Who writes**: an evaluation harness (today: `EvaluationPlugin`
 /// driving `agent-graph`) calls `define` when the agent receives a
 /// `user.define_outcome` event, then `record_iteration` after each
 /// grader pass, then transitions through `update` to a terminal status.

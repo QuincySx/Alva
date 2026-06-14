@@ -1,7 +1,7 @@
 // INPUT:  std::sync, async_trait, alva_kernel_abi::{tool::Tool, bus_cap}, super::{Plugin, Registrar}
-// OUTPUT: LspExtension, LspManager, LspDiagnostic, LspSeverity, StubLspManager, lsp_diagnostics tool
+// OUTPUT: LspPlugin, LspManager, LspDiagnostic, LspSeverity, StubLspManager, lsp_diagnostics tool
 // POS:    LSP integration scaffold. Defines the bus capability + tool surface so
-//         agent code can ask "what's wrong with this file" via LspExtension.
+//         agent code can ask "what's wrong with this file" via LspPlugin.
 //         Real per-language server I/O (process spawn, JSON-RPC, didOpen/didChange,
 //         publishDiagnostics subscription) is out of scope — see `TODO(real-lsp)`.
 
@@ -107,7 +107,7 @@ impl LspServerConfig {
 /// concrete server transport so a stub impl can satisfy tests and a real
 /// LSP-backed impl can land later without API churn.
 ///
-/// **Provider**: `LspExtension::configure` registers `StubLspManager` by
+/// **Provider**: `LspPlugin::configure` registers `StubLspManager` by
 /// default; a real LSP-backed impl will register on the same trait.
 /// **Consumers**: `lsp_diagnostics` tool, plus any future
 /// `LspDiagnosticsMiddleware` (D5, deferred).
@@ -170,7 +170,7 @@ impl LspManager for StubLspManager {
 // Extension
 // ---------------------------------------------------------------------------
 
-pub struct LspExtension {
+pub struct LspPlugin {
     servers: Vec<LspServerConfig>,
     manager: OnceManager,
 }
@@ -178,7 +178,7 @@ pub struct LspExtension {
 #[derive(Default)]
 struct OnceManager(std::sync::OnceLock<Arc<dyn LspManager>>);
 
-impl LspExtension {
+impl LspPlugin {
     /// Default config: rust-analyzer + tsserver + pyright. Servers that
     /// aren't installed locally are tolerated — `StubLspManager` ignores
     /// the config entirely, and a real impl (TODO) should warn-and-skip.
@@ -206,14 +206,14 @@ impl LspExtension {
     }
 }
 
-impl Default for LspExtension {
+impl Default for LspPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl Plugin for LspExtension {
+impl Plugin for LspPlugin {
     fn name(&self) -> &str {
         "lsp"
     }
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn extension_metadata_and_default_servers() {
-        let e = LspExtension::new();
+        let e = LspPlugin::new();
         assert_eq!(e.name(), "lsp");
         assert!(!e.description().is_empty());
         assert_eq!(e.server_configs().len(), 3, "rust + ts + pyright by default");

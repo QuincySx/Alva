@@ -165,7 +165,7 @@ pub trait Provider: Send + Sync {
 
 /// Bus Capability: central registry of all configured LLM providers.
 ///
-/// **Provider**: `ProviderRegistryExtension::configure`
+/// **Provider**: `ProviderRegistryPlugin::configure`
 /// (`alva-app-core/src/extension/provider_registry.rs`). Fully opt-in —
 /// no built-in default, no builder setter.
 /// **Consumers**: `AgentSpawnTool` — when a `SpawnInput.model` carries a

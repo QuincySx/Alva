@@ -8,7 +8,7 @@
 //!
 //! Both binaries embed the same workspace-root `assets/skills/` tree at
 //! compile time and extract on first run to `<cache_dir>/alva/<binary>/
-//! bundled-skills-v<VERSION>/`. The path is fed to `SkillsExtension`
+//! bundled-skills-v<VERSION>/`. The path is fed to `SkillsPlugin`
 //! alongside project + global skill dirs so user-installed skills can
 //! override bundled defaults by name.
 
@@ -75,7 +75,7 @@ mod tests {
     //! the cache-dir path invariant.
     //!
     //! `is_complete` is the cache-validity gate inside `ensure_extracted`
-    //! — a wrong `true` ships stale assets to SkillsExtension; a wrong
+    //! — a wrong `true` ships stale assets to SkillsPlugin; a wrong
     //! `false` re-extracts on every launch (perf regression). Both paths
     //! are exercised here against the real compile-time `BUNDLED_SKILLS`
     //! tree, not a synthetic fixture.
@@ -150,7 +150,7 @@ mod tests {
     fn is_complete_returns_false_when_a_single_file_is_missing() {
         // Pin the "even one missing file invalidates cache" guarantee.
         // Without this, a partial extract (disk-full mid-write, manual
-        // tampering) would silently ship to SkillsExtension.
+        // tampering) would silently ship to SkillsPlugin.
         let dir = unique_temp_dir("partial");
         BUNDLED_SKILLS
             .extract(&dir)
@@ -175,7 +175,7 @@ mod tests {
     fn cache_dir_path_invariant_alva_tauri_versioned_suffix() {
         // bundled_skills_cache_dir() resolves a base via env/dirs but
         // ALWAYS appends `alva/tauri/bundled-skills-v<VERSION>`. The
-        // SkillsExtension consumer + CI cleanup tooling key off this
+        // SkillsPlugin consumer + CI cleanup tooling key off this
         // exact suffix structure — pin it.
         let dir = bundled_skills_cache_dir();
         let s = dir.to_string_lossy();

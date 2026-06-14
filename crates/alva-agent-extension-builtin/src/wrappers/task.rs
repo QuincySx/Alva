@@ -14,11 +14,11 @@ use async_trait::async_trait;
 
 use crate::services::{InMemoryTaskStore, TaskService};
 
-pub struct TaskExtension {
+pub struct TaskPlugin {
     service: Arc<dyn TaskService>,
 }
 
-impl TaskExtension {
+impl TaskPlugin {
     /// Wrap a caller-supplied service. Use this to plug in a persistent
     /// backend without writing a whole new `Extension`.
     pub fn new(service: Arc<dyn TaskService>) -> Self {
@@ -30,7 +30,7 @@ impl TaskExtension {
     }
 }
 
-impl Default for TaskExtension {
+impl Default for TaskPlugin {
     fn default() -> Self {
         Self {
             service: Arc::new(InMemoryTaskStore::new()),
@@ -39,7 +39,7 @@ impl Default for TaskExtension {
 }
 
 #[async_trait]
-impl Plugin for TaskExtension {
+impl Plugin for TaskPlugin {
     fn name(&self) -> &str {
         "task"
     }
