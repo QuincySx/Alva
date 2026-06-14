@@ -207,21 +207,19 @@ impl BaseAgentBuilder {
         if !has_security {
             self.plugins.insert(
                 0,
-                Box::new(ExtensionAsPlugin(Box::new(
+                Box::new(
                     alva_agent_extension_builtin::wrappers::SecurityExtension::for_workspace(
                         &workspace,
                         self.sandbox_mode.clone(),
                     ),
-                ))),
+                ),
             );
         }
         let has_system_context = self.plugins.iter().any(|p| p.name() == "system_context");
         if !has_system_context {
             self.plugins.insert(
                 0,
-                Box::new(ExtensionAsPlugin(Box::new(
-                    alva_agent_extension_builtin::wrappers::SystemContextExtension::new(),
-                ))),
+                Box::new(alva_agent_extension_builtin::wrappers::SystemContextExtension::new()),
             );
         }
 

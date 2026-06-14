@@ -7,35 +7,27 @@
 //!
 //! The agent-core already appends a canonical `# Environment` block
 //! (date + workspace path) as a hard floor; this extension layers
-//! richer content on top via `HostAPI::append_system_prompt`.
+//! richer content on top via `Registrar::system_prompt`.
 //!
-//! Replace by registering another `Extension` with
+//! Replace by registering another `Plugin` (or legacy `Extension`) with
 //! `name() == "system_context"` — the builder's name-based dedup will
 //! skip this default.
 //!
 //! Native-only: gated out on wasm32 because the underlying context
 //! collectors shell out to `git` and read the filesystem.
 
-use std::sync::{Arc, RwLock};
-
 use alva_agent_context::system_context::{get_system_context, get_user_context};
-use alva_agent_core::extension::{Extension, ExtensionContext, HostAPI};
+use alva_agent_core::extension::{Plugin, Registrar};
 use alva_kernel_abi::scope::context::ContextLayer;
 use async_trait::async_trait;
 
 /// Injects workspace-level context (CLAUDE.md / AGENTS.md, git status)
-/// into the system prompt during the configure phase.
-pub struct SystemContextExtension {
-    /// Captured during `activate()` so `configure()` can call
-    /// `append_system_prompt` without re-threading the API.
-    api: Arc<RwLock<Option<HostAPI>>>,
-}
+/// into the system prompt during the register phase.
+pub struct SystemContextExtension;
 
 impl SystemContextExtension {
     pub fn new() -> Self {
-        Self {
-            api: Arc::new(RwLock::new(None)),
-        }
+        Self
     }
 }
 
@@ -46,7 +38,7 @@ impl Default for SystemContextExtension {
 }
 
 #[async_trait]
-impl Extension for SystemContextExtension {
+impl Plugin for SystemContextExtension {
     fn name(&self) -> &str {
         "system_context"
     }
@@ -55,28 +47,15 @@ impl Extension for SystemContextExtension {
         "Workspace context (CLAUDE.md/AGENTS.md + git status) for system prompt"
     }
 
-    fn activate(&self, api: &HostAPI) {
-        *self.api.write().unwrap() = Some(api.clone());
-    }
-
-    async fn configure(&self, ctx: &ExtensionContext) {
+    async fn register(&self, r: &Registrar) {
         // An empty workspace path means the builder had no workspace set.
         // Nothing meaningful to gather — leave the prompt alone.
-        if ctx.workspace.as_os_str().is_empty() {
+        if r.workspace().as_os_str().is_empty() {
             return;
         }
-        let api = match self.api.read().unwrap().clone() {
-            Some(api) => api,
-            None => {
-                tracing::warn!(
-                    "SystemContextExtension.configure called without activate; skipping"
-                );
-                return;
-            }
-        };
 
-        let user_ctx = get_user_context(&ctx.workspace).await;
-        let sys_ctx = get_system_context(&ctx.workspace).await;
+        let user_ctx = get_user_context(r.workspace()).await;
+        let sys_ctx = get_system_context(r.workspace()).await;
 
         // Split contributions by stability — CLAUDE.md is stable
         // (rarely edited), git status is volatile (changes per
@@ -86,7 +65,7 @@ impl Extension for SystemContextExtension {
         if let Some(md) = user_ctx.get("claudeMd") {
             let trimmed = md.trim();
             if !trimmed.is_empty() {
-                api.append_system_prompt(
+                r.system_prompt(
                     ContextLayer::AlwaysPresent,
                     format!("<project_context>\n{}\n</project_context>", trimmed),
                 );
@@ -95,7 +74,7 @@ impl Extension for SystemContextExtension {
         if let Some(status) = sys_ctx.get("gitStatus") {
             let trimmed = status.trim();
             if !trimmed.is_empty() {
-                api.append_system_prompt(
+                r.system_prompt(
                     ContextLayer::RuntimeInject,
                     format!("<git_status>\n{}\n</git_status>", trimmed),
                 );

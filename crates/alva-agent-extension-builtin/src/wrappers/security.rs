@@ -6,32 +6,26 @@
 //! replaces this default via the builder's name-based dedup.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 
-use alva_agent_core::extension::{Extension, ExtensionContext, HostAPI};
+use alva_agent_core::extension::{Plugin, Registrar};
 use alva_agent_security::{
     SandboxMode, SecurityGuard, SecurityMiddleware, SecurityModeControl,
 };
-use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-/// The extension that wires the harness-default `SecurityMiddleware` into
+/// The plugin that wires the harness-default `SecurityMiddleware` into
 /// the agent stack.
 ///
-/// - During `activate()` it constructs the middleware from the workspace +
-///   sandbox mode and registers it with the host. The middleware itself
-///   later picks up the bus during its own `configure()` lifecycle.
-/// - During `configure()` it publishes the underlying `Arc<Mutex<SecurityGuard>>`
-///   on the bus so the outer harness (e.g. `BaseAgent::resolve_permission`)
-///   can resolve interactive permission prompts.
+/// During `register()` it constructs the middleware from the workspace +
+/// sandbox mode, registers it with the host, and publishes the underlying
+/// `Arc<Mutex<SecurityGuard>>` and `SecurityModeControl` on the bus so the
+/// outer harness (e.g. `BaseAgent::resolve_permission`) can resolve
+/// interactive permission prompts.
 pub struct SecurityExtension {
     workspace: PathBuf,
     sandbox_mode: SandboxMode,
-    /// Built lazily during `activate()`. Wrapped in a `Mutex` because the
-    /// `Extension` trait takes `&self` everywhere and we need to stash the
-    /// guard handle for `configure()` to publish.
-    guard: StdMutex<Option<Arc<Mutex<SecurityGuard>>>>,
 }
 
 impl SecurityExtension {
@@ -40,13 +34,12 @@ impl SecurityExtension {
         Self {
             workspace: workspace.into(),
             sandbox_mode,
-            guard: StdMutex::new(None),
         }
     }
 }
 
 #[async_trait]
-impl Extension for SecurityExtension {
+impl Plugin for SecurityExtension {
     fn name(&self) -> &str {
         "security"
     }
@@ -55,31 +48,19 @@ impl Extension for SecurityExtension {
         "Sandbox security middleware (default)"
     }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        Vec::new()
-    }
-
-    fn activate(&self, api: &HostAPI) {
+    async fn register(&self, r: &Registrar) {
         let mw = SecurityMiddleware::for_workspace(&self.workspace, self.sandbox_mode.clone());
-        // Stash the guard handle so configure() can publish it.
-        if let Ok(mut slot) = self.guard.lock() {
-            *slot = Some(mw.guard());
-        }
-        api.middleware(Arc::new(mw));
-    }
+        // Obtain the guard handle before moving `mw` into the Arc.
+        let guard = mw.guard();
+        r.middleware(Arc::new(mw));
 
-    async fn configure(&self, ctx: &ExtensionContext) {
+        // Publish the lock-free mode control so PermissionModeService can flip
+        // the security mode without holding the guard's mutex.
+        let mode_handle = guard.lock().await.mode_handle();
+        r.provide::<dyn SecurityModeControl>(mode_handle);
         // Publish the SecurityGuard handle on the bus so external callers
         // (e.g. CLI/UI permission resolvers) can find it without going
         // through a hardcoded BaseAgent accessor.
-        let guard_opt = self.guard.lock().ok().and_then(|g| g.clone());
-        if let Some(guard) = guard_opt {
-            // Also publish the lock-free mode control so PermissionModeService
-            // can flip the security mode without holding the guard's mutex.
-            let mode_handle = guard.lock().await.mode_handle();
-            ctx.bus_writer
-                .provide::<dyn SecurityModeControl>(mode_handle);
-            ctx.bus_writer.provide::<Mutex<SecurityGuard>>(guard);
-        }
+        r.provide::<Mutex<SecurityGuard>>(guard);
     }
 }
