@@ -9,11 +9,13 @@ mod bridge;
 mod context;
 mod events;
 mod host;
+mod registrar;
 
 pub use bridge::ExtensionBridgeMiddleware;
 pub use context::{ExtensionContext, FinalizeContext};
 pub use events::{EventResult, ExtensionEvent};
 pub use host::{ExtensionHost, HostAPI, RegisteredCommand};
+pub use registrar::{LateContext, Registrar};
 
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
