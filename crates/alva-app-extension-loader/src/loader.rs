@@ -1,15 +1,14 @@
 // INPUT:  proxy::RemoteExtensionProxy, manifest::PluginManifest, tokio::fs, alva_agent_core::extension::*
 // OUTPUT: SubprocessLoaderPlugin, LoaderError
-// POS:    Phase 3 — the one Extension the host registers; internally manages N subprocess plugins.
+// POS:    Phase 3 — the one Plugin the host registers; internally manages N subprocess plugins.
 
-//! The first-party `Extension` that scans a directory for plugin
+//! The first-party `Plugin` that scans a directory for plugin
 //! packages, starts each one as a subprocess, and forwards host
-//! events to all loaded plugins.
+//! middleware hooks to all loaded plugins.
 //!
-//! From the host's point of view this is just one more `Extension`
-//! — it goes through the normal `activate` / `configure` lifecycle.
-//! Unlike first-party extensions it does not register event handlers;
-//! instead it registers a single
+//! From the host's point of view this is just one more `Plugin`
+//! — it goes through the normal `Plugin::register` lifecycle.
+//! Instead of registering its own hooks directly, it registers a single
 //! [`AepBridgeMiddleware`](crate::aep_bridge::AepBridgeMiddleware)
 //! that routes the real `Middleware` hooks into every loaded plugin.
 //!
@@ -33,34 +32,33 @@
 //!
 //! Plugins without an `alva.toml` are silently skipped; invalid
 //! manifests log a warning and are ignored. One bad plugin never
-//! prevents the others from loading — `configure` is best-effort
+//! prevents the others from loading — loading is best-effort
 //! and never hard-fails. Duplicate plugin names across dirs keep
 //! the first occurrence and log a warning.
 //!
-//! ## Event dispatch
+//! ## Hook dispatch
 //!
-//! Plugins are reached through the middleware stack, not the event
-//! layer. After the subprocesses are loaded (`configure` /
-//! `load_plugins`), the loader builds one
+//! Subprocess plugins are reached through the middleware stack. Inside
+//! `Plugin::register`, the loader async-loads the subprocesses
+//! (`load_plugins`), then builds one
 //! [`AepBridgeMiddleware`](crate::aep_bridge::AepBridgeMiddleware)
 //! holding `Arc` handles to every plugin and registers it via
-//! `HostAPI::middleware`. Each middleware hook iterates the plugins
+//! `Registrar::middleware`. Each middleware hook iterates the plugins
 //! sequentially; the first plugin that returns `Block` from
 //! `before_tool_call` wins. This matches the user's mental model where
 //! plugins compose the way first-party middleware already does.
 //!
 //! ### Registration timing
 //!
-//! Plugins load **asynchronously** in `configure`, while
-//! `HostAPI::middleware` registration must happen before the builder
-//! drains the host's middleware list. The order works out: the
-//! `ExtensionAsPlugin` adapter runs `activate` (stores the `HostAPI`)
-//! then `await`s `configure` inside the builder's register phase, and
-//! the builder only calls `take_middlewares()` **after** every
-//! plugin's register phase has completed. So registering the bridge at
-//! the end of `load_plugins` — once the plugin list is fully built —
-//! lands it in the stack in time, and we can hand the concrete plugin
-//! `Vec` straight to the middleware (no shared-mutable indirection).
+//! Plugins load **asynchronously** inside `Plugin::register`, while
+//! `Registrar::middleware` registration must happen before the builder
+//! drains the host's middleware list. The order works out: the builder
+//! `await`s every plugin's `register` during the register phase and only
+//! calls `take_middlewares()` **after** all of them have completed. So
+//! registering the bridge at the end of `register` — once the plugin
+//! list is fully built — lands it in the stack in time, and we can hand
+//! the concrete plugin `Vec` straight to the middleware (no
+//! shared-mutable indirection).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -123,7 +121,7 @@ impl SubprocessLoaderPlugin {
     }
 
     /// Number of currently-loaded plugins (after `load_plugins` /
-    /// `configure` has run).
+    /// `register` has run).
     pub fn loaded_count(&self) -> usize {
         self.state
             .plugins

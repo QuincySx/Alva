@@ -1,19 +1,19 @@
-// INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::ProviderRegistry, crate::extension::{Extension, ExtensionContext}
+// INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::ProviderRegistry, crate::extension::{Plugin, Registrar}
 // OUTPUT: ProviderRegistryPlugin
-// POS:    Opt-in Extension that provides an `Arc<ProviderRegistry>` onto the bus so `AgentSpawnTool` can resolve per-spawn `model: "provider/id"` specs. Without this extension, the `model` field on `SpawnInput` must be left empty (child inherits the parent's model).
+// POS:    Opt-in Plugin that provides an `Arc<ProviderRegistry>` onto the bus so `AgentSpawnTool` can resolve per-spawn `model: "provider/id"` specs. Without this plugin, the `model` field on `SpawnInput` must be left empty (child inherits the parent's model).
 
 //! `ProviderRegistryPlugin` — publishes a user-supplied
 //! `ProviderRegistry` on the bus.
 //!
 //! `AgentSpawnTool` looks up `ProviderRegistry` on the bus when a
 //! sub-agent spawn includes a `model: "provider/id"` override. This
-//! extension is the only supported way to enable that override: there is
+//! plugin is the only supported way to enable that override: there is
 //! no builder setter and no default registration.
 //!
 //! ```rust,ignore
 //! BaseAgent::builder()
 //!     .workspace(path)
-//!     .extension(Box::new(ProviderRegistryPlugin::new(registry)))
+//!     .plugin(Box::new(ProviderRegistryPlugin::new(registry)))
 //!     .build(model).await?;
 //! ```
 use std::sync::Arc;

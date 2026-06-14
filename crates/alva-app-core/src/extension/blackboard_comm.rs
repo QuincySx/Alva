@@ -22,8 +22,11 @@ use crate::extension::{LateContext, Plugin, Registrar};
 
 /// Registers the shared Blackboard as a `SpawnCommunication` kind.
 ///
-/// Needs the `SpawnCommunicationRegistry` to already be on the bus, which
-/// `BaseAgentBuilder::build()` provides by default.
+/// Needs the `SpawnCommunicationRegistry` to already be on the bus. That
+/// registry is **opt-in**: the outer app must also assemble
+/// `SpawnCommRegistryPlugin` (it is not provided by `build()` automatically).
+/// If the registry is absent, `finalize` logs a warning and skips
+/// registration.
 pub struct BlackboardCommPlugin {
     board_registry: Arc<BoardRegistry>,
 }

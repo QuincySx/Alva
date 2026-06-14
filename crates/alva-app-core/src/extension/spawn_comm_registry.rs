@@ -1,17 +1,17 @@
-// INPUT:  std::sync::{Arc, Mutex}, std::collections::HashMap, async_trait, alva_kernel_abi::{SpawnCommunication, SpawnCommunicationRegistry}, crate::extension::{Extension, ExtensionContext}
+// INPUT:  std::sync::{Arc, Mutex}, std::collections::HashMap, async_trait, alva_kernel_abi::{SpawnCommunication, SpawnCommunicationRegistry}, crate::extension::{Plugin, Registrar}
 // OUTPUT: DefaultSpawnCommRegistry, SpawnCommRegistryPlugin
 // POS:    Default in-process `SpawnCommunicationRegistry` (`Mutex<HashMap<kind, Arc<dyn SpawnCommunication>>>`) plus the opt-in `SpawnCommRegistryPlugin` that publishes it onto the bus — wiring point for sub-agent comm plugins (e.g. BlackboardCommPlugin).
 
 //! Default `SpawnCommunicationRegistry` implementation + its opt-in
-//! Extension wrapper.
+//! Plugin wrapper.
 //!
 //! `SpawnCommRegistryPlugin` provides an empty registry on the bus so
 //! `AgentSpawnTool` can look up comm capabilities at spawn time. Other
-//! extensions (e.g. `BlackboardCommPlugin`) register their
-//! capabilities via `Extension::configure()` by pulling the registry out
-//! of the bus and calling `register(...)`. Without this extension,
-//! `SpawnInput.comms: []` still works — only non-empty `comms` will
-//! error at spawn time.
+//! plugins (e.g. `BlackboardCommPlugin`) register their
+//! capabilities by pulling the registry out of the bus and calling
+//! `register(...)` (in `Plugin::finalize`, once the registry is on the
+//! bus). Without this plugin, `SpawnInput.comms: []` still works — only
+//! non-empty `comms` will error at spawn time.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

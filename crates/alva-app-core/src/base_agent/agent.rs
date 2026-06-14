@@ -185,7 +185,7 @@ impl BaseAgent {
     /// Get the current permission mode.
     ///
     /// Reads the value from the bus-published [`PermissionModeService`].
-    /// If no service is registered (e.g. `PlanModeExtension` was not added),
+    /// If no service is registered (e.g. `PermissionPlugin` was not added),
     /// falls back to the default.
     pub fn permission_mode(&self) -> PermissionMode {
         self.inner
@@ -200,7 +200,7 @@ impl BaseAgent {
     /// Writes through to the bus-published [`PermissionModeService`], which
     /// fans out to whichever control handles are registered on the bus
     /// (`PlanModeControl`, `SecurityModeControl`). A no-op if no service is
-    /// registered (e.g. `PermissionModeExtension` was not added).
+    /// registered (e.g. `PermissionPlugin` was not added).
     pub fn set_permission_mode(&self, mode: PermissionMode) {
         if let Some(service) = self.inner.bus().get::<PermissionModeService>() {
             service.set(mode);
@@ -233,7 +233,7 @@ impl BaseAgent {
         &self.bus_writer
     }
 
-    /// Access the runtime extension host (event dispatch and command registry).
+    /// Access the runtime extension host (middleware and command registry).
     pub fn extension_host(&self) -> &Arc<std::sync::RwLock<crate::extension::ExtensionHost>> {
         self.inner.host()
     }

@@ -99,7 +99,7 @@ impl Agent {
         &self.bus
     }
 
-    /// Access the runtime extension host (event dispatch, command registry,
+    /// Access the runtime extension host (middleware + command registry,
     /// agent binding for cancellation/pending messages).
     pub fn host(&self) -> &Arc<std::sync::RwLock<ExtensionHost>> {
         &self.host

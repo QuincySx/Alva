@@ -19,7 +19,7 @@ struct Input {}
     input = Input,
     // NOT read_only: writes session permission-mode state. Today's stub
     // doesn't mutate yet, but the design intent (and the real
-    // PlanModeExtension in alva-app-core) is to flip a session-scoped
+    // PermissionPlugin in alva-app-core) is to flip a session-scoped
     // PermissionMode flag. Tag classification is pre-flipped here so
     // audit / dry-run middleware that consult Tool::is_read_only treat
     // this as a mutation even before the real wire-up. See T9.

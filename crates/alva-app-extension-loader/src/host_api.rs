@@ -16,9 +16,9 @@
 //! Deliberately **not** in scope here:
 //!
 //! - `host/state.*` — requires carrying an `AgentState` handle
-//!   through the host's event dispatch, which is an invasive change
-//!   to `alva-agent-core::extension::events`. Methods return
-//!   `METHOD_NOT_FOUND` until Phase 5 wires this up.
+//!   through to the plugin bridge, which is an invasive change to the
+//!   middleware-hook plumbing. Methods return `METHOD_NOT_FOUND` until
+//!   Phase 5 wires this up.
 //! - `host/memory.*` — same reason, plus needs access to the current
 //!   memory backend through the bus. Phase 6.
 //! - `host/request_approval` — needs the approval channel from

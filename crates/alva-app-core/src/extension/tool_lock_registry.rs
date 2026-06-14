@@ -1,4 +1,4 @@
-// INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::ToolLockRegistry, crate::extension::{Extension, ExtensionContext}
+// INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::ToolLockRegistry, crate::extension::{Plugin, Registrar}
 // OUTPUT: ToolLockRegistryPlugin
 // POS:    Publishes a single shared `ToolLockRegistry` on the bus so sub-agent parallel spawns contend on one lock map.
 

@@ -50,8 +50,8 @@ impl PlanModeMiddleware {
 
 /// Bus Capability: runtime plan-mode enable/disable knob.
 ///
-/// **Provider**: `PlanModeExtension::configure`
-/// (`alva-app-core/src/extension/plan_mode.rs`). The concrete impl is
+/// **Provider**: `PermissionPlugin::register`
+/// (`alva-app-core/src/extension/permission.rs`). The concrete impl is
 /// `PlanModeMiddleware` itself, wrapped in `Arc`.
 /// **Consumers**: `PermissionModeService` (internal — toggles plan-mode
 /// enforcement whenever the permission mode flips to/from `Plan`).

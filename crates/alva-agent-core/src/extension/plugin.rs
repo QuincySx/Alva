@@ -13,7 +13,7 @@ use super::registrar::{LateContext, Registrar};
 /// 自包含的能力捆绑包，可向 [`Registrar`] 注册 tools / middleware /
 /// bus 服务 / system-prompt 片段 / command。
 ///
-/// 取代旧的 `Extension` trait。过渡期两者并存，由 `ExtensionAsPlugin` 桥接。
+/// 取代旧的 `Extension` trait（已全面迁移完成，无适配层）。
 #[async_trait]
 pub trait Plugin: Send + Sync {
     /// 本 plugin 的唯一标识（用于日志与诊断）。

@@ -180,16 +180,15 @@ impl BaseAgentBuilder {
         //   - `SpawnCommunicationRegistry` (install `SpawnCommRegistryPlugin`)
         //   - `ProviderRegistry` (install `ProviderRegistryPlugin`)
         //
-        // Both are opt-in via `Extension`, matching the rest of the
+        // Both are opt-in via `Plugin`, matching the rest of the
         // framework's philosophy: the builder does not grow ad-hoc
-        // setters or default registrations — everything extra is an
-        // Extension that the caller explicitly registers.
+        // setters or default registrations — everything extra is a
+        // Plugin that the caller explicitly registers.
 
-        // 4. Auto-wire default extensions for memory + security if the
-        //    caller hasn't already registered a plugin (or extension) under
-        //    the same name. This is the ENTIRE opt-out mechanism: register
-        //    your own "memory" / "security" plugin/extension and ours is
-        //    skipped.
+        // 4. Auto-wire default plugins for memory + security if the
+        //    caller hasn't already registered a plugin under the same name.
+        //    This is the ENTIRE opt-out mechanism: register your own
+        //    "memory" / "security" plugin and ours is skipped.
         let has_memory = self.plugins.iter().any(|p| p.name() == "memory");
         if !has_memory {
             self.plugins.insert(

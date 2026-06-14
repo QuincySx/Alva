@@ -41,9 +41,9 @@ impl PermissionMode {
 /// Bus Capability: session-wide permission mode (ask / accept-edits /
 /// accept-shell / plan).
 ///
-/// **Provider**: `PermissionModeExtension::configure`
-/// (`alva-app-core/src/extension/permission_mode.rs`). Optional — outer
-/// apps register the extension only if they want runtime mode toggling.
+/// **Provider**: `PermissionPlugin::register`
+/// (`alva-app-core/src/extension/permission.rs`). Optional — outer
+/// apps register the plugin only if they want runtime mode toggling.
 /// **Consumers**: `BaseAgent::permission_mode()` /
 /// `BaseAgent::set_permission_mode()`. CLI / UI talks through those.
 /// **Why bus**: keeps the service crate-agnostic. It does not depend

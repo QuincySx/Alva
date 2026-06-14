@@ -14,7 +14,7 @@ use super::{
 // Trait: ContextHooks
 // ===========================================================================
 
-/// The 8-hook ContextHooks trait that plugins implement to control the context lifecycle.
+/// The ContextHooks trait (7 lifecycle hooks + name()) that plugins implement to control the context lifecycle.
 ///
 /// All methods have default no-op implementations. Plugins only override what they need.
 #[async_trait]
