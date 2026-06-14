@@ -17,10 +17,12 @@ async-trait = "0.1"
 toml = "0.8"
 alva-agent-core = { path = "../alva-agent-core" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-kernel-core = { path = "../alva-kernel-core" }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+alva-test = { path = "../alva-test" }
 
 [target.'cfg(target_family = "wasm")'.dependencies]

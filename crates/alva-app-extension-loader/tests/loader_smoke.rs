@@ -1,10 +1,11 @@
 //! End-to-end loader smoke test.
 //!
 //! Writes a tiny Python plugin to a tempdir, registers
-//! `SubprocessLoaderExtension` with a real `ExtensionHost`, and
-//! drives `before_tool_call` events through the host's dispatch
-//! machinery. The plugin blocks shell calls containing `"rm -rf"`
-//! and lets everything else through.
+//! `SubprocessLoaderExtension` with a real `ExtensionHost`, and drives
+//! `before_tool_call` through the registered `AepBridgeMiddleware`'s
+//! hook — the same path the agent's middleware stack uses. The plugin
+//! blocks shell calls containing `"rm -rf"` and lets everything else
+//! through.
 //!
 //! Requires `python3` on PATH; skips cleanly otherwise.
 
@@ -13,10 +14,33 @@
 use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 
-use alva_agent_core::extension::{
-    Extension, EventResult, ExtensionEvent, ExtensionHost, HostAPI,
-};
+use alva_agent_core::extension::{Extension, ExtensionHost, HostAPI};
 use alva_app_extension_loader::loader::SubprocessLoaderExtension;
+use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
+use alva_kernel_abi::{AgentMessage, Message, ToolCall};
+use alva_kernel_core::{AgentState, Extensions, Middleware, MiddlewareError};
+use alva_test::mock_provider::MockLanguageModel;
+
+/// Build a minimal `AgentState` sufficient to call middleware hooks.
+/// The AEP bridge only reads the session (for `on_user_message`); the
+/// model and tools are inert placeholders.
+fn make_state(session: Arc<InMemoryAgentSession>) -> AgentState {
+    AgentState {
+        model: Arc::new(MockLanguageModel::new()),
+        tools: vec![],
+        session,
+        extensions: Extensions::new(),
+    }
+}
+
+/// Pull the registered `AepBridgeMiddleware` out of the host so the
+/// test can call its hooks directly.
+fn take_bridge(host: &Arc<RwLock<ExtensionHost>>) -> Arc<dyn Middleware> {
+    let mws = host.write().unwrap().take_middlewares();
+    mws.into_iter()
+        .find(|m| m.name() == "aep-bridge")
+        .expect("loader must register an aep-bridge middleware")
+}
 
 const PLUGIN_MANIFEST: &str = r#"
 name = "shell-guard"
@@ -149,46 +173,49 @@ async fn plugin_blocks_dangerous_shell_command() {
     assert_eq!(count, 1, "expected exactly one plugin loaded");
     assert_eq!(ext.loaded_count(), 1);
 
+    // Grab the middleware the loader registered, and a state to drive it.
+    let bridge = take_bridge(&host);
+    let session = Arc::new(InMemoryAgentSession::new());
+    // Seed a user message so on_user_message has something to read
+    // (the shell-guard plugin does not subscribe, but this exercises
+    // the latest-user-message path inside on_agent_start).
+    session
+        .append_message(AgentMessage::Standard(Message::user("hello")), None)
+        .await;
+    let mut state = make_state(session);
+
+    // --- on_agent_start: unsubscribed plugin → no error ---
+    bridge
+        .on_agent_start(&mut state)
+        .await
+        .expect("on_agent_start must not fail for unsubscribed plugin");
+
     // --- dangerous command: expect Block ---
-    let blocked = ExtensionEvent::BeforeToolCall {
-        tool_name: "shell".to_string(),
-        tool_call_id: "call-1".to_string(),
+    let blocked = ToolCall {
+        id: "call-1".to_string(),
+        name: "shell".to_string(),
         arguments: serde_json::json!({"command": "rm -rf /"}),
     };
-    let result = host.read().unwrap().emit(&blocked);
-    match result {
-        EventResult::Block { reason } => {
+    match bridge.before_tool_call(&mut state, &blocked).await {
+        Err(MiddlewareError::Blocked { reason }) => {
             assert!(
                 reason.contains("rm -rf") || reason.contains("forbidden"),
                 "unexpected block reason: {reason}"
             );
         }
-        other => panic!("expected Block for rm -rf, got {:?}", other),
+        other => panic!("expected Blocked for rm -rf, got {:?}", other),
     }
 
-    // --- safe command: expect Continue ---
-    let safe = ExtensionEvent::BeforeToolCall {
-        tool_name: "shell".to_string(),
-        tool_call_id: "call-2".to_string(),
+    // --- safe command: expect Ok (Continue) ---
+    let safe = ToolCall {
+        id: "call-2".to_string(),
+        name: "shell".to_string(),
         arguments: serde_json::json!({"command": "ls -la"}),
     };
-    let result = host.read().unwrap().emit(&safe);
-    assert!(
-        matches!(result, EventResult::Continue),
-        "expected Continue for ls, got {:?}",
-        result
-    );
-
-    // --- event the plugin does not subscribe to: expect Continue ---
-    // The plugin only subscribed to `before_tool_call`; `agent_start`
-    // should pass through without an RPC round-trip.
-    let start = ExtensionEvent::AgentStart;
-    let result = host.read().unwrap().emit(&start);
-    assert!(
-        matches!(result, EventResult::Continue),
-        "expected Continue for unsubscribed event, got {:?}",
-        result
-    );
+    bridge
+        .before_tool_call(&mut state, &safe)
+        .await
+        .expect("expected Ok (continue) for ls");
 
     // Orderly teardown — kills the subprocess.
     ext.shutdown_all().await.expect("shutdown_all");

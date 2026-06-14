@@ -15,10 +15,12 @@
 use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 
-use alva_agent_core::extension::{
-    Extension, EventResult, ExtensionEvent, ExtensionHost, HostAPI,
-};
+use alva_agent_core::extension::{Extension, ExtensionHost, HostAPI};
 use alva_app_extension_loader::loader::SubprocessLoaderExtension;
+use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
+use alva_kernel_abi::{AgentMessage, Message, ToolCall};
+use alva_kernel_core::{AgentState, Extensions, MiddlewareError};
+use alva_test::mock_provider::MockLanguageModel;
 
 // ===========================================================
 // Plugin 1 — shell-guard: blocks destructive shell commands
@@ -170,11 +172,11 @@ fn line(s: impl std::fmt::Display) {
     println!("  {}", s);
 }
 
-fn result_summary(r: &EventResult) -> String {
+fn result_summary(r: &Result<(), MiddlewareError>) -> String {
     match r {
-        EventResult::Continue => "Continue".to_string(),
-        EventResult::Block { reason } => format!("BLOCKED — {}", reason),
-        EventResult::Handled => "Handled".to_string(),
+        Ok(()) => "Continue".to_string(),
+        Err(MiddlewareError::Blocked { reason }) => format!("BLOCKED — {}", reason),
+        Err(e) => format!("ERROR — {}", e),
     }
 }
 
@@ -236,7 +238,7 @@ async fn main() {
     let api = HostAPI::new(Arc::clone(&host), "subprocess-loader".to_string());
     let ext = SubprocessLoaderExtension::new(vec![temp.path().to_path_buf()]);
 
-    line("activate → registering handlers on host");
+    line("activate → storing HostAPI handle");
     ext.activate(&api);
 
     line("configure → spawning subprocesses + AEP handshake");
@@ -244,42 +246,66 @@ async fn main() {
     line(format!("✓ {} plugins loaded", count));
     println!();
 
-    // ----- Drive a sequence of events -----
-    let events = vec![
-        ("AgentStart", ExtensionEvent::AgentStart),
-        (
-            "BeforeToolCall(shell: ls -la)",
-            ExtensionEvent::BeforeToolCall {
-                tool_name: "shell".to_string(),
-                tool_call_id: "c1".to_string(),
-                arguments: serde_json::json!({"command": "ls -la"}),
-            },
-        ),
-        (
-            "BeforeToolCall(shell: echo hi)",
-            ExtensionEvent::BeforeToolCall {
-                tool_name: "shell".to_string(),
-                tool_call_id: "c2".to_string(),
-                arguments: serde_json::json!({"command": "echo hi"}),
-            },
-        ),
-        (
-            "BeforeToolCall(shell: rm -rf /tmp/x)  ← should be blocked",
-            ExtensionEvent::BeforeToolCall {
-                tool_name: "shell".to_string(),
-                tool_call_id: "c3".to_string(),
-                arguments: serde_json::json!({"command": "rm -rf /tmp/x"}),
-            },
-        ),
-        ("AgentEnd", ExtensionEvent::AgentEnd { error: None }),
-    ];
+    // The loader registered exactly one middleware that owns the
+    // plugins; pull it out and drive its hooks like the agent's
+    // middleware stack would.
+    let bridge = {
+        let mws = host.write().unwrap().take_middlewares();
+        mws.into_iter()
+            .find(|m| m.name() == "aep-bridge")
+            .expect("loader must register an aep-bridge middleware")
+    };
 
-    for (label, event) in events {
-        banner(&format!("event: {label}"));
-        let result = host.read().unwrap().emit(&event);
+    // Minimal state — seed a user message so on_user_message fires.
+    let session = Arc::new(InMemoryAgentSession::new());
+    session
+        .append_message(
+            AgentMessage::Standard(Message::user("list my files please")),
+            None,
+        )
+        .await;
+    let mut state = AgentState {
+        model: Arc::new(MockLanguageModel::new()),
+        tools: vec![],
+        session,
+        extensions: Extensions::new(),
+    };
+
+    // ----- Drive a sequence of hooks -----
+    banner("hook: on_agent_start (+ on_user_message)");
+    line(format!(
+        "→ {}",
+        result_summary(&bridge.on_agent_start(&mut state).await)
+    ));
+    println!();
+
+    let tool_calls = vec![
+        ("before_tool_call(shell: ls -la)", "c1", "ls -la"),
+        ("before_tool_call(shell: echo hi)", "c2", "echo hi"),
+        (
+            "before_tool_call(shell: rm -rf /tmp/x)  ← should be blocked",
+            "c3",
+            "rm -rf /tmp/x",
+        ),
+    ];
+    for (label, id, command) in tool_calls {
+        let tc = ToolCall {
+            id: id.to_string(),
+            name: "shell".to_string(),
+            arguments: serde_json::json!({ "command": command }),
+        };
+        banner(&format!("hook: {label}"));
+        let result = bridge.before_tool_call(&mut state, &tc).await;
         line(format!("→ {}", result_summary(&result)));
         println!();
     }
+
+    banner("hook: on_agent_end");
+    line(format!(
+        "→ {}",
+        result_summary(&bridge.on_agent_end(&mut state, None).await)
+    ));
+    println!();
 
     // ----- Teardown -----
     banner("shutdown");

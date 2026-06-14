@@ -11,29 +11,37 @@
 //!
 //! - drive the AEP handshake (`initialize` + `initialized`)
 //! - report which events the plugin subscribed to
-//! - **synchronously** dispatch an [`ExtensionEvent`] to the plugin
-//!   and translate the response into an [`EventResult`]
+//! - **synchronously** dispatch an [`AepEvent`] to the plugin
+//!   and translate the response into an [`AepDispatchResult`]
 //!
-//! The synchronous dispatch is the tricky part: the host's
-//! `ExtensionHost::emit` path is pure sync, but our dispatcher is
-//! async. We bridge via `tokio::task::block_in_place` + a current
-//! runtime `block_on`. That requires the process to use a
-//! multi-thread tokio runtime — the agent already does.
+//! ## Decoupled from agent-core's event layer
 //!
-//! ## Phase 3 action coverage
+//! This crate deliberately does **not** depend on agent-core's
+//! `ExtensionEvent` / `EventResult` types. Those are the synchronous
+//! mirror of the middleware hooks and are being removed. Instead the
+//! loader defines its own light-weight [`AepEvent`] /
+//! [`AepDispatchResult`] types (below) and the
+//! [`AepBridgeMiddleware`](crate::aep_bridge::AepBridgeMiddleware)
+//! translates real `Middleware` hooks into them.
 //!
-//! The host's `EventResult` currently has only `Continue`, `Block`,
-//! and `Handled`. AEP defines seven `ExtensionAction` variants. Phase
-//! 3 only honours `Continue` and `Block` — anything else is logged
-//! and treated as `Continue`. Growing the host to honour `Modify` /
-//! `ReplaceResult` / etc. is a follow-up that touches
-//! `alva-agent-core::extension::events`.
+//! The synchronous dispatch is the tricky part: the middleware hooks
+//! that call us are `async`, but each hook ultimately drives plugins
+//! through this pure-sync entry point. We bridge to the async
+//! dispatcher via `tokio::task::block_in_place` + a current-runtime
+//! `block_on`. That requires the process to use a multi-thread tokio
+//! runtime — the agent already does.
+//!
+//! ## Action coverage
+//!
+//! [`AepDispatchResult`] only has `Continue` and `Block`. AEP defines
+//! seven `ExtensionAction` variants; we only honour `Continue` and
+//! `Block` — anything else is logged and treated as `Continue`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alva_agent_core::extension::{EventResult, ExtensionEvent};
+use alva_kernel_abi::tool::execution::ToolOutput;
 use serde_json::Value;
 
 use crate::dispatcher::{DispatchError, RpcDispatcher};
@@ -44,6 +52,54 @@ use crate::protocol::{
     InitializeParams, InitializeResult, StateHandle, ToolCallWire, PROTOCOL_VERSION,
 };
 use crate::subprocess::{SubprocessError, SubprocessRuntime};
+
+// ===========================================================
+// Loader-local event types (decoupled from agent-core)
+// ===========================================================
+
+/// A host event to dispatch to a plugin, owned entirely by this crate.
+///
+/// This is the loader's replacement for agent-core's `ExtensionEvent`:
+/// it carries exactly what the five AEP subscriptions need, borrowing
+/// from the caller (the [`AepBridgeMiddleware`](crate::aep_bridge)) so
+/// no cloning happens on the hot path. Keeping it loader-local is what
+/// lets agent-core delete its event layer without touching AEP.
+#[derive(Debug)]
+pub enum AepEvent<'a> {
+    /// Agent run is starting (AEP `on_agent_start`).
+    AgentStart,
+    /// Agent run is ending (AEP `on_agent_end`).
+    AgentEnd { error: Option<&'a str> },
+    /// A tool is about to run (AEP `before_tool_call`). May be blocked.
+    BeforeToolCall {
+        tool_name: &'a str,
+        tool_call_id: &'a str,
+        arguments: &'a Value,
+    },
+    /// A tool finished running (AEP `after_tool_call`).
+    AfterToolCall {
+        tool_name: &'a str,
+        tool_call_id: &'a str,
+        result: &'a ToolOutput,
+    },
+    /// The latest user message text (AEP `on_user_message`).
+    UserMessage { text: &'a str },
+}
+
+/// What a plugin decided after seeing an [`AepEvent`].
+///
+/// The loader's replacement for agent-core's `EventResult` — but only
+/// the two variants AEP plugins can actually produce. `Block` is only
+/// meaningful for `before_tool_call`; for every other event a `Block`
+/// from a plugin is honoured by the bridge but has no effect beyond
+/// surfacing the reason.
+#[derive(Debug)]
+pub enum AepDispatchResult {
+    /// Proceed normally.
+    Continue,
+    /// Reject the operation that triggered the event.
+    Block { reason: String },
+}
 
 /// How long we wait for a plugin event handler before assuming it is
 /// wedged and treating the event as `Continue`. Matches the spec's
@@ -163,34 +219,33 @@ impl RemoteExtensionProxy {
             .any(|m| m == name)
     }
 
-    /// Synchronous dispatch of an `ExtensionEvent` to this plugin,
-    /// translating the response into an `EventResult`.
+    /// Synchronous dispatch of an [`AepEvent`] to this plugin,
+    /// translating the response into an [`AepDispatchResult`].
     ///
-    /// Called from inside a sync extension handler that itself runs
+    /// Called from inside an `async` middleware hook that itself runs
     /// inside the tokio runtime. Uses `block_in_place` to bridge the
-    /// async dispatcher.
-    pub fn dispatch_event_sync(&self, event: &ExtensionEvent) -> EventResult {
-        let Some(bare_name) = core_event_to_aep_name(event) else {
-            return EventResult::Continue;
-        };
+    /// async dispatcher. Plugins that did not subscribe to the event,
+    /// or that error / time out, are treated as `Continue`.
+    pub fn dispatch_event_sync(&self, event: &AepEvent<'_>) -> AepDispatchResult {
+        let bare_name = aep_event_name(event);
         if !self.subscribes_to(bare_name) {
-            return EventResult::Continue;
+            return AepDispatchResult::Continue;
         }
 
-        let Some(params) = core_event_to_params(event) else {
+        let Some(params) = aep_event_to_params(event) else {
             tracing::error!(
                 plugin = %self.name,
                 event = bare_name,
                 "failed to serialize event params"
             );
-            return EventResult::Continue;
+            return AepDispatchResult::Continue;
         };
 
         let method = format!("extension/{}", bare_name);
         let result = call_dispatcher_blocking(&self.dispatcher, &method, params);
 
         match result {
-            Ok(value) => action_to_event_result(&self.name, bare_name, value),
+            Ok(value) => action_to_dispatch_result(&self.name, bare_name, value),
             Err(DispatchError::Rpc(err)) => {
                 tracing::warn!(
                     plugin = %self.name,
@@ -199,7 +254,7 @@ impl RemoteExtensionProxy {
                     message = %err.message,
                     "plugin returned rpc error"
                 );
-                EventResult::Continue
+                AepDispatchResult::Continue
             }
             Err(e) => {
                 tracing::error!(
@@ -208,7 +263,7 @@ impl RemoteExtensionProxy {
                     error = %e,
                     "dispatch failed"
                 );
-                EventResult::Continue
+                AepDispatchResult::Continue
             }
         }
     }
@@ -228,32 +283,32 @@ impl RemoteExtensionProxy {
 }
 
 // ===========================================================
-// Bridging core ExtensionEvent ↔ AEP
+// Bridging AepEvent ↔ AEP wire
 // ===========================================================
 
-/// Convert a core `ExtensionEvent` variant to the corresponding bare
-/// AEP event name (no `extension/` prefix). Events the host supports
-/// but AEP does not map get `None`.
-fn core_event_to_aep_name(event: &ExtensionEvent) -> Option<&'static str> {
+/// The bare AEP event name (no `extension/` prefix) for an
+/// [`AepEvent`]. This is also the name plugins declare in their
+/// `eventSubscriptions` list.
+fn aep_event_name(event: &AepEvent<'_>) -> &'static str {
     match event {
-        ExtensionEvent::BeforeToolCall { .. } => Some("before_tool_call"),
-        ExtensionEvent::AfterToolCall { .. } => Some("after_tool_call"),
-        ExtensionEvent::AgentStart => Some("on_agent_start"),
-        ExtensionEvent::AgentEnd { .. } => Some("on_agent_end"),
-        ExtensionEvent::Input { .. } => Some("on_user_message"),
+        AepEvent::BeforeToolCall { .. } => "before_tool_call",
+        AepEvent::AfterToolCall { .. } => "after_tool_call",
+        AepEvent::AgentStart => "on_agent_start",
+        AepEvent::AgentEnd { .. } => "on_agent_end",
+        AepEvent::UserMessage { .. } => "on_user_message",
     }
 }
 
-/// Serialize an `ExtensionEvent` into the AEP params JSON shape the
-/// plugin expects.
+/// Serialize an [`AepEvent`] into the AEP params JSON shape the plugin
+/// expects.
 ///
-/// Phase 3 uses [`PHASE3_STATE_PLACEHOLDER`] wherever the spec asks
-/// for a `stateHandle`; real state handles land in a later phase
-/// when we implement the host API handler side.
-fn core_event_to_params(event: &ExtensionEvent) -> Option<Value> {
+/// Uses [`PHASE3_STATE_PLACEHOLDER`] wherever the spec asks for a
+/// `stateHandle`; real state handles land in a later phase when we
+/// implement the host API handler side.
+fn aep_event_to_params(event: &AepEvent<'_>) -> Option<Value> {
     let state_handle: StateHandle = PHASE3_STATE_PLACEHOLDER.to_string();
     match event {
-        ExtensionEvent::BeforeToolCall {
+        AepEvent::BeforeToolCall {
             tool_name,
             tool_call_id,
             arguments,
@@ -261,14 +316,14 @@ fn core_event_to_params(event: &ExtensionEvent) -> Option<Value> {
             let params = BeforeToolCallParams {
                 state_handle,
                 tool_call: ToolCallWire {
-                    id: tool_call_id.clone(),
-                    name: tool_name.clone(),
-                    arguments: arguments.clone(),
+                    id: (*tool_call_id).to_string(),
+                    name: (*tool_name).to_string(),
+                    arguments: (*arguments).clone(),
                 },
             };
             serde_json::to_value(&params).ok()
         }
-        ExtensionEvent::AfterToolCall {
+        AepEvent::AfterToolCall {
             tool_name,
             tool_call_id,
             result,
@@ -286,20 +341,20 @@ fn core_event_to_params(event: &ExtensionEvent) -> Option<Value> {
             }))
             .ok()
         }
-        ExtensionEvent::AgentStart => {
+        AepEvent::AgentStart => {
             serde_json::to_value(serde_json::json!({
                 "stateHandle": state_handle,
             }))
             .ok()
         }
-        ExtensionEvent::AgentEnd { error } => {
+        AepEvent::AgentEnd { error } => {
             serde_json::to_value(serde_json::json!({
                 "stateHandle": state_handle,
                 "error": error,
             }))
             .ok()
         }
-        ExtensionEvent::Input { text } => {
+        AepEvent::UserMessage { text } => {
             serde_json::to_value(serde_json::json!({
                 "stateHandle": state_handle,
                 "message": { "text": text },
@@ -310,9 +365,9 @@ fn core_event_to_params(event: &ExtensionEvent) -> Option<Value> {
 }
 
 /// Parse a plugin's JSON-RPC `result` into an `ExtensionAction` and
-/// translate it to the host's `EventResult`. Unsupported action
+/// translate it to an [`AepDispatchResult`]. Unsupported action
 /// variants are logged and treated as `Continue`.
-fn action_to_event_result(plugin: &str, event: &str, value: Value) -> EventResult {
+fn action_to_dispatch_result(plugin: &str, event: &str, value: Value) -> AepDispatchResult {
     let action: ExtensionAction = match serde_json::from_value(value.clone()) {
         Ok(a) => a,
         Err(e) => {
@@ -323,13 +378,13 @@ fn action_to_event_result(plugin: &str, event: &str, value: Value) -> EventResul
                 raw = %value,
                 "plugin returned malformed action"
             );
-            return EventResult::Continue;
+            return AepDispatchResult::Continue;
         }
     };
 
     match action {
-        ExtensionAction::Continue => EventResult::Continue,
-        ExtensionAction::Block { reason } => EventResult::Block { reason },
+        ExtensionAction::Continue => AepDispatchResult::Continue,
+        ExtensionAction::Block { reason } => AepDispatchResult::Block { reason },
         other => {
             // Modify / ReplaceResult / ModifyMessages / ModifyResponse /
             // ModifyResult — all land here. See module-level docs.
@@ -339,7 +394,7 @@ fn action_to_event_result(plugin: &str, event: &str, value: Value) -> EventResul
                 action = ?other,
                 "plugin returned action not yet supported by host; treating as continue"
             );
-            EventResult::Continue
+            AepDispatchResult::Continue
         }
     }
 }
@@ -393,84 +448,75 @@ mod tests {
     //! Tests for proxy.rs pure-sync helpers — 7 tests covering 3
     //! contract families:
     //!
-    //! 1. **`core_event_to_aep_name` wire-name translation** —
-    //!    `ExtensionEvent` variants map to AEP RPC method names that
-    //!    DIFFER from `ExtensionEvent::event_type()`. e.g.
-    //!    `AgentStart` → AEP `"on_agent_start"` but event_type
-    //!    returns `"agent_start"`; `Input` → `"on_user_message"` not
-    //!    `"input"`. A silent change to use event_type() would rename
-    //!    every plugin RPC method — no compile-time hint, every
-    //!    deployed plugin breaks. One parametric test pins all 5
-    //!    variants in one pass.
+    //! 1. **`aep_event_name` wire-name translation** — [`AepEvent`]
+    //!    variants map to AEP RPC method names. The non-obvious
+    //!    asymmetries: `AgentStart`/`AgentEnd` carry an `"on_"` prefix
+    //!    and `UserMessage` maps to `"on_user_message"`. A silent
+    //!    change would rename every plugin RPC method — no
+    //!    compile-time hint, every deployed plugin breaks. One
+    //!    parametric test pins all 5 variants in one pass.
     //!
-    //! 2. **`core_event_to_params` wire JSON shape** — produces the
+    //! 2. **`aep_event_to_params` wire JSON shape** — produces the
     //!    object plugins receive. Three simple shapes (AgentStart /
-    //!    AgentEnd / Input) merged into one test; the two complex
+    //!    AgentEnd / UserMessage) merged into one test; the two complex
     //!    shapes (BeforeToolCall typed serialization, AfterToolCall
     //!    ad-hoc camelCase) kept as separate tests because their
     //!    assertion sets are substantially different.
     //!
-    //! 3. **`action_to_event_result` decision branches** — Continue
+    //! 3. **`action_to_dispatch_result` decision branches** — Continue
     //!    passthrough + Block reason propagation + a merged forward-
     //!    compat/defensive test covering unsupported variants AND
     //!    malformed JSON (both fall into the same `_ => Continue`
     //!    catch-all branch).
-    //!
-    //! Removed: EVENT_TIMEOUT and PHASE3_STATE_PLACEHOLDER literal
-    //! pins — both are internal consts with no external spec; the
-    //! PHASE3 placeholder is implicitly verified by the shape tests
-    //! (which assert it appears in the wire payload via the source
-    //! const, so renaming the const breaks the shape tests).
     use super::*;
-    use alva_kernel_abi::tool::execution::ToolOutput;
 
-    // -- core_event_to_aep_name: parametric over 5 variants -------------
+    // -- aep_event_name: parametric over 5 variants --------------------
 
     #[test]
     fn aep_name_each_variant_maps_to_spec_wire_name() {
         // CRITICAL asymmetries: AgentStart/AgentEnd carry an "on_"
-        // prefix that event_type() doesn't; Input maps to
-        // "on_user_message" (NOT "input"). Either silent change
-        // would rename plugin RPC methods. The parametric loop
-        // pins all 5 variants in one pass.
-        let cases: Vec<(ExtensionEvent, &str)> = vec![
-            (ExtensionEvent::AgentStart, "on_agent_start"),
-            (ExtensionEvent::AgentEnd { error: None }, "on_agent_end"),
+        // prefix; UserMessage maps to "on_user_message". The
+        // parametric loop pins all 5 variants in one pass.
+        let args = serde_json::json!({});
+        let result = ToolOutput::text("");
+        let cases: Vec<(AepEvent<'_>, &str)> = vec![
+            (AepEvent::AgentStart, "on_agent_start"),
+            (AepEvent::AgentEnd { error: None }, "on_agent_end"),
             (
-                ExtensionEvent::BeforeToolCall {
-                    tool_name: "x".into(),
-                    tool_call_id: "id".into(),
-                    arguments: serde_json::json!({}),
+                AepEvent::BeforeToolCall {
+                    tool_name: "x",
+                    tool_call_id: "id",
+                    arguments: &args,
                 },
                 "before_tool_call",
             ),
             (
-                ExtensionEvent::AfterToolCall {
-                    tool_name: "x".into(),
-                    tool_call_id: "id".into(),
-                    result: ToolOutput::text(""),
+                AepEvent::AfterToolCall {
+                    tool_name: "x",
+                    tool_call_id: "id",
+                    result: &result,
                 },
                 "after_tool_call",
             ),
-            (ExtensionEvent::Input { text: "hi".into() }, "on_user_message"),
+            (AepEvent::UserMessage { text: "hi" }, "on_user_message"),
         ];
         for (event, expected) in cases {
             assert_eq!(
-                core_event_to_aep_name(&event),
-                Some(expected),
+                aep_event_name(&event),
+                expected,
                 "wire name mismatch for event {event:?}"
             );
         }
     }
 
-    // -- core_event_to_params: 3 simple shapes merged + 2 complex kept --
+    // -- aep_event_to_params: 3 simple shapes merged + 2 complex kept --
 
     #[test]
-    fn params_simple_shapes_for_agent_start_agent_end_and_input() {
+    fn params_simple_shapes_for_agent_start_agent_end_and_user_message() {
         // AgentStart: only stateHandle. AgentEnd: stateHandle + error.
-        // Input: stateHandle + message.text (NOT bare text; plugins
-        // read params.message.text per spec).
-        let v = core_event_to_params(&ExtensionEvent::AgentStart).unwrap();
+        // UserMessage: stateHandle + message.text (NOT bare text;
+        // plugins read params.message.text per spec).
+        let v = aep_event_to_params(&AepEvent::AgentStart).unwrap();
         assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
         assert_eq!(
             v.as_object().expect("must be an object").len(),
@@ -478,15 +524,15 @@ mod tests {
             "AgentStart payload must contain only stateHandle: {v}"
         );
 
-        let v = core_event_to_params(&ExtensionEvent::AgentEnd {
-            error: Some("oom".into()),
+        let v = aep_event_to_params(&AepEvent::AgentEnd {
+            error: Some("oom"),
         })
         .unwrap();
         assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
         assert_eq!(v["error"], serde_json::json!("oom"));
 
-        let v = core_event_to_params(&ExtensionEvent::Input {
-            text: "hello".into(),
+        let v = aep_event_to_params(&AepEvent::UserMessage {
+            text: "hello",
         })
         .unwrap();
         assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
@@ -499,12 +545,13 @@ mod tests {
         // struct; verify the serialized JSON contains tool_call_id /
         // tool_name / arguments. A refactor that switched to an
         // ad-hoc shape would fail this test.
-        let ev = ExtensionEvent::BeforeToolCall {
-            tool_name: "shell".into(),
-            tool_call_id: "tc-1".into(),
-            arguments: serde_json::json!({"cmd": "ls"}),
+        let args = serde_json::json!({"cmd": "ls"});
+        let ev = AepEvent::BeforeToolCall {
+            tool_name: "shell",
+            tool_call_id: "tc-1",
+            arguments: &args,
         };
-        let v = core_event_to_params(&ev).unwrap();
+        let v = aep_event_to_params(&ev).unwrap();
         assert!(v.is_object(), "BeforeToolCall params must serialize to object: {v}");
         let serialized = v.to_string();
         assert!(serialized.contains("tc-1"), "tool_call_id must appear: {serialized}");
@@ -518,25 +565,26 @@ mod tests {
         // with camelCase keys (stateHandle / toolCall). This deviates
         // from BeforeToolCall's typed shape — comment in source notes
         // a typed struct will land later; pin current behavior.
-        let ev = ExtensionEvent::AfterToolCall {
-            tool_name: "shell".into(),
-            tool_call_id: "tc-9".into(),
-            result: ToolOutput::text("done"),
+        let result = ToolOutput::text("done");
+        let ev = AepEvent::AfterToolCall {
+            tool_name: "shell",
+            tool_call_id: "tc-9",
+            result: &result,
         };
-        let v = core_event_to_params(&ev).unwrap();
+        let v = aep_event_to_params(&ev).unwrap();
         assert_eq!(v["stateHandle"], serde_json::json!(PHASE3_STATE_PLACEHOLDER));
         assert_eq!(v["toolCall"]["id"], serde_json::json!("tc-9"));
         assert_eq!(v["toolCall"]["name"], serde_json::json!("shell"));
         assert!(v.get("result").is_some(), "result key required: {v}");
     }
 
-    // -- action_to_event_result: 3 decision branches --------------------
+    // -- action_to_dispatch_result: 3 decision branches ----------------
 
     #[test]
-    fn action_continue_passes_through_to_event_result_continue() {
+    fn action_continue_passes_through_to_dispatch_result_continue() {
         let v = serde_json::json!({"action": "continue"});
-        let r = action_to_event_result("p", "on_agent_start", v);
-        assert!(matches!(r, EventResult::Continue));
+        let r = action_to_dispatch_result("p", "on_agent_start", v);
+        assert!(matches!(r, AepDispatchResult::Continue));
     }
 
     #[test]
@@ -545,9 +593,9 @@ mod tests {
         // the user (e.g. "tool blocked: rate limit"). Losing it would
         // leave the user staring at a bare "blocked".
         let v = serde_json::json!({"action": "block", "reason": "rate limit"});
-        let r = action_to_event_result("p", "before_tool_call", v);
+        let r = action_to_dispatch_result("p", "before_tool_call", v);
         match r {
-            EventResult::Block { reason } => assert_eq!(reason, "rate limit"),
+            AepDispatchResult::Block { reason } => assert_eq!(reason, "rate limit"),
             other => panic!("expected Block, got {other:?}"),
         }
     }
@@ -557,7 +605,7 @@ mod tests {
         // Both forward-compat (unsupported Modify variant defined in
         // protocol but not implemented) AND defensive (malformed JSON
         // that doesn't deserialize as ExtensionAction) fall into the
-        // same `_ => EventResult::Continue` catch-all branch. A
+        // same `_ => AepDispatchResult::Continue` catch-all branch. A
         // refactor that panicked or Blocked here would crash hosts
         // when a new-protocol plugin shipped, OR when a buggy plugin
         // sent garbage.
@@ -566,13 +614,13 @@ mod tests {
             "modified_arguments": {"k": "v"}
         });
         assert!(
-            matches!(action_to_event_result("p", "before_tool_call", modify), EventResult::Continue),
+            matches!(action_to_dispatch_result("p", "before_tool_call", modify), AepDispatchResult::Continue),
             "unsupported Modify variant must downgrade to Continue, not crash"
         );
 
         let malformed = serde_json::json!({"this": "is not an ExtensionAction"});
         assert!(
-            matches!(action_to_event_result("p", "after_tool_call", malformed), EventResult::Continue),
+            matches!(action_to_dispatch_result("p", "after_tool_call", malformed), AepDispatchResult::Continue),
             "malformed action JSON must defensively Continue"
         );
     }

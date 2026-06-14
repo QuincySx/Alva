@@ -7,9 +7,11 @@
 //! events to all loaded plugins.
 //!
 //! From the host's point of view this is just one more `Extension`
-//! — it goes through the normal `activate` / `configure` lifecycle
-//! and participates in the same event dispatch mechanism as
-//! `CheckpointExtension` or `PlanModeExtension`.
+//! — it goes through the normal `activate` / `configure` lifecycle.
+//! Unlike first-party extensions it does not register event handlers;
+//! instead it registers a single
+//! [`AepBridgeMiddleware`](crate::aep_bridge::AepBridgeMiddleware)
+//! that routes the real `Middleware` hooks into every loaded plugin.
 //!
 //! ## Directory layout
 //!
@@ -37,13 +39,28 @@
 //!
 //! ## Event dispatch
 //!
-//! During `activate`, this extension subscribes to **every**
-//! `ExtensionEvent` variant the host currently defines. Each
-//! registered handler iterates over all loaded plugins
-//! sequentially; the first plugin that returns `Block` wins (same
-//! semantics as `ExtensionHost::emit`'s own loop). This matches the
-//! user's mental model where plugins compose the way first-party
-//! extensions already do.
+//! Plugins are reached through the middleware stack, not the event
+//! layer. After the subprocesses are loaded (`configure` /
+//! `load_plugins`), the loader builds one
+//! [`AepBridgeMiddleware`](crate::aep_bridge::AepBridgeMiddleware)
+//! holding `Arc` handles to every plugin and registers it via
+//! `HostAPI::middleware`. Each middleware hook iterates the plugins
+//! sequentially; the first plugin that returns `Block` from
+//! `before_tool_call` wins. This matches the user's mental model where
+//! plugins compose the way first-party middleware already does.
+//!
+//! ### Registration timing
+//!
+//! Plugins load **asynchronously** in `configure`, while
+//! `HostAPI::middleware` registration must happen before the builder
+//! drains the host's middleware list. The order works out: the
+//! `ExtensionAsPlugin` adapter runs `activate` (stores the `HostAPI`)
+//! then `await`s `configure` inside the builder's register phase, and
+//! the builder only calls `take_middlewares()` **after** every
+//! plugin's register phase has completed. So registering the bridge at
+//! the end of `load_plugins` — once the plugin list is fully built —
+//! lands it in the stack in time, and we can hand the concrete plugin
+//! `Vec` straight to the middleware (no shared-mutable indirection).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -53,6 +70,7 @@ use alva_agent_core::extension::{
 };
 use async_trait::async_trait;
 
+use crate::aep_bridge::AepBridgeMiddleware;
 use crate::manifest::PluginManifest;
 use crate::proxy::{ProxyError, RemoteExtensionProxy};
 
@@ -71,8 +89,9 @@ struct LoaderState {
     extensions_dirs: Vec<PathBuf>,
     plugins: RwLock<Vec<Arc<RemoteExtensionProxy>>>,
     /// Cloned from the `HostAPI` handed to us during `activate()`.
-    /// Used by `configure` to register per-plugin handlers via
-    /// `api.on_as(plugin_name, ...)`.
+    /// Used by `configure` / `load_plugins` to register the
+    /// `AepBridgeMiddleware` via `api.middleware(...)` once the plugin
+    /// list is fully built.
     api: RwLock<Option<HostAPI>>,
 }
 
@@ -96,13 +115,16 @@ impl SubprocessLoaderExtension {
     /// hosts rely on the lifecycle calling `configure` for them.
     ///
     /// If `activate()` has already been called (which stores the
-    /// HostAPI handle), loaded plugins are additionally registered
-    /// with the host's handler table under their own names.
+    /// HostAPI handle), an [`AepBridgeMiddleware`] over the freshly
+    /// loaded plugins is registered with the host so the middleware
+    /// stack drives them.
     pub async fn load_plugins(&self) -> Result<usize, LoaderError> {
         let plugins = scan_and_start(&self.state.extensions_dirs).await?;
         let count = plugins.len();
 
-        // Register per-plugin handlers if we have a HostAPI.
+        // Register the bridge middleware if we have a HostAPI. The
+        // bridge owns Arc clones of the plugins, so the host drives
+        // them through the normal middleware stack.
         {
             let api_guard = self
                 .state
@@ -110,9 +132,7 @@ impl SubprocessLoaderExtension {
                 .read()
                 .map_err(|_| LoaderError::StatePoisoned)?;
             if let Some(ref api) = *api_guard {
-                for plugin in &plugins {
-                    register_plugin_handlers(api, plugin);
-                }
+                api.middleware(Arc::new(AepBridgeMiddleware::new(plugins.clone())));
             }
         }
 
@@ -181,12 +201,11 @@ impl Extension for SubprocessLoaderExtension {
     }
 
     fn activate(&self, api: &HostAPI) {
-        // Store the API handle so configure() can register per-plugin
-        // handlers via `api.on_as(plugin_name, ...)`. We deliberately
-        // register ZERO handlers here — the loader itself is plumbing
-        // and should be invisible in the host's handler registry.
-        // Individual plugins appear by their own name once configure()
-        // (or load_plugins()) runs.
+        // Store the API handle so configure() can register the
+        // AepBridgeMiddleware via `api.middleware(...)` once plugins
+        // are loaded. We deliberately register NOTHING here — the
+        // plugins are not loaded yet (that happens in async configure),
+        // and the bridge needs the finished plugin list.
         let mut api_slot = self
             .state
             .api
@@ -220,40 +239,19 @@ impl Extension for SubprocessLoaderExtension {
 }
 
 // ===========================================================
-// Per-plugin handler registration + directory scan
+// Subscription validation + directory scan
 // ===========================================================
 
-/// Register one handler per subscribed event for this plugin, each
-/// attributed to the plugin's own name via `HostAPI::on_as`. This
-/// makes individual plugins visible in the host's handler registry
-/// and event-source logging.
-fn register_plugin_handlers(api: &HostAPI, plugin: &Arc<RemoteExtensionProxy>) {
-    for aep_name in &plugin.init_result().event_subscriptions {
-        let Some(core_event_type) = aep_to_core_event_type(aep_name) else {
-            tracing::warn!(
-                plugin = %plugin.name(),
-                event = %aep_name,
-                "plugin subscribed to unknown AEP event; skipping handler"
-            );
-            continue;
-        };
-        let proxy = Arc::clone(plugin);
-        let plugin_name = plugin.name().to_string();
-        api.on_as(&plugin_name, core_event_type, move |event| {
-            proxy.dispatch_event_sync(event)
-        });
-        tracing::debug!(
-            plugin = %plugin.name(),
-            event_type = core_event_type,
-            "registered handler"
-        );
-    }
-}
-
 /// Map an AEP event subscription name (what plugins declare in their
-/// `eventSubscriptions` list) to the core `ExtensionEvent::event_type`
-/// string (what `HostAPI::on_as` uses to key into the handler table).
-fn aep_to_core_event_type(aep_name: &str) -> Option<&'static str> {
+/// `eventSubscriptions` list) to the canonical host event-type string.
+///
+/// The [`AepBridgeMiddleware`] uses this to recognise (and warn about)
+/// subscription names the host does not understand. Unknown names
+/// return `None` so a future-protocol plugin does not break loading.
+/// The non-obvious mappings: `on_agent_*` drop the `on_` prefix, and
+/// `on_user_message` maps to `"input"` (the historical event-type name
+/// for the user's message).
+pub(crate) fn aep_to_core_event_type(aep_name: &str) -> Option<&'static str> {
     match aep_name {
         "before_tool_call" => Some("before_tool_call"),
         "after_tool_call" => Some("after_tool_call"),
@@ -480,25 +478,22 @@ mod tests {
     //! Tests for `aep_to_core_event_type` reverse-mapping +
     //! LoaderError contracts — 3 tests covering 3 distinct contracts.
     //!
-    //! 1. **Reverse-mapping wire ⇄ core**: this helper is the INVERSE
-    //!    of `proxy.rs::core_event_to_aep_name` (forward direction
-    //!    pinned in proxy.rs tests). Two non-obvious asymmetries
+    //! 1. **Subscription-name recognition**: `aep_to_core_event_type`
+    //!    is what the `AepBridgeMiddleware` uses to recognise (and warn
+    //!    about) subscription names. Two non-obvious asymmetries
     //!    distinguish it from a naïve identity / strip-prefix:
     //!    - `on_agent_*` → `agent_*` (drop `on_` prefix; tool/* are
     //!      symmetric with no prefix to strip)
-    //!    - `on_user_message` → `"input"` (NOT `"user_message"`; core
-    //!      event_type() for Input is literally "input"; a naïve
-    //!      `strip_prefix("on_")` would silently break Input routing)
+    //!    - `on_user_message` → `"input"` (NOT `"user_message"`; the
+    //!      historical event-type for the user's message is literally
+    //!      "input"; a naïve `strip_prefix("on_")` would break it)
     //!
     //!    Forward-compat: unknown names return None (NOT a fallback),
-    //!    so future-protocol plugins don't crash dispatch on names
-    //!    the host doesn't know.
+    //!    so future-protocol plugins don't break loading on names the
+    //!    host doesn't know.
     //!
     //!    One parametric test pins all 5 known mappings + 3 unknown
-    //!    cases in one pass. Round-trip composition with
-    //!    `core_event_to_aep_name` can't be expressed here because
-    //!    that function is private to proxy.rs; the two halves stay
-    //!    in lockstep via the two crates' separate tests.
+    //!    cases in one pass.
     //!
     //! 2. **LoaderError wrapped Display chain-through**: only the
     //!    Proxy variant is pinned as representative of the

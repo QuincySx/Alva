@@ -23,10 +23,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alva_app_core::extension::ExtensionEvent;
 use alva_app_core::AlvaPaths;
 use alva_app_extension_loader::loader::{discover_plugins, start_plugin};
-use alva_app_extension_loader::proxy::RemoteExtensionProxy;
+use alva_app_extension_loader::proxy::{AepEvent, RemoteExtensionProxy};
 use alva_kernel_abi::tool::execution::ToolOutput;
 use serde_json::Value;
 
@@ -193,11 +192,13 @@ async fn run_exec(args: &[String]) -> i32 {
 
     // Dispatch. `dispatch_event_sync` uses block_in_place internally — we
     // spawn it onto a blocking task to avoid blocking the current tokio
-    // worker thread.
+    // worker thread. `AepEvent` borrows its payload, so we move the owned
+    // event into the closure and borrow it there (keeping the closure
+    // `'static`).
     let proxy_for_dispatch = proxy.clone();
-    let event_for_dispatch = event.clone();
+    let owned_event = event;
     let dispatch = tokio::task::spawn_blocking(move || {
-        proxy_for_dispatch.dispatch_event_sync(&event_for_dispatch)
+        proxy_for_dispatch.dispatch_event_sync(&owned_event.as_event())
     });
 
     // Wait for dispatch to return OR timeout — whichever first.
@@ -246,13 +247,66 @@ async fn try_shutdown(proxy: Arc<RemoteExtensionProxy>) -> i32 {
 // Event construction from JSON data
 // ---------------------------------------------------------------------------
 
-fn build_event(name: &str, data: &Value) -> Result<ExtensionEvent, String> {
+/// Owned mirror of the loader's borrowing [`AepEvent`].
+///
+/// `AepEvent` borrows its payload so the hot middleware path avoids
+/// cloning. The CLI builds the event from a parsed `--data` blob and
+/// then hands it to a `spawn_blocking` closure, so it needs an owned,
+/// `'static` carrier. `as_event()` lends out a borrowing `AepEvent`.
+#[derive(Debug)]
+enum OwnedAepEvent {
+    AgentStart,
+    AgentEnd { error: Option<String> },
+    BeforeToolCall {
+        tool_name: String,
+        tool_call_id: String,
+        arguments: Value,
+    },
+    AfterToolCall {
+        tool_name: String,
+        tool_call_id: String,
+        result: ToolOutput,
+    },
+    UserMessage { text: String },
+}
+
+impl OwnedAepEvent {
+    fn as_event(&self) -> AepEvent<'_> {
+        match self {
+            OwnedAepEvent::AgentStart => AepEvent::AgentStart,
+            OwnedAepEvent::AgentEnd { error } => AepEvent::AgentEnd {
+                error: error.as_deref(),
+            },
+            OwnedAepEvent::BeforeToolCall {
+                tool_name,
+                tool_call_id,
+                arguments,
+            } => AepEvent::BeforeToolCall {
+                tool_name,
+                tool_call_id,
+                arguments,
+            },
+            OwnedAepEvent::AfterToolCall {
+                tool_name,
+                tool_call_id,
+                result,
+            } => AepEvent::AfterToolCall {
+                tool_name,
+                tool_call_id,
+                result,
+            },
+            OwnedAepEvent::UserMessage { text } => AepEvent::UserMessage { text },
+        }
+    }
+}
+
+fn build_event(name: &str, data: &Value) -> Result<OwnedAepEvent, String> {
     let name = name.replace('.', "_");
     match name.as_str() {
-        "agent_start" => Ok(ExtensionEvent::AgentStart),
+        "agent_start" => Ok(OwnedAepEvent::AgentStart),
         "agent_end" => {
             let error = data.get("error").and_then(Value::as_str).map(String::from);
-            Ok(ExtensionEvent::AgentEnd { error })
+            Ok(OwnedAepEvent::AgentEnd { error })
         }
         "before_tool_call" => {
             let tool_name = data
@@ -269,7 +323,7 @@ fn build_event(name: &str, data: &Value) -> Result<ExtensionEvent, String> {
                 .get("arguments")
                 .cloned()
                 .unwrap_or(Value::Object(Default::default()));
-            Ok(ExtensionEvent::BeforeToolCall {
+            Ok(OwnedAepEvent::BeforeToolCall {
                 tool_name,
                 tool_call_id,
                 arguments,
@@ -302,7 +356,7 @@ fn build_event(name: &str, data: &Value) -> Result<ExtensionEvent, String> {
             } else {
                 ToolOutput::text(result_text)
             };
-            Ok(ExtensionEvent::AfterToolCall {
+            Ok(OwnedAepEvent::AfterToolCall {
                 tool_name,
                 tool_call_id,
                 result,
@@ -314,7 +368,7 @@ fn build_event(name: &str, data: &Value) -> Result<ExtensionEvent, String> {
                 .and_then(Value::as_str)
                 .ok_or_else(|| "data.text missing".to_string())?
                 .to_string();
-            Ok(ExtensionEvent::Input { text })
+            Ok(OwnedAepEvent::UserMessage { text })
         }
         other => Err(format!(
             "unknown event `{other}`; see `alva plugins --help` for the list"
@@ -325,7 +379,7 @@ fn build_event(name: &str, data: &Value) -> Result<ExtensionEvent, String> {
 #[cfg(test)]
 mod tests {
     //! Tests for `build_event` — parses a plugin event name and
-    //! optional `--data` JSON into an `ExtensionEvent`. Used by
+    //! optional `--data` JSON into an [`OwnedAepEvent`]. Used by
     //! `alva plugins exec <dir> <event> --data JSON`, the fast path
     //! for plugin authors to test their handler without running a
     //! full agent loop. Errors here cost developer time, so the
@@ -336,7 +390,7 @@ mod tests {
     #[test]
     fn build_event_agent_start_takes_no_data() {
         let ev = build_event("agent_start", &json!({})).unwrap();
-        assert!(matches!(ev, ExtensionEvent::AgentStart));
+        assert!(matches!(ev, OwnedAepEvent::AgentStart));
     }
 
     #[test]
@@ -344,17 +398,17 @@ mod tests {
         // The CLI accepts "agent.start" as an alias for "agent_start";
         // build_event replaces dots with underscores before matching.
         let ev = build_event("agent.start", &json!({})).unwrap();
-        assert!(matches!(ev, ExtensionEvent::AgentStart));
+        assert!(matches!(ev, OwnedAepEvent::AgentStart));
         // Multi-dot too
         let ev2 = build_event("before.tool.call", &json!({"tool_name": "t"})).unwrap();
-        assert!(matches!(ev2, ExtensionEvent::BeforeToolCall { .. }));
+        assert!(matches!(ev2, OwnedAepEvent::BeforeToolCall { .. }));
     }
 
     #[test]
     fn build_event_agent_end_with_error() {
         let ev = build_event("agent_end", &json!({"error": "boom"})).unwrap();
         match ev {
-            ExtensionEvent::AgentEnd { error } => assert_eq!(error.as_deref(), Some("boom")),
+            OwnedAepEvent::AgentEnd { error } => assert_eq!(error.as_deref(), Some("boom")),
             other => panic!("expected AgentEnd, got {:?}", other),
         }
     }
@@ -363,7 +417,7 @@ mod tests {
     fn build_event_agent_end_without_error_is_none() {
         let ev = build_event("agent_end", &json!({})).unwrap();
         match ev {
-            ExtensionEvent::AgentEnd { error } => assert!(error.is_none()),
+            OwnedAepEvent::AgentEnd { error } => assert!(error.is_none()),
             other => panic!("expected AgentEnd, got {:?}", other),
         }
     }
@@ -376,7 +430,7 @@ mod tests {
         )
         .unwrap();
         match ev {
-            ExtensionEvent::BeforeToolCall { tool_name, tool_call_id, arguments } => {
+            OwnedAepEvent::BeforeToolCall { tool_name, tool_call_id, arguments } => {
                 assert_eq!(tool_name, "read_file");
                 assert_eq!(tool_call_id, "tc-1");
                 assert_eq!(arguments["path"], "/x");
@@ -396,7 +450,7 @@ mod tests {
         // tool_call_id defaults to "stub-id", arguments defaults to {}.
         let ev = build_event("before_tool_call", &json!({"tool_name": "t"})).unwrap();
         match ev {
-            ExtensionEvent::BeforeToolCall { tool_call_id, arguments, .. } => {
+            OwnedAepEvent::BeforeToolCall { tool_call_id, arguments, .. } => {
                 assert_eq!(tool_call_id, "stub-id");
                 assert!(arguments.is_object() && arguments.as_object().unwrap().is_empty());
             }
@@ -412,7 +466,7 @@ mod tests {
         )
         .unwrap();
         match ev {
-            ExtensionEvent::AfterToolCall { tool_name, tool_call_id, result } => {
+            OwnedAepEvent::AfterToolCall { tool_name, tool_call_id, result } => {
                 assert_eq!(tool_name, "edit");
                 assert_eq!(tool_call_id, "tc-2");
                 // ToolOutput::text("done") → first content block is Text("done")
@@ -432,7 +486,7 @@ mod tests {
     fn build_event_after_tool_call_missing_result_text_gives_empty() {
         let ev = build_event("after_tool_call", &json!({"tool_name": "t"})).unwrap();
         match ev {
-            ExtensionEvent::AfterToolCall { result, .. } => {
+            OwnedAepEvent::AfterToolCall { result, .. } => {
                 // No result.text → empty string content
                 assert_eq!(result.content[0].as_text(), Some(""));
             }
@@ -444,8 +498,8 @@ mod tests {
     fn build_event_input_with_text() {
         let ev = build_event("input", &json!({"text": "hello"})).unwrap();
         match ev {
-            ExtensionEvent::Input { text } => assert_eq!(text, "hello"),
-            other => panic!("expected Input, got {:?}", other),
+            OwnedAepEvent::UserMessage { text } => assert_eq!(text, "hello"),
+            other => panic!("expected UserMessage, got {:?}", other),
         }
     }
 

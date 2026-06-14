@@ -51,4 +51,7 @@ pub mod proxy;
 pub mod loader;
 
 #[cfg(not(target_family = "wasm"))]
+pub mod aep_bridge;
+
+#[cfg(not(target_family = "wasm"))]
 pub mod host_api;
