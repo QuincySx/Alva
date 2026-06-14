@@ -132,7 +132,7 @@ pub(crate) async fn build_agent(
         .extension(Box::new(alva_app_core::extension::CompactionExtension))
         .extension(Box::new(alva_app_core::extension::CheckpointExtension))
         .plugin(Box::new(alva_app_core::extension::PermissionExtension::new()))
-        .extension(Box::new(alva_app_core::extension::SubAgentExtension::new(3)))
+        .plugin(Box::new(alva_app_core::extension::SubAgentExtension::new(3)))
         .plugin(Box::new(alva_app_core::extension::McpExtension::new(vec![
             paths.global_mcp_config(),
             paths.project_mcp_config(),

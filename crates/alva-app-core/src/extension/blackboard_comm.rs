@@ -1,6 +1,6 @@
-// INPUT:  std::sync::Arc, async_trait, alva_agent_context::scope::{BlackboardCommunication, BoardRegistry}, alva_kernel_abi::SpawnCommunicationRegistry, crate::extension::{Extension, ExtensionContext}
+// INPUT:  std::sync::Arc, async_trait, alva_agent_context::scope::{BlackboardCommunication, BoardRegistry}, alva_kernel_abi::SpawnCommunicationRegistry, crate::extension::{Plugin, Registrar, LateContext}
 // OUTPUT: BlackboardCommExtension
-// POS:    Optional Extension that registers a BlackboardCommunication into the SpawnCommunicationRegistry on the bus — opt-in wiring for sub-agent board sharing.
+// POS:    Optional Plugin that registers a BlackboardCommunication into the SpawnCommunicationRegistry on the bus (in finalize/late phase) — opt-in wiring for sub-agent board sharing.
 
 //! `BlackboardCommExtension` — registers the Blackboard communication
 //! capability with the sub-agent spawn system.
@@ -15,9 +15,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use alva_agent_context::scope::{BlackboardCommunication, BoardRegistry};
+use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::SpawnCommunicationRegistry;
 
-use crate::extension::{Extension, ExtensionContext};
+use crate::extension::{LateContext, Plugin, Registrar};
 
 /// Registers the shared Blackboard as a `SpawnCommunication` kind.
 ///
@@ -49,7 +50,7 @@ impl Default for BlackboardCommExtension {
 }
 
 #[async_trait]
-impl Extension for BlackboardCommExtension {
+impl Plugin for BlackboardCommExtension {
     fn name(&self) -> &str {
         "blackboard-comm"
     }
@@ -58,15 +59,23 @@ impl Extension for BlackboardCommExtension {
         "Registers the shared-Blackboard communication kind for sub-agent spawns."
     }
 
-    async fn configure(&self, ctx: &ExtensionContext) {
-        let Some(registry) = ctx.bus.get::<dyn SpawnCommunicationRegistry>() else {
+    // Nothing to provide at assembly time.
+    async fn register(&self, _r: &Registrar) {}
+
+    // Reads the `SpawnCommunicationRegistry` (provided by another plugin in
+    // its `register()` phase) and self-registers the Blackboard capability —
+    // late wiring, since reading another plugin's bus capability is only
+    // safe after all `register()` calls have finished.
+    async fn finalize(&self, cx: &LateContext) -> Vec<Arc<dyn Tool>> {
+        let Some(registry) = cx.bus.get::<dyn SpawnCommunicationRegistry>() else {
             tracing::warn!(
                 "blackboard-comm: SpawnCommunicationRegistry not present on bus; skipping registration"
             );
-            return;
+            return vec![];
         };
         registry.register(Arc::new(BlackboardCommunication::new(
             self.board_registry.clone(),
         )));
+        vec![]
     }
 }

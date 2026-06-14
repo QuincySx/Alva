@@ -1535,7 +1535,7 @@ async fn ensure_agent(
         )));
     }
     if on("sub-agents", true) {
-        builder = builder.extension(Box::new(SubAgentExtension::new(3)));
+        builder = builder.plugin(Box::new(SubAgentExtension::new(3)));
     }
 
     // Middleware extensions

@@ -475,7 +475,7 @@ pub fn create_agent_spawn_tool(scope: Arc<SpawnScopeImpl>) -> Box<dyn Tool> {
 // Extension
 // ---------------------------------------------------------------------------
 
-use crate::extension::{Extension, FinalizeContext};
+use crate::extension::{LateContext, Plugin, Registrar};
 
 /// Sub-agent spawning via the `agent` tool.
 ///
@@ -492,11 +492,14 @@ impl SubAgentExtension {
 }
 
 #[async_trait]
-impl Extension for SubAgentExtension {
+impl Plugin for SubAgentExtension {
     fn name(&self) -> &str { "sub-agents" }
     fn description(&self) -> &str { "Sub-agent spawning via the agent tool" }
 
-    async fn finalize(&self, ctx: &FinalizeContext) -> Vec<Arc<dyn Tool>> {
+    // SubAgent registers nothing at assembly time — all wiring is late.
+    async fn register(&self, _r: &Registrar) {}
+
+    async fn finalize(&self, ctx: &LateContext) -> Vec<Arc<dyn Tool>> {
         // Build a clean tool list without any placeholder agent tool
         let tools_without_agent: Vec<Arc<dyn Tool>> = ctx.tools.iter()
             .filter(|t| t.name() != "agent")
