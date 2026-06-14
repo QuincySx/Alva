@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::extension::{Extension, HostAPI};
+use crate::extension::{Plugin, Registrar};
 use crate::extension::evaluation::{SprintContract, SprintContractMiddleware};
 
 /// QA evaluation with sprint contract enforcement.
@@ -30,13 +30,13 @@ impl Default for EvaluationExtension {
 }
 
 #[async_trait]
-impl Extension for EvaluationExtension {
+impl Plugin for EvaluationExtension {
     fn name(&self) -> &str { "evaluation" }
     fn description(&self) -> &str { "QA evaluation and sprint contract enforcement" }
 
-    fn activate(&self, api: &HostAPI) {
+    async fn register(&self, r: &Registrar) {
         if let Some(contract) = &self.contract {
-            api.middleware(Arc::new(SprintContractMiddleware::new(contract.clone())));
+            r.middleware(Arc::new(SprintContractMiddleware::new(contract.clone())));
         }
     }
 }

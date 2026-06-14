@@ -10,7 +10,7 @@ use alva_kernel_core::middleware::Middleware;
 use alva_kernel_abi::ToolCall;
 use alva_kernel_abi::tool::execution::ToolOutput;
 
-use crate::extension::{Extension, HostAPI};
+use crate::extension::{Plugin, Registrar};
 use crate::extension::hooks::{HookEvent, HookExecutor, HookInput};
 use crate::settings::HooksSettings;
 
@@ -27,12 +27,12 @@ impl HooksExtension {
 }
 
 #[async_trait]
-impl Extension for HooksExtension {
+impl Plugin for HooksExtension {
     fn name(&self) -> &str { "hooks" }
     fn description(&self) -> &str { "Lifecycle hooks (shell scripts at tool/session events)" }
 
-    fn activate(&self, api: &HostAPI) {
-        api.middleware(Arc::new(HooksMiddleware {
+    async fn register(&self, r: &Registrar) {
+        r.middleware(Arc::new(HooksMiddleware {
             settings: self.settings.clone(),
             workspace: OnceLock::new(),
         }));

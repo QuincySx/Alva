@@ -126,18 +126,18 @@ pub(crate) async fn build_agent(
         .plugin(Box::new(alva_app_core::extension::UtilityExtension))
         .plugin(Box::new(alva_app_core::extension::WebExtension))
         .plugin(Box::new(alva_app_core::extension::BrowserExtension))
-        .extension(Box::new(alva_app_core::extension::LoopDetectionExtension))
-        .extension(Box::new(alva_app_core::extension::DanglingToolCallExtension))
-        .extension(Box::new(alva_app_core::extension::ToolTimeoutExtension))
-        .extension(Box::new(alva_app_core::extension::CompactionExtension))
-        .extension(Box::new(alva_app_core::extension::CheckpointExtension))
+        .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
+        .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
+        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
+        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()))
+        .middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()))
         .plugin(Box::new(alva_app_core::extension::PermissionExtension::new()))
         .plugin(Box::new(alva_app_core::extension::SubAgentExtension::new(3)))
         .plugin(Box::new(alva_app_core::extension::McpExtension::new(vec![
             paths.global_mcp_config(),
             paths.project_mcp_config(),
         ])))
-        .extension(Box::new(alva_app_core::extension::HooksExtension::new(
+        .plugin(Box::new(alva_app_core::extension::HooksExtension::new(
             alva_app_core::settings::HooksSettings::default(),
         )))
         // Third-party subprocess plugins (JS / Python / anything).

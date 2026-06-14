@@ -17,10 +17,10 @@ use tokio::runtime::Handle;
 use tokio::sync::RwLock;
 
 use alva_app_core::extension::{
-    ApprovalExtension, BrowserExtension, CheckpointExtension, CompactionExtension, CoreExtension,
-    DanglingToolCallExtension, HooksExtension, InteractionExtension, LoopDetectionExtension,
+    ApprovalExtension, BrowserExtension, CoreExtension,
+    HooksExtension, InteractionExtension,
     McpExtension, PermissionExtension, PlanningExtension, ShellExtension, SkillsExtension,
-    SubAgentExtension, TaskExtension, TeamExtension, ToolTimeoutExtension, UtilityExtension,
+    SubAgentExtension, TaskExtension, TeamExtension, UtilityExtension,
     WebExtension,
 };
 use alva_app_core::{AlvaPaths, BaseAgent, PermissionDecision};
@@ -1530,7 +1530,7 @@ async fn ensure_agent(
         ])));
     }
     if on("hooks", true) {
-        builder = builder.extension(Box::new(HooksExtension::new(
+        builder = builder.plugin(Box::new(HooksExtension::new(
             alva_app_core::settings::HooksSettings::default(),
         )));
     }
@@ -1538,21 +1538,21 @@ async fn ensure_agent(
         builder = builder.plugin(Box::new(SubAgentExtension::new(3)));
     }
 
-    // Middleware extensions
+    // Middleware — registered directly without an Extension wrapper
     if on("loop-detection", true) {
-        builder = builder.extension(Box::new(LoopDetectionExtension));
+        builder = builder.middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()));
     }
     if on("dangling-tool-call", true) {
-        builder = builder.extension(Box::new(DanglingToolCallExtension));
+        builder = builder.middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()));
     }
     if on("tool-timeout", true) {
-        builder = builder.extension(Box::new(ToolTimeoutExtension));
+        builder = builder.middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()));
     }
     if on("compaction", true) {
-        builder = builder.extension(Box::new(CompactionExtension));
+        builder = builder.middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()));
     }
     if on("checkpoint", true) {
-        builder = builder.extension(Box::new(CheckpointExtension));
+        builder = builder.middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()));
     }
     if on("permission", true) {
         builder = builder.plugin(Box::new(PermissionExtension::new()));

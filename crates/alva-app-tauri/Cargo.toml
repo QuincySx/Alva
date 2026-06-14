@@ -20,6 +20,7 @@ opener = { version = "0.7", default-features = false }
 # Core crate: BaseAgent + extensions
 alva-app-core = { path = "../alva-app-core" }
 alva-kernel-core = { path = "../alva-kernel-core" }
+alva-host-native = { path = "../alva-host-native" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 alva-protocol-skill = { path = "../alva-protocol-skill" }

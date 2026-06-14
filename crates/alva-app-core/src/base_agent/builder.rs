@@ -379,9 +379,9 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let result = BaseAgent::builder()
             .workspace(tmp.path())
-            .extension(Box::new(crate::extension::LoopDetectionExtension))
-            .extension(Box::new(crate::extension::DanglingToolCallExtension))
-            .extension(Box::new(crate::extension::ToolTimeoutExtension))
+            .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
+            .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
+            .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
             .build(model)
             .await;
 
