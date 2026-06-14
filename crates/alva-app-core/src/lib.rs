@@ -6,7 +6,7 @@
 //!
 //! Modules:
 //!   base_agent/  — BaseAgent, BaseAgentBuilder, PermissionMode
-//!   extension/   — Extension trait, HostAPI, event system, and all built-in
+//!   extension/   — Extension trait, HostAPI, and all built-in
 //!                  extensions (skills, mcp, hooks, agent_spawn, evaluation)
 //!   settings/    — Settings + HooksSettings types
 //!   paths/       — Workspace/global path resolution

@@ -37,7 +37,7 @@ impl Plugin for ExtensionAsPlugin {
         r.tools(self.0.tools().await);
 
         // Step 2 — activate: hand the extension a HostAPI so it can register
-        //           event handlers / middleware / commands.
+        //           middleware / commands.
         let api = HostAPI::new(r.host_arc(), self.0.name().to_string());
         self.0.activate(&api);
 

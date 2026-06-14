@@ -179,8 +179,7 @@ impl AgentBuilder {
         all_tools.extend(self.extra_tools);
 
         // 5. Build the middleware stack: middlewares the plugins registered
-        //    during register(), then user-supplied extras, then the bridge
-        //    that routes lifecycle events into the ExtensionHost.
+        //    during register(), then user-supplied extras.
         let mut middleware_stack = MiddlewareStack::new();
         {
             let mut host_mut = host.write().unwrap();
