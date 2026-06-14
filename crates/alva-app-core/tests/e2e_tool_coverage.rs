@@ -53,13 +53,13 @@ async fn build_agent_with_responses(
         // no-op (the lookup misses, the call returns), and Plan-mode
         // tests would falsely pass writes.
         .extension(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
-        .extension(Box::new(approval_ext))
+        .plugin(Box::new(approval_ext))
         .plugin(Box::new(alva_app_core::extension::CoreExtension))
         .plugin(Box::new(alva_app_core::extension::ShellExtension))
         .plugin(Box::new(alva_app_core::extension::InteractionExtension))
         .extension(Box::new(alva_app_core::extension::PlanningExtension))
-        .extension(Box::new(alva_app_core::extension::TaskExtension::default()))
-        .extension(Box::new(alva_app_core::extension::TeamExtension::default()))
+        .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
+        .plugin(Box::new(alva_app_core::extension::TeamExtension::default()))
         .plugin(Box::new(alva_app_core::extension::UtilityExtension))
         .plugin(Box::new(alva_app_core::extension::WebExtension))
         .extension(Box::new(alva_app_core::extension::LoopDetectionExtension))

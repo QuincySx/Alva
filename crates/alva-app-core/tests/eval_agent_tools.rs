@@ -140,11 +140,11 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
              When the work is done, briefly state what you did. Do not ask follow-up questions.",
         )
         .extension(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
-        .extension(Box::new(approval_ext))
+        .plugin(Box::new(approval_ext))
         .plugin(Box::new(alva_app_core::extension::CoreExtension))
         .plugin(Box::new(alva_app_core::extension::ShellExtension))
         .extension(Box::new(alva_app_core::extension::PlanningExtension))
-        .extension(Box::new(alva_app_core::extension::TaskExtension::default()))
+        .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
         .plugin(Box::new(alva_app_core::extension::UtilityExtension))
         .plugin(Box::new(alva_app_core::extension::WebExtension))
         .extension(Box::new(alva_app_core::extension::LoopDetectionExtension))

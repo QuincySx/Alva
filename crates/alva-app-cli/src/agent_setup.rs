@@ -103,16 +103,16 @@ pub(crate) async fn build_agent(
         .workspace(workspace)
         .system_prompt(&system_prompt)
         .max_iterations(20)
-        .extension(Box::new(
+        .plugin(Box::new(
             alva_app_core::extension::ProviderRegistryExtension::new(provider_registry),
         ))
-        .extension(Box::new(
+        .plugin(Box::new(
             alva_app_core::extension::ToolLockRegistryExtension::new(),
         ))
         .extension(Box::new(
             alva_app_core::extension::AnalyticsExtension::new(),
         ))
-        .extension(Box::new(approval_ext))
+        .plugin(Box::new(approval_ext))
         .extension(Box::new(alva_app_core::extension::SkillsExtension::with_bundled(
             paths.project_skills_dir(),
             bundled_skill_dir(),
@@ -120,8 +120,8 @@ pub(crate) async fn build_agent(
         .plugin(Box::new(alva_app_core::extension::CoreExtension))
         .plugin(Box::new(alva_app_core::extension::ShellExtension))
         .plugin(Box::new(alva_app_core::extension::InteractionExtension))
-        .extension(Box::new(alva_app_core::extension::TaskExtension::default()))
-        .extension(Box::new(alva_app_core::extension::TeamExtension::default()))
+        .plugin(Box::new(alva_app_core::extension::TaskExtension::default()))
+        .plugin(Box::new(alva_app_core::extension::TeamExtension::default()))
         .extension(Box::new(alva_app_core::extension::PlanningExtension))
         .plugin(Box::new(alva_app_core::extension::UtilityExtension))
         .plugin(Box::new(alva_app_core::extension::WebExtension))

@@ -6,8 +6,7 @@
 
 use std::sync::Arc;
 
-use alva_agent_core::extension::{Extension, ExtensionContext};
-use alva_kernel_abi::tool::Tool;
+use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
 
 use crate::services::{InMemoryTeamStore, TeamService};
@@ -35,18 +34,15 @@ impl Default for TeamExtension {
 }
 
 #[async_trait]
-impl Extension for TeamExtension {
+impl Plugin for TeamExtension {
     fn name(&self) -> &str {
         "team"
     }
     fn description(&self) -> &str {
         "Team / multi-agent coordination"
     }
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        crate::tool_presets::team()
-    }
-    async fn configure(&self, ctx: &ExtensionContext) {
-        ctx.bus_writer
-            .provide::<dyn TeamService>(self.service.clone());
+    async fn register(&self, r: &Registrar) {
+        r.tools(crate::tool_presets::team());
+        r.provide::<dyn TeamService>(self.service.clone());
     }
 }

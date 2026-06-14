@@ -1444,7 +1444,7 @@ async fn ensure_agent(
     // ProviderRegistry — enables sub-agent spawn with `model: "kind/<id>"`.
     // Always-on; the registry only exposes the active provider's auth, so
     // sub-agents can pick a different model from the same provider.
-    builder = builder.extension(Box::new(
+    builder = builder.plugin(Box::new(
         alva_app_core::extension::ProviderRegistryExtension::new(provider_registry),
     ));
 
@@ -1452,7 +1452,7 @@ async fn ensure_agent(
     // resource keys (e.g. two sub-agents editing the same file). Always-on:
     // running without it allows lost writes, which is a correctness bug
     // not an optimization.
-    builder = builder.extension(Box::new(
+    builder = builder.plugin(Box::new(
         alva_app_core::extension::ToolLockRegistryExtension::new(),
     ));
 
@@ -1478,10 +1478,10 @@ async fn ensure_agent(
         builder = builder.plugin(Box::new(InteractionExtension));
     }
     if on("task", true) {
-        builder = builder.extension(Box::new(TaskExtension::default()));
+        builder = builder.plugin(Box::new(TaskExtension::default()));
     }
     if on("team", true) {
-        builder = builder.extension(Box::new(TeamExtension::default()));
+        builder = builder.plugin(Box::new(TeamExtension::default()));
     }
     if on("planning", true) {
         builder = builder.extension(Box::new(PlanningExtension));
@@ -1508,7 +1508,7 @@ async fn ensure_agent(
     // as an `approval_request` event for inline approval rendering.
     let approval_rx = if on("approval", true) {
         let (approval_ext, rx) = ApprovalExtension::with_channel();
-        builder = builder.extension(Box::new(approval_ext));
+        builder = builder.plugin(Box::new(approval_ext));
         Some(rx)
     } else {
         None

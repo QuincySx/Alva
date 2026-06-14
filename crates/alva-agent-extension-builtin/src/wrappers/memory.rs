@@ -9,9 +9,8 @@
 
 use std::sync::Arc;
 
-use alva_agent_core::extension::{Extension, ExtensionContext};
+use alva_agent_core::extension::{Plugin, Registrar};
 use alva_agent_memory::{InMemoryBackend, MemoryService, NoopEmbeddingProvider};
-use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 
 /// The extension that provides a `MemoryService` on the agent bus.
@@ -46,7 +45,7 @@ impl Default for MemoryExtension {
 }
 
 #[async_trait]
-impl Extension for MemoryExtension {
+impl Plugin for MemoryExtension {
     fn name(&self) -> &str {
         "memory"
     }
@@ -55,13 +54,9 @@ impl Extension for MemoryExtension {
         "Memory service (default: in-memory)"
     }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        Vec::new()
-    }
-
-    async fn configure(&self, ctx: &ExtensionContext) {
+    async fn register(&self, r: &Registrar) {
         // Register the MemoryService handle on the bus so downstream
         // components can grab it via `bus.get::<MemoryService>()`.
-        ctx.bus_writer.provide::<MemoryService>(self.service.clone());
+        r.provide::<MemoryService>(self.service.clone());
     }
 }

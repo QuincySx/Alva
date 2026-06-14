@@ -19,7 +19,7 @@ use async_trait::async_trait;
 
 use alva_kernel_abi::ToolLockRegistry;
 
-use crate::extension::{Extension, ExtensionContext};
+use alva_agent_core::extension::{Plugin, Registrar};
 
 /// Extension that provides a shared [`ToolLockRegistry`] on the bus.
 pub struct ToolLockRegistryExtension {
@@ -48,7 +48,7 @@ impl Default for ToolLockRegistryExtension {
 }
 
 #[async_trait]
-impl Extension for ToolLockRegistryExtension {
+impl Plugin for ToolLockRegistryExtension {
     fn name(&self) -> &str {
         "tool-lock-registry"
     }
@@ -58,7 +58,7 @@ impl Extension for ToolLockRegistryExtension {
          sub-agents serialize correctly on conflicting resource keys."
     }
 
-    async fn configure(&self, ctx: &ExtensionContext) {
-        ctx.bus_writer.provide::<ToolLockRegistry>(self.registry.clone());
+    async fn register(&self, r: &Registrar) {
+        r.provide::<ToolLockRegistry>(self.registry.clone());
     }
 }

@@ -200,9 +200,7 @@ impl BaseAgentBuilder {
         if !has_memory {
             self.plugins.insert(
                 0,
-                Box::new(ExtensionAsPlugin(Box::new(
-                    alva_agent_extension_builtin::wrappers::MemoryExtension::default(),
-                ))),
+                Box::new(alva_agent_extension_builtin::wrappers::MemoryExtension::default()),
             );
         }
         let has_security = self.plugins.iter().any(|p| p.name() == "security");

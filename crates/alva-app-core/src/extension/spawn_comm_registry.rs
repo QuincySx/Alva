@@ -20,7 +20,7 @@ use async_trait::async_trait;
 
 use alva_kernel_abi::{SpawnCommunication, SpawnCommunicationRegistry};
 
-use crate::extension::{Extension, ExtensionContext};
+use alva_agent_core::extension::{Plugin, Registrar};
 
 /// In-process registry backed by a `Mutex<HashMap>`.
 ///
@@ -89,7 +89,7 @@ impl Default for SpawnCommRegistryExtension {
 }
 
 #[async_trait]
-impl Extension for SpawnCommRegistryExtension {
+impl Plugin for SpawnCommRegistryExtension {
     fn name(&self) -> &str {
         "spawn-comm-registry"
     }
@@ -100,9 +100,8 @@ impl Extension for SpawnCommRegistryExtension {
          plugins into it."
     }
 
-    async fn configure(&self, ctx: &ExtensionContext) {
-        ctx.bus_writer
-            .provide::<dyn SpawnCommunicationRegistry>(self.registry.clone());
+    async fn register(&self, r: &Registrar) {
+        r.provide::<dyn SpawnCommunicationRegistry>(self.registry.clone());
     }
 }
 

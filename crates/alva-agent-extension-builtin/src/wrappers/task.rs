@@ -9,8 +9,7 @@
 
 use std::sync::Arc;
 
-use alva_agent_core::extension::{Extension, ExtensionContext};
-use alva_kernel_abi::tool::Tool;
+use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
 
 use crate::services::{InMemoryTaskStore, TaskService};
@@ -40,18 +39,15 @@ impl Default for TaskExtension {
 }
 
 #[async_trait]
-impl Extension for TaskExtension {
+impl Plugin for TaskExtension {
     fn name(&self) -> &str {
         "task"
     }
     fn description(&self) -> &str {
         "Task management"
     }
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        crate::tool_presets::task_management()
-    }
-    async fn configure(&self, ctx: &ExtensionContext) {
-        ctx.bus_writer
-            .provide::<dyn TaskService>(self.service.clone());
+    async fn register(&self, r: &Registrar) {
+        r.tools(crate::tool_presets::task_management());
+        r.provide::<dyn TaskService>(self.service.clone());
     }
 }

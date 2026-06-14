@@ -8,9 +8,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use alva_agent_core::extension::{Extension, ExtensionContext, HostAPI};
+use alva_agent_core::extension::{Plugin, Registrar};
 use alva_host_native::middleware::{ApprovalNotifier, ApprovalRequest};
-use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
@@ -39,7 +38,7 @@ impl ApprovalExtension {
 }
 
 #[async_trait]
-impl Extension for ApprovalExtension {
+impl Plugin for ApprovalExtension {
     fn name(&self) -> &str {
         "approval"
     }
@@ -48,14 +47,8 @@ impl Extension for ApprovalExtension {
         "Human approval flow notifier"
     }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        Vec::new()
-    }
-
-    fn activate(&self, _api: &HostAPI) {}
-
-    async fn configure(&self, ctx: &ExtensionContext) {
-        // Take the notifier out exactly once; subsequent `configure()` calls
+    async fn register(&self, r: &Registrar) {
+        // Take the notifier out exactly once; subsequent `register()` calls
         // (should not happen) are no-ops.
         let notifier = self
             .notifier
@@ -63,7 +56,7 @@ impl Extension for ApprovalExtension {
             .unwrap_or_else(|e| e.into_inner())
             .take();
         if let Some(notifier) = notifier {
-            ctx.bus_writer.provide(Arc::new(notifier));
+            r.provide(Arc::new(notifier));
         }
     }
 }

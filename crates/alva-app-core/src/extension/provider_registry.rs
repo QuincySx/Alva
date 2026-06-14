@@ -22,7 +22,7 @@ use async_trait::async_trait;
 
 use alva_kernel_abi::ProviderRegistry;
 
-use crate::extension::{Extension, ExtensionContext};
+use alva_agent_core::extension::{Plugin, Registrar};
 
 /// Provides an `Arc<ProviderRegistry>` to the bus for dynamic per-spawn
 /// model resolution.
@@ -38,7 +38,7 @@ impl ProviderRegistryExtension {
 }
 
 #[async_trait]
-impl Extension for ProviderRegistryExtension {
+impl Plugin for ProviderRegistryExtension {
     fn name(&self) -> &str {
         "provider-registry"
     }
@@ -48,8 +48,7 @@ impl Extension for ProviderRegistryExtension {
          model via SpawnInput.model"
     }
 
-    async fn configure(&self, ctx: &ExtensionContext) {
-        ctx.bus_writer
-            .provide::<ProviderRegistry>(self.registry.clone());
+    async fn register(&self, r: &Registrar) {
+        r.provide::<ProviderRegistry>(self.registry.clone());
     }
 }
