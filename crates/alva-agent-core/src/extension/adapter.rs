@@ -152,4 +152,43 @@ mod tests {
         assert_eq!(tools.len(), 1, "tool registered via Extension should appear in Registrar");
         assert_eq!(tools[0].name(), "alpha");
     }
+
+    // ------------------------------------------------------------------
+    // Minimal Middleware stub — all methods default (no-op).
+    // ------------------------------------------------------------------
+    struct StubMiddleware;
+
+    impl alva_kernel_core::middleware::Middleware for StubMiddleware {
+        fn name(&self) -> &str {
+            "stub-middleware"
+        }
+    }
+
+    // Extension that registers a middleware via the HostAPI handed to it in
+    // `activate()`. Verifies the key adapter invariant: the HostAPI built by
+    // the adapter shares the *same* ExtensionHost that the Registrar owns.
+    struct SpyExtension;
+
+    #[async_trait]
+    impl Extension for SpyExtension {
+        fn name(&self) -> &str {
+            "spy-extension"
+        }
+        fn activate(&self, api: &HostAPI) {
+            api.middleware(Arc::new(StubMiddleware));
+        }
+    }
+
+    #[tokio::test]
+    async fn extension_as_plugin_wires_middleware_into_shared_host() {
+        let r = make_registrar();
+
+        let plugin = ExtensionAsPlugin(Box::new(SpyExtension));
+        plugin.register(&r).await;
+
+        // The middleware must have landed in the *same* host the Registrar owns.
+        let mws = r.host_arc().write().unwrap().take_middlewares();
+        assert_eq!(mws.len(), 1, "middleware registered via HostAPI must reach the Registrar's host");
+        assert_eq!(mws[0].name(), "stub-middleware");
+    }
 }

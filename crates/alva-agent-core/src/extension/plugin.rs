@@ -1,8 +1,7 @@
 //! Plugin — 装配期跨层捆绑包（取代 Extension）。
 //!
-//! `Plugin::register()` is called once per assembly, before any tools or
-//! model are finalised. Use `Plugin::finalize()` for cross-plugin late
-//! wiring that requires reading capabilities provided by other plugins.
+//! `Plugin::register()` 每次装配调用一次，发生在 tools 与 model 定稿之前。
+//! 需要读取别家 plugin 提供的能力时用 `Plugin::finalize()`（晚期跨插件接线）。
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -11,34 +10,34 @@ use alva_kernel_abi::tool::Tool;
 
 use super::registrar::{LateContext, Registrar};
 
-/// A self-contained capability bundle that can register tools, middleware,
-/// bus services, system-prompt fragments, and commands into a [`Registrar`].
+/// 自包含的能力捆绑包，可向 [`Registrar`] 注册 tools / middleware /
+/// bus 服务 / system-prompt 片段 / command。
 ///
-/// Replaces the old `Extension` trait. During the transition period both
-/// coexist; `ExtensionAsPlugin` bridges the gap.
+/// 取代旧的 `Extension` trait。过渡期两者并存，由 `ExtensionAsPlugin` 桥接。
 #[async_trait]
 pub trait Plugin: Send + Sync {
-    /// Unique identifier for this plugin (used in logs and diagnostics).
+    /// 本 plugin 的唯一标识（用于日志与诊断）。
     fn name(&self) -> &str;
 
-    /// Optional human-readable description.
+    /// 可选的人类可读描述。
     fn description(&self) -> &str {
         ""
     }
 
-    /// **Assembly phase** — provide-only.
+    /// **装配阶段** — provide-only。
     ///
-    /// Register tools / middleware / bus services / system-prompt fragments /
-    /// commands into `r`. At this point other plugins may not have run yet,
-    /// so do **not** read capabilities from the bus that another plugin will
-    /// provide. Use [`finalize`](Self::finalize) for that.
+    /// 向 `r` 注册 tools / middleware / bus 服务 / system-prompt 片段 /
+    /// command。此刻别家 plugin 可能尚未运行，所以**不要**从 bus 读取别家
+    /// 将要提供的能力——要读放 [`finalize`](Self::finalize)。
     async fn register(&self, r: &Registrar);
 
-    /// **Late phase** — called after all `register()` calls have finished
-    /// and the complete tool set + model are known.
+    /// **晚期钩子** — 在所有 `register()` 调用结束、完整 tool 集合与 model
+    /// 都已就绪后调用。用于动态 tool 发现 + 跨插件晚期接线（读别家在
+    /// `register` 阶段提供的能力）。默认实现返回空 vec（无晚期 tool）。
     ///
-    /// Use this for dynamic tool discovery and cross-plugin late wiring.
-    /// The default implementation returns an empty vec (no late tools).
+    /// 返回值：晚期发现的 tool 以 `Arc<dyn Tool>` 返回（运行期 registry
+    /// 持共享所有权，故为 `Arc` 而非 `register` 阶段的 `Box`）。此阶段没有
+    /// `Registrar`，无法调 `r.tool()`，晚期 tool 只能从本方法返回。
     async fn finalize(&self, _cx: &LateContext) -> Vec<Arc<dyn Tool>> {
         vec![]
     }
