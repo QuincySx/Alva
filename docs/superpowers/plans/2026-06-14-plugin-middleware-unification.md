@@ -923,7 +923,11 @@ git commit -m "refactor: remove Extension trait + adapter; rename to Plugin/Regi
 
 - [ ] **Step 1: 更新 AGENTS.md + 所有 SDK doc 示例**
 
-> 注:迁移过程中,`base_agent/builder.rs` 的 struct doc 示例、`AGENTS.md`、`docs/ARCHITECTURE.md` 里凡是已迁移类型(Core/Shell/.../Memory/Security 等)仍写 `.extension(Box::new(X))` 的示例,统一改成 `.plugin(Box::new(X))`(经适配器虽能跑但不再地道)。这些 doc-only 更新集中到本步一次性做,不在每个迁移 Task 里反复改。
+> 注:迁移过程会累积一批 doc-only 漂移,**集中到本步用 grep 一次性扫干净**,不在每个迁移 Task 里反复改。至少覆盖:
+> - `.extension(Box::new(X))` 示例(已迁移类型)→ 改 `.plugin(Box::new(X))`:`base_agent/builder.rs` struct doc、`AGENTS.md`、`docs/ARCHITECTURE.md`。
+> - 迁移后文件里 struct/模块 doc、`// INPUT:` 机器头注释仍写 `Extension`/`ExtensionContext`/`Extension::configure`/`Extension::activate`/`Extension::name` 的,改成 `Plugin`/`Registrar`/`Plugin::register`/`Plugin::name`。
+> - grep 线索:`grep -rn "Extension::configure\|Extension::activate\|crate::extension::{Extension\|\.extension(Box::new\|configure()" crates/ --include=*.rs`(逐条判断是真实代码还是 stale doc;真实代码到此应已无,剩的多是注释)。
+> 已知点:`provider_registry.rs:16`、`approval.rs:17/25`、`spawn_comm_registry.rs:1/11/29/65`、`tool_lock_registry.rs:1`、`communication.rs:177` 等(以最终 grep 为准)。
 
 更新 AGENTS.md:
 
