@@ -15,8 +15,8 @@ use tokio::sync::Mutex;
 
 use crate::agent::Agent;
 use crate::extension::{
-    Extension, ExtensionBridgeMiddleware, ExtensionContext, ExtensionHost, FinalizeContext,
-    HostAPI,
+    Extension, ExtensionAsPlugin, ExtensionBridgeMiddleware, ExtensionHost, LateContext, Plugin,
+    Registrar,
 };
 
 /// SDK-level builder for assembling an `Agent`.
@@ -33,7 +33,7 @@ pub struct AgentBuilder {
     max_iterations: u32,
     context_window: usize,
 
-    extensions: Vec<Box<dyn Extension>>,
+    plugins: Vec<Box<dyn Plugin>>,
     extra_tools: Vec<Box<dyn Tool>>,
     extra_middleware: Vec<Arc<dyn Middleware>>,
 
@@ -54,7 +54,7 @@ impl AgentBuilder {
             model_config: ModelConfig::default(),
             max_iterations: 100,
             context_window: 0,
-            extensions: Vec::new(),
+            plugins: Vec::new(),
             extra_tools: Vec::new(),
             extra_middleware: Vec::new(),
             bus: None,
@@ -90,7 +90,11 @@ impl AgentBuilder {
         self
     }
     pub fn extension(mut self, e: Box<dyn Extension>) -> Self {
-        self.extensions.push(e);
+        self.plugins.push(Box::new(ExtensionAsPlugin(e)));
+        self
+    }
+    pub fn plugin(mut self, p: Box<dyn Plugin>) -> Self {
+        self.plugins.push(p);
         self
     }
     pub fn tool(mut self, t: Box<dyn Tool>) -> Self {
@@ -155,26 +159,29 @@ impl AgentBuilder {
         // 3. Create the ExtensionHost.
         let host = Arc::new(RwLock::new(ExtensionHost::new()));
 
-        // 4. Collect tools from every extension (extensions own the
-        //    primary contribution path) and append the builder's direct
-        //    tools afterwards.
+        // 4. Register phase: 每个 plugin 一次性注册 tools/middleware/bus/prompt/command。
+        //    `LateContext.workspace` (and the per-plugin Registrar) is
+        //    non-Option, so when the caller didn't set one we default to
+        //    `PathBuf::new()` (i.e. the empty path). Plugins that need a real
+        //    workspace must check.
+        let workspace_for_ctx = self.workspace.clone().unwrap_or_default();
         let mut all_tools: Vec<Box<dyn Tool>> = Vec::new();
-        for ext in &self.extensions {
-            let tools = ext.tools().await;
-            all_tools.extend(tools);
+        for p in &self.plugins {
+            let reg = Registrar::new(
+                host.clone(),
+                p.name().to_string(),
+                bus.clone(),
+                bus_writer.clone(),
+                workspace_for_ctx.clone(),
+            );
+            p.register(&reg).await;
+            all_tools.extend(reg.take_tools());
         }
         all_tools.extend(self.extra_tools);
 
-        // 5. Activate extensions. They register middleware / event
-        //    handlers / commands via HostAPI here.
-        for ext in &self.extensions {
-            let api = HostAPI::new(host.clone(), ext.name().to_string());
-            ext.activate(&api);
-        }
-
-        // 6. Build the middleware stack: middlewares the extensions
-        //    registered during activate, then user-supplied extras, then the
-        //    bridge that routes lifecycle events into the ExtensionHost.
+        // 5. Build the middleware stack: middlewares the plugins registered
+        //    during register(), then user-supplied extras, then the bridge
+        //    that routes lifecycle events into the ExtensionHost.
         let mut middleware_stack = MiddlewareStack::new();
         {
             let mut host_mut = host.write().unwrap();
@@ -185,49 +192,28 @@ impl AgentBuilder {
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
+        // 保留 bridge（Phase 4 才删）：
         middleware_stack.push_sorted(Arc::new(ExtensionBridgeMiddleware::new(host.clone())));
 
-        // 7. Register the (so-far) collected tools into a ToolRegistry so
-        //    the configure phase can show extensions the registered names.
+        // 6. Register the collected tools into a ToolRegistry.
         let mut registry = ToolRegistry::new();
         for tool in all_tools {
             registry.register(tool);
         }
 
-        // 8. Configure phase: extensions inspect bus + workspace + the set
-        //    of registered tool names.
-        //
-        //    `ExtensionContext.workspace` is non-Option, so when the caller
-        //    didn't set one we default to `PathBuf::new()` (i.e. the empty
-        //    path). Extensions that need a real workspace must check.
-        let workspace_for_ctx = self.workspace.clone().unwrap_or_default();
-        let ext_ctx = ExtensionContext {
-            bus: bus.clone(),
-            bus_writer: bus_writer.clone(),
-            workspace: workspace_for_ctx.clone(),
-            tool_names: registry
-                .definitions()
-                .iter()
-                .map(|d| d.name.clone())
-                .collect(),
-        };
-        for ext in &self.extensions {
-            ext.configure(&ext_ctx).await;
-        }
-
-        // 9. Configure middleware that needs shared infrastructure.
+        // 7. Configure middleware that needs shared infrastructure.
         middleware_stack.configure_all(&MiddlewareContext {
             bus: Some(bus.clone()),
             workspace: self.workspace.clone(),
             session: None, // TODO(phase-2): per-middleware scoped session
         });
 
-        // 10. Finalize phase: extensions can return additional tools that
-        //     depend on seeing the final tool list. We hand them an Arc
-        //     snapshot of the registry; any returned tools are folded back
-        //     through the registry so name collisions dedupe the same way
-        //     as the `tools()` path (last write wins).
-        let finalize_ctx = FinalizeContext {
+        // 8. Finalize phase: plugins can return additional tools that depend
+        //    on seeing the final tool list. We hand them an Arc snapshot of
+        //    the registry; any returned tools are folded back through the
+        //    registry so name collisions dedupe the same way as the register
+        //    path (last write wins).
+        let late_ctx = LateContext {
             bus: bus.clone(),
             bus_writer: bus_writer.clone(),
             workspace: workspace_for_ctx,
@@ -235,8 +221,8 @@ impl AgentBuilder {
             tools: registry.list_arc(),
             max_iterations: self.max_iterations,
         };
-        for ext in &self.extensions {
-            for tool in ext.finalize(&finalize_ctx).await {
+        for p in &self.plugins {
+            for tool in p.finalize(&late_ctx).await {
                 registry.register_arc(tool);
             }
         }
