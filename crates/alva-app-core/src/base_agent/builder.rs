@@ -13,18 +13,22 @@ use crate::extension::Extension;
 
 /// Builder for constructing a [`BaseAgent`].
 ///
-/// All capabilities — including memory and the security sandbox — are
-/// expressed as Extensions. The builder ships sensible defaults
-/// (`MemoryExtension`, `SecurityExtension`) which are wired in
-/// automatically unless the caller registers an extension with the same
-/// `name()`. That is the only customization mechanism: there are no
-/// `with_memory` / `memory_service` / `security_middleware` setters.
+/// Internally the builder stores everything as `Plugin`. Capabilities can
+/// be registered either as native plugins via `.plugin()` or as legacy
+/// Extensions via `.extension()`; the latter are wrapped in
+/// `ExtensionAsPlugin` and stored alongside the native plugins. The
+/// builder ships sensible defaults (`MemoryExtension`, `SecurityExtension`,
+/// `SystemContextExtension`) which are wired in automatically unless the
+/// caller registers any plugin or extension with the same `name()`. That
+/// is the only customization mechanism: there are no `with_memory` /
+/// `memory_service` / `security_middleware` setters.
 ///
 /// ```rust,ignore
 /// BaseAgent::builder()
 ///     .workspace(path)
 ///     .extension(Box::new(CoreExtension))
 ///     .extension(Box::new(ShellExtension))
+///     .plugin(Box::new(SomePlugin))
 ///     .build(model).await?;
 /// ```
 pub struct BaseAgentBuilder {
@@ -188,9 +192,10 @@ impl BaseAgentBuilder {
         // Extension that the caller explicitly registers.
 
         // 4. Auto-wire default extensions for memory + security if the
-        //    caller hasn't already registered an extension under the same
-        //    name. This is the ENTIRE opt-out mechanism: register your own
-        //    "memory" / "security" extension and ours is skipped.
+        //    caller hasn't already registered a plugin (or extension) under
+        //    the same name. This is the ENTIRE opt-out mechanism: register
+        //    your own "memory" / "security" plugin/extension and ours is
+        //    skipped.
         let has_memory = self.plugins.iter().any(|p| p.name() == "memory");
         if !has_memory {
             self.plugins.insert(
