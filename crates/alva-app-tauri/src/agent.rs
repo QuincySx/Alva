@@ -1466,8 +1466,8 @@ async fn ensure_agent(
 
     // Core 7 tools — always-on (CoreExtension + ShellExtension)
     builder = builder
-        .extension(Box::new(CoreExtension))
-        .extension(Box::new(ShellExtension));
+        .plugin(Box::new(CoreExtension))
+        .plugin(Box::new(ShellExtension));
 
     // Conditionally registered tool extensions. Defaults are kept in lockstep
     // with `alva-app-cli::agent_setup::build_agent` — both apps share the same
@@ -1475,7 +1475,7 @@ async fn ensure_agent(
     // differ. If you're tempted to flip a default here without doing the same
     // on the CLI side, don't — that's how the two drifted last time.
     if on("interaction", true) {
-        builder = builder.extension(Box::new(InteractionExtension));
+        builder = builder.plugin(Box::new(InteractionExtension));
     }
     if on("task", true) {
         builder = builder.extension(Box::new(TaskExtension::default()));
@@ -1487,13 +1487,13 @@ async fn ensure_agent(
         builder = builder.extension(Box::new(PlanningExtension));
     }
     if on("utility", true) {
-        builder = builder.extension(Box::new(UtilityExtension));
+        builder = builder.plugin(Box::new(UtilityExtension));
     }
     if on("web", true) {
-        builder = builder.extension(Box::new(WebExtension));
+        builder = builder.plugin(Box::new(WebExtension));
     }
     if on("browser", true) {
-        builder = builder.extension(Box::new(BrowserExtension));
+        builder = builder.plugin(Box::new(BrowserExtension));
     }
 
     // System extensions

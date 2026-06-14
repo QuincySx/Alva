@@ -1,14 +1,13 @@
 //! Utility tools: sleep, config, notebook, skill, tool_search, schedule, remote.
 
-use alva_agent_core::extension::Extension;
-use alva_kernel_abi::tool::Tool;
+use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
 
 pub struct UtilityExtension;
 
 #[async_trait]
-impl Extension for UtilityExtension {
+impl Plugin for UtilityExtension {
     fn name(&self) -> &str { "utility" }
     fn description(&self) -> &str { "Utility tools" }
-    async fn tools(&self) -> Vec<Box<dyn Tool>> { crate::tool_presets::utility() }
+    async fn register(&self, r: &Registrar) { r.tools(crate::tool_presets::utility()); }
 }
