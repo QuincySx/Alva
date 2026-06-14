@@ -4,6 +4,7 @@ use std::sync::Arc;
 use alva_kernel_core::middleware::Middleware;
 use alva_agent_security::SandboxMode;
 use alva_kernel_abi::{Bus, BusPlugin, CancellationToken, LanguageModel, PluginRegistrar, Tool};
+use alva_agent_core::extension::{ExtensionAsPlugin, Plugin};
 
 use crate::error::EngineError;
 
@@ -31,8 +32,8 @@ pub struct BaseAgentBuilder {
     pub(crate) system_prompt: String,
     pub(crate) sandbox_mode: SandboxMode,
 
-    // Extensions
-    pub(crate) extensions: Vec<Box<dyn Extension>>,
+    // Plugins (extensions are wrapped via ExtensionAsPlugin)
+    pub(crate) plugins: Vec<Box<dyn Plugin>>,
     // Direct tool/middleware (for special cases beyond extensions)
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
@@ -48,7 +49,7 @@ impl BaseAgentBuilder {
             workspace: None,
             system_prompt: "You are a helpful AI assistant.".to_string(),
             sandbox_mode: SandboxMode::RestrictiveOpen,
-            extensions: Vec::new(),
+            plugins: Vec::new(),
             extra_tools: Vec::new(),
             extra_middleware: Vec::new(),
             max_iterations: 100,
@@ -82,7 +83,15 @@ impl BaseAgentBuilder {
     /// Register an extension. Extensions contribute tools and/or middleware.
     /// This is the primary way to add capabilities to an agent.
     pub fn extension(mut self, ext: Box<dyn Extension>) -> Self {
-        self.extensions.push(ext);
+        self.plugins.push(Box::new(ExtensionAsPlugin(ext)));
+        self
+    }
+
+    /// Register a plugin directly. Plugins are the newer, more capable form
+    /// of extensions. Extensions registered via `.extension()` are wrapped
+    /// in `ExtensionAsPlugin` and stored here too.
+    pub fn plugin(mut self, p: Box<dyn Plugin>) -> Self {
+        self.plugins.push(p);
         self
     }
 
@@ -182,35 +191,34 @@ impl BaseAgentBuilder {
         //    caller hasn't already registered an extension under the same
         //    name. This is the ENTIRE opt-out mechanism: register your own
         //    "memory" / "security" extension and ours is skipped.
-        let has_memory = self.extensions.iter().any(|e| e.name() == "memory");
+        let has_memory = self.plugins.iter().any(|p| p.name() == "memory");
         if !has_memory {
-            self.extensions.insert(
+            self.plugins.insert(
                 0,
-                Box::new(alva_agent_extension_builtin::wrappers::MemoryExtension::default()),
+                Box::new(ExtensionAsPlugin(Box::new(
+                    alva_agent_extension_builtin::wrappers::MemoryExtension::default(),
+                ))),
             );
         }
-        let has_security = self.extensions.iter().any(|e| e.name() == "security");
+        let has_security = self.plugins.iter().any(|p| p.name() == "security");
         if !has_security {
-            self.extensions.insert(
+            self.plugins.insert(
                 0,
-                Box::new(
+                Box::new(ExtensionAsPlugin(Box::new(
                     alva_agent_extension_builtin::wrappers::SecurityExtension::for_workspace(
                         &workspace,
                         self.sandbox_mode.clone(),
                     ),
-                ),
+                ))),
             );
         }
-        let has_system_context = self
-            .extensions
-            .iter()
-            .any(|e| e.name() == "system_context");
+        let has_system_context = self.plugins.iter().any(|p| p.name() == "system_context");
         if !has_system_context {
-            self.extensions.insert(
+            self.plugins.insert(
                 0,
-                Box::new(
+                Box::new(ExtensionAsPlugin(Box::new(
                     alva_agent_extension_builtin::wrappers::SystemContextExtension::new(),
-                ),
+                ))),
             );
         }
 
@@ -226,10 +234,10 @@ impl BaseAgentBuilder {
             .context_window(self.context_window)
             .with_bus_writer(bus_writer.clone());
 
-        // 5a. Trace each extension we hand off.
-        for ext in self.extensions {
-            tracing::info!(extension = ext.name(), "loading extension");
-            agent_builder = agent_builder.extension(ext);
+        // 5a. Trace each plugin we hand off.
+        for p in self.plugins {
+            tracing::info!(plugin = p.name(), "loading plugin");
+            agent_builder = agent_builder.plugin(p);
         }
 
         // 5b. Direct tools (e.g. mock tools in tests).
@@ -311,7 +319,7 @@ mod tests {
     fn builder_defaults() {
         let builder = BaseAgentBuilder::new();
         assert!(builder.workspace.is_none());
-        assert!(builder.extensions.is_empty());
+        assert!(builder.plugins.is_empty());
         assert_eq!(builder.max_iterations, 100);
         assert_eq!(builder.system_prompt, "You are a helpful AI assistant.");
     }
