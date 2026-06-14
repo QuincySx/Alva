@@ -21,7 +21,7 @@ use alva_kernel_core::state::AgentState;
 
 use crate::analytics::JsonlSink;
 
-use super::{Extension, ExtensionContext, HostAPI};
+use super::{Plugin, Registrar};
 
 /// Telemetry extension. Owns a `JsonlSink` writing to
 /// `<workspace>/.alva/analytics.jsonl` (override via [`Self::with_path`])
@@ -56,7 +56,7 @@ impl Default for AnalyticsExtension {
 }
 
 #[async_trait]
-impl Extension for AnalyticsExtension {
+impl Plugin for AnalyticsExtension {
     fn name(&self) -> &str {
         "analytics"
     }
@@ -65,20 +65,19 @@ impl Extension for AnalyticsExtension {
         "JSONL telemetry sink + tool-call latency middleware"
     }
 
-    fn activate(&self, api: &HostAPI) {
-        api.middleware(self.middleware.clone());
-    }
+    async fn register(&self, r: &Registrar) {
+        // Middleware (was `activate()`).
+        r.middleware(self.middleware.clone());
 
-    async fn configure(&self, ctx: &ExtensionContext) {
+        // Build + provide the sink (was `configure()`).
         let path = self
             .path_override
             .clone()
-            .unwrap_or_else(|| ctx.workspace.join(".alva").join("analytics.jsonl"));
+            .unwrap_or_else(|| r.workspace().join(".alva").join("analytics.jsonl"));
         match JsonlSink::new(&path) {
             Ok(sink) => {
                 let arc = Arc::new(sink);
-                ctx.bus_writer
-                    .provide::<dyn AnalyticsSink>(arc.clone());
+                r.provide::<dyn AnalyticsSink>(arc.clone());
                 let _ = self.sink.set(arc);
             }
             Err(e) => {

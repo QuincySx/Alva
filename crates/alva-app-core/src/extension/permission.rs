@@ -25,7 +25,7 @@ use alva_host_native::middleware::{PlanModeControl, PlanModeMiddleware};
 
 use crate::base_agent::{PermissionMode, PermissionModeService};
 
-use super::{Extension, ExtensionContext, HostAPI};
+use super::{Plugin, Registrar};
 
 pub struct PermissionExtension {
     middleware: Arc<PlanModeMiddleware>,
@@ -53,7 +53,7 @@ impl Default for PermissionExtension {
 }
 
 #[async_trait]
-impl Extension for PermissionExtension {
+impl Plugin for PermissionExtension {
     fn name(&self) -> &str {
         "permission"
     }
@@ -61,15 +61,14 @@ impl Extension for PermissionExtension {
         "Session-wide permission mode service + Plan-mode enforcement"
     }
 
-    fn activate(&self, api: &HostAPI) {
-        api.middleware(self.middleware.clone());
-    }
+    async fn register(&self, r: &Registrar) {
+        // Middleware (was `activate()`).
+        r.middleware(self.middleware.clone());
 
-    async fn configure(&self, ctx: &ExtensionContext) {
-        ctx.bus_writer
-            .provide::<dyn PlanModeControl>(self.middleware.clone());
+        // Bus services (was `configure()`).
+        r.provide::<dyn PlanModeControl>(self.middleware.clone());
 
-        let service = Arc::new(PermissionModeService::new(self.initial, ctx.bus.clone()));
-        ctx.bus_writer.provide(service);
+        let service = Arc::new(PermissionModeService::new(self.initial, r.bus().clone()));
+        r.provide(service);
     }
 }

@@ -10,7 +10,7 @@ use alva_protocol_mcp::transport::McpTransport;
 use alva_protocol_mcp::error::McpError;
 use alva_protocol_mcp::types::McpToolInfo;
 
-use crate::extension::Extension;
+use crate::extension::{Plugin, Registrar};
 use crate::extension::mcp::config::McpConfig;
 use crate::extension::mcp::runtime::{McpManager, McpTransportFactory};
 use crate::extension::mcp::tool_adapter::build_mcp_tools;
@@ -84,7 +84,7 @@ impl McpExtension {
 }
 
 #[async_trait]
-impl Extension for McpExtension {
+impl Plugin for McpExtension {
     fn name(&self) -> &str {
         "mcp"
     }
@@ -93,14 +93,20 @@ impl Extension for McpExtension {
         "MCP server integration"
     }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        match self.load_and_connect().await {
+    async fn register(&self, r: &Registrar) {
+        // Discovery is self-contained async I/O against MCP servers: it does
+        // not read other plugins' bus capabilities and does not need the
+        // model or the final tool set, so it belongs in `register` (which is
+        // async) rather than `finalize`. This preserves the prior behaviour
+        // where `tools()` ran during the assembly phase.
+        let tools = match self.load_and_connect().await {
             Ok(tools) => tools,
             Err(e) => {
                 tracing::warn!("MCP extension failed to initialise: {e}");
                 vec![]
             }
-        }
+        };
+        r.tools(tools);
     }
 }
 

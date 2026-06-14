@@ -1,4 +1,4 @@
-// INPUT:  std::sync, async_trait, alva_kernel_abi::{tool::Tool, bus_cap}, super::{Extension, ExtensionContext, HostAPI}
+// INPUT:  std::sync, async_trait, alva_kernel_abi::{tool::Tool, bus_cap}, super::{Plugin, Registrar}
 // OUTPUT: LspExtension, LspManager, LspDiagnostic, LspSeverity, StubLspManager, lsp_diagnostics tool
 // POS:    LSP integration scaffold. Defines the bus capability + tool surface so
 //         agent code can ask "what's wrong with this file" via LspExtension.
@@ -27,9 +27,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
-use alva_kernel_abi::{bus_cap, Tool};
+use alva_kernel_abi::bus_cap;
 
-use super::{Extension, ExtensionContext};
+use super::{Plugin, Registrar};
 
 mod tool_diagnostics;
 
@@ -213,7 +213,7 @@ impl Default for LspExtension {
 }
 
 #[async_trait]
-impl Extension for LspExtension {
+impl Plugin for LspExtension {
     fn name(&self) -> &str {
         "lsp"
     }
@@ -222,24 +222,22 @@ impl Extension for LspExtension {
         "Language Server Protocol integration (diagnostics today; semantic queries planned)"
     }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        // The tool needs the `LspManager` Arc but extensions receive the
-        // bus via `configure()`, not `tools()`. Solve by delegating: the
-        // tool reads the bus at execute time.
-        vec![Box::new(LspDiagnosticsTool::new())]
-    }
+    async fn register(&self, r: &Registrar) {
+        // Tool (was `tools()`). The tool needs the `LspManager` Arc but it
+        // reads the bus at execute time rather than holding a handle here.
+        r.tool(Box::new(LspDiagnosticsTool::new()));
 
-    async fn configure(&self, ctx: &ExtensionContext) {
-        // Default backend: in-memory stub. Real LSP-backed impl lands
-        // later by registering a different `dyn LspManager` on the bus
-        // (default-replacement contract — last writer wins).
+        // Default backend: in-memory stub (was `configure()`). Real
+        // LSP-backed impl lands later by registering a different
+        // `dyn LspManager` on the bus (default-replacement contract — last
+        // writer wins).
         // TODO(real-lsp): spawn the configured servers via tokio process,
         //                 wire JSON-RPC, subscribe to publishDiagnostics,
         //                 register the resulting impl here in place of
         //                 `StubLspManager`.
         let mgr: Arc<dyn LspManager> = Arc::new(StubLspManager::new());
         let _ = self.manager.0.set(mgr.clone());
-        ctx.bus_writer.provide::<dyn LspManager>(mgr);
+        r.provide::<dyn LspManager>(mgr);
     }
 }
 

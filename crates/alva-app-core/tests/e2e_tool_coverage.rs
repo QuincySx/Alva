@@ -52,7 +52,7 @@ async fn build_agent_with_responses(
         // bus. Without it, `agent.set_permission_mode(...)` is a silent
         // no-op (the lookup misses, the call returns), and Plan-mode
         // tests would falsely pass writes.
-        .extension(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
+        .plugin(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
         .plugin(Box::new(approval_ext))
         .plugin(Box::new(alva_app_core::extension::CoreExtension))
         .plugin(Box::new(alva_app_core::extension::ShellExtension))

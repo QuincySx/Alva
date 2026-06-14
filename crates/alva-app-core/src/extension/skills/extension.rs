@@ -6,7 +6,7 @@ use std::sync::Arc;
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 
-use crate::extension::{Extension, ExtensionContext, HostAPI};
+use crate::extension::{Plugin, Registrar};
 use crate::extension::skills::store::SkillStore;
 use crate::extension::skills::loader::SkillLoader;
 use crate::extension::skills::injector::SkillInjector;
@@ -60,25 +60,25 @@ impl SkillsExtension {
 }
 
 #[async_trait]
-impl Extension for SkillsExtension {
+impl Plugin for SkillsExtension {
     fn name(&self) -> &str { "skills" }
     fn description(&self) -> &str { "Skill discovery, loading, and context injection" }
 
-    async fn tools(&self) -> Vec<Box<dyn Tool>> {
-        vec![
+    async fn register(&self, r: &Registrar) {
+        // Tools (was `tools()`).
+        let tools: Vec<Box<dyn Tool>> = vec![
             Box::new(SearchSkillsTool { store: self.store.clone() }),
             Box::new(UseSkillTool { store: self.store.clone(), loader: self.loader.clone() }),
-        ]
-    }
+        ];
+        r.tools(tools);
 
-    fn activate(&self, api: &HostAPI) {
-        api.middleware(Arc::new(SkillInjectionMiddleware::with_defaults(
+        // Middleware (was `activate()`).
+        r.middleware(Arc::new(SkillInjectionMiddleware::with_defaults(
             self.store.clone(),
             self.injector.clone(),
         )));
-    }
 
-    async fn configure(&self, _ctx: &ExtensionContext) {
+        // Async init (was `configure()`).
         let _ = self.store.scan().await;
     }
 }

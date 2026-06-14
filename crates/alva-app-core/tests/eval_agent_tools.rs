@@ -139,7 +139,7 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
              and tracking tasks. Use the tools to complete the user's request. \
              When the work is done, briefly state what you did. Do not ask follow-up questions.",
         )
-        .extension(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
+        .plugin(Box::new(PermissionExtension::new().with_initial(PermissionMode::AcceptShell)))
         .plugin(Box::new(approval_ext))
         .plugin(Box::new(alva_app_core::extension::CoreExtension))
         .plugin(Box::new(alva_app_core::extension::ShellExtension))

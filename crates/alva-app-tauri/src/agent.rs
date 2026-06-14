@@ -1461,7 +1461,7 @@ async fn ensure_agent(
     // ("analytics" feature flag) for users who want a leaner footprint.
     if on("analytics", true) {
         builder = builder
-            .extension(Box::new(alva_app_core::extension::AnalyticsExtension::new()));
+            .plugin(Box::new(alva_app_core::extension::AnalyticsExtension::new()));
     }
 
     // Core 7 tools — always-on (CoreExtension + ShellExtension)
@@ -1518,13 +1518,13 @@ async fn ensure_agent(
         if bundled.is_none() {
             tracing::warn!("bundled skills extraction failed; continuing without them");
         }
-        builder = builder.extension(Box::new(SkillsExtension::with_bundled(
+        builder = builder.plugin(Box::new(SkillsExtension::with_bundled(
             paths.project_skills_dir(),
             bundled,
         )));
     }
     if on("mcp", true) {
-        builder = builder.extension(Box::new(McpExtension::new(vec![
+        builder = builder.plugin(Box::new(McpExtension::new(vec![
             paths.global_mcp_config(),
             paths.project_mcp_config(),
         ])));
@@ -1555,7 +1555,7 @@ async fn ensure_agent(
         builder = builder.extension(Box::new(CheckpointExtension));
     }
     if on("permission", true) {
-        builder = builder.extension(Box::new(PermissionExtension::new()));
+        builder = builder.plugin(Box::new(PermissionExtension::new()));
     }
 
     // Third-party subprocess plugins (JS / Python / anything via AEP).

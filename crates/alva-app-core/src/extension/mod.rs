@@ -6,7 +6,7 @@
 
 pub use alva_agent_core::extension::{
     Extension, ExtensionBridgeMiddleware, ExtensionContext, ExtensionEvent, ExtensionHost,
-    EventResult, FinalizeContext, HostAPI, RegisteredCommand,
+    EventResult, FinalizeContext, HostAPI, LateContext, Plugin, Registrar, RegisteredCommand,
 };
 
 // Folder-based built-in extensions

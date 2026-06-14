@@ -8,7 +8,7 @@
 //!
 //! **Not registered by default.** The `BaseAgent` builder does not add
 //! this extension; callers that want mid-run steering opt in with
-//! `.extension(Box::new(PendingExtension::new()))`. This keeps the
+//! `.plugin(Box::new(PendingExtension::new()))`. This keeps the
 //! kernel free of steering-specific logic and lets downstream code
 //! subscribe to the service directly without an automatic forwarding
 //! layer.
@@ -28,7 +28,7 @@ use alva_kernel_abi::{bus_cap, AgentMessage, Message};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::state::AgentState;
 
-use super::{Extension, ExtensionContext, HostAPI};
+use super::{Plugin, Registrar};
 
 /// A user message queued for injection at the next LLM call.
 #[derive(Debug, Clone)]
@@ -231,7 +231,7 @@ impl Default for PendingExtension {
 }
 
 #[async_trait]
-impl Extension for PendingExtension {
+impl Plugin for PendingExtension {
     fn name(&self) -> &str {
         "pending_messages"
     }
@@ -240,15 +240,14 @@ impl Extension for PendingExtension {
         "Inject out-of-band user messages at the next LLM call boundary"
     }
 
-    fn activate(&self, api: &HostAPI) {
-        api.middleware(Arc::new(PendingMiddleware {
+    async fn register(&self, r: &Registrar) {
+        // Middleware (was `activate()`).
+        r.middleware(Arc::new(PendingMiddleware {
             svc: self.svc.clone(),
         }));
-    }
 
-    async fn configure(&self, ctx: &ExtensionContext) {
-        ctx.bus_writer
-            .provide::<dyn PendingService>(self.svc.clone() as Arc<dyn PendingService>);
+        // Bus service (was `configure()`).
+        r.provide::<dyn PendingService>(self.svc.clone() as Arc<dyn PendingService>);
     }
 }
 

@@ -109,11 +109,11 @@ pub(crate) async fn build_agent(
         .plugin(Box::new(
             alva_app_core::extension::ToolLockRegistryExtension::new(),
         ))
-        .extension(Box::new(
+        .plugin(Box::new(
             alva_app_core::extension::AnalyticsExtension::new(),
         ))
         .plugin(Box::new(approval_ext))
-        .extension(Box::new(alva_app_core::extension::SkillsExtension::with_bundled(
+        .plugin(Box::new(alva_app_core::extension::SkillsExtension::with_bundled(
             paths.project_skills_dir(),
             bundled_skill_dir(),
         )))
@@ -131,9 +131,9 @@ pub(crate) async fn build_agent(
         .extension(Box::new(alva_app_core::extension::ToolTimeoutExtension))
         .extension(Box::new(alva_app_core::extension::CompactionExtension))
         .extension(Box::new(alva_app_core::extension::CheckpointExtension))
-        .extension(Box::new(alva_app_core::extension::PermissionExtension::new()))
+        .plugin(Box::new(alva_app_core::extension::PermissionExtension::new()))
         .extension(Box::new(alva_app_core::extension::SubAgentExtension::new(3)))
-        .extension(Box::new(alva_app_core::extension::McpExtension::new(vec![
+        .plugin(Box::new(alva_app_core::extension::McpExtension::new(vec![
             paths.global_mcp_config(),
             paths.project_mcp_config(),
         ])))
