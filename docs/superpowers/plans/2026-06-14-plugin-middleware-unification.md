@@ -48,6 +48,8 @@
 
 ### Task 1: 新增 `Registrar` + `LateContext`
 
+> ✅ 已完成（commit `01ba341` + `ad725f7`）。最终实现去掉了 `'a`/`PhantomData`（字段全 owned/Arc，无借用），`take_tools` 为 `pub(crate)`，pub 方法补了 doc。下方代码块为原始草案，以仓库实际代码为准。
+
 **Files:**
 - Create: `crates/alva-agent-core/src/extension/registrar.rs`
 - Modify: `crates/alva-agent-core/src/extension/mod.rs`
@@ -186,7 +188,7 @@ pub trait Plugin: Send + Sync {
 
     /// 唯一装配阶段：注册 tools / middleware / bus 服务 / system prompt / command。
     /// provide-only：只提供能力，不读别家 plugin 提供的 bus 能力（要读放 finalize）。
-    async fn register(&self, r: &Registrar<'_>);
+    async fn register(&self, r: &Registrar);
 
     /// 可选晚期钩子：动态 tool 发现 + 跨插件晚期接线（读别家在 register 提供的能力）。
     async fn finalize(&self, _cx: &LateContext) -> Vec<Arc<dyn Tool>> { vec![] }
@@ -211,7 +213,7 @@ impl super::plugin::Plugin for ExtensionAsPlugin {
     fn name(&self) -> &str { self.0.name() }
     fn description(&self) -> &str { self.0.description() }
 
-    async fn register(&self, r: &Registrar<'_>) {
+    async fn register(&self, r: &Registrar) {
         // 复刻旧顺序：tools() → activate(HostAPI) → configure(ExtensionContext)。
         r.tools(self.0.tools().await);
         let api = HostAPI::new(r.host_arc(), self.0.name().to_string());
@@ -461,7 +463,7 @@ impl Extension for CoreExtension {
 #[async_trait]
 impl Plugin for CoreExtension {
     fn name(&self) -> &str { "core" }
-    async fn register(&self, r: &Registrar<'_>) { r.tools(core_tools()); }
+    async fn register(&self, r: &Registrar) { r.tools(core_tools()); }
 }
 ```
 import：`use alva_agent_core::{Plugin, Registrar};`（替换 `Extension`）。
@@ -512,7 +514,7 @@ git commit -m "refactor(builtin): migrate 6 tool-group wrappers Extension->Plugi
 #[async_trait]
 impl Plugin for MemoryExtension {
     fn name(&self) -> &str { "memory" }
-    async fn register(&self, r: &Registrar<'_>) {
+    async fn register(&self, r: &Registrar) {
         r.tools(memory_tools());                       // 若该 wrapper 有 tools()
         r.provide::<dyn MemoryBackend>(self.backend.clone()); // 按真实服务类型/字段
     }
@@ -568,7 +570,7 @@ git commit -m "refactor: migrate 7 bus-publish wrappers Extension->Plugin"
 impl Plugin for SecurityExtension {
     fn name(&self) -> &str { "security" }
     fn description(&self) -> &str { /* 原值 */ }
-    async fn register(&self, r: &Registrar<'_>) {
+    async fn register(&self, r: &Registrar) {
         r.tools(/* 原 tools() 内容，如有 */);
         r.middleware(Arc::new(SecurityMiddleware::new(/* 原参数 */)));
         r.provide::<dyn SecurityGuard>(self.guard.clone());
@@ -583,7 +585,7 @@ impl Plugin for SecurityExtension {
 旧：`activate` 存 HostAPI，`configure` `append_system_prompt(AlwaysPresent, CLAUDE.md)` + `append_system_prompt(RuntimeInject, git_status)`。
 新（无需再存 HostAPI——register 直接有 Registrar）：
 ```rust
-async fn register(&self, r: &Registrar<'_>) {
+async fn register(&self, r: &Registrar) {
     let user_ctx = get_user_context(r.workspace()).await;
     if let Some(md) = user_ctx.get("claudeMd") {
         r.system_prompt(ContextLayer::AlwaysPresent, format!("<project_context>\n{}\n</project_context>", md.trim()));
@@ -624,7 +626,7 @@ git commit -m "refactor(builtin): migrate Security + SystemContext to Plugin (me
 
 对每个：把 `activate` 的 `api.middleware(...)` → `r.middleware(...)`；`configure` 的 `bus_writer.provide(...)`/scan → register body。模板：
 ```rust
-async fn register(&self, r: &Registrar<'_>) {
+async fn register(&self, r: &Registrar) {
     r.tools(/* 原 tools()，如有 */);
     r.middleware(Arc::new(/* 原 middleware */));
     r.provide::<dyn Svc>(/* 原服务 */);
@@ -669,7 +671,7 @@ git commit -m "refactor(app-core): migrate Skills/Permission/Analytics/Pending/L
 #[async_trait]
 impl Plugin for SubAgentExtension {
     fn name(&self) -> &str { "sub-agent" }
-    async fn register(&self, _r: &Registrar<'_>) {}
+    async fn register(&self, _r: &Registrar) {}
     async fn finalize(&self, cx: &LateContext) -> Vec<Arc<dyn Tool>> {
         // 原 finalize body：读 cx.bus.get::<ProviderRegistry>() /
         // SpawnCommunicationRegistry，构造 SpawnScopeImpl + spawn tool。
@@ -685,7 +687,7 @@ impl Plugin for SubAgentExtension {
 #[async_trait]
 impl Plugin for BlackboardCommExtension {
     fn name(&self) -> &str { "blackboard-comm" }
-    async fn register(&self, _r: &Registrar<'_>) {}
+    async fn register(&self, _r: &Registrar) {}
     async fn finalize(&self, cx: &LateContext) -> Vec<Arc<dyn Tool>> {
         if let Some(registry) = cx.bus.get::<dyn SpawnCommunicationRegistry>() {
             registry.register(Arc::new(BlackboardCommunication::new(self.board_registry.clone())));
