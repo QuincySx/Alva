@@ -16,17 +16,17 @@ use super::host::{ExtensionHost, RegisteredCommand};
 ///
 /// Internal mutability is used throughout (`Mutex` / `RwLock`) so all
 /// registration methods take `&self` — callers never need `&mut self`.
-pub struct Registrar<'a> {
+pub struct Registrar {
     host: Arc<RwLock<ExtensionHost>>,
     plugin_name: String,
     bus: BusHandle,
     bus_writer: BusWriter,
     workspace: PathBuf,
+    // 装配期发生 panic 才会中毒,此阶段无可恢复,unwrap 传播是有意的。
     tools: Mutex<Vec<Box<dyn Tool>>>,
-    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Registrar<'a> {
+impl Registrar {
     pub fn new(
         host: Arc<RwLock<ExtensionHost>>,
         plugin_name: String,
@@ -41,31 +41,30 @@ impl<'a> Registrar<'a> {
             bus_writer,
             workspace,
             tools: Mutex::new(Vec::new()),
-            _marker: std::marker::PhantomData,
         }
     }
 
-    /// Register a single tool.
+    /// 注册一个 LLM 可调用的 tool。
     pub fn tool(&self, t: Box<dyn Tool>) {
         self.tools.lock().unwrap().push(t);
     }
 
-    /// Register multiple tools at once.
+    /// 注册一组 LLM 可调用的 tool。
     pub fn tools(&self, ts: Vec<Box<dyn Tool>>) {
         self.tools.lock().unwrap().extend(ts);
     }
 
-    /// Register a middleware layer.
+    /// 注册一个运行期洋葱中间件。
     pub fn middleware(&self, mw: Arc<dyn Middleware>) {
         self.host.write().unwrap().register_middleware(mw);
     }
 
-    /// Publish a capability on the bus (available to all downstream layers).
+    /// 向 typed bus 提供一个能力(供运行期/晚期读取)。
     pub fn provide<T: Send + Sync + ?Sized + 'static>(&self, value: Arc<T>) {
         self.bus_writer.provide(value);
     }
 
-    /// Append a system-prompt fragment at the given context layer.
+    /// 在指定 ContextLayer 追加一段 system prompt。
     ///
     /// The layer controls cache placement:
     /// - `AlwaysPresent` / `OnDemand` / `Memory` → stable (cacheable) bucket
@@ -77,7 +76,7 @@ impl<'a> Registrar<'a> {
             .append_system_prompt(self.plugin_name.clone(), layer, text.into());
     }
 
-    /// Register a slash-command (metadata only; routing is handled later).
+    /// 注册一个 /command(元数据)。
     pub fn command(&self, name: &str, description: &str) {
         self.host.write().unwrap().register_command(RegisteredCommand {
             name: name.to_string(),
@@ -88,18 +87,22 @@ impl<'a> Registrar<'a> {
 
     // ---- accessors ----------------------------------------------------------
 
+    /// 本次装配的 workspace 根目录。
     pub fn workspace(&self) -> &Path {
         &self.workspace
     }
 
+    /// 只读 bus 句柄(读取已注册能力 / 订阅事件)。
     pub fn bus(&self) -> &BusHandle {
         &self.bus
     }
 
+    /// 装配期可写 bus 句柄(可注册能力)。
     pub fn bus_writer(&self) -> &BusWriter {
         &self.bus_writer
     }
 
+    /// 当前 plugin 的名字。
     pub fn plugin_name(&self) -> &str {
         &self.plugin_name
     }
@@ -107,8 +110,9 @@ impl<'a> Registrar<'a> {
     /// Drain and return all tools that were registered via [`tool`] / [`tools`].
     ///
     /// Called by the builder after all plugins have run `register()`.
-    pub fn take_tools(&self) -> Vec<Box<dyn Tool>> {
-        std::mem::take(&mut self.tools.lock().unwrap())
+    pub(crate) fn take_tools(&self) -> Vec<Box<dyn Tool>> {
+        let mut guard = self.tools.lock().unwrap();
+        std::mem::take(&mut *guard)
     }
 }
 
@@ -163,7 +167,7 @@ mod tests {
         }
     }
 
-    fn make_registrar() -> Registrar<'static> {
+    fn make_registrar() -> Registrar {
         let host = Arc::new(RwLock::new(ExtensionHost::new()));
         let bus = Bus::new();
         let writer = bus.writer();
