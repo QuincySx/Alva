@@ -79,6 +79,8 @@ impl Plugin for SkillsExtension {
         )));
 
         // Async init (was `configure()`).
-        let _ = self.store.scan().await;
+        if let Err(e) = self.store.scan().await {
+            tracing::warn!(error = %e, "skills: initial scan failed; skills may be unavailable");
+        }
     }
 }
