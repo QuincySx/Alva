@@ -929,6 +929,8 @@ git commit -m "refactor: remove Extension trait + adapter; rename to Plugin/Regi
 > - grep 线索:`grep -rn "Extension::configure\|Extension::activate\|crate::extension::{Extension\|\.extension(Box::new\|configure()" crates/ --include=*.rs`(逐条判断是真实代码还是 stale doc;真实代码到此应已无,剩的多是注释)。
 > 已知点:`provider_registry.rs:16`、`approval.rs:17/25`、`spawn_comm_registry.rs:1/11/29/65`、`tool_lock_registry.rs:1`、`communication.rs:177`、`lsp/mod.rs:110`、`guard.rs:87`(`SecurityExtension::configure`→`register`)等(以最终 grep 为准)。
 > **需事实改正(非仅改名)**:`blackboard_comm.rs:26` 注释称 `SpawnCommunicationRegistry` 由 `BaseAgentBuilder::build()` 默认提供——错误,它是 opt-in(`SpawnCommRegistryExtension`);改成"需显式装配 SpawnCommRegistryExtension,否则 finalize 走 warn 跳过"。
+> **需整段重写(非仅改名)**:`loader.rs` 模块 `//!` 头(约 10-63 行)整段还在描述旧 `Extension`/`activate`/`configure`/`ExtensionAsPlugin` 两阶段生命周期——重写成新的单阶段 `Plugin::register`(load_plugins→r.middleware(AepBridge))。
+> 其余 stale:`plugin.rs:16`(过渡期/ExtensionAsPlugin 已不存在)、`loader.rs` `loaded_count` doc 提 `configure`、3 个 `// INPUT:` 头(tool_lock_registry/provider_registry/spawn_comm_registry 仍写 `{Extension, ExtensionContext}`)。
 
 更新 AGENTS.md:
 
