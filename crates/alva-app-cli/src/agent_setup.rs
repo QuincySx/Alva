@@ -114,7 +114,12 @@ pub(crate) async fn build_agent(
         .system_prompt(&system_prompt)
         .max_iterations(20)
         .plugin(Box::new(approval_ext))
-        .plugin(Box::new(alva_app_core::extension::CorePlugin));
+        .plugin(Box::new(alva_app_core::extension::CorePlugin))
+        // P1(能干活):Shell + 卫生中间件 —— 跑命令/build/test/删文件 + 防跑飞/死循环/卡死
+        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
+        .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
+        .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
+        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()));
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback

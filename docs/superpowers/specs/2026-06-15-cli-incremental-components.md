@@ -11,9 +11,10 @@
 
 ## 优先级清单(从上往下加)
 
-### P1 — 让它"能干活"
-- [ ] **ShellPlugin**(execute_shell)—— 跑命令/build/test/删文件。编码 agent 最高价值。测:让 agent 跑一个 shell 命令、删一个文件。
-- [ ] **卫生中间件**(LoopDetection + DanglingToolCall + ToolTimeout)—— 近乎零成本,防跑飞/死循环/工具卡死。测:构造一个会循环的场景看是否被拦。
+### P1 — 让它"能干活" ✅(commit 见下)
+- [x] **ShellPlugin**(execute_shell)—— 跑命令/build/test/删文件。编码 agent 最高价值。
+- [x] **卫生中间件**(LoopDetection + DanglingToolCall + ToolTimeout)—— 近乎零成本,防跑飞/死循环/工具卡死。
+  - 编译✅。运行验证(需 API key):`cargo run -p alva-app-cli` → 让 agent 跑个 shell 命令(如 `ls`)、删个临时文件,确认 execute_shell 可用。
 
 ### P2 — 安全与长会话
 - [ ] **PermissionPlugin**(PlanMode + 审批)—— 配 approval substrate,HITL/plan 模式。测:触发一次危险操作看审批流。
