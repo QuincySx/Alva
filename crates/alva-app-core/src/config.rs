@@ -55,6 +55,12 @@ pub struct AlvaConfig {
     /// `"fullscreen"`. Default 20 if unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_inline_rows: Option<u16>,
+    /// Per-component on/off overrides, keyed by `ComponentMeta::id` (see
+    /// `crate::components`). Maps directly to `ComponentToggles`. A missing
+    /// id falls back to the component's `default_on`. Shared by CLI + Tauri
+    /// so both apps assemble the same agent.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub components: HashMap<String, bool>,
 }
 
 /// A single provider's auth + endpoint + default model.

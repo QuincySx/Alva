@@ -95,50 +95,39 @@ pub(crate) async fn build_agent(
         _ => Arc::new(OpenAIChatProvider::new(config.clone())),
     };
     // Provider registry — lets SubAgent/Task spawn against named providers.
-    // (Removed during MINI MODE; restored for P4.)
     let provider_registry = alva_llm_provider::build_provider_registry(config);
-    let (approval_ext, approval_rx) =
-        alva_app_core::extension::ApprovalPlugin::with_channel();
 
-    // ── MINI MODE (2026-06-15) ──────────────────────────────────────────────
-    // 从"裸" BaseAgentBuilder 起步,只注册 CorePlugin(read/create/edit/list/
-    // find/grep = 增改查搜)。BaseAgentBuilder 已自动装 memory + security +
-    // system_context。
-    //
-    // ApprovalPlugin + checkpoint 是 harness substrate(REPL 硬接线的
-    // approval_rx / checkpoint_mgr),保留,不算"功能组件"。
-    //
-    // 其余 ~20 个功能组件(Shell/Web/Task/Team/Mcp/SubAgent/Skills/Hooks/
-    // 卫生 middleware/...)已移除,按优先级一点点测试加回。
-    // 优先级清单见 docs/superpowers/specs/2026-06-15-cli-incremental-components.md
-    let builder = BaseAgentBuilder::new()
-        .workspace(workspace)
-        .system_prompt(&system_prompt)
-        .max_iterations(20)
-        .plugin(Box::new(approval_ext))
-        .plugin(Box::new(alva_app_core::extension::CorePlugin))
-        // P1(能干活):Shell + 卫生中间件 —— 跑命令/build/test/删文件 + 防跑飞/死循环/卡死
-        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
-        .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
-        // P2(安全/长会话):Permission(HITL/plan 模式,发布 PermissionModeService)+ Compaction(长会话上下文压缩)
-        .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
-        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()))
-        // P3(知识检索):Skills(渐进式 skill 加载)+ Web(internet_search + read_url)
-        .plugin(Box::new(alva_app_core::extension::SkillsPlugin::with_bundled(
-            paths.project_skills_dir(),
-            bundled_skill_dir(),
-        )))
-        .plugin(Box::new(alva_app_core::extension::WebPlugin))
-        // P4(协作/多 agent):Task/Team + ProviderRegistry/ToolLock infra + SubAgent。
-        // 不加 SpawnCommRegistry / BlackboardComm —— SubAgent.finalize 读不到
-        // SpawnCommunicationRegistry 时 graceful 降级,与标准 agent 一致。
-        .plugin(Box::new(alva_app_core::extension::ProviderRegistryPlugin::new(provider_registry)))
-        .plugin(Box::new(alva_app_core::extension::ToolLockRegistryPlugin::new()))
-        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
-        .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
-        .plugin(Box::new(alva_app_core::extension::SubAgentPlugin::new(3)));
+    // ── Substrate (always wired by the harness, NOT a toggleable component) ──
+    // ApprovalPlugin yields `approval_rx` that the REPL hard-wires; the
+    // checkpoint *callback* (CheckpointManager) is wired at the end. These are
+    // distinct from the toggleable CheckpointMiddleware auto-archiver.
+    let (approval_ext, approval_rx) = alva_app_core::extension::ApprovalPlugin::with_channel();
+
+    // ── Component assembly (Stage B) ────────────────────────────────────────
+    // The flat catalog + `apply_components` is now the single assembly truth
+    // (shared with Tauri in Stage C). Toggles come from `~/.alva/config.json`'s
+    // `components` map (absent id → that component's `default_on`).
+    let toggles: alva_app_core::components::ComponentToggles = alva_app_core::config::load()
+        .map(|c| c.components)
+        .unwrap_or_default();
+    let ctx = alva_app_core::components::ComponentContext {
+        workspace: workspace.to_path_buf(),
+        provider_registry: Some(provider_registry),
+        skills: Some((paths.project_skills_dir(), bundled_skill_dir())),
+        mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
+        subagent_depth: 3,
+        hooks_settings: alva_app_core::settings::HooksSettings::default(),
+        subprocess_ext_dirs: vec![paths.project_extensions_dir(), paths.global_extensions_dir()],
+    };
+    let builder = alva_app_core::components::apply_components(
+        BaseAgentBuilder::new()
+            .workspace(workspace)
+            .system_prompt(&system_prompt)
+            .max_iterations(20)
+            .plugin(Box::new(approval_ext)), // substrate: added manually before components
+        &toggles,
+        &ctx,
+    );
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback
