@@ -17,13 +17,16 @@
 //! Both suites print a `✅/❌ case — detail` report table (use
 //! `cargo test -- --nocapture` to see it) and fail if any case fails.
 //!
-//! The agent assembly here MIRRORS the CLI mini agent
-//! (`alva-app-cli/src/agent_setup.rs::build_agent`): bare BaseAgentBuilder
-//! (auto memory/security/system_context) + ApprovalPlugin substrate, then the
-//! incrementally-added components per the priority list — currently CorePlugin,
-//! ShellPlugin + 3 hygiene middlewares (P1), PermissionPlugin + Compaction (P2),
-//! SkillsPlugin + WebPlugin (P3). Keep this in lockstep with `build_agent` as
-//! components are added. Approvals are auto-resolved (see `build_mini_agent`).
+//! The agent assembly here goes through `alva_app_core::components::
+//! apply_components` — the SAME assembly switchboard the CLI/Tauri use (one
+//! source of truth, no hand-copied `.plugin()/.middleware()` mirror). The mock
+//! suite and register assertion build with `default_toggles()` (catalog
+//! `default_on`); the real suite can build with ANY component subset via the
+//! `ALVA_TEST_COMPONENTS` env (default / `all` / `core,shell,…`) so it can
+//! measure tool-set-size vs model accuracy. The component set used for a run is
+//! recorded in the report JSON (`components` / `component_count`) for A/B.
+//! The only substrate wired outside the catalog is the ApprovalPlugin (the REPL
+//! needs its `approval_rx`). Approvals are auto-resolved (see `build_mini_agent`).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -38,60 +41,65 @@ use alva_test::mock_provider::MockLanguageModel;
 // Agent assembly — exact mirror of the CLI mini agent.
 // ---------------------------------------------------------------------------
 
-/// Build a BaseAgent matching the CLI mini assembly (mirror of `build_agent`):
-///   approval substrate + CorePlugin + ShellPlugin + 3 hygiene mw (P1)
-///   + PermissionPlugin + Compaction (P2) + SkillsPlugin + WebPlugin (P3)
-///   + TaskPlugin + TeamPlugin + SubAgentPlugin (P4; infra registries omitted —
-///     see the P4 comment in the builder chain below).
+/// Build a BaseAgent via [`apply_components`] — the SAME assembly switchboard
+/// the CLI/Tauri use (single source of truth), driven by `toggles`:
+///   approval substrate (always, wired here for its `approval_rx`) + every
+///   component in `alva_app_core::components::COMPONENTS` that `toggles` leaves
+///   enabled. Passing `default_toggles()` (an empty map) selects exactly the
+///   catalog `default_on` set — core/shell + 3 hygiene mw, permission +
+///   compaction, skills + web, provider-registry/tool-lock infra, task/team/
+///   sub-agents, hooks, checkpoint, interaction — which covers every tool the
+///   register-assertion test pins. Any other `toggles` (subset / `all`) lets
+///   callers A/B "tool-set size vs model accuracy".
+///
+/// `ComponentContext` here has `provider_registry = None` (tests have no real
+/// provider; the `provider-registry` component gracefully skips and sub-agents
+/// degrade to the main model — the `agent` tool is still registered) and
+/// `skills = Some((<ws>/.alva/skills, None))` (empty tree, cleaned with the
+/// tempdir).
 ///
 /// Dangerous tools (create_file / file_edit / execute_shell) route through the
 /// security middleware's HITL path; the background task below auto-resolves each
 /// request as `AllowOnce` via the bus-published `SecurityGuard` (same mechanism
 /// the e2e suite uses), so the suite runs unattended. If a tool ever hangs here,
 /// it means an approval was not resolved — a real finding, not a harness bug.
-async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> BaseAgent {
+async fn build_mini_agent(
+    workspace: &Path,
+    model: Arc<dyn LanguageModel>,
+    toggles: &alva_app_core::components::ComponentToggles,
+) -> BaseAgent {
     let (approval_ext, mut approval_rx) =
         alva_app_core::extension::ApprovalPlugin::with_channel();
 
-    let agent = BaseAgent::builder()
-        .workspace(workspace)
-        .system_prompt(
-            "You are a helpful coding assistant. You have access to tools for \
-             running shell commands, reading/writing files, and searching code. \
-             Use tools when needed to accomplish the user's task. Be concise.",
-        )
-        .max_iterations(20)
-        .plugin(Box::new(approval_ext))
-        .plugin(Box::new(alva_app_core::extension::CorePlugin))
-        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
-        .middleware(Arc::new(
-            alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
-        ))
-        .middleware(Arc::new(
-            alva_kernel_core::builtins::DanglingToolCallMiddleware::new(),
-        ))
-        .middleware(Arc::new(
-            alva_kernel_core::builtins::ToolTimeoutMiddleware::default(),
-        ))
-        // P2(安全/长会话):Permission + Compaction —— 与 CLI build_agent 镜像
-        .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
-        .middleware(Arc::new(
-            alva_host_native::middleware::CompactionMiddleware::default(),
-        ))
-        // P3(知识检索):Skills + Web —— 镜像 CLI build_agent。测试无真 skill 目录,
-        // 用 workspace 下的空 .alva/skills(随 tempdir 一起清理)+ bundled=None。
-        .plugin(Box::new(alva_app_core::extension::SkillsPlugin::with_bundled(
-            workspace.join(".alva/skills"),
-            None,
-        )))
-        .plugin(Box::new(alva_app_core::extension::WebPlugin))
-        // P4(协作/多 agent):Task/Team + SubAgent —— 镜像 CLI build_agent。
-        // infra registry(ProviderRegistry/ToolLock)在 harness 里省略:测试用
-        // mock model 直接 build,无 config/provider_registry。SubAgent.finalize
-        // 读不到 ProviderRegistry 时降级到主 model,spawn 工具(`agent`)仍注册。
-        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
-        .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
-        .plugin(Box::new(alva_app_core::extension::SubAgentPlugin::new(3)))
+    let ctx = alva_app_core::components::ComponentContext {
+        workspace: workspace.to_path_buf(),
+        // No real provider in tests: provider-registry skips, sub-agents degrade.
+        provider_registry: None,
+        // Empty skills tree under the tempdir (cleaned with it); bundled = None.
+        skills: Some((workspace.join(".alva/skills"), None)),
+        mcp_config_paths: vec![],
+        subagent_depth: 3,
+        hooks_settings: alva_app_core::settings::HooksSettings::default(),
+        subprocess_ext_dirs: vec![],
+    };
+
+    let builder = alva_app_core::components::apply_components(
+        BaseAgent::builder()
+            .workspace(workspace)
+            .system_prompt(
+                "You are a helpful coding assistant. You have access to tools for \
+                 running shell commands, reading/writing files, and searching code. \
+                 Use tools when needed to accomplish the user's task. Be concise.",
+            )
+            .max_iterations(20)
+            // substrate: ApprovalPlugin is not in the catalog (the REPL needs its
+            // `approval_rx`), so it is wired manually before apply_components.
+            .plugin(Box::new(approval_ext)),
+        toggles,
+        &ctx,
+    );
+
+    let agent = builder
         .build(model)
         .await
         .expect("failed to build mini agent");
@@ -114,6 +122,57 @@ async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> Ba
     });
 
     agent
+}
+
+// ---------------------------------------------------------------------------
+// Component-toggle selection (which components the harness builds with).
+// ---------------------------------------------------------------------------
+
+/// The default component set: an empty toggle map, so every component falls back
+/// to its catalog `default_on`. This is what the mock suite and the register
+/// assertion build with (it covers every tool they pin).
+fn default_toggles() -> alva_app_core::components::ComponentToggles {
+    alva_app_core::components::ComponentToggles::new()
+}
+
+/// Resolve the component toggles for the REAL suite from `ALVA_TEST_COMPONENTS`:
+///   - unset / empty → `default_toggles()` (catalog `default_on`).
+///   - `all`         → every catalog id forced ON (maximal tool-set).
+///   - `core,shell,…`→ EXACT subset: every catalog id forced OFF, then only the
+///                     listed ids forced ON. Lets you measure "model accuracy
+///                     when given only these tools".
+fn toggles_from_env() -> alva_app_core::components::ComponentToggles {
+    use alva_app_core::components::COMPONENTS;
+    match std::env::var("ALVA_TEST_COMPONENTS") {
+        Ok(s) if !s.trim().is_empty() => {
+            let s = s.trim();
+            if s.eq_ignore_ascii_case("all") {
+                return COMPONENTS.iter().map(|m| (m.id.to_string(), true)).collect();
+            }
+            let wanted: std::collections::HashSet<&str> =
+                s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()).collect();
+            COMPONENTS
+                .iter()
+                .map(|m| (m.id.to_string(), wanted.contains(m.id)))
+                .collect()
+        }
+        _ => default_toggles(),
+    }
+}
+
+/// The sorted list of component ids actually enabled under `toggles`. Recorded
+/// in the run report so a reader can tell which configuration produced a run
+/// (and A/B different `ALVA_TEST_COMPONENTS` configs).
+fn enabled_component_ids(
+    toggles: &alva_app_core::components::ComponentToggles,
+) -> Vec<String> {
+    let mut ids: Vec<String> = alva_app_core::components::COMPONENTS
+        .iter()
+        .filter(|m| alva_app_core::components::is_on(toggles, m))
+        .map(|m| m.id.to_string())
+        .collect();
+    ids.sort();
+    ids
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +202,7 @@ async fn mini_agent_registers_p3_p4_tools() {
     let tmp = tempfile::tempdir().unwrap();
     let ws = tmp.path().canonicalize().unwrap();
     let model = MockLanguageModel::new().with_response(make_assistant_message("noop"));
-    let agent = build_mini_agent(&ws, Arc::new(model)).await;
+    let agent = build_mini_agent(&ws, Arc::new(model), &default_toggles()).await;
 
     let names = agent.tool_names();
     // P3: Web + Skills.
@@ -570,7 +629,17 @@ fn case_to_json(run: &CaseRun) -> serde_json::Value {
 }
 
 /// Assemble the full runtime report JSON (data layer).
-fn build_report_json(suite_label: &str, model_label: &str, runs: &[CaseRun]) -> serde_json::Value {
+///
+/// `components` is the sorted list of component ids actually enabled for this
+/// run (and `component_count` its length) so the report records *which*
+/// configuration produced these results — enabling tool-set-size vs accuracy
+/// A/B across runs.
+fn build_report_json(
+    suite_label: &str,
+    model_label: &str,
+    components: &[String],
+    runs: &[CaseRun],
+) -> serde_json::Value {
     let total = runs.len();
     let passed = runs.iter().filter(|r| r.passed()).count();
     let duration_ms: u128 = runs.iter().map(|r| r.latency_ms).sum();
@@ -606,6 +675,8 @@ fn build_report_json(suite_label: &str, model_label: &str, runs: &[CaseRun]) -> 
         "suite": suite_label,
         "model": model_label,
         "timestamp_unix": timestamp_unix,
+        "components": components,
+        "component_count": components.len(),
         "summary": {
             "passed": passed,
             "total": total,
@@ -674,9 +745,10 @@ fn timestamp_slug(unix: u64) -> String {
 fn write_run_report(
     suite_label: &str,
     model_label: &str,
+    components: &[String],
     runs: &[CaseRun],
 ) -> std::path::PathBuf {
-    let report = build_report_json(suite_label, model_label, runs);
+    let report = build_report_json(suite_label, model_label, components, runs);
     let json_str = serde_json::to_string_pretty(&report).expect("report JSON must serialize");
 
     let dir = reports_dir();
@@ -803,6 +875,9 @@ fn print_stderr_summary(header: &str, runs: &[CaseRun]) -> bool {
 
 #[tokio::test]
 async fn mock_capability_suite() {
+    // Mock suite always runs the default (catalog default_on) component set.
+    let toggles = default_toggles();
+    let components = enabled_component_ids(&toggles);
     let mut runs: Vec<CaseRun> = Vec::new();
 
     for case in cases() {
@@ -820,7 +895,7 @@ async fn mock_capability_suite() {
             model = model.with_response(m);
         }
 
-        let agent = build_mini_agent(&ws, Arc::new(model)).await;
+        let agent = build_mini_agent(&ws, Arc::new(model), &toggles).await;
         let start = std::time::Instant::now();
         let rx = agent.prompt_text(case.task);
 
@@ -857,7 +932,7 @@ async fn mock_capability_suite() {
 
     let all_passed =
         print_stderr_summary("MOCK capability suite (MockLanguageModel)", &runs);
-    let run_path = write_run_report("mock", "MockLanguageModel", &runs);
+    let run_path = write_run_report("mock", "MockLanguageModel", &components, &runs);
     eprintln!(
         "report run: {}\nopen viewer: double-click crates/alva-app-core/tests/reports/viewer.html (reads data.js, no server needed)",
         run_path.display()
@@ -909,6 +984,16 @@ async fn real_capability_suite() {
         }
     };
 
+    // Component subset for this run, from ALVA_TEST_COMPONENTS (default / `all` /
+    // exact subset). Recorded in the report so runs are A/B-comparable.
+    let toggles = toggles_from_env();
+    let components = enabled_component_ids(&toggles);
+    eprintln!(
+        "real_capability_suite components ({}): {}",
+        components.len(),
+        components.join(", ")
+    );
+
     let mut runs: Vec<CaseRun> = Vec::new();
 
     for case in cases() {
@@ -916,7 +1001,7 @@ async fn real_capability_suite() {
         let ws = tmp.path().canonicalize().unwrap();
         (case.setup)(&ws);
 
-        let agent = build_mini_agent(&ws, make_model()).await;
+        let agent = build_mini_agent(&ws, make_model(), &toggles).await;
         let start = std::time::Instant::now();
         let rx = agent.prompt_text(case.task);
 
@@ -951,7 +1036,7 @@ async fn real_capability_suite() {
 
     let header = format!("REAL capability suite (model: {})", model_name);
     let all_passed = print_stderr_summary(&header, &runs);
-    let run_path = write_run_report("real", &model_name, &runs);
+    let run_path = write_run_report("real", &model_name, &components, &runs);
     eprintln!(
         "report run: {}\nopen viewer: double-click crates/alva-app-core/tests/reports/viewer.html (reads data.js, no server needed)",
         run_path.display()

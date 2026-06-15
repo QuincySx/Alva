@@ -144,8 +144,9 @@
 
   function optLabel(rep, prefix) {
     var badge = (rep.summary.passed === rep.summary.total) ? "✅" : "❌";
+    var comp = (typeof rep.component_count === "number") ? " · " + rep.component_count + " comp" : "";
     return (prefix || "") + badge + " " + rep.model + " · " + rep.suite + " · " +
-           fmtTs(rep.timestamp_unix) + " · " + rep.summary.passed + "/" + rep.summary.total;
+           fmtTs(rep.timestamp_unix) + " · " + rep.summary.passed + "/" + rep.summary.total + comp;
   }
 
   function addRunOption(rep, prefix, atTop) {
