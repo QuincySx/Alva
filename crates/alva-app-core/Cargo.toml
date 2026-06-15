@@ -25,6 +25,7 @@ alva-protocol-skill = { path = "../alva-protocol-skill" }
 alva-protocol-mcp = { path = "../alva-protocol-mcp" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 alva-environment = { path = "../alva-environment" }
+alva-app-extension-loader = { path = "../alva-app-extension-loader" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
