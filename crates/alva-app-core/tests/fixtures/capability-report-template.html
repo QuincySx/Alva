@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Capability Report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         margin: 0; padding: 0 0 48px; background: #f5f6f8; color: #1c1e21; }
+  .report-header { padding: 24px 32px; color: #fff; }
+  .report-header.ok { background: linear-gradient(135deg,#1a7f37,#2da44e); }
+  .report-header.fail { background: linear-gradient(135deg,#a40e26,#cf222e); }
+  .report-header h1 { margin: 0 0 12px; font-size: 22px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill { background: rgba(255,255,255,.18); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  .pill.ok { background: rgba(255,255,255,.30); }
+  .pill.fail { background: rgba(0,0,0,.25); }
+  .pill b { font-weight: 700; }
+  .card { background: #fff; margin: 18px 32px; border-radius: 10px; padding: 18px 20px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.12); border-left: 6px solid #2da44e; }
+  .card.fail { border-left-color: #cf222e; box-shadow: 0 0 0 2px #cf222e33, 0 1px 3px rgba(0,0,0,.2); }
+  .card-head { display: flex; align-items: center; gap: 12px; }
+  .card-head h2 { margin: 0; font-size: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .badge { font-weight: 700; font-size: 12px; padding: 3px 10px; border-radius: 6px; color: #fff; }
+  .badge-pass { background: #2da44e; }
+  .badge-fail { background: #cf222e; }
+  .latency { margin-left: auto; color: #57606a; font-size: 13px; }
+  .modetag { color: #57606a; font-size: 12px; font-style: italic; }
+  .block { margin-top: 14px; }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; margin-bottom: 4px; font-weight: 600; }
+  .note { color: #8250df; font-style: italic; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .assertion { background: #fff8e6; border: 1px solid #f0e2b6; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+  pre { background: #0d1117; color: #e6edf3; padding: 12px 14px; border-radius: 6px; overflow-x: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.45;
+        white-space: pre-wrap; word-break: break-word; margin: 0; }
+  pre.prompt { background: #eef2ff; color: #1c1e21; border: 1px solid #d0d7de; }
+  pre.finaltext { background: #f0fff4; color: #1c1e21; border: 1px solid #b6e3c0; }
+  .tool { margin: 10px 0; border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; }
+  .tool-head { font-size: 14px; margin-bottom: 6px; }
+  .tool-head code { background: #eaeef2; padding: 2px 6px; border-radius: 4px; }
+  .sub { font-size: 11px; text-transform: uppercase; color: #57606a; margin: 8px 0 2px; font-weight: 600; }
+  .err { color: #cf222e; font-weight: 600; }
+  .okk { color: #1a7f37; font-weight: 600; }
+  .empty { color: #8c959f; font-style: italic; }
+  .verdict { font-size: 14px; }
+  .nodata { margin: 40px; font-size: 16px; color: #8c959f; }
+</style>
+</head>
+<body>
+<main id="root"></main>
+
+<!-- DATA LAYER: the test injects the runtime JSON here in place of `null`. -->
+<script>window.REPORT = /*__REPORT_JSON__*/ null;</script>
+
+<!-- VIEW LAYER: renders window.REPORT into the DOM. Static, committed once. -->
+<script>
+(function () {
+  var R = window.REPORT;
+  var root = document.getElementById("root");
+
+  // Safe element factory — text goes via textContent (never innerHTML), so
+  // any <, >, &, " in tool I/O can never break the page or inject markup.
+  function el(tag, opts) {
+    var n = document.createElement(tag);
+    opts = opts || {};
+    if (opts.cls) n.className = opts.cls;
+    if (opts.text != null) n.textContent = String(opts.text);
+    if (opts.html != null) n.innerHTML = opts.html; // only for trusted static markup
+    return n;
+  }
+  function pre(text, cls) { return el("pre", { cls: cls, text: text }); }
+  function MAX() { return 8000; }
+  function clip(s) {
+    s = (s == null) ? "" : String(s);
+    if (s.length <= MAX()) return s;
+    return s.slice(0, MAX()) + "\n\n… [truncated for display — original length " + s.length + " chars]";
+  }
+  function fmtInput(v) {
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
+  }
+
+  if (!R) {
+    root.appendChild(el("div", { cls: "nodata", text: "No report data (window.REPORT is null)." }));
+    return;
+  }
+
+  var allPass = R.summary.passed === R.summary.total;
+
+  // ---- Header ----
+  var hdr = el("header", { cls: "report-header " + (allPass ? "ok" : "fail") });
+  hdr.appendChild(el("h1", { text: "Agent Capability Report" }));
+  var meta = el("div", { cls: "meta" });
+  function pill(label, value, extraCls) {
+    var p = el("span", { cls: "pill" + (extraCls ? " " + extraCls : "") });
+    p.appendChild(document.createTextNode(label + ": "));
+    p.appendChild(el("b", { text: value }));
+    return p;
+  }
+  var ts = new Date((R.timestamp_unix || 0) * 1000);
+  meta.appendChild(pill("suite", R.suite));
+  meta.appendChild(pill("model", R.model));
+  meta.appendChild(pill("generated", isNaN(ts.getTime()) ? "n/a" : ts.toLocaleString()));
+  meta.appendChild(pill("result", R.summary.passed + " / " + R.summary.total + " passed", allPass ? "ok" : "fail"));
+  meta.appendChild(pill("total", (R.summary.duration_ms || 0) + " ms"));
+  hdr.appendChild(meta);
+  root.appendChild(hdr);
+
+  // ---- Cards (failures first) ----
+  var cases = (R.cases || []).slice();
+  cases.sort(function (a, b) {
+    var av = a.verdict === "pass" ? 1 : 0, bv = b.verdict === "pass" ? 1 : 0;
+    return av - bv;
+  });
+
+  cases.forEach(function (c) {
+    var pass = c.verdict === "pass";
+    var card = el("section", { cls: "card " + (pass ? "ok" : "fail") });
+
+    var head = el("div", { cls: "card-head" });
+    head.appendChild(el("span", { cls: "badge " + (pass ? "badge-pass" : "badge-fail"), text: pass ? "PASS" : "FAIL" }));
+    head.appendChild(el("h2", { text: c.name }));
+    head.appendChild(el("span", { cls: "latency", text: (c.latency_ms || 0) + " ms" }));
+    if (c.mode) head.appendChild(el("span", { cls: "modetag", text: c.mode + " path" }));
+    card.appendChild(head);
+
+    // Task
+    var taskBlock = el("div", { cls: "block" });
+    var taskLabel = el("div", { cls: "label" });
+    taskLabel.appendChild(document.createTextNode("Task prompt"));
+    if (c.mode === "mock") {
+      taskLabel.appendChild(el("em", {
+        cls: "note",
+        text: " (mock path: the scripted MockLanguageModel injected the tool call directly; this prompt is the intent only)"
+      }));
+    }
+    taskBlock.appendChild(taskLabel);
+    taskBlock.appendChild(pre(c.task, "prompt"));
+    card.appendChild(taskBlock);
+
+    // Assertion
+    var aBlock = el("div", { cls: "block" });
+    aBlock.appendChild(el("div", { cls: "label", text: "Assertion (what we check)" }));
+    aBlock.appendChild(el("div", { cls: "assertion", text: c.assertion }));
+    card.appendChild(aBlock);
+
+    // Trace
+    var tBlock = el("div", { cls: "block" });
+    tBlock.appendChild(el("div", { cls: "label", text: "Execution trace" }));
+    var trace = c.trace || [];
+    if (trace.length === 0) {
+      tBlock.appendChild(el("div", { cls: "empty", text: "No tool executions captured." }));
+    } else {
+      trace.forEach(function (t, i) {
+        var tool = el("div", { cls: "tool" });
+        var th = el("div", { cls: "tool-head" });
+        th.appendChild(document.createTextNode("#" + (i + 1) + " "));
+        th.appendChild(el("code", { text: t.tool }));
+        th.appendChild(document.createTextNode(" "));
+        th.appendChild(el("span", { cls: t.is_error ? "err" : "okk", text: "is_error=" + !!t.is_error }));
+        tool.appendChild(th);
+        tool.appendChild(el("div", { cls: "sub", text: "input" }));
+        tool.appendChild(pre(clip(fmtInput(t.input))));
+        var outStr = (t.output == null) ? "" : String(t.output);
+        tool.appendChild(el("div", { cls: "sub", text: "output (" + outStr.length + " chars)" }));
+        tool.appendChild(pre(clip(outStr)));
+        tBlock.appendChild(tool);
+      });
+    }
+    if (c.final_text) {
+      tBlock.appendChild(el("div", { cls: "sub", text: "final assistant message" }));
+      tBlock.appendChild(pre(clip(c.final_text), "finaltext"));
+    }
+    if (c.end_error) {
+      tBlock.appendChild(el("div", { cls: "sub err", text: "AgentEnd error" }));
+      tBlock.appendChild(pre(clip(c.end_error)));
+    }
+    card.appendChild(tBlock);
+
+    // Verdict
+    var vBlock = el("div", { cls: "block" });
+    vBlock.appendChild(el("div", { cls: "label", text: "Verdict" }));
+    var v = el("div", { cls: "verdict" });
+    v.appendChild(el("span", {
+      cls: pass ? "okk" : "err",
+      text: pass ? "PASS — all assertions held." : ("FAIL — " + (c.detail || "see trace"))
+    }));
+    vBlock.appendChild(v);
+    card.appendChild(vBlock);
+
+    root.appendChild(card);
+  });
+})();
+</script>
+</body>
+</html>

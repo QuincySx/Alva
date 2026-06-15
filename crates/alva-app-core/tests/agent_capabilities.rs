@@ -407,39 +407,28 @@ impl CaseRun {
     }
 }
 
-/// One tool execution distilled from the event stream for display.
-struct ToolTrace {
-    name: String,
-    input_pretty: String,
-    output_text: String,
-    output_len: usize,
-    is_error: bool,
-}
-
-/// Pull the human-auditable trace out of a raw event stream:
-/// (ordered tool executions, final assistant text, AgentEnd error).
-fn extract_trace(events: &[AgentEvent]) -> (Vec<ToolTrace>, Option<String>, Option<String>) {
-    let mut tools = Vec::new();
+/// Build the runtime JSON for ONE case run (data layer). The trace is pulled
+/// straight from the raw `AgentEvent` stream; `input` stays a real JSON value
+/// (not a pre-stringified blob) so machine diffs across models are precise.
+fn case_to_json(run: &CaseRun) -> serde_json::Value {
+    let mut trace: Vec<serde_json::Value> = Vec::new();
     let mut final_text: Option<String> = None;
     let mut end_error: Option<String> = None;
 
-    for ev in events {
+    for ev in &run.events {
         match ev {
             AgentEvent::ToolExecutionEnd { tool_call, result } => {
-                let input_pretty = serde_json::to_string_pretty(&tool_call.arguments)
-                    .unwrap_or_else(|_| tool_call.arguments.to_string());
-                let output_text = result.model_text();
-                tools.push(ToolTrace {
-                    name: tool_call.name.clone(),
-                    input_pretty,
-                    output_len: output_text.chars().count(),
-                    output_text,
-                    is_error: result.is_error,
-                });
+                trace.push(serde_json::json!({
+                    "kind": "tool",
+                    "tool": tool_call.name,
+                    "input": tool_call.arguments,
+                    "output": result.model_text(),
+                    "is_error": result.is_error,
+                }));
             }
             AgentEvent::MessageEnd { message } => {
-                // Capture the LAST non-empty assistant text as the model's
-                // final answer. Standard/Steering/FollowUp wrap a Message.
+                // Last non-empty assistant text wins. Standard/Steering/FollowUp
+                // each wrap a Message; Marker/Extension carry no role text.
                 let inner = match message {
                     alva_kernel_abi::AgentMessage::Standard(m)
                     | alva_kernel_abi::AgentMessage::Steering(m)
@@ -464,40 +453,41 @@ fn extract_trace(events: &[AgentEvent]) -> (Vec<ToolTrace>, Option<String>, Opti
         }
     }
 
-    (tools, final_text, end_error)
+    serde_json::json!({
+        "name": run.name,
+        "task": run.task,
+        "assertion": run.assertion,
+        "mode": run.mode,
+        "verdict": if run.passed() { "pass" } else { "fail" },
+        "detail": run.verdict.as_ref().err().cloned().unwrap_or_default(),
+        "latency_ms": run.latency_ms,
+        "trace": trace,
+        "final_text": final_text,
+        "end_error": end_error,
+    })
 }
 
-// ---------------------------------------------------------------------------
-// HTML report.
-// ---------------------------------------------------------------------------
+/// Assemble the full runtime report JSON (data layer).
+fn build_report_json(suite_label: &str, model_label: &str, runs: &[CaseRun]) -> serde_json::Value {
+    let total = runs.len();
+    let passed = runs.iter().filter(|r| r.passed()).count();
+    let duration_ms: u128 = runs.iter().map(|r| r.latency_ms).sum();
+    let timestamp_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
 
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// Truncate long output for display, annotating the original length. The full
-/// text is large enough to audit; we cap to keep the file a sane size.
-fn truncate_for_display(s: &str, max: usize) -> String {
-    let len = s.chars().count();
-    if len <= max {
-        return html_escape(s);
-    }
-    let head: String = s.chars().take(max).collect();
-    format!(
-        "{}\n\n… [truncated for display — original length {} chars]",
-        html_escape(&head),
-        len
-    )
+    serde_json::json!({
+        "suite": suite_label,
+        "model": model_label,
+        "timestamp_unix": timestamp_unix,
+        "summary": {
+            "passed": passed,
+            "total": total,
+            "duration_ms": duration_ms,
+        },
+        "cases": runs.iter().map(case_to_json).collect::<Vec<_>>(),
+    })
 }
 
 /// Sanitize a label into a filename-safe token (replace `/`, spaces, etc.).
@@ -507,222 +497,51 @@ fn slugify(s: &str) -> String {
         .collect()
 }
 
-fn now_timestamp() -> String {
-    chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string()
-}
+/// Static HTML view layer — committed once, edited independently, re-embedded
+/// at compile time. The data is injected at the `/*__REPORT_JSON__*/ null`
+/// placeholder so the report is fully self-contained.
+const REPORT_TEMPLATE: &str = include_str!("fixtures/capability-report-template.html");
 
-/// Render the self-contained HTML report, write it under `target/`, and return
-/// the absolute path written.
-fn write_html_report(
-    suite_label: &str,
-    model_label: &str,
-    runs: &[CaseRun],
-) -> std::path::PathBuf {
-    let total = runs.len();
-    let passed = runs.iter().filter(|r| r.passed()).count();
-    let total_ms: u128 = runs.iter().map(|r| r.latency_ms).sum();
-    let all_pass = passed == total;
-
-    let mut body = String::new();
-
-    // Header.
-    body.push_str(&format!(
-        r#"<header class="report-header {hdr_class}">
-  <h1>Agent Capability Report</h1>
-  <div class="meta">
-    <span class="pill">suite: <b>{suite}</b></span>
-    <span class="pill">model: <b>{model}</b></span>
-    <span class="pill">generated: <b>{ts}</b></span>
-    <span class="pill {hdr_class}">{passed} / {total} passed</span>
-    <span class="pill">total: <b>{total_ms} ms</b></span>
-  </div>
-</header>
-"#,
-        hdr_class = if all_pass { "ok" } else { "fail" },
-        suite = html_escape(suite_label),
-        model = html_escape(model_label),
-        ts = html_escape(&now_timestamp()),
-        passed = passed,
-        total = total,
-        total_ms = total_ms,
-    ));
-
-    // Sort: failures first so they're impossible to miss.
-    let mut order: Vec<usize> = (0..runs.len()).collect();
-    order.sort_by_key(|&i| runs[i].passed());
-
-    for &i in &order {
-        let run = &runs[i];
-        let (tools, final_text, end_error) = extract_trace(&run.events);
-        let card_class = if run.passed() { "card ok" } else { "card fail" };
-        let badge = if run.passed() { "PASS" } else { "FAIL" };
-        let badge_class = if run.passed() { "badge-pass" } else { "badge-fail" };
-
-        body.push_str(&format!(
-            r#"<section class="{card_class}">
-  <div class="card-head">
-    <span class="badge {badge_class}">{badge}</span>
-    <h2>{name}</h2>
-    <span class="latency">{latency} ms</span>
-    <span class="modetag">{mode} path</span>
-  </div>
-"#,
-            card_class = card_class,
-            badge_class = badge_class,
-            badge = badge,
-            name = html_escape(run.name),
-            latency = run.latency_ms,
-            mode = html_escape(run.mode),
-        ));
-
-        // Task.
-        let mock_note = if run.mode == "mock" {
-            r#" <em class="note">(mock path: the scripted MockLanguageModel injected the tool call directly; this prompt is the intent only)</em>"#
-        } else {
-            ""
-        };
-        body.push_str(&format!(
-            r#"  <div class="block"><div class="label">Task prompt{mock_note}</div><pre class="prompt">{task}</pre></div>
-"#,
-            mock_note = mock_note,
-            task = html_escape(run.task),
-        ));
-
-        // Assertion.
-        body.push_str(&format!(
-            r#"  <div class="block"><div class="label">Assertion (what we check)</div><div class="assertion">{assertion}</div></div>
-"#,
-            assertion = html_escape(run.assertion),
-        ));
-
-        // Trace.
-        body.push_str(r#"  <div class="block"><div class="label">Execution trace</div>"#);
-        if tools.is_empty() {
-            body.push_str(r#"<div class="empty">No tool executions captured.</div>"#);
-        } else {
-            for (n, t) in tools.iter().enumerate() {
-                let err_tag = if t.is_error {
-                    r#"<span class="err">is_error=true</span>"#
-                } else {
-                    r#"<span class="okk">is_error=false</span>"#
-                };
-                body.push_str(&format!(
-                    r#"<div class="tool">
-    <div class="tool-head">#{n} <code>{name}</code> {err_tag}</div>
-    <div class="sub">input</div><pre>{input}</pre>
-    <div class="sub">output ({olen} chars)</div><pre>{output}</pre>
-  </div>"#,
-                    n = n + 1,
-                    name = html_escape(&t.name),
-                    err_tag = err_tag,
-                    input = truncate_for_display(&t.input_pretty, 4000),
-                    olen = t.output_len,
-                    output = truncate_for_display(&t.output_text, 4000),
-                ));
-            }
-        }
-        if let Some(text) = &final_text {
-            body.push_str(&format!(
-                r#"<div class="sub">final assistant message</div><pre class="finaltext">{}</pre>"#,
-                truncate_for_display(text, 4000)
-            ));
-        }
-        if let Some(err) = &end_error {
-            body.push_str(&format!(
-                r#"<div class="sub err">AgentEnd error</div><pre class="err">{}</pre>"#,
-                truncate_for_display(err, 4000)
-            ));
-        }
-        body.push_str("</div>\n");
-
-        // Verdict.
-        let verdict_html = match &run.verdict {
-            Ok(()) => r#"<span class="okk">PASS — all assertions held.</span>"#.to_string(),
-            Err(detail) => format!(r#"<span class="err">FAIL — {}</span>"#, html_escape(detail)),
-        };
-        body.push_str(&format!(
-            r#"  <div class="block"><div class="label">Verdict</div><div class="verdict">{verdict_html}</div></div>
-</section>
-"#,
-            verdict_html = verdict_html,
-        ));
-    }
-
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Capability Report — {suite} / {model}</title>
-<style>
-  :root {{ color-scheme: light dark; }}
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         margin: 0; padding: 0 0 48px; background: #f5f6f8; color: #1c1e21; }}
-  .report-header {{ padding: 24px 32px; color: #fff; }}
-  .report-header.ok {{ background: linear-gradient(135deg,#1a7f37,#2da44e); }}
-  .report-header.fail {{ background: linear-gradient(135deg,#a40e26,#cf222e); }}
-  .report-header h1 {{ margin: 0 0 12px; font-size: 22px; }}
-  .meta {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-  .pill {{ background: rgba(255,255,255,.18); border-radius: 999px; padding: 4px 12px; font-size: 13px; }}
-  .pill.ok {{ background: rgba(255,255,255,.30); }}
-  .pill.fail {{ background: rgba(0,0,0,.25); }}
-  .card {{ background: #fff; margin: 18px 32px; border-radius: 10px; padding: 18px 20px;
-          box-shadow: 0 1px 3px rgba(0,0,0,.12); border-left: 6px solid #2da44e; }}
-  .card.fail {{ border-left-color: #cf222e; box-shadow: 0 0 0 2px #cf222e33, 0 1px 3px rgba(0,0,0,.2); }}
-  .card-head {{ display: flex; align-items: center; gap: 12px; }}
-  .card-head h2 {{ margin: 0; font-size: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
-  .badge {{ font-weight: 700; font-size: 12px; padding: 3px 10px; border-radius: 6px; color: #fff; }}
-  .badge-pass {{ background: #2da44e; }}
-  .badge-fail {{ background: #cf222e; }}
-  .latency {{ margin-left: auto; color: #57606a; font-size: 13px; }}
-  .modetag {{ color: #57606a; font-size: 12px; font-style: italic; }}
-  .block {{ margin-top: 14px; }}
-  .label {{ font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; margin-bottom: 4px; font-weight: 600; }}
-  .note {{ color: #8250df; font-style: italic; font-size: 12px; text-transform: none; letter-spacing: 0; }}
-  .assertion {{ background: #fff8e6; border: 1px solid #f0e2b6; padding: 8px 12px; border-radius: 6px; font-size: 14px; }}
-  pre {{ background: #0d1117; color: #e6edf3; padding: 12px 14px; border-radius: 6px; overflow-x: auto;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }}
-  pre.prompt {{ background: #eef2ff; color: #1c1e21; border: 1px solid #d0d7de; }}
-  pre.finaltext {{ background: #f0fff4; color: #1c1e21; border: 1px solid #b6e3c0; }}
-  .tool {{ margin: 10px 0; border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; }}
-  .tool-head {{ font-size: 14px; margin-bottom: 6px; }}
-  .tool-head code {{ background: #eaeef2; padding: 2px 6px; border-radius: 4px; }}
-  .sub {{ font-size: 11px; text-transform: uppercase; color: #57606a; margin: 8px 0 2px; font-weight: 600; }}
-  .err {{ color: #cf222e; font-weight: 600; }}
-  .okk {{ color: #1a7f37; font-weight: 600; }}
-  .empty {{ color: #8c959f; font-style: italic; }}
-  .verdict {{ font-size: 14px; }}
-</style>
-</head>
-<body>
-{body}
-</body>
-</html>
-"#,
-        suite = html_escape(suite_label),
-        model = html_escape(model_label),
-        body = body,
-    );
-
-    // target/ is the workspace target dir; tests run with CWD at the crate
-    // root, so ../../target resolves to the workspace target. Fall back to
-    // the crate-local path if that doesn't exist.
+/// Resolve the workspace `target/` dir (CWD is the crate root during tests).
+fn target_dir() -> std::path::PathBuf {
     let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     dir.push("../../target");
-    let dir = dir.canonicalize().unwrap_or_else(|_| {
+    dir.canonicalize().unwrap_or_else(|_| {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("target");
         let _ = std::fs::create_dir_all(&p);
         p
-    });
-    let file = dir.join(format!(
-        "capability-report-{}-{}.html",
+    })
+}
+
+/// Write both the raw JSON (machine/diff) and the injected HTML (human) under
+/// `target/`. Returns `(html_path, json_path)`.
+fn write_report(
+    suite_label: &str,
+    model_label: &str,
+    runs: &[CaseRun],
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let report = build_report_json(suite_label, model_label, runs);
+    let json_str = serde_json::to_string_pretty(&report).expect("report JSON must serialize");
+
+    // Inject the data into the static template. The placeholder is exactly
+    // `/*__REPORT_JSON__*/ null`; replacing the `null` keeps the JS comment.
+    // serde_json output is HTML-inert for our keys, but defensively neutralize
+    // any `</script>` that could prematurely close the inline <script>.
+    let injected = json_str.replace("</", "<\\/");
+    let html = REPORT_TEMPLATE.replace("/*__REPORT_JSON__*/ null", &injected);
+
+    let dir = target_dir();
+    let stem = format!(
+        "capability-report-{}-{}",
         slugify(suite_label),
-        slugify(model_label),
-    ));
-    std::fs::write(&file, html).expect("failed to write HTML report");
-    file
+        slugify(model_label)
+    );
+    let html_path = dir.join(format!("{stem}.html"));
+    let json_path = dir.join(format!("{stem}.json"));
+    std::fs::write(&json_path, &json_str).expect("failed to write JSON report");
+    std::fs::write(&html_path, html).expect("failed to write HTML report");
+    (html_path, json_path)
 }
 
 /// Print the concise stderr ✅/❌ summary and return whether all passed.
@@ -802,11 +621,10 @@ async fn mock_capability_suite() {
         });
     }
 
-    let suite_label = "mock";
     let all_passed =
         print_stderr_summary("MOCK capability suite (MockLanguageModel)", &runs);
-    let report = write_html_report(suite_label, "mock", &runs);
-    eprintln!("HTML report: {}", report.display());
+    let (html_path, json_path) = write_report("mock", "MockLanguageModel", &runs);
+    eprintln!("HTML report: {}\nJSON data: {}", html_path.display(), json_path.display());
 
     assert!(all_passed, "mock capability suite had failures — see report above / HTML report");
 }
@@ -894,8 +712,8 @@ async fn real_capability_suite() {
 
     let header = format!("REAL capability suite (model: {})", model_name);
     let all_passed = print_stderr_summary(&header, &runs);
-    let report = write_html_report("real", &model_name, &runs);
-    eprintln!("HTML report: {}", report.display());
+    let (html_path, json_path) = write_report("real", &model_name, &runs);
+    eprintln!("HTML report: {}\nJSON data: {}", html_path.display(), json_path.display());
 
     assert!(
         all_passed,
