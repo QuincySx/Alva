@@ -17,6 +17,18 @@
 //! Both suites print a `✅/❌ case — detail` report table (use
 //! `cargo test -- --nocapture` to see it) and fail if any case fails.
 //!
+//! Coverage spans every tool the mini agent registers. Cases split two ways:
+//!   - Deterministic cases run in BOTH suites (file ops, shell, task_create/
+//!     task_list, team_create/team_delete, send_message, search_skills/use_skill).
+//!   - `real_only` cases run ONLY in the real suite, because they can't be
+//!     scripted up front: tools keyed by a runtime-minted id (task_get/update/
+//!     output/stop need the id task_create returns), live-network tools
+//!     (internet_search / read_url), and sub-agent spawn (`agent`). A live model
+//!     chains these naturally (create → read id back → use it); the mock suite
+//!     skips them. `ask_human` is the lone tool with no execution case at all —
+//!     it blocks on a human, so only its registration is pinned (see
+//!     `mini_agent_registers_p3_p4_tools`).
+//!
 //! The agent assembly here goes through `alva_app_core::components::
 //! apply_components` — the SAME assembly switchboard the CLI/Tauri use (one
 //! source of truth, no hand-copied `.plugin()/.middleware()` mirror). The mock
@@ -179,24 +191,16 @@ fn enabled_component_ids(
 // P3/P4 wiring assertion — Skills + Web + Task/Team/SubAgent registered.
 // ---------------------------------------------------------------------------
 
-/// Some plugins expose tools that can't be exercised deterministically in the
-/// mock suite, so we pin the cheap no-network invariant instead: building the
-/// mini agent REGISTERS each plugin's tools (proving they're wired exactly like
-/// the CLI build_agent).
+/// Cheap wiring invariant: building the mini agent REGISTERS each plugin's
+/// tools (proving they're wired exactly like the CLI `build_agent`). This is
+/// complementary to `cases()` — every tool below ALSO has an execution case in
+/// `cases()` (deterministic in the mock suite for task/team/skills, `real_only`
+/// for the live-network / runtime-id / spawn tools). The one exception is
+/// `ask_human`: it blocks on a real human response, so it can't be exercised
+/// unattended in either suite, and registration is the only invariant we pin.
 ///
-/// Not executed here, by category:
-///   - `internet_search` / `read_url` (WebPlugin): hit live endpoints.
-///     `read_url`'s real HTTP path is already covered deterministically via
-///     wiremock in `e2e_tool_coverage.rs::stage2_read_url_fetches_from_wiremock_server`;
-///     `internet_search` is only meaningful under the REAL suite (real model +
-///     configured search backend).
-///   - `search_skills` / `use_skill` (SkillsPlugin): need a populated skill tree.
-///   - `agent` (SubAgentPlugin, registered late via `finalize`): actually
-///     spawning a sub-agent is non-deterministic (needs ProviderRegistry +
-///     real model); the spawn-execution test is left to the real suite / a
-///     follow-up. Here we only assert the `agent` tool is registered. In this
-///     harness ProviderRegistry is omitted, so `finalize` degrades to the main
-///     model — the tool is still registered.
+/// (`read_url`'s deterministic HTTP path is additionally covered via wiremock in
+/// `e2e_tool_coverage.rs::stage2_read_url_fetches_from_wiremock_server`.)
 #[tokio::test]
 async fn mini_agent_registers_p3_p4_tools() {
     let tmp = tempfile::tempdir().unwrap();
@@ -222,6 +226,10 @@ async fn mini_agent_registers_p3_p4_tools() {
         "team_delete",
         "send_message",
         "agent",
+        // InteractionPlugin's `ask_human` blocks on a real human response, so it
+        // can't be exercised unattended in EITHER suite — registration is the
+        // strongest invariant we can pin for it here.
+        "ask_human",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -305,6 +313,15 @@ struct Cap {
     task: &'static str,
     /// Human-readable description of what this case asserts (shown in report).
     assertion: &'static str,
+    /// When true, this case runs ONLY in the real suite — never the mock suite.
+    /// Used for tools that can't be scripted deterministically: those whose
+    /// arguments are a runtime-generated value the mock can't know up front
+    /// (task_get/update/output/stop need the `task_id` minted by task_create),
+    /// network tools (internet_search / read_url hit live endpoints), and spawn
+    /// (`agent` needs a live model to drive the sub-agent). A real model chains
+    /// these naturally in one conversation (create → read the id back → use it),
+    /// so they're exercised end-to-end there; the mock suite skips them.
+    real_only: bool,
     /// Prepare the workspace before the run (e.g. pre-write files).
     setup: Box<dyn Fn(&Path)>,
     /// Script the MockLanguageModel's tool call(s) for the MOCK path.
@@ -321,6 +338,7 @@ fn cases() -> Vec<Cap> {
             name: "create_file",
             group: "create_file",
             tags: &["fs", "write"],
+            real_only: false,
             task: "Create a file named hello.txt in the workspace with exactly the content: hello",
             assertion: "Asserts the `create_file` tool ran AND `hello.txt` now exists in the \
                         workspace with content exactly equal to \"hello\".",
@@ -353,6 +371,7 @@ fn cases() -> Vec<Cap> {
             name: "read_file",
             group: "read_file",
             tags: &["fs", "read"],
+            real_only: false,
             task: "Read the file data.txt in the workspace and report its contents.",
             assertion: "Asserts the `read_file` tool ran successfully (is_error=false) AND its \
                         output text contains the pre-seeded marker \"secret-content-123\".",
@@ -387,6 +406,7 @@ fn cases() -> Vec<Cap> {
             name: "file_edit",
             group: "file_edit",
             tags: &["fs", "write", "edit"],
+            real_only: false,
             task: "In the file edit_me.txt, replace the word alpha with beta.",
             assertion: "Asserts the `file_edit` tool ran AND the on-disk content of edit_me.txt \
                         changed from \"alpha\" to \"beta\".",
@@ -422,6 +442,7 @@ fn cases() -> Vec<Cap> {
             name: "list_files",
             group: "list_files",
             tags: &["fs", "read", "search"],
+            real_only: false,
             task: "List the files in the workspace.",
             assertion: "Asserts the `list_files` tool ran successfully AND its output lists both \
                         pre-seeded files: alpha.txt and beta.txt.",
@@ -449,6 +470,7 @@ fn cases() -> Vec<Cap> {
             name: "find_files",
             group: "find_files",
             tags: &["fs", "search", "glob"],
+            real_only: false,
             task: "Find files matching the glob pattern *.rs in the workspace.",
             assertion: "Asserts the `find_files` tool ran successfully AND its output includes \
                         needle.rs (the only *.rs file seeded), proving the glob matched.",
@@ -482,6 +504,7 @@ fn cases() -> Vec<Cap> {
             name: "grep_search",
             group: "grep_search",
             tags: &["fs", "search", "grep"],
+            real_only: false,
             task: "Search the workspace for the text FINDME_MARKER.",
             assertion: "Asserts the `grep_search` tool ran successfully AND its output references \
                         the match (the FINDME_MARKER text or the file haystack.txt that contains it).",
@@ -513,6 +536,7 @@ fn cases() -> Vec<Cap> {
             name: "execute_shell",
             group: "execute_shell",
             tags: &["shell", "exec"],
+            real_only: false,
             task: "Run the shell command: echo hello_capability_marker",
             assertion: "Asserts the `execute_shell` tool ran successfully (is_error=false) AND its \
                         captured stdout contains the echoed text \"hello_capability_marker\".",
@@ -538,7 +562,413 @@ fn cases() -> Vec<Cap> {
                 Ok(())
             }),
         },
+        // ── task_create ────────────────────────────────────────────────
+        Cap {
+            name: "task_create",
+            group: "task",
+            tags: &["task", "collab"],
+            real_only: false,
+            task: "Create a task with the subject \"RegressTask\" and the description \
+                   \"verify task_create works\".",
+            assertion: "Asserts the `task_create` tool ran successfully (is_error=false) AND its \
+                        output confirms creation (\"Task created successfully\").",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| {
+                vec![tool_use_message(
+                    "1",
+                    "task_create",
+                    serde_json::json!({
+                        "subject": "RegressTask",
+                        "description": "verify task_create works",
+                    }),
+                )]
+            }),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "task_create").ok_or("task_create did not run")?;
+                if out.is_error {
+                    return Err(format!("task_create errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("Task created successfully") {
+                    return Err(format!("unexpected task_create output: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── task_list (create → list round-trip) ───────────────────────
+        Cap {
+            name: "task_list",
+            group: "task",
+            tags: &["task", "collab"],
+            real_only: false,
+            task: "Create a task titled \"ListMarkerTask\", then list all tracked tasks.",
+            assertion: "Asserts the `task_list` tool ran successfully AND its output includes the \
+                        task created earlier in the same run (\"ListMarkerTask\"), proving the \
+                        service persists and lists tasks.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| {
+                vec![
+                    tool_use_message(
+                        "1",
+                        "task_create",
+                        serde_json::json!({
+                            "subject": "ListMarkerTask",
+                            "description": "seed a task so task_list has something to show",
+                        }),
+                    ),
+                    tool_use_message("2", "task_list", serde_json::json!({})),
+                ]
+            }),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "task_list").ok_or("task_list did not run")?;
+                if out.is_error {
+                    return Err(format!("task_list errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("ListMarkerTask") {
+                    return Err(format!(
+                        "task_list output missing the created task: {}",
+                        out.model_text()
+                    ));
+                }
+                Ok(())
+            }),
+        },
+        // ── team_create ────────────────────────────────────────────────
+        Cap {
+            name: "team_create",
+            group: "team",
+            tags: &["team", "collab"],
+            real_only: false,
+            task: "Create a multi-agent team named \"RegressTeam\" described as \"team for coverage\".",
+            assertion: "Asserts the `team_create` tool ran successfully (is_error=false) AND its \
+                        output confirms creation (\"Team created successfully\").",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| {
+                vec![tool_use_message(
+                    "1",
+                    "team_create",
+                    serde_json::json!({
+                        "team_name": "RegressTeam",
+                        "description": "team for coverage",
+                        "agent_type": "code",
+                    }),
+                )]
+            }),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "team_create").ok_or("team_create did not run")?;
+                if out.is_error {
+                    return Err(format!("team_create errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("Team created successfully") {
+                    return Err(format!("unexpected team_create output: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── team_delete (create → delete) ──────────────────────────────
+        Cap {
+            name: "team_delete",
+            group: "team",
+            tags: &["team", "collab"],
+            real_only: false,
+            task: "Create a team named \"DeleteTeam\", then delete that same team.",
+            assertion: "Asserts the `team_delete` tool ran successfully AND its output confirms the \
+                        team was deleted (\"deleted successfully\").",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| {
+                vec![
+                    tool_use_message(
+                        "1",
+                        "team_create",
+                        serde_json::json!({
+                            "team_name": "DeleteTeam",
+                            "description": "a team that will be deleted",
+                        }),
+                    ),
+                    tool_use_message(
+                        "2",
+                        "team_delete",
+                        serde_json::json!({ "team_name": "DeleteTeam" }),
+                    ),
+                ]
+            }),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "team_delete").ok_or("team_delete did not run")?;
+                if out.is_error {
+                    return Err(format!("team_delete errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("deleted successfully") {
+                    return Err(format!("unexpected team_delete output: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── send_message (create teammate → send) ──────────────────────
+        Cap {
+            name: "send_message",
+            group: "team",
+            tags: &["team", "collab", "message"],
+            real_only: false,
+            task: "Create a teammate named \"worker\", then send it the message \"hello teammate\".",
+            assertion: "Asserts the `send_message` tool ran successfully AND its output confirms \
+                        delivery (\"Message sent to 'worker'\").",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| {
+                vec![
+                    tool_use_message(
+                        "1",
+                        "team_create",
+                        serde_json::json!({
+                            "team_name": "worker",
+                            "description": "the message recipient",
+                        }),
+                    ),
+                    tool_use_message(
+                        "2",
+                        "send_message",
+                        serde_json::json!({
+                            "to": "worker",
+                            "message": "hello teammate",
+                            "summary": "greeting",
+                        }),
+                    ),
+                ]
+            }),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "send_message").ok_or("send_message did not run")?;
+                if out.is_error {
+                    return Err(format!("send_message errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("Message sent to 'worker'") {
+                    return Err(format!("unexpected send_message output: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── search_skills (seed a skill tree → search) ─────────────────
+        Cap {
+            name: "search_skills",
+            group: "skills",
+            tags: &["skills", "search"],
+            real_only: false,
+            task: "Search the available skills for one matching the keyword \"regress\".",
+            assertion: "Asserts the `search_skills` tool ran successfully AND its output includes \
+                        the seeded skill id \"regress-skill\".",
+            setup: Box::new(|ws| seed_skill(ws)),
+            mock_script: Box::new(|_ws| {
+                vec![tool_use_message(
+                    "1",
+                    "search_skills",
+                    serde_json::json!({ "query": "regress" }),
+                )]
+            }),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "search_skills").ok_or("search_skills did not run")?;
+                if out.is_error {
+                    return Err(format!("search_skills errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("regress-skill") {
+                    return Err(format!(
+                        "search_skills did not surface the seeded skill: {}",
+                        out.model_text()
+                    ));
+                }
+                Ok(())
+            }),
+        },
+        // ── use_skill (seed an enabled skill → activate) ───────────────
+        Cap {
+            name: "use_skill",
+            group: "skills",
+            tags: &["skills", "activate"],
+            real_only: false,
+            task: "Activate the skill named \"regress-skill\" and report its instructions.",
+            assertion: "Asserts the `use_skill` tool ran successfully AND its output contains the \
+                        seeded skill's body marker (\"REGRESS_SKILL_BODY\").",
+            setup: Box::new(|ws| seed_skill(ws)),
+            mock_script: Box::new(|_ws| {
+                vec![tool_use_message(
+                    "1",
+                    "use_skill",
+                    serde_json::json!({ "skill_name": "regress-skill" }),
+                )]
+            }),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "use_skill").ok_or("use_skill did not run")?;
+                if out.is_error {
+                    return Err(format!("use_skill errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("REGRESS_SKILL_BODY") {
+                    return Err(format!(
+                        "use_skill did not return the skill body: {}",
+                        out.model_text()
+                    ));
+                }
+                Ok(())
+            }),
+        },
+        // ── task_get (REAL ONLY — needs runtime task_id) ───────────────
+        Cap {
+            name: "task_get",
+            group: "task",
+            tags: &["task", "collab", "real-only"],
+            real_only: true,
+            task: "Create a task with the subject \"Demo\" and a short description, then look up \
+                   that task's full details by its ID.",
+            assertion: "Asserts the `task_get` tool ran successfully (is_error=false) AND its \
+                        output renders task details (contains \"Status:\"). REAL ONLY: the id is \
+                        minted at create time, so a live model must chain create → get.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| vec![]),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "task_get").ok_or("task_get did not run")?;
+                if out.is_error {
+                    return Err(format!("task_get errored: {}", out.model_text()));
+                }
+                if !out.model_text().contains("Status:") {
+                    return Err(format!("task_get output missing task details: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── task_update (REAL ONLY — needs runtime task_id) ────────────
+        Cap {
+            name: "task_update",
+            group: "task",
+            tags: &["task", "collab", "real-only"],
+            real_only: true,
+            task: "Create a task, then update that task's status to in_progress.",
+            assertion: "Asserts the `task_update` tool ran successfully (is_error=false). REAL \
+                        ONLY: requires the runtime-minted task id.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| vec![]),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "task_update").ok_or("task_update did not run")?;
+                if out.is_error {
+                    return Err(format!("task_update errored: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── task_output (REAL ONLY — needs runtime task_id) ────────────
+        Cap {
+            name: "task_output",
+            group: "task",
+            tags: &["task", "collab", "real-only"],
+            real_only: true,
+            task: "Create a task, then retrieve that task's output.",
+            assertion: "Asserts the `task_output` tool ran successfully (is_error=false; a fresh \
+                        task legitimately has no output yet). REAL ONLY: needs the runtime task id.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| vec![]),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "task_output").ok_or("task_output did not run")?;
+                if out.is_error {
+                    return Err(format!("task_output errored: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── task_stop (REAL ONLY — needs runtime task_id) ──────────────
+        Cap {
+            name: "task_stop",
+            group: "task",
+            tags: &["task", "collab", "real-only"],
+            real_only: true,
+            task: "Create a task, then stop (cancel) that task.",
+            assertion: "Asserts the `task_stop` tool ran successfully (is_error=false). REAL ONLY: \
+                        needs the runtime-minted task id.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| vec![]),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "task_stop").ok_or("task_stop did not run")?;
+                if out.is_error {
+                    return Err(format!("task_stop errored: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── internet_search (REAL ONLY — live network) ─────────────────
+        Cap {
+            name: "internet_search",
+            group: "web",
+            tags: &["web", "network", "real-only"],
+            real_only: true,
+            task: "Search the internet for information about the Rust programming language.",
+            assertion: "Asserts the `internet_search` tool ran successfully (is_error=false). REAL \
+                        ONLY: hits a live search endpoint; meaningful only with network access.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| vec![]),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "internet_search").ok_or("internet_search did not run")?;
+                if out.is_error {
+                    return Err(format!("internet_search errored: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── read_url (REAL ONLY — live HTTP) ───────────────────────────
+        Cap {
+            name: "read_url",
+            group: "web",
+            tags: &["web", "network", "real-only"],
+            real_only: true,
+            task: "Fetch the contents of the URL https://example.com and summarize what it says.",
+            assertion: "Asserts the `read_url` tool ran successfully (is_error=false). REAL ONLY: \
+                        live HTTP fetch. (The deterministic HTTP path is covered separately by \
+                        e2e_tool_coverage's wiremock test.)",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| vec![]),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "read_url").ok_or("read_url did not run")?;
+                if out.is_error {
+                    return Err(format!("read_url errored: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
+        // ── agent / sub-agent spawn (REAL ONLY — needs a live model) ───
+        Cap {
+            name: "agent",
+            group: "sub-agents",
+            tags: &["sub-agent", "spawn", "real-only"],
+            real_only: true,
+            task: "Use a sub-agent to write a one-sentence summary of what a binary search \
+                   algorithm does.",
+            assertion: "Asserts the `agent` (sub-agent spawn) tool ran successfully (is_error=false). \
+                        REAL ONLY: spawning a sub-agent needs a live model to drive it.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| vec![]),
+            check: Box::new(|_ws, events| {
+                let out = result_for(events, "agent").ok_or("agent (sub-agent) did not run")?;
+                if out.is_error {
+                    return Err(format!("agent tool errored: {}", out.model_text()));
+                }
+                Ok(())
+            }),
+        },
     ]
+}
+
+/// Seed an *enabled* skill under `<ws>/.alva/skills` so `search_skills` /
+/// `use_skill` have something real to find. Layout mirrors
+/// `FsSkillRepository`: a `user/<name>/SKILL.md` (YAML frontmatter + body) plus
+/// a `state.json` listing the skill as enabled (use_skill only activates
+/// enabled skills). Runs in `setup`, i.e. BEFORE `build_mini_agent` (whose
+/// SkillsPlugin scans this tree at build), so the skill is present at scan time.
+fn seed_skill(ws: &Path) {
+    let skills_root = ws.join(".alva/skills");
+    let skill_dir = skills_root.join("user/regress-skill");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: regress-skill\ndescription: A regression test skill for capability coverage.\n---\n\nREGRESS_SKILL_BODY: this skill exists solely to exercise search_skills/use_skill.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        skills_root.join("state.json"),
+        "{\"enabled\": [\"regress-skill\"]}",
+    )
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -881,6 +1311,13 @@ async fn mock_capability_suite() {
     let mut runs: Vec<CaseRun> = Vec::new();
 
     for case in cases() {
+        // `real_only` cases can't be scripted deterministically (runtime ids /
+        // live network / sub-agent spawn) — they run only in the real suite.
+        if case.real_only {
+            eprintln!("⏭  {} — skipped (real-only case)", case.name);
+            continue;
+        }
+
         // Independent canonicalized tempdir per case (security middleware
         // canonicalizes paths; macOS maps /var → /private/var).
         let tmp = tempfile::tempdir().unwrap();
