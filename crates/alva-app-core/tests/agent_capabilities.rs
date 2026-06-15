@@ -71,6 +71,11 @@ async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> Ba
         .middleware(Arc::new(
             alva_kernel_core::builtins::ToolTimeoutMiddleware::default(),
         ))
+        // P2(安全/长会话):Permission + Compaction —— 与 CLI build_agent 镜像
+        .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
+        .middleware(Arc::new(
+            alva_host_native::middleware::CompactionMiddleware::default(),
+        ))
         .build(model)
         .await
         .expect("failed to build mini agent");

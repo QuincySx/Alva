@@ -119,7 +119,10 @@ pub(crate) async fn build_agent(
         .plugin(Box::new(alva_app_core::extension::ShellPlugin))
         .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
         .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()));
+        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
+        // P2(安全/长会话):Permission(HITL/plan 模式,发布 PermissionModeService)+ Compaction(长会话上下文压缩)
+        .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
+        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()));
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback

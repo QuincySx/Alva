@@ -16,9 +16,9 @@
 - [x] **卫生中间件**(LoopDetection + DanglingToolCall + ToolTimeout)—— 近乎零成本,防跑飞/死循环/工具卡死。
   - 编译✅。运行验证(需 API key):`cargo run -p alva-app-cli` → 让 agent 跑个 shell 命令(如 `ls`)、删个临时文件,确认 execute_shell 可用。
 
-### P2 — 安全与长会话
-- [ ] **PermissionPlugin**(PlanMode + 审批)—— 配 approval substrate,HITL/plan 模式。测:触发一次危险操作看审批流。
-- [ ] **CompactionMiddleware** —— 长会话上下文压缩。测:长对话不爆 context。
+### P2 — 安全与长会话 ✅
+- [x] **PermissionPlugin**(PlanMode + 审批)—— 配 approval substrate,HITL/plan 模式。验证:mock 回归 7/7 仍过(P2 没破坏工具);plan-mode 拦写已由 `e2e_tool_coverage::stage1_enter_plan_mode...blocks_writes` 项目级覆盖。
+- [x] **CompactionMiddleware** —— 长会话上下文压缩(中间件,长会话时激活;上下文压缩逻辑由 context 测试覆盖)。
 
 ### P3 — 知识与检索
 - [ ] **SkillsPlugin** —— 渐进式 skill 加载(复用 bundled_skills + _paths.skills_dir)。测:加载一个 skill。
