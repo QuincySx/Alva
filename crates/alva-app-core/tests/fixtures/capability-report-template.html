@@ -6,29 +6,67 @@
 <title>Agent Capability Report</title>
 <style>
   :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         margin: 0; padding: 0 0 48px; background: #f5f6f8; color: #1c1e21; }
-  .report-header { padding: 24px 32px; color: #fff; }
-  .report-header.ok { background: linear-gradient(135deg,#1a7f37,#2da44e); }
-  .report-header.fail { background: linear-gradient(135deg,#a40e26,#cf222e); }
-  .report-header h1 { margin: 0 0 12px; font-size: 22px; }
-  .meta { display: flex; flex-wrap: wrap; gap: 8px; }
-  .pill { background: rgba(255,255,255,.18); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
-  .pill.ok { background: rgba(255,255,255,.30); }
-  .pill.fail { background: rgba(0,0,0,.25); }
+         margin: 0; padding: 0 0 64px; background: #f5f6f8; color: #1c1e21; }
+
+  /* ── sticky control console ───────────────────────────────────────── */
+  .console { position: sticky; top: 0; z-index: 10; background: #fff;
+             border-bottom: 1px solid #d0d7de; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .console-summary { padding: 14px 24px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .console-summary h1 { margin: 0 14px 0 0; font-size: 17px; }
+  .pill { background: #eaeef2; border-radius: 999px; padding: 4px 12px; font-size: 13px; color: #1c1e21; }
   .pill b { font-weight: 700; }
-  .card { background: #fff; margin: 18px 32px; border-radius: 10px; padding: 18px 20px;
-          box-shadow: 0 1px 3px rgba(0,0,0,.12); border-left: 6px solid #2da44e; }
-  .card.fail { border-left-color: #cf222e; box-shadow: 0 0 0 2px #cf222e33, 0 1px 3px rgba(0,0,0,.2); }
-  .card-head { display: flex; align-items: center; gap: 12px; }
-  .card-head h2 { margin: 0; font-size: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .badge { font-weight: 700; font-size: 12px; padding: 3px 10px; border-radius: 6px; color: #fff; }
+  .pill.allpass { background: #d6f5e0; color: #0a5a28; }
+  .pill.hasfail { background: #ffe0e3; color: #a40e26; }
+  .controls { padding: 6px 24px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+  .ctl-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ctl-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; font-weight: 700; }
+  button.chip, .seg button { font: inherit; cursor: pointer; border: 1px solid #d0d7de; background: #fff;
+            color: #1c1e21; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  button.chip.active { background: #0969da; border-color: #0969da; color: #fff; }
+  button.chip.tag.active { background: #8250df; border-color: #8250df; }
+  .seg { display: inline-flex; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-right: 1px solid #d0d7de; border-radius: 0; padding: 5px 12px; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.active { color: #fff; }
+  .seg button.active.all { background: #0969da; }
+  .seg button.active.pass { background: #2da44e; }
+  .seg button.active.fail { background: #cf222e; }
+  input.search { font: inherit; padding: 5px 10px; border: 1px solid #d0d7de; border-radius: 8px; min-width: 220px; }
+  button.linkbtn { font: inherit; cursor: pointer; background: none; border: 0; color: #0969da; text-decoration: underline; font-size: 13px; padding: 0; }
+
+  /* ── group sections ───────────────────────────────────────────────── */
+  .groups { padding: 8px 24px; }
+  details.group { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; margin: 12px 0; overflow: hidden; }
+  details.group.hasfail { border-color: #cf222e; box-shadow: 0 0 0 1px #cf222e22; }
+  summary.group-head { cursor: pointer; padding: 12px 16px; font-size: 15px; font-weight: 700;
+            display: flex; align-items: center; gap: 10px; list-style: none; }
+  summary.group-head::-webkit-details-marker { display: none; }
+  summary.group-head .tri { transition: transform .15s; color: #57606a; }
+  details[open] > summary.group-head .tri { transform: rotate(90deg); }
+  .group-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .group-stat { font-size: 13px; font-weight: 600; color: #1a7f37; }
+  .group-stat.fail { color: #cf222e; }
+  .group-body { padding: 4px 12px 12px; }
+
+  /* ── per-case collapsible ─────────────────────────────────────────── */
+  details.case { border: 1px solid #e1e4e8; border-left: 5px solid #2da44e; border-radius: 8px; margin: 8px 0; }
+  details.case.fail { border-left-color: #cf222e; background: #fff8f8; }
+  summary.case-head { cursor: pointer; padding: 9px 12px; display: flex; align-items: center; gap: 10px; list-style: none; }
+  summary.case-head::-webkit-details-marker { display: none; }
+  .badge { font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 5px; color: #fff; }
   .badge-pass { background: #2da44e; }
   .badge-fail { background: #cf222e; }
-  .latency { margin-left: auto; color: #57606a; font-size: 13px; }
-  .modetag { color: #57606a; font-size: 12px; font-style: italic; }
-  .block { margin-top: 14px; }
-  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; margin-bottom: 4px; font-weight: 600; }
+  .case-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+  .case-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+  .case-tag { font-size: 10.5px; background: #eef1f4; color: #57606a; border-radius: 4px; padding: 1px 6px; }
+  .latency { margin-left: auto; color: #57606a; font-size: 12px; white-space: nowrap; }
+  .modetag { color: #57606a; font-size: 11px; font-style: italic; }
+  .case-body { padding: 4px 14px 14px; }
+
+  .block { margin-top: 12px; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; margin-bottom: 4px; font-weight: 700; }
   .note { color: #8250df; font-style: italic; font-size: 12px; text-transform: none; letter-spacing: 0; }
   .assertion { background: #fff8e6; border: 1px solid #f0e2b6; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
   pre { background: #0d1117; color: #e6edf3; padding: 12px 14px; border-radius: 6px; overflow-x: auto;
@@ -44,113 +82,238 @@
   .okk { color: #1a7f37; font-weight: 600; }
   .empty { color: #8c959f; font-style: italic; }
   .verdict { font-size: 14px; }
-  .nodata { margin: 40px; font-size: 16px; color: #8c959f; }
+  .nodata, .noresults { margin: 40px 24px; font-size: 16px; color: #8c959f; }
 </style>
 </head>
 <body>
-<main id="root"></main>
+<div id="root"></div>
 
 <!-- DATA LAYER: the test injects the runtime JSON here in place of `null`. -->
 <script>window.REPORT = /*__REPORT_JSON__*/ null;</script>
 
-<!-- VIEW LAYER: renders window.REPORT into the DOM. Static, committed once. -->
+<!-- VIEW LAYER: a self-contained, framework-free report console. Reads
+     window.REPORT and supports status/group/tag/text filtering, group +
+     per-case collapse, and a one-click "only failures" view. Built to scale
+     to hundreds of cases (collapsed summary rows, expand on demand). -->
 <script>
 (function () {
   var R = window.REPORT;
   var root = document.getElementById("root");
 
-  // Safe element factory — text goes via textContent (never innerHTML), so
+  // Safe element factory — text via textContent (never innerHTML for data), so
   // any <, >, &, " in tool I/O can never break the page or inject markup.
   function el(tag, opts) {
     var n = document.createElement(tag);
     opts = opts || {};
     if (opts.cls) n.className = opts.cls;
     if (opts.text != null) n.textContent = String(opts.text);
-    if (opts.html != null) n.innerHTML = opts.html; // only for trusted static markup
+    if (opts.attrs) for (var k in opts.attrs) n.setAttribute(k, opts.attrs[k]);
     return n;
   }
   function pre(text, cls) { return el("pre", { cls: cls, text: text }); }
-  function MAX() { return 8000; }
+  var MAX = 8000;
   function clip(s) {
     s = (s == null) ? "" : String(s);
-    if (s.length <= MAX()) return s;
-    return s.slice(0, MAX()) + "\n\n… [truncated for display — original length " + s.length + " chars]";
+    if (s.length <= MAX) return s;
+    return s.slice(0, MAX) + "\n\n… [truncated for display — original length " + s.length + " chars]";
   }
   function fmtInput(v) {
     if (typeof v === "string") return v;
     try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
   }
+  function isPass(c) { return c.verdict === "pass"; }
 
   if (!R) {
     root.appendChild(el("div", { cls: "nodata", text: "No report data (window.REPORT is null)." }));
     return;
   }
 
-  var allPass = R.summary.passed === R.summary.total;
+  var cases = (R.cases || []).slice();
 
-  // ---- Header ----
-  var hdr = el("header", { cls: "report-header " + (allPass ? "ok" : "fail") });
-  hdr.appendChild(el("h1", { text: "Agent Capability Report" }));
-  var meta = el("div", { cls: "meta" });
-  function pill(label, value, extraCls) {
-    var p = el("span", { cls: "pill" + (extraCls ? " " + extraCls : "") });
+  // Distinct groups + tags (first-seen order).
+  var groupOrder = [], seenG = {};
+  var tagOrder = [], seenT = {};
+  cases.forEach(function (c) {
+    if (!seenG[c.group]) { seenG[c.group] = 1; groupOrder.push(c.group); }
+    (c.tags || []).forEach(function (t) { if (!seenT[t]) { seenT[t] = 1; tagOrder.push(t); } });
+  });
+
+  // ── filter state ──────────────────────────────────────────────────
+  var state = { status: "all", groups: new Set(), tags: new Set(), q: "" };
+
+  function caseMatches(c) {
+    if (state.status === "pass" && !isPass(c)) return false;
+    if (state.status === "fail" && isPass(c)) return false;
+    if (state.groups.size && !state.groups.has(c.group)) return false;
+    if (state.tags.size) {
+      var hit = (c.tags || []).some(function (t) { return state.tags.has(t); });
+      if (!hit) return false;
+    }
+    if (state.q) {
+      var q = state.q.toLowerCase();
+      var hay = (c.name + " " + (c.task || "") + " " + (c.assertion || "")).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  }
+
+  // ── console (sticky) ──────────────────────────────────────────────
+  var allPass = R.summary.passed === R.summary.total;
+  var failCount = R.summary.total - R.summary.passed;
+  var console_ = el("div", { cls: "console" });
+
+  var sum = el("div", { cls: "console-summary" });
+  sum.appendChild(el("h1", { text: "Agent Capability Report" }));
+  function pill(label, value, cls) {
+    var p = el("span", { cls: "pill" + (cls ? " " + cls : "") });
     p.appendChild(document.createTextNode(label + ": "));
     p.appendChild(el("b", { text: value }));
     return p;
   }
+  sum.appendChild(pill("result", R.summary.passed + " / " + R.summary.total + " passed", allPass ? "allpass" : "hasfail"));
+  sum.appendChild(pill("failed", failCount, failCount ? "hasfail" : null));
+  sum.appendChild(pill("suite", R.suite));
+  sum.appendChild(pill("model", R.model));
+  sum.appendChild(pill("total", (R.summary.duration_ms || 0) + " ms"));
   var ts = new Date((R.timestamp_unix || 0) * 1000);
-  meta.appendChild(pill("suite", R.suite));
-  meta.appendChild(pill("model", R.model));
-  meta.appendChild(pill("generated", isNaN(ts.getTime()) ? "n/a" : ts.toLocaleString()));
-  meta.appendChild(pill("result", R.summary.passed + " / " + R.summary.total + " passed", allPass ? "ok" : "fail"));
-  meta.appendChild(pill("total", (R.summary.duration_ms || 0) + " ms"));
-  hdr.appendChild(meta);
-  root.appendChild(hdr);
+  sum.appendChild(pill("generated", isNaN(ts.getTime()) ? "n/a" : ts.toLocaleString()));
+  console_.appendChild(sum);
 
-  // ---- Cards (failures first) ----
-  var cases = (R.cases || []).slice();
-  cases.sort(function (a, b) {
-    var av = a.verdict === "pass" ? 1 : 0, bv = b.verdict === "pass" ? 1 : 0;
-    return av - bv;
+  var controls = el("div", { cls: "controls" });
+
+  // status segmented control
+  var statusGroup = el("div", { cls: "ctl-group" });
+  statusGroup.appendChild(el("span", { cls: "ctl-label", text: "status" }));
+  var seg = el("div", { cls: "seg" });
+  var statusBtns = {};
+  [["all", "All"], ["pass", "✅ Pass"], ["fail", "❌ Fail"]].forEach(function (pair) {
+    var b = el("button", { text: pair[1], attrs: { "data-k": pair[0] } });
+    b.className = pair[0] + (state.status === pair[0] ? " active " + pair[0] : "");
+    b.onclick = function () {
+      state.status = pair[0];
+      for (var k in statusBtns) statusBtns[k].className = k + (k === pair[0] ? " active " + k : "");
+      render();
+    };
+    statusBtns[pair[0]] = b;
+    seg.appendChild(b);
   });
+  statusGroup.appendChild(seg);
+  controls.appendChild(statusGroup);
 
-  cases.forEach(function (c) {
-    var pass = c.verdict === "pass";
-    var card = el("section", { cls: "card " + (pass ? "ok" : "fail") });
+  // group chips
+  if (groupOrder.length) {
+    var gGroup = el("div", { cls: "ctl-group" });
+    gGroup.appendChild(el("span", { cls: "ctl-label", text: "groups" }));
+    groupOrder.forEach(function (g) {
+      var b = el("button", { cls: "chip", text: g });
+      b.onclick = function () {
+        if (state.groups.has(g)) { state.groups.delete(g); b.classList.remove("active"); }
+        else { state.groups.add(g); b.classList.add("active"); }
+        render();
+      };
+      gGroup.appendChild(b);
+    });
+    controls.appendChild(gGroup);
+  }
 
-    var head = el("div", { cls: "card-head" });
-    head.appendChild(el("span", { cls: "badge " + (pass ? "badge-pass" : "badge-fail"), text: pass ? "PASS" : "FAIL" }));
-    head.appendChild(el("h2", { text: c.name }));
-    head.appendChild(el("span", { cls: "latency", text: (c.latency_ms || 0) + " ms" }));
-    if (c.mode) head.appendChild(el("span", { cls: "modetag", text: c.mode + " path" }));
-    card.appendChild(head);
+  // tag chips
+  if (tagOrder.length) {
+    var tGroup = el("div", { cls: "ctl-group" });
+    tGroup.appendChild(el("span", { cls: "ctl-label", text: "tags" }));
+    tagOrder.forEach(function (t) {
+      var b = el("button", { cls: "chip tag", text: t });
+      b.onclick = function () {
+        if (state.tags.has(t)) { state.tags.delete(t); b.classList.remove("active"); }
+        else { state.tags.add(t); b.classList.add("active"); }
+        render();
+      };
+      tGroup.appendChild(b);
+    });
+    controls.appendChild(tGroup);
+  }
 
-    // Task
-    var taskBlock = el("div", { cls: "block" });
-    var taskLabel = el("div", { cls: "label" });
-    taskLabel.appendChild(document.createTextNode("Task prompt"));
-    if (c.mode === "mock") {
-      taskLabel.appendChild(el("em", {
-        cls: "note",
-        text: " (mock path: the scripted MockLanguageModel injected the tool call directly; this prompt is the intent only)"
-      }));
+  // search
+  var sGroup = el("div", { cls: "ctl-group" });
+  sGroup.appendChild(el("span", { cls: "ctl-label", text: "search" }));
+  var search = el("input", { cls: "search", attrs: { type: "search", placeholder: "name / task / assertion…" } });
+  search.oninput = function () { state.q = search.value; render(); };
+  sGroup.appendChild(search);
+  controls.appendChild(sGroup);
+
+  // quick actions
+  var qGroup = el("div", { cls: "ctl-group" });
+  var onlyFail = el("button", { cls: "linkbtn", text: "Only failures" });
+  onlyFail.onclick = function () {
+    state.status = "fail"; state.groups.clear(); state.tags.clear(); state.q = ""; search.value = "";
+    syncChips(); render();
+  };
+  var reset = el("button", { cls: "linkbtn", text: "Reset" });
+  reset.onclick = function () {
+    state.status = "all"; state.groups.clear(); state.tags.clear(); state.q = ""; search.value = "";
+    syncChips(); render();
+  };
+  qGroup.appendChild(onlyFail);
+  qGroup.appendChild(reset);
+  controls.appendChild(qGroup);
+
+  function syncChips() {
+    for (var k in statusBtns) statusBtns[k].className = k + (k === state.status ? " active " + k : "");
+    controls.querySelectorAll("button.chip").forEach(function (b) {
+      var isTag = b.classList.contains("tag");
+      var on = isTag ? state.tags.has(b.textContent) : state.groups.has(b.textContent);
+      b.classList.toggle("active", on);
+    });
+  }
+
+  console_.appendChild(controls);
+  root.appendChild(console_);
+
+  // ── body (re-rendered on filter change) ───────────────────────────
+  var body = el("div", { cls: "groups" });
+  root.appendChild(body);
+
+  function buildCase(c) {
+    var pass = isPass(c);
+    var d = el("details", { cls: "case" + (pass ? "" : " fail") });
+
+    var s = el("summary", { cls: "case-head" });
+    s.appendChild(el("span", { cls: "badge " + (pass ? "badge-pass" : "badge-fail"), text: pass ? "PASS" : "FAIL" }));
+    s.appendChild(el("span", { cls: "case-name", text: c.name }));
+    if (c.tags && c.tags.length) {
+      var tw = el("span", { cls: "case-tags" });
+      c.tags.forEach(function (t) { tw.appendChild(el("span", { cls: "case-tag", text: t })); });
+      s.appendChild(tw);
     }
-    taskBlock.appendChild(taskLabel);
-    taskBlock.appendChild(pre(c.task, "prompt"));
-    card.appendChild(taskBlock);
+    s.appendChild(el("span", { cls: "latency", text: (c.latency_ms || 0) + " ms" }));
+    if (c.mode) s.appendChild(el("span", { cls: "modetag", text: c.mode + " path" }));
+    d.appendChild(s);
+    if (!pass) d.open = true; // failing cases start expanded
 
-    // Assertion
-    var aBlock = el("div", { cls: "block" });
-    aBlock.appendChild(el("div", { cls: "label", text: "Assertion (what we check)" }));
-    aBlock.appendChild(el("div", { cls: "assertion", text: c.assertion }));
-    card.appendChild(aBlock);
+    var bd = el("div", { cls: "case-body" });
 
-    // Trace
-    var tBlock = el("div", { cls: "block" });
-    tBlock.appendChild(el("div", { cls: "label", text: "Execution trace" }));
+    // task
+    var tb = el("div", { cls: "block" });
+    var tl = el("div", { cls: "label" });
+    tl.appendChild(document.createTextNode("Task prompt"));
+    if (c.mode === "mock") {
+      tl.appendChild(el("em", { cls: "note", text: " (mock path: the scripted MockLanguageModel injected the tool call directly; this prompt is the intent only)" }));
+    }
+    tb.appendChild(tl);
+    tb.appendChild(pre(c.task, "prompt"));
+    bd.appendChild(tb);
+
+    // assertion
+    var ab = el("div", { cls: "block" });
+    ab.appendChild(el("div", { cls: "label", text: "Assertion (what we check)" }));
+    ab.appendChild(el("div", { cls: "assertion", text: c.assertion }));
+    bd.appendChild(ab);
+
+    // trace
+    var trb = el("div", { cls: "block" });
+    trb.appendChild(el("div", { cls: "label", text: "Execution trace" }));
     var trace = c.trace || [];
-    if (trace.length === 0) {
-      tBlock.appendChild(el("div", { cls: "empty", text: "No tool executions captured." }));
+    if (!trace.length) {
+      trb.appendChild(el("div", { cls: "empty", text: "No tool executions captured." }));
     } else {
       trace.forEach(function (t, i) {
         var tool = el("div", { cls: "tool" });
@@ -165,32 +328,65 @@
         var outStr = (t.output == null) ? "" : String(t.output);
         tool.appendChild(el("div", { cls: "sub", text: "output (" + outStr.length + " chars)" }));
         tool.appendChild(pre(clip(outStr)));
-        tBlock.appendChild(tool);
+        trb.appendChild(tool);
       });
     }
     if (c.final_text) {
-      tBlock.appendChild(el("div", { cls: "sub", text: "final assistant message" }));
-      tBlock.appendChild(pre(clip(c.final_text), "finaltext"));
+      trb.appendChild(el("div", { cls: "sub", text: "final assistant message" }));
+      trb.appendChild(pre(clip(c.final_text), "finaltext"));
     }
     if (c.end_error) {
-      tBlock.appendChild(el("div", { cls: "sub err", text: "AgentEnd error" }));
-      tBlock.appendChild(pre(clip(c.end_error)));
+      trb.appendChild(el("div", { cls: "sub err", text: "AgentEnd error" }));
+      trb.appendChild(pre(clip(c.end_error)));
     }
-    card.appendChild(tBlock);
+    bd.appendChild(trb);
 
-    // Verdict
-    var vBlock = el("div", { cls: "block" });
-    vBlock.appendChild(el("div", { cls: "label", text: "Verdict" }));
+    // verdict
+    var vb = el("div", { cls: "block" });
+    vb.appendChild(el("div", { cls: "label", text: "Verdict" }));
     var v = el("div", { cls: "verdict" });
-    v.appendChild(el("span", {
-      cls: pass ? "okk" : "err",
-      text: pass ? "PASS — all assertions held." : ("FAIL — " + (c.detail || "see trace"))
-    }));
-    vBlock.appendChild(v);
-    card.appendChild(vBlock);
+    v.appendChild(el("span", { cls: pass ? "okk" : "err",
+      text: pass ? "PASS — all assertions held." : ("FAIL — " + (c.detail || "see trace")) }));
+    vb.appendChild(v);
+    bd.appendChild(vb);
 
-    root.appendChild(card);
-  });
+    d.appendChild(bd);
+    return d;
+  }
+
+  function render() {
+    body.textContent = "";
+    var visible = cases.filter(caseMatches);
+    if (!visible.length) {
+      body.appendChild(el("div", { cls: "noresults", text: "No cases match the current filters." }));
+      return;
+    }
+    // Group the visible cases, preserving group order.
+    groupOrder.forEach(function (g) {
+      var inG = visible.filter(function (c) { return c.group === g; });
+      if (!inG.length) return;
+      var total = inG.length;
+      var passed = inG.filter(isPass).length;
+      var hasFail = passed < total;
+
+      var det = el("details", { cls: "group" + (hasFail ? " hasfail" : "") });
+      det.open = hasFail; // groups with failures auto-expand; all-pass collapsed
+      var head = el("summary", { cls: "group-head" });
+      head.appendChild(el("span", { cls: "tri", text: "▶" }));
+      head.appendChild(el("span", { cls: "group-name", text: g }));
+      head.appendChild(el("span", { cls: "group-stat" + (hasFail ? " fail" : ""), text: passed + " / " + total + " passed" }));
+      det.appendChild(head);
+
+      var gbody = el("div", { cls: "group-body" });
+      // failures first within a group
+      inG.sort(function (a, b) { return (isPass(a) ? 1 : 0) - (isPass(b) ? 1 : 0); });
+      inG.forEach(function (c) { gbody.appendChild(buildCase(c)); });
+      det.appendChild(gbody);
+      body.appendChild(det);
+    });
+  }
+
+  render();
 })();
 </script>
 </body>

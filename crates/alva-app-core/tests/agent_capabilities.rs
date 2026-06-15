@@ -156,8 +156,14 @@ fn result_for(events: &[AgentEvent], tool_name: &str) -> Option<ToolOutput> {
 // ---------------------------------------------------------------------------
 
 struct Cap {
-    /// Stable case name (and report row label).
+    /// Stable case name (and report row label). Unique across ALL cases.
     name: &'static str,
+    /// Grouping key for the report — typically the tool/category under test
+    /// (e.g. "create_file", "execute_shell", "search"). Many cases may share
+    /// one group; the report aggregates + collapses by it.
+    group: &'static str,
+    /// Free-form filter tags (e.g. ["fs","write"], ["edge-case"]).
+    tags: &'static [&'static str],
     /// Natural-language instruction for the REAL LLM path.
     task: &'static str,
     /// Human-readable description of what this case asserts (shown in report).
@@ -176,6 +182,8 @@ fn cases() -> Vec<Cap> {
         // ── create_file ────────────────────────────────────────────────
         Cap {
             name: "create_file",
+            group: "create_file",
+            tags: &["fs", "write"],
             task: "Create a file named hello.txt in the workspace with exactly the content: hello",
             assertion: "Asserts the `create_file` tool ran AND `hello.txt` now exists in the \
                         workspace with content exactly equal to \"hello\".",
@@ -206,6 +214,8 @@ fn cases() -> Vec<Cap> {
         // ── read_file ──────────────────────────────────────────────────
         Cap {
             name: "read_file",
+            group: "read_file",
+            tags: &["fs", "read"],
             task: "Read the file data.txt in the workspace and report its contents.",
             assertion: "Asserts the `read_file` tool ran successfully (is_error=false) AND its \
                         output text contains the pre-seeded marker \"secret-content-123\".",
@@ -238,6 +248,8 @@ fn cases() -> Vec<Cap> {
         // ── file_edit ──────────────────────────────────────────────────
         Cap {
             name: "file_edit",
+            group: "file_edit",
+            tags: &["fs", "write", "edit"],
             task: "In the file edit_me.txt, replace the word alpha with beta.",
             assertion: "Asserts the `file_edit` tool ran AND the on-disk content of edit_me.txt \
                         changed from \"alpha\" to \"beta\".",
@@ -271,6 +283,8 @@ fn cases() -> Vec<Cap> {
         // ── list_files ─────────────────────────────────────────────────
         Cap {
             name: "list_files",
+            group: "list_files",
+            tags: &["fs", "read", "search"],
             task: "List the files in the workspace.",
             assertion: "Asserts the `list_files` tool ran successfully AND its output lists both \
                         pre-seeded files: alpha.txt and beta.txt.",
@@ -296,6 +310,8 @@ fn cases() -> Vec<Cap> {
         // ── find_files ─────────────────────────────────────────────────
         Cap {
             name: "find_files",
+            group: "find_files",
+            tags: &["fs", "search", "glob"],
             task: "Find files matching the glob pattern *.rs in the workspace.",
             assertion: "Asserts the `find_files` tool ran successfully AND its output includes \
                         needle.rs (the only *.rs file seeded), proving the glob matched.",
@@ -327,6 +343,8 @@ fn cases() -> Vec<Cap> {
         // ── grep_search ────────────────────────────────────────────────
         Cap {
             name: "grep_search",
+            group: "grep_search",
+            tags: &["fs", "search", "grep"],
             task: "Search the workspace for the text FINDME_MARKER.",
             assertion: "Asserts the `grep_search` tool ran successfully AND its output references \
                         the match (the FINDME_MARKER text or the file haystack.txt that contains it).",
@@ -356,6 +374,8 @@ fn cases() -> Vec<Cap> {
         // ── execute_shell ──────────────────────────────────────────────
         Cap {
             name: "execute_shell",
+            group: "execute_shell",
+            tags: &["shell", "exec"],
             task: "Run the shell command: echo hello_capability_marker",
             assertion: "Asserts the `execute_shell` tool ran successfully (is_error=false) AND its \
                         captured stdout contains the echoed text \"hello_capability_marker\".",
@@ -391,6 +411,8 @@ fn cases() -> Vec<Cap> {
 /// Everything captured for ONE case run, enough to render a full audit row.
 struct CaseRun {
     name: &'static str,
+    group: &'static str,
+    tags: &'static [&'static str],
     task: &'static str,
     assertion: &'static str,
     /// "mock" path injects the tool call via the scripted model; "real" path
@@ -455,6 +477,8 @@ fn case_to_json(run: &CaseRun) -> serde_json::Value {
 
     serde_json::json!({
         "name": run.name,
+        "group": run.group,
+        "tags": run.tags,
         "task": run.task,
         "assertion": run.assertion,
         "mode": run.mode,
@@ -477,6 +501,29 @@ fn build_report_json(suite_label: &str, model_label: &str, runs: &[CaseRun]) -> 
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
+    // Per-group passed/total, in first-seen order (front-end can also recompute
+    // from `cases`, but pre-aggregating keeps JSON diffs at the group level).
+    let mut group_order: Vec<&str> = Vec::new();
+    let mut group_stats: std::collections::HashMap<&str, (usize, usize)> =
+        std::collections::HashMap::new();
+    for r in runs {
+        let e = group_stats.entry(r.group).or_insert_with(|| {
+            group_order.push(r.group);
+            (0, 0)
+        });
+        e.1 += 1;
+        if r.passed() {
+            e.0 += 1;
+        }
+    }
+    let groups: Vec<serde_json::Value> = group_order
+        .iter()
+        .map(|g| {
+            let (gp, gt) = group_stats[g];
+            serde_json::json!({ "group": g, "passed": gp, "total": gt })
+        })
+        .collect();
+
     serde_json::json!({
         "suite": suite_label,
         "model": model_label,
@@ -485,6 +532,7 @@ fn build_report_json(suite_label: &str, model_label: &str, runs: &[CaseRun]) -> 
             "passed": passed,
             "total": total,
             "duration_ms": duration_ms,
+            "groups": groups,
         },
         "cases": runs.iter().map(case_to_json).collect::<Vec<_>>(),
     })
@@ -612,6 +660,8 @@ async fn mock_capability_suite() {
 
         runs.push(CaseRun {
             name: case.name,
+            group: case.group,
+            tags: case.tags,
             task: case.task,
             assertion: case.assertion,
             mode: "mock",
@@ -701,6 +751,8 @@ async fn real_capability_suite() {
 
         runs.push(CaseRun {
             name: case.name,
+            group: case.group,
+            tags: case.tags,
             task: case.task,
             assertion: case.assertion,
             mode: "real",
