@@ -73,6 +73,7 @@ export default function Skills() {
     () =>
       filterByQuery(plugins, query, (p) => [
         p.name,
+        p.label,
         p.description,
         p.category,
         ...p.tools.map((t) => t.name),
@@ -195,10 +196,14 @@ function PluginsList({
     return <div className="text-neutral-500 text-sm">无匹配</div>;
   }
 
+  // Buckets mirror the `category` values in the shared COMPONENTS catalog.
   const buckets: { id: string; label: string; items: PluginInfo[] }[] = [
-    { id: "tools", label: "工具扩展", items: [] },
-    { id: "system", label: "系统扩展", items: [] },
-    { id: "middleware", label: "中间件", items: [] },
+    { id: "tools", label: "工具", items: [] },
+    { id: "safety", label: "安全 / 卫生", items: [] },
+    { id: "context", label: "上下文 / 长会话", items: [] },
+    { id: "collab", label: "协作 / 多 Agent", items: [] },
+    { id: "infra", label: "基础设施", items: [] },
+    { id: "ext", label: "扩展", items: [] },
   ];
   const other: PluginInfo[] = [];
   for (const p of plugins) {
@@ -209,6 +214,9 @@ function PluginsList({
 
   return (
     <div className="space-y-6">
+      <div className="text-[11px] text-neutral-500">
+        开关按当前任务保存。修改后会在下次发送消息时重建 Agent 生效。
+      </div>
       {buckets
         .filter((b) => b.items.length > 0)
         .map((b) => (
@@ -253,7 +261,10 @@ function PluginCard({ plugin: p, onToggle }: { plugin: PluginInfo; onToggle: (na
           <Puzzle size={14} className="text-neutral-400" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">{p.name}</div>
+          <div className="text-sm font-medium truncate">{p.label}</div>
+          <div className="text-[10px] text-neutral-500 font-mono truncate">
+            {p.name}
+          </div>
         </div>
         {isCore ? (
           <span className="rounded-full bg-blue-950/50 border border-blue-900/60 text-blue-400 text-[10px] px-1.5 py-0.5 shrink-0">

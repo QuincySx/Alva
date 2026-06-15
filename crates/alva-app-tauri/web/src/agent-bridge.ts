@@ -130,9 +130,14 @@ export interface PluginToolInfo {
 }
 
 export interface PluginInfo {
+  /** Stable component id; the key passed back to `setPluginEnabled`. */
   name: string;
+  /** Human-friendly display name (from the shared COMPONENTS catalog). */
+  label: string;
   description: string;
-  category: "tools" | "system" | "middleware" | string;
+  /** Component category from COMPONENTS:
+   * "tools" | "safety" | "context" | "collab" | "infra" | "ext". */
+  category: string;
   default_enabled: boolean;
   enabled: boolean;
   tools: PluginToolInfo[];

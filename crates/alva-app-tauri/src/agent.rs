@@ -441,15 +441,19 @@ pub async fn list_mcp_servers() -> Vec<crate::mcp::McpServerInfo> {
 
 #[derive(Serialize, Clone)]
 pub struct PluginInfo {
+    /// Stable component id (matches `ComponentMeta::id`); used as the toggle key
+    /// passed back to `set_plugin_enabled`.
     pub name: String,
+    /// Human-friendly display name (`ComponentMeta::label`).
+    pub label: String,
     pub description: String,
-    /// One of "tools" (Extension wrapping built-in tool groups), "system"
-    /// (skills / MCP / hooks etc.), or "middleware" (cross-cutting behaviour).
+    /// The component's `category` straight from `COMPONENTS`
+    /// ("tools" / "safety" / "context" / "collab" / "infra" / "ext").
     pub category: String,
     pub default_enabled: bool,
-    /// Actual current enabled state (from plugins.json override, or default).
+    /// Actual current enabled state (from session plugin_config override, or default).
     pub enabled: bool,
-    /// Tools this extension provides (empty for middleware/system-only extensions).
+    /// Tools this component provides (empty for middleware / no-tool components).
     pub tools: Vec<PluginToolInfo>,
 }
 
@@ -517,12 +521,55 @@ fn tools_from_preset(preset: Vec<Box<dyn alva_kernel_abi::Tool>>) -> Vec<PluginT
         .collect()
 }
 
-/// Catalog of installable Extensions. `enabled` reflects the active
+/// The tool list each component contributes, keyed by `ComponentMeta::id`.
+///
+/// `COMPONENTS` is pure display metadata and carries no tool inventory, so the
+/// rich per-component tool list is reconstructed here from the same
+/// `tool_presets::*` groups (+ `browser_tools()`) that `apply_components`
+/// actually attaches. Components whose tools aren't a single preset
+/// (skills / mcp / sub-agents) get a small hand-curated list; pure middleware
+/// and no-tool plugins get an empty vec.
+fn tools_for_component(id: &str) -> Vec<PluginToolInfo> {
+    use alva_agent_extension_builtin::tool_presets;
+    match id {
+        "core" => tools_from_preset(tool_presets::file_io()),
+        "shell" => tools_from_preset(tool_presets::shell()),
+        "interaction" => tools_from_preset(tool_presets::interaction()),
+        "web" => tools_from_preset(tool_presets::web()),
+        "utility" => tools_from_preset(tool_presets::utility()),
+        "planning" => {
+            let mut t = tools_from_preset(tool_presets::planning());
+            t.extend(tools_from_preset(tool_presets::worktree()));
+            t
+        }
+        "task" => tools_from_preset(tool_presets::task_management()),
+        "team" => tools_from_preset(tool_presets::team()),
+        "browser" => tools_from_preset(alva_app_extension_browser::browser_tools()),
+        // Components whose tools aren't exposed as a static preset.
+        "skills" => vec![
+            PluginToolInfo { name: "search_skills".into(), description: "搜索可用技能".into() },
+            PluginToolInfo { name: "use_skill".into(), description: "按名称激活技能".into() },
+        ],
+        "mcp" => vec![PluginToolInfo {
+            name: "mcp_runtime".into(),
+            description: "MCP 操作:list_servers / list_tools / call_tool".into(),
+        }],
+        "sub-agents" => vec![PluginToolInfo {
+            name: "agent".into(),
+            description: "派生子 Agent,支持角色和工具子集".into(),
+        }],
+        // Pure middleware / infra / no-tool plugins (loop-detection, compaction,
+        // hooks, analytics, provider-registry, tool-lock, checkpoint,
+        // subprocess-loader, permission, …).
+        _ => Vec::new(),
+    }
+}
+
+/// Catalog of toggleable components, derived from the shared `COMPONENTS`
+/// catalog (the single source of truth). `enabled` reflects the active
 /// session's plugin state (or `default_enabled` if no session is active).
 #[tauri::command]
 pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginInfo>, String> {
-    use alva_agent_extension_builtin::tool_presets;
-
     let session_overrides: Option<HashMap<String, bool>> = {
         let sid = state.active_session_id.read().await.clone();
         if let Some(sid) = sid {
@@ -533,54 +580,25 @@ pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginInfo>,
         }
     };
 
-    let mut plugins = vec![
-        // Tool-group extensions (from alva-agent-extension-builtin wrappers)
-        PluginInfo { name: "core".into(), description: "文件 IO:读/写/编辑/搜索/列出".into(), category: "tools".into(), default_enabled: true, enabled: false, tools: tools_from_preset(tool_presets::file_io()) },
-        PluginInfo { name: "shell".into(), description: "Shell 命令执行".into(), category: "tools".into(), default_enabled: true, enabled: false, tools: tools_from_preset(tool_presets::shell()) },
-        PluginInfo { name: "interaction".into(), description: "人工交互(ask_human)".into(), category: "tools".into(), default_enabled: false, enabled: false, tools: tools_from_preset(tool_presets::interaction()) },
-        PluginInfo { name: "task".into(), description: "任务管理:创建/更新/获取/列出".into(), category: "tools".into(), default_enabled: false, enabled: false, tools: tools_from_preset(tool_presets::task_management()) },
-        PluginInfo { name: "team".into(), description: "Team / 多 agent 协作".into(), category: "tools".into(), default_enabled: false, enabled: false, tools: tools_from_preset(tool_presets::team()) },
-        PluginInfo { name: "planning".into(), description: "Plan 模式 + worktree 工具".into(), category: "tools".into(), default_enabled: false, enabled: false, tools: {
-            let mut t = tools_from_preset(tool_presets::planning());
-            t.extend(tools_from_preset(tool_presets::worktree()));
-            t
-        }},
-        PluginInfo { name: "utility".into(), description: "工具类:config / skill / tool_search / sleep".into(), category: "tools".into(), default_enabled: false, enabled: false, tools: tools_from_preset(tool_presets::utility()) },
-        PluginInfo { name: "web".into(), description: "联网搜索 + URL 抓取".into(), category: "tools".into(), default_enabled: true, enabled: false, tools: tools_from_preset(tool_presets::web()) },
-        PluginInfo { name: "browser".into(), description: "浏览器自动化(Chrome CDP,7 个工具)".into(), category: "tools".into(), default_enabled: true, enabled: false, tools: tools_from_preset(alva_app_extension_browser::browser_tools()) },
-        // System extensions (from alva-app-core)
-        PluginInfo { name: "approval".into(), description: "人工审批流(HITL 权限确认)".into(), category: "system".into(), default_enabled: true, enabled: false, tools: vec![] },
-        PluginInfo { name: "skills".into(), description: "技能发现 / 加载 / 上下文注入".into(), category: "system".into(), default_enabled: true, enabled: false, tools: vec![
-            PluginToolInfo { name: "search_skills".into(), description: "搜索可用技能".into() },
-            PluginToolInfo { name: "use_skill".into(), description: "按名称激活技能".into() },
-        ]},
-        PluginInfo { name: "mcp".into(), description: "MCP 服务器集成(挂载外部工具)".into(), category: "system".into(), default_enabled: true, enabled: false, tools: vec![
-            PluginToolInfo { name: "mcp_runtime".into(), description: "MCP 操作:list_servers / list_tools / call_tool".into() },
-        ]},
-        PluginInfo { name: "hooks".into(), description: "生命周期 hook(tool/session 事件上的 shell 脚本)".into(), category: "system".into(), default_enabled: true, enabled: false, tools: vec![] },
-        PluginInfo { name: "sub-agents".into(), description: "子 Agent 派生(通过 agent tool)".into(), category: "system".into(), default_enabled: true, enabled: false, tools: vec![
-            PluginToolInfo { name: "agent".into(), description: "派生子 Agent,支持角色和工具子集".into() },
-        ]},
-        PluginInfo { name: "subprocess-loader".into(), description: "第三方子进程插件加载(JS/Python via AEP)".into(), category: "system".into(), default_enabled: true, enabled: false, tools: vec![] },
-        // Default extension (auto-wired by BaseAgentBuilder)
-        PluginInfo { name: "security".into(), description: "沙盒安全中间件(路径过滤 + 权限闸门)".into(), category: "system".into(), default_enabled: true, enabled: false, tools: vec![] },
-        // Middleware extensions
-        PluginInfo { name: "loop-detection".into(), description: "检测重复 tool 调用并打破循环".into(), category: "middleware".into(), default_enabled: true, enabled: false, tools: vec![] },
-        PluginInfo { name: "dangling-tool-call".into(), description: "验证 tool 调用的格式和存在性".into(), category: "middleware".into(), default_enabled: true, enabled: false, tools: vec![] },
-        PluginInfo { name: "tool-timeout".into(), description: "每个 tool 执行 120s 超时".into(), category: "middleware".into(), default_enabled: true, enabled: false, tools: vec![] },
-        PluginInfo { name: "compaction".into(), description: "context 满时自动压缩老消息".into(), category: "middleware".into(), default_enabled: true, enabled: false, tools: vec![] },
-        PluginInfo { name: "checkpoint".into(), description: "写操作前做文件备份".into(), category: "middleware".into(), default_enabled: true, enabled: false, tools: vec![] },
-        PluginInfo { name: "plan-mode".into(), description: "Plan 模式(只读 tool 限制,运行时开关)".into(), category: "middleware".into(), default_enabled: false, enabled: false, tools: vec![] },
-    ];
-    if let Some(ref overrides) = session_overrides {
-        for p in &mut plugins {
-            p.enabled = overrides.get(&p.name).copied().unwrap_or(p.default_enabled);
-        }
-    } else {
-        for p in &mut plugins {
-            p.enabled = p.default_enabled;
-        }
-    }
+    let plugins = alva_app_core::components::COMPONENTS
+        .iter()
+        .map(|c| {
+            let enabled = session_overrides
+                .as_ref()
+                .and_then(|o| o.get(c.id).copied())
+                .unwrap_or(c.default_on);
+            PluginInfo {
+                name: c.id.to_string(),
+                label: c.label.to_string(),
+                description: c.description.to_string(),
+                category: c.category.to_string(),
+                default_enabled: c.default_on,
+                enabled,
+                tools: tools_for_component(c.id),
+            }
+        })
+        .collect();
+
     Ok(plugins)
 }
 
