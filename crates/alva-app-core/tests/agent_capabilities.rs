@@ -76,6 +76,13 @@ async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> Ba
         .middleware(Arc::new(
             alva_host_native::middleware::CompactionMiddleware::default(),
         ))
+        // P3(知识检索):Skills + Web —— 镜像 CLI build_agent。测试无真 skill 目录,
+        // 用 workspace 下的空 .alva/skills(随 tempdir 一起清理)+ bundled=None。
+        .plugin(Box::new(alva_app_core::extension::SkillsPlugin::with_bundled(
+            workspace.join(".alva/skills"),
+            None,
+        )))
+        .plugin(Box::new(alva_app_core::extension::WebPlugin))
         .build(model)
         .await
         .expect("failed to build mini agent");
@@ -98,6 +105,47 @@ async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> Ba
     });
 
     agent
+}
+
+// ---------------------------------------------------------------------------
+// P3 wiring assertion — Skills + Web registered their tools into mini.
+// ---------------------------------------------------------------------------
+
+/// Network tools (`internet_search`, `read_url`) hit live endpoints, and skill
+/// tools (`search_skills`, `use_skill`) need a populated skill tree — none of
+/// which is deterministic, so we DON'T execute them in the mock suite.
+///
+/// Instead we assert the cheap, deterministic, no-network invariant that P3
+/// actually changed: building the mini agent now REGISTERS those tools (proving
+/// WebPlugin + SkillsPlugin are wired exactly like the CLI). `read_url`'s real
+/// HTTP execution is already covered deterministically via wiremock in
+/// `e2e_tool_coverage.rs::stage2_read_url_fetches_from_wiremock_server`, so a
+/// second wiremock test here would be redundant; the registration check is the
+/// cleaner thing to pin in this harness.
+///
+/// `internet_search` is only meaningfully exercised under the REAL suite (real
+/// model + a configured search backend); it has no deterministic mock case.
+#[tokio::test]
+async fn mini_agent_registers_skills_and_web_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().canonicalize().unwrap();
+    let model = MockLanguageModel::new().with_response(make_assistant_message("noop"));
+    let agent = build_mini_agent(&ws, Arc::new(model)).await;
+
+    let names = agent.tool_names();
+    for expected in ["internet_search", "read_url", "search_skills", "use_skill"] {
+        assert!(
+            names.iter().any(|n| n == expected),
+            "P3 wiring: mini agent should register `{expected}` (WebPlugin/SkillsPlugin). Got: {names:?}"
+        );
+    }
+    // Sanity: the P1/P2 local tools are still present alongside the new ones.
+    for expected in ["create_file", "read_file", "execute_shell"] {
+        assert!(
+            names.iter().any(|n| n == expected),
+            "regression: local tool `{expected}` missing after P3. Got: {names:?}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

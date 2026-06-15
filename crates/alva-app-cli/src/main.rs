@@ -22,7 +22,6 @@ mod commands;
 mod context;
 mod event_handler;
 mod output;
-#[allow(dead_code)] // MINI MODE:整模块暂休眠,Skills 组件加回时复用
 mod bundled_skills;
 mod plugins;
 mod repl;

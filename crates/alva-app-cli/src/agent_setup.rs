@@ -37,7 +37,6 @@ impl CheckpointCallback for CliCheckpointCallback {
 /// Resolve where the App-bundled skills tree was extracted to. Returns
 /// `None` (with a logged warning) on extraction failure so the agent
 /// continues without bundled skills rather than refusing to start.
-#[allow(dead_code)] // MINI MODE:Skills 组件加回时复用
 pub(crate) fn bundled_skill_dir() -> Option<std::path::PathBuf> {
     match crate::bundled_skills::ensure_extracted() {
         Ok(p) => Some(p),
@@ -76,8 +75,8 @@ pub(crate) struct AgentBundle {
 pub(crate) async fn build_agent(
     config: &ProviderConfig,
     workspace: &Path,
-    // MINI MODE:暂未用(Skills/Mcp/Loader 组件加回时复用其 skills/mcp/extensions 目录)。
-    _paths: &AlvaPaths,
+    // P3:SkillsPlugin 用到 paths.project_skills_dir()(Mcp/Loader 组件加回时复用其 mcp/extensions 目录)。
+    paths: &AlvaPaths,
 ) -> AgentBundle {
     let project_context = load_project_context(workspace);
     let system_prompt = format!(
@@ -122,7 +121,13 @@ pub(crate) async fn build_agent(
         .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
         // P2(安全/长会话):Permission(HITL/plan 模式,发布 PermissionModeService)+ Compaction(长会话上下文压缩)
         .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
-        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()));
+        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()))
+        // P3(知识检索):Skills(渐进式 skill 加载)+ Web(internet_search + read_url)
+        .plugin(Box::new(alva_app_core::extension::SkillsPlugin::with_bundled(
+            paths.project_skills_dir(),
+            bundled_skill_dir(),
+        )))
+        .plugin(Box::new(alva_app_core::extension::WebPlugin));
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback
