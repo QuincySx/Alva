@@ -37,6 +37,7 @@ impl CheckpointCallback for CliCheckpointCallback {
 /// Resolve where the App-bundled skills tree was extracted to. Returns
 /// `None` (with a logged warning) on extraction failure so the agent
 /// continues without bundled skills rather than refusing to start.
+#[allow(dead_code)] // MINI MODE:Skills 组件加回时复用
 pub(crate) fn bundled_skill_dir() -> Option<std::path::PathBuf> {
     match crate::bundled_skills::ensure_extracted() {
         Ok(p) => Some(p),
@@ -75,7 +76,8 @@ pub(crate) struct AgentBundle {
 pub(crate) async fn build_agent(
     config: &ProviderConfig,
     workspace: &Path,
-    paths: &AlvaPaths,
+    // MINI MODE:暂未用(Skills/Mcp/Loader 组件加回时复用其 skills/mcp/extensions 目录)。
+    _paths: &AlvaPaths,
 ) -> AgentBundle {
     let project_context = load_project_context(workspace);
     let system_prompt = format!(
@@ -93,62 +95,26 @@ pub(crate) async fn build_agent(
         // None / "openai-chat" / unknown → OpenAI Chat (broadest OpenAI-compat path).
         _ => Arc::new(OpenAIChatProvider::new(config.clone())),
     };
-    let provider_registry = alva_llm_provider::build_provider_registry(config);
     let (approval_ext, approval_rx) =
         alva_app_core::extension::ApprovalPlugin::with_channel();
-    // Extension list is kept in lockstep with `alva-app-tauri::agent::ensure_agent`.
-    // Same defaults, same kernel surface, same iteration cap — only storage
-    // (JSON vs SQLite) and UI shell legitimately differ between the two apps.
+
+    // ── MINI MODE (2026-06-15) ──────────────────────────────────────────────
+    // 从"裸" BaseAgentBuilder 起步,只注册 CorePlugin(read/create/edit/list/
+    // find/grep = 增改查搜)。BaseAgentBuilder 已自动装 memory + security +
+    // system_context。
+    //
+    // ApprovalPlugin + checkpoint 是 harness substrate(REPL 硬接线的
+    // approval_rx / checkpoint_mgr),保留,不算"功能组件"。
+    //
+    // 其余 ~20 个功能组件(Shell/Web/Task/Team/Mcp/SubAgent/Skills/Hooks/
+    // 卫生 middleware/...)已移除,按优先级一点点测试加回。
+    // 优先级清单见 docs/superpowers/specs/2026-06-15-cli-incremental-components.md
     let builder = BaseAgentBuilder::new()
         .workspace(workspace)
         .system_prompt(&system_prompt)
         .max_iterations(20)
-        .plugin(Box::new(
-            alva_app_core::extension::ProviderRegistryPlugin::new(provider_registry),
-        ))
-        .plugin(Box::new(
-            alva_app_core::extension::ToolLockRegistryPlugin::new(),
-        ))
-        .plugin(Box::new(
-            alva_app_core::extension::AnalyticsPlugin::new(),
-        ))
         .plugin(Box::new(approval_ext))
-        .plugin(Box::new(alva_app_core::extension::SkillsPlugin::with_bundled(
-            paths.project_skills_dir(),
-            bundled_skill_dir(),
-        )))
-        .plugin(Box::new(alva_app_core::extension::CorePlugin))
-        .plugin(Box::new(alva_app_core::extension::ShellPlugin))
-        .plugin(Box::new(alva_app_core::extension::InteractionPlugin))
-        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
-        .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
-        .plugin(Box::new(alva_app_core::extension::PlanningPlugin))
-        .plugin(Box::new(alva_app_core::extension::UtilityPlugin))
-        .plugin(Box::new(alva_app_core::extension::WebPlugin))
-        .plugin(Box::new(alva_app_core::extension::BrowserPlugin))
-        .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
-        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()))
-        .middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()))
-        .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
-        .plugin(Box::new(alva_app_core::extension::SubAgentPlugin::new(3)))
-        .plugin(Box::new(alva_app_core::extension::McpPlugin::new(vec![
-            paths.global_mcp_config(),
-            paths.project_mcp_config(),
-        ])))
-        .plugin(Box::new(alva_app_core::extension::HooksPlugin::new(
-            alva_app_core::settings::HooksSettings::default(),
-        )))
-        // Third-party subprocess plugins (JS / Python / anything).
-        // Project dir shadows global on name conflicts — same convention
-        // as skills and MCP configs above.
-        .plugin(Box::new(
-            alva_app_extension_loader::loader::SubprocessLoaderPlugin::new(vec![
-                paths.project_extensions_dir(),
-                paths.global_extensions_dir(),
-            ]),
-        ));
+        .plugin(Box::new(alva_app_core::extension::CorePlugin));
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback
