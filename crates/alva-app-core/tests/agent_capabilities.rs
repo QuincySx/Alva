@@ -40,7 +40,9 @@ use alva_test::mock_provider::MockLanguageModel;
 
 /// Build a BaseAgent matching the CLI mini assembly (mirror of `build_agent`):
 ///   approval substrate + CorePlugin + ShellPlugin + 3 hygiene mw (P1)
-///   + PermissionPlugin + Compaction (P2) + SkillsPlugin + WebPlugin (P3).
+///   + PermissionPlugin + Compaction (P2) + SkillsPlugin + WebPlugin (P3)
+///   + TaskPlugin + TeamPlugin + SubAgentPlugin (P4; infra registries omitted —
+///     see the P4 comment in the builder chain below).
 ///
 /// Dangerous tools (create_file / file_edit / execute_shell) route through the
 /// security middleware's HITL path; the background task below auto-resolves each
@@ -83,6 +85,13 @@ async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> Ba
             None,
         )))
         .plugin(Box::new(alva_app_core::extension::WebPlugin))
+        // P4(协作/多 agent):Task/Team + SubAgent —— 镜像 CLI build_agent。
+        // infra registry(ProviderRegistry/ToolLock)在 harness 里省略:测试用
+        // mock model 直接 build,无 config/provider_registry。SubAgent.finalize
+        // 读不到 ProviderRegistry 时降级到主 model,spawn 工具(`agent`)仍注册。
+        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::SubAgentPlugin::new(3)))
         .build(model)
         .await
         .expect("failed to build mini agent");
@@ -108,42 +117,63 @@ async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> Ba
 }
 
 // ---------------------------------------------------------------------------
-// P3 wiring assertion — Skills + Web registered their tools into mini.
+// P3/P4 wiring assertion — Skills + Web + Task/Team/SubAgent registered.
 // ---------------------------------------------------------------------------
 
-/// Network tools (`internet_search`, `read_url`) hit live endpoints, and skill
-/// tools (`search_skills`, `use_skill`) need a populated skill tree — none of
-/// which is deterministic, so we DON'T execute them in the mock suite.
+/// Some plugins expose tools that can't be exercised deterministically in the
+/// mock suite, so we pin the cheap no-network invariant instead: building the
+/// mini agent REGISTERS each plugin's tools (proving they're wired exactly like
+/// the CLI build_agent).
 ///
-/// Instead we assert the cheap, deterministic, no-network invariant that P3
-/// actually changed: building the mini agent now REGISTERS those tools (proving
-/// WebPlugin + SkillsPlugin are wired exactly like the CLI). `read_url`'s real
-/// HTTP execution is already covered deterministically via wiremock in
-/// `e2e_tool_coverage.rs::stage2_read_url_fetches_from_wiremock_server`, so a
-/// second wiremock test here would be redundant; the registration check is the
-/// cleaner thing to pin in this harness.
-///
-/// `internet_search` is only meaningfully exercised under the REAL suite (real
-/// model + a configured search backend); it has no deterministic mock case.
+/// Not executed here, by category:
+///   - `internet_search` / `read_url` (WebPlugin): hit live endpoints.
+///     `read_url`'s real HTTP path is already covered deterministically via
+///     wiremock in `e2e_tool_coverage.rs::stage2_read_url_fetches_from_wiremock_server`;
+///     `internet_search` is only meaningful under the REAL suite (real model +
+///     configured search backend).
+///   - `search_skills` / `use_skill` (SkillsPlugin): need a populated skill tree.
+///   - `agent` (SubAgentPlugin, registered late via `finalize`): actually
+///     spawning a sub-agent is non-deterministic (needs ProviderRegistry +
+///     real model); the spawn-execution test is left to the real suite / a
+///     follow-up. Here we only assert the `agent` tool is registered. In this
+///     harness ProviderRegistry is omitted, so `finalize` degrades to the main
+///     model — the tool is still registered.
 #[tokio::test]
-async fn mini_agent_registers_skills_and_web_tools() {
+async fn mini_agent_registers_p3_p4_tools() {
     let tmp = tempfile::tempdir().unwrap();
     let ws = tmp.path().canonicalize().unwrap();
     let model = MockLanguageModel::new().with_response(make_assistant_message("noop"));
     let agent = build_mini_agent(&ws, Arc::new(model)).await;
 
     let names = agent.tool_names();
-    for expected in ["internet_search", "read_url", "search_skills", "use_skill"] {
+    // P3: Web + Skills.
+    // P4: Task (task_*), Team (team_*/send_message), SubAgent (`agent`).
+    for expected in [
+        "internet_search",
+        "read_url",
+        "search_skills",
+        "use_skill",
+        "task_create",
+        "task_list",
+        "task_get",
+        "task_update",
+        "task_output",
+        "task_stop",
+        "team_create",
+        "team_delete",
+        "send_message",
+        "agent",
+    ] {
         assert!(
             names.iter().any(|n| n == expected),
-            "P3 wiring: mini agent should register `{expected}` (WebPlugin/SkillsPlugin). Got: {names:?}"
+            "P3/P4 wiring: mini agent should register `{expected}`. Got: {names:?}"
         );
     }
     // Sanity: the P1/P2 local tools are still present alongside the new ones.
     for expected in ["create_file", "read_file", "execute_shell"] {
         assert!(
             names.iter().any(|n| n == expected),
-            "regression: local tool `{expected}` missing after P3. Got: {names:?}"
+            "regression: local tool `{expected}` missing after P3/P4. Got: {names:?}"
         );
     }
 }

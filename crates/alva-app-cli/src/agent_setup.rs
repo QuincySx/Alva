@@ -94,6 +94,9 @@ pub(crate) async fn build_agent(
         // None / "openai-chat" / unknown → OpenAI Chat (broadest OpenAI-compat path).
         _ => Arc::new(OpenAIChatProvider::new(config.clone())),
     };
+    // Provider registry — lets SubAgent/Task spawn against named providers.
+    // (Removed during MINI MODE; restored for P4.)
+    let provider_registry = alva_llm_provider::build_provider_registry(config);
     let (approval_ext, approval_rx) =
         alva_app_core::extension::ApprovalPlugin::with_channel();
 
@@ -127,7 +130,15 @@ pub(crate) async fn build_agent(
             paths.project_skills_dir(),
             bundled_skill_dir(),
         )))
-        .plugin(Box::new(alva_app_core::extension::WebPlugin));
+        .plugin(Box::new(alva_app_core::extension::WebPlugin))
+        // P4(协作/多 agent):Task/Team + ProviderRegistry/ToolLock infra + SubAgent。
+        // 不加 SpawnCommRegistry / BlackboardComm —— SubAgent.finalize 读不到
+        // SpawnCommunicationRegistry 时 graceful 降级,与标准 agent 一致。
+        .plugin(Box::new(alva_app_core::extension::ProviderRegistryPlugin::new(provider_registry)))
+        .plugin(Box::new(alva_app_core::extension::ToolLockRegistryPlugin::new()))
+        .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
+        .plugin(Box::new(alva_app_core::extension::SubAgentPlugin::new(3)));
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback
