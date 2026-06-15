@@ -20,9 +20,10 @@
 - [x] **PermissionPlugin**(PlanMode + 审批)—— 配 approval substrate,HITL/plan 模式。验证:mock 回归 7/7 仍过(P2 没破坏工具);plan-mode 拦写已由 `e2e_tool_coverage::stage1_enter_plan_mode...blocks_writes` 项目级覆盖。
 - [x] **CompactionMiddleware** —— 长会话上下文压缩(中间件,长会话时激活;上下文压缩逻辑由 context 测试覆盖)。
 
-### P3 — 知识与检索
-- [ ] **SkillsPlugin** —— 渐进式 skill 加载(复用 bundled_skills + _paths.skills_dir)。测:加载一个 skill。
-- [ ] **WebPlugin**(internet_search + read_url)—— 联网检索。测:搜一次、读一个 URL。
+### P3 — 知识与检索 ✅
+- [x] **SkillsPlugin** —— 渐进式 skill 加载(复用 bundled_skills + paths.skills_dir,已复活休眠代码)。
+- [x] **WebPlugin**(internet_search + read_url)—— 联网检索。
+  - 验证:mock 回归 7/7 仍过;新增 `mini_agent_registers_skills_and_web_tools` 断言工具集含 internet_search/read_url/search_skills/use_skill。网络工具(internet_search 真打 API、read_url 真 HTTP)的确定性执行测试不进 mock suite——read_url 已由 `e2e_tool_coverage` wiremock 覆盖;internet_search 仅 real suite(配搜索后端)下有意义。
 
 ### P4 — 协作与多 agent
 - [ ] **TaskPlugin** / **TeamPlugin** —— 任务/团队管理工具。

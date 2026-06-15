@@ -19,9 +19,11 @@
 //!
 //! The agent assembly here MIRRORS the CLI mini agent
 //! (`alva-app-cli/src/agent_setup.rs::build_agent`): bare BaseAgentBuilder
-//! (auto memory/security/system_context) + ApprovalPlugin + CorePlugin +
-//! ShellPlugin + 3 hygiene middlewares. NOTE: mini has NO PermissionPlugin —
-//! see `build_mini_agent` for how approvals are still resolved.
+//! (auto memory/security/system_context) + ApprovalPlugin substrate, then the
+//! incrementally-added components per the priority list — currently CorePlugin,
+//! ShellPlugin + 3 hygiene middlewares (P1), PermissionPlugin + Compaction (P2),
+//! SkillsPlugin + WebPlugin (P3). Keep this in lockstep with `build_agent` as
+//! components are added. Approvals are auto-resolved (see `build_mini_agent`).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -36,17 +38,15 @@ use alva_test::mock_provider::MockLanguageModel;
 // Agent assembly — exact mirror of the CLI mini agent.
 // ---------------------------------------------------------------------------
 
-/// Build a BaseAgent matching the CLI mini assembly:
-///   approval (substrate) + CorePlugin + ShellPlugin + 3 hygiene middlewares.
+/// Build a BaseAgent matching the CLI mini assembly (mirror of `build_agent`):
+///   approval substrate + CorePlugin + ShellPlugin + 3 hygiene mw (P1)
+///   + PermissionPlugin + Compaction (P2) + SkillsPlugin + WebPlugin (P3).
 ///
-/// IMPORTANT: mini does NOT register PermissionPlugin. Without it,
-/// `set_permission_mode` is a no-op and there is no PermissionModeService on
-/// the bus. Dangerous tools (create_file / file_edit / execute_shell) instead
-/// route through the security middleware's HITL path, and the background task
-/// below auto-resolves each request as `AllowOnce` via the bus-published
-/// `SecurityGuard` (same mechanism the e2e suite uses). If a tool ever hangs
-/// here, it means HITL is NOT the gate and mini genuinely needs PermissionPlugin
-/// in its baseline — that would be a real finding, not a harness bug.
+/// Dangerous tools (create_file / file_edit / execute_shell) route through the
+/// security middleware's HITL path; the background task below auto-resolves each
+/// request as `AllowOnce` via the bus-published `SecurityGuard` (same mechanism
+/// the e2e suite uses), so the suite runs unattended. If a tool ever hangs here,
+/// it means an approval was not resolved — a real finding, not a harness bug.
 async fn build_mini_agent(workspace: &Path, model: Arc<dyn LanguageModel>) -> BaseAgent {
     let (approval_ext, mut approval_rx) =
         alva_app_core::extension::ApprovalPlugin::with_channel();
