@@ -1,3 +1,4 @@
 # Capability-report run data accumulates locally; only viewer.html is committed.
 index.json
 run-*.json
+data.js
