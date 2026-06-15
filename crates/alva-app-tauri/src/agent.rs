@@ -16,13 +16,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::runtime::Handle;
 use tokio::sync::RwLock;
 
-use alva_app_core::extension::{
-    ApprovalPlugin, BrowserPlugin, CorePlugin,
-    HooksPlugin, InteractionPlugin,
-    McpPlugin, PermissionPlugin, PlanningPlugin, ShellPlugin, SkillsPlugin,
-    SubAgentPlugin, TaskPlugin, TeamPlugin, UtilityPlugin,
-    WebPlugin,
-};
+// Concrete plugin types are now assembled via `alva_app_core::components::
+// apply_components` (Stage C); only ApprovalPlugin stays here as substrate.
+use alva_app_core::extension::ApprovalPlugin;
 use alva_app_core::{AlvaPaths, BaseAgent, PermissionDecision};
 use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
 use alva_kernel_abi::base::content::ContentBlock;
@@ -472,33 +468,15 @@ use std::collections::HashMap;
 /// Build the default plugin enabled/disabled state.
 /// This is what every new session starts with.
 fn default_plugin_state() -> HashMap<String, bool> {
-    let mut m = HashMap::new();
-    // Core 7 always on
-    m.insert("core".into(), true);
-    m.insert("shell".into(), true);
-    // Tool extensions — off by default, user enables what they need
-    m.insert("interaction".into(), false);
-    m.insert("task".into(), false);
-    m.insert("team".into(), false);
-    m.insert("planning".into(), false);
-    m.insert("utility".into(), false);
-    m.insert("web".into(), true);
-    m.insert("browser".into(), true);
-    // System
+    // Single source of truth: derived from the shared component catalog so the
+    // UI's default toggle state matches what `apply_components` actually builds
+    // (Stage C). `approval` is substrate (not in the catalog) but toggleable in
+    // Tauri, so it's added explicitly, default-on.
+    let mut m: HashMap<String, bool> = alva_app_core::components::COMPONENTS
+        .iter()
+        .map(|c| (c.id.to_string(), c.default_on))
+        .collect();
     m.insert("approval".into(), true);
-    m.insert("skills".into(), true);
-    m.insert("mcp".into(), true);
-    m.insert("hooks".into(), true);
-    m.insert("sub-agents".into(), true);
-    m.insert("subprocess-loader".into(), true);
-    m.insert("security".into(), true);
-    // Middleware
-    m.insert("loop-detection".into(), true);
-    m.insert("dangling-tool-call".into(), true);
-    m.insert("tool-timeout".into(), true);
-    m.insert("compaction".into(), true);
-    m.insert("checkpoint".into(), true);
-    m.insert("plan-mode".into(), false);
     m
 }
 
@@ -1441,71 +1419,10 @@ async fn ensure_agent(
         .system_prompt(&system_prompt)
         .max_iterations(20);
 
-    // ProviderRegistry — enables sub-agent spawn with `model: "kind/<id>"`.
-    // Always-on; the registry only exposes the active provider's auth, so
-    // sub-agents can pick a different model from the same provider.
-    builder = builder.plugin(Box::new(
-        alva_app_core::extension::ProviderRegistryPlugin::new(provider_registry),
-    ));
-
-    // ToolLockRegistry — serializes concurrent tool calls on shared
-    // resource keys (e.g. two sub-agents editing the same file). Always-on:
-    // running without it allows lost writes, which is a correctness bug
-    // not an optimization.
-    builder = builder.plugin(Box::new(
-        alva_app_core::extension::ToolLockRegistryPlugin::new(),
-    ));
-
-    // Analytics — JSONL telemetry sink (.alva/analytics.jsonl) +
-    // tool-call latency middleware. Default-on, opt-out via plugin config
-    // ("analytics" feature flag) for users who want a leaner footprint.
-    if on("analytics", true) {
-        builder = builder
-            .plugin(Box::new(alva_app_core::extension::AnalyticsPlugin::new()));
-    }
-
-    // Core 7 tools — always-on (CorePlugin + ShellPlugin)
-    builder = builder
-        .plugin(Box::new(CorePlugin))
-        .plugin(Box::new(ShellPlugin));
-
-    // Conditionally registered tool extensions. Defaults are kept in lockstep
-    // with `alva-app-cli::agent_setup::build_agent` — both apps share the same
-    // agent kernel and capability set; only the UI shell + session storage
-    // differ. If you're tempted to flip a default here without doing the same
-    // on the CLI side, don't — that's how the two drifted last time.
-    if on("interaction", true) {
-        builder = builder.plugin(Box::new(InteractionPlugin));
-    }
-    if on("task", true) {
-        builder = builder.plugin(Box::new(TaskPlugin::default()));
-    }
-    if on("team", true) {
-        builder = builder.plugin(Box::new(TeamPlugin::default()));
-    }
-    if on("planning", true) {
-        builder = builder.plugin(Box::new(PlanningPlugin));
-    }
-    if on("utility", true) {
-        builder = builder.plugin(Box::new(UtilityPlugin));
-    }
-    if on("web", true) {
-        builder = builder.plugin(Box::new(WebPlugin));
-    }
-    if on("browser", true) {
-        builder = builder.plugin(Box::new(BrowserPlugin));
-    }
-
-    // System extensions
-    //
-    // Approval channel: SecurityMiddleware sends ApprovalRequest into the
-    // tx half (held by the bus-published ApprovalNotifier); the rx half
-    // must be drained by *us* — otherwise tx.send() returns Disconnected
-    // and every confirmation-required tool call fails with
-    // "approval handler ... disconnected before the request could be
-    // delivered". We capture the rx, hand it to a drain task spawned
-    // after build, and that task forwards every request to the frontend
-    // as an `approval_request` event for inline approval rendering.
+    // Approval substrate (toggleable): captures the rx half so the drain task
+    // below forwards ApprovalRequests to the frontend as `approval_request`
+    // events. Kept manual (not in the component catalog) because of this
+    // side-channel; SecurityMiddleware sends into the tx half, we must drain rx.
     let approval_rx = if on("approval", true) {
         let (approval_ext, rx) = ApprovalPlugin::with_channel();
         builder = builder.plugin(Box::new(approval_ext));
@@ -1513,63 +1430,29 @@ async fn ensure_agent(
     } else {
         None
     };
-    if on("skills", true) {
-        let bundled = crate::bundled_skills::ensure_extracted().ok();
-        if bundled.is_none() {
-            tracing::warn!("bundled skills extraction failed; continuing without them");
-        }
-        builder = builder.plugin(Box::new(SkillsPlugin::with_bundled(
+
+    // Everything else via the shared flat component catalog — the SINGLE
+    // assembly truth shared with `alva-app-cli::agent_setup::build_agent`
+    // (Stage C: replaced the hand-written if-on chain). Defaults come from
+    // `COMPONENTS` default_on; the session `plugin_config` overrides per id.
+    // (This is why the two apps can no longer drift.)
+    let toggles: alva_app_core::components::ComponentToggles = plugin_config.clone();
+    let component_ctx = alva_app_core::components::ComponentContext {
+        workspace: workspace.clone(),
+        provider_registry: Some(provider_registry),
+        skills: Some((
             paths.project_skills_dir(),
-            bundled,
-        )));
-    }
-    if on("mcp", true) {
-        builder = builder.plugin(Box::new(McpPlugin::new(vec![
-            paths.global_mcp_config(),
-            paths.project_mcp_config(),
-        ])));
-    }
-    if on("hooks", true) {
-        builder = builder.plugin(Box::new(HooksPlugin::new(
-            alva_app_core::settings::HooksSettings::default(),
-        )));
-    }
-    if on("sub-agents", true) {
-        builder = builder.plugin(Box::new(SubAgentPlugin::new(3)));
-    }
-
-    // Middleware — registered directly without an Extension wrapper
-    if on("loop-detection", true) {
-        builder = builder.middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()));
-    }
-    if on("dangling-tool-call", true) {
-        builder = builder.middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()));
-    }
-    if on("tool-timeout", true) {
-        builder = builder.middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()));
-    }
-    if on("compaction", true) {
-        builder = builder.middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()));
-    }
-    if on("checkpoint", true) {
-        builder = builder.middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()));
-    }
-    if on("permission", true) {
-        builder = builder.plugin(Box::new(PermissionPlugin::new()));
-    }
-
-    // Third-party subprocess plugins (JS / Python / anything via AEP).
-    // Same convention CLI uses: project dir shadows global on name conflicts.
-    // Matches alva-app-cli::agent_setup; kept on by default so the two apps
-    // expose the same plugin surface to users.
-    if on("subprocess-loader", true) {
-        builder = builder.plugin(Box::new(
-            alva_app_extension_loader::loader::SubprocessLoaderPlugin::new(vec![
-                paths.project_extensions_dir(),
-                paths.global_extensions_dir(),
-            ]),
-        ));
-    }
+            crate::bundled_skills::ensure_extracted().ok(),
+        )),
+        mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
+        subagent_depth: 3,
+        hooks_settings: alva_app_core::settings::HooksSettings::default(),
+        subprocess_ext_dirs: vec![
+            paths.project_extensions_dir(),
+            paths.global_extensions_dir(),
+        ],
+    };
+    builder = alva_app_core::components::apply_components(builder, &toggles, &component_ctx);
 
     let agent = builder
         .build(model)
