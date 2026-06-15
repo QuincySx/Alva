@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Capability Report Viewer</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         margin: 0; padding: 0 0 64px; background: #f5f6f8; color: #1c1e21; }
+
+  /* ── sticky console ───────────────────────────────────────────────── */
+  .console { position: sticky; top: 0; z-index: 10; background: #fff;
+             border-bottom: 1px solid #d0d7de; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .row { padding: 10px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .row.top { padding-top: 14px; }
+  h1 { margin: 0 12px 0 0; font-size: 17px; }
+  select, input.search { font: inherit; padding: 5px 10px; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; color: #1c1e21; }
+  select.run { min-width: 360px; max-width: 70vw; }
+  input.search { min-width: 220px; }
+  .ctl-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; font-weight: 700; }
+  .pill { background: #eaeef2; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  .pill b { font-weight: 700; }
+  .pill.allpass { background: #d6f5e0; color: #0a5a28; }
+  .pill.hasfail { background: #ffe0e3; color: #a40e26; }
+  label.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+  button.linkbtn { font: inherit; cursor: pointer; background: none; border: 0; color: #0969da; text-decoration: underline; font-size: 13px; padding: 0; }
+  .hint { font-size: 12px; color: #57606a; }
+
+  /* ── groups + cases ───────────────────────────────────────────────── */
+  .groups { padding: 8px 24px; }
+  details.group { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; margin: 12px 0; overflow: hidden; }
+  details.group.hasfail { border-color: #cf222e; box-shadow: 0 0 0 1px #cf222e22; }
+  summary.group-head { cursor: pointer; padding: 12px 16px; font-size: 15px; font-weight: 700;
+            display: flex; align-items: center; gap: 10px; list-style: none; }
+  summary.group-head::-webkit-details-marker { display: none; }
+  .tri { transition: transform .15s; color: #57606a; }
+  details[open] > summary.group-head .tri { transform: rotate(90deg); }
+  .group-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .group-stat { font-size: 13px; font-weight: 600; color: #1a7f37; }
+  .group-stat.fail { color: #cf222e; }
+  .group-body { padding: 4px 12px 12px; }
+
+  details.case { border: 1px solid #e1e4e8; border-left: 5px solid #2da44e; border-radius: 8px; margin: 8px 0; }
+  details.case.fail { border-left-color: #cf222e; background: #fff8f8; }
+  summary.case-head { cursor: pointer; padding: 9px 12px; display: flex; align-items: center; gap: 10px; list-style: none; }
+  summary.case-head::-webkit-details-marker { display: none; }
+  .badge { font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 5px; color: #fff; }
+  .badge-pass { background: #2da44e; }
+  .badge-fail { background: #cf222e; }
+  .case-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+  .case-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+  .case-tag { font-size: 10.5px; background: #eef1f4; color: #57606a; border-radius: 4px; padding: 1px 6px; }
+  .latency { margin-left: auto; color: #57606a; font-size: 12px; white-space: nowrap; }
+  .modetag { color: #57606a; font-size: 11px; font-style: italic; }
+  .case-body { padding: 4px 14px 14px; }
+
+  .block { margin-top: 12px; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; margin-bottom: 4px; font-weight: 700; }
+  .note { color: #8250df; font-style: italic; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .assertion { background: #fff8e6; border: 1px solid #f0e2b6; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+  pre { background: #0d1117; color: #e6edf3; padding: 12px 14px; border-radius: 6px; overflow-x: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.45;
+        white-space: pre-wrap; word-break: break-word; margin: 0; }
+  pre.prompt { background: #eef2ff; color: #1c1e21; border: 1px solid #d0d7de; }
+  pre.finaltext { background: #f0fff4; color: #1c1e21; border: 1px solid #b6e3c0; }
+  .tool { margin: 10px 0; border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; }
+  .tool-head { font-size: 14px; margin-bottom: 6px; }
+  .tool-head code { background: #eaeef2; padding: 2px 6px; border-radius: 4px; }
+  .sub { font-size: 11px; text-transform: uppercase; color: #57606a; margin: 8px 0 2px; font-weight: 600; }
+  .err { color: #cf222e; font-weight: 600; }
+  .okk { color: #1a7f37; font-weight: 600; }
+  .empty { color: #8c959f; font-style: italic; }
+  .verdict { font-size: 14px; }
+  .msg { margin: 40px 24px; font-size: 15px; color: #8c959f; }
+</style>
+</head>
+<body>
+<div class="console">
+  <div class="row top">
+    <h1>Capability Reports</h1>
+    <span class="ctl-label">run</span>
+    <select id="runSelect" class="run"><option>loading…</option></select>
+    <button id="reload" class="linkbtn">Reload list</button>
+    <span class="ctl-label">or load file(s)</span>
+    <input id="fileInput" type="file" accept=".json,application/json" multiple>
+  </div>
+  <div class="row" id="summaryRow"></div>
+  <div class="row">
+    <label class="toggle"><input type="checkbox" id="onlyFail"> Only failures</label>
+    <span class="ctl-label">search</span>
+    <input id="search" class="search" type="search" placeholder="name / task / assertion…">
+    <span class="hint" id="hint"></span>
+  </div>
+</div>
+<div id="body" class="groups"></div>
+
+<script>
+(function () {
+  // ── DOM helpers (text via textContent → injection-safe) ─────────────
+  function el(tag, opts) {
+    var n = document.createElement(tag);
+    opts = opts || {};
+    if (opts.cls) n.className = opts.cls;
+    if (opts.text != null) n.textContent = String(opts.text);
+    if (opts.attrs) for (var k in opts.attrs) n.setAttribute(k, opts.attrs[k]);
+    return n;
+  }
+  function pre(text, cls) { return el("pre", { cls: cls, text: text }); }
+  var MAX = 8000;
+  function clip(s) {
+    s = (s == null) ? "" : String(s);
+    if (s.length <= MAX) return s;
+    return s.slice(0, MAX) + "\n\n… [truncated for display — original length " + s.length + " chars]";
+  }
+  function fmtInput(v) {
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
+  }
+  function isPass(c) { return c.verdict === "pass"; }
+  function fmtTs(unix) {
+    var d = new Date((unix || 0) * 1000);
+    return isNaN(d.getTime()) ? "n/a" : d.toLocaleString();
+  }
+
+  var runSelect = document.getElementById("runSelect");
+  var summaryRow = document.getElementById("summaryRow");
+  var body = document.getElementById("body");
+  var onlyFail = document.getElementById("onlyFail");
+  var search = document.getElementById("search");
+  var hint = document.getElementById("hint");
+  var fileInput = document.getElementById("fileInput");
+  var reloadBtn = document.getElementById("reload");
+
+  var current = null;      // currently displayed report object
+  var fileReports = {};    // name -> report, for locally chosen files
+
+  // ── index / run selection ──────────────────────────────────────────
+  function loadIndex() {
+    runSelect.innerHTML = "";
+    fetch("index.json", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (list) {
+        if (!list.length) { runSelect.appendChild(el("option", { text: "(no runs yet)" })); return; }
+        list.forEach(function (e, i) {
+          var badge = (e.passed === e.total) ? "✅" : "❌";
+          var label = badge + " " + e.model + " · " + e.suite + " · " + fmtTs(e.timestamp_unix) +
+                      " · " + e.passed + "/" + e.total;
+          var o = el("option", { text: label, attrs: { value: e.file } });
+          if (e.passed !== e.total) o.style.color = "#cf222e";
+          runSelect.appendChild(o);
+          if (i === 0) o.selected = true;
+        });
+        hint.textContent = "";
+        loadRun(list[0].file);
+      })
+      .catch(function () {
+        runSelect.appendChild(el("option", { text: "(index.json not reachable)" }));
+        hint.textContent = "Tip: serve this dir (python3 -m http.server) or use “load file(s)”.";
+      });
+  }
+
+  function loadRun(file) {
+    if (fileReports[file]) { show(fileReports[file]); return; }
+    fetch(file, { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(show)
+      .catch(function () {
+        body.innerHTML = "";
+        body.appendChild(el("div", { cls: "msg", text: "Could not load " + file + " (need a local server, or use “load file(s)”)." }));
+      });
+  }
+
+  runSelect.onchange = function () { if (runSelect.value) loadRun(runSelect.value); };
+  reloadBtn.onclick = loadIndex;
+
+  fileInput.onchange = function () {
+    var files = Array.prototype.slice.call(fileInput.files || []);
+    if (!files.length) return;
+    var first = null;
+    files.forEach(function (f) {
+      var rd = new FileReader();
+      rd.onload = function () {
+        try {
+          var rep = JSON.parse(rd.result);
+          fileReports[f.name] = rep;
+          var badge = (rep.summary.passed === rep.summary.total) ? "✅" : "❌";
+          var label = "📁 " + badge + " " + rep.model + " · " + rep.suite + " · " +
+                      fmtTs(rep.timestamp_unix) + " · " + rep.summary.passed + "/" + rep.summary.total;
+          var o = el("option", { text: label, attrs: { value: f.name } });
+          runSelect.insertBefore(o, runSelect.firstChild);
+          o.selected = true;
+          if (!first) { first = rep; show(rep); }
+        } catch (e) {
+          hint.textContent = "Failed to parse " + f.name + ": " + e;
+        }
+      };
+      rd.readAsText(f);
+    });
+  };
+
+  // ── filter state ───────────────────────────────────────────────────
+  onlyFail.onchange = render;
+  search.oninput = render;
+
+  function caseMatches(c) {
+    if (onlyFail.checked && isPass(c)) return false;
+    var q = search.value.trim().toLowerCase();
+    if (q) {
+      var hay = (c.name + " " + (c.task || "") + " " + (c.assertion || "")).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  }
+
+  // ── render a loaded report ─────────────────────────────────────────
+  function show(report) {
+    current = report;
+    var allPass = report.summary.passed === report.summary.total;
+    summaryRow.innerHTML = "";
+    function pill(label, value, cls) {
+      var p = el("span", { cls: "pill" + (cls ? " " + cls : "") });
+      p.appendChild(document.createTextNode(label + ": "));
+      p.appendChild(el("b", { text: value }));
+      return p;
+    }
+    summaryRow.appendChild(pill("result", report.summary.passed + " / " + report.summary.total + " passed", allPass ? "allpass" : "hasfail"));
+    summaryRow.appendChild(pill("failed", report.summary.total - report.summary.passed, allPass ? null : "hasfail"));
+    summaryRow.appendChild(pill("suite", report.suite));
+    summaryRow.appendChild(pill("model", report.model));
+    summaryRow.appendChild(pill("total", (report.summary.duration_ms || 0) + " ms"));
+    summaryRow.appendChild(pill("generated", fmtTs(report.timestamp_unix)));
+    render();
+  }
+
+  function buildCase(c) {
+    var pass = isPass(c);
+    var d = el("details", { cls: "case" + (pass ? "" : " fail") });
+    var s = el("summary", { cls: "case-head" });
+    s.appendChild(el("span", { cls: "badge " + (pass ? "badge-pass" : "badge-fail"), text: pass ? "PASS" : "FAIL" }));
+    s.appendChild(el("span", { cls: "case-name", text: c.name }));
+    if (c.tags && c.tags.length) {
+      var tw = el("span", { cls: "case-tags" });
+      c.tags.forEach(function (t) { tw.appendChild(el("span", { cls: "case-tag", text: t })); });
+      s.appendChild(tw);
+    }
+    s.appendChild(el("span", { cls: "latency", text: (c.latency_ms || 0) + " ms" }));
+    if (c.mode) s.appendChild(el("span", { cls: "modetag", text: c.mode + " path" }));
+    d.appendChild(s);
+    if (!pass) d.open = true;
+
+    var bd = el("div", { cls: "case-body" });
+
+    var tb = el("div", { cls: "block" });
+    var tl = el("div", { cls: "label" });
+    tl.appendChild(document.createTextNode("Task prompt"));
+    if (c.mode === "mock") {
+      tl.appendChild(el("em", { cls: "note", text: " (mock path: the scripted MockLanguageModel injected the tool call directly; this prompt is the intent only)" }));
+    }
+    tb.appendChild(tl);
+    tb.appendChild(pre(c.task, "prompt"));
+    bd.appendChild(tb);
+
+    var ab = el("div", { cls: "block" });
+    ab.appendChild(el("div", { cls: "label", text: "Assertion (what we check)" }));
+    ab.appendChild(el("div", { cls: "assertion", text: c.assertion }));
+    bd.appendChild(ab);
+
+    var trb = el("div", { cls: "block" });
+    trb.appendChild(el("div", { cls: "label", text: "Execution trace" }));
+    var trace = c.trace || [];
+    if (!trace.length) {
+      trb.appendChild(el("div", { cls: "empty", text: "No tool executions captured." }));
+    } else {
+      trace.forEach(function (t, i) {
+        var tool = el("div", { cls: "tool" });
+        var th = el("div", { cls: "tool-head" });
+        th.appendChild(document.createTextNode("#" + (i + 1) + " "));
+        th.appendChild(el("code", { text: t.tool }));
+        th.appendChild(document.createTextNode(" "));
+        th.appendChild(el("span", { cls: t.is_error ? "err" : "okk", text: "is_error=" + !!t.is_error }));
+        tool.appendChild(th);
+        tool.appendChild(el("div", { cls: "sub", text: "input" }));
+        tool.appendChild(pre(clip(fmtInput(t.input))));
+        var outStr = (t.output == null) ? "" : String(t.output);
+        tool.appendChild(el("div", { cls: "sub", text: "output (" + outStr.length + " chars)" }));
+        tool.appendChild(pre(clip(outStr)));
+        trb.appendChild(tool);
+      });
+    }
+    if (c.final_text) {
+      trb.appendChild(el("div", { cls: "sub", text: "final assistant message" }));
+      trb.appendChild(pre(clip(c.final_text), "finaltext"));
+    }
+    if (c.end_error) {
+      trb.appendChild(el("div", { cls: "sub err", text: "AgentEnd error" }));
+      trb.appendChild(pre(clip(c.end_error)));
+    }
+    bd.appendChild(trb);
+
+    var vb = el("div", { cls: "block" });
+    vb.appendChild(el("div", { cls: "label", text: "Verdict" }));
+    var v = el("div", { cls: "verdict" });
+    v.appendChild(el("span", { cls: pass ? "okk" : "err",
+      text: pass ? "PASS — all assertions held." : ("FAIL — " + (c.detail || "see trace")) }));
+    vb.appendChild(v);
+    bd.appendChild(vb);
+
+    d.appendChild(bd);
+    return d;
+  }
+
+  function render() {
+    body.innerHTML = "";
+    if (!current) { body.appendChild(el("div", { cls: "msg", text: "Select a run above." })); return; }
+    var cases = (current.cases || []).filter(caseMatches);
+    if (!cases.length) { body.appendChild(el("div", { cls: "msg", text: "No cases match the current filters." })); return; }
+
+    // group order = first-seen
+    var order = [], seen = {};
+    cases.forEach(function (c) { if (!seen[c.group]) { seen[c.group] = 1; order.push(c.group); } });
+
+    order.forEach(function (g) {
+      var inG = cases.filter(function (c) { return c.group === g; });
+      var total = inG.length, passed = inG.filter(isPass).length, hasFail = passed < total;
+      var det = el("details", { cls: "group" + (hasFail ? " hasfail" : "") });
+      det.open = hasFail;
+      var head = el("summary", { cls: "group-head" });
+      head.appendChild(el("span", { cls: "tri", text: "▶" }));
+      head.appendChild(el("span", { cls: "group-name", text: g }));
+      head.appendChild(el("span", { cls: "group-stat" + (hasFail ? " fail" : ""), text: passed + " / " + total + " passed" }));
+      det.appendChild(head);
+      var gb = el("div", { cls: "group-body" });
+      inG.sort(function (a, b) { return (isPass(a) ? 1 : 0) - (isPass(b) ? 1 : 0); });
+      inG.forEach(function (c) { gb.appendChild(buildCase(c)); });
+      det.appendChild(gb);
+      body.appendChild(det);
+    });
+  }
+
+  loadIndex();
+})();
+</script>
+</body>
+</html>

@@ -545,51 +545,118 @@ fn slugify(s: &str) -> String {
         .collect()
 }
 
-/// Static HTML view layer — committed once, edited independently, re-embedded
-/// at compile time. The data is injected at the `/*__REPORT_JSON__*/ null`
-/// placeholder so the report is fully self-contained.
-const REPORT_TEMPLATE: &str = include_str!("fixtures/capability-report-template.html");
-
-/// Resolve the workspace `target/` dir (CWD is the crate root during tests).
-fn target_dir() -> std::path::PathBuf {
+/// Resolve `<crate>/tests/reports` (stable regardless of test CWD).
+fn reports_dir() -> std::path::PathBuf {
     let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    dir.push("../../target");
-    dir.canonicalize().unwrap_or_else(|_| {
-        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("target");
-        let _ = std::fs::create_dir_all(&p);
-        p
-    })
+    dir.push("tests/reports");
+    dir
 }
 
-/// Write both the raw JSON (machine/diff) and the injected HTML (human) under
-/// `target/`. Returns `(html_path, json_path)`.
-fn write_report(
+/// Format a unix timestamp (UTC) as a `YYYYMMDD-HHMMSS` filename slug.
+/// Self-contained calendar math (no chrono dep needed for filenames).
+fn timestamp_slug(unix: u64) -> String {
+    let secs = unix % 60;
+    let mins = (unix / 60) % 60;
+    let hours = (unix / 3600) % 24;
+    let mut days = unix / 86_400; // days since 1970-01-01
+
+    let mut year = 1970u64;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let ydays = if leap { 366 } else { 365 };
+        if days >= ydays {
+            days -= ydays;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 0usize;
+    while days >= mdays[month] {
+        days -= mdays[month];
+        month += 1;
+    }
+    let day = days + 1;
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        year,
+        month + 1,
+        day,
+        hours,
+        mins,
+        secs
+    )
+}
+
+/// Write a timestamped, never-overwritten run JSON into `tests/reports/`, then
+/// regenerate `index.json` (newest-first list of all runs). Returns the run
+/// JSON path. The committed `viewer.html` reads these at view time.
+fn write_run_report(
     suite_label: &str,
     model_label: &str,
     runs: &[CaseRun],
-) -> (std::path::PathBuf, std::path::PathBuf) {
+) -> std::path::PathBuf {
     let report = build_report_json(suite_label, model_label, runs);
     let json_str = serde_json::to_string_pretty(&report).expect("report JSON must serialize");
 
-    // Inject the data into the static template. The placeholder is exactly
-    // `/*__REPORT_JSON__*/ null`; replacing the `null` keeps the JS comment.
-    // serde_json output is HTML-inert for our keys, but defensively neutralize
-    // any `</script>` that could prematurely close the inline <script>.
-    let injected = json_str.replace("</", "<\\/");
-    let html = REPORT_TEMPLATE.replace("/*__REPORT_JSON__*/ null", &injected);
+    let dir = reports_dir();
+    std::fs::create_dir_all(&dir).expect("failed to create tests/reports dir");
 
-    let dir = target_dir();
-    let stem = format!(
-        "capability-report-{}-{}",
+    let unix = report
+        .get("timestamp_unix")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let run_path = dir.join(format!(
+        "run-{}-{}-{}.json",
+        timestamp_slug(unix),
         slugify(suite_label),
-        slugify(model_label)
+        slugify(model_label),
+    ));
+    std::fs::write(&run_path, &json_str).expect("failed to write run JSON");
+
+    regenerate_index(&dir);
+    run_path
+}
+
+/// Scan `tests/reports/` for `run-*.json`, read each header, and write
+/// `index.json` as a newest-first array the viewer can list.
+fn regenerate_index(dir: &std::path::Path) {
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    if let Ok(read) = std::fs::read_dir(dir) {
+        for ent in read.flatten() {
+            let name = ent.file_name().to_string_lossy().to_string();
+            if !(name.starts_with("run-") && name.ends_with(".json")) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(ent.path()) else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+            entries.push(serde_json::json!({
+                "file": name,
+                "suite": v.get("suite").and_then(|x| x.as_str()).unwrap_or(""),
+                "model": v.get("model").and_then(|x| x.as_str()).unwrap_or(""),
+                "timestamp_unix": v.get("timestamp_unix").and_then(|x| x.as_u64()).unwrap_or(0),
+                "passed": v.pointer("/summary/passed").and_then(|x| x.as_u64()).unwrap_or(0),
+                "total": v.pointer("/summary/total").and_then(|x| x.as_u64()).unwrap_or(0),
+            }));
+        }
+    }
+    // Newest first; tie-break by filename desc so same-second runs stay stable.
+    entries.sort_by(|a, b| {
+        let ta = a.get("timestamp_unix").and_then(|x| x.as_u64()).unwrap_or(0);
+        let tb = b.get("timestamp_unix").and_then(|x| x.as_u64()).unwrap_or(0);
+        tb.cmp(&ta).then_with(|| {
+            let fa = a.get("file").and_then(|x| x.as_str()).unwrap_or("");
+            let fb = b.get("file").and_then(|x| x.as_str()).unwrap_or("");
+            fb.cmp(fa)
+        })
+    });
+    let index = serde_json::Value::Array(entries);
+    let _ = std::fs::write(
+        dir.join("index.json"),
+        serde_json::to_string_pretty(&index).unwrap_or_else(|_| "[]".into()),
     );
-    let html_path = dir.join(format!("{stem}.html"));
-    let json_path = dir.join(format!("{stem}.json"));
-    std::fs::write(&json_path, &json_str).expect("failed to write JSON report");
-    std::fs::write(&html_path, html).expect("failed to write HTML report");
-    (html_path, json_path)
 }
 
 /// Print the concise stderr ✅/❌ summary and return whether all passed.
@@ -673,10 +740,13 @@ async fn mock_capability_suite() {
 
     let all_passed =
         print_stderr_summary("MOCK capability suite (MockLanguageModel)", &runs);
-    let (html_path, json_path) = write_report("mock", "MockLanguageModel", &runs);
-    eprintln!("HTML report: {}\nJSON data: {}", html_path.display(), json_path.display());
+    let run_path = write_run_report("mock", "MockLanguageModel", &runs);
+    eprintln!(
+        "report run: {}\nopen viewer: cd crates/alva-app-core/tests/reports && python3 -m http.server 8000  → http://localhost:8000/viewer.html",
+        run_path.display()
+    );
 
-    assert!(all_passed, "mock capability suite had failures — see report above / HTML report");
+    assert!(all_passed, "mock capability suite had failures — see report above / report run JSON");
 }
 
 // ===========================================================================
@@ -764,11 +834,14 @@ async fn real_capability_suite() {
 
     let header = format!("REAL capability suite (model: {})", model_name);
     let all_passed = print_stderr_summary(&header, &runs);
-    let (html_path, json_path) = write_report("real", &model_name, &runs);
-    eprintln!("HTML report: {}\nJSON data: {}", html_path.display(), json_path.display());
+    let run_path = write_run_report("real", &model_name, &runs);
+    eprintln!(
+        "report run: {}\nopen viewer: cd crates/alva-app-core/tests/reports && python3 -m http.server 8000  → http://localhost:8000/viewer.html",
+        run_path.display()
+    );
 
     assert!(
         all_passed,
-        "real capability suite had failures against model `{model_name}` — see report above / HTML report"
+        "real capability suite had failures against model `{model_name}` — see report above / report run JSON"
     );
 }
