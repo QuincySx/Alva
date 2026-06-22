@@ -1,7 +1,10 @@
+// INPUT:  BaseAgent, apply_components, MockLanguageModel, real providers, AgentEvent
+// OUTPUT: mock_capability_suite, real_capability_suite, report JSON/data.js helpers
+// POS:    Dual-path built-in capability regression harness with opt-in report generation.
 //! Dual-path agent capability regression harness.
 //!
-//! A single batch of "capability cases" (one per built-in tool the CLI mini
-//! agent exposes) is run two ways from the SAME case definitions:
+//! A single batch of "capability cases" (single-tool coverage plus cross-tool
+//! boundary workflows) is run two ways from the SAME case definitions:
 //!
 //!   1. `mock_capability_suite` — deterministic, no API key. Each case scripts
 //!      a `MockLanguageModel` to emit the exact tool call, then the shared
@@ -15,9 +18,15 @@
 //!      regression" path. Without the key it skips (test passes).
 //!
 //! Both suites print a `✅/❌ case — detail` report table (use
-//! `cargo test -- --nocapture` to see it) and fail if any case fails.
+//! `cargo test -- --nocapture` to see it) and fail if any case fails. With
+//! `ALVA_WRITE_CAPABILITY_REPORT=1` (or `ALVA_CAPABILITY_REPORT_DIR=<dir>`) they
+//! write a full viewer report plus a compact `latest-agent-summary.json`.
+//! `real_capability_suite` also supports `ALVA_TEST_REPEAT=N` so one command
+//! can sample model stability instead of relying on a single stochastic run.
 //!
-//! Coverage spans every tool the mini agent registers. Cases split two ways:
+//! Coverage spans every tool the mini agent registers, then adds boundary cases
+//! for multi-step planning, error recovery, search→edit verification, and path
+//! handling. Cases split two ways:
 //!   - Deterministic cases run in BOTH suites (file ops, shell, task_create/
 //!     task_list, team_create/team_delete, send_message, search_skills/use_skill).
 //!   - `real_only` cases run ONLY in the real suite, because they can't be
@@ -45,7 +54,7 @@ use std::sync::Arc;
 
 use alva_app_core::base_agent::BaseAgent;
 use alva_app_core::AgentEvent;
-use alva_kernel_abi::{ContentBlock, LanguageModel, Message, MessageRole, ToolOutput};
+use alva_kernel_abi::{ContentBlock, LanguageModel, Message, MessageRole, ToolCall, ToolOutput};
 use alva_test::fixtures::make_assistant_message;
 use alva_test::mock_provider::MockLanguageModel;
 
@@ -80,8 +89,7 @@ async fn build_mini_agent(
     model: Arc<dyn LanguageModel>,
     toggles: &alva_app_core::components::ComponentToggles,
 ) -> BaseAgent {
-    let (approval_ext, mut approval_rx) =
-        alva_app_core::extension::ApprovalPlugin::with_channel();
+    let (approval_ext, mut approval_rx) = alva_app_core::extension::ApprovalPlugin::with_channel();
 
     let ctx = alva_app_core::components::ComponentContext {
         workspace: workspace.to_path_buf(),
@@ -120,8 +128,7 @@ async fn build_mini_agent(
     let bus = agent.bus().clone();
     tokio::spawn(async move {
         while let Some(req) = approval_rx.recv().await {
-            if let Some(guard) =
-                bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
             {
                 let mut g = guard.lock().await;
                 g.resolve_permission(
@@ -159,10 +166,16 @@ fn toggles_from_env() -> alva_app_core::components::ComponentToggles {
         Ok(s) if !s.trim().is_empty() => {
             let s = s.trim();
             if s.eq_ignore_ascii_case("all") {
-                return COMPONENTS.iter().map(|m| (m.id.to_string(), true)).collect();
+                return COMPONENTS
+                    .iter()
+                    .map(|m| (m.id.to_string(), true))
+                    .collect();
             }
-            let wanted: std::collections::HashSet<&str> =
-                s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()).collect();
+            let wanted: std::collections::HashSet<&str> = s
+                .split(',')
+                .map(|x| x.trim())
+                .filter(|x| !x.is_empty())
+                .collect();
             COMPONENTS
                 .iter()
                 .map(|m| (m.id.to_string(), wanted.contains(m.id)))
@@ -175,9 +188,7 @@ fn toggles_from_env() -> alva_app_core::components::ComponentToggles {
 /// The sorted list of component ids actually enabled under `toggles`. Recorded
 /// in the run report so a reader can tell which configuration produced a run
 /// (and A/B different `ALVA_TEST_COMPONENTS` configs).
-fn enabled_component_ids(
-    toggles: &alva_app_core::components::ComponentToggles,
-) -> Vec<String> {
+fn enabled_component_ids(toggles: &alva_app_core::components::ComponentToggles) -> Vec<String> {
     let mut ids: Vec<String> = alva_app_core::components::COMPONENTS
         .iter()
         .filter(|m| alva_app_core::components::is_on(toggles, m))
@@ -294,6 +305,18 @@ fn result_for(events: &[AgentEvent], tool_name: &str) -> Option<ToolOutput> {
         }
         _ => None,
     })
+}
+
+fn results_for(events: &[AgentEvent], tool_name: &str) -> Vec<ToolOutput> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ToolExecutionEnd { tool_call, result } if tool_call.name == tool_name => {
+                Some(result.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +829,255 @@ fn cases() -> Vec<Cap> {
                 Ok(())
             }),
         },
+        // ── multi-step file pipeline ───────────────────────────────────
+        Cap {
+            name: "multi_step_file_pipeline",
+            group: "boundary",
+            tags: &["boundary", "multi-step", "fs", "shell", "edit"],
+            real_only: false,
+            task: "Perform this exact tool workflow in order: create notes.txt with the text \
+                   alpha, read notes.txt, replace alpha with omega using file_edit, then run \
+                   the shell command `cat notes.txt` to verify the final content.",
+            assertion: "Asserts the model can drive a continuous create → read → edit → shell \
+                        verification workflow, and that the tools preserve the final on-disk \
+                        content `omega`.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| {
+                vec![
+                    tool_use_message(
+                        "1",
+                        "create_file",
+                        serde_json::json!({ "path": "notes.txt", "content": "alpha" }),
+                    ),
+                    tool_use_message(
+                        "2",
+                        "read_file",
+                        serde_json::json!({ "path": "notes.txt" }),
+                    ),
+                    tool_use_message(
+                        "3",
+                        "file_edit",
+                        serde_json::json!({
+                            "path": "notes.txt",
+                            "old_str": "alpha",
+                            "new_str": "omega",
+                        }),
+                    ),
+                    tool_use_message(
+                        "4",
+                        "execute_shell",
+                        serde_json::json!({ "command": "cat notes.txt" }),
+                    ),
+                ]
+            }),
+            check: Box::new(|ws, events| {
+                for tool in ["create_file", "read_file", "file_edit", "execute_shell"] {
+                    if !ran_tool(events, tool) {
+                        return Err(format!("{tool} did not run in the multi-step pipeline"));
+                    }
+                }
+                let content =
+                    std::fs::read_to_string(ws.join("notes.txt")).map_err(|e| e.to_string())?;
+                if content.trim() != "omega" {
+                    return Err(format!("final notes.txt content mismatch: {content:?}"));
+                }
+                let shell = result_for(events, "execute_shell")
+                    .ok_or("execute_shell did not produce a result")?;
+                if shell.is_error || !shell.model_text().contains("omega") {
+                    return Err(format!(
+                        "shell verification failed or missed omega: {}",
+                        shell.model_text()
+                    ));
+                }
+                Ok(())
+            }),
+        },
+        // ── search → edit → verify pipeline ────────────────────────────
+        Cap {
+            name: "grep_edit_verify_pipeline",
+            group: "boundary",
+            tags: &["boundary", "multi-step", "search", "edit"],
+            real_only: false,
+            task: "Use grep_search to find the file containing TODO_CAP_MARKER, then use \
+                   file_edit to replace TODO_CAP_MARKER with DONE_CAP_MARKER. After editing, \
+                   use grep_search again to verify DONE_CAP_MARKER exists.",
+            assertion: "Asserts the model can use search output to choose a file, edit that file, \
+                        and verify the edit with a second search.",
+            setup: Box::new(|ws| {
+                std::fs::create_dir_all(ws.join("src")).unwrap();
+                std::fs::write(
+                    ws.join("src/pipeline.txt"),
+                    "before\nTODO_CAP_MARKER\n after\n",
+                )
+                .unwrap();
+            }),
+            mock_script: Box::new(|_ws| {
+                vec![
+                    tool_use_message(
+                        "1",
+                        "grep_search",
+                        serde_json::json!({ "pattern": "TODO_CAP_MARKER" }),
+                    ),
+                    tool_use_message(
+                        "2",
+                        "file_edit",
+                        serde_json::json!({
+                            "path": "src/pipeline.txt",
+                            "old_str": "TODO_CAP_MARKER",
+                            "new_str": "DONE_CAP_MARKER",
+                        }),
+                    ),
+                    tool_use_message(
+                        "3",
+                        "grep_search",
+                        serde_json::json!({ "pattern": "DONE_CAP_MARKER" }),
+                    ),
+                ]
+            }),
+            check: Box::new(|ws, events| {
+                if results_for(events, "grep_search").len() < 2 {
+                    return Err("expected grep_search to run before and after edit".into());
+                }
+                if !ran_tool(events, "file_edit") {
+                    return Err("file_edit did not run after grep_search".into());
+                }
+                let content = std::fs::read_to_string(ws.join("src/pipeline.txt"))
+                    .map_err(|e| e.to_string())?;
+                if !content.contains("DONE_CAP_MARKER") || content.contains("TODO_CAP_MARKER") {
+                    return Err(format!("marker edit not applied correctly: {content:?}"));
+                }
+                let final_grep = results_for(events, "grep_search")
+                    .last()
+                    .cloned()
+                    .ok_or("missing final grep result")?;
+                let final_text = final_grep.model_text();
+                if final_grep.is_error
+                    || (!final_text.contains("DONE_CAP_MARKER")
+                        && !final_text.contains("src/pipeline.txt"))
+                {
+                    return Err(format!(
+                        "final grep did not verify DONE_CAP_MARKER or its file: {final_text}"
+                    ));
+                }
+                Ok(())
+            }),
+        },
+        // ── error recovery: missing file → create → read ───────────────
+        Cap {
+            name: "missing_file_recovery",
+            group: "boundary",
+            tags: &["boundary", "error-recovery", "fs"],
+            real_only: false,
+            task: "First try to read missing_then_create.txt. If it is missing, recover by \
+                   creating missing_then_create.txt with exactly recovered-content, then read \
+                   missing_then_create.txt again to confirm the content.",
+            assertion: "Asserts the model can recover from an expected tool error by taking the \
+                        next corrective action, and that read_file/create_file handle the sequence.",
+            setup: Box::new(|_ws| {}),
+            mock_script: Box::new(|_ws| {
+                vec![
+                    tool_use_message(
+                        "1",
+                        "read_file",
+                        serde_json::json!({ "path": "missing_then_create.txt" }),
+                    ),
+                    tool_use_message(
+                        "2",
+                        "create_file",
+                        serde_json::json!({
+                            "path": "missing_then_create.txt",
+                            "content": "recovered-content",
+                        }),
+                    ),
+                    tool_use_message(
+                        "3",
+                        "read_file",
+                        serde_json::json!({ "path": "missing_then_create.txt" }),
+                    ),
+                ]
+            }),
+            check: Box::new(|ws, events| {
+                let reads = results_for(events, "read_file");
+                if reads.len() < 2 {
+                    return Err(format!(
+                        "expected read_file to run before and after recovery, got {}",
+                        reads.len()
+                    ));
+                }
+                if !reads.iter().any(|out| out.is_error) {
+                    return Err("expected the first missing-file read to produce an error".into());
+                }
+                if !ran_tool(events, "create_file") {
+                    return Err("create_file did not run after missing-file error".into());
+                }
+                let content = std::fs::read_to_string(ws.join("missing_then_create.txt"))
+                    .map_err(|e| e.to_string())?;
+                if content.trim() != "recovered-content" {
+                    return Err(format!("recovered file content mismatch: {content:?}"));
+                }
+                let final_read = reads.last().expect("checked len");
+                if final_read.is_error || !final_read.model_text().contains("recovered-content") {
+                    return Err(format!(
+                        "final read did not confirm recovered content: {}",
+                        final_read.model_text()
+                    ));
+                }
+                Ok(())
+            }),
+        },
+        // ── path handling: spaces + nested directory ───────────────────
+        Cap {
+            name: "path_with_spaces",
+            group: "boundary",
+            tags: &["boundary", "fs", "path"],
+            real_only: false,
+            task: "Inside the existing directory named `notes with spaces`, create a file named \
+                   `final report.txt` with exactly the text spaced-path-ok, then read that same \
+                   file back.",
+            assertion: "Asserts create_file/read_file handle paths containing spaces and that the \
+                        model preserves the exact nested path.",
+            setup: Box::new(|ws| {
+                std::fs::create_dir_all(ws.join("notes with spaces")).unwrap();
+            }),
+            mock_script: Box::new(|_ws| {
+                vec![
+                    tool_use_message(
+                        "1",
+                        "create_file",
+                        serde_json::json!({
+                            "path": "notes with spaces/final report.txt",
+                            "content": "spaced-path-ok",
+                        }),
+                    ),
+                    tool_use_message(
+                        "2",
+                        "read_file",
+                        serde_json::json!({ "path": "notes with spaces/final report.txt" }),
+                    ),
+                ]
+            }),
+            check: Box::new(|ws, events| {
+                if !ran_tool(events, "create_file") || !ran_tool(events, "read_file") {
+                    return Err("expected create_file and read_file for spaced path".into());
+                }
+                let target = ws.join("notes with spaces/final report.txt");
+                let content = std::fs::read_to_string(&target).map_err(|e| e.to_string())?;
+                if content.trim() != "spaced-path-ok" {
+                    return Err(format!("spaced path file content mismatch: {content:?}"));
+                }
+                let read = results_for(events, "read_file")
+                    .last()
+                    .cloned()
+                    .ok_or("read_file did not produce a result")?;
+                if read.is_error || !read.model_text().contains("spaced-path-ok") {
+                    return Err(format!(
+                        "read_file did not return spaced path content: {}",
+                        read.model_text()
+                    ));
+                }
+                Ok(())
+            }),
+        },
         // ── task_get (REAL ONLY — needs runtime task_id) ───────────────
         Cap {
             name: "task_get",
@@ -996,6 +1268,76 @@ impl CaseRun {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct FailureClass {
+    kind: &'static str,
+    owner: &'static str,
+}
+
+fn classify_case(run: &CaseRun) -> FailureClass {
+    if run.passed() {
+        return FailureClass {
+            kind: "pass",
+            owner: "none",
+        };
+    }
+
+    let detail = run.verdict.as_ref().err().map(String::as_str).unwrap_or("");
+    let lower = detail.to_ascii_lowercase();
+
+    if lower.contains("timeout") {
+        return FailureClass {
+            kind: "timeout",
+            owner: "runtime",
+        };
+    }
+
+    if run.events.iter().any(|ev| {
+        matches!(
+            ev,
+            AgentEvent::AgentEnd {
+                error: Some(error)
+            } if !error.trim().is_empty()
+        )
+    }) {
+        return FailureClass {
+            kind: "runtime_error",
+            owner: "runtime",
+        };
+    }
+
+    if run.events.iter().any(|ev| {
+        matches!(
+            ev,
+            AgentEvent::ToolExecutionEnd { result, .. } if result.is_error
+        )
+    }) {
+        return FailureClass {
+            kind: "tool_execution_error",
+            owner: "tool",
+        };
+    }
+
+    if lower.contains("did not run") || lower.contains("did not call") {
+        return FailureClass {
+            kind: "model_no_tool_call",
+            owner: "model",
+        };
+    }
+
+    FailureClass {
+        kind: "assertion_failed",
+        owner: "assertion",
+    }
+}
+
+fn agent_end_error(run: &CaseRun) -> Option<String> {
+    run.events.iter().find_map(|ev| match ev {
+        AgentEvent::AgentEnd { error: Some(error) } => Some(error.clone()),
+        _ => None,
+    })
+}
+
 /// Build the runtime JSON for ONE case run (data layer). The trace is pulled
 /// straight from the raw `AgentEvent` stream; `input` stays a real JSON value
 /// (not a pre-stringified blob) so machine diffs across models are precise.
@@ -1042,6 +1384,7 @@ fn case_to_json(run: &CaseRun) -> serde_json::Value {
         }
     }
 
+    let failure = classify_case(run);
     serde_json::json!({
         "name": run.name,
         "group": run.group,
@@ -1051,11 +1394,20 @@ fn case_to_json(run: &CaseRun) -> serde_json::Value {
         "mode": run.mode,
         "verdict": if run.passed() { "pass" } else { "fail" },
         "detail": run.verdict.as_ref().err().cloned().unwrap_or_default(),
+        "failure_kind": failure.kind,
+        "failure_owner": failure.owner,
         "latency_ms": run.latency_ms,
         "trace": trace,
         "final_text": final_text,
         "end_error": end_error,
     })
+}
+
+fn current_timestamp_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Assemble the full runtime report JSON (data layer).
@@ -1073,10 +1425,7 @@ fn build_report_json(
     let total = runs.len();
     let passed = runs.iter().filter(|r| r.passed()).count();
     let duration_ms: u128 = runs.iter().map(|r| r.latency_ms).sum();
-    let timestamp_unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let timestamp_unix = current_timestamp_unix();
 
     // Per-group passed/total, in first-seen order (front-end can also recompute
     // from `cases`, but pre-aggregating keeps JSON diffs at the group level).
@@ -1117,10 +1466,135 @@ fn build_report_json(
     })
 }
 
+/// Build the compact, agent-readable report. This is intentionally smaller
+/// than the viewer payload: it keeps classification and next-action hints, not
+/// every model token or full trace row.
+fn build_agent_summary_json(
+    suite_label: &str,
+    model_label: &str,
+    components: &[String],
+    runs: &[CaseRun],
+) -> serde_json::Value {
+    let total = runs.len();
+    let passed = runs.iter().filter(|r| r.passed()).count();
+    let failed = total.saturating_sub(passed);
+    let duration_ms: u128 = runs.iter().map(|r| r.latency_ms).sum();
+
+    let mut failure_counts: std::collections::BTreeMap<&'static str, usize> =
+        std::collections::BTreeMap::new();
+    let mut owner_counts: std::collections::BTreeMap<&'static str, usize> =
+        std::collections::BTreeMap::new();
+    let mut stability: std::collections::BTreeMap<
+        &'static str,
+        (&'static str, &'static [&'static str], usize, usize),
+    > = std::collections::BTreeMap::new();
+    let mut failures = Vec::new();
+
+    for run in runs {
+        let entry = stability
+            .entry(run.name)
+            .or_insert((run.group, run.tags, 0, 0));
+        entry.3 += 1;
+        if run.passed() {
+            entry.2 += 1;
+        }
+    }
+
+    for run in runs.iter().filter(|r| !r.passed()) {
+        let class = classify_case(run);
+        *failure_counts.entry(class.kind).or_insert(0) += 1;
+        *owner_counts.entry(class.owner).or_insert(0) += 1;
+        let tool_events = run
+            .events
+            .iter()
+            .filter(|ev| matches!(ev, AgentEvent::ToolExecutionEnd { .. }))
+            .count();
+        failures.push(serde_json::json!({
+            "case": run.name,
+            "group": run.group,
+            "tags": run.tags,
+            "kind": class.kind,
+            "owner": class.owner,
+            "detail": run.verdict.as_ref().err().cloned().unwrap_or_default(),
+            "latency_ms": run.latency_ms,
+            "tool_event_count": tool_events,
+            "end_error": agent_end_error(run),
+        }));
+    }
+
+    let mut case_stability: Vec<serde_json::Value> = stability
+        .into_iter()
+        .map(|(case, (group, tags, passed, total))| {
+            serde_json::json!({
+                "case": case,
+                "group": group,
+                "tags": tags,
+                "passed": passed,
+                "total": total,
+                "pass_rate": if total == 0 { 1.0 } else { passed as f64 / total as f64 },
+            })
+        })
+        .collect();
+    case_stability.sort_by(|a, b| {
+        let ar = a.get("pass_rate").and_then(|v| v.as_f64()).unwrap_or(1.0);
+        let br = b.get("pass_rate").and_then(|v| v.as_f64()).unwrap_or(1.0);
+        ar.partial_cmp(&br)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                let ac = a.get("case").and_then(|v| v.as_str()).unwrap_or("");
+                let bc = b.get("case").and_then(|v| v.as_str()).unwrap_or("");
+                ac.cmp(bc)
+            })
+    });
+
+    let mut next_actions = Vec::new();
+    for (owner, count) in owner_counts {
+        let action = match owner {
+            "model" => "tighten task prompt/tool descriptions, then rerun with repeats before changing runtime code",
+            "tool" => "inspect tool input/output contract and execution error details",
+            "runtime" => "inspect agent loop, middleware, timeout, or provider transport before prompt tuning",
+            "assertion" => "compare trace against test invariant; decide whether expectation or tool behavior is wrong",
+            _ => "inspect failed case manually",
+        };
+        next_actions.push(serde_json::json!({
+            "owner": owner,
+            "count": count,
+            "action": action,
+        }));
+    }
+
+    serde_json::json!({
+        "schema_version": 1,
+        "report_kind": "agent_capability_summary",
+        "suite": suite_label,
+        "model": model_label,
+        "timestamp_unix": current_timestamp_unix(),
+        "components": components,
+        "component_count": components.len(),
+        "summary": {
+            "passed": passed,
+            "failed": failed,
+            "total": total,
+            "pass_rate": if total == 0 { 1.0 } else { passed as f64 / total as f64 },
+            "duration_ms": duration_ms,
+        },
+        "failure_counts": failure_counts,
+        "case_stability": case_stability,
+        "failures": failures,
+        "next_actions": next_actions,
+    })
+}
+
 /// Sanitize a label into a filename-safe token (replace `/`, spaces, etc.).
 fn slugify(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -1129,6 +1603,34 @@ fn reports_dir() -> std::path::PathBuf {
     let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     dir.push("tests/reports");
     dir
+}
+
+const WRITE_REPORT_ENV: &str = "ALVA_WRITE_CAPABILITY_REPORT";
+const REPORT_DIR_ENV: &str = "ALVA_CAPABILITY_REPORT_DIR";
+const REPEAT_ENV: &str = "ALVA_TEST_REPEAT";
+
+fn capability_report_output_dir() -> Option<std::path::PathBuf> {
+    if let Ok(dir) = std::env::var(REPORT_DIR_ENV) {
+        let dir = dir.trim();
+        if !dir.is_empty() {
+            return Some(std::path::PathBuf::from(dir));
+        }
+    }
+
+    match std::env::var(WRITE_REPORT_ENV) {
+        Ok(v) if matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES") => Some(reports_dir()),
+        _ => None,
+    }
+}
+
+fn parse_repeat_count(raw: Option<&str>) -> usize {
+    raw.and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1)
+}
+
+fn repeat_count_from_env() -> usize {
+    parse_repeat_count(std::env::var(REPEAT_ENV).ok().as_deref())
 }
 
 /// Format a unix timestamp (UTC) as a `YYYYMMDD-HHMMSS` filename slug.
@@ -1151,7 +1653,20 @@ fn timestamp_slug(unix: u64) -> String {
         }
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut month = 0usize;
     while days >= mdays[month] {
         days -= mdays[month];
@@ -1172,7 +1687,18 @@ fn timestamp_slug(unix: u64) -> String {
 /// Write a timestamped, never-overwritten run JSON into `tests/reports/`, then
 /// regenerate `index.json` (newest-first list of all runs). Returns the run
 /// JSON path. The committed `viewer.html` reads these at view time.
-fn write_run_report(
+fn maybe_write_run_report(
+    output_dir: Option<std::path::PathBuf>,
+    suite_label: &str,
+    model_label: &str,
+    components: &[String],
+    runs: &[CaseRun],
+) -> Option<std::path::PathBuf> {
+    output_dir.map(|dir| write_run_report_to_dir(&dir, suite_label, model_label, components, runs))
+}
+
+fn write_run_report_to_dir(
+    dir: &std::path::Path,
     suite_label: &str,
     model_label: &str,
     components: &[String],
@@ -1181,7 +1707,6 @@ fn write_run_report(
     let report = build_report_json(suite_label, model_label, components, runs);
     let json_str = serde_json::to_string_pretty(&report).expect("report JSON must serialize");
 
-    let dir = reports_dir();
     std::fs::create_dir_all(&dir).expect("failed to create tests/reports dir");
 
     let unix = report
@@ -1196,9 +1721,202 @@ fn write_run_report(
     ));
     std::fs::write(&run_path, &json_str).expect("failed to write run JSON");
 
+    let mut agent_summary = build_agent_summary_json(suite_label, model_label, components, runs);
+    if let Some(obj) = agent_summary.as_object_mut() {
+        obj.insert(
+            "run_file".to_string(),
+            serde_json::Value::String(
+                run_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            ),
+        );
+    }
+    let summary_str =
+        serde_json::to_string_pretty(&agent_summary).expect("agent summary JSON must serialize");
+    let summary_path = dir.join(format!(
+        "agent-summary-{}-{}-{}.json",
+        timestamp_slug(unix),
+        slugify(suite_label),
+        slugify(model_label),
+    ));
+    std::fs::write(&summary_path, &summary_str).expect("failed to write agent summary JSON");
+    std::fs::write(dir.join("latest-agent-summary.json"), &summary_str)
+        .expect("failed to write latest agent summary JSON");
+
     regenerate_index(&dir);
     regenerate_data_js(&dir);
     run_path
+}
+
+#[cfg(test)]
+mod report_write_tests {
+    use super::*;
+
+    #[test]
+    fn failed_case_json_classifies_missing_tool_call_as_model_failure() {
+        let run = CaseRun {
+            name: "read_file",
+            group: "core",
+            tags: &["tool"],
+            task: "Read the fixture",
+            assertion: "read_file runs",
+            mode: "real",
+            events: vec![],
+            verdict: Err("read_file did not run".to_string()),
+            latency_ms: 42,
+        };
+
+        let json = case_to_json(&run);
+
+        assert_eq!(json["failure_kind"], "model_no_tool_call");
+        assert_eq!(json["failure_owner"], "model");
+    }
+
+    #[test]
+    fn failed_case_json_classifies_tool_execution_error_as_tool_failure() {
+        let run = CaseRun {
+            name: "read_file",
+            group: "core",
+            tags: &["tool"],
+            task: "Read a missing file",
+            assertion: "read_file reports failure",
+            mode: "real",
+            events: vec![AgentEvent::ToolExecutionEnd {
+                tool_call: ToolCall {
+                    id: "call_1".into(),
+                    name: "read_file".into(),
+                    arguments: serde_json::json!({"path": "missing.txt"}),
+                },
+                result: ToolOutput::error("file not found"),
+            }],
+            verdict: Err("read_file returned an error".to_string()),
+            latency_ms: 10,
+        };
+
+        let json = case_to_json(&run);
+
+        assert_eq!(json["failure_kind"], "tool_execution_error");
+        assert_eq!(json["failure_owner"], "tool");
+    }
+
+    #[test]
+    fn agent_summary_keeps_compact_failure_counts_and_next_actions() {
+        let runs = vec![
+            CaseRun {
+                name: "create_file",
+                group: "core",
+                tags: &["tool"],
+                task: "Create a fixture",
+                assertion: "create_file runs",
+                mode: "real",
+                events: vec![],
+                verdict: Ok(()),
+                latency_ms: 5,
+            },
+            CaseRun {
+                name: "agent",
+                group: "sub-agents",
+                tags: &["tool", "real-only"],
+                task: "Ask a sub-agent",
+                assertion: "agent runs",
+                mode: "real",
+                events: vec![],
+                verdict: Err("agent did not run".to_string()),
+                latency_ms: 12,
+            },
+        ];
+
+        let summary = build_agent_summary_json("real", "deepseek-v4-flash", &[], &runs);
+
+        assert_eq!(summary["summary"]["passed"], 1);
+        assert_eq!(summary["summary"]["total"], 2);
+        assert_eq!(summary["failure_counts"]["model_no_tool_call"], 1);
+        assert_eq!(summary["failures"][0]["case"], "agent");
+        assert_eq!(summary["failures"][0]["owner"], "model");
+        assert_eq!(summary["next_actions"][0]["owner"], "model");
+    }
+
+    #[test]
+    fn repeat_count_parser_defaults_to_one_and_rejects_zero() {
+        assert_eq!(parse_repeat_count(None), 1);
+        assert_eq!(parse_repeat_count(Some("")), 1);
+        assert_eq!(parse_repeat_count(Some("0")), 1);
+        assert_eq!(parse_repeat_count(Some("3")), 3);
+    }
+
+    #[test]
+    fn agent_summary_aggregates_case_stability_across_repeats() {
+        let runs = vec![
+            CaseRun {
+                name: "agent",
+                group: "sub-agents",
+                tags: &["real-only"],
+                task: "Ask a sub-agent",
+                assertion: "agent runs",
+                mode: "real",
+                events: vec![],
+                verdict: Ok(()),
+                latency_ms: 10,
+            },
+            CaseRun {
+                name: "agent",
+                group: "sub-agents",
+                tags: &["real-only"],
+                task: "Ask a sub-agent",
+                assertion: "agent runs",
+                mode: "real",
+                events: vec![],
+                verdict: Err("agent did not run".to_string()),
+                latency_ms: 20,
+            },
+        ];
+
+        let summary = build_agent_summary_json("real", "deepseek-v4-flash", &[], &runs);
+
+        assert_eq!(summary["case_stability"][0]["case"], "agent");
+        assert_eq!(summary["case_stability"][0]["passed"], 1);
+        assert_eq!(summary["case_stability"][0]["total"], 2);
+        assert_eq!(summary["case_stability"][0]["pass_rate"], 0.5);
+    }
+
+    #[test]
+    fn report_write_is_skipped_without_output_dir() {
+        let path = maybe_write_run_report(None, "mock", "MockLanguageModel", &[], &[]);
+        assert!(path.is_none(), "default test runs should not write reports");
+    }
+
+    #[test]
+    fn report_write_uses_explicit_output_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = maybe_write_run_report(
+            Some(tmp.path().to_path_buf()),
+            "mock",
+            "MockLanguageModel",
+            &[],
+            &[],
+        )
+        .expect("explicit output dir should write report");
+
+        assert!(
+            path.exists(),
+            "run report should exist at {}",
+            path.display()
+        );
+        assert!(
+            tmp.path().join("index.json").exists(),
+            "index should be regenerated"
+        );
+        assert!(
+            tmp.path().join("data.js").exists(),
+            "viewer data should be regenerated"
+        );
+        assert!(
+            tmp.path().join("latest-agent-summary.json").exists(),
+            "agent-readable compact summary should be written"
+        );
+    }
 }
 
 /// Max number of recent runs embedded into `data.js` (older runs stay archived
@@ -1218,9 +1936,16 @@ fn regenerate_data_js(dir: &std::path::Path) {
             if !(name.starts_with("run-") && name.ends_with(".json")) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(ent.path()) else { continue };
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
-            let ts = v.get("timestamp_unix").and_then(|x| x.as_u64()).unwrap_or(0);
+            let Ok(text) = std::fs::read_to_string(ent.path()) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
+            let ts = v
+                .get("timestamp_unix")
+                .and_then(|x| x.as_u64())
+                .unwrap_or(0);
             runs.push((ts, name, v));
         }
     }
@@ -1229,8 +1954,8 @@ fn regenerate_data_js(dir: &std::path::Path) {
     runs.truncate(DATA_JS_MAX_RUNS);
 
     let array: Vec<serde_json::Value> = runs.into_iter().map(|(_, _, v)| v).collect();
-    let json = serde_json::to_string(&serde_json::Value::Array(array))
-        .unwrap_or_else(|_| "[]".into());
+    let json =
+        serde_json::to_string(&serde_json::Value::Array(array)).unwrap_or_else(|_| "[]".into());
     let contents = format!(
         "// Auto-generated by `cargo test -p alva-app-core --test agent_capabilities`.\n\
          // Loaded by viewer.html via <script src> so file:// works without a server.\n\
@@ -1249,8 +1974,12 @@ fn regenerate_index(dir: &std::path::Path) {
             if !(name.starts_with("run-") && name.ends_with(".json")) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(ent.path()) else { continue };
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+            let Ok(text) = std::fs::read_to_string(ent.path()) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
             entries.push(serde_json::json!({
                 "file": name,
                 "suite": v.get("suite").and_then(|x| x.as_str()).unwrap_or(""),
@@ -1263,8 +1992,14 @@ fn regenerate_index(dir: &std::path::Path) {
     }
     // Newest first; tie-break by filename desc so same-second runs stay stable.
     entries.sort_by(|a, b| {
-        let ta = a.get("timestamp_unix").and_then(|x| x.as_u64()).unwrap_or(0);
-        let tb = b.get("timestamp_unix").and_then(|x| x.as_u64()).unwrap_or(0);
+        let ta = a
+            .get("timestamp_unix")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0);
+        let tb = b
+            .get("timestamp_unix")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0);
         tb.cmp(&ta).then_with(|| {
             let fa = a.get("file").and_then(|x| x.as_str()).unwrap_or("");
             let fb = b.get("file").and_then(|x| x.as_str()).unwrap_or("");
@@ -1367,15 +2102,28 @@ async fn mock_capability_suite() {
         });
     }
 
-    let all_passed =
-        print_stderr_summary("MOCK capability suite (MockLanguageModel)", &runs);
-    let run_path = write_run_report("mock", "MockLanguageModel", &components, &runs);
-    eprintln!(
-        "report run: {}\nopen viewer: double-click crates/alva-app-core/tests/reports/viewer.html (reads data.js, no server needed)",
-        run_path.display()
-    );
+    let all_passed = print_stderr_summary("MOCK capability suite (MockLanguageModel)", &runs);
+    if let Some(run_path) = maybe_write_run_report(
+        capability_report_output_dir(),
+        "mock",
+        "MockLanguageModel",
+        &components,
+        &runs,
+    ) {
+        eprintln!(
+            "report run: {}\nopen viewer: double-click crates/alva-app-core/tests/reports/viewer.html (reads data.js, no server needed)",
+            run_path.display()
+        );
+    } else {
+        eprintln!(
+            "report skipped: set {WRITE_REPORT_ENV}=1 or {REPORT_DIR_ENV}=<dir> to write capability reports"
+        );
+    }
 
-    assert!(all_passed, "mock capability suite had failures — see report above / report run JSON");
+    assert!(
+        all_passed,
+        "mock capability suite had failures — see report above / report run JSON"
+    );
 }
 
 // ===========================================================================
@@ -1396,7 +2144,9 @@ async fn real_capability_suite() {
     };
 
     let model_name = std::env::var("ALVA_TEST_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
-    let kind = std::env::var("ALVA_TEST_KIND").ok().filter(|s| !s.is_empty());
+    let kind = std::env::var("ALVA_TEST_KIND")
+        .ok()
+        .filter(|s| !s.is_empty());
     let base_url = std::env::var("ALVA_TEST_BASE_URL")
         .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
 
@@ -1412,10 +2162,12 @@ async fn real_capability_suite() {
     // Same match the CLI uses (agent_setup.rs).
     let make_model = || -> Arc<dyn LanguageModel> {
         match config.kind.as_deref() {
-            Some("anthropic") => Arc::new(alva_llm_provider::AnthropicProvider::new(config.clone())),
-            Some("openai-responses") => {
-                Arc::new(alva_llm_provider::OpenAIResponsesProvider::new(config.clone()))
+            Some("anthropic") => {
+                Arc::new(alva_llm_provider::AnthropicProvider::new(config.clone()))
             }
+            Some("openai-responses") => Arc::new(alva_llm_provider::OpenAIResponsesProvider::new(
+                config.clone(),
+            )),
             Some("gemini") => Arc::new(alva_llm_provider::GeminiProvider::new(config.clone())),
             _ => Arc::new(alva_llm_provider::OpenAIChatProvider::new(config.clone())),
         }
@@ -1431,53 +2183,76 @@ async fn real_capability_suite() {
         components.join(", ")
     );
 
-    let mut runs: Vec<CaseRun> = Vec::new();
-
-    for case in cases() {
-        let tmp = tempfile::tempdir().unwrap();
-        let ws = tmp.path().canonicalize().unwrap();
-        (case.setup)(&ws);
-
-        let agent = build_mini_agent(&ws, make_model(), &toggles).await;
-        let start = std::time::Instant::now();
-        let rx = agent.prompt_text(case.task);
-
-        let (events, verdict) = match tokio::time::timeout(
-            std::time::Duration::from_secs(120),
-            collect_events(rx),
-        )
-        .await
-        {
-            Ok(ev) => {
-                let v = (case.check)(&ws, &ev);
-                (ev, v)
-            }
-            Err(_) => (
-                Vec::new(),
-                Err("TIMEOUT (120s) waiting on live model".to_string()),
-            ),
-        };
-
-        runs.push(CaseRun {
-            name: case.name,
-            group: case.group,
-            tags: case.tags,
-            task: case.task,
-            assertion: case.assertion,
-            mode: "real",
-            events,
-            verdict,
-            latency_ms: start.elapsed().as_millis(),
-        });
+    let repeat_count = repeat_count_from_env();
+    if repeat_count > 1 {
+        eprintln!("real_capability_suite repeat count: {repeat_count} ({REPEAT_ENV})");
     }
 
-    let header = format!("REAL capability suite (model: {})", model_name);
-    let all_passed = print_stderr_summary(&header, &runs);
-    let run_path = write_run_report("real", &model_name, &components, &runs);
-    eprintln!(
-        "report run: {}\nopen viewer: double-click crates/alva-app-core/tests/reports/viewer.html (reads data.js, no server needed)",
-        run_path.display()
+    let mut runs: Vec<CaseRun> = Vec::new();
+
+    for repeat_index in 1..=repeat_count {
+        if repeat_count > 1 {
+            eprintln!("real_capability_suite repeat {repeat_index}/{repeat_count}");
+        }
+
+        for case in cases() {
+            let tmp = tempfile::tempdir().unwrap();
+            let ws = tmp.path().canonicalize().unwrap();
+            (case.setup)(&ws);
+
+            let agent = build_mini_agent(&ws, make_model(), &toggles).await;
+            let start = std::time::Instant::now();
+            let rx = agent.prompt_text(case.task);
+
+            let (events, verdict) =
+                match tokio::time::timeout(std::time::Duration::from_secs(120), collect_events(rx))
+                    .await
+                {
+                    Ok(ev) => {
+                        let v = (case.check)(&ws, &ev);
+                        (ev, v)
+                    }
+                    Err(_) => (
+                        Vec::new(),
+                        Err("TIMEOUT (120s) waiting on live model".to_string()),
+                    ),
+                };
+
+            runs.push(CaseRun {
+                name: case.name,
+                group: case.group,
+                tags: case.tags,
+                task: case.task,
+                assertion: case.assertion,
+                mode: "real",
+                events,
+                verdict,
+                latency_ms: start.elapsed().as_millis(),
+            });
+        }
+    }
+
+    let header = format!(
+        "REAL capability suite (model: {}, repeats: {})",
+        model_name, repeat_count
     );
+    let all_passed = print_stderr_summary(&header, &runs);
+    if let Some(run_path) = maybe_write_run_report(
+        capability_report_output_dir(),
+        "real",
+        &model_name,
+        &components,
+        &runs,
+    ) {
+        eprintln!(
+            "report run: {}\nopen viewer: double-click crates/alva-app-core/tests/reports/viewer.html (reads data.js, no server needed)",
+            run_path.display()
+        );
+    } else {
+        eprintln!(
+            "report skipped: set {WRITE_REPORT_ENV}=1 or {REPORT_DIR_ENV}=<dir> to write capability reports"
+        );
+    }
 
     assert!(
         all_passed,

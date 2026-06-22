@@ -312,6 +312,12 @@
     v.appendChild(el("span", { cls: pass ? "okk" : "err",
       text: pass ? "PASS — all assertions held." : ("FAIL — " + (c.detail || "see trace")) }));
     vb.appendChild(v);
+    if (!pass && (c.failure_kind || c.failure_owner)) {
+      vb.appendChild(el("div", {
+        cls: "note",
+        text: "classified as " + (c.failure_kind || "unknown") + " / owner " + (c.failure_owner || "unknown")
+      }));
+    }
     bd.appendChild(vb);
 
     d.appendChild(bd);
