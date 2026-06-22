@@ -47,7 +47,10 @@ impl ScheduleCronTool {
     ) -> Result<ToolOutput, AgentError> {
         // Validate cron expression
         if let Err(msg) = validate_cron(&params.cron) {
-            return Ok(ToolOutput::error(format!("Invalid cron expression: {}", msg)));
+            return Ok(ToolOutput::error(format!(
+                "Invalid cron expression: {}",
+                msg
+            )));
         }
 
         let recurring = params.recurring.unwrap_or(true);
@@ -102,7 +105,10 @@ mod tests {
         // whitespace-separated fields; it doesn't verify field syntax.
         assert!(validate_cron("").is_err());
         assert!(validate_cron("* * * *").is_err(), "4 fields should error");
-        assert!(validate_cron("* * * * * *").is_err(), "6 fields should error");
+        assert!(
+            validate_cron("* * * * * *").is_err(),
+            "6 fields should error"
+        );
         // Extra whitespace is forgiven by split_whitespace
         assert!(validate_cron("  *   *  *  *  *  ").is_ok());
     }
@@ -126,7 +132,10 @@ mod tests {
         let text = out.model_text();
         assert!(text.contains("*/5 * * * *"), "cron missing: {text}");
         assert!(text.contains("check the deploy"), "prompt missing: {text}");
-        assert!(text.contains("Recurring: true"), "recurring missing: {text}");
+        assert!(
+            text.contains("Recurring: true"),
+            "recurring missing: {text}"
+        );
         assert!(text.contains("sched-"), "schedule id missing: {text}");
     }
 
@@ -153,10 +162,7 @@ mod tests {
         let tool = ScheduleCronTool;
         // 4 fields → validate_cron rejects → ToolOutput::error (not AgentError)
         let out = tool
-            .execute(
-                json!({ "cron": "* * * *", "prompt": "x" }),
-                &ctx(),
-            )
+            .execute(json!({ "cron": "* * * *", "prompt": "x" }), &ctx())
             .await
             .expect("invalid cron should still return Ok(ToolOutput)");
 
@@ -175,10 +181,7 @@ mod tests {
     async fn stub_text_advertises_unwired_scheduler() {
         let tool = ScheduleCronTool;
         let out = tool
-            .execute(
-                json!({ "cron": "0 0 * * *", "prompt": "x" }),
-                &ctx(),
-            )
+            .execute(json!({ "cron": "0 0 * * *", "prompt": "x" }), &ctx())
             .await
             .expect("execute should succeed");
         assert!(

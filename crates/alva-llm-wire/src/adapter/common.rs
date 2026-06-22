@@ -73,10 +73,7 @@ pub mod schema_fix {
             .unwrap_or(false);
 
         if is_object && !obj.contains_key("additionalProperties") {
-            obj.insert(
-                "additionalProperties".to_string(),
-                Value::Bool(value),
-            );
+            obj.insert("additionalProperties".to_string(), Value::Bool(value));
         }
 
         if let Some(Value::Object(props)) = obj.get_mut("properties") {
@@ -109,7 +106,13 @@ pub mod tool_id {
     pub fn to_normalized(raw: &str) -> String {
         let sanitized: String = raw
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         if sanitized.starts_with(PREFIX) {
             sanitized

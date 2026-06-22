@@ -152,24 +152,45 @@ mod tests {
     #[test]
     fn parse_all_six_lowercase_variants() {
         assert_eq!(ReasoningEffort::parse("none"), Some(ReasoningEffort::None));
-        assert_eq!(ReasoningEffort::parse("minimal"), Some(ReasoningEffort::Minimal));
+        assert_eq!(
+            ReasoningEffort::parse("minimal"),
+            Some(ReasoningEffort::Minimal)
+        );
         assert_eq!(ReasoningEffort::parse("low"), Some(ReasoningEffort::Low));
-        assert_eq!(ReasoningEffort::parse("medium"), Some(ReasoningEffort::Medium));
+        assert_eq!(
+            ReasoningEffort::parse("medium"),
+            Some(ReasoningEffort::Medium)
+        );
         assert_eq!(ReasoningEffort::parse("high"), Some(ReasoningEffort::High));
-        assert_eq!(ReasoningEffort::parse("xhigh"), Some(ReasoningEffort::XHigh));
+        assert_eq!(
+            ReasoningEffort::parse("xhigh"),
+            Some(ReasoningEffort::XHigh)
+        );
     }
 
     #[test]
     fn parse_is_case_insensitive() {
-        assert_eq!(ReasoningEffort::parse("MEDIUM"), Some(ReasoningEffort::Medium));
+        assert_eq!(
+            ReasoningEffort::parse("MEDIUM"),
+            Some(ReasoningEffort::Medium)
+        );
         assert_eq!(ReasoningEffort::parse("High"), Some(ReasoningEffort::High));
-        assert_eq!(ReasoningEffort::parse("xHIGH"), Some(ReasoningEffort::XHigh));
+        assert_eq!(
+            ReasoningEffort::parse("xHIGH"),
+            Some(ReasoningEffort::XHigh)
+        );
     }
 
     #[test]
     fn parse_trims_surrounding_whitespace() {
-        assert_eq!(ReasoningEffort::parse("  low  "), Some(ReasoningEffort::Low));
-        assert_eq!(ReasoningEffort::parse("\tmedium\n"), Some(ReasoningEffort::Medium));
+        assert_eq!(
+            ReasoningEffort::parse("  low  "),
+            Some(ReasoningEffort::Low)
+        );
+        assert_eq!(
+            ReasoningEffort::parse("\tmedium\n"),
+            Some(ReasoningEffort::Medium)
+        );
     }
 
     #[test]
@@ -208,8 +229,14 @@ mod tests {
     fn serde_uses_lowercase_string() {
         // #[serde(rename_all = "lowercase")] pin — Anthropic / OpenAI
         // wire formats expect "low" / "medium" / etc.
-        assert_eq!(serde_json::to_value(ReasoningEffort::Medium).unwrap(), json!("medium"));
-        assert_eq!(serde_json::to_value(ReasoningEffort::XHigh).unwrap(), json!("xhigh"));
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Medium).unwrap(),
+            json!("medium")
+        );
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::XHigh).unwrap(),
+            json!("xhigh")
+        );
     }
 
     #[test]
@@ -243,13 +270,17 @@ mod tests {
         ];
         let budgets: Vec<u32> = order
             .iter()
-            .map(|e| e.suggested_token_budget().expect("active level must have Some budget"))
+            .map(|e| {
+                e.suggested_token_budget()
+                    .expect("active level must have Some budget")
+            })
             .collect();
         for w in budgets.windows(2) {
             assert!(
                 w[0] < w[1],
                 "monotonicity broken: {} >= {} in {budgets:?}",
-                w[0], w[1]
+                w[0],
+                w[1]
             );
         }
     }

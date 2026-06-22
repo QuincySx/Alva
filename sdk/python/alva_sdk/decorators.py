@@ -26,8 +26,8 @@ def before_tool_call(fn):
 def after_tool_call(fn):
     """Register the method as handler for ``after_tool_call`` events.
 
-    The method receives a :class:`alva_sdk.ToolCall`. Return values
-    are currently observational only.
+    The method receives ``(ToolCall, ToolResult)``. Return
+    ``self.modify_result(result)`` to replace the completed tool output.
     """
     fn.__aep_event__ = "after_tool_call"
     return fn
@@ -58,3 +58,44 @@ def on_user_message(fn):
     """
     fn.__aep_event__ = "on_user_message"
     return fn
+
+
+def on_llm_call_start(fn):
+    """Register the method as handler for ``on_llm_call_start`` events.
+
+    The method receives the LLM-bound messages list. Return
+    ``self.modify_messages(messages)`` to replace it.
+    """
+    fn.__aep_event__ = "on_llm_call_start"
+    return fn
+
+
+def on_llm_call_end(fn):
+    """Register the method as handler for ``on_llm_call_end`` events.
+
+    The method receives the LLM response message. Return
+    ``self.modify_response(message)`` to replace it.
+    """
+    fn.__aep_event__ = "on_llm_call_end"
+    return fn
+
+
+def tool(name=None, description="", input_schema=None):
+    """Register a method as an LLM-callable tool.
+
+    The decorated method is called for ``tools/call`` with keyword
+    arguments from the request's ``arguments`` object. It may be sync or
+    async. Return a string for a text result, a :class:`alva_sdk.ToolResult`,
+    or a ToolOutput-shaped dict with ``content`` and ``isError`` /
+    ``is_error``.
+    """
+
+    def decorate(fn):
+        fn.__aep_tool__ = {
+            "name": name or fn.__name__,
+            "description": description or (fn.__doc__ or "").strip(),
+            "inputSchema": input_schema or {"type": "object"},
+        }
+        return fn
+
+    return decorate

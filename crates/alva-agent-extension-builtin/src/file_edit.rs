@@ -154,7 +154,9 @@ impl FileEditTool {
         } else if let (Some(old_str), Some(new_str)) = (params.old_str, params.new_str) {
             vec![SingleEdit { old_str, new_str }]
         } else {
-            return Ok(ToolOutput::error("Provide either old_str+new_str or edits[]"));
+            return Ok(ToolOutput::error(
+                "Provide either old_str+new_str or edits[]",
+            ));
         };
 
         let workspace = ctx.workspace().ok_or_else(|| AgentError::ToolError {
@@ -168,14 +170,14 @@ impl FileEditTool {
         let raw = fs
             .read_file(file_path.to_str().unwrap_or_default())
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot read file: {}", e) })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "file_edit".into(),
+                message: format!("Cannot read file: {}", e),
+            })?;
         let content = String::from_utf8_lossy(&raw).into_owned();
 
         // Staleness detection: warn if file changed since last read
-        let staleness_warning = check_staleness(
-            file_path.to_str().unwrap_or_default(),
-            &raw,
-        );
+        let staleness_warning = check_staleness(file_path.to_str().unwrap_or_default(), &raw);
 
         // Try matching with quote normalization if direct match fails
         let normalized_content = normalize_quotes(&content);
@@ -252,9 +254,9 @@ impl FileEditTool {
 
                 let old_lines: Vec<&str> = edit.old_str.lines().collect();
                 let new_lines: Vec<&str> = edit.new_str.lines().collect();
-                combined_diff.push_str(&format!("--- {}\n+++ {}\n@@ -{} ({} occurrences replaced) @@\n",
-                    params.path, params.path,
-                    line_num, count,
+                combined_diff.push_str(&format!(
+                    "--- {}\n+++ {}\n@@ -{} ({} occurrences replaced) @@\n",
+                    params.path, params.path, line_num, count,
                 ));
                 for line in &old_lines {
                     combined_diff.push_str(&format!("-{}\n", line));
@@ -306,10 +308,14 @@ impl FileEditTool {
                 // Generate unified diff for this edit
                 let old_lines: Vec<&str> = edit.old_str.lines().collect();
                 let new_lines: Vec<&str> = edit.new_str.lines().collect();
-                combined_diff.push_str(&format!("--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
-                    params.path, params.path,
-                    line_num, old_lines.len(),
-                    line_num, new_lines.len(),
+                combined_diff.push_str(&format!(
+                    "--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
+                    params.path,
+                    params.path,
+                    line_num,
+                    old_lines.len(),
+                    line_num,
+                    new_lines.len(),
                 ));
                 for line in &old_lines {
                     combined_diff.push_str(&format!("-{}\n", line));
@@ -336,7 +342,10 @@ impl FileEditTool {
 
         fs.write_file(file_path.to_str().unwrap_or_default(), current.as_bytes())
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "file_edit".into(), message: format!("Cannot write file: {}", e) })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "file_edit".into(),
+                message: format!("Cannot write file: {}", e),
+            })?;
 
         // Update read state with new content hash
         record_file_read(
@@ -348,13 +357,21 @@ impl FileEditTool {
         let summary = if edit_count == 1 {
             let line = details_edits[0]["first_changed_line"].as_u64().unwrap_or(0);
             if replace_all {
-                let replaced = details_edits[0]["occurrences_replaced"].as_u64().unwrap_or(1);
-                format!("File edited: {} (line {}, {} occurrences replaced)", params.path, line, replaced)
+                let replaced = details_edits[0]["occurrences_replaced"]
+                    .as_u64()
+                    .unwrap_or(1);
+                format!(
+                    "File edited: {} (line {}, {} occurrences replaced)",
+                    params.path, line, replaced
+                )
             } else {
                 format!("File edited: {} (line {})", params.path, line)
             }
         } else {
-            format!("File edited: {} ({} edits applied)", params.path, edit_count)
+            format!(
+                "File edited: {} ({} edits applied)",
+                params.path, edit_count
+            )
         };
 
         // Prepend staleness warning if detected
@@ -589,7 +606,15 @@ mod tests {
 
         assert!(!output.is_error);
         let text = output.model_text();
-        assert!(text.contains("Warning"), "should contain staleness warning: {}", text);
-        assert!(text.contains("modified since"), "should mention modification: {}", text);
+        assert!(
+            text.contains("Warning"),
+            "should contain staleness warning: {}",
+            text
+        );
+        assert!(
+            text.contains("modified since"),
+            "should mention modification: {}",
+            text
+        );
     }
 }

@@ -85,7 +85,11 @@ impl<Id: Clone + Hash + Eq + Send + Sync + std::fmt::Debug + 'static> Component 
             KeyCode::Esc => return ComponentAction::Dismiss,
             _ => return ComponentAction::Bubble(event),
         };
-        if did { ComponentAction::None } else { ComponentAction::Bubble(event) }
+        if did {
+            ComponentAction::None
+        } else {
+            ComponentAction::Bubble(event)
+        }
     }
 }
 
@@ -181,7 +185,10 @@ mod tests {
         let mut t: Tree<&'static str> = Tree::new(vec![leaf("a")], "T");
         let ev = Event::FocusGained;
         let action = t.handle_event(ev);
-        assert!(matches!(action, ComponentAction::Bubble(Event::FocusGained)));
+        assert!(matches!(
+            action,
+            ComponentAction::Bubble(Event::FocusGained)
+        ));
     }
 
     #[test]

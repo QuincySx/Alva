@@ -36,8 +36,15 @@ pub fn fixed_centered_rect(desired_w: u16, desired_h: u16, area: Rect) -> Rect {
 /// menus that hug the bottom-left or status banners at the top-right.
 #[derive(Debug, Clone, Copy)]
 pub enum Anchor {
-    TopLeft, TopRight, BottomLeft, BottomRight,
-    Top, Bottom, Left, Right, Center,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    Top,
+    Bottom,
+    Left,
+    Right,
+    Center,
 }
 
 pub fn anchored_popup(area: Rect, anchor: Anchor, w: u16, h: u16) -> Rect {
@@ -52,9 +59,17 @@ pub fn anchored_popup(area: Rect, anchor: Anchor, w: u16, h: u16) -> Rect {
         Anchor::Bottom => (area.x + (area.width - w) / 2, area.y + area.height - h),
         Anchor::Left => (area.x, area.y + (area.height - h) / 2),
         Anchor::Right => (area.x + area.width - w, area.y + (area.height - h) / 2),
-        Anchor::Center => (area.x + (area.width - w) / 2, area.y + (area.height - h) / 2),
+        Anchor::Center => (
+            area.x + (area.width - w) / 2,
+            area.y + (area.height - h) / 2,
+        ),
     };
-    Rect { x, y, width: w, height: h }
+    Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    }
 }
 
 /// Popup that sits just above `anchor_row` (e.g. above the input prompt),
@@ -62,7 +77,12 @@ pub fn anchored_popup(area: Rect, anchor: Anchor, w: u16, h: u16) -> Rect {
 pub fn popup_above(anchor_row: u16, area: Rect, max_w: u16, h: u16) -> Rect {
     let w = max_w.min(area.width);
     let y = anchor_row.saturating_sub(h);
-    Rect { x: area.x, y, width: w, height: h }
+    Rect {
+        x: area.x,
+        y,
+        width: w,
+        height: h,
+    }
 }
 
 #[cfg(test)]
@@ -74,7 +94,12 @@ mod tests {
     use super::*;
 
     fn area(x: u16, y: u16, w: u16, h: u16) -> Rect {
-        Rect { x, y, width: w, height: h }
+        Rect {
+            x,
+            y,
+            width: w,
+            height: h,
+        }
     }
 
     // -- centered_rect -----------------------------------------------------

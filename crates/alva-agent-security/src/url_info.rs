@@ -250,7 +250,9 @@ pub struct UrlRules {
 
 impl Default for UrlRules {
     fn default() -> Self {
-        Self { ask_threshold: Some(UrlRisk::Medium) }
+        Self {
+            ask_threshold: Some(UrlRisk::Medium),
+        }
     }
 }
 
@@ -319,33 +321,42 @@ pub async fn inspect_url(url: &str) -> UrlInfo {
     // port if the URL didn't specify one (the actual port doesn't
     // matter for A/AAAA records, but lookup_host insists).
     let lookup_target = format!("{}:{}", host_str, port.unwrap_or(80));
-    let resolved_ips: Vec<IpAddr> = match tokio::net::lookup_host(&lookup_target).await {
-        Ok(addrs) => addrs.map(|sa| sa.ip()).collect(),
-        Err(_) => return unresolved(scheme, host_str, port),
-    };
-
-    if resolved_ips.is_empty() {
-        return unresolved(scheme, host_str, port);
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = lookup_target;
+        unresolved(scheme, host_str, port)
     }
 
-    // Take the WORST-CASE class across resolved IPs. Rationale: an
-    // attacker can return multiple A records mixing public + private;
-    // we ask if ANY of them is risky. (DNS rebinding still wins this
-    // race at fetch time — that's the documented TOCTOU limit.)
-    let worst_class = resolved_ips
-        .iter()
-        .map(|ip| classify_ip(*ip))
-        .max_by_key(|c| ip_class_to_risk(*c))
-        .expect("non-empty checked above");
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let resolved_ips: Vec<IpAddr> = match tokio::net::lookup_host(&lookup_target).await {
+            Ok(addrs) => addrs.map(|sa| sa.ip()).collect(),
+            Err(_) => return unresolved(scheme, host_str, port),
+        };
 
-    UrlInfo {
-        url: url.to_string(),
-        host: host_str,
-        port,
-        scheme,
-        resolved_ips,
-        ip_class: Some(worst_class),
-        risk: ip_class_to_risk(worst_class),
+        if resolved_ips.is_empty() {
+            return unresolved(scheme, host_str, port);
+        }
+
+        // Take the WORST-CASE class across resolved IPs. Rationale: an
+        // attacker can return multiple A records mixing public + private;
+        // we ask if ANY of them is risky. (DNS rebinding still wins this
+        // race at fetch time — that's the documented TOCTOU limit.)
+        let worst_class = resolved_ips
+            .iter()
+            .map(|ip| classify_ip(*ip))
+            .max_by_key(|c| ip_class_to_risk(*c))
+            .expect("non-empty checked above");
+
+        UrlInfo {
+            url: url.to_string(),
+            host: host_str,
+            port,
+            scheme,
+            resolved_ips,
+            ip_class: Some(worst_class),
+            risk: ip_class_to_risk(worst_class),
+        }
     }
 }
 
@@ -479,10 +490,7 @@ mod tests {
     #[test]
     fn public_ipv6_example() {
         // 2001:4860:4860::8888 = Google Public DNS over IPv6
-        assert_eq!(
-            classify_ip(ip("2001:4860:4860::8888")),
-            IpClass::Public,
-        );
+        assert_eq!(classify_ip(ip("2001:4860:4860::8888")), IpClass::Public,);
     }
 
     // ─── ip_class_to_risk mapping ─────────────────────────────────────
@@ -539,28 +547,49 @@ mod tests {
     fn url_rules_should_ask_respects_threshold() {
         // Default Some(Medium): ask for Medium + High, allow Low
         let r = UrlRules::default();
-        assert!(!r.should_ask(UrlRisk::Low), "Low must NOT ask under default");
-        assert!(r.should_ask(UrlRisk::Medium), "Medium must ask under default");
+        assert!(
+            !r.should_ask(UrlRisk::Low),
+            "Low must NOT ask under default"
+        );
+        assert!(
+            r.should_ask(UrlRisk::Medium),
+            "Medium must ask under default"
+        );
         assert!(r.should_ask(UrlRisk::High), "High must ask under default");
 
         // Some(High): only ask for High (loopback / IMDS / DNS-fail);
         // Private intranet auto-passes. "Dev-friendly" setting.
-        let lenient = UrlRules { ask_threshold: Some(UrlRisk::High) };
+        let lenient = UrlRules {
+            ask_threshold: Some(UrlRisk::High),
+        };
         assert!(!lenient.should_ask(UrlRisk::Low));
-        assert!(!lenient.should_ask(UrlRisk::Medium), "Medium passes when threshold=High");
+        assert!(
+            !lenient.should_ask(UrlRisk::Medium),
+            "Medium passes when threshold=High"
+        );
         assert!(lenient.should_ask(UrlRisk::High));
 
         // Some(Low): ask for everything (paranoid mode)
-        let paranoid = UrlRules { ask_threshold: Some(UrlRisk::Low) };
-        assert!(paranoid.should_ask(UrlRisk::Low), "Low asks when threshold=Low");
+        let paranoid = UrlRules {
+            ask_threshold: Some(UrlRisk::Low),
+        };
+        assert!(
+            paranoid.should_ask(UrlRisk::Low),
+            "Low asks when threshold=Low"
+        );
         assert!(paranoid.should_ask(UrlRisk::Medium));
         assert!(paranoid.should_ask(UrlRisk::High));
 
         // None: trust everything (never ask)
-        let trusting = UrlRules { ask_threshold: None };
+        let trusting = UrlRules {
+            ask_threshold: None,
+        };
         assert!(!trusting.should_ask(UrlRisk::Low));
         assert!(!trusting.should_ask(UrlRisk::Medium));
-        assert!(!trusting.should_ask(UrlRisk::High), "None must never ask even for High");
+        assert!(
+            !trusting.should_ask(UrlRisk::High),
+            "None must never ask even for High"
+        );
     }
 
     // ─── inspect_url: IP-literal paths (no DNS needed) ────────────────
@@ -587,7 +616,10 @@ mod tests {
         assert_eq!(info.ip_class, Some(IpClass::Private));
         assert_eq!(info.risk, UrlRisk::Medium);
         let s = info.risk_summary();
-        assert!(s.contains("Private") && s.contains("RFC1918"), "summary missing context: {s}");
+        assert!(
+            s.contains("Private") && s.contains("RFC1918"),
+            "summary missing context: {s}"
+        );
     }
 
     #[tokio::test]
@@ -625,7 +657,11 @@ mod tests {
         let info = inspect_url("this is not a url").await;
         assert!(info.resolved_ips.is_empty());
         assert_eq!(info.ip_class, None);
-        assert_eq!(info.risk, UrlRisk::High, "unparseable URL must be treated as High");
+        assert_eq!(
+            info.risk,
+            UrlRisk::High,
+            "unparseable URL must be treated as High"
+        );
         assert!(info.risk_summary().contains("did not resolve"));
     }
 
@@ -638,7 +674,10 @@ mod tests {
         assert_eq!(info.risk, UrlRisk::High);
         assert_eq!(info.host, "does-not-exist.invalid");
         let s = info.risk_summary();
-        assert!(s.contains("did not resolve"), "DNS-fail summary should mention resolution: {s}");
+        assert!(
+            s.contains("did not resolve"),
+            "DNS-fail summary should mention resolution: {s}"
+        );
     }
 
     // ─── inspect_url: DNS resolution path (uses localhost) ────────────

@@ -4,16 +4,18 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_kernel_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware, ToolTimeoutMiddleware};
-use alva_kernel_core::middleware::MiddlewareStack;
-use alva_kernel_core::state::{AgentConfig, AgentState};
-use alva_kernel_core::shared::Extensions;
 use alva_agent_security::{SandboxMode, SecurityGuard};
-use alva_kernel_abi::{
-    model::HeuristicTokenCounter, Bus, BusHandle, BusPlugin, BusWriter, LanguageModel, ModelConfig,
-    PluginRegistrar, Tool, ToolRegistry, TokenCounter,
-};
 use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
+use alva_kernel_abi::{
+    model::HeuristicTokenCounter, AgentError, Bus, BusHandle, BusPlugin, BusWriter, LanguageModel,
+    ModelConfig, PluginRegistrar, TokenCounter, Tool, ToolRegistry,
+};
+use alva_kernel_core::builtins::{
+    DanglingToolCallMiddleware, LoopDetectionMiddleware, ToolTimeoutMiddleware,
+};
+use alva_kernel_core::middleware::MiddlewareStack;
+use alva_kernel_core::shared::Extensions;
+use alva_kernel_core::state::{AgentConfig, AgentState};
 use tokio::sync::Mutex;
 
 use crate::middleware::{
@@ -32,7 +34,14 @@ pub struct AgentRuntime {
     pub security_guard: Option<Arc<Mutex<SecurityGuard>>>,
 }
 
-/// Builder for constructing an [`AgentRuntime`] step by step.
+/// Legacy builder for constructing an [`AgentRuntime`] step by step.
+///
+/// New product harness code should use `alva_app_core::BaseAgentBuilder`.
+/// SDK-level code should use `alva_agent_core::AgentBuilder`.
+#[deprecated(
+    since = "0.1.0",
+    note = "legacy host-native runtime path; use alva_app_core::BaseAgentBuilder or alva_agent_core::AgentBuilder"
+)]
 pub struct AgentRuntimeBuilder {
     system_prompt: String,
     workspace: Option<PathBuf>,
@@ -51,7 +60,12 @@ pub struct AgentRuntimeBuilder {
     context_token_budget: Option<usize>,
 }
 
+#[allow(deprecated)]
 impl AgentRuntimeBuilder {
+    #[deprecated(
+        since = "0.1.0",
+        note = "legacy host-native runtime path; use alva_app_core::BaseAgentBuilder or alva_agent_core::AgentBuilder"
+    )]
     pub fn new() -> Self {
         Self {
             system_prompt: String::new(),
@@ -189,7 +203,7 @@ impl AgentRuntimeBuilder {
     /// Consume the builder and produce a ready-to-use [`AgentRuntime`].
     ///
     /// `model` is the language model to use for LLM calls.
-    pub fn build(self, model: Arc<dyn LanguageModel>) -> AgentRuntime {
+    pub fn build(self, model: Arc<dyn LanguageModel>) -> Result<AgentRuntime, AgentError> {
         let (bus, bus_writer) = if let Some(writer) = self.bus_writer.clone() {
             (writer.handle(), Some(writer))
         } else if let Some(bus) = self.bus.clone() {
@@ -204,13 +218,17 @@ impl AgentRuntimeBuilder {
         let mut security_guard: Option<Arc<Mutex<SecurityGuard>>> = None;
 
         if let Some(sandbox_mode) = self.standard_agent_stack.clone() {
-            let workspace = self
-                .workspace
-                .clone()
-                .expect("standard agent stack requires workspace() to be set");
-            let writer = bus_writer
-                .clone()
-                .expect("standard agent stack requires BusWriter; use default bus or with_bus_writer()");
+            let workspace = self.workspace.clone().ok_or_else(|| {
+                AgentError::ConfigError(
+                    "standard agent stack requires workspace() to be set".into(),
+                )
+            })?;
+            let writer = bus_writer.clone().ok_or_else(|| {
+                AgentError::ConfigError(
+                    "standard agent stack requires BusWriter; use default bus or with_bus_writer()"
+                        .into(),
+                )
+            })?;
 
             if !bus.has::<dyn TokenCounter>() {
                 writer.provide::<dyn TokenCounter>(Arc::new(HeuristicTokenCounter::new(200_000)));
@@ -234,8 +252,8 @@ impl AgentRuntimeBuilder {
                 plugin.start(&bus);
             }
 
-            let security_mw = SecurityMiddleware::for_workspace(&workspace, sandbox_mode)
-                .with_bus(bus.clone());
+            let security_mw =
+                SecurityMiddleware::for_workspace(&workspace, sandbox_mode).with_bus(bus.clone());
             security_guard = Some(security_mw.guard());
             middleware.push_sorted(Arc::new(security_mw));
             middleware.push_sorted(Arc::new(DanglingToolCallMiddleware::new()));
@@ -291,7 +309,7 @@ impl AgentRuntimeBuilder {
             context_token_budget: self.context_token_budget,
         };
 
-        AgentRuntime {
+        Ok(AgentRuntime {
             state,
             config,
             tool_registry: registry,
@@ -299,17 +317,23 @@ impl AgentRuntimeBuilder {
             bus_writer,
             plan_mode_middleware,
             security_guard,
-        }
+        })
     }
 }
 
+#[allow(deprecated)]
 impl AgentRuntime {
-    /// Start building a new runtime via the builder API.
+    /// Start building a runtime through the deprecated legacy host-native path.
+    #[deprecated(
+        since = "0.1.0",
+        note = "legacy host-native runtime path; use alva_app_core::BaseAgentBuilder or alva_agent_core::AgentBuilder"
+    )]
     pub fn builder() -> AgentRuntimeBuilder {
         AgentRuntimeBuilder::new()
     }
 }
 
+#[allow(deprecated)]
 impl Default for AgentRuntimeBuilder {
     fn default() -> Self {
         Self::new()
@@ -317,9 +341,12 @@ impl Default for AgentRuntimeBuilder {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::{AgentError, BusPlugin, CompletionResponse, Message, ModelConfig, StreamEvent};
+    use alva_kernel_abi::{
+        AgentError, BusPlugin, CompletionResponse, Message, ModelConfig, StreamEvent,
+    };
     use async_trait::async_trait;
     use futures_core::Stream;
     use std::pin::Pin;
@@ -355,8 +382,29 @@ mod tests {
 
     #[test]
     fn build_wires_a_default_bus_handle() {
-        let runtime = AgentRuntime::builder().build(Arc::new(DummyModel));
+        let runtime = AgentRuntime::builder()
+            .build(Arc::new(DummyModel))
+            .expect("runtime builds");
         assert!(runtime.config.bus.is_some());
+    }
+
+    #[test]
+    fn legacy_runtime_builder_is_marked_deprecated() {
+        let source = include_str!("builder.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("source before test module");
+        assert!(
+            production_source.contains("#[deprecated")
+                && production_source.contains("pub struct AgentRuntimeBuilder"),
+            "AgentRuntimeBuilder must be marked deprecated; use BaseAgentBuilder or alva_agent_core::AgentBuilder"
+        );
+        assert!(
+            production_source.contains("#[deprecated")
+                && production_source.contains("pub fn builder() -> AgentRuntimeBuilder"),
+            "AgentRuntime::builder() must be marked deprecated too"
+        );
     }
 
     #[test]
@@ -366,7 +414,8 @@ mod tests {
 
         let runtime = AgentRuntime::builder()
             .with_bus(bus_handle.clone())
-            .build(Arc::new(DummyModel));
+            .build(Arc::new(DummyModel))
+            .expect("runtime builds");
 
         assert!(runtime.config.bus.is_some());
         let configured = runtime.config.bus.expect("bus should be configured");
@@ -377,11 +426,28 @@ mod tests {
     }
 
     #[test]
+    fn standard_stack_missing_workspace_returns_config_error() {
+        let result = AgentRuntime::builder()
+            .with_standard_agent_stack(SandboxMode::RestrictiveOpen)
+            .build(Arc::new(DummyModel));
+
+        let err = match result {
+            Ok(_) => panic!("standard stack without workspace must fail"),
+            Err(err) => err,
+        };
+        assert!(
+            format!("{err}").contains("workspace"),
+            "error should explain the missing workspace, got: {err}"
+        );
+    }
+
+    #[test]
     fn standard_stack_wires_core_agent_capabilities() {
         let runtime = AgentRuntime::builder()
             .workspace("/tmp/runtime-standard")
             .with_standard_agent_stack(SandboxMode::RestrictiveOpen)
-            .build(Arc::new(DummyModel));
+            .build(Arc::new(DummyModel))
+            .expect("standard runtime builds");
 
         assert!(runtime.bus_writer.is_some());
         assert!(runtime.plan_mode_middleware.is_some());
@@ -397,7 +463,8 @@ mod tests {
             .workspace("/tmp/runtime-approval")
             .with_approval_notifier(ApprovalNotifier { tx })
             .with_standard_agent_stack(SandboxMode::RestrictiveOpen)
-            .build(Arc::new(DummyModel));
+            .build(Arc::new(DummyModel))
+            .expect("standard runtime builds");
 
         assert!(runtime.bus.has::<ApprovalNotifier>());
     }
@@ -424,7 +491,8 @@ mod tests {
             .workspace("/tmp/runtime-plugin")
             .bus_plugin(Box::new(TestPlugin))
             .with_standard_agent_stack(SandboxMode::RestrictiveOpen)
-            .build(Arc::new(DummyModel));
+            .build(Arc::new(DummyModel))
+            .expect("standard runtime builds");
 
         assert!(STARTED.load(Ordering::SeqCst));
     }

@@ -123,10 +123,7 @@ pub trait ProtocolAdapter: Send + Sync {
     /// The default implementation returns
     /// [`AdapterError::InboundUnsupported`] — override in adapters that
     /// need to serve as a gateway endpoint.
-    fn encode_response(
-        &self,
-        _resp: &DecodedResponse,
-    ) -> Result<serde_json::Value, AdapterError> {
+    fn encode_response(&self, _resp: &DecodedResponse) -> Result<serde_json::Value, AdapterError> {
         Err(AdapterError::InboundUnsupported(self.provider()))
     }
 

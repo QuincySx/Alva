@@ -11,11 +11,11 @@
 
 use std::sync::Arc;
 
+use alva_kernel_abi::agent_session::InMemoryAgentSession;
+use alva_kernel_abi::{Message, ToolCall, ToolOutput};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
-use alva_kernel_abi::agent_session::InMemoryAgentSession;
-use alva_kernel_abi::{Message, ToolCall, ToolOutput};
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -180,7 +180,8 @@ impl alva_kernel_abi::LanguageModel for StubModel {
         _: &[Message],
         _: &[&dyn alva_kernel_abi::Tool],
         _: &alva_kernel_abi::ModelConfig,
-    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>> {
+    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
+    {
         Box::pin(tokio_stream::iter(vec![
             alva_kernel_abi::StreamEvent::Start,
             alva_kernel_abi::StreamEvent::TextDelta {
@@ -215,7 +216,8 @@ fn main() {
     );
 
     // 2. Create AgentState + AgentConfig
-    let session: Arc<dyn alva_kernel_abi::agent_session::AgentSession> = Arc::new(InMemoryAgentSession::new());
+    let session: Arc<dyn alva_kernel_abi::agent_session::AgentSession> =
+        Arc::new(InMemoryAgentSession::new());
     let mut state = AgentState {
         model: Arc::new(StubModel),
         tools: vec![],

@@ -108,11 +108,7 @@ pub trait TaskService: Send + Sync + 'static {
     /// List tasks, most-recently-started first. Pass a `status_filter`
     /// to narrow (e.g. `TaskStatus::Running`); `None` returns everything.
     async fn list(&self, status_filter: Option<TaskStatus>) -> Vec<TaskState>;
-    async fn update(
-        &self,
-        id: &str,
-        mutation: TaskUpdate,
-    ) -> Result<TaskState, TaskError>;
+    async fn update(&self, id: &str, mutation: TaskUpdate) -> Result<TaskState, TaskError>;
     /// Force-terminate a task (status → Killed). Convenience wrapper —
     /// equivalent to `update(id, TaskUpdate { status: Some(Killed), .. })`.
     async fn stop(&self, id: &str) -> Result<TaskState, TaskError>;
@@ -147,10 +143,7 @@ impl Default for InMemoryTaskStore {
 #[async_trait]
 impl TaskService for InMemoryTaskStore {
     async fn create(&self, state: TaskState) -> Result<(), TaskError> {
-        self.tasks
-            .lock()
-            .unwrap()
-            .insert(state.id.clone(), state);
+        self.tasks.lock().unwrap().insert(state.id.clone(), state);
         Ok(())
     }
 
@@ -171,11 +164,7 @@ impl TaskService for InMemoryTaskStore {
         out
     }
 
-    async fn update(
-        &self,
-        id: &str,
-        mutation: TaskUpdate,
-    ) -> Result<TaskState, TaskError> {
+    async fn update(&self, id: &str, mutation: TaskUpdate) -> Result<TaskState, TaskError> {
         let final_state = {
             let mut tasks = self.tasks.lock().unwrap();
             let task = tasks
@@ -187,8 +176,7 @@ impl TaskService for InMemoryTaskStore {
                 }
                 task.status = s;
                 if s.is_terminal() && task.end_time.is_none() {
-                    task.end_time =
-                        Some(chrono::Utc::now().timestamp() as u64);
+                    task.end_time = Some(chrono::Utc::now().timestamp() as u64);
                 }
             }
             if let Some(d) = mutation.description {

@@ -13,8 +13,9 @@ use std::time::{Instant, SystemTime};
 
 use async_trait::async_trait;
 
+use alva_agent_core::extension::{PhaseContribution, PhaseHandler, PhaseOrder};
 use alva_kernel_abi::{
-    AnalyticsEvent, AnalyticsSink, BusHandle, ToolCall, ToolContent, ToolOutput,
+    AnalyticsEvent, AnalyticsSink, BusHandle, Phase, PhaseEffect, ToolCall, ToolContent, ToolOutput,
 };
 use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
 use alva_kernel_core::state::AgentState;
@@ -28,7 +29,6 @@ use super::{Plugin, Registrar};
 /// and an `AnalyticsMiddleware` that records tool-call latency.
 pub struct AnalyticsPlugin {
     path_override: Option<PathBuf>,
-    middleware: Arc<AnalyticsMiddleware>,
     sink: OnceLock<Arc<JsonlSink>>,
 }
 
@@ -36,7 +36,6 @@ impl AnalyticsPlugin {
     pub fn new() -> Self {
         Self {
             path_override: None,
-            middleware: Arc::new(AnalyticsMiddleware::new()),
             sink: OnceLock::new(),
         }
     }
@@ -66,9 +65,6 @@ impl Plugin for AnalyticsPlugin {
     }
 
     async fn register(&self, r: &Registrar) {
-        // Middleware (was `activate()`).
-        r.middleware(self.middleware.clone());
-
         // Build + provide the sink (was `configure()`).
         let path = self
             .path_override
@@ -77,8 +73,28 @@ impl Plugin for AnalyticsPlugin {
         match JsonlSink::new(&path) {
             Ok(sink) => {
                 let arc = Arc::new(sink);
+                let recorder_sink: Arc<dyn AnalyticsSink> = arc.clone();
                 r.provide::<dyn AnalyticsSink>(arc.clone());
                 let _ = self.sink.set(arc);
+                let recorder = Arc::new(AnalyticsMiddleware::with_sink(recorder_sink));
+                r.phase_handler(Arc::new(AnalyticsPhaseHandler::new(
+                    PhaseContribution::new(
+                        "analytics-tool-start",
+                        Phase::BeforeToolCall,
+                        PhaseEffect::Observe,
+                        PhaseOrder::Telemetry,
+                    ),
+                    recorder.clone(),
+                )));
+                r.phase_handler(Arc::new(AnalyticsPhaseHandler::new(
+                    PhaseContribution::new(
+                        "analytics-tool-end",
+                        Phase::AfterToolCall,
+                        PhaseEffect::Observe,
+                        PhaseOrder::Telemetry,
+                    ),
+                    recorder,
+                )));
             }
             Err(e) => {
                 tracing::warn!(error = %e, path = %path.display(), "analytics sink open failed");
@@ -96,6 +112,7 @@ impl Plugin for AnalyticsPlugin {
 /// agent loop never breaks.
 pub struct AnalyticsMiddleware {
     bus: OnceLock<BusHandle>,
+    direct_sink: Option<Arc<dyn AnalyticsSink>>,
     starts: Mutex<HashMap<String, StartEntry>>,
 }
 
@@ -108,34 +125,31 @@ impl AnalyticsMiddleware {
     pub fn new() -> Self {
         Self {
             bus: OnceLock::new(),
+            direct_sink: None,
+            starts: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn with_sink(sink: Arc<dyn AnalyticsSink>) -> Self {
+        Self {
+            bus: OnceLock::new(),
+            direct_sink: Some(sink),
             starts: Mutex::new(HashMap::new()),
         }
     }
 
     fn sink(&self) -> Option<Arc<dyn AnalyticsSink>> {
+        if let Some(sink) = self.direct_sink.as_ref() {
+            return Some(sink.clone());
+        }
         self.bus.get().and_then(|b| b.get::<dyn AnalyticsSink>())
     }
 
     fn session_id(&self, state: &AgentState) -> String {
         state.session.session_id().to_string()
     }
-}
 
-impl Default for AnalyticsMiddleware {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl Middleware for AnalyticsMiddleware {
-    fn configure(&self, ctx: &MiddlewareContext) {
-        if let Some(bus) = ctx.bus.clone() {
-            let _ = self.bus.set(bus);
-        }
-    }
-
-    async fn before_tool_call(
+    async fn record_before_tool_call(
         &self,
         state: &mut AgentState,
         tool_call: &ToolCall,
@@ -163,7 +177,7 @@ impl Middleware for AnalyticsMiddleware {
         Ok(())
     }
 
-    async fn after_tool_call(
+    async fn record_after_tool_call(
         &self,
         state: &mut AgentState,
         tool_call: &ToolCall,
@@ -175,10 +189,7 @@ impl Middleware for AnalyticsMiddleware {
             s.remove(&tool_call.id)
         };
         let (latency_ms, tool_name) = match entry {
-            Some(e) => (
-                e.instant.elapsed().as_millis() as u64,
-                e.tool,
-            ),
+            Some(e) => (e.instant.elapsed().as_millis() as u64, e.tool),
             // Shouldn't happen, but be defensive — emit with 0 latency
             // so we don't lose the End event.
             None => (0, tool_call.name.clone()),
@@ -212,6 +223,80 @@ impl Middleware for AnalyticsMiddleware {
     }
 }
 
+impl Default for AnalyticsMiddleware {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Middleware for AnalyticsMiddleware {
+    fn configure(&self, ctx: &MiddlewareContext) {
+        if let Some(bus) = ctx.bus.clone() {
+            let _ = self.bus.set(bus);
+        }
+    }
+
+    async fn before_tool_call(
+        &self,
+        state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<(), MiddlewareError> {
+        self.record_before_tool_call(state, tool_call).await
+    }
+
+    async fn after_tool_call(
+        &self,
+        state: &mut AgentState,
+        tool_call: &ToolCall,
+        result: &mut ToolOutput,
+    ) -> Result<(), MiddlewareError> {
+        self.record_after_tool_call(state, tool_call, result).await
+    }
+}
+
+struct AnalyticsPhaseHandler {
+    contribution: PhaseContribution,
+    recorder: Arc<AnalyticsMiddleware>,
+}
+
+impl AnalyticsPhaseHandler {
+    fn new(contribution: PhaseContribution, recorder: Arc<AnalyticsMiddleware>) -> Self {
+        Self {
+            contribution,
+            recorder,
+        }
+    }
+}
+
+#[async_trait]
+impl PhaseHandler for AnalyticsPhaseHandler {
+    fn contribution(&self) -> PhaseContribution {
+        self.contribution.clone()
+    }
+
+    async fn before_tool_call(
+        &self,
+        state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<(), MiddlewareError> {
+        self.recorder
+            .record_before_tool_call(state, tool_call)
+            .await
+    }
+
+    async fn after_tool_call(
+        &self,
+        state: &mut AgentState,
+        tool_call: &ToolCall,
+        result: &mut ToolOutput,
+    ) -> Result<(), MiddlewareError> {
+        self.recorder
+            .record_after_tool_call(state, tool_call, result)
+            .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +314,81 @@ mod tests {
         // No bus configured — sink() returns None — record paths are no-ops.
         let mw = AnalyticsMiddleware::new();
         assert!(mw.sink().is_none());
+    }
+
+    #[tokio::test]
+    async fn plugin_registers_tool_latency_as_phase_handler() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let analytics_path = dir.path().join("analytics.jsonl");
+        let model = Arc::new(alva_test::mock_provider::MockLanguageModel::new());
+
+        let agent = alva_agent_core::Agent::builder()
+            .workspace(dir.path())
+            .model(model)
+            .plugin(Box::new(AnalyticsPlugin::new().with_path(&analytics_path)))
+            .build()
+            .await
+            .expect("agent should build");
+
+        let snapshot = agent.assembly_snapshot();
+        let plugin = snapshot
+            .plugins
+            .iter()
+            .find(|plugin| plugin.name == "analytics")
+            .expect("analytics plugin snapshot");
+
+        assert_eq!(
+            plugin.phase_contribution_names,
+            vec!["analytics-tool-start", "analytics-tool-end"]
+        );
+        assert!(
+            snapshot
+                .middleware_names
+                .iter()
+                .any(|name| name == "phase:analytics-tool-start"),
+            "start phase handler should compile into middleware during transition: {:?}",
+            snapshot.middleware_names
+        );
+        assert!(
+            snapshot
+                .middleware_names
+                .iter()
+                .any(|name| name == "phase:analytics-tool-end"),
+            "phase handler should compile into middleware during transition: {:?}",
+            snapshot.middleware_names
+        );
+        assert!(
+            !plugin
+                .middleware_names
+                .iter()
+                .any(|name| name == "analytics"),
+            "analytics should be registered semantically as a phase contribution"
+        );
+
+        let tool_call = ToolCall {
+            id: "call-1".to_string(),
+            name: "read_file".to_string(),
+            arguments: serde_json::json!({ "path": "README.md" }),
+        };
+        let mut result = ToolOutput::text("ok");
+        let config = agent.config().await;
+        let mut state = agent.state().lock().await;
+        config
+            .middleware
+            .run_before_tool_call(&mut state, &tool_call)
+            .await
+            .expect("before phase should run");
+        config
+            .middleware
+            .run_after_tool_call(&mut state, &tool_call, &mut result)
+            .await
+            .expect("after phase should run");
+        drop(state);
+
+        let jsonl = std::fs::read_to_string(&analytics_path).expect("analytics jsonl");
+        assert!(jsonl.contains("\"type\":\"tool_call_start\""));
+        assert!(jsonl.contains("\"type\":\"tool_call_end\""));
+        assert!(jsonl.contains("\"call_id\":\"call-1\""));
     }
 
     #[test]

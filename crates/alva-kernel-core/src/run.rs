@@ -7,144 +7,27 @@
 //         bus handle so `Tool::parameters_schema_with` sees live runtime state.
 use std::sync::Arc;
 
-use alva_kernel_abi::agent_session::{
-    AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, ScopedSession, SessionEvent,
-};
+use alva_kernel_abi::agent_session::{ComponentDescriptor, EmitterKind};
 use alva_kernel_abi::model::LanguageModel;
-use alva_kernel_abi::tool::execution::{ToolExecutionContext as AbiToolExecutionContext, ToolOutput as AbiToolOutput};
-use alva_kernel_abi::tool::schema::ToolSchemaContext;
-use alva_kernel_abi::tool::{
-    SearchReadInfo, Tool, ToolDefinition, ToolPermissionResult,
+use alva_kernel_abi::tool::execution::{
+    ToolExecutionContext as AbiToolExecutionContext, ToolOutput as AbiToolOutput,
 };
+use alva_kernel_abi::tool::schema::ToolSchemaContext;
+use alva_kernel_abi::tool::{SearchReadInfo, Tool, ToolDefinition, ToolPermissionResult};
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
-    ModelConfig, StreamEvent, ToolCall, ToolOutput,
+    ModelConfig, StreamEvent, ToolCall,
 };
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
+use crate::context_runtime::ContextRuntime;
 use crate::event::AgentEvent;
-use crate::middleware::{LlmCallFn, MiddlewareError, ToolCallFn};
-use crate::runtime_context::RuntimeExecutionContext;
+use crate::middleware::{LlmCallFn, MiddlewareError};
+use crate::session_events::emit_runtime_event;
 use crate::state::{AgentConfig, AgentState};
-
-// ---------------------------------------------------------------------------
-// Session skeleton event helper
-// ---------------------------------------------------------------------------
-
-/// Append a runtime-emitted event to the session. The emitter is always
-/// `EventEmitter::runtime()`; callers only set event_type, parent_uuid, and
-/// data. Returns the uuid of the appended event so callers can use it as
-/// a parent for subsequent events.
-async fn emit_runtime_event(
-    session: &std::sync::Arc<dyn AgentSession>,
-    event_type: &str,
-    parent_uuid: Option<String>,
-    data: Option<serde_json::Value>,
-) -> String {
-    let mut event = SessionEvent::new_runtime(event_type);
-    event.parent_uuid = parent_uuid;
-    event.data = data;
-    let uuid = event.uuid.clone();
-    session.append(event).await;
-    uuid
-}
-
-// ---------------------------------------------------------------------------
-// ContextHooks integration helpers (Phase 4)
-//
-// These free functions are no-ops when `config.context_system` is None,
-// so the run loop's behavior is unchanged for callers that don't opt in.
-// `assemble` and `on_budget_exceeded` are intentionally NOT wired here —
-// they require a ContextEntry ↔ Message translation layer that hasn't been
-// designed yet. Only the hooks that operate directly on AgentMessage or
-// pure lifecycle events are wired.
-// ---------------------------------------------------------------------------
-
-async fn fire_context_bootstrap(config: &AgentConfig, agent_id: &str) {
-    if let Some(cs) = config.context_system.as_ref() {
-        if let Err(e) = cs.hooks().bootstrap(cs.handle(), agent_id).await {
-            tracing::warn!(error = ?e, "context bootstrap failed");
-        }
-    }
-}
-
-async fn fire_context_on_message(
-    config: &AgentConfig,
-    agent_id: &str,
-    message: &AgentMessage,
-) -> Vec<alva_kernel_abi::scope::context::Injection> {
-    if let Some(cs) = config.context_system.as_ref() {
-        cs.hooks().on_message(cs.handle(), agent_id, message).await
-    } else {
-        Vec::new()
-    }
-}
-
-async fn fire_context_after_turn(config: &AgentConfig, agent_id: &str) {
-    if let Some(cs) = config.context_system.as_ref() {
-        cs.hooks().after_turn(cs.handle(), agent_id).await;
-    }
-}
-
-async fn fire_context_dispose(config: &AgentConfig) {
-    if let Some(cs) = config.context_system.as_ref() {
-        if let Err(e) = cs.hooks().dispose().await {
-            tracing::warn!(error = ?e, "context dispose failed");
-        }
-    }
-}
-
-/// Estimate total tokens for a working message list. Uses a bus-registered
-/// `TokenCounter` if available, otherwise a 4-chars-per-token heuristic.
-/// 4 token of overhead per message accounts for role / separator framing.
-fn estimate_message_tokens(
-    messages: &[AgentMessage],
-    bus: Option<&alva_kernel_abi::BusHandle>,
-) -> usize {
-    let counter = bus.and_then(|b| b.get::<dyn alva_kernel_abi::TokenCounter>());
-    messages
-        .iter()
-        .map(|m| {
-            let text = match m {
-                AgentMessage::Standard(msg) => msg.text_content(),
-                AgentMessage::Steering(msg) => msg.text_content(),
-                AgentMessage::FollowUp(msg) => msg.text_content(),
-                AgentMessage::Marker(_) => String::new(),
-                AgentMessage::Extension { data, .. } => data.to_string(),
-            };
-            let tokens = match &counter {
-                Some(c) => c.count_tokens(&text),
-                None => text.len() / 4,
-            };
-            tokens + 4
-        })
-        .sum()
-}
-
-/// Build a synthetic `ContextSnapshot` to hand to `on_budget_exceeded`
-/// when the kernel itself decided the budget was exceeded (rather than
-/// the ContextStore tracking it).
-fn build_budget_snapshot(
-    total_tokens: usize,
-    budget: usize,
-) -> alva_kernel_abi::scope::context::ContextSnapshot {
-    alva_kernel_abi::scope::context::ContextSnapshot {
-        total_tokens,
-        budget_tokens: budget,
-        model_window: budget,
-        usage_ratio: if budget == 0 {
-            1.0
-        } else {
-            total_tokens as f32 / budget as f32
-        },
-        layer_breakdown: std::collections::HashMap::new(),
-        entries: Vec::new(),
-        recent_tool_patterns: Vec::new(),
-    }
-}
 
 fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
     AgentMessage::Standard(Message {
@@ -283,10 +166,7 @@ impl Tool for PrebakedSchemaTool {
 /// `ctx.bus`. The wrapping is a no-op for tools that don't override
 /// `parameters_schema_with` — their static schema is recomputed once and
 /// baked in place.
-fn bake_tool_schemas(
-    tools: &[Arc<dyn Tool>],
-    bus: Option<&BusHandle>,
-) -> Vec<Arc<dyn Tool>> {
+fn bake_tool_schemas(tools: &[Arc<dyn Tool>], bus: Option<&BusHandle>) -> Vec<Arc<dyn Tool>> {
     let ctx = match bus {
         Some(b) => ToolSchemaContext::with_bus(b),
         None => ToolSchemaContext::empty(),
@@ -301,7 +181,7 @@ fn bake_tool_schemas(
 }
 
 // ---------------------------------------------------------------------------
-// LlmCallFn / ToolCallFn adapters for wrap hooks
+// LlmCallFn adapter for wrap hooks
 // ---------------------------------------------------------------------------
 
 /// Wraps the actual LLM model call as a `LlmCallFn` so it can be passed
@@ -469,18 +349,26 @@ impl LlmCallFn for ActualLlmCall {
             );
 
             let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
-            match self.model.complete(&messages, &tool_refs, &self.model_config).await {
+            match self
+                .model
+                .complete(&messages, &tool_refs, &self.model_config)
+                .await
+            {
                 Ok(resp) => {
                     let msg = resp.message;
                     // Emit the fallback result as synthetic events so the UI still sees them
                     for block in &msg.content {
                         let delta = match block {
-                            ContentBlock::Text { text } => StreamEvent::TextDelta { text: text.clone() },
-                            ContentBlock::ToolUse { id, name, input } => StreamEvent::ToolCallDelta {
-                                id: id.clone(),
-                                name: Some(name.clone()),
-                                arguments_delta: input.to_string(),
-                            },
+                            ContentBlock::Text { text } => {
+                                StreamEvent::TextDelta { text: text.clone() }
+                            }
+                            ContentBlock::ToolUse { id, name, input } => {
+                                StreamEvent::ToolCallDelta {
+                                    id: id.clone(),
+                                    name: Some(name.clone()),
+                                    arguments_delta: input.to_string(),
+                                }
+                            }
                             _ => continue,
                         };
                         let agent_msg = AgentMessage::Standard(Message {
@@ -552,50 +440,6 @@ impl LlmCallFn for ActualLlmCall {
     }
 }
 
-/// Wraps the actual tool execution as a `ToolCallFn` so it can be passed
-/// into middleware `wrap_tool_call` as the `next` callback.
-struct ActualToolCall {
-    tool: Arc<dyn Tool>,
-    cancel: CancellationToken,
-    event_tx: mpsc::UnboundedSender<AgentEvent>,
-    session_id: String,
-    workspace: Option<std::path::PathBuf>,
-    bus: Option<BusHandle>,
-}
-
-#[async_trait]
-impl ToolCallFn for ActualToolCall {
-    async fn call(
-        &self,
-        state: &mut AgentState,
-        tool_call: &ToolCall,
-    ) -> Result<ToolOutput, AgentError> {
-        // No timeout in the kernel — use ToolTimeoutMiddleware (wrap_tool_call) to add one.
-        let scoped_session = ScopedSession::new(
-            state.session.clone(),
-            EventEmitter {
-                kind: EmitterKind::Tool,
-                id: self.tool.name().to_string(),
-                instance: None,
-            },
-        );
-        let mut ctx = RuntimeExecutionContext::new(
-            self.cancel.clone(),
-            tool_call.id.clone(),
-            self.event_tx.clone(),
-            self.session_id.clone(),
-        )
-        .with_session(scoped_session);
-        if let Some(ref ws) = self.workspace {
-            ctx = ctx.with_workspace(ws.clone());
-        }
-        if let Some(ref bus) = self.bus {
-            ctx = ctx.with_bus(bus.clone());
-        }
-        self.tool.execute(tool_call.arguments.clone(), &ctx).await
-    }
-}
-
 /// agent loop — session-centric with middleware hooks.
 ///
 /// Messages are never stored in local variables across iterations;
@@ -616,9 +460,9 @@ pub async fn run_agent(
         .await
         .map_err(MiddlewareError::into_agent_error)?;
 
-    // 1b. ContextHooks: bootstrap (no-op when context_system is None)
     let agent_id = state.session.session_id().to_string();
-    fire_context_bootstrap(config, &agent_id).await;
+    let mut context_runtime = ContextRuntime::new(agent_id.clone());
+    context_runtime.bootstrap(config).await;
 
     // Emit AgentStart
     let _ = event_tx.send(AgentEvent::AgentStart);
@@ -632,7 +476,8 @@ pub async fn run_agent(
             "agent_id": agent_id.clone(),
             "max_iterations": config.max_iterations,
         })),
-    ).await;
+    )
+    .await;
 
     // --- Session skeleton: component_registry ---
     // Collect descriptors for every tool and middleware in this run.
@@ -656,21 +501,31 @@ pub async fn run_agent(
         "component_registry",
         Some(run_start_uuid.clone()),
         Some(serde_json::json!({ "components": components })),
-    ).await;
+    )
+    .await;
 
-    // 2. Store input messages in session + fire on_message for each.
-    //    Injections returned here are dropped — input messages typically arrive
-    //    before any LLM call, and bootstrap is the proper place for plugins to
-    //    seed initial context. If a future use case needs input-message-driven
-    //    injections, plumb them into run_loop via a parameter.
+    // 2. Store input messages in session + collect context injections.
     for msg in input {
         state.session.append_message(msg.clone(), None).await;
-        let _ = fire_context_on_message(config, &agent_id, &msg).await;
+        config
+            .middleware
+            .run_input_committed(state, &msg)
+            .await
+            .map_err(MiddlewareError::into_agent_error)?;
+        context_runtime.on_message(config, &msg).await;
     }
 
     // 3. Main loop
     let mut error: Option<String> = None;
-    let result = run_loop(state, config, &cancel, &event_tx, &run_start_uuid).await;
+    let result = run_loop(
+        state,
+        config,
+        &cancel,
+        &event_tx,
+        &run_start_uuid,
+        &mut context_runtime,
+    )
+    .await;
 
     if let Err(ref e) = result {
         error = Some(e.to_string());
@@ -685,8 +540,7 @@ pub async fn run_agent(
         tracing::warn!(error = %e, "on_agent_end middleware failed");
     }
 
-    // 4b. ContextHooks: dispose (no-op when context_system is None)
-    fire_context_dispose(config).await;
+    context_runtime.dispose(config).await;
 
     // --- Session skeleton: run_end ---
     emit_runtime_event(
@@ -696,7 +550,8 @@ pub async fn run_agent(
         Some(serde_json::json!({
             "error": error.clone(),
         })),
-    ).await;
+    )
+    .await;
 
     // 5. Emit AgentEnd
     let _ = event_tx.send(AgentEvent::AgentEnd {
@@ -717,17 +572,11 @@ async fn run_loop(
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
     run_start_uuid: &str,
+    context_runtime: &mut ContextRuntime,
 ) -> Result<(), AgentError> {
     let mut total_iterations: u32 = 0;
     let mut _session_input_tokens: u64 = 0;
     let mut _session_output_tokens: u64 = 0;
-    // Stable identifier handed to ContextHooks. Same string for the entire run
-    // so plugins can correlate hook calls. Cloned because we'll borrow `state`
-    // mutably later for middleware.
-    let agent_id = state.session.session_id().to_string();
-    // Buffer for Injections returned by ContextHooks::on_message. Drained and
-    // applied at the start of each LLM-call cycle (3a*) before assemble runs.
-    let mut pending_injections: Vec<alva_kernel_abi::scope::context::Injection> = Vec::new();
 
     // Outer loop: processes follow-up messages
     'outer: loop {
@@ -751,7 +600,8 @@ async fn run_loop(
                 "iteration_start",
                 Some(run_start_uuid.to_string()),
                 Some(serde_json::json!({ "iteration": total_iterations })),
-            ).await;
+            )
+            .await;
 
             // Emit TurnStart
             let _ = event_tx.send(AgentEvent::TurnStart);
@@ -764,72 +614,10 @@ async fn run_loop(
                 state.session.messages().await
             };
 
-            // 3a*. ContextHooks: apply pending injections + run assemble hook.
-            //      When context_system is None, this collapses to a passthrough
-            //      and the behavior matches the pre-Phase-4 path bit-for-bit.
-            //
-            //      `system_prompt_buf` is a Vec<String> — every entry except
-            //      the last is "stable / cacheable", the last is "dynamic".
-            //      apply_injections routes each Injection by its layer:
-            //      AlwaysPresent / OnDemand / Memory → appended to second-
-            //      to-last segment (or new stable segment if none); RuntimeInject
-            //      → appended to the last (dynamic) segment, creating it if
-            //      the prompt was previously all-stable.
             let mut system_prompt_buf: Vec<String> = config.system_prompt.clone();
-            let mut working_messages: Vec<AgentMessage> = session_messages;
-            if !pending_injections.is_empty() {
-                alva_kernel_abi::scope::context::apply_injections(
-                    std::mem::take(&mut pending_injections),
-                    &mut system_prompt_buf,
-                    &mut working_messages,
-                );
-            }
-            if let Some(cs) = config.context_system.as_ref() {
-                use alva_kernel_abi::scope::context::{ContextEntry, ContextLayer, ContextMetadata};
-                let entries: Vec<ContextEntry> = working_messages
-                    .into_iter()
-                    .map(|m| {
-                        let id = match &m {
-                            AgentMessage::Standard(msg) => msg.id.clone(),
-                            _ => uuid::Uuid::new_v4().to_string(),
-                        };
-                        ContextEntry {
-                            id,
-                            message: m,
-                            metadata: ContextMetadata::new(ContextLayer::RuntimeInject),
-                        }
-                    })
-                    .collect();
-                let assembled = cs
-                    .hooks()
-                    .assemble(cs.handle(), &agent_id, entries, /*token_budget*/ 0)
-                    .await;
-                working_messages = assembled.into_iter().map(|e| e.message).collect();
-            }
-
-            // 3a***. ContextHooks: token-budget check + on_budget_exceeded.
-            //        Only runs when both context_system and context_token_budget
-            //        are set. Estimate uses bus TokenCounter when available, else
-            //        a 4-chars-per-token heuristic.
-            if let (Some(cs), Some(budget)) =
-                (config.context_system.as_ref(), config.context_token_budget)
-            {
-                let total_tokens = estimate_message_tokens(&working_messages, config.bus.as_ref());
-                if total_tokens > budget {
-                    let snapshot = build_budget_snapshot(total_tokens, budget);
-                    let actions = cs
-                        .hooks()
-                        .on_budget_exceeded(cs.handle(), &agent_id, &snapshot)
-                        .await;
-                    alva_kernel_abi::scope::context::apply_compressions(
-                        actions,
-                        &mut working_messages,
-                        cs.handle(),
-                        &agent_id,
-                    )
-                    .await;
-                }
-            }
+            let working_messages = context_runtime
+                .prepare_llm_context(config, &mut system_prompt_buf, session_messages)
+                .await;
 
             // 3b. Build LLM messages: [system_prompt segments] + working_messages
             //
@@ -898,10 +686,7 @@ async fn run_loop(
                 .map(|seg| {
                     use sha2::{Digest, Sha256};
                     let h = Sha256::digest(seg.as_bytes());
-                    format!("{:x}", h)
-                        .chars()
-                        .take(16)
-                        .collect::<String>()
+                    format!("{:x}", h).chars().take(16).collect::<String>()
                 })
                 .collect();
             let provider_options_applied = config
@@ -929,7 +714,8 @@ async fn run_loop(
                     "tools_count_sent": tools_count_sent_for_event,
                     "provider_options_applied": provider_options_applied,
                 })),
-            ).await;
+            )
+            .await;
             // Wall-clock start for analytics. Captured here (just before
             // before_llm_call middleware) so the latency includes any
             // pre-call middleware work too.
@@ -965,9 +751,7 @@ async fn run_loop(
             // the request entirely (no empty array; AMP / pi-mono
             // behavior).
             let baked_tools = if config.model_config.disable_tools {
-                tracing::debug!(
-                    "model_config.disable_tools=true; skipping all tool injection"
-                );
+                tracing::debug!("model_config.disable_tools=true; skipping all tool injection");
                 Vec::new()
             } else {
                 bake_tool_schemas(&state.tools, config.bus.as_ref())
@@ -1040,9 +824,7 @@ async fn run_loop(
                     model: state.model.model_id().to_string(),
                     input_tokens: usage.map(|u| u.input_tokens).unwrap_or(0),
                     output_tokens: usage.map(|u| u.output_tokens).unwrap_or(0),
-                    cache_read: usage
-                        .and_then(|u| u.cache_read_input_tokens)
-                        .unwrap_or(0),
+                    cache_read: usage.and_then(|u| u.cache_read_input_tokens).unwrap_or(0),
                     cache_write: usage
                         .and_then(|u| u.cache_creation_input_tokens)
                         .unwrap_or(0),
@@ -1054,10 +836,11 @@ async fn run_loop(
 
             // 3g. Store response in session + fire ContextHooks::on_message
             let response_msg = AgentMessage::Standard(response.clone());
-            state.session.append_message(response_msg.clone(), Some(llm_start_uuid.clone())).await;
-            pending_injections.extend(
-                fire_context_on_message(config, &agent_id, &response_msg).await,
-            );
+            state
+                .session
+                .append_message(response_msg.clone(), Some(llm_start_uuid.clone()))
+                .await;
+            context_runtime.on_message(config, &response_msg).await;
 
             // 3h. Track token usage from this turn
             if let Some(ref usage) = response.usage {
@@ -1097,165 +880,29 @@ async fn run_loop(
                     "turn completed (no tool calls)"
                 );
                 let _ = event_tx.send(AgentEvent::TurnEnd);
-                fire_context_after_turn(config, &agent_id).await;
+                context_runtime.after_turn(config).await;
                 emit_runtime_event(
                     &state.session,
                     "iteration_end",
                     Some(iteration_start_uuid.clone()),
                     None,
-                ).await;
+                )
+                .await;
                 break 'inner;
             }
 
-            // 3k. Execute each tool_call sequentially.
-            // NOTE: concurrent execution for is_concurrency_safe() tools is
-            // deferred — it requires refactoring tool execution to not hold
-            // &mut AgentState across the await boundary.
-            for tool_call in &tool_calls {
-                if cancel.is_cancelled() {
-                    return Err(AgentError::Cancelled);
-                }
-
-                // Session skeleton: tool_use
-                let tool_use_uuid = emit_runtime_event(
-                    &state.session,
-                    "tool_use",
-                    Some(llm_start_uuid.clone()),
-                    Some(serde_json::json!({
-                        "tool_name": tool_call.name.clone(),
-                        "tool_call_id": tool_call.id.clone(),
-                    })),
-                ).await;
-
-                // Emit ToolExecutionStart
-                let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-                    tool_call: tool_call.clone(),
-                });
-                let tool_start = web_time::Instant::now();
-
-                // Find tool by name — clone the Arc so we don't hold an immutable
-                // borrow on state.tools across the mutable middleware calls.
-                let tool = state
-                    .tools
-                    .iter()
-                    .find(|t| t.name() == tool_call.name)
-                    .cloned();
-
-                // Middleware: before_tool_call
-                let before_result = config
-                    .middleware
-                    .run_before_tool_call(state, tool_call)
-                    .await;
-
-                let mut result = match before_result {
-                    Err(MiddlewareError::Blocked { reason }) => {
-                        // If blocked, make an error result
-                        ToolOutput::error(format!("Tool call blocked: {}", reason))
-                    }
-                    Err(e) => {
-                        return Err(e.into_agent_error());
-                    }
-                    Ok(()) => {
-                        // Execute the tool through wrap_tool_call middleware chain (with timeout)
-                        match tool {
-                            Some(ref t) => {
-                                // Acquire resource locks for this invocation. Multi-reader /
-                                // single-writer per `tool.resource_keys()`; `SerialGlobal`
-                                // tools get exclusive. The guards are held across the whole
-                                // wrap_tool_call chain (including middleware + tool.execute)
-                                // and dropped when this `Ok(())` arm's scope exits — RAII
-                                // release. If no ToolLockRegistry is published on the bus,
-                                // this degenerates to a no-op (`None` guard, zero locks).
-                                let _lock_guards = if let Some(bus) = config.bus.as_ref() {
-                                    if let Some(registry) = bus
-                                        .get::<alva_kernel_abi::ToolLockRegistry>()
-                                    {
-                                        let keys = t.resource_keys(&tool_call.arguments);
-                                        let mode = t.execution_mode();
-                                        // Resolve relative keys (e.g. `"src/foo.rs"`)
-                                        // against workspace root so two tools
-                                        // declaring the same file with different
-                                        // shapes (absolute vs relative) still
-                                        // collide on the same lock. Without a
-                                        // workspace, fall back to plain acquire.
-                                        Some(match config.workspace.as_deref() {
-                                            Some(ws) => {
-                                                registry.acquire_within(&keys, mode, ws).await
-                                            }
-                                            None => registry.acquire(&keys, mode).await,
-                                        })
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                };
-
-                                let actual_tool_call = ActualToolCall {
-                                    tool: t.clone(),
-                                    cancel: cancel.clone(),
-                                    event_tx: event_tx.clone(),
-                                    session_id: state.session.session_id().to_string(),
-                                    workspace: config.workspace.clone(),
-                                    bus: config.bus.clone(),
-                                };
-                                config
-                                    .middleware
-                                    .run_wrap_tool_call(state, tool_call, &actual_tool_call)
-                                    .await
-                                    .map_err(MiddlewareError::into_agent_error)?
-                            }
-                            None => {
-                                ToolOutput::error(format!("Tool not found: {}", tool_call.name))
-                            }
-                        }
-                    }
-                };
-
-                // Middleware: after_tool_call
-                config
-                    .middleware
-                    .run_after_tool_call(state, tool_call, &mut result)
-                    .await
-                    .map_err(MiddlewareError::into_agent_error)?;
-
-                // Build Tool message and append to session.
-                // Single tool_result event via append_message, linked to its tool_use
-                // via parent_uuid. Projection reads this event's `data` (serialized
-                // AgentMessage containing ToolOutput) for content + is_error, and computes
-                // duration_ms from the timestamp delta against the tool_use event.
-                let tool_message = Message {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    role: MessageRole::Tool,
-                    content: vec![ContentBlock::ToolResult {
-                        id: tool_call.id.clone(),
-                        content: result.content.clone(),
-                        is_error: result.is_error,
-                    }],
-                    tool_call_id: Some(tool_call.id.clone()),
-                    usage: None,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                };
-                let tool_msg = AgentMessage::Standard(tool_message);
-                state.session.append_message(tool_msg.clone(), Some(tool_use_uuid.clone())).await;
-                pending_injections.extend(
-                    fire_context_on_message(config, &agent_id, &tool_msg).await,
-                );
-
-                let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
-                tracing::info!(
-                    tool = %tool_call.name,
-                    duration_ms = tool_duration_ms,
-                    is_error = result.is_error,
-                    result_len = result.model_text().len(),
-                    "tool execution completed"
-                );
-
-                // Emit ToolExecutionEnd
-                let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-                    tool_call: tool_call.clone(),
-                    result,
-                });
+            let committed_tools = crate::tool_batch::ToolBatchCoordinator::new()
+                .execute_batch(
+                    state,
+                    config,
+                    cancel.clone(),
+                    &tool_calls,
+                    llm_start_uuid.clone(),
+                    event_tx.clone(),
+                )
+                .await?;
+            for committed in committed_tools {
+                context_runtime.on_message(config, &committed.message).await;
             }
 
             // 3l. Emit TurnEnd + ContextHooks::after_turn
@@ -1266,7 +913,7 @@ async fn run_loop(
                 "turn completed (with tool calls)"
             );
             let _ = event_tx.send(AgentEvent::TurnEnd);
-            fire_context_after_turn(config, &agent_id).await;
+            context_runtime.after_turn(config).await;
 
             // Session skeleton: end of iteration (tool-calls path).
             // Any mid-run user interjection lands via an extension that
@@ -1276,7 +923,8 @@ async fn run_loop(
                 "iteration_end",
                 Some(iteration_start_uuid.clone()),
                 None,
-            ).await;
+            )
+            .await;
         }
 
         // Inner loop ended with no more tool calls → agent run is done.
@@ -1287,4 +935,3 @@ async fn run_loop(
 
     Ok(())
 }
-

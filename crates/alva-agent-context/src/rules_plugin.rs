@@ -20,9 +20,7 @@ pub struct RulesContextHooks {
 
 impl Default for RulesContextHooks {
     fn default() -> Self {
-        Self {
-            max_messages: 30,
-        }
+        Self { max_messages: 30 }
     }
 }
 
@@ -137,12 +135,20 @@ mod tests {
         let actions = h.on_budget_exceeded(handle, "agent-1", &snapshot).await;
         assert_eq!(actions.len(), 2);
         assert!(
-            matches!(&actions[0], CompressAction::RemoveByPriority { priority: Priority::Disposable }),
+            matches!(
+                &actions[0],
+                CompressAction::RemoveByPriority {
+                    priority: Priority::Disposable
+                }
+            ),
             "first action must be RemoveByPriority::Disposable: {:?}",
             actions[0]
         );
         assert!(
-            matches!(&actions[1], CompressAction::SlidingWindow { keep_recent: 30 }),
+            matches!(
+                &actions[1],
+                CompressAction::SlidingWindow { keep_recent: 30 }
+            ),
             "second action must be SlidingWindow with the configured keep_recent: {:?}",
             actions[1]
         );

@@ -11,11 +11,8 @@ use crate::base::error::AgentError;
 pub trait VideoModel: Send + Sync {
     fn model_id(&self) -> &str;
 
-    async fn generate(
-        &self,
-        prompt: &str,
-        config: &VideoConfig,
-    ) -> Result<VideoResult, AgentError>;
+    async fn generate(&self, prompt: &str, config: &VideoConfig)
+        -> Result<VideoResult, AgentError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

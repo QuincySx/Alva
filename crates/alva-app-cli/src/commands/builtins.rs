@@ -1,4 +1,8 @@
+// INPUT:  Command trait/types, alva_app_core component catalog, workspace/git shell probes
+// OUTPUT: Built-in slash command structs including Help/Tools/Components/Git prompts
+// POS:    CLI slash command implementations for session, config, tools, components, and agent prompts.
 use super::types::*;
+use alva_app_core::components::{ComponentKind, COMPONENTS};
 
 // === Session Commands ===
 
@@ -54,9 +58,7 @@ impl Command for CompactCommand {
         CommandResult::Compact {
             summary: format!(
                 "Compacting {} messages ({} tokens). {}",
-                msg_count,
-                tokens,
-                prompt,
+                msg_count, tokens, prompt,
             ),
         }
     }
@@ -112,6 +114,7 @@ impl Command for HelpCommand {
   /fast              Toggle fast mode
   /vim               Toggle vim mode
   /tools             List available tools
+  /components        List agent components and defaults
   /mcp               Manage MCP servers
   /agents            List running agents
   /tasks             List tasks
@@ -162,9 +165,18 @@ impl Command for CostCommand {
         lines.push(format!("Session: {}", ctx.session_id));
         lines.push(format!("Model:   {}", ctx.model));
         lines.push(String::new());
-        lines.push(format!("Input tokens:  {:>10}", format_number(usage.input_tokens)));
-        lines.push(format!("Output tokens: {:>10}", format_number(usage.output_tokens)));
-        lines.push(format!("Total tokens:  {:>10}", format_number(usage.total())));
+        lines.push(format!(
+            "Input tokens:  {:>10}",
+            format_number(usage.input_tokens)
+        ));
+        lines.push(format!(
+            "Output tokens: {:>10}",
+            format_number(usage.output_tokens)
+        ));
+        lines.push(format!(
+            "Total tokens:  {:>10}",
+            format_number(usage.total())
+        ));
         lines.push(String::new());
         lines.push(format!("Estimated cost: ${:.4}", cost));
         lines.push(format!("Messages:       {}", ctx.message_count));
@@ -219,10 +231,7 @@ impl Command for DoctorCommand {
 
         // 1. Workspace
         let ws_exists = ctx.workspace.exists();
-        checks.push((
-            ws_exists,
-            format!("Workspace: {}", ctx.workspace.display()),
-        ));
+        checks.push((ws_exists, format!("Workspace: {}", ctx.workspace.display())));
 
         // 2. Git
         let git_ok = run_cmd(ctx.workspace, "git", &["rev-parse", "--git-dir"]);
@@ -403,7 +412,11 @@ impl Command for PermissionsCommand {
         let mut lines = Vec::new();
         lines.push(format!(
             "Permission mode: {}",
-            if ctx.plan_mode { "plan (read-only)" } else { "ask" }
+            if ctx.plan_mode {
+                "plan (read-only)"
+            } else {
+                "ask"
+            }
         ));
         lines.push(String::new());
         lines.push("Configure permissions in settings.json:".to_string());
@@ -411,7 +424,10 @@ impl Command for PermissionsCommand {
         lines.push("  ~/.config/alva/settings.json (global)".to_string());
         lines.push(String::new());
         lines.push("Example:".to_string());
-        lines.push(r#"  { "permissions": { "allow": ["Bash(git *)"], "deny": ["Bash(rm *)"] } }"#.to_string());
+        lines.push(
+            r#"  { "permissions": { "allow": ["Bash(git *)"], "deny": ["Bash(rm *)"] } }"#
+                .to_string(),
+        );
         CommandResult::Text(lines.join("\n"))
     }
 }
@@ -655,6 +671,66 @@ impl Command for ToolsCommand {
     }
 }
 
+pub struct ComponentsCommand;
+impl Command for ComponentsCommand {
+    fn name(&self) -> &str {
+        "components"
+    }
+    fn aliases(&self) -> Vec<&str> {
+        vec!["plugins"]
+    }
+    fn description(&self) -> &str {
+        "List agent components and effective toggle state"
+    }
+    fn execute(&self, _args: &str, ctx: &CommandContext) -> CommandResult {
+        let mut lines = Vec::new();
+        lines.push("Agent components:".to_string());
+        lines.push("  state  source    kind        category  id".to_string());
+        for c in COMPONENTS {
+            let (enabled, source) = match ctx.component_overrides.get(c.id) {
+                Some(enabled) => (*enabled, "override"),
+                None => (c.default_on, "default"),
+            };
+            let state = if enabled { "on" } else { "off" };
+            let kind = match c.kind {
+                ComponentKind::Plugin => "plugin",
+                ComponentKind::Middleware => "middleware",
+            };
+            lines.push(format!(
+                "  {state:<5}  {source:<8}  {kind:<10}  {category:<8}  {id}",
+                category = c.category,
+                id = c.id,
+            ));
+        }
+        lines.push(String::new());
+        lines.push(format!("Loaded plugins ({}):", ctx.plugin_names.len()));
+        if ctx.plugin_names.is_empty() {
+            lines.push("  (none recorded)".to_string());
+        } else {
+            for name in &ctx.plugin_names {
+                lines.push(format!("  - {}", name));
+            }
+        }
+        lines.push(format!(
+            "Loaded middleware ({}):",
+            ctx.middleware_names.len()
+        ));
+        if ctx.middleware_names.is_empty() {
+            lines.push("  (none recorded)".to_string());
+        } else {
+            for name in &ctx.middleware_names {
+                lines.push(format!("  - {}", name));
+            }
+        }
+        lines.push(String::new());
+        lines.push(
+            "Change overrides with `alva settings component enable|disable|reset <id>`."
+                .to_string(),
+        );
+        CommandResult::Text(lines.join("\n"))
+    }
+}
+
 pub struct McpCommand;
 impl Command for McpCommand {
     fn name(&self) -> &str {
@@ -766,6 +842,9 @@ mod tests {
                 "Glob".to_string(),
                 "Grep".to_string(),
             ],
+            plugin_names: vec!["core".to_string(), "shell".to_string()],
+            middleware_names: vec!["security".to_string(), "tool-timeout".to_string()],
+            component_overrides: std::collections::HashMap::new(),
             plan_mode: false,
         }
     }
@@ -802,7 +881,11 @@ mod tests {
         assert!(text.contains("claude-sonnet-4-20250514"), "{}", text);
         assert!(text.contains("test-session-123"), "{}", text);
         assert!(text.contains("42"), "should show message count: {}", text);
-        assert!(text.contains("6 registered"), "should show tool count: {}", text);
+        assert!(
+            text.contains("6 registered"),
+            "should show tool count: {}",
+            text
+        );
         assert!(text.contains("Plan mode:   OFF"), "{}", text);
     }
 
@@ -828,7 +911,11 @@ mod tests {
         };
         assert!(text.contains("Diagnostics:"), "{}", text);
         assert!(text.contains("checks passed"), "{}", text);
-        assert!(text.contains("6 registered"), "should check tool count: {}", text);
+        assert!(
+            text.contains("6 registered"),
+            "should check tool count: {}",
+            text
+        );
     }
 
     #[test]
@@ -857,6 +944,53 @@ mod tests {
     }
 
     #[test]
+    fn components_lists_catalog_defaults() {
+        let ctx = test_ctx();
+        let result = ComponentsCommand.execute("", &ctx);
+        let text = match result {
+            CommandResult::Text(t) => t,
+            other => panic!("expected Text, got {:?}", other),
+        };
+        assert!(text.contains("Agent components"), "{}", text);
+        assert!(text.contains("core"), "{}", text);
+        assert!(text.contains("browser"), "{}", text);
+        assert!(text.contains("on"), "{}", text);
+        assert!(text.contains("off"), "{}", text);
+        assert!(text.contains("Loaded plugins (2):"), "{}", text);
+        assert!(text.contains("- core"), "{}", text);
+        assert!(text.contains("Loaded middleware (2):"), "{}", text);
+        assert!(text.contains("- tool-timeout"), "{}", text);
+    }
+
+    #[test]
+    fn components_lists_effective_overrides() {
+        let mut ctx = test_ctx();
+        ctx.component_overrides.insert("browser".into(), true);
+        ctx.component_overrides.insert("shell".into(), false);
+        let result = ComponentsCommand.execute("", &ctx);
+        let text = match result {
+            CommandResult::Text(t) => t,
+            other => panic!("expected Text, got {:?}", other),
+        };
+
+        assert!(text.contains("source"), "{}", text);
+        assert!(text.contains("on     override"), "{}", text);
+        assert!(text.contains("off    override"), "{}", text);
+        assert!(
+            text.lines()
+                .any(|line| line.contains("browser") && line.contains("override")),
+            "{}",
+            text
+        );
+        assert!(
+            text.lines()
+                .any(|line| line.contains("shell") && line.contains("off")),
+            "{}",
+            text
+        );
+    }
+
+    #[test]
     fn commit_returns_prompt() {
         let ctx = test_ctx();
         let result = CommitCommand.execute("", &ctx);
@@ -869,11 +1003,11 @@ mod tests {
                 assert!(content.contains("git status"), "should mention git status");
                 assert!(content.contains("git diff"), "should mention git diff");
                 assert!(content.contains("HEREDOC"), "should mention HEREDOC syntax");
-                assert!(content.contains("NEVER use git commit --amend"), "should include safety protocol");
-                assert_eq!(
-                    progress_message,
-                    Some("Creating commit...".to_string())
+                assert!(
+                    content.contains("NEVER use git commit --amend"),
+                    "should include safety protocol"
                 );
+                assert_eq!(progress_message, Some("Creating commit...".to_string()));
                 assert!(allowed_tools.is_some());
             }
             other => panic!("expected Prompt, got {:?}", other),
@@ -886,7 +1020,10 @@ mod tests {
         let result = CommitCommand.execute("fix auth bug", &ctx);
         match result {
             CommandResult::Prompt { content, .. } => {
-                assert!(content.contains("fix auth bug"), "should include user guidance");
+                assert!(
+                    content.contains("fix auth bug"),
+                    "should include user guidance"
+                );
             }
             other => panic!("expected Prompt, got {:?}", other),
         }
@@ -911,7 +1048,11 @@ mod tests {
         let result = ReviewCommand.execute("https://github.com/org/repo/pull/42", &ctx);
         match result {
             CommandResult::Prompt { content, .. } => {
-                assert!(content.contains("https://github.com/org/repo/pull/42"), "{}", content);
+                assert!(
+                    content.contains("https://github.com/org/repo/pull/42"),
+                    "{}",
+                    content
+                );
             }
             other => panic!("expected Prompt, got {:?}", other),
         }
@@ -975,7 +1116,9 @@ mod tests {
             _ => panic!("expected Text"),
         };
         // Verify key commands are listed
-        for cmd in &["/help", "/cost", "/status", "/doctor", "/commit", "/tools", "/compact", "/export"] {
+        for cmd in &[
+            "/help", "/cost", "/status", "/doctor", "/commit", "/tools", "/compact", "/export",
+        ] {
             assert!(text.contains(cmd), "help should list {}: {}", cmd, text);
         }
     }
@@ -997,6 +1140,7 @@ mod tests {
         assert!(registry.find("exit").is_some());
         assert!(registry.find("quit").is_some()); // alias
         assert!(registry.find("q").is_some()); // alias
+        assert!(registry.find("components").is_some());
         assert!(registry.find("nonexistent").is_none());
     }
 

@@ -137,10 +137,7 @@ pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
             "{}",
             format!("Enter the API base URL for {}:", preset.name).bold()
         );
-        eprint!(
-            "  {} ",
-            "URL:".bold()
-        );
+        eprint!("  {} ", "URL:".bold());
         io::stderr().flush().ok();
         let url = read_line_trimmed();
         if url.is_empty() {
@@ -323,7 +320,11 @@ mod tests {
         // count chars not bytes — should be > 8 → preview shown
         assert!(key.chars().count() > 8);
         let masked = mask_api_key(key);
-        assert!(masked.starts_with("sk-🦀"), "first 4 chars include the emoji: {}", masked);
+        assert!(
+            masked.starts_with("sk-🦀"),
+            "first 4 chars include the emoji: {}",
+            masked
+        );
         assert!(masked.contains("..."));
     }
 }

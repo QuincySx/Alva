@@ -18,11 +18,11 @@
 //   - `acp::client` — Agent side (calls other ACP-compatible agents)
 // Until then, do not build new features on this crate.
 
-pub mod protocol;
 pub mod connection;
-pub mod session;
 pub mod delegate;
 pub mod error;
+pub mod protocol;
+pub mod session;
 
 // ---------------------------------------------------------------------------
 // Public re-exports
@@ -35,8 +35,8 @@ pub use protocol::message::{AcpInboundMessage, AcpOutboundMessage};
 pub use protocol::permission::{PermissionData, PermissionOption, PermissionRequest, RiskLevel};
 
 pub use connection::{
-    AgentCliCommand, AgentDiscovery, AcpProcessHandle, AcpProcessManager,
-    ExternalAgentKind, ProcessManagerConfig, ProcessState,
+    AcpProcessHandle, AcpProcessManager, AgentCliCommand, AgentDiscovery, ExternalAgentKind,
+    ProcessManagerConfig, ProcessState,
 };
 
 pub use session::{AcpSession, AcpSessionState, PermissionManager};

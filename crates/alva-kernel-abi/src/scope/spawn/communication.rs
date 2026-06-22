@@ -26,8 +26,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::BusHandle;
 use crate::context::ContextHooks;
+use crate::BusHandle;
 
 // ---------------------------------------------------------------------------
 // SpawnCommContext
@@ -98,11 +98,17 @@ pub struct SpawnCommHandle {
 
 impl SpawnCommHandle {
     pub fn empty() -> Self {
-        Self { hooks: Vec::new(), on_complete: None }
+        Self {
+            hooks: Vec::new(),
+            on_complete: None,
+        }
     }
 
     pub fn with_hooks(hooks: Vec<Arc<dyn ContextHooks>>) -> Self {
-        Self { hooks, on_complete: None }
+        Self {
+            hooks,
+            on_complete: None,
+        }
     }
 
     pub fn with_on_complete(mut self, cb: Arc<dyn OnChildComplete>) -> Self {
@@ -174,14 +180,14 @@ pub trait SpawnCommunication: Send + Sync {
 /// Bus Capability: registry of spawn-time communication plugins
 /// (blackboard, handoff, RPC, …).
 ///
-/// **Provider**: `SpawnCommRegistryPlugin::configure`
+/// **Provider**: `SpawnCommRegistryPlugin::register`
 /// (`alva-app-core/src/extension/spawn_comm_registry.rs`). Opt-in — the
-/// outer app must register the extension. No built-in default.
+/// outer app must register the plugin. No built-in default.
 /// **Consumers**: `AgentSpawnTool` (enumerates available `kind`s for
 /// its JSON-Schema, resolves a plugin by kind at spawn time);
-/// `BlackboardCommPlugin` pulls the registry in its own `configure`
+/// `BlackboardCommPlugin` pulls the registry in its own `finalize`
 /// to register itself as a communication plugin.
-/// **Why bus**: the registry is populated from multiple extensions at
+/// **Why bus**: the registry is populated from multiple plugins at
 /// different times — spawn-comm registry extension provides the empty
 /// registry, other extensions (blackboard, etc.) mutate it in their own
 /// `configure` step. Constructor injection can't express that ordering

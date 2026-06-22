@@ -2,7 +2,7 @@
 name = "alva-agent-core"
 version = "0.1.0"
 edition = "2021"
-description = "Agent-layer core: Extension trait, HostAPI, event dispatch, MockToolFs"
+description = "Agent-layer core: Plugin assembly, Registrar, AgentBuilder, MockToolFs"
 
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }

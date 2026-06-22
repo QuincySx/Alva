@@ -195,7 +195,9 @@ pub fn micro_compact_messages(
     // Quick check: if no blocks exceed the limit, return early without cloning.
     let needs_compaction = messages.iter().any(|msg| {
         if let AgentMessage::Standard(m) = msg {
-            m.content.iter().any(|b| matches!(b, ContentBlock::Text { text } if text.len() > limit))
+            m.content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text { text } if text.len() > limit))
         } else {
             false
         }
@@ -461,7 +463,11 @@ mod tests {
         // Check the truncated message contains the marker
         if let AgentMessage::Standard(m) = &result.messages[0] {
             let text = m.text_content();
-            assert!(text.contains("characters truncated"), "should contain truncation marker: len={}", text.len());
+            assert!(
+                text.contains("characters truncated"),
+                "should contain truncation marker: len={}",
+                text.len()
+            );
             assert!(text.len() < 50_000, "should be shorter than original");
         }
     }
@@ -483,14 +489,17 @@ mod tests {
     fn micro_compact_leaves_reasoning_blocks_alone() {
         let msgs = vec![assistant_msg_with_reasoning(
             &"x".repeat(50_000), // large text block
-            "reasoning text",     // small reasoning block
+            "reasoning text",    // small reasoning block
         )];
         let result = micro_compact_messages(&msgs, Some(10_000));
 
         // Only the Text block should be truncated, not the Reasoning block
         assert_eq!(result.blocks_truncated, 1);
         if let AgentMessage::Standard(m) = &result.messages[0] {
-            let has_reasoning = m.content.iter().any(|b| matches!(b, ContentBlock::Reasoning { .. }));
+            let has_reasoning = m
+                .content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Reasoning { .. }));
             assert!(has_reasoning, "reasoning block should be preserved");
         }
     }
@@ -524,7 +533,10 @@ mod tests {
         // code would panic with "byte index 500 is not a char boundary".
         let reasoning = format!("{}{}{}", "x".repeat(498), "🦀", "y".repeat(100));
         assert_eq!(reasoning.len(), 602);
-        assert!(!reasoning.is_char_boundary(500), "test premise: byte 500 mid-emoji");
+        assert!(
+            !reasoning.is_char_boundary(500),
+            "test premise: byte 500 mid-emoji"
+        );
 
         let msgs = vec![assistant_msg_with_reasoning("answer", &reasoning)];
         let config = CompactionConfig {

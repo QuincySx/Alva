@@ -35,7 +35,9 @@ impl SkillInjector {
         let mut explicit_skills: Vec<(&Skill, &SkillRef)> = vec![];
 
         for skill_ref in skill_refs {
-            let Some(skill) = available_skills.iter().find(|s| s.meta.name == skill_ref.name)
+            let Some(skill) = available_skills
+                .iter()
+                .find(|s| s.meta.name == skill_ref.name)
             else {
                 continue; // Not found -- skip, lenient policy
             };
@@ -99,7 +101,11 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    fn make_repo_skill(name: &str, body: &str, allowed_tools: Option<Vec<String>>) -> InMemorySkill {
+    fn make_repo_skill(
+        name: &str,
+        body: &str,
+        allowed_tools: Option<Vec<String>>,
+    ) -> InMemorySkill {
         InMemorySkill {
             meta: SkillMeta {
                 name: name.to_string(),

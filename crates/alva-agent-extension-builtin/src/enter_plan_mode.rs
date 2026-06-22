@@ -36,7 +36,7 @@ impl EnterPlanModeTool {
         // that causes permission checks to deny destructive operations.
         Ok(ToolOutput::text(
             "Entered planning mode. Destructive operations are now restricted.\n\
-             Use exit_plan_mode to return to normal operation."
+             Use exit_plan_mode to return to normal operation.",
         ))
     }
 }
@@ -71,7 +71,9 @@ mod tests {
 
     #[tokio::test]
     async fn enter_plan_mode_returns_success_message() {
-        let ctx = TestContext { cancel: CancellationToken::new() };
+        let ctx = TestContext {
+            cancel: CancellationToken::new(),
+        };
         let tool = EnterPlanModeTool;
 
         let output = tool
@@ -94,7 +96,9 @@ mod tests {
     #[tokio::test]
     async fn enter_plan_mode_rejects_unknown_fields_gracefully() {
         // Extra fields should be ignored (Deserialize default behaviour for empty struct).
-        let ctx = TestContext { cancel: CancellationToken::new() };
+        let ctx = TestContext {
+            cancel: CancellationToken::new(),
+        };
         let tool = EnterPlanModeTool;
 
         let output = tool

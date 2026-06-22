@@ -18,8 +18,8 @@ use async_trait::async_trait;
 use rusqlite::{params, Connection};
 
 use alva_kernel_abi::agent_session::{
-    AgentSession, EventMatch, EventQuery, InMemoryAgentSession, SessionError, SessionEvent,
-    EventEmitter,
+    AgentSession, EventEmitter, EventMatch, EventQuery, InMemoryAgentSession, SessionError,
+    SessionEvent,
 };
 use alva_kernel_abi::AgentMessage;
 
@@ -104,8 +104,7 @@ impl SqliteEvalSession {
             // spawn_blocking so it's safe to hold the transaction until commit.
             let tx = conn.unchecked_transaction()?;
             for event in &events {
-                let emitter_json =
-                    serde_json::to_string(&event.emitter).unwrap_or_default();
+                let emitter_json = serde_json::to_string(&event.emitter).unwrap_or_default();
                 let message_json = event
                     .message
                     .as_ref()
@@ -181,13 +180,12 @@ impl SqliteEvalSession {
                     let data_json: Option<String> = row.get(7)?;
 
                     // Deserialize emitter; fall back to runtime emitter on error.
-                    let emitter: EventEmitter =
-                        serde_json::from_str(&emitter_json)
-                            .unwrap_or_else(|_| EventEmitter::runtime());
+                    let emitter: EventEmitter = serde_json::from_str(&emitter_json)
+                        .unwrap_or_else(|_| EventEmitter::runtime());
 
-                    let message = message_json.as_deref().and_then(|s| {
-                        serde_json::from_str(s).ok()
-                    });
+                    let message = message_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str(s).ok());
 
                     let data: Option<serde_json::Value> = data_json
                         .as_deref()
@@ -414,10 +412,12 @@ mod tests {
             .await;
 
         // Inner sees them.
-        let in_memory = session.query(&EventQuery {
-            limit: usize::MAX,
-            ..Default::default()
-        }).await;
+        let in_memory = session
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(in_memory.len(), 2);
 
         // But DB is still empty for this session — no flush yet.
@@ -458,12 +458,8 @@ mod tests {
         // multiply events arithmetically.
         let conn = shared_conn();
         let session = SqliteEvalSession::with_id(conn.clone(), "replace".into());
-        session
-            .append(SessionEvent::user_message(json!("x")))
-            .await;
-        session
-            .append(SessionEvent::user_message(json!("y")))
-            .await;
+        session.append(SessionEvent::user_message(json!("x"))).await;
+        session.append(SessionEvent::user_message(json!("y"))).await;
 
         session.flush().await.expect("first flush");
         session.flush().await.expect("second flush");
@@ -492,10 +488,12 @@ mod tests {
         let reader = SqliteEvalSession::with_id(conn.clone(), "roundtrip".into());
         reader.restore().await.expect("restore ok");
 
-        let events = reader.query(&EventQuery {
-            limit: usize::MAX,
-            ..Default::default()
-        }).await;
+        let events = reader
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(events.len(), 2, "restore must reload both events");
         // event_type passthrough — confirms emitter/serde decode worked.
         let types: Vec<_> = events.iter().map(|m| m.event.event_type.clone()).collect();

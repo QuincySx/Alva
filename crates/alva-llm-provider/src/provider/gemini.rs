@@ -119,10 +119,7 @@ fn build_body(
     body
 }
 
-fn gemini_thinking_config(
-    model: &str,
-    effort: alva_kernel_abi::ReasoningEffort,
-) -> Option<Value> {
+fn gemini_thinking_config(model: &str, effort: alva_kernel_abi::ReasoningEffort) -> Option<Value> {
     use alva_kernel_abi::ReasoningEffort as RE;
 
     // Sniff model family. Only 2.5+ and 3.x support thinking per docs.
@@ -137,7 +134,7 @@ fn gemini_thinking_config(
     // — we map enum to the closest available.
     if is_gemini_3 {
         let level = match effort {
-            RE::None => "low",   // 3.x has no explicit "off"; use lowest
+            RE::None => "low", // 3.x has no explicit "off"; use lowest
             RE::Minimal => "minimal",
             RE::Low => "low",
             RE::Medium | RE::High | RE::XHigh => "high",
@@ -200,7 +197,10 @@ impl LanguageModel for GeminiProvider {
             "LLM request body"
         );
 
-        let req = self.client.post(&url).header("Content-Type", "application/json");
+        let req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json");
         let req = crate::auth::apply_headers(req, &self.auth_headers);
         let resp = req
             .json(&body)
@@ -228,8 +228,9 @@ impl LanguageModel for GeminiProvider {
             )));
         }
 
-        let raw_value: Value = serde_json::from_str(&resp_text)
-            .map_err(|e| AgentError::LlmError(format!("parse response: {} — raw: {}", e, resp_text)))?;
+        let raw_value: Value = serde_json::from_str(&resp_text).map_err(|e| {
+            AgentError::LlmError(format!("parse response: {} — raw: {}", e, resp_text))
+        })?;
         let decoded = adapter
             .decode_response(&raw_value)
             .map_err(|e| AgentError::LlmError(format!("decode: {e}")))?;

@@ -65,10 +65,12 @@ impl Tool for McpToolAdapter {
             .manager
             .call_tool(&self.info.server_id, &self.info.tool_name, input)
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: self.full_name.clone(), message: e.to_string() })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: self.full_name.clone(),
+                message: e.to_string(),
+            })?;
 
-        let output =
-            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+        let output = serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         Ok(ToolOutput::text(output))
     }
@@ -81,8 +83,6 @@ pub fn build_mcp_tools(
 ) -> Vec<Box<dyn Tool>> {
     tools_info
         .into_iter()
-        .map(|info| -> Box<dyn Tool> {
-            Box::new(McpToolAdapter::new(info, manager.clone()))
-        })
+        .map(|info| -> Box<dyn Tool> { Box::new(McpToolAdapter::new(info, manager.clone())) })
         .collect()
 }

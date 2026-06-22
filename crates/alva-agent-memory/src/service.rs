@@ -21,11 +21,11 @@ use crate::types::MemoryEntry;
 
 /// Bus Capability: unified memory CRUD + hybrid FTS/vector search.
 ///
-/// **Provider**: `MemoryPlugin::configure`
+/// **Provider**: `MemoryPlugin::register`
 /// (`alva-agent-extension-builtin/src/wrappers/memory.rs`). A default
-/// in-memory-backed extension is auto-registered by
+/// in-memory-backed plugin is auto-registered by
 /// `BaseAgentBuilder::build` unless the caller supplies their own
-/// `"memory"`-named extension — see the "default-replacement contract"
+/// `"memory"`-named plugin — see the "default-replacement contract"
 /// in AGENTS.md for how to swap backends.
 /// **Consumers**: the outer app / user-defined tools that want to
 /// store or recall facts; memory-aware middleware; any tool that does
@@ -51,7 +51,12 @@ impl MemoryService {
         store: Arc<dyn MemoryBackend>,
         embedder: Box<dyn EmbeddingProvider>,
     ) -> Self {
-        Self { store, embedder, fts_weight: 0.4, vec_weight: 0.6 }
+        Self {
+            store,
+            embedder,
+            fts_weight: 0.4,
+            vec_weight: 0.6,
+        }
     }
 
     // The old `new(store: MemorySqlite, ...)` convenience is gone —
@@ -136,7 +141,13 @@ impl MemoryService {
             .await?;
 
         // Step 3: Merge results with weighted fusion
-        let merged = merge_results(&fts_results, &vec_results, max_results, self.fts_weight, self.vec_weight);
+        let merged = merge_results(
+            &fts_results,
+            &vec_results,
+            max_results,
+            self.fts_weight,
+            self.vec_weight,
+        );
 
         Ok(merged)
     }

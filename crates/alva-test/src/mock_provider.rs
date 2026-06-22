@@ -9,8 +9,10 @@ use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
 
-use alva_kernel_abi::{AgentError, CompletionResponse, LanguageModel, Message, ModelConfig, StreamEvent};
 use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::{
+    AgentError, CompletionResponse, LanguageModel, Message, ModelConfig, StreamEvent,
+};
 
 /// A queued response entry: either a successful Message or an error.
 enum QueuedResponse {
@@ -152,12 +154,10 @@ impl LanguageModel for MockLanguageModel {
         state.call_index += 1;
 
         match &state.response_queue[index] {
-            QueuedResponse::Err(err) => {
-                Box::pin(stream::iter(vec![
-                    StreamEvent::Start,
-                    StreamEvent::Error(err.to_string()),
-                ]))
-            }
+            QueuedResponse::Err(err) => Box::pin(stream::iter(vec![
+                StreamEvent::Start,
+                StreamEvent::Error(err.to_string()),
+            ])),
             QueuedResponse::Ok(msg) => {
                 let mut events = vec![StreamEvent::Start];
                 for block in &msg.content {
@@ -199,7 +199,9 @@ mod tests {
         let response = Message {
             id: "resp-1".into(),
             role: MessageRole::Assistant,
-            content: vec![ContentBlock::Text { text: "Hello!".into() }],
+            content: vec![ContentBlock::Text {
+                text: "Hello!".into(),
+            }],
             tool_call_id: None,
             usage: None,
             timestamp: 0,
@@ -254,7 +256,9 @@ mod tests {
         let r1 = Message {
             id: "r1".into(),
             role: MessageRole::Assistant,
-            content: vec![ContentBlock::Text { text: "first".into() }],
+            content: vec![ContentBlock::Text {
+                text: "first".into(),
+            }],
             tool_call_id: None,
             usage: None,
             timestamp: 0,
@@ -262,7 +266,9 @@ mod tests {
         let r2 = Message {
             id: "r2".into(),
             role: MessageRole::Assistant,
-            content: vec![ContentBlock::Text { text: "second".into() }],
+            content: vec![ContentBlock::Text {
+                text: "second".into(),
+            }],
             tool_call_id: None,
             usage: None,
             timestamp: 0,
@@ -296,8 +302,12 @@ mod tests {
 
         let mock = MockLanguageModel::new().with_stream_events(vec![
             StreamEvent::Start,
-            StreamEvent::TextDelta { text: "Hello".into() },
-            StreamEvent::TextDelta { text: " world".into() },
+            StreamEvent::TextDelta {
+                text: "Hello".into(),
+            },
+            StreamEvent::TextDelta {
+                text: " world".into(),
+            },
             StreamEvent::Done,
         ]);
 
@@ -310,8 +320,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_returns_error() {
-        let mock = MockLanguageModel::new()
-            .with_error(AgentError::LlmError("boom".into()));
+        let mock = MockLanguageModel::new().with_error(AgentError::LlmError("boom".into()));
 
         let result = mock.complete(&[], &[], &ModelConfig::default()).await;
         assert!(result.is_err());

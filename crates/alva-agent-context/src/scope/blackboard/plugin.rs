@@ -82,8 +82,8 @@ impl BlackboardPlugin {
 
     /// Post a message with mentions.
     pub async fn post_to(&self, content: impl Into<String>, mentions: &[&str]) {
-        let msg = BoardMessage::new(&self.profile.id, content)
-            .with_mentions(mentions.iter().copied());
+        let msg =
+            BoardMessage::new(&self.profile.id, content).with_mentions(mentions.iter().copied());
         self.board.post(msg).await;
     }
 
@@ -99,11 +99,16 @@ impl BlackboardPlugin {
             TaskPhase::Failed { error } => format!("Failed: {}", error),
         };
 
-        let mut msg = BoardMessage::new(&self.profile.id, content)
-            .with_kind(MessageKind::Status { phase });
+        let mut msg =
+            BoardMessage::new(&self.profile.id, content).with_kind(MessageKind::Status { phase });
 
         // Notify dependents on completion.
-        if matches!(msg.kind, MessageKind::Status { phase: TaskPhase::Completed }) {
+        if matches!(
+            msg.kind,
+            MessageKind::Status {
+                phase: TaskPhase::Completed
+            }
+        ) {
             msg = msg.with_mentions(self.profile.provides_to.iter().map(|s| s.as_str()));
         }
 
@@ -142,11 +147,7 @@ impl ContextHooks for BlackboardPlugin {
         "blackboard"
     }
 
-    async fn bootstrap(
-        &self,
-        sdk: &dyn ContextHandle,
-        agent_id: &str,
-    ) -> Result<(), ContextError> {
+    async fn bootstrap(&self, sdk: &dyn ContextHandle, agent_id: &str) -> Result<(), ContextError> {
         // ① Register self.
         self.board.register(self.profile.clone()).await;
 
@@ -196,8 +197,10 @@ impl ContextHooks for BlackboardPlugin {
             let entry = ContextEntry {
                 id: format!("blackboard-{}", self.profile.id),
                 message: AgentMessage::Standard(Message::system(&board_context)),
-                metadata: alva_kernel_abi::context::ContextMetadata::new(ContextLayer::RuntimeInject)
-                    .with_priority(alva_kernel_abi::context::Priority::High),
+                metadata: alva_kernel_abi::context::ContextMetadata::new(
+                    ContextLayer::RuntimeInject,
+                )
+                .with_priority(alva_kernel_abi::context::Priority::High),
             };
             entries.push(entry);
         }
@@ -225,11 +228,7 @@ impl ContextHooks for BlackboardPlugin {
         vec![]
     }
 
-    async fn after_turn(
-        &self,
-        sdk: &dyn ContextHandle,
-        agent_id: &str,
-    ) {
+    async fn after_turn(&self, sdk: &dyn ContextHandle, agent_id: &str) {
         if self.config.auto_post_status {
             // Check if agent produced output and post a brief status.
             let snapshot = sdk.snapshot(agent_id);
@@ -261,10 +260,11 @@ impl ContextHooks for BlackboardPlugin {
         // Post farewell status.
         self.board
             .post(
-                BoardMessage::new(&self.profile.id, "Signing off.")
-                    .with_kind(MessageKind::Status {
+                BoardMessage::new(&self.profile.id, "Signing off.").with_kind(
+                    MessageKind::Status {
                         phase: TaskPhase::Completed,
-                    }),
+                    },
+                ),
             )
             .await;
         Ok(())
@@ -382,10 +382,7 @@ mod tests {
     #[tokio::test]
     async fn empty_board_returns_none() {
         let board = test_board();
-        let plugin = BlackboardPlugin::new(
-            AgentProfile::new("gen", "code"),
-            board.clone(),
-        );
+        let plugin = BlackboardPlugin::new(AgentProfile::new("gen", "code"), board.clone());
 
         let ctx = plugin.build_board_context().await;
         assert!(ctx.is_none());

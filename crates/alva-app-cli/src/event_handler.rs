@@ -172,7 +172,10 @@ mod tests {
 
     #[test]
     fn lowercase_always_is_allow_always() {
-        assert_eq!(parse_approval_input("always"), PermissionDecision::AllowAlways);
+        assert_eq!(
+            parse_approval_input("always"),
+            PermissionDecision::AllowAlways
+        );
     }
 
     #[test]
@@ -182,7 +185,10 @@ mod tests {
 
     #[test]
     fn lowercase_deny_is_reject_always() {
-        assert_eq!(parse_approval_input("deny"), PermissionDecision::RejectAlways);
+        assert_eq!(
+            parse_approval_input("deny"),
+            PermissionDecision::RejectAlways
+        );
     }
 
     #[test]
@@ -190,7 +196,10 @@ mod tests {
         // Pin: anything outside the explicit set defaults to REJECT
         // (RejectOnce), not Allow. This is the safe-by-default
         // direction — a typo should NOT grant access.
-        assert_eq!(parse_approval_input("maybe"), PermissionDecision::RejectOnce);
+        assert_eq!(
+            parse_approval_input("maybe"),
+            PermissionDecision::RejectOnce
+        );
         assert_eq!(parse_approval_input("?"), PermissionDecision::RejectOnce);
         assert_eq!(parse_approval_input("nope"), PermissionDecision::RejectOnce);
     }
@@ -200,15 +209,27 @@ mod tests {
         // Trailing newlines come from read_line; leading whitespace
         // can arrive via terminal noise. Both must normalize away.
         assert_eq!(parse_approval_input("y\n"), PermissionDecision::AllowOnce);
-        assert_eq!(parse_approval_input("  yes  "), PermissionDecision::AllowOnce);
-        assert_eq!(parse_approval_input("\tdeny\n"), PermissionDecision::RejectAlways);
+        assert_eq!(
+            parse_approval_input("  yes  "),
+            PermissionDecision::AllowOnce
+        );
+        assert_eq!(
+            parse_approval_input("\tdeny\n"),
+            PermissionDecision::RejectAlways
+        );
     }
 
     #[test]
     fn matching_is_case_insensitive() {
         assert_eq!(parse_approval_input("Y"), PermissionDecision::AllowOnce);
         assert_eq!(parse_approval_input("YES"), PermissionDecision::AllowOnce);
-        assert_eq!(parse_approval_input("Always"), PermissionDecision::AllowAlways);
-        assert_eq!(parse_approval_input("DENY"), PermissionDecision::RejectAlways);
+        assert_eq!(
+            parse_approval_input("Always"),
+            PermissionDecision::AllowAlways
+        );
+        assert_eq!(
+            parse_approval_input("DENY"),
+            PermissionDecision::RejectAlways
+        );
     }
 }

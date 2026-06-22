@@ -109,11 +109,7 @@ fn normalize_path_string(raw: &str) -> String {
                 // Pop only if the top of the stack is a real segment,
                 // not a `..` we couldn't resolve earlier (relative paths
                 // that escape their base keep their leading `..`s).
-                if segments
-                    .last()
-                    .map(|s| *s != "..")
-                    .unwrap_or(false)
-                {
+                if segments.last().map(|s| *s != "..").unwrap_or(false) {
                     segments.pop();
                 } else if !is_absolute {
                     segments.push("..");
@@ -280,12 +276,16 @@ impl ToolLockRegistry {
         let mut state = self.inspect.lock().unwrap_or_else(|e| e.into_inner());
         let id = state.next_id;
         state.next_id += 1;
-        state.holders.entry(key.to_string()).or_default().push(HolderEntry {
-            id,
-            mode,
-            holder,
-            acquired_at: Instant::now(),
-        });
+        state
+            .holders
+            .entry(key.to_string())
+            .or_default()
+            .push(HolderEntry {
+                id,
+                mode,
+                holder,
+                acquired_at: Instant::now(),
+            });
         id
     }
 
@@ -303,11 +303,7 @@ impl ToolLockRegistry {
     ///
     /// If `mode == SerialGlobal`, all `keys` are ignored and a single global
     /// write lock is held instead.
-    pub async fn acquire(
-        &self,
-        keys: &[ResourceKey],
-        mode: ExecutionMode,
-    ) -> ToolLockGuards {
+    pub async fn acquire(&self, keys: &[ResourceKey], mode: ExecutionMode) -> ToolLockGuards {
         self.acquire_with_holder(keys, mode, None).await
     }
 
@@ -400,7 +396,8 @@ impl ToolLockRegistry {
         mode: ExecutionMode,
         timeout: Duration,
     ) -> Result<ToolLockGuards, AcquireError> {
-        self.acquire_with_holder_and_timeout(keys, mode, None, timeout).await
+        self.acquire_with_holder_and_timeout(keys, mode, None, timeout)
+            .await
     }
 
     /// Combined holder-tagged + bounded acquire. See
@@ -413,12 +410,7 @@ impl ToolLockRegistry {
         timeout: Duration,
     ) -> Result<ToolLockGuards, AcquireError> {
         let started = Instant::now();
-        match tokio::time::timeout(
-            timeout,
-            self.acquire_with_holder(keys, mode, holder),
-        )
-        .await
-        {
+        match tokio::time::timeout(timeout, self.acquire_with_holder(keys, mode, holder)).await {
             Ok(guards) => Ok(guards),
             Err(_elapsed) => Err(AcquireError::Timeout {
                 waited: started.elapsed(),
@@ -460,10 +452,7 @@ impl ToolLockRegistry {
 
     /// For diagnostics: how many distinct resource keys are currently tracked.
     pub fn tracked_keys(&self) -> usize {
-        self.locks
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .len()
+        self.locks.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 }
 
@@ -518,7 +507,9 @@ struct HolderTicket {
 
 impl Drop for HolderTicket {
     fn drop(&mut self) {
-        let Some(state) = self.registry.upgrade() else { return };
+        let Some(state) = self.registry.upgrade() else {
+            return;
+        };
         let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
         for (key, id) in self.holds.drain(..) {
             if let Some(entries) = s.holders.get_mut(&key) {
@@ -833,18 +824,17 @@ mod tests {
         }
         // Give the runtime a tick to ensure the guard's Drop has flushed.
         tokio::task::yield_now().await;
-        assert!(reg.inspect().is_empty(), "snapshot should be empty after guard drop");
+        assert!(
+            reg.inspect().is_empty(),
+            "snapshot should be empty after guard drop"
+        );
     }
 
     #[tokio::test]
     async fn inspect_serial_global_uses_sentinel_key() {
         let reg = Arc::new(ToolLockRegistry::new());
         let _g = reg
-            .acquire_with_holder(
-                &[],
-                ExecutionMode::SerialGlobal,
-                Some("bash-tool".into()),
-            )
+            .acquire_with_holder(&[], ExecutionMode::SerialGlobal, Some("bash-tool".into()))
             .await;
         let snap = reg.inspect();
         assert_eq!(snap.len(), 1);

@@ -7,7 +7,13 @@ pub struct UtilityPlugin;
 
 #[async_trait]
 impl Plugin for UtilityPlugin {
-    fn name(&self) -> &str { "utility" }
-    fn description(&self) -> &str { "Utility tools" }
-    async fn register(&self, r: &Registrar) { r.tools(crate::tool_presets::utility()); }
+    fn name(&self) -> &str {
+        "utility"
+    }
+    fn description(&self) -> &str {
+        "Utility tools"
+    }
+    async fn register(&self, r: &Registrar) {
+        r.tools(crate::tool_presets::utility());
+    }
 }

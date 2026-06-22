@@ -36,7 +36,14 @@ impl SensitivePathFilter {
         ];
 
         let denied_extensions = vec![
-            ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".cer", ".crt",
+            ".pem",
+            ".key",
+            ".p12",
+            ".pfx",
+            ".jks",
+            ".keystore",
+            ".cer",
+            ".crt",
         ]
         .into_iter()
         .map(String::from)
@@ -49,8 +56,8 @@ impl SensitivePathFilter {
             ".env.production",
             ".env.staging",
             ".env.test",
-            ".npmrc",         // may contain auth tokens
-            ".pypirc",        // may contain auth tokens
+            ".npmrc",  // may contain auth tokens
+            ".pypirc", // may contain auth tokens
             "credentials.json",
             "service-account.json",
         ]
@@ -60,9 +67,9 @@ impl SensitivePathFilter {
 
         // Regex patterns for more complex matching
         let denied_patterns = vec![
-            Regex::new(r"\.env\.[a-zA-Z0-9_-]+$").expect("invalid regex"),         // .env.*
-            Regex::new(r"id_[a-z]+$").expect("invalid regex"),                      // id_rsa, id_ed25519
-            Regex::new(r"id_[a-z]+\.pub$").expect("invalid regex"),                 // public keys
+            Regex::new(r"\.env\.[a-zA-Z0-9_-]+$").expect("invalid regex"), // .env.*
+            Regex::new(r"id_[a-z]+$").expect("invalid regex"),             // id_rsa, id_ed25519
+            Regex::new(r"id_[a-z]+\.pub$").expect("invalid regex"),        // public keys
             Regex::new(r"(?i)secret[s]?\.(?:ya?ml|json|toml)$").expect("invalid regex"),
         ];
 
@@ -78,9 +85,7 @@ impl SensitivePathFilter {
     pub fn check(&self, path: &Path) -> Option<String> {
         // Canonicalize to resolve symlinks and relative components.
         // If canonicalization fails (file doesn't exist yet), normalize manually.
-        let resolved = path
-            .canonicalize()
-            .unwrap_or_else(|_| self.normalize(path));
+        let resolved = path.canonicalize().unwrap_or_else(|_| self.normalize(path));
 
         // 1. Directory check — is path inside (or equal to) a denied directory?
         for dir in &self.denied_dirs {
@@ -150,7 +155,9 @@ mod tests {
         let filter = SensitivePathFilter::default_rules();
         assert!(filter.check(Path::new("/project/.env")).is_some());
         assert!(filter.check(Path::new("/project/.env.local")).is_some());
-        assert!(filter.check(Path::new("/project/.env.production")).is_some());
+        assert!(filter
+            .check(Path::new("/project/.env.production"))
+            .is_some());
     }
 
     #[test]

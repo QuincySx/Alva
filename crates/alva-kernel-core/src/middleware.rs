@@ -6,7 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use alva_kernel_abi::{AgentError, Message, ToolCall, ToolOutput};
+use alva_kernel_abi::{AgentError, AgentMessage, Message, ToolCall, ToolOutput};
 use async_trait::async_trait;
 
 use crate::state::AgentState;
@@ -53,6 +53,15 @@ pub trait ToolCallFn: Send + Sync {
 pub trait Middleware: Send + Sync {
     /// Called when the agent run starts.
     async fn on_agent_start(&self, _state: &mut AgentState) -> Result<(), MiddlewareError> {
+        Ok(())
+    }
+
+    /// Called after an input message has been appended to the session.
+    async fn input_committed(
+        &self,
+        _state: &mut AgentState,
+        _message: &AgentMessage,
+    ) -> Result<(), MiddlewareError> {
         Ok(())
     }
 
@@ -222,7 +231,32 @@ impl MiddlewareStack {
             let start = web_time::Instant::now();
             layer.on_agent_start(state).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            tracing::debug!(middleware = layer.name(), hook = "on_agent_start", duration_ms = elapsed, "middleware hook");
+            tracing::debug!(
+                middleware = layer.name(),
+                hook = "on_agent_start",
+                duration_ms = elapsed,
+                "middleware hook"
+            );
+        }
+        Ok(())
+    }
+
+    /// Run `input_committed` top-to-bottom.
+    pub async fn run_input_committed(
+        &self,
+        state: &mut AgentState,
+        message: &AgentMessage,
+    ) -> Result<(), MiddlewareError> {
+        for layer in &self.layers {
+            let start = web_time::Instant::now();
+            layer.input_committed(state, message).await?;
+            let elapsed = start.elapsed().as_millis() as u64;
+            tracing::debug!(
+                middleware = layer.name(),
+                hook = "input_committed",
+                duration_ms = elapsed,
+                "middleware hook"
+            );
         }
         Ok(())
     }
@@ -242,7 +276,12 @@ impl MiddlewareStack {
             let start = web_time::Instant::now();
             let result = layer.on_agent_end(state, error).await;
             let elapsed = start.elapsed().as_millis() as u64;
-            tracing::debug!(middleware = layer.name(), hook = "on_agent_end", duration_ms = elapsed, "middleware hook");
+            tracing::debug!(
+                middleware = layer.name(),
+                hook = "on_agent_end",
+                duration_ms = elapsed,
+                "middleware hook"
+            );
             if let Err(e) = result {
                 tracing::warn!(
                     error = %e,
@@ -269,7 +308,12 @@ impl MiddlewareStack {
             let start = web_time::Instant::now();
             layer.before_llm_call(state, messages).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            tracing::debug!(middleware = layer.name(), hook = "before_llm_call", duration_ms = elapsed, "middleware hook");
+            tracing::debug!(
+                middleware = layer.name(),
+                hook = "before_llm_call",
+                duration_ms = elapsed,
+                "middleware hook"
+            );
         }
         Ok(())
     }
@@ -284,7 +328,12 @@ impl MiddlewareStack {
             let start = web_time::Instant::now();
             layer.before_tool_call(state, tool_call).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            tracing::debug!(middleware = layer.name(), hook = "before_tool_call", duration_ms = elapsed, "middleware hook");
+            tracing::debug!(
+                middleware = layer.name(),
+                hook = "before_tool_call",
+                duration_ms = elapsed,
+                "middleware hook"
+            );
         }
         Ok(())
     }
@@ -301,7 +350,12 @@ impl MiddlewareStack {
             let start = web_time::Instant::now();
             layer.after_llm_call(state, response).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            tracing::debug!(middleware = layer.name(), hook = "after_llm_call", duration_ms = elapsed, "middleware hook");
+            tracing::debug!(
+                middleware = layer.name(),
+                hook = "after_llm_call",
+                duration_ms = elapsed,
+                "middleware hook"
+            );
         }
         Ok(())
     }
@@ -317,7 +371,12 @@ impl MiddlewareStack {
             let start = web_time::Instant::now();
             layer.after_tool_call(state, tool_call, result).await?;
             let elapsed = start.elapsed().as_millis() as u64;
-            tracing::debug!(middleware = layer.name(), hook = "after_tool_call", duration_ms = elapsed, "middleware hook");
+            tracing::debug!(
+                middleware = layer.name(),
+                hook = "after_tool_call",
+                duration_ms = elapsed,
+                "middleware hook"
+            );
         }
         Ok(())
     }

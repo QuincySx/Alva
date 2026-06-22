@@ -1,10 +1,15 @@
+// INPUT:  AgentState, AgentConfig, run_agent, PluginHost, Tool
+// OUTPUT: Agent, AgentAssemblySnapshot
+// POS:    SDK-level assembled agent handle with runtime execution and build-time observability.
 //! Agent — SDK-level assembled agent handle.
 //!
 //! Produced by `AgentBuilder::build()`. Holds the wired-up `AgentState` +
-//! `AgentConfig` + bus/extension-host bookkeeping. Runs the agent loop via
+//! `AgentConfig` + bus/plugin-host bookkeeping. Runs the agent loop via
 //! `alva_kernel_core::run_agent` when `.run()` is called.
 
 use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex, RwLock};
 
 use alva_kernel_abi::{
@@ -14,7 +19,36 @@ use alva_kernel_core::event::AgentEvent;
 use alva_kernel_core::run_agent;
 use alva_kernel_core::state::{AgentConfig, AgentState};
 
-use crate::extension::ExtensionHost;
+use crate::extension::PluginHost;
+
+/// Per-plugin build-time contribution metadata for observability.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginAssemblySnapshot {
+    pub name: String,
+    pub description: String,
+    pub registered_tool_names: Vec<String>,
+    pub finalized_tool_names: Vec<String>,
+    pub middleware_names: Vec<String>,
+    #[serde(default)]
+    pub phase_contribution_names: Vec<String>,
+    pub command_names: Vec<String>,
+    pub system_prompt_fragments: usize,
+}
+
+/// Build-time assembly metadata for observability.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentAssemblySnapshot {
+    /// Plugin names in registration order.
+    pub plugin_names: Vec<String>,
+    /// Middleware names in final sorted execution order.
+    pub middleware_names: Vec<String>,
+    /// Middleware names registered directly on AgentBuilder/BaseAgentBuilder,
+    /// outside any plugin.
+    #[serde(default)]
+    pub direct_middleware_names: Vec<String>,
+    /// Per-plugin contribution records in registration order.
+    pub plugins: Vec<PluginAssemblySnapshot>,
+}
 
 /// A fully-assembled, ready-to-run agent.
 ///
@@ -28,10 +62,11 @@ pub struct Agent {
     pub(crate) state: Mutex<AgentState>,
     pub(crate) config: RwLock<AgentConfig>,
     pub(crate) bus: BusHandle,
-    pub(crate) host: Arc<std::sync::RwLock<ExtensionHost>>,
+    pub(crate) host: Arc<std::sync::RwLock<PluginHost>>,
     /// Snapshot of the tools the agent was built with. Cached so callers
     /// can inspect tool definitions without locking `state`.
     pub(crate) tools: Vec<Arc<dyn Tool>>,
+    pub(crate) assembly: AgentAssemblySnapshot,
 }
 
 impl Agent {
@@ -72,10 +107,7 @@ impl Agent {
     /// (`ModelConfig::extra_body`). Same write-lock semantics as
     /// `set_reasoning_effort`: takes effect on the next `run()`. `None`
     /// or an empty map clears any previous override.
-    pub async fn set_extra_body(
-        &self,
-        extra: Option<serde_json::Map<String, serde_json::Value>>,
-    ) {
+    pub async fn set_extra_body(&self, extra: Option<serde_json::Map<String, serde_json::Value>>) {
         let mut config = self.config.write().await;
         config.model_config.extra_body = match extra {
             Some(m) if !m.is_empty() => Some(m),
@@ -99,15 +131,20 @@ impl Agent {
         &self.bus
     }
 
-    /// Access the runtime extension host (middleware + command registry,
+    /// Access the runtime plugin host (middleware + command registry,
     /// agent binding for cancellation/pending messages).
-    pub fn host(&self) -> &Arc<std::sync::RwLock<ExtensionHost>> {
+    pub fn host(&self) -> &Arc<std::sync::RwLock<PluginHost>> {
         &self.host
     }
 
     /// Snapshot of the tools the agent was built with.
     pub fn tools(&self) -> &[Arc<dyn Tool>] {
         &self.tools
+    }
+
+    /// Build-time plugin and middleware assembly metadata.
+    pub fn assembly_snapshot(&self) -> AgentAssemblySnapshot {
+        self.assembly.clone()
     }
 
     /// Access the agent config (read-only). Returns a read guard that

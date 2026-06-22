@@ -11,9 +11,9 @@ use alva_agent_context::scope::BoardMessage;
 use alva_agent_context::scope::SpawnScopeImpl;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::Message;
+use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
 use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
-use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 use futures::Stream;
@@ -65,10 +65,7 @@ async fn multi_level_depth_tracking() {
     let root = root_scope(2);
     assert_eq!(root.depth(), 0);
 
-    let a = root
-        .spawn_child(ChildScopeConfig::new("A"))
-        .await
-        .unwrap();
+    let a = root.spawn_child(ChildScopeConfig::new("A")).await.unwrap();
     assert_eq!(a.depth(), 1);
     assert_eq!(a.parent_id(), Some(root.id()));
 
@@ -94,22 +91,14 @@ async fn sibling_board_sharing_via_registry() {
     let root = root_scope(3);
     let registry = Arc::new(BoardRegistry::new());
 
-    let _a = root
-        .spawn_child(ChildScopeConfig::new("A"))
-        .await
-        .unwrap();
-    let _b = root
-        .spawn_child(ChildScopeConfig::new("B"))
-        .await
-        .unwrap();
+    let _a = root.spawn_child(ChildScopeConfig::new("A")).await.unwrap();
+    let _b = root.spawn_child(ChildScopeConfig::new("B")).await.unwrap();
 
     // Both use root's scope ID as the key — siblings share the board
     let board_a = registry.get_or_create(root.id(), "proj").await;
     let board_b = registry.get_or_create(root.id(), "proj").await;
 
-    board_a
-        .post(BoardMessage::new("A", "hello from A"))
-        .await;
+    board_a.post(BoardMessage::new("A", "hello from A")).await;
 
     assert_eq!(
         board_b.message_count().await,
@@ -125,10 +114,7 @@ async fn cross_tree_board_isolation() {
     let root = root_scope(3);
     let registry = Arc::new(BoardRegistry::new());
 
-    let b = root
-        .spawn_child(ChildScopeConfig::new("B"))
-        .await
-        .unwrap();
+    let b = root.spawn_child(ChildScopeConfig::new("B")).await.unwrap();
 
     // Board under root's scope
     let board_root = registry.get_or_create(root.id(), "work").await;
@@ -229,4 +215,3 @@ async fn model_shared_across_tree() {
     assert_eq!(child.model().model_id(), "mock");
     assert_eq!(grandchild.model().model_id(), "mock");
 }
-

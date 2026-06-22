@@ -13,13 +13,13 @@
 
 use std::sync::Arc;
 
+use alva_agent_extension_builtin::notebook_edit::NotebookEditTool;
 use alva_app_core::base_agent::{BaseAgent, PermissionMode};
 use alva_app_core::extension::{ApprovalPlugin, PermissionPlugin};
 use alva_app_core::AgentEvent;
-use alva_agent_extension_builtin::notebook_edit::NotebookEditTool;
+use alva_kernel_abi::{ContentBlock, Message, MessageRole};
 use alva_test::fixtures::make_assistant_message;
 use alva_test::mock_provider::MockLanguageModel;
-use alva_kernel_abi::{ContentBlock, Message, MessageRole};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,7 +52,9 @@ async fn build_agent_with_responses(
         // bus. Without it, `agent.set_permission_mode(...)` is a silent
         // no-op (the lookup misses, the call returns), and Plan-mode
         // tests would falsely pass writes.
-        .plugin(Box::new(PermissionPlugin::new().with_initial(PermissionMode::AcceptShell)))
+        .plugin(Box::new(
+            PermissionPlugin::new().with_initial(PermissionMode::AcceptShell),
+        ))
         .plugin(Box::new(approval_ext))
         .plugin(Box::new(alva_app_core::extension::CorePlugin))
         .plugin(Box::new(alva_app_core::extension::ShellPlugin))
@@ -62,11 +64,21 @@ async fn build_agent_with_responses(
         .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
         .plugin(Box::new(alva_app_core::extension::UtilityPlugin))
         .plugin(Box::new(alva_app_core::extension::WebPlugin))
-        .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
-        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()))
-        .middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
+        ))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::DanglingToolCallMiddleware::new(),
+        ))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::ToolTimeoutMiddleware::default(),
+        ))
+        .middleware(Arc::new(
+            alva_host_native::middleware::CompactionMiddleware::default(),
+        ))
+        .middleware(Arc::new(
+            alva_host_native::middleware::CheckpointMiddleware::new(),
+        ))
         .tool(Box::new(NotebookEditTool))
         .build(Arc::new(model))
         .await
@@ -82,8 +94,7 @@ async fn build_agent_with_responses(
     let bus = agent.bus().clone();
     tokio::spawn(async move {
         while let Some(req) = approval_rx.recv().await {
-            if let Some(guard) = bus
-                .get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
             {
                 let mut g = guard.lock().await;
                 g.resolve_permission(
@@ -182,7 +193,11 @@ async fn stage1_create_file_writes_to_workspace() {
     let events = collect_events(rx).await;
 
     let result = tool_result_for(&events, "create_file");
-    assert!(!result.is_error, "create_file should succeed: {}", result.model_text());
+    assert!(
+        !result.is_error,
+        "create_file should succeed: {}",
+        result.model_text()
+    );
     assert!(target.exists(), "create_file should have written the file");
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
     assert!(agent_ended_cleanly(&events));
@@ -207,7 +222,11 @@ async fn stage1_list_files_returns_workspace_entries() {
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "list_files");
-    assert!(!out.is_error, "list_files should succeed: {}", out.model_text());
+    assert!(
+        !out.is_error,
+        "list_files should succeed: {}",
+        out.model_text()
+    );
     let text = out.model_text();
     assert!(text.contains("a.txt"), "expected a.txt in listing: {text}");
     assert!(text.contains("b.txt"), "expected b.txt in listing: {text}");
@@ -260,9 +279,16 @@ async fn stage1_notebook_edit_modifies_cell() {
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "notebook_edit");
-    assert!(!out.is_error, "notebook_edit should succeed: {}", out.model_text());
+    assert!(
+        !out.is_error,
+        "notebook_edit should succeed: {}",
+        out.model_text()
+    );
     let updated = std::fs::read_to_string(&nb_path).unwrap();
-    assert!(updated.contains("print('new')"), "notebook should reflect new source: {updated}");
+    assert!(
+        updated.contains("print('new')"),
+        "notebook should reflect new source: {updated}"
+    );
 }
 
 #[tokio::test]
@@ -272,7 +298,11 @@ async fn stage1_execute_shell_runs_command_in_accept_shell_mode() {
     let agent = build_agent_with_responses(
         tmp.path(),
         vec![
-            tool_use_message("1", "execute_shell", serde_json::json!({ "command": "echo hello_e2e_coverage" })),
+            tool_use_message(
+                "1",
+                "execute_shell",
+                serde_json::json!({ "command": "echo hello_e2e_coverage" }),
+            ),
             make_assistant_message("done"),
         ],
     )
@@ -282,7 +312,11 @@ async fn stage1_execute_shell_runs_command_in_accept_shell_mode() {
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "execute_shell");
-    assert!(!out.is_error, "execute_shell should succeed in AcceptShell mode: {}", out.model_text());
+    assert!(
+        !out.is_error,
+        "execute_shell should succeed in AcceptShell mode: {}",
+        out.model_text()
+    );
     assert!(
         out.model_text().contains("hello_e2e_coverage"),
         "shell output should include echoed text: {}",
@@ -304,7 +338,11 @@ async fn stage1_skill_tool_invokes_stub_and_echoes_name() {
     let agent = build_agent_with_responses(
         tmp.path(),
         vec![
-            tool_use_message("1", "skill", serde_json::json!({ "skill": "commit", "args": "--amend" })),
+            tool_use_message(
+                "1",
+                "skill",
+                serde_json::json!({ "skill": "commit", "args": "--amend" }),
+            ),
             make_assistant_message("done"),
         ],
     )
@@ -337,7 +375,11 @@ async fn stage1_tool_search_returns_stub_with_query() {
     let agent = build_agent_with_responses(
         tmp.path(),
         vec![
-            tool_use_message("1", "tool_search", serde_json::json!({ "query": "file", "max_results": 7 })),
+            tool_use_message(
+                "1",
+                "tool_search",
+                serde_json::json!({ "query": "file", "max_results": 7 }),
+            ),
             make_assistant_message("done"),
         ],
     )
@@ -364,7 +406,11 @@ async fn stage1_config_get_returns_not_set_for_unknown_key() {
     let agent = build_agent_with_responses(
         tmp.path(),
         vec![
-            tool_use_message("1", "config", serde_json::json!({ "action": "get", "key": "missing.key" })),
+            tool_use_message(
+                "1",
+                "config",
+                serde_json::json!({ "action": "get", "key": "missing.key" }),
+            ),
             make_assistant_message("done"),
         ],
     )
@@ -430,10 +476,17 @@ async fn stage1_todo_write_appends_to_default_file() {
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "todo_write");
-    assert!(!out.is_error, "todo_write should succeed: {}", out.model_text());
+    assert!(
+        !out.is_error,
+        "todo_write should succeed: {}",
+        out.model_text()
+    );
     let written = std::fs::read_to_string(tmp.path().join("CLAUDE.md"))
         .expect("todo_write should create CLAUDE.md");
-    assert!(written.contains("first todo item"), "CLAUDE.md should contain item: {written}");
+    assert!(
+        written.contains("first todo item"),
+        "CLAUDE.md should contain item: {written}"
+    );
 }
 
 #[tokio::test]
@@ -491,7 +544,10 @@ async fn stage1_enter_plan_mode_tool_stub_and_real_plan_mode_blocks_writes() {
         "create_file in Plan mode must be blocked: {}",
         blocked.model_text()
     );
-    assert!(!new_target.exists(), "blocked create_file must not have written");
+    assert!(
+        !new_target.exists(),
+        "blocked create_file must not have written"
+    );
 }
 
 // ===========================================================================
@@ -534,7 +590,11 @@ async fn stage2_read_url_fetches_from_wiremock_server() {
     // SecurityMiddleware's URL-aware SSRF check on 127.0.0.1 routes through
     // HITL; our auto-approver answers AllowOnce, so the fetch proceeds.
     let out = tool_result_for(&events, "read_url");
-    assert!(!out.is_error, "read_url should succeed: {}", out.model_text());
+    assert!(
+        !out.is_error,
+        "read_url should succeed: {}",
+        out.model_text()
+    );
     assert!(
         out.model_text().contains("marker-string-xyz"),
         "read_url result should contain the wiremock body marker, got: {}",
@@ -553,7 +613,11 @@ async fn stage2_read_url_with_malformed_url_returns_terminal_state() {
     let agent = build_agent_with_responses(
         tmp.path(),
         vec![
-            tool_use_message("1", "read_url", serde_json::json!({ "url": "not-a-real-url" })),
+            tool_use_message(
+                "1",
+                "read_url",
+                serde_json::json!({ "url": "not-a-real-url" }),
+            ),
             make_assistant_message("done"),
         ],
     )
@@ -597,7 +661,9 @@ async fn stage2_read_url_with_malformed_url_returns_terminal_state() {
         );
     }
     // Either way, no hang.
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
 }
 
 #[tokio::test]
@@ -651,7 +717,9 @@ async fn stage2_internet_search_executes_and_returns_terminal_state() {
             "successful internet_search should reference the query or report no results: {text}"
         );
     }
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
 }
 
 #[tokio::test]
@@ -675,9 +743,21 @@ async fn stage2_task_create_persists_to_in_memory_store() {
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "task_create");
-    assert!(!out.is_error, "task_create should succeed: {}", out.model_text());
-    assert!(out.model_text().contains("Task created"), "should announce creation: {}", out.model_text());
-    assert!(out.model_text().contains("ID:"), "should expose ID: {}", out.model_text());
+    assert!(
+        !out.is_error,
+        "task_create should succeed: {}",
+        out.model_text()
+    );
+    assert!(
+        out.model_text().contains("Task created"),
+        "should announce creation: {}",
+        out.model_text()
+    );
+    assert!(
+        out.model_text().contains("ID:"),
+        "should expose ID: {}",
+        out.model_text()
+    );
 }
 
 #[tokio::test]
@@ -702,7 +782,11 @@ async fn stage2_task_list_after_create_includes_new_task() {
     let events = collect_events(rx).await;
 
     let list_out = tool_result_for(&events, "task_list");
-    assert!(!list_out.is_error, "task_list should succeed: {}", list_out.model_text());
+    assert!(
+        !list_out.is_error,
+        "task_list should succeed: {}",
+        list_out.model_text()
+    );
     assert!(
         list_out.model_text().contains("listed-task"),
         "task_list output should include the just-created subject: {}",
@@ -753,7 +837,11 @@ async fn stage2_task_update_happy_path_marks_task_completed() {
     let events2 = collect_events(rx2).await;
 
     let upd_out = tool_result_for(&events2, "task_update");
-    assert!(!upd_out.is_error, "happy-path update should succeed: {}", upd_out.model_text());
+    assert!(
+        !upd_out.is_error,
+        "happy-path update should succeed: {}",
+        upd_out.model_text()
+    );
 
     // Step 3: re-fetch and assert the status changed.
     let get_model = MockLanguageModel::new()
@@ -768,7 +856,11 @@ async fn stage2_task_update_happy_path_marks_task_completed() {
     let events3 = collect_events(rx3).await;
 
     let got_out = tool_result_for(&events3, "task_get");
-    assert!(!got_out.is_error, "task_get should succeed: {}", got_out.model_text());
+    assert!(
+        !got_out.is_error,
+        "task_get should succeed: {}",
+        got_out.model_text()
+    );
     let got_text_lower = got_out.model_text().to_lowercase();
     assert!(
         got_text_lower.contains("completed"),
@@ -818,7 +910,11 @@ async fn stage2_task_get_returns_state_for_created_task() {
     let events2 = collect_events(rx2).await;
 
     let got = tool_result_for(&events2, "task_get");
-    assert!(!got.is_error, "task_get should find the task: {}", got.model_text());
+    assert!(
+        !got.is_error,
+        "task_get should find the task: {}",
+        got.model_text()
+    );
     assert!(
         got.model_text().contains("gettable"),
         "task_get output should include the subject: {}",
@@ -894,7 +990,10 @@ async fn stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes() 
         "after leaving Plan mode, create_file should succeed: {}",
         allowed.model_text()
     );
-    assert!(allowed_path.exists(), "post-exit create_file should have written");
+    assert!(
+        allowed_path.exists(),
+        "post-exit create_file should have written"
+    );
     assert_eq!(std::fs::read_to_string(&allowed_path).unwrap(), "y");
 }
 
@@ -948,7 +1047,10 @@ async fn stage3_read_then_edit_then_create_in_sequence() {
     assert!(ran_tool(&events, "create_file"), "create_file should run");
 
     let updated = std::fs::read_to_string(&src).unwrap();
-    assert_eq!(updated, "beta", "file_edit should have substituted contents");
+    assert_eq!(
+        updated, "beta",
+        "file_edit should have substituted contents"
+    );
     assert_eq!(
         std::fs::read_to_string(&new_file).unwrap(),
         "derived",
@@ -967,7 +1069,11 @@ async fn stage3_grep_then_read_then_edit_chain() {
     let agent = build_agent_with_responses(
         &ws,
         vec![
-            tool_use_message("1", "grep_search", serde_json::json!({ "pattern": "needle" })),
+            tool_use_message(
+                "1",
+                "grep_search",
+                serde_json::json!({ "pattern": "needle" }),
+            ),
             tool_use_message(
                 "2",
                 "read_file",
@@ -1046,7 +1152,11 @@ async fn stage3_shell_output_feeds_into_grep() {
 
     // Grep must find what shell wrote.
     let grep_out = tool_result_for(&events, "grep_search");
-    assert!(!grep_out.is_error, "grep_search should succeed: {}", grep_out.model_text());
+    assert!(
+        !grep_out.is_error,
+        "grep_search should succeed: {}",
+        grep_out.model_text()
+    );
     let grep_text = grep_out.model_text();
     assert!(
         grep_text.contains("touched.txt") || grep_text.contains("matchme-shell-output"),
@@ -1141,7 +1251,11 @@ async fn stage3_task_create_then_get_round_trip() {
     let rx2 = agent.prompt_text("Get it back.");
     let events2 = collect_events(rx2).await;
     let got = tool_result_for(&events2, "task_get");
-    assert!(!got.is_error, "task_get should resolve: {}", got.model_text());
+    assert!(
+        !got.is_error,
+        "task_get should resolve: {}",
+        got.model_text()
+    );
     assert!(
         got.model_text().contains("round-trip"),
         "round-trip subject should reappear: {}",

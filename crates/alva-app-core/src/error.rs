@@ -174,9 +174,18 @@ mod tests {
 
     #[test]
     fn display_constant_variants_have_expected_text() {
-        assert_eq!(format!("{}", EngineError::LLMStreamInterrupted), "LLM stream interrupted unexpectedly");
-        assert_eq!(format!("{}", EngineError::MaxTokensReached), "Max tokens reached");
-        assert_eq!(format!("{}", EngineError::SessionAlreadyRunning), "Session is already running");
+        assert_eq!(
+            format!("{}", EngineError::LLMStreamInterrupted),
+            "LLM stream interrupted unexpectedly"
+        );
+        assert_eq!(
+            format!("{}", EngineError::MaxTokensReached),
+            "Max tokens reached"
+        );
+        assert_eq!(
+            format!("{}", EngineError::SessionAlreadyRunning),
+            "Session is already running"
+        );
         assert_eq!(format!("{}", EngineError::Cancelled), "Operation cancelled");
     }
 
@@ -279,7 +288,8 @@ mod tests {
 
     #[test]
     fn from_protocol_skill_cannot_remove_bundled_maps_through() {
-        let src = alva_protocol_skill::error::SkillError::CannotRemoveBundledSkill("autonomous".into());
+        let src =
+            alva_protocol_skill::error::SkillError::CannotRemoveBundledSkill("autonomous".into());
         let dst: SkillError = src.into();
         assert!(matches!(dst, SkillError::CannotRemoveBundledSkill(s) if s == "autonomous"));
     }

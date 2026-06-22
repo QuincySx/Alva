@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use async_trait::async_trait;
 use alva_kernel_abi::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
+use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
 // MockToolFs
@@ -74,10 +74,13 @@ impl ToolFs for MockToolFs {
 
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, AgentError> {
         let files = self.files.lock().unwrap();
-        files.get(path).cloned().ok_or_else(|| AgentError::ToolError {
-            tool_name: "mock_fs::read_file".to_string(),
-            message: format!("file not found: {}", path),
-        })
+        files
+            .get(path)
+            .cloned()
+            .ok_or_else(|| AgentError::ToolError {
+                tool_name: "mock_fs::read_file".to_string(),
+                message: format!("file not found: {}", path),
+            })
     }
 
     async fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgentError> {

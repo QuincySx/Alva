@@ -2,12 +2,12 @@
 // OUTPUT: pub struct InspectParams, pub struct ActionParams, pub struct AlvaDevtools
 // POS:    MCP stdio server that proxies tool calls to the alva-app-debug HTTP API for remote inspection and control.
 use rmcp::{
-    ServerHandler, ServiceExt,
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
-    model::{ServerCapabilities, ServerInfo, Implementation},
+    model::{Implementation, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
     transport::io::stdio,
+    ServerHandler, ServiceExt,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -70,7 +70,10 @@ impl AlvaDevtools {
 #[tool_router]
 impl AlvaDevtools {
     /// List all registered views and their methods.
-    #[tool(name = "alva_views", description = "List all registered views and their methods")]
+    #[tool(
+        name = "alva_views",
+        description = "List all registered views and their methods"
+    )]
     async fn alva_views(&self) -> Result<String, String> {
         self.client
             .get(format!("{}/api/inspect/views", self.base_url))
@@ -84,7 +87,10 @@ impl AlvaDevtools {
 
     /// Get the current state of a view.
     #[tool(name = "alva_inspect", description = "Get current state of a view")]
-    async fn alva_inspect(&self, Parameters(params): Parameters<InspectParams>) -> Result<String, String> {
+    async fn alva_inspect(
+        &self,
+        Parameters(params): Parameters<InspectParams>,
+    ) -> Result<String, String> {
         self.client
             .get(format!(
                 "{}/api/inspect/state?view={}",
@@ -100,7 +106,10 @@ impl AlvaDevtools {
 
     /// Execute an action on a view.
     #[tool(name = "alva_action", description = "Execute an action on a view")]
-    async fn alva_action(&self, Parameters(params): Parameters<ActionParams>) -> Result<String, String> {
+    async fn alva_action(
+        &self,
+        Parameters(params): Parameters<ActionParams>,
+    ) -> Result<String, String> {
         let body = serde_json::json!({
             "target": params.target,
             "method": params.method,
@@ -119,7 +128,10 @@ impl AlvaDevtools {
     }
 
     /// Take a screenshot of the app window.
-    #[tool(name = "alva_screenshot", description = "Take a screenshot of the app window")]
+    #[tool(
+        name = "alva_screenshot",
+        description = "Take a screenshot of the app window"
+    )]
     async fn alva_screenshot(&self) -> Result<String, String> {
         self.client
             .post(format!("{}/api/screenshot", self.base_url))
@@ -181,13 +193,18 @@ async fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    let base_url = std::env::var("ALVA_DEBUG_URL")
-        .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+    let base_url = std::env::var("ALVA_DEBUG_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
 
     let server = AlvaDevtools::new(base_url);
-    let service = server.serve(stdio()).await.expect("failed to start MCP server");
+    let service = server
+        .serve(stdio())
+        .await
+        .expect("failed to start MCP server");
 
-    service.waiting().await.expect("MCP server terminated unexpectedly");
+    service
+        .waiting()
+        .await
+        .expect("MCP server terminated unexpectedly");
 }
 
 #[cfg(test)]
@@ -213,7 +230,10 @@ mod tests {
 
         // `view` is required — missing it should error
         let err = serde_json::from_value::<InspectParams>(json!({})).unwrap_err();
-        assert!(format!("{err}").contains("view"), "missing-view error should mention field: {err}");
+        assert!(
+            format!("{err}").contains("view"),
+            "missing-view error should mention field: {err}"
+        );
     }
 
     #[test]
@@ -237,16 +257,25 @@ mod tests {
     #[test]
     fn base_url_trailing_slash_is_trimmed() {
         let dev = AlvaDevtools::new("http://example:9229/".to_string());
-        assert_eq!(dev.base_url, "http://example:9229", "single trailing slash trimmed");
+        assert_eq!(
+            dev.base_url, "http://example:9229",
+            "single trailing slash trimmed"
+        );
 
         // Multiple trailing slashes should all go — `trim_end_matches('/')`
         // strips repeatedly.
         let dev = AlvaDevtools::new("http://example:9229///".to_string());
-        assert_eq!(dev.base_url, "http://example:9229", "multiple trailing slashes trimmed");
+        assert_eq!(
+            dev.base_url, "http://example:9229",
+            "multiple trailing slashes trimmed"
+        );
 
         // No trailing slash is unchanged
         let dev = AlvaDevtools::new("http://example:9229".to_string());
-        assert_eq!(dev.base_url, "http://example:9229", "unchanged when no trailing slash");
+        assert_eq!(
+            dev.base_url, "http://example:9229",
+            "unchanged when no trailing slash"
+        );
 
         // Format! site no longer produces `//api/...`
         let dev = AlvaDevtools::new("http://example:9229/".to_string());

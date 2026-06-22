@@ -107,7 +107,7 @@ impl LspServerConfig {
 /// concrete server transport so a stub impl can satisfy tests and a real
 /// LSP-backed impl can land later without API churn.
 ///
-/// **Provider**: `LspPlugin::configure` registers `StubLspManager` by
+/// **Provider**: `LspPlugin::register` registers `StubLspManager` by
 /// default; a real LSP-backed impl will register on the same trait.
 /// **Consumers**: `lsp_diagnostics` tool, plus any future
 /// `LspDiagnosticsMiddleware` (D5, deferred).
@@ -300,8 +300,16 @@ mod tests {
         let e = LspPlugin::new();
         assert_eq!(e.name(), "lsp");
         assert!(!e.description().is_empty());
-        assert_eq!(e.server_configs().len(), 3, "rust + ts + pyright by default");
-        let langs: Vec<&str> = e.server_configs().iter().map(|c| c.language.as_str()).collect();
+        assert_eq!(
+            e.server_configs().len(),
+            3,
+            "rust + ts + pyright by default"
+        );
+        let langs: Vec<&str> = e
+            .server_configs()
+            .iter()
+            .map(|c| c.language.as_str())
+            .collect();
         assert!(langs.contains(&"rust"));
         assert!(langs.contains(&"typescript"));
         assert!(langs.contains(&"python"));

@@ -24,19 +24,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
-use alva_kernel_abi::agent_session::{AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener};
+use alva_kernel_abi::agent_session::{
+    AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener,
+};
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::context::{ContextHooks, ContextSystem};
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
-use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
     OnChildComplete, ProviderRegistry, SpawnCommContext, SpawnCommHandle,
     SpawnCommunicationRegistry, SpawnResult,
 };
+use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
 
 use alva_agent_context::scope::SpawnScopeImpl;
 use alva_agent_context::{default_context_system, ContextHooksChain};
@@ -105,9 +107,8 @@ struct SpawnInput {
     tools: Vec<String>,
     /// Provider/model spec for this sub-agent (e.g.
     /// `anthropic/claude-haiku-4.5`). Leave empty (or unset) to inherit
-    /// the parent's model. Requires a `ProviderRegistry` on the bus,
-    /// installed via `ProviderRegistryPlugin`; otherwise setting this
-    /// field will error.
+    /// the parent's model. If no `ProviderRegistry` is registered on the
+    /// bus, this field is ignored and the parent model is inherited.
     #[serde(default)]
     model: Option<String>,
     /// Communication capabilities to attach to this sub-agent. Each kind
@@ -126,7 +127,8 @@ struct SpawnInput {
     name = "agent",
     description = "Spawn a sub-agent to handle a specific task. The sub-agent runs independently \
         with its own role and system prompt. Pick a subset of the parent's tools via 'tools'. \
-        Optionally pick a different model via 'model' (requires ProviderRegistry on bus). \
+        Optionally pick a different model via 'model' when a ProviderRegistry is available; \
+        otherwise the parent model is inherited. \
         Attach communication capabilities (e.g. shared blackboard) via 'comms'. \
         Sub-agents can spawn further sub-agents up to the configured depth limit.",
     input = SpawnInput,
@@ -172,13 +174,7 @@ impl AgentSpawnTool {
             {
                 kind_schema.insert(
                     "enum".into(),
-                    Value::Array(
-                        comm_kinds
-                            .iter()
-                            .cloned()
-                            .map(Value::String)
-                            .collect(),
-                    ),
+                    Value::Array(comm_kinds.iter().cloned().map(Value::String).collect()),
                 );
             }
         }
@@ -242,8 +238,7 @@ impl AgentSpawnTool {
         };
 
         // Build child scope — spawn_child() enforces the depth limit.
-        let child_config = ChildScopeConfig::new(&input.role)
-            .with_system_prompt(&system_prompt);
+        let child_config = ChildScopeConfig::new(&input.role).with_system_prompt(&system_prompt);
 
         let child_scope = match self.scope.spawn_child(child_config).await {
             Ok(s) => s,
@@ -262,28 +257,25 @@ impl AgentSpawnTool {
         };
 
         // ── Model resolution ────────────────────────────────────────────
-        let child_model: Arc<dyn LanguageModel> = match &input.model {
+        let child_model: Arc<dyn LanguageModel> = match input.model.as_deref() {
             Some(spec) if !spec.is_empty() => {
-                let registry = ctx
-                    .bus()
-                    .and_then(|b| b.get::<ProviderRegistry>())
-                    .ok_or_else(|| AgentError::ToolError {
-                        tool_name: "agent".into(),
-                        message: "ProviderRegistry not registered on bus. Install \
-                             `ProviderRegistryPlugin` on the builder to enable \
-                             the 'model' field in spawn input."
-                            .into(),
-                    })?;
-                alva_host_native::model(spec, &registry).map_err(|e| AgentError::ToolError {
-                    tool_name: "agent".into(),
-                    message: format!("resolve model '{spec}': {e}"),
-                })?
+                match ctx.bus().and_then(|b| b.get::<ProviderRegistry>()) {
+                    Some(registry) => alva_host_native::model(spec, &registry).map_err(|e| {
+                        AgentError::ToolError {
+                            tool_name: "agent".into(),
+                            message: format!("resolve model '{spec}': {e}"),
+                        }
+                    })?,
+                    None => child_scope.model(),
+                }
             }
             _ => child_scope.model(),
         };
 
         // ── Communication capabilities ──────────────────────────────────
-        let registry = ctx.bus().and_then(|b| b.get::<dyn SpawnCommunicationRegistry>());
+        let registry = ctx
+            .bus()
+            .and_then(|b| b.get::<dyn SpawnCommunicationRegistry>());
 
         let mut comm_handles: Vec<SpawnCommHandle> = Vec::new();
         let mut child_hooks: Vec<Arc<dyn ContextHooks>> = Vec::new();
@@ -296,11 +288,8 @@ impl AgentSpawnTool {
                 )));
             };
             let Some(ch) = reg.get(&spec.kind) else {
-                let available: Vec<String> = reg
-                    .list()
-                    .iter()
-                    .map(|c| c.kind().to_string())
-                    .collect();
+                let available: Vec<String> =
+                    reg.list().iter().map(|c| c.kind().to_string()).collect();
                 return Ok(ToolOutput::error(format!(
                     "unknown communication kind '{}'; available: {:?}",
                     spec.kind, available
@@ -358,9 +347,7 @@ impl AgentSpawnTool {
 
         // Retrieve the raw parent session (bypassing emitter stamping) so we
         // can write start/end markers and forward child events directly.
-        let parent_raw: Option<Arc<dyn AgentSession>> = ctx
-            .session()
-            .map(|s| s.inner());
+        let parent_raw: Option<Arc<dyn AgentSession>> = ctx.session().map(|s| s.inner());
 
         // Write subagent_run_start marker into parent session.
         let tool_call_id = ctx.tool_call_id().unwrap_or("").to_string();
@@ -375,9 +362,11 @@ impl AgentSpawnTool {
             self.scope.session_id(),
         ));
         if let Some(ref raw) = parent_raw {
-            child_session.subscribe(Arc::new(ForwardToSession {
-                target: raw.clone(),
-            })).await;
+            child_session
+                .subscribe(Arc::new(ForwardToSession {
+                    target: raw.clone(),
+                }))
+                .await;
         }
 
         // ── ContextSystem for hooks (only when any comm attached hooks) ─
@@ -493,15 +482,21 @@ impl SubAgentPlugin {
 
 #[async_trait]
 impl Plugin for SubAgentPlugin {
-    fn name(&self) -> &str { "sub-agents" }
-    fn description(&self) -> &str { "Sub-agent spawning via the agent tool" }
+    fn name(&self) -> &str {
+        "sub-agents"
+    }
+    fn description(&self) -> &str {
+        "Sub-agent spawning via the agent tool"
+    }
 
     // SubAgent registers nothing at assembly time — all wiring is late.
     async fn register(&self, _r: &Registrar) {}
 
     async fn finalize(&self, ctx: &LateContext) -> Vec<Arc<dyn Tool>> {
         // Build a clean tool list without any placeholder agent tool
-        let tools_without_agent: Vec<Arc<dyn Tool>> = ctx.tools.iter()
+        let tools_without_agent: Vec<Arc<dyn Tool>> = ctx
+            .tools
+            .iter()
             .filter(|t| t.name() != "agent")
             .cloned()
             .collect();
@@ -528,8 +523,11 @@ impl Plugin for SubAgentPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alva_kernel_abi::base::cancel::CancellationToken;
     use alva_kernel_abi::tool::schema::{normalize_llm_tool_schema, ToolSchemaContext};
-    use alva_kernel_abi::Bus;
+    use alva_kernel_abi::{Bus, BusHandle};
+    use alva_test::fixtures::make_assistant_message;
+    use alva_test::mock_provider::MockLanguageModel;
     use std::time::Duration;
 
     /// Snapshot-style: print the normalized LLM-facing schema so we
@@ -583,11 +581,8 @@ mod tests {
             _messages: &[alva_kernel_abi::Message],
             _tools: &[&dyn Tool],
             _config: &alva_kernel_abi::ModelConfig,
-        ) -> std::pin::Pin<
-            Box<
-                dyn futures::Stream<Item = alva_kernel_abi::StreamEvent> + Send,
-            >,
-        > {
+        ) -> std::pin::Pin<Box<dyn futures::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
+        {
             Box::pin(futures::stream::empty())
         }
         fn model_id(&self) -> &str {
@@ -621,9 +616,7 @@ mod tests {
     // implementation lives in app-core extension wiring; we only need
     // list/register/get semantics here.
     struct TestRegistry {
-        inner: std::sync::Mutex<
-            Vec<Arc<dyn alva_kernel_abi::SpawnCommunication>>,
-        >,
+        inner: std::sync::Mutex<Vec<Arc<dyn alva_kernel_abi::SpawnCommunication>>>,
     }
     impl TestRegistry {
         fn new() -> Self {
@@ -636,10 +629,7 @@ mod tests {
         fn register(&self, ch: Arc<dyn alva_kernel_abi::SpawnCommunication>) {
             self.inner.lock().unwrap().push(ch);
         }
-        fn get(
-            &self,
-            kind: &str,
-        ) -> Option<Arc<dyn alva_kernel_abi::SpawnCommunication>> {
+        fn get(&self, kind: &str) -> Option<Arc<dyn alva_kernel_abi::SpawnCommunication>> {
             self.inner
                 .lock()
                 .unwrap()
@@ -653,14 +643,38 @@ mod tests {
     }
 
     fn build_spawn_tool() -> AgentSpawnTool {
+        build_spawn_tool_with_model(Arc::new(StubModel))
+    }
+
+    fn build_spawn_tool_with_model(model: Arc<dyn LanguageModel>) -> AgentSpawnTool {
         let scope = Arc::new(SpawnScopeImpl::root(
-            Arc::new(StubModel),
+            model,
             Vec::new(),
             Duration::from_secs(60),
             1,
             1,
         ));
         AgentSpawnTool::new(scope)
+    }
+
+    struct TestExecutionContext {
+        cancel: CancellationToken,
+        bus: Option<BusHandle>,
+    }
+
+    impl ToolExecutionContext for TestExecutionContext {
+        fn cancel_token(&self) -> &CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn bus(&self) -> Option<&BusHandle> {
+            self.bus.as_ref()
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     /// Context-free path (the old behavior): without a bus we can't
@@ -707,5 +721,39 @@ mod tests {
         assert!(enum_vals.contains(&"blackboard".to_string()));
         assert!(enum_vals.contains(&"handoff".to_string()));
         assert_eq!(enum_vals.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn execute_with_model_field_without_provider_registry_inherits_parent_model() {
+        let model = MockLanguageModel::new().with_response(make_assistant_message("child done"));
+        let tool = build_spawn_tool_with_model(Arc::new(model));
+        let bus = Bus::new();
+        let ctx = TestExecutionContext {
+            cancel: CancellationToken::new(),
+            bus: Some(bus.handle()),
+        };
+
+        let out = tool
+            .execute(
+                serde_json::json!({
+                    "task": "say child done",
+                    "role": "summarizer",
+                    "model": "deepseek-v4-flash"
+                }),
+                &ctx,
+            )
+            .await
+            .expect("model override without ProviderRegistry should fall back");
+
+        assert!(
+            !out.is_error,
+            "fallback should not error: {}",
+            out.model_text()
+        );
+        assert!(
+            out.model_text().contains("child done"),
+            "child output should come from parent model fallback: {}",
+            out.model_text()
+        );
     }
 }

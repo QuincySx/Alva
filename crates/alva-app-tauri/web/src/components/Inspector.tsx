@@ -1,3 +1,6 @@
+// INPUT:  RunRecord/ConfigSnapshot data, React state, lucide-react icons
+// OUTPUT: Inspector React component and record detail subcomponents
+// POS:    Visual session inspector for prompts, plugins, tools, turns, and events.
 import {
   AlertCircle,
   ArrowLeft,
@@ -944,9 +947,52 @@ function OverviewDetail({
         </DetailSection>
       )}
 
-      {c.extension_names.length > 0 && (
-        <DetailSection title={`Extensions (${c.extension_names.length})`}>
-          <ChipList items={c.extension_names} />
+      {c.plugin_names.length > 0 && (
+        <DetailSection title={`Plugins (${c.plugin_names.length})`}>
+          <ChipList items={c.plugin_names} />
+        </DetailSection>
+      )}
+
+      {c.middleware_names.length > 0 && (
+        <DetailSection title={`Middleware Stack (${c.middleware_names.length})`}>
+          <ChipList items={c.middleware_names} />
+        </DetailSection>
+      )}
+
+      {(c.direct_middleware_names?.length ?? 0) > 0 && (
+        <DetailSection title={`Direct Middleware (${c.direct_middleware_names?.length ?? 0})`}>
+          <ChipList items={c.direct_middleware_names ?? []} />
+        </DetailSection>
+      )}
+
+      {c.plugin_assembly && c.plugin_assembly.length > 0 && (
+        <DetailSection title={`Plugin Contributions (${c.plugin_assembly.length})`}>
+          <div className="space-y-1">
+            {c.plugin_assembly.map((p) => {
+              const registered = p.registered_tool_names.length;
+              const finalized = p.finalized_tool_names.length;
+              const middleware = p.middleware_names.length;
+              const phases = p.phase_contribution_names?.length ?? 0;
+              const commands = p.command_names.length;
+              const prompts = p.system_prompt_fragments;
+              return (
+                <div
+                  key={p.name}
+                  className="rounded border border-neutral-800 bg-neutral-900/40 px-2 py-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-mono text-[11px] text-neutral-200">{p.name}</div>
+                    <div className="text-[10px] text-neutral-500">
+                      tools {registered + finalized} · phase {phases} · mw {middleware} · cmd {commands} · prompt {prompts}
+                    </div>
+                  </div>
+                  {p.description && (
+                    <div className="mt-1 text-[10px] text-neutral-500">{p.description}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </DetailSection>
       )}
     </>

@@ -88,9 +88,12 @@ fn merge_settings(target: &mut Settings, source: &Settings) {
         .extend(source.trusted_directories.iter().cloned());
 
     // Merge MCP servers
-    target
-        .mcp_servers
-        .extend(source.mcp_servers.iter().map(|(k, v)| (k.clone(), v.clone())));
+    target.mcp_servers.extend(
+        source
+            .mcp_servers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
 
     // Merge hooks
     target

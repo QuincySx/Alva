@@ -117,10 +117,7 @@ impl<T> BinaryOperatorAggregate<T> {
         }
     }
 
-    pub fn with_initial(
-        value: T,
-        operator: impl Fn(T, T) -> T + Send + Sync + 'static,
-    ) -> Self {
+    pub fn with_initial(value: T, operator: impl Fn(T, T) -> T + Send + Sync + 'static) -> Self {
         Self {
             value: Some(value),
             operator: Box::new(operator),

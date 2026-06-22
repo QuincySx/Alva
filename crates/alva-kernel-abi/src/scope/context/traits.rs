@@ -6,7 +6,7 @@ use crate::AgentMessage;
 
 use super::{
     BudgetInfo, CompressAction, ContextEntry, ContextError, ContextLayer, ContextSnapshot,
-    EventMatch, EventQuery, Injection, IngestAction, MemoryFact, MessageRange, Priority,
+    EventMatch, EventQuery, IngestAction, Injection, MemoryFact, MessageRange, Priority,
     SessionEvent, ToolPattern,
 };
 
@@ -19,33 +19,63 @@ use super::{
 /// All methods have default no-op implementations. Plugins only override what they need.
 #[async_trait]
 pub trait ContextHooks: Send + Sync {
-    fn name(&self) -> &str { std::any::type_name::<Self>() }
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
 
     async fn bootstrap(&self, sdk: &dyn ContextHandle, agent_id: &str) -> Result<(), ContextError> {
-        let _ = (sdk, agent_id); Ok(())
+        let _ = (sdk, agent_id);
+        Ok(())
     }
 
-    async fn on_message(&self, sdk: &dyn ContextHandle, agent_id: &str, message: &AgentMessage) -> Vec<Injection> {
-        let _ = (sdk, agent_id, message); vec![]
+    async fn on_message(
+        &self,
+        sdk: &dyn ContextHandle,
+        agent_id: &str,
+        message: &AgentMessage,
+    ) -> Vec<Injection> {
+        let _ = (sdk, agent_id, message);
+        vec![]
     }
 
-    async fn on_budget_exceeded(&self, sdk: &dyn ContextHandle, agent_id: &str, snapshot: &ContextSnapshot) -> Vec<CompressAction> {
-        let _ = (sdk, agent_id, snapshot); vec![CompressAction::SlidingWindow { keep_recent: 20 }]
+    async fn on_budget_exceeded(
+        &self,
+        sdk: &dyn ContextHandle,
+        agent_id: &str,
+        snapshot: &ContextSnapshot,
+    ) -> Vec<CompressAction> {
+        let _ = (sdk, agent_id, snapshot);
+        vec![CompressAction::SlidingWindow { keep_recent: 20 }]
     }
 
-    async fn assemble(&self, sdk: &dyn ContextHandle, agent_id: &str, entries: Vec<ContextEntry>, token_budget: usize) -> Vec<ContextEntry> {
-        let _ = (sdk, agent_id, token_budget); entries
+    async fn assemble(
+        &self,
+        sdk: &dyn ContextHandle,
+        agent_id: &str,
+        entries: Vec<ContextEntry>,
+        token_budget: usize,
+    ) -> Vec<ContextEntry> {
+        let _ = (sdk, agent_id, token_budget);
+        entries
     }
 
-    async fn ingest(&self, sdk: &dyn ContextHandle, agent_id: &str, entry: &ContextEntry) -> IngestAction {
-        let _ = (sdk, agent_id, entry); IngestAction::Keep
+    async fn ingest(
+        &self,
+        sdk: &dyn ContextHandle,
+        agent_id: &str,
+        entry: &ContextEntry,
+    ) -> IngestAction {
+        let _ = (sdk, agent_id, entry);
+        IngestAction::Keep
     }
 
     async fn after_turn(&self, sdk: &dyn ContextHandle, agent_id: &str) {
         let _ = (sdk, agent_id);
     }
 
-    async fn dispose(&self) -> Result<(), ContextError> { Ok(()) }
+    async fn dispose(&self) -> Result<(), ContextError> {
+        Ok(())
+    }
 }
 
 // ===========================================================================

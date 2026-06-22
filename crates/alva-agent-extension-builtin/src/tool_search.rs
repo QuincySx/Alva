@@ -82,10 +82,7 @@ mod tests {
     async fn echoes_query_and_max_results() {
         let tool = ToolSearchTool;
         let out = tool
-            .execute(
-                json!({ "query": "file", "max_results": 12usize }),
-                &ctx(),
-            )
+            .execute(json!({ "query": "file", "max_results": 12usize }), &ctx())
             .await
             .expect("execute should succeed");
 

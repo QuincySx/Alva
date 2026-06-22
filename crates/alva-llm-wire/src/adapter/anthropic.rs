@@ -86,10 +86,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                             crate::content::ContentBlock::Text { text } => {
                                 blocks.push(serde_json::json!({"type": "text", "text": text}));
                             }
-                            crate::content::ContentBlock::Reasoning {
-                                text,
-                                signature,
-                            } => {
+                            crate::content::ContentBlock::Reasoning { text, signature } => {
                                 // Echo thinking blocks back verbatim. Anthropic's
                                 // extended thinking mode requires the signature
                                 // to be present and unchanged; without it the
@@ -277,13 +274,10 @@ impl ProtocolAdapter for AnthropicAdapter {
                     Some(Value::Array(arr)) => {
                         let mut blks: Vec<ContentBlock> = Vec::new();
                         for b in arr {
-                            let block_type =
-                                b.get("type").and_then(Value::as_str).unwrap_or("");
+                            let block_type = b.get("type").and_then(Value::as_str).unwrap_or("");
                             match block_type {
                                 "text" => {
-                                    if let Some(text) =
-                                        b.get("text").and_then(Value::as_str)
-                                    {
+                                    if let Some(text) = b.get("text").and_then(Value::as_str) {
                                         blks.push(ContentBlock::Text {
                                             text: text.to_string(),
                                         });
@@ -292,8 +286,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                                 "tool_use" => {
                                     // Anthropic ids are already toolu_*-prefixed;
                                     // to_normalized is idempotent for those.
-                                    let raw_id =
-                                        b.get("id").and_then(Value::as_str).unwrap_or("");
+                                    let raw_id = b.get("id").and_then(Value::as_str).unwrap_or("");
                                     let id = tool_id::to_normalized(raw_id);
                                     let name = b
                                         .get("name")
@@ -307,10 +300,8 @@ impl ProtocolAdapter for AnthropicAdapter {
                                     blks.push(ContentBlock::ToolUse { id, name, input });
                                 }
                                 "tool_result" => {
-                                    let tool_use_id = b
-                                        .get("tool_use_id")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("");
+                                    let tool_use_id =
+                                        b.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
                                     let id = tool_id::to_normalized(tool_use_id);
                                     // content can be string or array
                                     let content_str = match b.get("content") {
@@ -318,17 +309,13 @@ impl ProtocolAdapter for AnthropicAdapter {
                                         Some(v) => v.to_string(),
                                         None => String::new(),
                                     };
-                                    let is_error = b
-                                        .get("is_error")
-                                        .and_then(Value::as_bool)
-                                        .unwrap_or(false);
+                                    let is_error =
+                                        b.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                                     blks.push(ContentBlock::ToolResult {
                                         id,
-                                        content: vec![
-                                            crate::tool_payload::ToolContent::Text {
-                                                text: content_str,
-                                            },
-                                        ],
+                                        content: vec![crate::tool_payload::ToolContent::Text {
+                                            text: content_str,
+                                        }],
                                         is_error,
                                     });
                                 }
@@ -387,18 +374,26 @@ impl ProtocolAdapter for AnthropicAdapter {
                             .get("input_schema")
                             .cloned()
                             .unwrap_or_else(|| Value::Object(Map::new()));
-                        Some(ToolDefinition { name, description, parameters })
+                        Some(ToolDefinition {
+                            name,
+                            description,
+                            parameters,
+                        })
                     })
                     .collect()
             })
             .unwrap_or_default();
 
         // -- config ----------------------------------------------------------
-        let temperature =
-            body.get("temperature").and_then(Value::as_f64).map(|v| v as f32);
+        let temperature = body
+            .get("temperature")
+            .and_then(Value::as_f64)
+            .map(|v| v as f32);
         let top_p = body.get("top_p").and_then(Value::as_f64).map(|v| v as f32);
-        let max_tokens =
-            body.get("max_tokens").and_then(Value::as_u64).map(|v| v as u32);
+        let max_tokens = body
+            .get("max_tokens")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32);
         let stop_sequences: Vec<String> = body
             .get("stop_sequences")
             .and_then(Value::as_array)
@@ -445,7 +440,13 @@ impl ProtocolAdapter for AnthropicAdapter {
         // -- stream ----------------------------------------------------------
         let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
-        Ok(DecodedRequest { model, messages, tools, config, stream })
+        Ok(DecodedRequest {
+            model,
+            messages,
+            tools,
+            config,
+            stream,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -649,7 +650,11 @@ impl ProtocolAdapter for AnthropicAdapter {
                 st.block_index += 1;
             }
 
-            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+            StreamEvent::ToolCallDelta {
+                id,
+                arguments_delta,
+                ..
+            } => {
                 // Accumulate args and emit input_json_delta at the tool's block index.
                 st.tool_args
                     .entry(id.clone())
@@ -767,7 +772,11 @@ impl ProtocolAdapter for AnthropicAdapter {
                 "tool_use" => {
                     let raw_id = b.get("id").and_then(Value::as_str).unwrap_or("");
                     let id = tool_id::to_normalized(raw_id);
-                    let name = b.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                    let name = b
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
                     let input = b
                         .get("input")
                         .cloned()
@@ -782,14 +791,8 @@ impl ProtocolAdapter for AnthropicAdapter {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
-                    let signature = b
-                        .get("signature")
-                        .and_then(Value::as_str)
-                        .map(String::from);
-                    blocks.push(crate::content::ContentBlock::Reasoning {
-                        text,
-                        signature,
-                    });
+                    let signature = b.get("signature").and_then(Value::as_str).map(String::from);
+                    blocks.push(crate::content::ContentBlock::Reasoning { text, signature });
                 }
                 _ => {
                     // Forward-compat: unknown block types skipped.
@@ -824,21 +827,14 @@ impl ProtocolAdapter for AnthropicAdapter {
 
         match event_type {
             "message_start" => {
-                if let Some(usage) = event
-                    .pointer("/message/usage")
-                    .and_then(parse_usage)
-                {
+                if let Some(usage) = event.pointer("/message/usage").and_then(parse_usage) {
                     out.push(StreamEvent::Usage(usage));
                 }
             }
             "content_block_start" => {
                 if let Some(cb) = event.get("content_block") {
-                    let block_type =
-                        cb.get("type").and_then(Value::as_str).unwrap_or("");
-                    let idx = event
-                        .get("index")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0) as usize;
+                    let block_type = cb.get("type").and_then(Value::as_str).unwrap_or("");
+                    let idx = event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                     state.block_type.insert(idx, block_type.to_string());
                     if block_type == "tool_use" {
                         let raw_id = cb.get("id").and_then(Value::as_str).unwrap_or("");
@@ -853,10 +849,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                         state
                             .block_type
                             .insert(usize::MAX - idx, format!("tool_use::{id}"));
-                        out.push(StreamEvent::ToolCallStart {
-                            id,
-                            name,
-                        });
+                        out.push(StreamEvent::ToolCallStart { id, name });
                     } else if block_type == "thinking" {
                         // Seed per-block buffers. `thinking_delta` appends to
                         // "text" and `signature_delta` appends to "signature".
@@ -877,18 +870,16 @@ impl ProtocolAdapter for AnthropicAdapter {
                     "text_delta" => {
                         if let Some(t) = delta.get("text").and_then(Value::as_str) {
                             if !t.is_empty() {
-                                out.push(StreamEvent::TextDelta { text: t.to_string() });
+                                out.push(StreamEvent::TextDelta {
+                                    text: t.to_string(),
+                                });
                             }
                         }
                     }
                     "input_json_delta" => {
-                        if let Some(partial) =
-                            delta.get("partial_json").and_then(Value::as_str)
-                        {
-                            let idx = event
-                                .get("index")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0) as usize;
+                        if let Some(partial) = delta.get("partial_json").and_then(Value::as_str) {
+                            let idx =
+                                event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                             if let Some(tag) = state.block_type.get(&(usize::MAX - idx)) {
                                 if let Some(id) = tag.strip_prefix("tool_use::") {
                                     let id = id.to_string();
@@ -908,17 +899,17 @@ impl ProtocolAdapter for AnthropicAdapter {
                     }
                     "thinking_delta" | "thinking" => {
                         if let Some(t) = delta.get("thinking").and_then(Value::as_str) {
-                            let idx = event
-                                .get("index")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0) as usize;
+                            let idx =
+                                event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                             if let Some(buf) = state
                                 .tool_input_buf
                                 .get_mut(&format!("thinking::text::{idx}"))
                             {
                                 buf.push_str(t);
                             }
-                            out.push(StreamEvent::ReasoningDelta { text: t.to_string() });
+                            out.push(StreamEvent::ReasoningDelta {
+                                text: t.to_string(),
+                            });
                         }
                     }
                     "signature_delta" => {
@@ -926,10 +917,8 @@ impl ProtocolAdapter for AnthropicAdapter {
                         // Not emitted downstream per-chunk — buffered and
                         // attached to the final ReasoningBlock at block_stop.
                         if let Some(sig) = delta.get("signature").and_then(Value::as_str) {
-                            let idx = event
-                                .get("index")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0) as usize;
+                            let idx =
+                                event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                             if let Some(buf) = state
                                 .tool_input_buf
                                 .get_mut(&format!("thinking::sig::{idx}"))
@@ -942,10 +931,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                 }
             }
             "content_block_stop" => {
-                let idx = event
-                    .get("index")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
+                let idx = event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                 // Tool-use block ended — emit ToolCallEnd (same id).
                 if let Some(tag) = state.block_type.get(&(usize::MAX - idx)).cloned() {
                     if let Some(id) = tag.strip_prefix("tool_use::") {
@@ -978,9 +964,8 @@ impl ProtocolAdapter for AnthropicAdapter {
                     out.push(StreamEvent::Usage(usage));
                 }
                 // delta.stop_reason: end_turn | tool_use | max_tokens | stop_sequence
-                if let Some(stop_reason_str) = event
-                    .pointer("/delta/stop_reason")
-                    .and_then(Value::as_str)
+                if let Some(stop_reason_str) =
+                    event.pointer("/delta/stop_reason").and_then(Value::as_str)
                 {
                     let reason = match stop_reason_str {
                         "end_turn" => StopReason::EndTurn,
@@ -1039,9 +1024,21 @@ mod tests {
     #[test]
     fn encode_tools_dedupes() {
         let tools = vec![
-            ToolDefinition { name: "x".into(), description: String::new(), parameters: serde_json::json!({"type":"object"}) },
-            ToolDefinition { name: "x".into(), description: String::new(), parameters: serde_json::json!({"type":"object"}) }, // duplicate
-            ToolDefinition { name: "y".into(), description: String::new(), parameters: serde_json::json!({"type":"object"}) },
+            ToolDefinition {
+                name: "x".into(),
+                description: String::new(),
+                parameters: serde_json::json!({"type":"object"}),
+            },
+            ToolDefinition {
+                name: "x".into(),
+                description: String::new(),
+                parameters: serde_json::json!({"type":"object"}),
+            }, // duplicate
+            ToolDefinition {
+                name: "y".into(),
+                description: String::new(),
+                parameters: serde_json::json!({"type":"object"}),
+            },
         ];
         let encoded = AnthropicAdapter.encode_tools(&tools);
         assert_eq!(encoded.len(), 2);
@@ -1110,17 +1107,18 @@ mod tests {
         assert_eq!(encoded.messages[0]["role"], "assistant");
         assert_eq!(encoded.messages[1]["role"], "user");
         let results = encoded.messages[1]["content"].as_array().unwrap();
-        assert_eq!(results.len(), 2, "both tool_results must share one user msg");
+        assert_eq!(
+            results.len(),
+            2,
+            "both tool_results must share one user msg"
+        );
         assert_eq!(results[0]["tool_use_id"], "toolu_A");
         assert_eq!(results[1]["tool_use_id"], "toolu_B");
     }
 
     #[test]
     fn encode_messages_splits_system() {
-        let msgs = vec![
-            Message::system("you are alva"),
-            Message::user("hi"),
-        ];
+        let msgs = vec![Message::system("you are alva"), Message::user("hi")];
         let out = AnthropicAdapter.encode_messages(&msgs);
         assert_eq!(out.system_flat().as_deref(), Some("you are alva"));
         assert_eq!(out.messages.len(), 1);
@@ -1161,7 +1159,9 @@ mod tests {
             "index": 0,
             "content_block": { "type": "tool_use", "id": "toolu_01", "name": "read" }
         });
-        let out = AnthropicAdapter.decode_stream_event(&start, &mut state).unwrap();
+        let out = AnthropicAdapter
+            .decode_stream_event(&start, &mut state)
+            .unwrap();
         match &out[0] {
             StreamEvent::ToolCallStart { id, name } => {
                 assert_eq!(id, "toolu_01");
@@ -1175,9 +1175,15 @@ mod tests {
             "index": 0,
             "delta": { "type": "input_json_delta", "partial_json": "{\"path\":\"/a\"}" }
         });
-        let out = AnthropicAdapter.decode_stream_event(&delta, &mut state).unwrap();
+        let out = AnthropicAdapter
+            .decode_stream_event(&delta, &mut state)
+            .unwrap();
         match &out[0] {
-            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+            StreamEvent::ToolCallDelta {
+                id,
+                arguments_delta,
+                ..
+            } => {
                 assert_eq!(id, "toolu_01");
                 assert_eq!(arguments_delta, "{\"path\":\"/a\"}");
             }
@@ -1189,7 +1195,9 @@ mod tests {
             "type": "content_block_stop",
             "index": 0,
         });
-        let out = AnthropicAdapter.decode_stream_event(&stop, &mut state).unwrap();
+        let out = AnthropicAdapter
+            .decode_stream_event(&stop, &mut state)
+            .unwrap();
         match &out[0] {
             StreamEvent::ToolCallEnd { id } => assert_eq!(id, "toolu_01"),
             _ => panic!("expected ToolCallEnd"),
@@ -1200,7 +1208,9 @@ mod tests {
     fn decode_stream_emits_done() {
         let mut state = StreamDecodeState::new();
         let stop = serde_json::json!({ "type": "message_stop" });
-        let out = AnthropicAdapter.decode_stream_event(&stop, &mut state).unwrap();
+        let out = AnthropicAdapter
+            .decode_stream_event(&stop, &mut state)
+            .unwrap();
         assert!(matches!(out[0], StreamEvent::Done));
     }
 
@@ -1213,10 +1223,17 @@ mod tests {
             "delta": { "stop_reason": "end_turn", "stop_sequence": null },
             "usage": { "output_tokens": 42 }
         });
-        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
+        let out = AnthropicAdapter
+            .decode_stream_event(&ev, &mut state)
+            .unwrap();
         // Usage first, then Stop
         assert!(matches!(out[0], StreamEvent::Usage(_)));
-        assert!(matches!(&out[1], StreamEvent::Stop { reason: StopReason::EndTurn }));
+        assert!(matches!(
+            &out[1],
+            StreamEvent::Stop {
+                reason: StopReason::EndTurn
+            }
+        ));
     }
 
     #[test]
@@ -1226,8 +1243,15 @@ mod tests {
             "type": "message_delta",
             "delta": { "stop_reason": "tool_use" }
         });
-        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
-        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::ToolUse }));
+        let out = AnthropicAdapter
+            .decode_stream_event(&ev, &mut state)
+            .unwrap();
+        assert!(matches!(
+            &out[0],
+            StreamEvent::Stop {
+                reason: StopReason::ToolUse
+            }
+        ));
     }
 
     #[test]
@@ -1237,8 +1261,15 @@ mod tests {
             "type": "message_delta",
             "delta": { "stop_reason": "max_tokens" }
         });
-        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
-        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+        let out = AnthropicAdapter
+            .decode_stream_event(&ev, &mut state)
+            .unwrap();
+        assert!(matches!(
+            &out[0],
+            StreamEvent::Stop {
+                reason: StopReason::MaxTokens
+            }
+        ));
     }
 
     #[test]
@@ -1248,8 +1279,15 @@ mod tests {
             "type": "message_delta",
             "delta": { "stop_reason": "stop_sequence" }
         });
-        let out = AnthropicAdapter.decode_stream_event(&ev, &mut state).unwrap();
-        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::StopSequence }));
+        let out = AnthropicAdapter
+            .decode_stream_event(&ev, &mut state)
+            .unwrap();
+        assert!(matches!(
+            &out[0],
+            StreamEvent::Stop {
+                reason: StopReason::StopSequence
+            }
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -1276,9 +1314,15 @@ mod tests {
         assert_eq!(req.model, "claude-3-5-sonnet-20241022");
         // System message should be prepended
         assert!(matches!(req.messages[0].role, MessageRole::System));
-        assert_eq!(req.messages[0].text_content(), "You are a helpful assistant.");
+        assert_eq!(
+            req.messages[0].text_content(),
+            "You are a helpful assistant."
+        );
         // User message follows
-        assert!(req.messages.iter().any(|m| matches!(m.role, MessageRole::User)));
+        assert!(req
+            .messages
+            .iter()
+            .any(|m| matches!(m.role, MessageRole::User)));
         // Tools parsed correctly
         assert_eq!(req.tools.len(), 1);
         assert_eq!(req.tools[0].name, "read_file");
@@ -1320,15 +1364,17 @@ mod tests {
 
     #[test]
     fn anthropic_encode_response_text_and_tool() {
-        use crate::message::UsageMetadata;
         use super::super::DecodedResponse;
+        use crate::message::UsageMetadata;
 
         let dr = DecodedResponse {
             message: Message {
                 id: "msg_01".into(),
                 role: MessageRole::Assistant,
                 content: vec![
-                    ContentBlock::Text { text: "Let me help.".into() },
+                    ContentBlock::Text {
+                        text: "Let me help.".into(),
+                    },
                     ContentBlock::ToolUse {
                         id: "toolu_abc".into(),
                         name: "read_file".into(),
@@ -1353,7 +1399,9 @@ mod tests {
         assert_eq!(v["role"], "assistant");
         assert_eq!(v["stop_reason"], "tool_use");
         let content = v["content"].as_array().unwrap();
-        assert!(content.iter().any(|b| b["type"] == "tool_use" && b["name"] == "read_file"));
+        assert!(content
+            .iter()
+            .any(|b| b["type"] == "tool_use" && b["name"] == "read_file"));
         assert_eq!(v["usage"]["input_tokens"], 42);
     }
 
@@ -1367,8 +1415,13 @@ mod tests {
                 id: "msg_02".into(),
                 role: MessageRole::Assistant,
                 content: vec![
-                    ContentBlock::Reasoning { text: "thoughts".into(), signature: None },
-                    ContentBlock::Text { text: "answer".into() },
+                    ContentBlock::Reasoning {
+                        text: "thoughts".into(),
+                        signature: None,
+                    },
+                    ContentBlock::Text {
+                        text: "answer".into(),
+                    },
                 ],
                 tool_call_id: None,
                 usage: None,
@@ -1390,12 +1443,10 @@ mod tests {
             message: Message {
                 id: "msg_03".into(),
                 role: MessageRole::Assistant,
-                content: vec![
-                    ContentBlock::Reasoning {
-                        text: "deep thoughts".into(),
-                        signature: Some("sig_abc123".into()),
-                    },
-                ],
+                content: vec![ContentBlock::Reasoning {
+                    text: "deep thoughts".into(),
+                    signature: Some("sig_abc123".into()),
+                }],
                 tool_call_id: None,
                 usage: None,
                 timestamp: 0,
@@ -1405,7 +1456,9 @@ mod tests {
         let v2 = AnthropicAdapter.encode_response(&dr_with_sig).unwrap();
         let content2 = v2["content"].as_array().unwrap();
         assert!(
-            content2.iter().any(|b| b["type"] == "thinking" && b["signature"] == "sig_abc123"),
+            content2
+                .iter()
+                .any(|b| b["type"] == "thinking" && b["signature"] == "sig_abc123"),
             "thinking block with signature must appear"
         );
     }
@@ -1416,8 +1469,8 @@ mod tests {
 
     #[test]
     fn anthropic_encode_stream_text_then_stop() {
-        use crate::message::UsageMetadata;
         use super::super::StreamEncodeState;
+        use crate::message::UsageMetadata;
 
         let mut st = StreamEncodeState::default();
         let mut frames: Vec<SseFrame> = Vec::new();
@@ -1432,22 +1485,32 @@ mod tests {
                 cache_creation_input_tokens: None,
                 cache_read_input_tokens: None,
             }),
-            StreamEvent::Stop { reason: StopReason::EndTurn },
+            StreamEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
             StreamEvent::Done,
         ] {
             frames.extend(AnthropicAdapter.encode_stream_event(&ev, &mut st).unwrap());
         }
 
-        let event_names: Vec<&str> =
-            frames.iter().filter_map(|f| f.event.as_deref()).collect();
+        let event_names: Vec<&str> = frames.iter().filter_map(|f| f.event.as_deref()).collect();
 
-        assert!(event_names.contains(&"message_start"), "missing message_start: {event_names:?}");
+        assert!(
+            event_names.contains(&"message_start"),
+            "missing message_start: {event_names:?}"
+        );
         assert!(
             event_names.contains(&"content_block_delta"),
             "missing content_block_delta: {event_names:?}"
         );
-        assert!(event_names.contains(&"message_delta"), "missing message_delta: {event_names:?}");
-        assert!(event_names.contains(&"message_stop"), "missing message_stop: {event_names:?}");
+        assert!(
+            event_names.contains(&"message_delta"),
+            "missing message_delta: {event_names:?}"
+        );
+        assert!(
+            event_names.contains(&"message_stop"),
+            "missing message_stop: {event_names:?}"
+        );
 
         // The message_delta must carry stop_reason == "end_turn"
         let msg_delta = frames
@@ -1455,7 +1518,10 @@ mod tests {
             .find(|f| f.event.as_deref() == Some("message_delta"))
             .unwrap();
         assert_eq!(
-            msg_delta.data.pointer("/delta/stop_reason").and_then(|v| v.as_str()),
+            msg_delta
+                .data
+                .pointer("/delta/stop_reason")
+                .and_then(|v| v.as_str()),
             Some("end_turn"),
             "message_delta stop_reason must be end_turn"
         );
@@ -1469,7 +1535,10 @@ mod tests {
         let mut frames: Vec<SseFrame> = Vec::new();
 
         for ev in [
-            StreamEvent::ToolCallStart { id: "toolu_01".into(), name: "read_file".into() },
+            StreamEvent::ToolCallStart {
+                id: "toolu_01".into(),
+                name: "read_file".into(),
+            },
             StreamEvent::ToolCallDelta {
                 id: "toolu_01".into(),
                 name: None,
@@ -1480,7 +1549,9 @@ mod tests {
                 name: None,
                 arguments_delta: "\"/a\"}".into(),
             },
-            StreamEvent::ToolCallEnd { id: "toolu_01".into() },
+            StreamEvent::ToolCallEnd {
+                id: "toolu_01".into(),
+            },
         ] {
             frames.extend(AnthropicAdapter.encode_stream_event(&ev, &mut st).unwrap());
         }
@@ -1491,7 +1562,10 @@ mod tests {
             .find(|f| f.event.as_deref() == Some("content_block_start"))
             .expect("content_block_start must be emitted");
         assert_eq!(
-            start_frame.data.pointer("/content_block/type").and_then(|v| v.as_str()),
+            start_frame
+                .data
+                .pointer("/content_block/type")
+                .and_then(|v| v.as_str()),
             Some("tool_use")
         );
 
@@ -1506,17 +1580,25 @@ mod tests {
             .collect();
         assert_eq!(delta_frames.len(), 2, "expected 2 input_json_delta frames");
         assert_eq!(
-            delta_frames[0].data.pointer("/delta/partial_json").and_then(|v| v.as_str()),
+            delta_frames[0]
+                .data
+                .pointer("/delta/partial_json")
+                .and_then(|v| v.as_str()),
             Some("{\"path\":")
         );
         assert_eq!(
-            delta_frames[1].data.pointer("/delta/partial_json").and_then(|v| v.as_str()),
+            delta_frames[1]
+                .data
+                .pointer("/delta/partial_json")
+                .and_then(|v| v.as_str()),
             Some("\"/a\"}")
         );
 
         // Verify content_block_stop
         assert!(
-            frames.iter().any(|f| f.event.as_deref() == Some("content_block_stop")),
+            frames
+                .iter()
+                .any(|f| f.event.as_deref() == Some("content_block_stop")),
             "content_block_stop must be emitted"
         );
     }

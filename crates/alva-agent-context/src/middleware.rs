@@ -10,9 +10,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use alva_kernel_abi::{BusHandle, Message, ModelConfig};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
 use alva_kernel_core::state::AgentState;
-use alva_kernel_abi::{BusHandle, Message, ModelConfig};
 use async_trait::async_trait;
 
 /// Configuration for the compaction middleware.
@@ -96,7 +96,11 @@ fn estimate_tokens(messages: &[Message]) -> usize {
 fn find_split_point(messages: &[Message], keep_tokens: usize) -> usize {
     let mut accumulated = 0;
     for i in (0..messages.len()).rev() {
-        let msg_tokens: usize = messages[i].content.iter().map(|b| b.estimated_tokens()).sum();
+        let msg_tokens: usize = messages[i]
+            .content
+            .iter()
+            .map(|b| b.estimated_tokens())
+            .sum();
         accumulated += msg_tokens + 4;
         if accumulated > keep_tokens {
             return i + 1;
@@ -203,7 +207,11 @@ impl Middleware for CompactionMiddleware {
             let mut acc = 0;
             let mut idx = conv_messages.len();
             for i in (0..conv_messages.len()).rev() {
-                let t: usize = conv_messages[i].content.iter().map(|b| b.estimated_tokens()).sum();
+                let t: usize = conv_messages[i]
+                    .content
+                    .iter()
+                    .map(|b| b.estimated_tokens())
+                    .sum();
                 acc += t + 4;
                 if acc > self.config.keep_recent_tokens {
                     idx = i + 1;
@@ -217,8 +225,14 @@ impl Middleware for CompactionMiddleware {
             return Ok(());
         }
 
-        let old_messages: Vec<Message> = conv_messages[..conv_split].iter().map(|m| (*m).clone()).collect();
-        let recent_messages: Vec<Message> = conv_messages[conv_split..].iter().map(|m| (*m).clone()).collect();
+        let old_messages: Vec<Message> = conv_messages[..conv_split]
+            .iter()
+            .map(|m| (*m).clone())
+            .collect();
+        let recent_messages: Vec<Message> = conv_messages[conv_split..]
+            .iter()
+            .map(|m| (*m).clone())
+            .collect();
 
         // Call LLM to generate summary
         let summary_prompt = build_summary_prompt(&old_messages);
@@ -300,8 +314,7 @@ impl Middleware for CompactionMiddleware {
         // A less destructive rewrite is tracked as future work.
         let _ = state.session.clear().await;
 
-        let mut compaction_event =
-            alva_kernel_abi::SessionEvent::new_runtime("compaction");
+        let mut compaction_event = alva_kernel_abi::SessionEvent::new_runtime("compaction");
         compaction_event.data = Some(serde_json::json!({
             "strategy": "llm_summarization",
             "old_message_count": old_count,
@@ -349,8 +362,8 @@ impl Middleware for CompactionMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use alva_kernel_abi::base::content::ContentBlock;
+    use std::sync::Arc;
 
     fn make_user_msg(text: &str) -> Message {
         Message::user(text)
@@ -438,8 +451,12 @@ mod tests {
 
         struct FixedCounter;
         impl alva_kernel_abi::TokenCounter for FixedCounter {
-            fn count_tokens(&self, _text: &str) -> usize { 10 }
-            fn context_window(&self) -> usize { 100_000 }
+            fn count_tokens(&self, _text: &str) -> usize {
+                10
+            }
+            fn context_window(&self) -> usize {
+                100_000
+            }
         }
         let writer = bus.writer();
         writer.provide::<dyn alva_kernel_abi::TokenCounter>(Arc::new(FixedCounter));
@@ -454,11 +471,7 @@ mod tests {
 
         // With the fixed counter, each message = 10 + 4 = 14 tokens.
         // 3 messages = 42 tokens, which is under trigger_tokens (50).
-        let msgs = vec![
-            make_user_msg("a"),
-            make_user_msg("b"),
-            make_user_msg("c"),
-        ];
+        let msgs = vec![make_user_msg("a"), make_user_msg("b"), make_user_msg("c")];
         // Verify the bus counter is used (local estimate would give different result).
         let total: usize = {
             let counter = handle.get::<dyn alva_kernel_abi::TokenCounter>().unwrap();
@@ -494,7 +507,8 @@ mod tests {
             _messages: &[Message],
             _tools: &[&dyn alva_kernel_abi::tool::Tool],
             _config: &ModelConfig,
-        ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::base::error::AgentError> {
+        ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::base::error::AgentError>
+        {
             Ok(alva_kernel_abi::CompletionResponse::from_message(
                 make_assistant_msg("Summary of prior conversation."),
             ))
@@ -517,8 +531,8 @@ mod tests {
     }
 
     fn make_state_with_summary_model() -> AgentState {
-        use alva_kernel_core::shared::Extensions;
         use alva_kernel_abi::agent_session::InMemoryAgentSession;
+        use alva_kernel_core::shared::Extensions;
 
         AgentState {
             model: Arc::new(SummaryModel),
@@ -638,7 +652,9 @@ mod tests {
         let _ = mw.before_llm_call(&mut state, &mut msgs).await;
 
         // The middleware should have emitted a TokenBudgetExceeded event.
-        let event = rx.try_recv().expect("should receive TokenBudgetExceeded event");
+        let event = rx
+            .try_recv()
+            .expect("should receive TokenBudgetExceeded event");
         assert!(event.used_tokens > event.budget_tokens);
         assert_eq!(event.budget_tokens, 200);
         assert!(event.usage_ratio > 1.0);
@@ -676,9 +692,14 @@ mod tests {
         let _ = mw.before_llm_call(&mut state, &mut msgs).await;
 
         // Compaction should have fired and emitted a ContextCompacted event.
-        assert!(mw.compaction_count() > 0, "compaction should have triggered");
+        assert!(
+            mw.compaction_count() > 0,
+            "compaction should have triggered"
+        );
 
-        let event = rx.try_recv().expect("should receive ContextCompacted event");
+        let event = rx
+            .try_recv()
+            .expect("should receive ContextCompacted event");
         assert_eq!(event.strategy, "llm_summarization");
         assert!(
             event.tokens_before > event.tokens_after,
@@ -729,9 +750,26 @@ mod tests {
             })
             .await;
         assert_eq!(matches.len(), 1, "expected one compaction event");
-        let data = matches[0].event.data.as_ref().expect("event must carry data");
-        assert_eq!(data.get("strategy").and_then(|v| v.as_str()), Some("llm_summarization"));
-        assert!(data.get("old_message_count").and_then(|v| v.as_u64()).unwrap() > 0);
-        assert!(data.get("new_message_count").and_then(|v| v.as_u64()).unwrap() > 0);
+        let data = matches[0]
+            .event
+            .data
+            .as_ref()
+            .expect("event must carry data");
+        assert_eq!(
+            data.get("strategy").and_then(|v| v.as_str()),
+            Some("llm_summarization")
+        );
+        assert!(
+            data.get("old_message_count")
+                .and_then(|v| v.as_u64())
+                .unwrap()
+                > 0
+        );
+        assert!(
+            data.get("new_message_count")
+                .and_then(|v| v.as_u64())
+                .unwrap()
+                > 0
+        );
     }
 }

@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use alva_kernel_abi::scope::ScopeId;
 use super::blackboard::Blackboard;
+use alva_kernel_abi::scope::ScopeId;
 
 /// Manages Blackboard instances scoped to SpawnScope IDs.
 ///
@@ -47,11 +47,7 @@ impl BoardRegistry {
     /// Like `get_or_create` but keyed by raw scope-id string — used by
     /// callers (e.g. `SpawnCommunication`) that carry `&str` instead of
     /// `&ScopeId`.
-    pub async fn get_or_create_by_str(
-        &self,
-        scope_id: &str,
-        board_id: &str,
-    ) -> Arc<Blackboard> {
+    pub async fn get_or_create_by_str(&self, scope_id: &str, board_id: &str) -> Arc<Blackboard> {
         let mut boards = self.boards.lock().await;
         let key = (scope_id.to_owned(), board_id.to_owned());
         boards
@@ -158,9 +154,7 @@ mod tests {
         reg.set_parent(&child, &parent).await;
 
         let child_board = reg.get_or_create(&child, "internal").await;
-        child_board
-            .post(BoardMessage::new("child", "secret"))
-            .await;
+        child_board.post(BoardMessage::new("child", "secret")).await;
 
         // Parent has no board named "internal"
         let parent_view = reg.get_or_create(&parent, "internal").await;

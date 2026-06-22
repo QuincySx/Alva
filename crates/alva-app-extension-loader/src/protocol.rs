@@ -1,4 +1,4 @@
-//! **AEP** — Alva Extension Protocol wire types.
+//! **AEP** — Alva Plugin Protocol wire types.
 //!
 //! JSON-RPC 2.0 messages exchanged between host and plugin subprocess
 //! over newline-delimited JSON on stdio. See `docs/aep.md` for the
@@ -123,7 +123,11 @@ pub struct RpcError {
 
 impl RpcError {
     pub fn new(code: i32, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), data: None }
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
     }
 }
 
@@ -350,7 +354,11 @@ mod tests {
 
     #[test]
     fn request_wire_format() {
-        let req = Request::new("h-1", methods::INITIALIZE, Some(serde_json::json!({"x": 1})));
+        let req = Request::new(
+            "h-1",
+            methods::INITIALIZE,
+            Some(serde_json::json!({"x": 1})),
+        );
         let s = serde_json::to_string(&req).unwrap();
         let v: Value = serde_json::from_str(&s).unwrap();
         assert_eq!(v["jsonrpc"], "2.0");

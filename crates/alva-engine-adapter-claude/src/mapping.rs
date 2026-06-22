@@ -84,9 +84,7 @@ impl EventMapper {
                 }
             }
 
-            SdkMessage::Assistant {
-                uuid, message, ..
-            } => {
+            SdkMessage::Assistant { uuid, message, .. } => {
                 let Some(payload) = message else {
                     return vec![];
                 };
@@ -181,14 +179,8 @@ impl EventMapper {
                 let is_error = subtype.as_deref() != Some("success");
 
                 let usage_data = RuntimeUsage {
-                    input_tokens: usage
-                        .as_ref()
-                        .and_then(|u| u.input_tokens)
-                        .unwrap_or(0) as u32,
-                    output_tokens: usage
-                        .as_ref()
-                        .and_then(|u| u.output_tokens)
-                        .unwrap_or(0) as u32,
+                    input_tokens: usage.as_ref().and_then(|u| u.input_tokens).unwrap_or(0) as u32,
+                    output_tokens: usage.as_ref().and_then(|u| u.output_tokens).unwrap_or(0) as u32,
                     total_cost_usd,
                     duration_ms: duration_ms.unwrap_or(0),
                     num_turns: num_turns.unwrap_or(0),
@@ -300,12 +292,8 @@ mod tests {
         };
         let events = mapper.map(msg);
         assert_eq!(events.len(), 2);
-        assert!(
-            matches!(&events[0], RuntimeEvent::Message { content, .. } if content.len() == 1)
-        );
-        assert!(
-            matches!(&events[1], RuntimeEvent::ToolStart { name, .. } if name == "Read")
-        );
+        assert!(matches!(&events[0], RuntimeEvent::Message { content, .. } if content.len() == 1));
+        assert!(matches!(&events[1], RuntimeEvent::ToolStart { name, .. } if name == "Read"));
     }
 
     #[test]
@@ -328,9 +316,7 @@ mod tests {
         };
         let events = mapper.map(msg);
         assert_eq!(events.len(), 1);
-        assert!(
-            matches!(&events[0], RuntimeEvent::ToolEnd { name, .. } if name == "Bash")
-        );
+        assert!(matches!(&events[0], RuntimeEvent::ToolEnd { name, .. } if name == "Bash"));
     }
 
     #[test]
@@ -493,7 +479,10 @@ mod tests {
         // downstream consumers that count completion exactly once.
         let mut mapper = EventMapper::new();
         let events = mapper.map(BridgeMessage::Done);
-        assert!(events.is_empty(), "Done must emit zero events, got {events:?}");
+        assert!(
+            events.is_empty(),
+            "Done must emit zero events, got {events:?}"
+        );
     }
 
     #[test]
@@ -536,6 +525,9 @@ mod tests {
         let events = mapper.map(BridgeMessage::SdkMessage {
             message: SdkMessage::Unknown,
         });
-        assert!(events.is_empty(), "Unknown SdkMessage must emit zero events for forward-compat");
+        assert!(
+            events.is_empty(),
+            "Unknown SdkMessage must emit zero events for forward-compat"
+        );
     }
 }

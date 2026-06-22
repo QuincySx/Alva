@@ -68,10 +68,8 @@ fn options_default() {
 #[test]
 fn options_extra_fields() {
     let mut opts = RuntimeOptions::default();
-    opts.extra
-        .insert("temperature".into(), json!(0.7));
-    opts.extra
-        .insert("model".into(), json!("claude-3"));
+    opts.extra.insert("temperature".into(), json!(0.7));
+    opts.extra.insert("model".into(), json!("claude-3"));
     assert_eq!(opts.extra.len(), 2);
     assert_eq!(opts.extra["temperature"], json!(0.7));
     assert_eq!(opts.extra["model"], json!("claude-3"));

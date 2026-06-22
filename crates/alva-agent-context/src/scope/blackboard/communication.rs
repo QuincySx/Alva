@@ -85,14 +85,9 @@ impl SpawnCommunication for BlackboardCommunication {
             .get_or_create_by_str(ctx.parent_scope_id, board_id)
             .await;
 
-        board
-            .register(AgentProfile::new(ctx.role, ctx.role))
-            .await;
+        board.register(AgentProfile::new(ctx.role, ctx.role)).await;
 
-        let plugin = BlackboardPlugin::new(
-            AgentProfile::new(ctx.role, ctx.role),
-            board.clone(),
-        );
+        let plugin = BlackboardPlugin::new(AgentProfile::new(ctx.role, ctx.role), board.clone());
 
         let on_complete = Arc::new(BlackboardOnComplete {
             board: board.clone(),
@@ -122,11 +117,9 @@ impl OnChildComplete for BlackboardOnComplete {
         // what happened.
         self.board
             .post(
-                BoardMessage::new(&self.role, &result.text).with_kind(
-                    MessageKind::Artifact {
-                        name: format!("{}-output", self.role),
-                    },
-                ),
+                BoardMessage::new(&self.role, &result.text).with_kind(MessageKind::Artifact {
+                    name: format!("{}-output", self.role),
+                }),
             )
             .await;
     }
@@ -140,11 +133,7 @@ impl OnChildComplete for BlackboardOnComplete {
 mod tests {
     use super::*;
 
-    fn make_ctx<'a>(
-        parent: &'a str,
-        child: &'a str,
-        role: &'a str,
-    ) -> SpawnCommContext<'a> {
+    fn make_ctx<'a>(parent: &'a str, child: &'a str, role: &'a str) -> SpawnCommContext<'a> {
         SpawnCommContext {
             parent_scope_id: parent,
             parent_session_id: "psess",

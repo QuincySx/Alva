@@ -25,7 +25,9 @@ impl ImageView {
     pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
         let picker = ImgPicker::from_query_stdio().ok()?;
         let img = image::ImageReader::open(path).ok()?.decode().ok()?;
-        Some(Self { state: picker.new_resize_protocol(img) })
+        Some(Self {
+            state: picker.new_resize_protocol(img),
+        })
     }
 
     pub fn render(&mut self, frame: &mut Frame<'_>, area: Rect) {

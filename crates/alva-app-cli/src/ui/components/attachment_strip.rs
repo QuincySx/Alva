@@ -37,7 +37,11 @@ impl Attachment {
     }
 
     pub fn file_name(&self) -> String {
-        self.path.file_name().and_then(|s| s.to_str()).unwrap_or("?").to_string()
+        self.path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string()
     }
 }
 
@@ -49,24 +53,43 @@ pub struct AttachmentStrip {
 }
 
 impl AttachmentStrip {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-    pub fn push(&mut self, a: Attachment) { self.items.push(a); }
-    pub fn clear(&mut self) { self.items.clear(); self.selected = 0; }
-    pub fn is_empty(&self) -> bool { self.items.is_empty() }
-    pub fn items(&self) -> &[Attachment] { &self.items }
+    pub fn push(&mut self, a: Attachment) {
+        self.items.push(a);
+    }
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.selected = 0;
+    }
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+    pub fn items(&self) -> &[Attachment] {
+        &self.items
+    }
 
     pub fn select_next(&mut self) {
-        if !self.items.is_empty() { self.selected = (self.selected + 1) % self.items.len(); }
+        if !self.items.is_empty() {
+            self.selected = (self.selected + 1) % self.items.len();
+        }
     }
     pub fn select_prev(&mut self) {
         if !self.items.is_empty() {
-            self.selected = if self.selected == 0 { self.items.len() - 1 } else { self.selected - 1 };
+            self.selected = if self.selected == 0 {
+                self.items.len() - 1
+            } else {
+                self.selected - 1
+            };
         }
     }
     /// Remove the selected attachment. Returns the removed entry.
     pub fn remove_selected(&mut self) -> Option<Attachment> {
-        if self.items.is_empty() { return None; }
+        if self.items.is_empty() {
+            return None;
+        }
         let i = self.selected.min(self.items.len() - 1);
         let removed = self.items.remove(i);
         if self.selected >= self.items.len() {
@@ -82,13 +105,15 @@ impl AttachmentStrip {
     }
 
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        if self.items.is_empty() || area.height == 0 { return; }
+        if self.items.is_empty() || area.height == 0 {
+            return;
+        }
 
         let mut spans: Vec<Span> = Vec::with_capacity(self.items.len() * 4);
         for (i, a) in self.items.iter().enumerate() {
             let icon = match a.kind {
                 AttachmentKind::Image => "🖼 ",
-                AttachmentKind::File  => "📄 ",
+                AttachmentKind::File => "📄 ",
             };
             let label = format!(" {}{} ", icon, a.file_name());
             let style = if i == self.selected {
@@ -139,7 +164,13 @@ mod tests {
     #[test]
     fn auto_falls_back_to_file_for_other_extensions_and_no_extension() {
         // Each of these must classify as File
-        for path in ["notes.txt", "readme.md", "lib.rs", "Makefile", "no_extension"] {
+        for path in [
+            "notes.txt",
+            "readme.md",
+            "lib.rs",
+            "Makefile",
+            "no_extension",
+        ] {
             let a = att(path);
             assert_eq!(a.kind, AttachmentKind::File, "{path} must classify as File");
         }
@@ -258,7 +289,10 @@ mod tests {
         s.push(att("a.png"));
         let _ = s.remove_selected();
         assert!(s.is_empty());
-        assert_eq!(s.selected, 0, "after removing only item, selected must be 0");
+        assert_eq!(
+            s.selected, 0,
+            "after removing only item, selected must be 0"
+        );
         // Removing again is still safe
         assert!(s.remove_selected().is_none());
     }

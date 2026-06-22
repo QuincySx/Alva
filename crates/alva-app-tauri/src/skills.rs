@@ -112,9 +112,8 @@ mod tests {
     fn write_skill(base: &Path, name: &str, description: &str) {
         let skill_dir = base.join(name);
         fs::create_dir_all(&skill_dir).unwrap();
-        let body = format!(
-            "---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\nbody.\n"
-        );
+        let body =
+            format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\nbody.\n");
         fs::write(skill_dir.join("SKILL.md"), body).unwrap();
     }
 
@@ -133,7 +132,11 @@ mod tests {
         ));
         // Don't create it.
         let result = scan_skills(&bogus).await;
-        assert!(result.is_empty(), "expected empty Vec, got {} items", result.len());
+        assert!(
+            result.is_empty(),
+            "expected empty Vec, got {} items",
+            result.len()
+        );
     }
 
     #[tokio::test]
@@ -142,7 +145,11 @@ mod tests {
         // a freshly-created profile. Must NOT error or panic.
         let dir = unique_temp_dir("empty");
         let result = scan_skills(&dir).await;
-        assert!(result.is_empty(), "expected empty Vec, got {} items", result.len());
+        assert!(
+            result.is_empty(),
+            "expected empty Vec, got {} items",
+            result.len()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -153,7 +160,12 @@ mod tests {
         write_skill(&bundled, "alpha", "Alpha bundled skill");
 
         let result = scan_skills(&dir).await;
-        assert_eq!(result.len(), 1, "should find exactly one skill, got {}", result.len());
+        assert_eq!(
+            result.len(),
+            1,
+            "should find exactly one skill, got {}",
+            result.len()
+        );
         let s = &result[0];
         assert_eq!(s.name, "alpha");
         assert_eq!(s.description, "Alpha bundled skill");
@@ -174,7 +186,12 @@ mod tests {
         write_skill(&user, "beta", "Beta user skill");
 
         let result = scan_skills(&dir).await;
-        assert_eq!(result.len(), 1, "should find exactly one skill, got {}", result.len());
+        assert_eq!(
+            result.len(),
+            1,
+            "should find exactly one skill, got {}",
+            result.len()
+        );
         let s = &result[0];
         assert_eq!(s.name, "beta");
         // Pinned regression guard: user-installed skill's kind serializes
@@ -196,9 +213,16 @@ mod tests {
         write_skill(&user, "from-user", "U");
 
         let result = scan_skills(&dir).await;
-        assert_eq!(result.len(), 2, "should aggregate both, got {}", result.len());
-        let kinds_by_name: std::collections::HashMap<_, _> =
-            result.iter().map(|s| (s.name.as_str(), s.kind.as_str())).collect();
+        assert_eq!(
+            result.len(),
+            2,
+            "should aggregate both, got {}",
+            result.len()
+        );
+        let kinds_by_name: std::collections::HashMap<_, _> = result
+            .iter()
+            .map(|s| (s.name.as_str(), s.kind.as_str()))
+            .collect();
         assert_eq!(kinds_by_name.get("from-bundle"), Some(&"Bundled"));
         assert_eq!(kinds_by_name.get("from-user"), Some(&"UserInstalled"));
 

@@ -1,4 +1,4 @@
-// INPUT:  proxy::RemoteExtensionProxy, manifest::PluginManifest, tokio::fs, alva_agent_core::extension::*
+// INPUT:  proxy::RemotePluginProxy, manifest::PluginManifest, tokio::fs, alva_agent_core::extension::*
 // OUTPUT: SubprocessLoaderPlugin, LoaderError
 // POS:    Phase 3 — the one Plugin the host registers; internally manages N subprocess plugins.
 
@@ -8,9 +8,9 @@
 //!
 //! From the host's point of view this is just one more `Plugin`
 //! — it goes through the normal `Plugin::register` lifecycle.
-//! Instead of registering its own hooks directly, it registers a single
-//! [`AepBridgeMiddleware`](crate::aep_bridge::AepBridgeMiddleware)
-//! that routes the real `Middleware` hooks into every loaded plugin.
+//! For each remote event subscription it registers a normal
+//! `PhaseContribution`. Until the kernel has a native phase executor,
+//! executable subscriptions also get an agent-core phase handler.
 //!
 //! ## Directory layout
 //!
@@ -34,41 +34,40 @@
 //! manifests log a warning and are ignored. One bad plugin never
 //! prevents the others from loading — loading is best-effort
 //! and never hard-fails. Duplicate plugin names across dirs keep
-//! the first occurrence and log a warning.
+//! the first occurrence and log a warning. Within one directory,
+//! plugin folders are loaded in sorted folder-name order so mutation
+//! chains are deterministic.
 //!
 //! ## Hook dispatch
 //!
-//! Subprocess plugins are reached through the middleware stack. Inside
+//! Subprocess plugins are reached through phase contributions. Inside
 //! `Plugin::register`, the loader async-loads the subprocesses
-//! (`load_plugins`), then builds one
-//! [`AepBridgeMiddleware`](crate::aep_bridge::AepBridgeMiddleware)
-//! holding `Arc` handles to every plugin and registers it via
-//! `Registrar::middleware`. Each middleware hook iterates the plugins
-//! sequentially; the first plugin that returns `Block` from
-//! `before_tool_call` wins. This matches the user's mental model where
-//! plugins compose the way first-party middleware already does.
+//! (`load_plugins`), then maps every remote `eventSubscriptions` entry to
+//! a `PhaseContribution`. Each executable subscription registers an
+//! `AepPhaseHandler`; agent-core compiles it into the current middleware
+//! stack while the kernel still runs middleware hooks. `before_tool_call`
+//! runs through the wrap chain in load order; `after_tool_call` runs in
+//! reverse load order, matching the kernel middleware onion model.
 //!
 //! ### Registration timing
 //!
 //! Plugins load **asynchronously** inside `Plugin::register`, while
-//! `Registrar::middleware` registration must happen before the builder
-//! drains the host's middleware list. The order works out: the builder
+//! `Registrar::phase` / `Registrar::middleware` registration must happen
+//! before the builder drains the host. The order works out: the builder
 //! `await`s every plugin's `register` during the register phase and only
-//! calls `take_middlewares()` **after** all of them have completed. So
-//! registering the bridge at the end of `register` — once the plugin
-//! list is fully built — lands it in the stack in time, and we can hand
-//! the concrete plugin `Vec` straight to the middleware (no
-//! shared-mutable indirection).
+//! drains contributions **after** all of them have completed.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use alva_agent_core::extension::{Plugin, Registrar};
+use alva_agent_core::extension::{PhaseContribution, PhaseOrder, Plugin, Registrar};
+use alva_kernel_abi::{Phase, PhaseEffect};
 use async_trait::async_trait;
 
-use crate::aep_bridge::AepBridgeMiddleware;
+use crate::aep_bridge::AepPhaseHandler;
 use crate::manifest::PluginManifest;
-use crate::proxy::{ProxyError, RemoteExtensionProxy};
+use crate::proxy::{ProxyError, RemotePluginProxy};
+use crate::remote_tool::RemoteToolAdapter;
 
 /// First-party `Plugin` that loads third-party subprocess plugins.
 pub struct SubprocessLoaderPlugin {
@@ -81,7 +80,7 @@ pub struct SubprocessLoaderPlugin {
 /// list is filled in by `register` (async) via `load_plugins`.
 struct LoaderState {
     extensions_dirs: Vec<PathBuf>,
-    plugins: RwLock<Vec<Arc<RemoteExtensionProxy>>>,
+    plugins: RwLock<Vec<Arc<RemotePluginProxy>>>,
 }
 
 impl SubprocessLoaderPlugin {
@@ -102,11 +101,11 @@ impl SubprocessLoaderPlugin {
     /// store the resulting proxies on `self`. Returns the number of
     /// plugins loaded.
     ///
-    /// This does **not** register the bridge middleware — that happens
-    /// in [`Plugin::register`], which calls this helper and then wires
-    /// an [`AepBridgeMiddleware`] over the loaded plugins via the
-    /// `Registrar`. Tests and integration harnesses that want to drive
-    /// the loader without the full lifecycle can call this directly.
+    /// This does **not** register phase contributions — that happens in
+    /// [`Plugin::register`], which calls this helper and then wires every
+    /// remote subscription through the `Registrar`. Tests and integration
+    /// harnesses that want to drive the loader without the full lifecycle
+    /// can call this directly.
     pub async fn load_plugins(&self) -> Result<usize, LoaderError> {
         let plugins = scan_and_start(&self.state.extensions_dirs).await?;
         let count = plugins.len();
@@ -123,11 +122,7 @@ impl SubprocessLoaderPlugin {
     /// Number of currently-loaded plugins (after `load_plugins` /
     /// `register` has run).
     pub fn loaded_count(&self) -> usize {
-        self.state
-            .plugins
-            .read()
-            .map(|p| p.len())
-            .unwrap_or(0)
+        self.state.plugins.read().map(|p| p.len()).unwrap_or(0)
     }
 
     /// Consume the loader, calling `shutdown` on every plugin.
@@ -176,9 +171,10 @@ impl Plugin for SubprocessLoaderPlugin {
     }
 
     async fn register(&self, r: &Registrar) {
-        // Async-load the subprocess plugins, then register a single
-        // `AepBridgeMiddleware` that owns Arc clones of every plugin so
-        // the host drives them through the normal middleware stack.
+        // Async-load the subprocess plugins, then register each remote
+        // event subscription as a phase contribution. While the kernel
+        // still runs middleware hooks, executable subscriptions also get
+        // a generated adapter middleware.
         // Best-effort: a load failure logs and registers nothing — one
         // broken loader never aborts the whole agent build.
         match self.load_plugins().await {
@@ -199,15 +195,43 @@ impl Plugin for SubprocessLoaderPlugin {
             }
         }
 
-        // Build the bridge over the freshly-loaded plugin list.
         let plugins = match self.state.plugins.read() {
             Ok(guard) => guard.clone(),
             Err(_) => {
-                tracing::error!("loader state poisoned; skipping bridge registration");
+                tracing::error!("loader state poisoned; skipping remote phase registration");
                 return;
             }
         };
-        r.middleware(Arc::new(AepBridgeMiddleware::new(plugins)));
+        for plugin in plugins {
+            for tool_def in &plugin.init_result().tools {
+                r.tool(RemoteToolAdapter::new(plugin.clone(), tool_def.clone()));
+            }
+            for subscription in &plugin.init_result().event_subscriptions {
+                let Some((phase, effect, order)) = aep_subscription_phase(subscription) else {
+                    tracing::warn!(
+                        plugin = %plugin.name(),
+                        event = %subscription,
+                        "plugin subscribed to unknown AEP event; it will never fire"
+                    );
+                    continue;
+                };
+                let contribution = PhaseContribution::new(
+                    format!("aep:{}:{}", plugin.name(), subscription),
+                    phase,
+                    effect,
+                    order,
+                );
+                if aep_subscription_has_middleware_adapter(subscription) {
+                    r.phase_handler(Arc::new(AepPhaseHandler::new(
+                        plugin.clone(),
+                        subscription.clone(),
+                        contribution,
+                    )));
+                } else {
+                    r.phase(contribution);
+                }
+            }
+        }
     }
 }
 
@@ -218,7 +242,7 @@ impl Plugin for SubprocessLoaderPlugin {
 /// Map an AEP event subscription name (what plugins declare in their
 /// `eventSubscriptions` list) to the canonical host event-type string.
 ///
-/// The [`AepBridgeMiddleware`] uses this to recognise (and warn about)
+/// The loader uses this to recognise (and warn about)
 /// subscription names the host does not understand. Unknown names
 /// return `None` so a future-protocol plugin does not break loading.
 /// The non-obvious mappings: `on_agent_*` drop the `on_` prefix, and
@@ -231,8 +255,41 @@ pub(crate) fn aep_to_core_event_type(aep_name: &str) -> Option<&'static str> {
         "on_agent_start" => Some("agent_start"),
         "on_agent_end" => Some("agent_end"),
         "on_user_message" => Some("input"),
+        "on_llm_call_start" => Some("llm_call_start"),
+        "on_llm_call_end" => Some("llm_call_end"),
         _ => None,
     }
+}
+
+fn aep_subscription_phase(aep_name: &str) -> Option<(Phase, PhaseEffect, PhaseOrder)> {
+    aep_to_core_event_type(aep_name)?;
+    match aep_name {
+        "before_tool_call" => Some((Phase::BeforeToolCall, PhaseEffect::Wrap, PhaseOrder::Hooks)),
+        "after_tool_call" => Some((Phase::AfterToolCall, PhaseEffect::Mutate, PhaseOrder::Hooks)),
+        "on_agent_start" => Some((Phase::RunStart, PhaseEffect::Observe, PhaseOrder::Hooks)),
+        "on_agent_end" => Some((Phase::RunEnd, PhaseEffect::Observe, PhaseOrder::Hooks)),
+        "on_user_message" => Some((
+            Phase::InputCommitted,
+            PhaseEffect::Observe,
+            PhaseOrder::Hooks,
+        )),
+        "on_llm_call_start" => Some((Phase::BeforeLlmCall, PhaseEffect::Mutate, PhaseOrder::Hooks)),
+        "on_llm_call_end" => Some((Phase::AfterLlmCall, PhaseEffect::Mutate, PhaseOrder::Hooks)),
+        _ => unreachable!("aep_to_core_event_type accepted an unmapped subscription"),
+    }
+}
+
+fn aep_subscription_has_middleware_adapter(aep_name: &str) -> bool {
+    matches!(
+        aep_name,
+        "before_tool_call"
+            | "after_tool_call"
+            | "on_agent_start"
+            | "on_agent_end"
+            | "on_user_message"
+            | "on_llm_call_start"
+            | "on_llm_call_end"
+    )
 }
 
 /// Walk each directory in `dirs` (in order), parse every
@@ -240,10 +297,8 @@ pub(crate) fn aep_to_core_event_type(aep_name: &str) -> Option<&'static str> {
 /// plugin. Broken plugins log a warning and are skipped — one rotten
 /// file never breaks the whole loader. Duplicate plugin names across
 /// dirs keep the first occurrence (first-wins).
-async fn scan_and_start(
-    dirs: &[PathBuf],
-) -> Result<Vec<Arc<RemoteExtensionProxy>>, LoaderError> {
-    let mut plugins: Vec<Arc<RemoteExtensionProxy>> = Vec::new();
+async fn scan_and_start(dirs: &[PathBuf]) -> Result<Vec<Arc<RemotePluginProxy>>, LoaderError> {
+    let mut plugins: Vec<Arc<RemotePluginProxy>> = Vec::new();
     let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for dir in dirs {
@@ -255,7 +310,7 @@ async fn scan_and_start(
 
 async fn scan_one_dir(
     dir: &Path,
-    plugins: &mut Vec<Arc<RemoteExtensionProxy>>,
+    plugins: &mut Vec<Arc<RemotePluginProxy>>,
     seen_names: &mut std::collections::HashSet<String>,
 ) -> Result<(), LoaderError> {
     if !dir.exists() {
@@ -263,27 +318,7 @@ async fn scan_one_dir(
         return Ok(());
     }
 
-    let mut entries = tokio::fs::read_dir(dir)
-        .await
-        .map_err(LoaderError::Io)?;
-
-    while let Some(entry) = entries.next_entry().await.map_err(LoaderError::Io)? {
-        let plugin_dir = entry.path();
-        let file_type = match entry.file_type().await {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!(
-                    path = %plugin_dir.display(),
-                    error = %e,
-                    "could not stat entry, skipping"
-                );
-                continue;
-            }
-        };
-        if !file_type.is_dir() {
-            continue;
-        }
-
+    for plugin_dir in plugin_dirs_in_dir(dir).await? {
         let manifest_path = plugin_dir.join("alva.toml");
         if !manifest_path.exists() {
             tracing::debug!(
@@ -328,7 +363,7 @@ async fn scan_one_dir(
             continue;
         }
 
-        match RemoteExtensionProxy::start(plugin_dir.clone(), manifest).await {
+        match RemotePluginProxy::start(plugin_dir.clone(), manifest).await {
             Ok(proxy) => {
                 tracing::info!(
                     plugin = %plugin_name,
@@ -350,6 +385,38 @@ async fn scan_one_dir(
     }
 
     Ok(())
+}
+
+async fn plugin_dirs_in_dir(dir: &Path) -> Result<Vec<PathBuf>, LoaderError> {
+    let mut entries = tokio::fs::read_dir(dir).await.map_err(LoaderError::Io)?;
+    let mut plugin_dirs = Vec::new();
+    while let Some(entry) = entries.next_entry().await.map_err(LoaderError::Io)? {
+        let plugin_dir = entry.path();
+        let file_type = match entry.file_type().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    path = %plugin_dir.display(),
+                    error = %e,
+                    "could not stat entry, skipping"
+                );
+                continue;
+            }
+        };
+        if file_type.is_dir() {
+            plugin_dirs.push(plugin_dir);
+        }
+    }
+    Ok(sort_plugin_dirs(plugin_dirs))
+}
+
+fn sort_plugin_dirs(mut dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    dirs.sort_by(|a, b| {
+        let a_name = a.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let b_name = b.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        a_name.cmp(b_name).then_with(|| a.cmp(b))
+    });
+    dirs
 }
 
 // ===========================================================
@@ -380,17 +447,17 @@ pub async fn discover_plugins(dirs: &[PathBuf]) -> Vec<DiscoveredPlugin> {
         if !dir.exists() {
             continue;
         }
-        let Ok(mut entries) = tokio::fs::read_dir(dir).await else { continue };
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let plugin_dir = entry.path();
-            if !entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
-                continue;
-            }
+        let Ok(plugin_dirs) = plugin_dirs_in_dir(dir).await else {
+            continue;
+        };
+        for plugin_dir in plugin_dirs {
             let manifest_path = plugin_dir.join("alva.toml");
             if !manifest_path.exists() {
                 continue;
             }
-            let Ok(s) = tokio::fs::read_to_string(&manifest_path).await else { continue };
+            let Ok(s) = tokio::fs::read_to_string(&manifest_path).await else {
+                continue;
+            };
             let Ok(manifest) = toml::from_str::<PluginManifest>(&s) else {
                 tracing::warn!(
                     path = %manifest_path.display(),
@@ -398,7 +465,10 @@ pub async fn discover_plugins(dirs: &[PathBuf]) -> Vec<DiscoveredPlugin> {
                 );
                 continue;
             };
-            out.push(DiscoveredPlugin { dir: plugin_dir, manifest });
+            out.push(DiscoveredPlugin {
+                dir: plugin_dir,
+                manifest,
+            });
         }
     }
     out
@@ -406,11 +476,11 @@ pub async fn discover_plugins(dirs: &[PathBuf]) -> Vec<DiscoveredPlugin> {
 
 /// Start a single plugin from its directory (containing `alva.toml`
 /// + entry file). Used by CLI tools like `alva plugins exec` that
-/// need one plugin running without the full Extension lifecycle.
+/// need one plugin running without the full loader lifecycle.
 ///
-/// Returns the running [`RemoteExtensionProxy`] — caller is
+/// Returns the running [`RemotePluginProxy`] — caller is
 /// responsible for `.shutdown()` when done.
-pub async fn start_plugin(plugin_dir: PathBuf) -> Result<Arc<RemoteExtensionProxy>, LoaderError> {
+pub async fn start_plugin(plugin_dir: PathBuf) -> Result<Arc<RemotePluginProxy>, LoaderError> {
     let manifest_path = plugin_dir.join("alva.toml");
     if !manifest_path.exists() {
         return Err(LoaderError::Manifest(format!(
@@ -423,7 +493,7 @@ pub async fn start_plugin(plugin_dir: PathBuf) -> Result<Arc<RemoteExtensionProx
         .map_err(LoaderError::Io)?;
     let manifest: PluginManifest = toml::from_str(&manifest_str)
         .map_err(|e| LoaderError::Manifest(format!("parse {}: {e}", manifest_path.display())))?;
-    let proxy = RemoteExtensionProxy::start(plugin_dir, manifest).await?;
+    let proxy = RemotePluginProxy::start(plugin_dir, manifest).await?;
     Ok(Arc::new(proxy))
 }
 
@@ -452,7 +522,7 @@ mod tests {
     //! LoaderError contracts — 3 tests covering 3 distinct contracts.
     //!
     //! 1. **Subscription-name recognition**: `aep_to_core_event_type`
-    //!    is what the `AepBridgeMiddleware` uses to recognise (and warn
+    //!    is what the loader uses to recognise (and warn
     //!    about) subscription names. Two non-obvious asymmetries
     //!    distinguish it from a naïve identity / strip-prefix:
     //!    - `on_agent_*` → `agent_*` (drop `on_` prefix; tool/* are
@@ -465,7 +535,7 @@ mod tests {
     //!    so future-protocol plugins don't break loading on names the
     //!    host doesn't know.
     //!
-    //!    One parametric test pins all 5 known mappings + 3 unknown
+    //!    One parametric test pins all 7 known mappings + 2 unknown
     //!    cases in one pass.
     //!
     //! 2. **LoaderError wrapped Display chain-through**: only the
@@ -484,22 +554,40 @@ mod tests {
 
     #[test]
     fn aep_to_core_event_type_maps_each_wire_name_per_table() {
-        // Table-driven over 5 known mappings + 3 unknown/edge cases.
+        // Table-driven over 7 known mappings + 2 unknown/edge cases.
         // The "drops on_ prefix for agent_*" + "on_user_message →
         // input (NOT user_message)" asymmetries are the load-bearing
         // pins documented in the mod docstring; each row has a label
         // so panic output names the broken contract.
         let cases: &[(&str, Option<&str>, &str)] = &[
             // ── symmetric (no on_ prefix to strip)
-            ("before_tool_call", Some("before_tool_call"), "symmetric tool call"),
-            ("after_tool_call", Some("after_tool_call"), "symmetric tool call"),
+            (
+                "before_tool_call",
+                Some("before_tool_call"),
+                "symmetric tool call",
+            ),
+            (
+                "after_tool_call",
+                Some("after_tool_call"),
+                "symmetric tool call",
+            ),
             // ── drops on_ prefix
             ("on_agent_start", Some("agent_start"), "on_ prefix dropped"),
             ("on_agent_end", Some("agent_end"), "on_ prefix dropped"),
             // ── CRITICAL ASYMMETRY: NOT a naïve strip_prefix("on_")
-            ("on_user_message", Some("input"), "on_user_message → input (NOT user_message)"),
+            (
+                "on_user_message",
+                Some("input"),
+                "on_user_message → input (NOT user_message)",
+            ),
+            // ── LLM hooks are now first-class phase subscriptions.
+            (
+                "on_llm_call_start",
+                Some("llm_call_start"),
+                "llm start phase",
+            ),
+            ("on_llm_call_end", Some("llm_call_end"), "llm end phase"),
             // ── forward-compat: unknown names return None
-            ("on_llm_call_start", None, "future-protocol name → None"),
             ("totally_made_up_event", None, "unknown name → None"),
             ("", None, "empty string → None"),
         ];
@@ -510,6 +598,40 @@ mod tests {
                 "case {label:?} failed for wire name {wire:?}"
             );
         }
+    }
+
+    #[test]
+    fn llm_subscriptions_are_executable_phase_handlers() {
+        assert!(aep_subscription_has_middleware_adapter("on_llm_call_start"));
+        assert!(aep_subscription_has_middleware_adapter("on_llm_call_end"));
+    }
+
+    #[test]
+    fn after_tool_call_subscription_is_marked_mutating() {
+        let (_, effect, _) =
+            aep_subscription_phase("after_tool_call").expect("after_tool_call phase");
+        assert_eq!(effect, PhaseEffect::Mutate);
+    }
+
+    #[test]
+    fn before_tool_call_subscription_is_marked_wrapping() {
+        let (_, effect, _) =
+            aep_subscription_phase("before_tool_call").expect("before_tool_call phase");
+        assert_eq!(effect, PhaseEffect::Wrap);
+    }
+
+    #[test]
+    fn plugin_dirs_are_sorted_by_directory_name() {
+        let sorted = sort_plugin_dirs(vec![
+            PathBuf::from("/extensions/zeta"),
+            PathBuf::from("/extensions/alpha"),
+            PathBuf::from("/extensions/beta"),
+        ]);
+        let names: Vec<_> = sorted
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["alpha", "beta", "zeta"]);
     }
 
     #[test]

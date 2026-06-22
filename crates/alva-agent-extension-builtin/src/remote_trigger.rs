@@ -63,19 +63,16 @@ impl Tool for RemoteTriggerTool {
         input: Value,
         _ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
+        let params: Input = serde_json::from_value(input).map_err(|e| AgentError::ToolError {
+            tool_name: self.name().into(),
+            message: e.to_string(),
+        })?;
 
         match params.action.as_str() {
-            "list" => {
-                Ok(ToolOutput::text(
-                    "No remote triggers configured. \
-                     Remote trigger management is not yet wired to the runtime."
-                ))
-            }
+            "list" => Ok(ToolOutput::text(
+                "No remote triggers configured. \
+                     Remote trigger management is not yet wired to the runtime.",
+            )),
             "get" => {
                 let id = params.trigger_id.ok_or_else(|| AgentError::ToolError {
                     tool_name: self.name().into(),
@@ -90,7 +87,8 @@ impl Tool for RemoteTriggerTool {
                 let body = params.body.unwrap_or(json!({}));
                 let trigger_id = format!(
                     "trigger-{}",
-                    &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::RemoteAgent)[1..9]
+                    &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::RemoteAgent)
+                        [1..9]
                 );
                 Ok(ToolOutput::text(format!(
                     "Remote trigger created.\n  ID: {}\n  Config: {}",
@@ -119,12 +117,10 @@ impl Tool for RemoteTriggerTool {
                     id
                 )))
             }
-            other => {
-                Ok(ToolOutput::error(format!(
-                    "Invalid action '{}'. Must be list, get, create, update, or run.",
-                    other
-                )))
-            }
+            other => Ok(ToolOutput::error(format!(
+                "Invalid action '{}'. Must be list, get, create, update, or run.",
+                other
+            ))),
         }
     }
 }
@@ -168,8 +164,14 @@ mod tests {
 
         assert!(!out.is_error);
         let text = out.model_text();
-        assert!(text.contains("No remote triggers configured"), "got: {text}");
-        assert!(text.contains("not yet wired"), "stub disclosure missing: {text}");
+        assert!(
+            text.contains("No remote triggers configured"),
+            "got: {text}"
+        );
+        assert!(
+            text.contains("not yet wired"),
+            "stub disclosure missing: {text}"
+        );
     }
 
     #[tokio::test]
@@ -185,7 +187,10 @@ mod tests {
 
         let text = out.model_text();
         assert!(text.contains("trigger-abc12345"), "id missing: {text}");
-        assert!(text.contains("not yet wired"), "stub disclosure missing: {text}");
+        assert!(
+            text.contains("not yet wired"),
+            "stub disclosure missing: {text}"
+        );
     }
 
     #[tokio::test]
@@ -196,7 +201,10 @@ mod tests {
             .await
             .expect_err("get without trigger_id should error");
 
-        assert!(format!("{err}").contains("trigger_id"), "expected trigger_id in error: {err}");
+        assert!(
+            format!("{err}").contains("trigger_id"),
+            "expected trigger_id in error: {err}"
+        );
     }
 
     /// Combined coverage: create accepts an optional body (omit OR pass an
@@ -223,21 +231,25 @@ mod tests {
             .execute(json!({ "action": "create" }), &ctx())
             .await
             .expect("create without body should succeed (defaults to {})");
-        assert!(out2.model_text().contains("trigger-"), "id prefix missing on no-body: {}", out2.model_text());
+        assert!(
+            out2.model_text().contains("trigger-"),
+            "id prefix missing on no-body: {}",
+            out2.model_text()
+        );
     }
 
     #[tokio::test]
     async fn update_without_trigger_id_errors() {
         let tool = RemoteTriggerTool;
         let err = tool
-            .execute(
-                json!({ "action": "update", "body": { "x": 1 } }),
-                &ctx(),
-            )
+            .execute(json!({ "action": "update", "body": { "x": 1 } }), &ctx())
             .await
             .expect_err("update without trigger_id should error");
 
-        assert!(format!("{err}").contains("trigger_id"), "expected trigger_id in error: {err}");
+        assert!(
+            format!("{err}").contains("trigger_id"),
+            "expected trigger_id in error: {err}"
+        );
     }
 
     #[tokio::test]
@@ -248,7 +260,10 @@ mod tests {
             .await
             .expect_err("run without trigger_id should error");
 
-        assert!(format!("{err}").contains("trigger_id"), "expected trigger_id in error: {err}");
+        assert!(
+            format!("{err}").contains("trigger_id"),
+            "expected trigger_id in error: {err}"
+        );
     }
 
     #[tokio::test]

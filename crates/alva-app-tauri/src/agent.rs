@@ -82,8 +82,7 @@ pub struct AppState {
     /// answers (or by the drain task on agent rebuild — receiver dies and
     /// pending entries are stale, so we clear them when a new agent
     /// starts to avoid ghost prompts).
-    pub pending_approvals:
-        Arc<RwLock<std::collections::HashMap<String, PendingApproval>>>,
+    pub pending_approvals: Arc<RwLock<std::collections::HashMap<String, PendingApproval>>>,
     /// Abort handle for an embedded gateway instance started via
     /// `start_gateway`. `None` when no gateway is running.
     pub gateway: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
@@ -93,8 +92,7 @@ impl AppState {
     pub fn new(tokio: Handle) -> Result<Self, String> {
         let home = workspace_home()?;
         let alva_dir = home.join(".alva");
-        std::fs::create_dir_all(&alva_dir)
-            .map_err(|e| format!("create ~/.alva: {e}"))?;
+        std::fs::create_dir_all(&alva_dir).map_err(|e| format!("create ~/.alva: {e}"))?;
         let db_path = alva_dir.join("sessions.db");
         let manager = SqliteEvalSessionManager::open(db_path)?;
         // Registry shares the manager's connection — both write/read the
@@ -121,7 +119,9 @@ fn summary_to_session_info(s: SessionSummary, manager: &SqliteEvalSessionManager
     } else {
         s.preview
     };
-    let workspace_path = s.workspace_id.as_deref()
+    let workspace_path = s
+        .workspace_id
+        .as_deref()
         .and_then(|wid| manager.get_workspace(wid))
         .map(|ws| ws.path);
     SessionInfo {
@@ -148,8 +148,13 @@ fn link_workspace(manager: &SqliteEvalSessionManager, session_id: &str, path: &s
     let workspace_id = if let Some(existing) = manager.find_workspace_by_path(path) {
         existing.workspace_id
     } else {
-        let id = format!("ws-{:x}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+        let id = format!(
+            "ws-{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
         manager.upsert_workspace(&crate::sqlite_session::StoredWorkspace {
             workspace_id: id.clone(),
             path: path.to_string(),
@@ -488,10 +493,16 @@ fn default_plugin_state() -> HashMap<String, bool> {
 fn plugin_config_hash(plugins: &HashMap<String, bool>) -> String {
     let mut pairs: Vec<_> = plugins.iter().collect();
     pairs.sort_by_key(|(k, _)| (*k).clone());
-    let s: String = pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",");
+    let s: String = pairs
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(",");
     format!("{:x}", {
         let mut h: u64 = 0;
-        for b in s.bytes() { h = h.wrapping_mul(31).wrapping_add(b as u64); }
+        for b in s.bytes() {
+            h = h.wrapping_mul(31).wrapping_add(b as u64);
+        }
         h
     })
 }
@@ -506,7 +517,9 @@ pub async fn set_plugin_enabled(
     let session_id = session_id.ok_or("no active session")?;
     let mut config = state.session_manager.get_plugin_config(&session_id);
     config.insert(name, enabled);
-    state.session_manager.set_plugin_config(&session_id, &config);
+    state
+        .session_manager
+        .set_plugin_config(&session_id, &config);
     Ok(())
 }
 
@@ -547,8 +560,14 @@ fn tools_for_component(id: &str) -> Vec<PluginToolInfo> {
         "browser" => tools_from_preset(alva_app_extension_browser::browser_tools()),
         // Components whose tools aren't exposed as a static preset.
         "skills" => vec![
-            PluginToolInfo { name: "search_skills".into(), description: "搜索可用技能".into() },
-            PluginToolInfo { name: "use_skill".into(), description: "按名称激活技能".into() },
+            PluginToolInfo {
+                name: "search_skills".into(),
+                description: "搜索可用技能".into(),
+            },
+            PluginToolInfo {
+                name: "use_skill".into(),
+                description: "按名称激活技能".into(),
+            },
         ],
         "mcp" => vec![PluginToolInfo {
             name: "mcp_runtime".into(),
@@ -574,7 +593,11 @@ pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginInfo>,
         let sid = state.active_session_id.read().await.clone();
         if let Some(sid) = sid {
             let config = state.session_manager.get_plugin_config(&sid);
-            if config.is_empty() { None } else { Some(config) }
+            if config.is_empty() {
+                None
+            } else {
+                Some(config)
+            }
         } else {
             None
         }
@@ -647,13 +670,8 @@ pub async fn test_provider_connection(
         .base_url
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| default_base_url_for(&request.provider));
-    crate::provider_api::test_connection(
-        &request.provider,
-        &request.api_key,
-        &base,
-        &request.model,
-    )
-    .await
+    crate::provider_api::test_connection(&request.provider, &request.api_key, &base, &request.model)
+        .await
 }
 
 /// Open (or focus) the standalone Inspector window. The frontend is
@@ -670,16 +688,12 @@ pub async fn open_inspector_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        LABEL,
-        tauri::WebviewUrl::App("inspector.html".into()),
-    )
-    .title("Alva Inspector")
-    .inner_size(1280.0, 820.0)
-    .min_inner_size(800.0, 600.0)
-    .build()
-    .map_err(|e| format!("open inspector window: {e}"))?;
+    tauri::WebviewWindowBuilder::new(&app, LABEL, tauri::WebviewUrl::App("inspector.html".into()))
+        .title("Alva Inspector")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(800.0, 600.0)
+        .build()
+        .map_err(|e| format!("open inspector window: {e}"))?;
 
     Ok(())
 }
@@ -737,7 +751,10 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo
     let manager = state.session_manager.clone();
     let summaries = tokio::task::spawn_blocking(move || {
         let sessions = manager.list_sessions();
-        sessions.into_iter().map(|s| summary_to_session_info(s, &manager)).collect::<Vec<_>>()
+        sessions
+            .into_iter()
+            .map(|s| summary_to_session_info(s, &manager))
+            .collect::<Vec<_>>()
     })
     .await
     .map_err(|e| format!("list_sessions join: {e}"))?;
@@ -751,7 +768,9 @@ pub async fn create_session(state: State<'_, AppState>) -> Result<SessionInfo, S
     let now = now_ms();
 
     // Save default plugin config for this session
-    state.session_manager.set_plugin_config(&id, &default_plugin_state());
+    state
+        .session_manager
+        .set_plugin_config(&id, &default_plugin_state());
 
     // Auto-provision the default sandbox folder for this session and
     // persist it onto the sessions row so it survives restart + is visible
@@ -802,7 +821,9 @@ pub async fn switch_session(
     // continues the right thread. If the agent is not built yet, the swap
     // will happen inside ensure_agent on the first send_message.
     if let Some(agent) = state.agent.read().await.clone() {
-        agent.swap_session(session.clone() as Arc<dyn AgentSession>).await;
+        agent
+            .swap_session(session.clone() as Arc<dyn AgentSession>)
+            .await;
     }
 
     let agent_msgs = session.messages().await;
@@ -861,16 +882,13 @@ pub async fn set_session_workspace(
         .iter()
         .any(|m| m.event.event_type == "user" || m.event.event_type == "iteration_start");
     if has_started {
-        return Err(
-            "对话已开始,不能再修改工作目录。新建一个任务即可选择自己的路径。".into(),
-        );
+        return Err("对话已开始,不能再修改工作目录。新建一个任务即可选择自己的路径。".into());
     }
 
     // Make sure the directory exists — picker returns existing paths but
     // Rust-side we also create on custom selection so ~/.alva/workspaces
     // layout stays consistent.
-    std::fs::create_dir_all(&path)
-        .map_err(|e| format!("create workspace dir {path}: {e}"))?;
+    std::fs::create_dir_all(&path).map_err(|e| format!("create workspace dir {path}: {e}"))?;
 
     // Persist to db.
     {
@@ -896,23 +914,20 @@ pub async fn set_session_workspace(
 /// Ask the OS to open a session's workspace folder in the native file
 /// manager (Finder on macOS, Explorer on Windows, xdg-open on Linux).
 #[tauri::command]
-pub async fn open_session_workspace(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn open_session_workspace(state: State<'_, AppState>, id: String) -> Result<(), String> {
     // Look up the path from the db (source of truth) so newly-created or
     // just-switched sessions work even if the cache is stale.
     let manager = state.session_manager.clone();
     let target_id = id.clone();
-    let path: String = tokio::task::spawn_blocking(move || manager.get_session_workspace_path(&target_id))
-        .await
-        .map_err(|e| format!("join error: {e}"))?
-        .ok_or_else(|| format!("session {id} has no workspace set"))?;
+    let path: String =
+        tokio::task::spawn_blocking(move || manager.get_session_workspace_path(&target_id))
+            .await
+            .map_err(|e| format!("join error: {e}"))?
+            .ok_or_else(|| format!("session {id} has no workspace set"))?;
 
     // If somehow missing (user deleted externally), recreate to avoid a
     // confusing "no such directory" popup.
-    std::fs::create_dir_all(&path)
-        .map_err(|e| format!("ensure workspace dir {path}: {e}"))?;
+    std::fs::create_dir_all(&path).map_err(|e| format!("ensure workspace dir {path}: {e}"))?;
 
     opener::open(&path).map_err(|e| format!("open folder {path}: {e}"))?;
     Ok(())
@@ -984,10 +999,8 @@ pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<()
             .unwrap_or(false);
         if is_default {
             let to_remove = ws_path.clone();
-            let removed = tokio::task::spawn_blocking(move || {
-                std::fs::remove_dir_all(&to_remove)
-            })
-            .await;
+            let removed =
+                tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&to_remove)).await;
             match removed {
                 Ok(Ok(())) => tracing::info!(
                     session_id = %id,
@@ -1021,7 +1034,11 @@ pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<()
         // Pick the most recent remaining session from the db.
         let manager = state.session_manager.clone();
         let next: Option<String> = tokio::task::spawn_blocking(move || {
-            manager.list_sessions().into_iter().next().map(|s| s.session_id)
+            manager
+                .list_sessions()
+                .into_iter()
+                .next()
+                .map(|s| s.session_id)
         })
         .await
         .ok()
@@ -1155,12 +1172,11 @@ pub async fn send_message(
     {
         let manager = state.session_manager.clone();
         let sid = session_id.clone();
-        let workspace_from_db = tokio::task::spawn_blocking(move || {
-            manager.get_session_workspace_path(&sid)
-        })
-        .await
-        .ok()
-        .flatten();
+        let workspace_from_db =
+            tokio::task::spawn_blocking(move || manager.get_session_workspace_path(&sid))
+                .await
+                .ok()
+                .flatten();
         tracing::info!(
             session_id = %session_id,
             req_workspace = ?request.workspace,
@@ -1207,9 +1223,7 @@ pub async fn send_message(
         .as_deref()
         .and_then(alva_kernel_abi::ReasoningEffort::parse);
     agent.set_reasoning_effort(effort).await;
-    agent
-        .set_extra_body(request.provider_options.clone())
-        .await;
+    agent.set_extra_body(request.provider_options.clone()).await;
     agent
         .set_disable_tools(request.disable_tools.unwrap_or(false))
         .await;
@@ -1315,15 +1329,10 @@ async fn append_config_snapshot_if_needed(
     // + Environment block) — NOT the user-typed string. Inspector uses
     // this to show the real cache boundaries.
     let system_prompt_segments = agent.system_prompt_segments().await;
-    let extension_names = vec![
-        "core",
-        "shell",
-        "web",
-        "loop-detection",
-        "dangling-tool-call",
-        "tool-timeout",
-        "compaction",
-    ];
+    let assembly = agent.assembly_snapshot();
+    let plugin_names = agent.plugin_names();
+    let middleware_names = agent.middleware_names();
+    let direct_middleware_names = assembly.direct_middleware_names.clone();
 
     let snapshot = serde_json::json!({
         "type": "eval_config_snapshot",
@@ -1333,8 +1342,10 @@ async fn append_config_snapshot_if_needed(
         "tool_definitions": tool_definitions,
         "skill_names": request.skill_names.clone().unwrap_or_default(),
         "max_iterations": 20u32,
-        "extension_names": extension_names,
-        "middleware_names": Vec::<String>::new(),
+        "plugin_names": plugin_names,
+        "plugin_assembly": assembly.plugins,
+        "middleware_names": middleware_names,
+        "direct_middleware_names": direct_middleware_names,
     });
 
     let event = alva_kernel_abi::agent_session::SessionEvent::system(snapshot);
@@ -1380,7 +1391,11 @@ async fn ensure_agent(
         let sid = state.active_session_id.read().await.clone();
         if let Some(sid) = sid {
             let config = state.session_manager.get_plugin_config(&sid);
-            if config.is_empty() { default_plugin_state() } else { config }
+            if config.is_empty() {
+                default_plugin_state()
+            } else {
+                config
+            }
         } else {
             default_plugin_state()
         }
@@ -1427,9 +1442,8 @@ async fn ensure_agent(
         .unwrap_or_else(|| "You are Alva, a helpful coding assistant.".to_string());
 
     let paths = AlvaPaths::new(&workspace);
-    let on = |name: &str, default: bool| -> bool {
-        plugin_config.get(name).copied().unwrap_or(default)
-    };
+    let on =
+        |name: &str, default: bool| -> bool { plugin_config.get(name).copied().unwrap_or(default) };
 
     let mut builder = BaseAgent::builder();
     builder = builder
@@ -1545,17 +1559,23 @@ fn build_provider_config(req: &SendMessageRequest) -> Result<ProviderConfig, Str
         _ => "OPENAI_API_KEY",
     };
 
-    let file_provider = alva_app_core::config::load()
-        .and_then(|cfg| cfg.providers.get(&req.provider).cloned());
+    let file_provider =
+        alva_app_core::config::load().and_then(|cfg| cfg.providers.get(&req.provider).cloned());
 
     let api_key = req
         .api_key
         .clone()
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var(provider_env_key).ok().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            std::env::var(provider_env_key)
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
         .or_else(|| {
             if req.provider == "gemini" {
-                std::env::var("GOOGLE_API_KEY").ok().filter(|s| !s.is_empty())
+                std::env::var("GOOGLE_API_KEY")
+                    .ok()
+                    .filter(|s| !s.is_empty())
             } else {
                 None
             }
@@ -1773,10 +1793,7 @@ fn now_ms() -> u64 {
 /// and patch `result` + `is_error` when we later see the matching
 /// `ToolResult` block. That preserves 1:1 ordering *and* co-locates the
 /// result with its call in the output list.
-fn messages_to_chat_entries(
-    msgs: Vec<AgentMessage>,
-    run_errors: Vec<String>,
-) -> Vec<ChatEntry> {
+fn messages_to_chat_entries(msgs: Vec<AgentMessage>, run_errors: Vec<String>) -> Vec<ChatEntry> {
     let mut entries: Vec<ChatEntry> = Vec::new();
     let mut tool_call_indices: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
@@ -1827,7 +1844,9 @@ fn messages_to_chat_entries(
                         .join("\n");
                     if let Some(&idx) = tool_call_indices.get(&id) {
                         if let Some(ChatEntry::ToolCall {
-                            result, is_error: e, ..
+                            result,
+                            is_error: e,
+                            ..
                         }) = entries.get_mut(idx)
                         {
                             *result = Some(flat);

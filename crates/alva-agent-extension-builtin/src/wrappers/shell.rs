@@ -7,7 +7,13 @@ pub struct ShellPlugin;
 
 #[async_trait]
 impl Plugin for ShellPlugin {
-    fn name(&self) -> &str { "shell" }
-    fn description(&self) -> &str { "Shell execution" }
-    async fn register(&self, r: &Registrar) { r.tools(crate::tool_presets::shell()); }
+    fn name(&self) -> &str {
+        "shell"
+    }
+    fn description(&self) -> &str {
+        "Shell execution"
+    }
+    async fn register(&self, r: &Registrar) {
+        r.tools(crate::tool_presets::shell());
+    }
 }

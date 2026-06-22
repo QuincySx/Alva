@@ -3,9 +3,7 @@
 // POS:    Creates a multi-agent team with a unique name.
 //! team_create — create a multi-agent team
 
-use alva_kernel_abi::{
-    AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput,
-};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -114,8 +112,7 @@ mod tests {
     fn ctx_with_store() -> (TestContext, Arc<InMemoryTeamStore>) {
         let store = Arc::new(InMemoryTeamStore::new());
         let bus = Bus::new();
-        bus.writer()
-            .provide::<dyn TeamService>(store.clone());
+        bus.writer().provide::<dyn TeamService>(store.clone());
         (
             TestContext {
                 cancel: CancellationToken::new(),

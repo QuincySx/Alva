@@ -32,13 +32,38 @@ pub struct MessageBubble {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum BubbleRole { User, Assistant, System, Error }
+pub enum BubbleRole {
+    User,
+    Assistant,
+    System,
+    Error,
+}
 
 impl MessageBubble {
-    pub fn user(text: impl Into<String>) -> Self { Self { role: BubbleRole::User, text: text.into() } }
-    pub fn assistant(text: impl Into<String>) -> Self { Self { role: BubbleRole::Assistant, text: text.into() } }
-    pub fn system(text: impl Into<String>) -> Self { Self { role: BubbleRole::System, text: text.into() } }
-    pub fn error(text: impl Into<String>) -> Self { Self { role: BubbleRole::Error, text: text.into() } }
+    pub fn user(text: impl Into<String>) -> Self {
+        Self {
+            role: BubbleRole::User,
+            text: text.into(),
+        }
+    }
+    pub fn assistant(text: impl Into<String>) -> Self {
+        Self {
+            role: BubbleRole::Assistant,
+            text: text.into(),
+        }
+    }
+    pub fn system(text: impl Into<String>) -> Self {
+        Self {
+            role: BubbleRole::System,
+            text: text.into(),
+        }
+    }
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            role: BubbleRole::Error,
+            text: text.into(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -55,7 +80,12 @@ pub struct ConversationView {
 
 impl ConversationView {
     pub fn new() -> Self {
-        Self { items: Vec::new(), scroll: 0, auto_stick: true, focused: None }
+        Self {
+            items: Vec::new(),
+            scroll: 0,
+            auto_stick: true,
+            focused: None,
+        }
     }
 
     pub fn push(&mut self, item: ConversationItem) {
@@ -66,18 +96,26 @@ impl ConversationView {
         }
     }
 
-    pub fn items_mut(&mut self) -> &mut Vec<ConversationItem> { &mut self.items }
-    pub fn items(&self) -> &[ConversationItem] { &self.items }
+    pub fn items_mut(&mut self) -> &mut Vec<ConversationItem> {
+        &mut self.items
+    }
+    pub fn items(&self) -> &[ConversationItem] {
+        &self.items
+    }
 
     pub fn focus_next(&mut self) {
-        if self.items.is_empty() { return; }
+        if self.items.is_empty() {
+            return;
+        }
         self.focused = Some(match self.focused {
             None => 0,
             Some(i) => (i + 1) % self.items.len(),
         });
     }
     pub fn focus_prev(&mut self) {
-        if self.items.is_empty() { return; }
+        if self.items.is_empty() {
+            return;
+        }
         self.focused = Some(match self.focused {
             None => self.items.len() - 1,
             Some(0) => self.items.len() - 1,
@@ -101,7 +139,9 @@ impl ConversationView {
     pub fn scroll_down(&mut self, n: u16, content_h: u16, view_h: u16) {
         let max = content_h.saturating_sub(view_h);
         self.scroll = (self.scroll + n).min(max);
-        if self.scroll >= max { self.auto_stick = true; }
+        if self.scroll >= max {
+            self.auto_stick = true;
+        }
     }
     pub fn stick_to_bottom(&mut self) {
         self.auto_stick = true;
@@ -145,12 +185,21 @@ impl ConversationView {
             }
             // Partially visible from top: clip via skip.
             let visible_h = (h.saturating_sub(skip)).min(view_bottom.saturating_sub(y));
-            if visible_h == 0 { break; }
-            let rect = Rect { x: inner.x, y, width: inner.width, height: visible_h };
+            if visible_h == 0 {
+                break;
+            }
+            let rect = Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: visible_h,
+            };
             render_item(item, frame, rect, theme, self.focused == Some(i));
             y = y.saturating_add(visible_h).saturating_add(1);
             skip = 0;
-            if y >= view_bottom { break; }
+            if y >= view_bottom {
+                break;
+            }
         }
 
         // Scrollbar on the right edge of the conversation area.
@@ -158,26 +207,46 @@ impl ConversationView {
             let mut sb_state = ScrollbarState::new(total as usize)
                 .position(self.scroll as usize)
                 .viewport_content_length(inner.height as usize);
-            let sb = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .style(theme.text_dim);
+            let sb = Scrollbar::new(ScrollbarOrientation::VerticalRight).style(theme.text_dim);
             frame.render_stateful_widget(sb, area, &mut sb_state);
         }
     }
 
     pub fn handle_event(&mut self, event: Event, view_h: u16) -> bool {
-        let Event::Key(KeyEvent { code, .. }) = event else { return false; };
+        let Event::Key(KeyEvent { code, .. }) = event else {
+            return false;
+        };
         match code {
-            KeyCode::Up    => { self.focus_prev(); true }
-            KeyCode::Down  => { self.focus_next(); true }
-            KeyCode::Enter => { self.toggle_focused(); true }
-            KeyCode::PageUp => { self.scroll_up(view_h); true }
+            KeyCode::Up => {
+                self.focus_prev();
+                true
+            }
+            KeyCode::Down => {
+                self.focus_next();
+                true
+            }
+            KeyCode::Enter => {
+                self.toggle_focused();
+                true
+            }
+            KeyCode::PageUp => {
+                self.scroll_up(view_h);
+                true
+            }
             KeyCode::PageDown => {
                 let total = self.content_height(80);
                 self.scroll_down(view_h, total, view_h);
                 true
             }
-            KeyCode::Home => { self.scroll = 0; self.auto_stick = false; true }
-            KeyCode::End  => { self.stick_to_bottom(); true }
+            KeyCode::Home => {
+                self.scroll = 0;
+                self.auto_stick = false;
+                true
+            }
+            KeyCode::End => {
+                self.stick_to_bottom();
+                true
+            }
             _ => false,
         }
     }
@@ -210,8 +279,8 @@ mod tests {
     //! `::new()` sets it to true — a latent footgun if callers
     //! ever start using `default()`.
     use super::*;
-    use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
     use crate::ui::components::collapsible::CollapsibleBlock;
+    use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
     use ratatui::text::Text;
 
     fn key(code: KeyCode) -> Event {
@@ -291,9 +360,9 @@ mod tests {
         // (a flagged behavior pin).
         v_new.stick_to_bottom(); // already on
         v_default.stick_to_bottom(); // turns it on
-        // No assertion needed beyond "both compile + don't panic" —
-        // this test exists to document the divergence so future
-        // refactors don't silently unify them.
+                                     // No assertion needed beyond "both compile + don't panic" —
+                                     // this test exists to document the divergence so future
+                                     // refactors don't silently unify them.
     }
 
     // -- push + focus ------------------------------------------------------
@@ -340,7 +409,7 @@ mod tests {
         // After first push: focused=0. focus_next → 1. focus_next → 0.
         v.focus_next(); // 0 → 1
         v.focus_next(); // 1 → 0
-        // Cannot directly read focused; but no panic = wrap worked.
+                        // Cannot directly read focused; but no panic = wrap worked.
     }
 
     #[test]
@@ -467,13 +536,15 @@ fn render_item(
         }
         ConversationItem::Message(m) => {
             let (label, style) = match m.role {
-                BubbleRole::User      => ("you",    theme.user_text),
-                BubbleRole::Assistant => ("alva",   theme.assistant_text),
-                BubbleRole::System    => ("system", theme.system_text),
-                BubbleRole::Error     => ("error",  theme.error_text),
+                BubbleRole::User => ("you", theme.user_text),
+                BubbleRole::Assistant => ("alva", theme.assistant_text),
+                BubbleRole::System => ("system", theme.system_text),
+                BubbleRole::Error => ("error", theme.error_text),
             };
             let mut header_style = style;
-            if focused { header_style = header_style.add_modifier(Modifier::REVERSED); }
+            if focused {
+                header_style = header_style.add_modifier(Modifier::REVERSED);
+            }
 
             let header = Line::from(Span::styled(format!(" {} ", label), header_style));
             let body = Text::raw(m.text.clone());

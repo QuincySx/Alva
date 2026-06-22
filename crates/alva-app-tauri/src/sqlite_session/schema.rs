@@ -18,14 +18,16 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     // since dropping is destructive and a stray empty table is harmless.
 
     // -- Workspaces: directories the agent operates in ----------------------
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE IF NOT EXISTS workspaces (
             workspace_id TEXT PRIMARY KEY,
             path         TEXT NOT NULL UNIQUE,
             permissions  TEXT NOT NULL DEFAULT '{}', -- JSON: permission rules
             created_at   INTEGER NOT NULL
         );
-    ")?;
+    ",
+    )?;
 
     // -- Sessions: one per conversation -------------------------------------
     //
@@ -42,7 +44,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     // The two sets coexist on one row — splitting them would just JOIN every
     // read with no extra information. ALTER ADD COLUMN below backfills
     // existing DBs.
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE IF NOT EXISTS sessions (
             session_id        TEXT PRIMARY KEY,
             parent_session_id TEXT,
@@ -64,7 +67,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             stats_json        TEXT NOT NULL DEFAULT '{}',    -- ThreadStats
             usage_json        TEXT NOT NULL DEFAULT '{}'     -- ThreadUsage
         );
-    ")?;
+    ",
+    )?;
 
     // Backfill the new columns on existing databases. ADD COLUMN errors with
     // "duplicate column" if the column is already present — for an existing
@@ -100,7 +104,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     }
 
     // -- Events: the session event stream -----------------------------------
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE IF NOT EXISTS events (
             session_id    TEXT NOT NULL,
             seq           INTEGER NOT NULL,
@@ -116,17 +121,20 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_events_uuid ON events(uuid);
         CREATE INDEX IF NOT EXISTS idx_events_type ON events(session_id, event_type);
-    ")?;
+    ",
+    )?;
 
     // -- Snapshots: compressed session state for fast restore ----------------
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE IF NOT EXISTS snapshots (
             session_id TEXT PRIMARY KEY,
             data       BLOB NOT NULL,
             updated_at INTEGER NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
         );
-    ")?;
+    ",
+    )?;
 
     Ok(())
 }

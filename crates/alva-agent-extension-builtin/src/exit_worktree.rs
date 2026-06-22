@@ -57,11 +57,10 @@ impl Tool for ExitWorktreeTool {
         input: Value,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
+        let params: Input = serde_json::from_value(input).map_err(|e| AgentError::ToolError {
+            tool_name: self.name().into(),
+            message: e.to_string(),
+        })?;
 
         match params.action.as_str() {
             "keep" => {
@@ -262,7 +261,10 @@ mod tests {
             .execute(json!({}), &ctx)
             .await
             .expect_err("missing 'action' should fail deserialisation");
-        assert!(err.to_string().contains("action"), "unexpected error: {err}");
+        assert!(
+            err.to_string().contains("action"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

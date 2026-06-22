@@ -1,34 +1,41 @@
-//! ExtensionHost — runtime container for extension middleware and commands.
+//! PluginHost — runtime container for plugin middleware and commands.
 
-use std::sync::Arc;
 use alva_kernel_abi::CancellationToken;
+use std::sync::Arc;
 
-/// Command registered by an extension (metadata only).
+use super::phase::PhaseContribution;
+
+/// Command registered by a plugin (metadata only).
 pub struct RegisteredCommand {
     pub name: String,
     pub description: String,
-    pub source_extension: String,
+    pub source_plugin: String,
 }
 
-/// Runtime container for extension middleware and commands.
-pub struct ExtensionHost {
+/// Runtime container for plugin middleware and commands.
+pub struct PluginHost {
     middlewares: Vec<Arc<dyn alva_kernel_core::middleware::Middleware>>,
+    phase_contributions: Vec<(String, PhaseContribution)>,
     commands: Vec<RegisteredCommand>,
     cancel_token: Option<Arc<std::sync::Mutex<CancellationToken>>>,
-    /// System-prompt fragments contributed by extensions during
-    /// `configure()`. Each entry is `(extension_name, layer, text)` in
+    /// System-prompt fragments contributed by plugins during
+    /// `register()`. Each entry is `(plugin_name, layer, text)` in
     /// the order it was appended. The builder drains the collection
     /// after configure/finalize and groups by layer when assembling the
     /// final prompt: stable layers (L0 / L1 / L3) form the cacheable
     /// prefix, RuntimeInject is appended last (volatile bucket).
-    system_prompt_additions:
-        Vec<(String, alva_kernel_abi::scope::context::ContextLayer, String)>,
+    system_prompt_additions: Vec<(
+        String,
+        alva_kernel_abi::scope::context::ContextLayer,
+        String,
+    )>,
 }
 
-impl ExtensionHost {
+impl PluginHost {
     pub fn new() -> Self {
         Self {
             middlewares: Vec::new(),
+            phase_contributions: Vec::new(),
             commands: Vec::new(),
             cancel_token: None,
             system_prompt_additions: Vec::new(),
@@ -37,6 +44,18 @@ impl ExtensionHost {
 
     pub fn register_middleware(&mut self, mw: Arc<dyn alva_kernel_core::middleware::Middleware>) {
         self.middlewares.push(mw);
+    }
+
+    pub fn register_phase_contribution(
+        &mut self,
+        plugin_name: String,
+        contribution: PhaseContribution,
+    ) {
+        self.phase_contributions.push((plugin_name, contribution));
+    }
+
+    pub fn take_phase_contributions(&mut self) -> Vec<(String, PhaseContribution)> {
+        std::mem::take(&mut self.phase_contributions)
     }
 
     /// Take all registered middleware (drains the collection).
@@ -48,24 +67,28 @@ impl ExtensionHost {
         self.commands.push(cmd);
     }
 
-    /// Record a system-prompt fragment contributed by an extension at
+    /// Record a system-prompt fragment contributed by a plugin at
     /// a given context layer. The builder uses the layer to decide
     /// whether the fragment ends up in the stable (cacheable) bucket
     /// or the dynamic (per-turn) tail.
     pub fn append_system_prompt(
         &mut self,
-        extension_name: String,
+        plugin_name: String,
         layer: alva_kernel_abi::scope::context::ContextLayer,
         text: String,
     ) {
         self.system_prompt_additions
-            .push((extension_name, layer, text));
+            .push((plugin_name, layer, text));
     }
 
     /// Take all accumulated system-prompt fragments (drains the collection).
     pub fn take_system_prompt_additions(
         &mut self,
-    ) -> Vec<(String, alva_kernel_abi::scope::context::ContextLayer, String)> {
+    ) -> Vec<(
+        String,
+        alva_kernel_abi::scope::context::ContextLayer,
+        String,
+    )> {
         std::mem::take(&mut self.system_prompt_additions)
     }
 
@@ -78,7 +101,7 @@ impl ExtensionHost {
     }
 }
 
-impl Default for ExtensionHost {
+impl Default for PluginHost {
     fn default() -> Self {
         Self::new()
     }

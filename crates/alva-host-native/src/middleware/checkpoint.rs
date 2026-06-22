@@ -9,10 +9,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use alva_kernel_abi::{bus_cap, BusHandle, ToolCall};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::shared::MiddlewarePriority;
 use alva_kernel_core::state::AgentState;
-use alva_kernel_abi::{bus_cap, BusHandle, ToolCall};
 use async_trait::async_trait;
 
 /// Callback trait for checkpoint creation — implemented by CLI or app.
@@ -114,7 +114,11 @@ impl Middleware for CheckpointMiddleware {
             return Ok(());
         }
 
-        if let Some(cb) = self.bus.get().and_then(|b| b.get::<CheckpointCallbackRef>()) {
+        if let Some(cb) = self
+            .bus
+            .get()
+            .and_then(|b| b.get::<CheckpointCallbackRef>())
+        {
             let mut paths = Vec::new();
 
             // Extract file path from tool arguments
@@ -158,10 +162,10 @@ impl Middleware for CheckpointMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_core::shared::Extensions;
     use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::tool::Tool;
     use alva_kernel_abi::{AgentError, Bus, ToolOutput};
+    use alva_kernel_core::shared::Extensions;
     use std::sync::{Arc, Mutex as StdMutex};
 
     fn make_state_with_tools(tools: Vec<Arc<dyn Tool>>) -> AgentState {
@@ -186,7 +190,8 @@ mod tests {
                 _: &[Message],
                 _: &[&dyn Tool],
                 _: &ModelConfig,
-            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>>
+            {
                 Box::pin(tokio_stream::empty())
             }
             fn model_id(&self) -> &str {
@@ -205,11 +210,23 @@ mod tests {
     struct ReadOnlyTool(&'static str);
     #[async_trait]
     impl Tool for ReadOnlyTool {
-        fn name(&self) -> &str { self.0 }
-        fn description(&self) -> &str { "read-only" }
-        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
-        fn is_read_only(&self, _: &serde_json::Value) -> bool { true }
-        async fn execute(&self, _: serde_json::Value, _: &dyn alva_kernel_abi::ToolExecutionContext) -> Result<ToolOutput, AgentError> {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "read-only"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn is_read_only(&self, _: &serde_json::Value) -> bool {
+            true
+        }
+        async fn execute(
+            &self,
+            _: serde_json::Value,
+            _: &dyn alva_kernel_abi::ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
             Ok(ToolOutput::text("ok"))
         }
     }
@@ -217,10 +234,20 @@ mod tests {
     struct WriteTool(&'static str);
     #[async_trait]
     impl Tool for WriteTool {
-        fn name(&self) -> &str { self.0 }
-        fn description(&self) -> &str { "write" }
-        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
-        async fn execute(&self, _: serde_json::Value, _: &dyn alva_kernel_abi::ToolExecutionContext) -> Result<ToolOutput, AgentError> {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "write"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(
+            &self,
+            _: serde_json::Value,
+            _: &dyn alva_kernel_abi::ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
             Ok(ToolOutput::text("ok"))
         }
     }

@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::provider::ProviderError;
+use async_trait::async_trait;
 
 /// Abstraction for obtaining API credentials.
 ///

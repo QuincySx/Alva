@@ -44,8 +44,8 @@ pub struct PendingMessage {
 
 /// Bus Capability: out-of-band user-message queue for mid-loop injection.
 ///
-/// **Provider**: `PendingPlugin::configure` — opt-in; the outer app
-/// registers this extension (see `alva-app-core/src/extension/pending.rs`).
+/// **Provider**: `PendingPlugin::register` — opt-in; the outer app
+/// registers this plugin (see `alva-app-core/src/extension/pending.rs`).
 /// **Consumers**: outer harness (CLI / UI) that wants to inject a
 /// typed-ahead message while the agent is running;
 /// `PendingMiddleware::before_llm_call` drains the queue into the
@@ -193,10 +193,7 @@ impl Middleware for PendingMiddleware {
             messages.push(Message::user(&m.text));
             state
                 .session
-                .append_message(
-                    AgentMessage::Standard(Message::user(&m.text)),
-                    None,
-                )
+                .append_message(AgentMessage::Standard(Message::user(&m.text)), None)
                 .await;
         }
         Ok(())
@@ -305,7 +302,10 @@ mod tests {
         let svc = PendingServiceImpl::new();
         let id = svc.add("x");
         let _ = svc.drain_unread();
-        assert!(!svc.cancel(&id), "cannot cancel a message that was already drained");
+        assert!(
+            !svc.cancel(&id),
+            "cannot cancel a message that was already drained"
+        );
     }
 
     #[test]

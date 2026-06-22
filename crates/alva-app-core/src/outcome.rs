@@ -296,11 +296,7 @@ pub trait OutcomeRegistry: Send + Sync {
     /// Patch. Fields set in the patch are written; others preserved.
     /// `updated_at` is bumped; if `patch.status` transitions to a
     /// terminal state and `completed_at` was `None`, it's set to "now".
-    async fn update(
-        &self,
-        outcome_id: &str,
-        patch: OutcomePatch,
-    ) -> Result<(), OutcomeError>;
+    async fn update(&self, outcome_id: &str, patch: OutcomePatch) -> Result<(), OutcomeError>;
 
     /// Atomic helper: bumps `current_iteration` by 1, stores `score`
     /// and `explanation`, transitions status based on `passed`:
@@ -317,11 +313,7 @@ pub trait OutcomeRegistry: Send + Sync {
         explanation: Option<String>,
     ) -> Result<Outcome, OutcomeError>;
 
-    async fn list_session(
-        &self,
-        session_id: &str,
-        filter: &OutcomeFilter,
-    ) -> Vec<Outcome>;
+    async fn list_session(&self, session_id: &str, filter: &OutcomeFilter) -> Vec<Outcome>;
 
     async fn delete(&self, outcome_id: &str) -> Result<(), OutcomeError>;
 }
@@ -453,11 +445,7 @@ impl OutcomeRegistry for InMemoryOutcomeRegistry {
         self.by_id.read().await.get(outcome_id).cloned()
     }
 
-    async fn update(
-        &self,
-        outcome_id: &str,
-        patch: OutcomePatch,
-    ) -> Result<(), OutcomeError> {
+    async fn update(&self, outcome_id: &str, patch: OutcomePatch) -> Result<(), OutcomeError> {
         let mut entries = self.by_id.write().await;
         let entry = entries
             .get_mut(outcome_id)
@@ -516,11 +504,7 @@ impl OutcomeRegistry for InMemoryOutcomeRegistry {
         Ok(entry.clone())
     }
 
-    async fn list_session(
-        &self,
-        session_id: &str,
-        filter: &OutcomeFilter,
-    ) -> Vec<Outcome> {
+    async fn list_session(&self, session_id: &str, filter: &OutcomeFilter) -> Vec<Outcome> {
         let entries = self.by_id.read().await;
         let mut out: Vec<Outcome> = entries
             .values()
@@ -538,7 +522,11 @@ impl OutcomeRegistry for InMemoryOutcomeRegistry {
             })
             .cloned()
             .collect();
-        out.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        out.sort_by(|a, b| {
+            a.created_at
+                .cmp(&b.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         out
     }
 
@@ -653,7 +641,11 @@ mod tests {
             .unwrap();
 
         let after = r
-            .record_iteration(&o.id, OutcomeScore::new(0.4, false), Some("missing X".into()))
+            .record_iteration(
+                &o.id,
+                OutcomeScore::new(0.4, false),
+                Some("missing X".into()),
+            )
             .await
             .unwrap();
         assert_eq!(after.status, OutcomeStatus::NeedsRevision);
@@ -694,10 +686,7 @@ mod tests {
         let score = OutcomeScore::new(0.85, true)
             .with_criterion("correctness", 0.9)
             .with_criterion("style", 0.8);
-        let after = r
-            .record_iteration(&o.id, score, None)
-            .await
-            .unwrap();
+        let after = r.record_iteration(&o.id, score, None).await.unwrap();
         let latest = after.latest_score.unwrap();
         assert_eq!(latest.per_criterion.len(), 2);
         assert_eq!(latest.per_criterion[0], ("correctness".into(), 0.9));
@@ -711,9 +700,12 @@ mod tests {
             .await
             .unwrap();
 
-        r.update(&o.id, OutcomePatch::default().status(OutcomeStatus::Interrupted))
-            .await
-            .unwrap();
+        r.update(
+            &o.id,
+            OutcomePatch::default().status(OutcomeStatus::Interrupted),
+        )
+        .await
+        .unwrap();
         let after = r.retrieve(&o.id).await.unwrap();
         assert_eq!(after.status, OutcomeStatus::Interrupted);
         assert!(after.completed_at.is_some());
@@ -802,7 +794,9 @@ mod tests {
         assert_eq!(pending[0].id, c.id);
 
         // Other session isolation.
-        let other = r.list_session("other-sesn", &OutcomeFilter::default()).await;
+        let other = r
+            .list_session("other-sesn", &OutcomeFilter::default())
+            .await;
         assert_eq!(other.len(), 1);
     }
 

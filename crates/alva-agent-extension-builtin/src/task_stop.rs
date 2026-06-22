@@ -3,9 +3,7 @@
 // POS:    Stops/cancels a running task.
 //! task_stop — stop or cancel a running task
 
-use alva_kernel_abi::{
-    AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput,
-};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -65,8 +63,8 @@ mod tests {
 
     use super::*;
     use alva_kernel_abi::{
-        Bus, BusHandle, CancellationToken, TaskStatus, TaskType, Tool,
-        ToolExecutionContext, create_task_state,
+        create_task_state, Bus, BusHandle, CancellationToken, TaskStatus, TaskType, Tool,
+        ToolExecutionContext,
     };
     use serde_json::json;
 
@@ -98,8 +96,7 @@ mod tests {
     fn ctx_with_store() -> (TestContext, Arc<InMemoryTaskStore>) {
         let store = Arc::new(InMemoryTaskStore::new());
         let bus = Bus::new();
-        bus.writer()
-            .provide::<dyn TaskService>(store.clone());
+        bus.writer().provide::<dyn TaskService>(store.clone());
         (
             TestContext {
                 cancel: CancellationToken::new(),

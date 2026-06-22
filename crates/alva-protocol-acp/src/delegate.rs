@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::connection::{AgentDiscovery, AcpProcessManager, ExternalAgentKind};
+use crate::connection::{AcpProcessManager, AgentDiscovery, ExternalAgentKind};
 use crate::error::AcpError;
 use crate::protocol::bootstrap::ModelConfig;
 
@@ -155,10 +155,7 @@ impl AgentDelegate for AcpAgentDelegate {
                     AcpInboundMessage::PingPong { data } => {
                         let _ = self
                             .process_manager
-                            .send(
-                                &process_id,
-                                AcpOutboundMessage::Pong { id: data.id },
-                            )
+                            .send(&process_id, AcpOutboundMessage::Pong { id: data.id })
                             .await;
                     }
                     _ => {}

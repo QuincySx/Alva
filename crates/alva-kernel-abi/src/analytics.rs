@@ -118,7 +118,11 @@ mod tests {
         assert!(json.contains("\"type\":\"session_start\""));
         let back: AnalyticsEvent = serde_json::from_str(&json).unwrap();
         match back {
-            AnalyticsEvent::SessionStart { session_id, workspace, .. } => {
+            AnalyticsEvent::SessionStart {
+                session_id,
+                workspace,
+                ..
+            } => {
                 assert_eq!(session_id, "s1");
                 assert_eq!(workspace, PathBuf::from("/w"));
             }
@@ -184,7 +188,12 @@ mod tests {
         let json = serde_json::to_string(&ev).unwrap();
         let back: AnalyticsEvent = serde_json::from_str(&json).unwrap();
         match back {
-            AnalyticsEvent::LlmCall { provider, input_tokens, cost_usd, .. } => {
+            AnalyticsEvent::LlmCall {
+                provider,
+                input_tokens,
+                cost_usd,
+                ..
+            } => {
                 assert_eq!(provider, "anthropic");
                 assert_eq!(input_tokens, 1000);
                 assert!((cost_usd - 0.012).abs() < 1e-9);
@@ -198,7 +207,12 @@ mod tests {
         let json = r#"{"type":"llm_call","session_id":"s","provider":"p","model":"m","latency_ms":100,"ts":{"secs_since_epoch":0,"nanos_since_epoch":0}}"#;
         let back: AnalyticsEvent = serde_json::from_str(json).unwrap();
         match back {
-            AnalyticsEvent::LlmCall { input_tokens, cache_read, cost_usd, .. } => {
+            AnalyticsEvent::LlmCall {
+                input_tokens,
+                cache_read,
+                cost_usd,
+                ..
+            } => {
                 assert_eq!(input_tokens, 0);
                 assert_eq!(cache_read, 0);
                 assert_eq!(cost_usd, 0.0);

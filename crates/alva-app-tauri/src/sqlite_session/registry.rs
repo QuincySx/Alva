@@ -215,7 +215,10 @@ impl SessionRegistry for SqliteSessionRegistry {
         let sql = format!("SELECT {META_COLUMNS} FROM sessions WHERE session_id = ?1");
         tokio::task::spawn_blocking(move || {
             let conn = conn.lock().unwrap();
-            conn.query_row(&sql, params![sid], decode_row).optional().ok().flatten()
+            conn.query_row(&sql, params![sid], decode_row)
+                .optional()
+                .ok()
+                .flatten()
         })
         .await
         .ok()
@@ -312,10 +315,7 @@ impl SessionRegistry for SqliteSessionRegistry {
         let result = tokio::task::spawn_blocking(move || -> Result<(), SessionError> {
             let conn = conn.lock().unwrap();
             let n = conn
-                .execute(
-                    "DELETE FROM sessions WHERE session_id = ?1",
-                    params![sid],
-                )
+                .execute("DELETE FROM sessions WHERE session_id = ?1", params![sid])
                 .map_err(|e| SessionError::Other(format!("sqlite delete: {e}")))?;
             if n == 0 {
                 return Err(SessionError::NotFound(sid));
@@ -345,17 +345,25 @@ impl SessionRegistry for SqliteSessionRegistry {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::warn!(error = %e, "list: prepare failed");
-                    return SessionPage { items: Vec::new(), next_cursor: None };
+                    return SessionPage {
+                        items: Vec::new(),
+                        next_cursor: None,
+                    };
                 }
             };
             // Borrow each param value as rusqlite trait object.
-            let param_refs: Vec<&dyn rusqlite::ToSql> =
-                params_vec.iter().map(|b| b.as_ref() as &dyn rusqlite::ToSql).collect();
+            let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec
+                .iter()
+                .map(|b| b.as_ref() as &dyn rusqlite::ToSql)
+                .collect();
             let rows = match stmt.query_map(param_refs.as_slice(), decode_row) {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::warn!(error = %e, "list: query_map failed");
-                    return SessionPage { items: Vec::new(), next_cursor: None };
+                    return SessionPage {
+                        items: Vec::new(),
+                        next_cursor: None,
+                    };
                 }
             };
             let mut items: Vec<SessionMetadata> = rows.filter_map(|r| r.ok()).collect();
@@ -379,7 +387,10 @@ impl SessionRegistry for SqliteSessionRegistry {
             SessionPage { items, next_cursor }
         })
         .await
-        .unwrap_or(SessionPage { items: Vec::new(), next_cursor: None })
+        .unwrap_or(SessionPage {
+            items: Vec::new(),
+            next_cursor: None,
+        })
     }
 
     async fn count(&self, filter: &SessionFilter) -> usize {
@@ -388,8 +399,10 @@ impl SessionRegistry for SqliteSessionRegistry {
         let sql = format!("SELECT COUNT(*) FROM sessions {where_clause}");
         tokio::task::spawn_blocking(move || {
             let conn = conn.lock().unwrap();
-            let param_refs: Vec<&dyn rusqlite::ToSql> =
-                params_vec.iter().map(|b| b.as_ref() as &dyn rusqlite::ToSql).collect();
+            let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec
+                .iter()
+                .map(|b| b.as_ref() as &dyn rusqlite::ToSql)
+                .collect();
             conn.query_row(&sql, param_refs.as_slice(), |row| row.get::<_, i64>(0))
                 .map(|n| n as usize)
                 .unwrap_or(0)
@@ -493,15 +506,22 @@ mod tests {
         m.title = Some("greetings".into());
         m.agent_id = Some("ag1".into());
         m.metadata.insert("workspace_id".into(), "/tmp/proj".into());
-        m.metadata.insert("model_id".into(), "anthropic:claude-3-7".into());
+        m.metadata
+            .insert("model_id".into(), "anthropic:claude-3-7".into());
         reg.insert(dummy_session(), m.clone()).await.unwrap();
 
         let back = reg.metadata("s1").await.expect("metadata exists");
         assert_eq!(back.session_id, "s1");
         assert_eq!(back.title.as_deref(), Some("greetings"));
         assert_eq!(back.agent_id.as_deref(), Some("ag1"));
-        assert_eq!(back.metadata.get("workspace_id").map(String::as_str), Some("/tmp/proj"));
-        assert_eq!(back.metadata.get("model_id").map(String::as_str), Some("anthropic:claude-3-7"));
+        assert_eq!(
+            back.metadata.get("workspace_id").map(String::as_str),
+            Some("/tmp/proj")
+        );
+        assert_eq!(
+            back.metadata.get("model_id").map(String::as_str),
+            Some("anthropic:claude-3-7")
+        );
         assert_eq!(back.status, SessionStatus::Idle);
         assert!(back.archived_at.is_none());
     }
@@ -637,7 +657,11 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let ids: Vec<&str> = agent_a.items.iter().map(|m| m.session_id.as_str()).collect();
+        let ids: Vec<&str> = agent_a
+            .items
+            .iter()
+            .map(|m| m.session_id.as_str())
+            .collect();
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&"s1") && ids.contains(&"s3"));
 
@@ -648,7 +672,11 @@ mod tests {
                 ..Default::default()
             })
             .await;
-        let ids: Vec<&str> = children.items.iter().map(|m| m.session_id.as_str()).collect();
+        let ids: Vec<&str> = children
+            .items
+            .iter()
+            .map(|m| m.session_id.as_str())
+            .collect();
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&"s2") && ids.contains(&"s3"));
 
@@ -700,7 +728,9 @@ mod tests {
     async fn count_matches_filter_size() {
         let reg = make_registry();
         for i in 0..3 {
-            reg.insert(dummy_session(), meta(&format!("s{i}"))).await.unwrap();
+            reg.insert(dummy_session(), meta(&format!("s{i}")))
+                .await
+                .unwrap();
         }
         // One running
         reg.update(

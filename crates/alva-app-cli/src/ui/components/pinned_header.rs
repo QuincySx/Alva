@@ -23,7 +23,10 @@ pub struct PinnedHeader<'a> {
 
 impl<'a> PinnedHeader<'a> {
     pub fn new(question: &'a str) -> Self {
-        Self { question, max_rows: 4 }
+        Self {
+            question,
+            max_rows: 4,
+        }
     }
 
     pub fn max_rows(mut self, n: u16) -> Self {
@@ -32,25 +35,27 @@ impl<'a> PinnedHeader<'a> {
     }
 
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        if area.height == 0 || self.question.is_empty() { return; }
+        if area.height == 0 || self.question.is_empty() {
+            return;
+        }
         let h = area.height.min(self.max_rows + 2); // +2 for borders
         let area = Rect { height: h, ..area };
 
         let line = Line::from(vec![
-            Span::styled("➤ ",
+            Span::styled(
+                "➤ ",
                 ratatui::style::Style::default()
                     .fg(theme.user_text.fg.unwrap_or_default())
-                    .add_modifier(Modifier::BOLD)),
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(self.question.to_string(), theme.user_text),
         ]);
-        let para = Paragraph::new(line)
-            .wrap(Wrap { trim: false })
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" You ")
-                    .border_style(theme.border),
-            );
+        let para = Paragraph::new(line).wrap(Wrap { trim: false }).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" You ")
+                .border_style(theme.border),
+        );
         frame.render_widget(para, area);
     }
 }

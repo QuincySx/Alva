@@ -96,9 +96,16 @@ impl CreateFileTool {
         let _ = params.create_dirs; // honoured by ToolFs::write_file unconditionally
         fs.write_file(path_str, final_content.as_bytes())
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "create_file".into(), message: e.to_string() })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "create_file".into(),
+                message: e.to_string(),
+            })?;
 
-        let action = if is_overwrite { "overwritten" } else { "created" };
+        let action = if is_overwrite {
+            "overwritten"
+        } else {
+            "created"
+        };
         let summary = format!(
             "File {}: {} ({} bytes)",
             action,
@@ -171,7 +178,11 @@ mod tests {
             .await
             .expect("execution should succeed");
 
-        assert!(!output.is_error, "expected success, got: {}", output.model_text());
+        assert!(
+            !output.is_error,
+            "expected success, got: {}",
+            output.model_text()
+        );
         assert!(output.model_text().contains("created"));
 
         let stored = ctx
@@ -233,7 +244,9 @@ mod tests {
             }
         }
 
-        let ctx = NoWorkspaceCtx { cancel: CancellationToken::new() };
+        let ctx = NoWorkspaceCtx {
+            cancel: CancellationToken::new(),
+        };
         let tool = CreateFileTool;
         let err = tool
             .execute(

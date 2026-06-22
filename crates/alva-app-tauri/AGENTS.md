@@ -6,8 +6,8 @@
 
 L6 应用层。
 
-- **Rust 侧** (`src/main.rs` + `src/agent.rs`):Tauri 运行时 + `alva_app_core::BaseAgent` 的薄桥接。
-- **前端** (`web/`):Vite + React + TS + Tailwind。`src/agent-bridge.ts` 封装 `invoke` / `listen`,`src/App.tsx` 是 MVP Chat UI。
+- **Rust 侧** (`src/main.rs` + `src/agent.rs`):Tauri 运行时 + `alva_app_core::BaseAgent` 的薄桥接,`eval_config_snapshot` 记录实际 plugin/middleware 装配快照。
+- **前端** (`web/`):Vite + React + TS + Tailwind。`src/agent-bridge.ts` 封装 `invoke` / `listen`,`src/App.tsx` 是 MVP Chat UI,`Inspector.tsx` 展示 RunRecord/ConfigSnapshot 的 prompts/plugins/tools/turns。
 
 ## 架构决策(为什么是这套)
 

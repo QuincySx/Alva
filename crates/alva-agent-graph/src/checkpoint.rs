@@ -12,10 +12,17 @@ use tokio::sync::Mutex;
 #[async_trait]
 pub trait CheckpointSaver: Send + Sync {
     /// Save checkpoint data under the given id, overwriting any previous value.
-    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), alva_kernel_abi::AgentError>;
+    async fn save(
+        &self,
+        id: &str,
+        data: serde_json::Value,
+    ) -> Result<(), alva_kernel_abi::AgentError>;
 
     /// Load checkpoint data by id. Returns `None` if no checkpoint exists.
-    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, alva_kernel_abi::AgentError>;
+    async fn load(
+        &self,
+        id: &str,
+    ) -> Result<Option<serde_json::Value>, alva_kernel_abi::AgentError>;
 
     /// List all checkpoint ids.
     async fn list(&self) -> Result<Vec<String>, alva_kernel_abi::AgentError>;
@@ -48,12 +55,19 @@ impl Default for InMemoryCheckpointSaver {
 
 #[async_trait]
 impl CheckpointSaver for InMemoryCheckpointSaver {
-    async fn save(&self, id: &str, data: serde_json::Value) -> Result<(), alva_kernel_abi::AgentError> {
+    async fn save(
+        &self,
+        id: &str,
+        data: serde_json::Value,
+    ) -> Result<(), alva_kernel_abi::AgentError> {
         self.store.lock().await.insert(id.to_string(), data);
         Ok(())
     }
 
-    async fn load(&self, id: &str) -> Result<Option<serde_json::Value>, alva_kernel_abi::AgentError> {
+    async fn load(
+        &self,
+        id: &str,
+    ) -> Result<Option<serde_json::Value>, alva_kernel_abi::AgentError> {
         Ok(self.store.lock().await.get(id).cloned())
     }
 

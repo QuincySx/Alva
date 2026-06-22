@@ -131,8 +131,9 @@ impl MemorySqlite {
         let path = path.to_string();
         self.conn
             .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT path, source, hash, mtime, size FROM memory_files WHERE path = ?1")?;
+                let mut stmt = conn.prepare(
+                    "SELECT path, source, hash, mtime, size FROM memory_files WHERE path = ?1",
+                )?;
                 let mut rows = stmt.query(rusqlite::params![path])?;
                 if let Some(row) = rows.next()? {
                     Ok(Some(MemoryFile {
@@ -279,7 +280,11 @@ impl MemorySqlite {
                     });
                 }
                 // Sort descending by similarity.
-                scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+                scored.sort_by(|a, b| {
+                    b.score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 scored.truncate(max_results);
                 Ok(scored)
             })
@@ -405,10 +410,7 @@ impl alva_agent_memory::backend::MemoryBackend for MemorySqlite {
 // ---------------------------------------------------------------------------
 
 fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
-    embedding
-        .iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect()
+    embedding.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
 fn bytes_to_embedding(bytes: &[u8]) -> Vec<f32> {

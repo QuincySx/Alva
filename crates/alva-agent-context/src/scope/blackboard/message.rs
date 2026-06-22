@@ -89,7 +89,10 @@ impl BoardMessage {
             MessageKind::Status { phase } => format!(" [{}]", phase.label()),
         };
 
-        format!("[{}]{}: {}{}", self.from, kind_tag, self.content, mention_str)
+        format!(
+            "[{}]{}: {}{}",
+            self.from, kind_tag, self.content, mention_str
+        )
     }
 }
 
@@ -151,10 +154,9 @@ mod tests {
 
     #[test]
     fn broadcast_detection() {
-        let msg = BoardMessage::new("system", "Budget at 80%")
-            .with_kind(MessageKind::Status {
-                phase: TaskPhase::InProgress { percent: 0.8 },
-            });
+        let msg = BoardMessage::new("system", "Budget at 80%").with_kind(MessageKind::Status {
+            phase: TaskPhase::InProgress { percent: 0.8 },
+        });
 
         assert!(msg.is_broadcast());
     }
@@ -183,10 +185,9 @@ mod tests {
     fn chat_line_artifact_no_dangling_ref() {
         // Artifact and Status variants previously used `&format!(...)` which
         // created a temporary String whose reference dangled.
-        let msg = BoardMessage::new("gen", "提交代码")
-            .with_kind(MessageKind::Artifact {
-                name: "你好世界".into(),
-            });
+        let msg = BoardMessage::new("gen", "提交代码").with_kind(MessageKind::Artifact {
+            name: "你好世界".into(),
+        });
         let line = msg.to_chat_line();
         assert!(line.contains("[artifact: 你好世界]"));
         assert!(line.contains("提交代码"));
@@ -194,10 +195,9 @@ mod tests {
 
     #[test]
     fn chat_line_status_no_dangling_ref() {
-        let msg = BoardMessage::new("worker", "任务完成了")
-            .with_kind(MessageKind::Status {
-                phase: TaskPhase::Completed,
-            });
+        let msg = BoardMessage::new("worker", "任务完成了").with_kind(MessageKind::Status {
+            phase: TaskPhase::Completed,
+        });
         let line = msg.to_chat_line();
         assert!(line.contains("[completed]"));
         assert!(line.contains("任务完成了"));

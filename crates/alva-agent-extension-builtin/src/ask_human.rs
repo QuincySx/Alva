@@ -97,8 +97,14 @@ impl AskHumanTool {
                 .map(|_| buf.trim().to_string())
         })
         .await
-        .map_err(|e| AgentError::ToolError { tool_name: "ask_human".into(), message: e.to_string() })?
-        .map_err(|e| AgentError::ToolError { tool_name: "ask_human".into(), message: e.to_string() })?;
+        .map_err(|e| AgentError::ToolError {
+            tool_name: "ask_human".into(),
+            message: e.to_string(),
+        })?
+        .map_err(|e| AgentError::ToolError {
+            tool_name: "ask_human".into(),
+            message: e.to_string(),
+        })?;
 
         // Process answer through options if provided
         let result = if let Some(ref options) = params.options {
@@ -224,7 +230,11 @@ mod tests {
             .await
             .expect("execute returns Ok(error output), not Err");
         assert!(out.is_error, "1 option should be rejected");
-        assert!(out.model_text().contains("2-4"), "expected '2-4' constraint msg: {}", out.model_text());
+        assert!(
+            out.model_text().contains("2-4"),
+            "expected '2-4' constraint msg: {}",
+            out.model_text()
+        );
 
         // 5 options (above max) — also reject before stdin
         let out2 = tool
@@ -300,7 +310,10 @@ mod tests {
     fn parse_multi_select_all_invalid_falls_back_to_raw() {
         let opts = vec![opt("A", None), opt("B", None)];
         // No token resolves to a valid index → return raw answer
-        assert_eq!(parse_choice_answer("none of them", &opts, true), "none of them");
+        assert_eq!(
+            parse_choice_answer("none of them", &opts, true),
+            "none of them"
+        );
         assert_eq!(parse_choice_answer("9,10", &opts, true), "9,10");
     }
 

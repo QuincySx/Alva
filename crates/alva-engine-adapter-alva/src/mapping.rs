@@ -3,9 +3,9 @@
 // POS:    Stateful mapper that converts AgentEvent stream into RuntimeEvent stream for the EngineRuntime interface.
 use std::collections::HashMap;
 
-use alva_kernel_core::AgentEvent;
 use alva_engine_runtime::{RuntimeEvent, RuntimeUsage};
 use alva_kernel_abi::{AgentMessage, ContentBlock};
+use alva_kernel_core::AgentEvent;
 
 /// Stateful mapper — converts `AgentEvent` to `Vec<RuntimeEvent>`.
 ///

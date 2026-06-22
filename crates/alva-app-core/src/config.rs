@@ -135,17 +135,10 @@ impl AlvaConfig {
                 return Some((active_kind, entry));
             }
         }
-        if let Some((kind, entry)) = self
-            .providers
-            .iter()
-            .find(|(_, e)| !e.api_key.is_empty())
-        {
+        if let Some((kind, entry)) = self.providers.iter().find(|(_, e)| !e.api_key.is_empty()) {
             return Some((kind.as_str(), entry));
         }
-        self.providers
-            .iter()
-            .next()
-            .map(|(k, v)| (k.as_str(), v))
+        self.providers.iter().next().map(|(k, v)| (k.as_str(), v))
     }
 }
 
@@ -179,8 +172,20 @@ mod tests {
     #[test]
     fn active_falls_back_to_first_with_key() {
         let mut cfg = AlvaConfig::default();
-        cfg.providers.insert("a".into(), ProviderEntry { api_key: String::new(), ..Default::default() });
-        cfg.providers.insert("b".into(), ProviderEntry { api_key: "k".into(), ..Default::default() });
+        cfg.providers.insert(
+            "a".into(),
+            ProviderEntry {
+                api_key: String::new(),
+                ..Default::default()
+            },
+        );
+        cfg.providers.insert(
+            "b".into(),
+            ProviderEntry {
+                api_key: "k".into(),
+                ..Default::default()
+            },
+        );
         let (k, _) = cfg.active_provider().unwrap();
         assert_eq!(k, "b");
     }

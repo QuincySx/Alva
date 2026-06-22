@@ -6,9 +6,9 @@
 //         (the eval session's complete event log) and produces a RunRecord
 //         suitable for JSON serialisation and the eval frontend.
 //
-//         Type definitions are kept field-name-identical to the originals in
-//         recorder.rs so the frontend JS continues to work without changes.
+//         Type definitions define the current Inspector JSON schema.
 
+use alva_agent_core::PluginAssemblySnapshot;
 use alva_kernel_abi::agent_session::SessionEvent;
 use alva_kernel_abi::{Message, ToolCall, ToolDefinition, ToolOutput};
 use serde::{Deserialize, Serialize};
@@ -58,11 +58,14 @@ pub struct ConfigSnapshot {
     pub skill_names: Vec<String>,
     pub max_iterations: u32,
     #[serde(default)]
-    pub extension_names: Vec<String>,
+    pub plugin_names: Vec<String>,
+    #[serde(default)]
+    pub plugin_assembly: Vec<PluginAssemblySnapshot>,
     #[serde(default)]
     pub middleware_names: Vec<String>,
+    #[serde(default)]
+    pub direct_middleware_names: Vec<String>,
 }
-
 
 /// Record for a single agent turn (one LLM call + zero or more tool calls).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,8 +160,10 @@ fn empty_record() -> RunRecord {
             tool_definitions: Vec::new(),
             skill_names: Vec::new(),
             max_iterations: 0,
-            extension_names: Vec::new(),
+            plugin_names: Vec::new(),
+            plugin_assembly: Vec::new(),
             middleware_names: Vec::new(),
+            direct_middleware_names: Vec::new(),
         },
         turns: Vec::new(),
         total_duration_ms: 0,
@@ -219,9 +224,7 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
     // -------------------------------------------------------------------
     // 1. Extract run_start event (first event with type "run_start")
     // -------------------------------------------------------------------
-    let run_start = events
-        .iter()
-        .find(|e| e.event_type == "run_start");
+    let run_start = events.iter().find(|e| e.event_type == "run_start");
 
     let max_iterations: u32 = run_start
         .and_then(|e| e.data.as_ref())
@@ -229,9 +232,7 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u32;
 
-    let run_start_ts: i64 = run_start
-        .map(|e| e.timestamp)
-        .unwrap_or(0);
+    let run_start_ts: i64 = run_start.map(|e| e.timestamp).unwrap_or(0);
 
     // -------------------------------------------------------------------
     // 2. Extract eval_config_snapshot event
@@ -279,10 +280,8 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
     for event in events {
         if event.event_type == "llm_call_end" {
             if let Some(d) = &event.data {
-                total_input_tokens +=
-                    d.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                total_output_tokens +=
-                    d.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                total_input_tokens += d.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                total_output_tokens += d.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
             }
         }
     }
@@ -427,8 +426,10 @@ fn build_config_snapshot(
                 tool_definitions: Vec::new(),
                 skill_names: Vec::new(),
                 max_iterations: fallback_max_iterations,
-                extension_names: Vec::new(),
+                plugin_names: Vec::new(),
+                plugin_assembly: Vec::new(),
                 middleware_names: Vec::new(),
+                direct_middleware_names: Vec::new(),
             };
         }
     };
@@ -479,8 +480,8 @@ fn build_config_snapshot(
         .and_then(|v| v.as_u64())
         .unwrap_or(fallback_max_iterations as u64) as u32;
 
-    let extension_names: Vec<String> = data
-        .get("extension_names")
+    let plugin_names: Vec<String> = data
+        .get("plugin_names")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -499,6 +500,21 @@ fn build_config_snapshot(
         })
         .unwrap_or_default();
 
+    let direct_middleware_names: Vec<String> = data
+        .get("direct_middleware_names")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let plugin_assembly: Vec<PluginAssemblySnapshot> = data
+        .get("plugin_assembly")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
     ConfigSnapshot {
         system_prompt,
         model_id,
@@ -506,8 +522,10 @@ fn build_config_snapshot(
         tool_definitions,
         skill_names,
         max_iterations,
-        extension_names,
+        plugin_names,
+        plugin_assembly,
         middleware_names,
+        direct_middleware_names,
     }
 }
 
@@ -566,7 +584,9 @@ fn build_turns(events: &[SessionEvent]) -> Vec<TurnRecord> {
 /// Build the `LlmCallRecord` for a single iteration's event slice.
 fn build_llm_call_record(iter_events: &[SessionEvent], _turn_number: u32) -> LlmCallRecord {
     // Find llm_call_start and llm_call_end within this iteration.
-    let llm_start = iter_events.iter().find(|e| e.event_type == "llm_call_start");
+    let llm_start = iter_events
+        .iter()
+        .find(|e| e.event_type == "llm_call_start");
     let llm_end = iter_events.iter().find(|e| e.event_type == "llm_call_end");
 
     let llm_start_uuid = llm_start.map(|e| e.uuid.as_str()).unwrap_or("");
@@ -620,33 +640,32 @@ fn build_llm_call_record(iter_events: &[SessionEvent], _turn_number: u32) -> Llm
 
     // Find the assistant message event (emitted by append_message with event_type "assistant")
     // The data field holds the serialized AgentMessage; the message field has SessionMessage.
-    let assistant_event = iter_events.iter().find(|e| {
-        e.event_type == "assistant"
-            && e.parent_uuid.as_deref() == Some(llm_start_uuid)
-    }).or_else(|| {
-        // fallback: any assistant event in this iteration
-        iter_events.iter().find(|e| e.event_type == "assistant")
-    });
+    let assistant_event = iter_events
+        .iter()
+        .find(|e| e.event_type == "assistant" && e.parent_uuid.as_deref() == Some(llm_start_uuid))
+        .or_else(|| {
+            // fallback: any assistant event in this iteration
+            iter_events.iter().find(|e| e.event_type == "assistant")
+        });
 
     // Deserialize the assistant Message from data (AgentMessage::Standard).
-    let response: Option<Message> = assistant_event
-        .and_then(|e| e.data.as_ref())
-        .and_then(|d| {
-            // data holds AgentMessage serialized — try Standard variant directly
-            if let Some(std_val) = d.get("Standard") {
-                serde_json::from_value::<Message>(std_val.clone()).ok()
-            } else {
-                // Try direct deserialization as Message (older format)
-                serde_json::from_value::<Message>(d.clone()).ok()
-            }
-        });
+    let response: Option<Message> = assistant_event.and_then(|e| e.data.as_ref()).and_then(|d| {
+        // data holds AgentMessage serialized — try Standard variant directly
+        if let Some(std_val) = d.get("Standard") {
+            serde_json::from_value::<Message>(std_val.clone()).ok()
+        } else {
+            // Try direct deserialization as Message (older format)
+            serde_json::from_value::<Message>(d.clone()).ok()
+        }
+    });
 
     // Determine stop_reason from the response.
     let stop_reason = match &response {
         Some(resp) => {
-            let has_tool_use = resp.content.iter().any(|block| {
-                matches!(block, alva_kernel_abi::ContentBlock::ToolUse { .. })
-            });
+            let has_tool_use = resp
+                .content
+                .iter()
+                .any(|block| matches!(block, alva_kernel_abi::ContentBlock::ToolUse { .. }));
             if has_tool_use {
                 "tool_use".to_string()
             } else {
@@ -716,8 +735,7 @@ fn build_tool_call_records(iter_events: &[SessionEvent]) -> Vec<ToolCallRecord> 
         // linked via parent_uuid == tool_use_uuid. Its data holds the serialized
         // AgentMessage containing the ToolResult content block.
         let tool_result_event = iter_events.iter().find(|e| {
-            e.event_type == "tool_result"
-                && e.parent_uuid.as_deref() == Some(tool_use_uuid)
+            e.event_type == "tool_result" && e.parent_uuid.as_deref() == Some(tool_use_uuid)
         });
 
         // duration_ms is derived from timestamp delta (both epoch millis).
@@ -795,7 +813,12 @@ fn find_tool_output(iter_events: &[SessionEvent], tool_call_id: &str) -> Option<
             None => continue,
         };
         for block in &msg.content {
-            if let alva_kernel_abi::ContentBlock::ToolResult { id, content, is_error } = block {
+            if let alva_kernel_abi::ContentBlock::ToolResult {
+                id,
+                content,
+                is_error,
+            } = block
+            {
                 if id == tool_call_id {
                     return Some(ToolOutput {
                         content: content.clone(),
@@ -810,10 +833,7 @@ fn find_tool_output(iter_events: &[SessionEvent], tool_call_id: &str) -> Option<
 }
 
 /// Extract the tool arguments from the assistant message's ToolUse content block.
-fn extract_tool_arguments(
-    iter_events: &[SessionEvent],
-    tool_call_id: &str,
-) -> serde_json::Value {
+fn extract_tool_arguments(iter_events: &[SessionEvent], tool_call_id: &str) -> serde_json::Value {
     for event in iter_events {
         if event.event_type != "assistant" {
             continue;
@@ -1085,8 +1105,12 @@ mod tests {
         assert!(s.tool_names.is_empty());
         assert!(s.tool_definitions.is_empty());
         assert!(s.skill_names.is_empty());
-        assert_eq!(s.max_iterations, 42, "fallback must be respected when no event");
-        assert!(s.extension_names.is_empty());
+        assert_eq!(
+            s.max_iterations, 42,
+            "fallback must be respected when no event"
+        );
+        assert!(s.plugin_names.is_empty());
+        assert!(s.plugin_assembly.is_empty());
         assert!(s.middleware_names.is_empty());
     }
 
@@ -1115,8 +1139,20 @@ mod tests {
                 ],
                 "skill_names": ["debug", "test"],
                 "max_iterations": 25,
-                "extension_names": ["memory", "security"],
+                "plugin_names": ["memory", "security"],
+                "plugin_assembly": [
+                    {
+                        "name": "memory",
+                        "description": "memory plugin",
+                        "registered_tool_names": ["memory_read"],
+                        "finalized_tool_names": [],
+                        "middleware_names": [],
+                        "command_names": [],
+                        "system_prompt_fragments": 1
+                    }
+                ],
                 "middleware_names": ["loop_detection"],
+                "direct_middleware_names": ["loop_detection"],
             }),
         );
         let s = build_config_snapshot(Some(&ev), 99);
@@ -1128,8 +1164,15 @@ mod tests {
         assert_eq!(s.tool_definitions[1].name, "edit");
         assert_eq!(s.skill_names, vec!["debug", "test"]);
         assert_eq!(s.max_iterations, 25, "explicit value should beat fallback");
-        assert_eq!(s.extension_names, vec!["memory", "security"]);
+        assert_eq!(s.plugin_names, vec!["memory", "security"]);
+        assert_eq!(s.plugin_assembly.len(), 1);
+        assert_eq!(s.plugin_assembly[0].name, "memory");
+        assert_eq!(
+            s.plugin_assembly[0].registered_tool_names,
+            vec!["memory_read"]
+        );
         assert_eq!(s.middleware_names, vec!["loop_detection"]);
+        assert_eq!(s.direct_middleware_names, vec!["loop_detection"]);
     }
 
     #[test]
@@ -1145,8 +1188,10 @@ mod tests {
         assert!(s.system_prompt.is_empty());
         assert!(s.tool_names.is_empty());
         assert!(s.tool_definitions.is_empty());
-        assert!(s.extension_names.is_empty());
+        assert!(s.plugin_names.is_empty());
+        assert!(s.plugin_assembly.is_empty());
         assert!(s.middleware_names.is_empty());
+        assert!(s.direct_middleware_names.is_empty());
         assert_eq!(s.max_iterations, 10, "missing → fallback");
     }
 
@@ -1173,16 +1218,20 @@ mod tests {
                 "tool_names": 42,
                 "skill_names": null,
                 "max_iterations": "oops",
-                "extension_names": {"not": "an array"},
+                "plugin_names": {"not": "an array"},
+                "plugin_assembly": {"not": "an array"},
                 "middleware_names": true,
+                "direct_middleware_names": true,
             }),
         );
         let s = build_config_snapshot(Some(&ev), 11);
         assert!(s.system_prompt.is_empty());
         assert!(s.tool_names.is_empty());
         assert!(s.skill_names.is_empty());
-        assert!(s.extension_names.is_empty());
+        assert!(s.plugin_names.is_empty());
+        assert!(s.plugin_assembly.is_empty());
         assert!(s.middleware_names.is_empty());
+        assert!(s.direct_middleware_names.is_empty());
         assert_eq!(s.max_iterations, 11, "non-numeric → fallback");
     }
 
@@ -1285,7 +1334,10 @@ mod tests {
         let out = build_user_messages(&events);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].before_turn_number, 1);
-        assert_eq!(out[1].before_turn_number, 2, "trailing user → past last turn");
+        assert_eq!(
+            out[1].before_turn_number, 2,
+            "trailing user → past last turn"
+        );
         assert_eq!(out[1].text, "trailing");
     }
 
@@ -1397,7 +1449,11 @@ mod tests {
             subagent_end("a"),
         ];
         let a_range = find_subagent_range(&events, "a").expect("a should match");
-        assert_eq!(a_range.len(), 4, "a's range includes b's markers + b's inner");
+        assert_eq!(
+            a_range.len(),
+            4,
+            "a's range includes b's markers + b's inner"
+        );
 
         let b_range = find_subagent_range(&events, "b").expect("b should match");
         assert_eq!(b_range.len(), 1);
@@ -1458,10 +1514,7 @@ mod tests {
 
     #[test]
     fn build_turns_single_complete_iteration_emits_one_turn_with_duration() {
-        let events = vec![
-            iter_start("S1", 100),
-            iter_end("S1", 250),
-        ];
+        let events = vec![iter_start("S1", 100), iter_end("S1", 250)];
         let turns = build_turns(&events);
         assert_eq!(turns.len(), 1);
         assert_eq!(turns[0].turn_number, 1);
@@ -1673,7 +1726,10 @@ mod tests {
             tool_result_event_linked("uu-1", "c1", "boom", true, 200),
         ];
         let records = build_tool_call_records(&events);
-        assert!(records[0].is_error, "is_error should flow through from ToolOutput");
+        assert!(
+            records[0].is_error,
+            "is_error should flow through from ToolOutput"
+        );
         let out = records[0].result.as_ref().unwrap();
         assert!(out.is_error);
     }
@@ -1688,7 +1744,15 @@ mod tests {
             tool_result_event_linked("uu-1", "call-1", "x", false, 200),
         ];
         let records_no_args = build_tool_call_records(&events_no_args);
-        assert_eq!(records_no_args[0].tool_call.arguments.as_object().unwrap().len(), 0);
+        assert_eq!(
+            records_no_args[0]
+                .tool_call
+                .arguments
+                .as_object()
+                .unwrap()
+                .len(),
+            0
+        );
 
         let events_with_args = vec![
             assistant_tool_use_event("call-1", json!({"path": "/etc"})),
@@ -1831,10 +1895,7 @@ mod tests {
                     "cache_read_input_tokens": 200,
                 }),
             ),
-            assistant_event_linked(
-                Some("S-uu"),
-                json!([{"type": "text", "text": "answer"}]),
-            ),
+            assistant_event_linked(Some("S-uu"), json!([{"type": "text", "text": "answer"}])),
         ];
         let r = build_llm_call_record(&events, 1);
         assert_eq!(r.messages_sent.len(), 1);
@@ -1893,7 +1954,10 @@ mod tests {
         let r = build_llm_call_record(&events, 1);
         assert_eq!(r.input_tokens, 100);
         assert_eq!(r.output_tokens, 50);
-        assert!(r.cache_creation_input_tokens.is_none(), "missing → None not Some(0)");
+        assert!(
+            r.cache_creation_input_tokens.is_none(),
+            "missing → None not Some(0)"
+        );
         assert!(r.cache_read_input_tokens.is_none());
     }
 
@@ -1923,14 +1987,8 @@ mod tests {
     fn build_llm_call_record_assistant_event_picked_by_parent_uuid_first() {
         // Two assistant events: one with NO parent_uuid (rogue), one
         // properly linked to llm_call_start. Must pick the linked one.
-        let unrelated = assistant_event_linked(
-            None,
-            json!([{"type": "text", "text": "ROGUE"}]),
-        );
-        let linked = assistant_event_linked(
-            Some("S"),
-            json!([{"type": "text", "text": "LINKED"}]),
-        );
+        let unrelated = assistant_event_linked(None, json!([{"type": "text", "text": "ROGUE"}]));
+        let linked = assistant_event_linked(Some("S"), json!([{"type": "text", "text": "LINKED"}]));
         let events = vec![
             llm_call_start("S", 100, json!({})),
             unrelated,
@@ -1939,7 +1997,11 @@ mod tests {
         ];
         let r = build_llm_call_record(&events, 1);
         let resp = r.response.expect("should pick the linked assistant");
-        assert_eq!(resp.text_content(), "LINKED", "parent_uuid match wins over earlier rogue");
+        assert_eq!(
+            resp.text_content(),
+            "LINKED",
+            "parent_uuid match wins over earlier rogue"
+        );
     }
 
     #[test]
@@ -1950,10 +2012,7 @@ mod tests {
             Some("DIFFERENT-PARENT"),
             json!([{"type": "text", "text": "FALLBACK"}]),
         );
-        let events = vec![
-            llm_call_start("S", 100, json!({})),
-            mismatched,
-        ];
+        let events = vec![llm_call_start("S", 100, json!({})), mismatched];
         let r = build_llm_call_record(&events, 1);
         let resp = r.response.expect("fallback to any assistant");
         assert_eq!(resp.text_content(), "FALLBACK");
@@ -1977,11 +2036,7 @@ mod tests {
 
     /// Build a run_start event with optional max_iterations + timestamp.
     fn run_start_event(ts: i64, max_iter: u32) -> SessionEvent {
-        event(
-            "run_start",
-            json!({"max_iterations": max_iter}),
-        )
-        .pipe(|mut e| {
+        event("run_start", json!({"max_iterations": max_iter})).pipe(|mut e| {
             e.event_type = "run_start".to_string();
             e.timestamp = ts;
             e
@@ -2029,7 +2084,8 @@ mod tests {
         assert!(r.config_snapshot.tool_definitions.is_empty());
         assert!(r.config_snapshot.skill_names.is_empty());
         assert_eq!(r.config_snapshot.max_iterations, 0);
-        assert!(r.config_snapshot.extension_names.is_empty());
+        assert!(r.config_snapshot.plugin_names.is_empty());
+        assert!(r.config_snapshot.plugin_assembly.is_empty());
         assert!(r.config_snapshot.middleware_names.is_empty());
         assert!(r.turns.is_empty());
         assert_eq!(r.total_duration_ms, 0);
@@ -2192,17 +2248,17 @@ mod tests {
         // Marker pair present, child range carries a minimal sub-run
         // (run_start + run_end) — sub_run should be populated, recursive
         // build_run_record returns a child RunRecord with its own duration.
-        let child_inner = vec![
-            run_start_event(220, 0),
-            run_end_event(260, None),
-        ];
+        let child_inner = vec![run_start_event(220, 0), run_end_event(260, None)];
         let events = parent_with_tool_call("call-1", child_inner, true);
         let r = build_run_record(&events);
 
         let tc = &r.turns[0].tool_calls[0];
         let sub = tc.sub_run.as_ref().expect("sub_run must be Some");
         // child's total_duration_ms = 260 - 220 = 40
-        assert_eq!(sub.total_duration_ms, 40, "child run_start/run_end drives child duration");
+        assert_eq!(
+            sub.total_duration_ms, 40,
+            "child run_start/run_end drives child duration"
+        );
         // Child has no iterations of its own → empty turns
         assert!(sub.turns.is_empty(), "child has no iter events → no turns");
     }
@@ -2266,10 +2322,7 @@ mod tests {
         // an empty id (which would scan for subagent markers with id "").
         // Set up a tool_use with empty tool_call_id — even if marker
         // events with empty id somehow exist, sub_run must stay None.
-        let mut events = vec![
-            run_start_event(100, 0),
-            iter_start("I1", 110),
-        ];
+        let mut events = vec![run_start_event(100, 0), iter_start("I1", 110)];
         // tool_use with empty tool_call_id
         let mut empty_id_tu = tool_use_event("uu-x", "delegate", "_unused", 115);
         empty_id_tu.data = Some(json!({"tool_name": "delegate", "tool_call_id": ""}));
@@ -2283,7 +2336,10 @@ mod tests {
         let r = build_run_record(&events);
         let tc = &r.turns[0].tool_calls[0];
         assert_eq!(tc.tool_call.id, "", "empty id preserved on the record");
-        assert!(tc.sub_run.is_none(), "empty id must not trigger sub_run lookup");
+        assert!(
+            tc.sub_run.is_none(),
+            "empty id must not trigger sub_run lookup"
+        );
     }
 
     #[test]
@@ -2334,11 +2390,17 @@ mod tests {
         let a = &records[0];
         assert_eq!(a.tool_call.id, "cA");
         assert_eq!(a.duration_ms, 200, "A: 300 - 100");
-        assert_eq!(a.result.as_ref().unwrap().content[0].as_text(), Some("A-result"));
+        assert_eq!(
+            a.result.as_ref().unwrap().content[0].as_text(),
+            Some("A-result")
+        );
         let b = &records[1];
         assert_eq!(b.tool_call.id, "cB");
         assert_eq!(b.duration_ms, 90, "B: 200 - 110");
-        assert_eq!(b.result.as_ref().unwrap().content[0].as_text(), Some("B-result"));
+        assert_eq!(
+            b.result.as_ref().unwrap().content[0].as_text(),
+            Some("B-result")
+        );
     }
 
     #[test]
@@ -2353,7 +2415,11 @@ mod tests {
             iter_end("S1", 300), // duplicate — should be ignored
         ];
         let turns = build_turns(&events);
-        assert_eq!(turns.len(), 1, "duplicate end is skipped past, not re-paired");
+        assert_eq!(
+            turns.len(),
+            1,
+            "duplicate end is skipped past, not re-paired"
+        );
         assert_eq!(turns[0].duration_ms, 100);
     }
 

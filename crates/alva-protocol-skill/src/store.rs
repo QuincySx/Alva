@@ -188,10 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn scan_populates_cache() {
-        let store = make_store(vec![
-            make_skill("alpha", true),
-            make_skill("beta", true),
-        ]);
+        let store = make_store(vec![make_skill("alpha", true), make_skill("beta", true)]);
 
         // Before scan, list is empty
         assert!(store.list().await.is_empty());
@@ -376,7 +373,9 @@ mod tests {
         store.scan().await.unwrap();
 
         let err = store
-            .install(crate::repository::SkillInstallSource::LocalDir("/tmp/x".into()))
+            .install(crate::repository::SkillInstallSource::LocalDir(
+                "/tmp/x".into(),
+            ))
             .await
             .unwrap_err();
         assert!(matches!(err, SkillError::Io(_)));

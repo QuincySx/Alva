@@ -100,11 +100,14 @@ impl UrlCache {
 
         self.order.retain(|u| u != &url);
         self.order.push(url.clone());
-        self.entries.insert(url, CacheEntry {
-            content,
-            content_type,
-            fetched_at: Instant::now(),
-        });
+        self.entries.insert(
+            url,
+            CacheEntry {
+                content,
+                content_type,
+                fetched_at: Instant::now(),
+            },
+        );
     }
 
     /// Check rate limit for a domain. Returns true if allowed.
@@ -112,9 +115,12 @@ impl UrlCache {
         let now = Instant::now();
         let window = Duration::from_secs(RATE_LIMIT_WINDOW_SECS);
 
-        let entry = self.rate_limits.entry(domain.to_string()).or_insert_with(|| {
-            RateLimitEntry { requests: Vec::new() }
-        });
+        let entry = self
+            .rate_limits
+            .entry(domain.to_string())
+            .or_insert_with(|| RateLimitEntry {
+                requests: Vec::new(),
+            });
 
         // Remove requests outside the window
         entry.requests.retain(|t| now.duration_since(*t) < window);
@@ -176,7 +182,11 @@ impl ReadUrlTool {
                         .nth(max_length)
                         .map(|(i, _)| i)
                         .unwrap_or(content.len());
-                    format!("{}...\n\n[Truncated: content exceeded {} characters]", &content[..end], max_length)
+                    format!(
+                        "{}...\n\n[Truncated: content exceeded {} characters]",
+                        &content[..end],
+                        max_length
+                    )
                 } else {
                     content
                 };
@@ -193,8 +203,9 @@ impl ReadUrlTool {
                     output["prompt"] = json!(prompt);
                 }
 
-                return Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
-                    .unwrap_or_else(|_| "{}".to_string())));
+                return Ok(ToolOutput::text(
+                    serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()),
+                ));
             }
 
             // Check rate limit
@@ -214,13 +225,19 @@ impl ReadUrlTool {
             .user_agent("SrowAgent/0.1 (compatible; bot)")
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
-            .map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: format!("HTTP client error: {e}") })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "read_url".into(),
+                message: format!("HTTP client error: {e}"),
+            })?;
 
         let resp = client
             .get(&params.url)
             .send()
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: format!("HTTP request failed: {e}") })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "read_url".into(),
+                message: format!("HTTP request failed: {e}"),
+            })?;
 
         let status = resp.status();
         let content_type = resp
@@ -237,18 +254,19 @@ impl ReadUrlTool {
             });
         }
 
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| AgentError::ToolError { tool_name: "read_url".into(), message: format!("Failed to read response body: {e}") })?;
+        let body = resp.text().await.map_err(|e| AgentError::ToolError {
+            tool_name: "read_url".into(),
+            message: format!("Failed to read response body: {e}"),
+        })?;
 
         // Convert HTML to markdown-like text
-        let plain_text = if content_type.contains("text/html") || content_type.contains("application/xhtml") {
-            html_to_markdown(&body)
-        } else {
-            // Already plain text (JSON, text/plain, etc.)
-            body
-        };
+        let plain_text =
+            if content_type.contains("text/html") || content_type.contains("application/xhtml") {
+                html_to_markdown(&body)
+            } else {
+                // Already plain text (JSON, text/plain, etc.)
+                body
+            };
 
         // Store in cache
         {
@@ -265,7 +283,11 @@ impl ReadUrlTool {
                 .nth(max_length)
                 .map(|(i, _)| i)
                 .unwrap_or(plain_text.len());
-            format!("{}...\n\n[Truncated: content exceeded {} characters]", &plain_text[..end], max_length)
+            format!(
+                "{}...\n\n[Truncated: content exceeded {} characters]",
+                &plain_text[..end],
+                max_length
+            )
         } else {
             plain_text
         };
@@ -281,15 +303,18 @@ impl ReadUrlTool {
             output["prompt"] = json!(prompt);
         }
 
-        Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
-            .unwrap_or_else(|_| "{}".to_string())))
+        Ok(ToolOutput::text(
+            serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()),
+        ))
     }
 }
 
 /// Extract domain from URL for rate limiting.
 fn extract_domain(url: &str) -> Option<String> {
     // Simple extraction: find the host portion
-    let url = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let url = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
     let host = url.split('/').next()?;
     let domain = host.split(':').next()?; // Remove port
     Some(domain.to_lowercase())
@@ -456,7 +481,9 @@ fn extract_href(tag: &str) -> Option<String> {
         let end = trimmed[1..].find('\'')?;
         Some(trimmed[1..1 + end].to_string())
     } else {
-        let end = trimmed.find(|c: char| c.is_whitespace() || c == '>').unwrap_or(trimmed.len());
+        let end = trimmed
+            .find(|c: char| c.is_whitespace() || c == '>')
+            .unwrap_or(trimmed.len());
         Some(trimmed[..end].to_string())
     }
 }
@@ -657,7 +684,7 @@ mod tests {
             cache.insert(format!("u{i}"), format!("body{i}"), "text/html".into());
         }
         let _ = cache.get("u0"); // promotes u0 to MRU
-        // Adding one more triggers eviction
+                                 // Adding one more triggers eviction
         cache.insert("new".into(), "x".into(), "text/html".into());
         // u0 should survive; u1 (next-oldest after u0 was promoted) should be gone
         assert!(cache.get("u0").is_some(), "u0 was promoted, must survive");

@@ -91,7 +91,12 @@ mod tests {
         let ct = resp
             .headers()
             .iter()
-            .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("content-type"))
+            .find(|h| {
+                h.field
+                    .as_str()
+                    .as_str()
+                    .eq_ignore_ascii_case("content-type")
+            })
             .expect("must set Content-Type header");
         assert_eq!(ct.value.as_str(), "application/json");
     }
@@ -127,7 +132,12 @@ mod tests {
         let ct = resp
             .headers()
             .iter()
-            .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("content-type"))
+            .find(|h| {
+                h.field
+                    .as_str()
+                    .as_str()
+                    .eq_ignore_ascii_case("content-type")
+            })
             .expect("must set Content-Type header via json_response chain");
         assert_eq!(ct.value.as_str(), "application/json");
         let expected_body = serde_json::json!({"error": "bad request"}).to_string();
@@ -148,18 +158,33 @@ mod tests {
             // ── basic single-key lookup
             ("/path?name=alva", "name", Some("alva"), "single key"),
             // ── multi-param: find middle + tail
-            ("/path?a=1&name=alva&b=2", "name", Some("alva"), "multi: middle key"),
+            (
+                "/path?a=1&name=alva&b=2",
+                "name",
+                Some("alva"),
+                "multi: middle key",
+            ),
             ("/path?a=1&name=alva&b=2", "b", Some("2"), "multi: tail key"),
             // ── missing key in non-empty query
             ("/path?a=1&b=2", "missing", None, "missing key"),
             // ── `?key=` → Some("") distinguishes "set but empty" from "absent"
-            ("/path?flag=", "flag", Some(""), "empty value (boolean-flag style)"),
+            (
+                "/path?flag=",
+                "flag",
+                Some(""),
+                "empty value (boolean-flag style)",
+            ),
             // ── `?bareflag` (no `=`) → None because splitn(2, '=') destructure
             //    yields only one Some. A refactor handling bare flags as
             //    Some("") would silently change semantics.
             ("/path?bareflag", "bareflag", None, "key without ="),
             // ── first-match-wins on duplicate keys
-            ("/path?key=first&key=second", "key", Some("first"), "duplicate keys: first wins"),
+            (
+                "/path?key=first&key=second",
+                "key",
+                Some("first"),
+                "duplicate keys: first wins",
+            ),
         ];
         for (url, key, expected, label) in cases {
             assert_eq!(

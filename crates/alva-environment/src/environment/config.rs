@@ -26,12 +26,8 @@ impl EnvironmentConfig {
     ///   - macOS: `~/Library/Application Support/com.smallraw.app.srow-agent/environment/`
     ///   - Windows: `%APPDATA%/com.smallraw.app.srow-agent/environment/`
     pub fn default_config() -> Option<Self> {
-        dirs::data_dir().map(|d| {
-            Self::new(
-                d.join("com.smallraw.app.srow-agent")
-                    .join("environment"),
-            )
-        })
+        dirs::data_dir()
+            .map(|d| Self::new(d.join("com.smallraw.app.srow-agent").join("environment")))
     }
 
     // -- Derived paths -------------------------------------------------------
@@ -100,10 +96,7 @@ mod tests {
             cfg.versions_path(),
             Path::new("/tmp/srow-env-test/versions.json")
         );
-        assert_eq!(
-            cfg.packages_dir(),
-            Path::new("/tmp/srow-env-test/packages")
-        );
+        assert_eq!(cfg.packages_dir(), Path::new("/tmp/srow-env-test/packages"));
         assert_eq!(
             cfg.component_dir("bun"),
             Path::new("/tmp/srow-env-test/bun")

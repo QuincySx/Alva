@@ -4,11 +4,11 @@
 //         Provides Skill discovery, loading, injection, and in-memory store.
 
 pub mod error;
-pub mod types;
-pub mod repository;
-pub mod loader;
 pub mod injector;
+pub mod loader;
+pub mod repository;
 pub mod store;
+pub mod types;
 // fs module uses tokio::fs + walkdir — gated to non-wasm as well as the
 // `fs` feature. Wasm callers should implement skill loading over their
 // own storage (fetch + browser cache, etc.).

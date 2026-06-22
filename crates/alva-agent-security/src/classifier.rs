@@ -45,15 +45,48 @@ pub enum CommandClassification {
 
 /// Read-only commands that are safe to auto-approve.
 const READ_ONLY_COMMANDS: &[&str] = &[
-    "ls", "cat", "head", "tail", "less", "more", "wc", "file",
-    "find", "grep", "rg", "ag", "ack", "fd",
-    "which", "whereis", "type", "command",
-    "echo", "printf", "date", "cal", "uptime",
-    "pwd", "whoami", "hostname", "uname",
-    "env", "printenv", "set",
-    "df", "du", "free", "top", "ps", "lsof",
-    "jq", "yq",
-    "tree", "stat", "md5sum", "sha256sum",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "less",
+    "more",
+    "wc",
+    "file",
+    "find",
+    "grep",
+    "rg",
+    "ag",
+    "ack",
+    "fd",
+    "which",
+    "whereis",
+    "type",
+    "command",
+    "echo",
+    "printf",
+    "date",
+    "cal",
+    "uptime",
+    "pwd",
+    "whoami",
+    "hostname",
+    "uname",
+    "env",
+    "printenv",
+    "set",
+    "df",
+    "du",
+    "free",
+    "top",
+    "ps",
+    "lsof",
+    "jq",
+    "yq",
+    "tree",
+    "stat",
+    "md5sum",
+    "sha256sum",
 ];
 
 /// Read-only compound commands (multi-word prefixes).
@@ -142,70 +175,124 @@ mod tests {
 
     #[test]
     fn ls_is_read_only() {
-        assert_eq!(BashClassifier::classify("ls"), CommandClassification::ReadOnly);
-        assert_eq!(BashClassifier::classify("ls -la"), CommandClassification::ReadOnly);
-        assert_eq!(BashClassifier::classify("ls /tmp"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("ls"),
+            CommandClassification::ReadOnly
+        );
+        assert_eq!(
+            BashClassifier::classify("ls -la"),
+            CommandClassification::ReadOnly
+        );
+        assert_eq!(
+            BashClassifier::classify("ls /tmp"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn cat_is_read_only() {
-        assert_eq!(BashClassifier::classify("cat file.txt"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("cat file.txt"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn grep_is_read_only() {
-        assert_eq!(BashClassifier::classify("grep -r pattern ."), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("grep -r pattern ."),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn git_status_is_read_only() {
-        assert_eq!(BashClassifier::classify("git status"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("git status"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn git_log_is_read_only() {
-        assert_eq!(BashClassifier::classify("git log --oneline"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("git log --oneline"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn git_diff_is_read_only() {
-        assert_eq!(BashClassifier::classify("git diff HEAD"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("git diff HEAD"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn cargo_check_is_read_only() {
-        assert_eq!(BashClassifier::classify("cargo check"), CommandClassification::ReadOnly);
-        assert_eq!(BashClassifier::classify("cargo test"), CommandClassification::ReadOnly);
-        assert_eq!(BashClassifier::classify("cargo clippy"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("cargo check"),
+            CommandClassification::ReadOnly
+        );
+        assert_eq!(
+            BashClassifier::classify("cargo test"),
+            CommandClassification::ReadOnly
+        );
+        assert_eq!(
+            BashClassifier::classify("cargo clippy"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn echo_is_read_only() {
-        assert_eq!(BashClassifier::classify("echo hello"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("echo hello"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn pwd_is_read_only() {
-        assert_eq!(BashClassifier::classify("pwd"), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify("pwd"),
+            CommandClassification::ReadOnly
+        );
     }
 
     #[test]
     fn empty_command_is_read_only() {
-        assert_eq!(BashClassifier::classify(""), CommandClassification::ReadOnly);
-        assert_eq!(BashClassifier::classify("  "), CommandClassification::ReadOnly);
+        assert_eq!(
+            BashClassifier::classify(""),
+            CommandClassification::ReadOnly
+        );
+        assert_eq!(
+            BashClassifier::classify("  "),
+            CommandClassification::ReadOnly
+        );
     }
 
     // ---- Destructive commands ----
 
     #[test]
     fn rm_rf_is_destructive() {
-        assert_eq!(BashClassifier::classify("rm -rf /"), CommandClassification::Destructive);
-        assert_eq!(BashClassifier::classify("rm -rf ."), CommandClassification::Destructive);
+        assert_eq!(
+            BashClassifier::classify("rm -rf /"),
+            CommandClassification::Destructive
+        );
+        assert_eq!(
+            BashClassifier::classify("rm -rf ."),
+            CommandClassification::Destructive
+        );
     }
 
     #[test]
     fn rm_fr_is_destructive() {
-        assert_eq!(BashClassifier::classify("rm -fr /tmp/*"), CommandClassification::Destructive);
+        assert_eq!(
+            BashClassifier::classify("rm -fr /tmp/*"),
+            CommandClassification::Destructive
+        );
     }
 
     #[test]
@@ -238,12 +325,18 @@ mod tests {
 
     #[test]
     fn kill_9_is_destructive() {
-        assert_eq!(BashClassifier::classify("kill -9 1234"), CommandClassification::Destructive);
+        assert_eq!(
+            BashClassifier::classify("kill -9 1234"),
+            CommandClassification::Destructive
+        );
     }
 
     #[test]
     fn killall_is_destructive() {
-        assert_eq!(BashClassifier::classify("killall node"), CommandClassification::Destructive);
+        assert_eq!(
+            BashClassifier::classify("killall node"),
+            CommandClassification::Destructive
+        );
     }
 
     #[test]
@@ -274,10 +367,22 @@ mod tests {
 
     #[test]
     fn unknown_commands() {
-        assert_eq!(BashClassifier::classify("make build"), CommandClassification::Unknown);
-        assert_eq!(BashClassifier::classify("npm install"), CommandClassification::Unknown);
-        assert_eq!(BashClassifier::classify("docker build ."), CommandClassification::Unknown);
-        assert_eq!(BashClassifier::classify("apt-get install vim"), CommandClassification::Unknown);
+        assert_eq!(
+            BashClassifier::classify("make build"),
+            CommandClassification::Unknown
+        );
+        assert_eq!(
+            BashClassifier::classify("npm install"),
+            CommandClassification::Unknown
+        );
+        assert_eq!(
+            BashClassifier::classify("docker build ."),
+            CommandClassification::Unknown
+        );
+        assert_eq!(
+            BashClassifier::classify("apt-get install vim"),
+            CommandClassification::Unknown
+        );
     }
 
     #[test]

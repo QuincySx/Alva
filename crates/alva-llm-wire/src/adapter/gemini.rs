@@ -172,7 +172,9 @@ impl ProtocolAdapter for GeminiAdapter {
         for part in parts_arr {
             if let Some(text) = part.get("text").and_then(Value::as_str) {
                 if !text.is_empty() {
-                    blocks.push(ContentBlock::Text { text: text.to_string() });
+                    blocks.push(ContentBlock::Text {
+                        text: text.to_string(),
+                    });
                 }
             } else if let Some(fc) = part.get("functionCall") {
                 let name = fc
@@ -237,12 +239,16 @@ impl ProtocolAdapter for GeminiAdapter {
         let candidates = event.get("candidates").and_then(Value::as_array);
         if let Some(candidates) = candidates {
             for candidate in candidates {
-                if let Some(parts) = candidate.pointer("/content/parts").and_then(Value::as_array)
+                if let Some(parts) = candidate
+                    .pointer("/content/parts")
+                    .and_then(Value::as_array)
                 {
                     for part in parts {
                         if let Some(text) = part.get("text").and_then(Value::as_str) {
                             if !text.is_empty() {
-                                out.push(StreamEvent::TextDelta { text: text.to_string() });
+                                out.push(StreamEvent::TextDelta {
+                                    text: text.to_string(),
+                                });
                             }
                         } else if let Some(fc) = part.get("functionCall") {
                             let name = fc
@@ -253,9 +259,7 @@ impl ProtocolAdapter for GeminiAdapter {
                             let args = fc.get("args").cloned().unwrap_or(Value::Object(Map::new()));
                             let args_str = args.to_string();
                             let id = tool_id::generate();
-                            state
-                                .tool_input_buf
-                                .insert(id.clone(), args_str.clone());
+                            state.tool_input_buf.insert(id.clone(), args_str.clone());
                             // Gemini gives us the complete tool call in one event — emit the
                             // full start/delta/end triple so consumers match other providers.
                             out.push(StreamEvent::ToolCallStart {
@@ -552,7 +556,9 @@ mod tests {
             _ => panic!("expected ToolCallStart"),
         }
         match &out[1] {
-            StreamEvent::ToolCallDelta { arguments_delta, .. } => {
+            StreamEvent::ToolCallDelta {
+                arguments_delta, ..
+            } => {
                 let parsed: Value = serde_json::from_str(arguments_delta).unwrap();
                 assert_eq!(parsed["path"], "/a");
             }
@@ -580,7 +586,12 @@ mod tests {
         // TextDelta, Stop, Usage
         let stop = out.iter().find(|e| matches!(e, StreamEvent::Stop { .. }));
         assert!(stop.is_some(), "expected a Stop event");
-        assert!(matches!(stop.unwrap(), StreamEvent::Stop { reason: StopReason::EndTurn }));
+        assert!(matches!(
+            stop.unwrap(),
+            StreamEvent::Stop {
+                reason: StopReason::EndTurn
+            }
+        ));
     }
 
     #[test]
@@ -594,7 +605,12 @@ mod tests {
         });
         let out = GeminiAdapter.decode_stream_event(&ev, &mut state).unwrap();
         assert_eq!(out.len(), 1);
-        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+        assert!(matches!(
+            &out[0],
+            StreamEvent::Stop {
+                reason: StopReason::MaxTokens
+            }
+        ));
     }
 
     #[test]
@@ -609,7 +625,9 @@ mod tests {
         let out = GeminiAdapter.decode_stream_event(&ev, &mut state).unwrap();
         assert_eq!(out.len(), 1);
         match &out[0] {
-            StreamEvent::Stop { reason: StopReason::Other(s) } => assert_eq!(s, "safety"),
+            StreamEvent::Stop {
+                reason: StopReason::Other(s),
+            } => assert_eq!(s, "safety"),
             _ => panic!("expected Stop{{Other(\"safety\")}}"),
         }
     }

@@ -21,8 +21,8 @@ pub mod service;
 pub mod types;
 
 pub use backend::MemoryBackend;
-pub use in_memory::InMemoryBackend;
 pub use embedding::{EmbeddingProvider, NoopEmbeddingProvider};
 pub use error::MemoryError;
+pub use in_memory::InMemoryBackend;
 pub use service::MemoryService;
 pub use types::{MemoryChunk, MemoryEntry, MemoryFile, SyncReport};

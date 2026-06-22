@@ -210,7 +210,10 @@ impl ExecuteShellTool {
         // Handle background execution
         if params.run_in_background.unwrap_or(false) {
             // For background: spawn the command but don't wait for it
-            let bg_command = format!("nohup sh -c '{}' > /dev/null 2>&1 & echo $!", effective_command);
+            let bg_command = format!(
+                "nohup sh -c '{}' > /dev/null 2>&1 & echo $!",
+                effective_command
+            );
             match fs.exec(&bg_command, cwd, 5000).await {
                 Ok(result) => {
                     let pid = result.stdout.trim().to_string();
@@ -332,9 +335,7 @@ impl ExecuteShellTool {
                 details: Some(json!({ "timed_out": true, "timeout_ms": timeout_ms })),
             }),
             ForegroundOutcome::Cancelled => Ok(ToolOutput {
-                content: vec![ToolContent::text(
-                    "Command cancelled by user".to_string(),
-                )],
+                content: vec![ToolContent::text("Command cancelled by user".to_string())],
                 is_error: true,
                 details: Some(json!({ "cancelled": true })),
             }),
@@ -424,10 +425,7 @@ mod tests {
 
         // Send to stderr only
         let output = tool
-            .execute(
-                json!({ "command": "echo oops 1>&2" }),
-                &ctx,
-            )
+            .execute(json!({ "command": "echo oops 1>&2" }), &ctx)
             .await
             .expect("execute should succeed");
 
@@ -443,10 +441,7 @@ mod tests {
 
         // 100ms timeout, sleep 5s — should be killed
         let output = tool
-            .execute(
-                json!({ "command": "sleep 5", "timeout": 100 }),
-                &ctx,
-            )
+            .execute(json!({ "command": "sleep 5", "timeout": 100 }), &ctx)
             .await
             .expect("timeout should produce ToolOutput, not Err");
 
@@ -457,7 +452,10 @@ mod tests {
             "expected 'timed out' in output: {text}"
         );
         let details = output.details.as_ref().expect("details present");
-        assert_eq!(details.get("timed_out").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            details.get("timed_out").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 
     #[tokio::test]
@@ -489,8 +487,14 @@ mod tests {
 
     #[test]
     fn detect_git_operation_matches_known_prefixes() {
-        assert_eq!(detect_git_operation("git push origin main"), Some("git push"));
-        assert_eq!(detect_git_operation("  git commit -m 'x'"), Some("git commit"));
+        assert_eq!(
+            detect_git_operation("git push origin main"),
+            Some("git push")
+        );
+        assert_eq!(
+            detect_git_operation("  git commit -m 'x'"),
+            Some("git commit")
+        );
         assert_eq!(detect_git_operation("ls"), None);
         assert_eq!(detect_git_operation("git status"), None); // not in tracked list
     }

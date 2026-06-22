@@ -31,21 +31,21 @@ pub use alva_agent_core::MockToolFs;
 // ---- core feature tools ----
 
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
-pub mod read_file;
+pub mod ask_human;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod create_file;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
-pub mod file_edit;
+pub mod execute_shell;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
-pub mod list_files;
+pub mod file_edit;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod find_files;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod grep_search;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
-pub mod execute_shell;
+pub mod list_files;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
-pub mod ask_human;
+pub mod read_file;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod todo_write;
 
@@ -65,10 +65,10 @@ pub mod agent_tool;
 pub mod config_tool;
 #[cfg(feature = "utility")]
 pub mod skill_tool;
-#[cfg(feature = "utility")]
-pub mod tool_search;
 #[cfg(all(feature = "utility", not(target_family = "wasm")))]
 pub mod sleep_tool;
+#[cfg(feature = "utility")]
+pub mod tool_search;
 
 // ---- web feature tools ----
 
@@ -92,18 +92,16 @@ pub mod exit_worktree;
 // ---- team feature tools ----
 
 #[cfg(feature = "team")]
+pub mod send_message;
+#[cfg(feature = "team")]
 pub mod team_create;
 #[cfg(feature = "team")]
 pub mod team_delete;
-#[cfg(feature = "team")]
-pub mod send_message;
 
 // ---- task feature tools ----
 
 #[cfg(feature = "task")]
 pub mod task_create;
-#[cfg(feature = "task")]
-pub mod task_update;
 #[cfg(feature = "task")]
 pub mod task_get;
 #[cfg(feature = "task")]
@@ -112,13 +110,15 @@ pub mod task_list;
 pub mod task_output;
 #[cfg(feature = "task")]
 pub mod task_stop;
+#[cfg(feature = "task")]
+pub mod task_update;
 
 // ---- schedule feature tools ----
 
 #[cfg(feature = "schedule")]
-pub mod schedule_cron;
-#[cfg(feature = "schedule")]
 pub mod remote_trigger;
+#[cfg(feature = "schedule")]
+pub mod schedule_cron;
 
 // ---------------------------------------------------------------------------
 // Tool presets — grouped by capability domain
@@ -351,9 +351,20 @@ mod tool_preset_tests {
         let got = names(tool_presets::file_io());
         contains_all(
             &got,
-            &["read_file", "create_file", "file_edit", "list_files", "find_files", "grep_search"],
+            &[
+                "read_file",
+                "create_file",
+                "file_edit",
+                "list_files",
+                "find_files",
+                "grep_search",
+            ],
         );
-        assert_eq!(got.len(), 6, "file_io must have exactly 6 tools, got {got:?}");
+        assert_eq!(
+            got.len(),
+            6,
+            "file_io must have exactly 6 tools, got {got:?}"
+        );
     }
 
     #[cfg(all(feature = "core", not(target_family = "wasm")))]
@@ -383,7 +394,14 @@ mod tool_preset_tests {
         let got = names(tool_presets::task_management());
         contains_all(
             &got,
-            &["task_create", "task_update", "task_get", "task_list", "task_output", "task_stop"],
+            &[
+                "task_create",
+                "task_update",
+                "task_get",
+                "task_list",
+                "task_output",
+                "task_stop",
+            ],
         );
     }
 

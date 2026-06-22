@@ -27,8 +27,12 @@ pub enum StopReason {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamEvent {
     Start,
-    TextDelta { text: String },
-    ReasoningDelta { text: String },
+    TextDelta {
+        text: String,
+    },
+    ReasoningDelta {
+        text: String,
+    },
     /// Completed reasoning / thinking block — emitted by adapter when a
     /// full reasoning content block ends in the stream. Consumers
     /// (run.rs) should append a `ContentBlock::Reasoning { text, signature }`
@@ -61,7 +65,9 @@ pub enum StreamEvent {
     Usage(UsageMetadata),
     /// Terminal reason, emitted right before `Done`. Lets a gateway
     /// reconstruct the inbound protocol's terminal frame.
-    Stop { reason: StopReason },
+    Stop {
+        reason: StopReason,
+    },
     Done,
     Error(String),
 }
@@ -88,7 +94,10 @@ mod tests {
         // We don't assert event-equality (StreamEvent isn't PartialEq);
         // we re-serialize and compare values to confirm idempotent shape.
         let back_v = serde_json::to_value(&back).expect("serialize back");
-        assert_eq!(v, back_v, "roundtrip changed shape: first={v}, second={back_v}");
+        assert_eq!(
+            v, back_v,
+            "roundtrip changed shape: first={v}, second={back_v}"
+        );
         v
     }
 
@@ -109,13 +118,17 @@ mod tests {
 
     #[test]
     fn text_delta_serializes_with_named_fields_under_variant_key() {
-        let v = roundtrip(&StreamEvent::TextDelta { text: "hello".into() });
+        let v = roundtrip(&StreamEvent::TextDelta {
+            text: "hello".into(),
+        });
         assert_eq!(v, json!({ "TextDelta": { "text": "hello" } }));
     }
 
     #[test]
     fn reasoning_delta_serializes_under_variant_key() {
-        let v = roundtrip(&StreamEvent::ReasoningDelta { text: "thinking".into() });
+        let v = roundtrip(&StreamEvent::ReasoningDelta {
+            text: "thinking".into(),
+        });
         assert_eq!(v, json!({ "ReasoningDelta": { "text": "thinking" } }));
     }
 
@@ -157,7 +170,10 @@ mod tests {
             id: "id1".into(),
             name: "read_file".into(),
         });
-        assert_eq!(v, json!({ "ToolCallStart": { "id": "id1", "name": "read_file" } }));
+        assert_eq!(
+            v,
+            json!({ "ToolCallStart": { "id": "id1", "name": "read_file" } })
+        );
     }
 
     #[test]
@@ -208,7 +224,9 @@ mod tests {
 
     #[test]
     fn stop_serializes_with_reason() {
-        let v = roundtrip(&StreamEvent::Stop { reason: StopReason::MaxTokens });
+        let v = roundtrip(&StreamEvent::Stop {
+            reason: StopReason::MaxTokens,
+        });
         assert_eq!(v, json!({ "Stop": { "reason": "max_tokens" } }));
     }
 
@@ -217,7 +235,9 @@ mod tests {
         // StopReason::Other is an externally-tagged newtype variant, so with
         // #[serde(rename_all = "snake_case")] it serializes as
         // { "other": "refusal" }.
-        let v = roundtrip(&StreamEvent::Stop { reason: StopReason::Other("refusal".into()) });
+        let v = roundtrip(&StreamEvent::Stop {
+            reason: StopReason::Other("refusal".into()),
+        });
         assert_eq!(v, json!({ "Stop": { "reason": { "other": "refusal" } } }));
     }
 }

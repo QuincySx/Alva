@@ -165,7 +165,10 @@ mod tests {
         let theme = theme();
         let s = render_to_string(SpinnerWidget::new(0, "loading", &theme), 40);
         // The message starts somewhere after the spinner char.
-        assert!(s.contains("loading"), "message missing from rendered output: '{s}'");
+        assert!(
+            s.contains("loading"),
+            "message missing from rendered output: '{s}'"
+        );
     }
 
     // -- frame_index modular wrap -----------------------------------------
@@ -210,7 +213,10 @@ mod tests {
         );
         // The em-dash separator is U+2014; the tip text must appear
         // after it.
-        assert!(s.contains("\u{2014}"), "tip separator (em-dash) missing: '{s}'");
+        assert!(
+            s.contains("\u{2014}"),
+            "tip separator (em-dash) missing: '{s}'"
+        );
         assert!(s.contains("press q to quit"), "tip text missing: '{s}'");
     }
 

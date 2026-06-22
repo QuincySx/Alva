@@ -190,9 +190,7 @@ impl MultiagentRoster {
     /// True if `agent_id` matches any non-SelfRef entry in the roster.
     /// Useful for App-side strict-mode enforcement.
     pub fn contains_agent(&self, agent_id: &str) -> bool {
-        self.entries
-            .iter()
-            .any(|e| e.agent_id() == Some(agent_id))
+        self.entries.iter().any(|e| e.agent_id() == Some(agent_id))
     }
 
     /// True if the roster contains a SelfRef sentinel.

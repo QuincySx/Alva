@@ -275,7 +275,10 @@ mod tests {
         let mgr = BrowserManager::new();
         assert!(mgr.instance_ids().is_empty(), "fresh manager has no ids");
         assert!(!mgr.is_running("default"), "fresh manager has no 'default'");
-        assert!(mgr.get("default").is_none(), "fresh manager has no instance");
+        assert!(
+            mgr.get("default").is_none(),
+            "fresh manager has no instance"
+        );
     }
 
     #[test]
@@ -292,13 +295,19 @@ mod tests {
         let mut mgr = BrowserManager::new();
         let err = mgr.stop("ghost").await.expect_err("absent stop should err");
         assert!(err.contains("ghost"), "error should mention the id: {err}");
-        assert!(err.contains("not found"), "error should mention 'not found': {err}");
+        assert!(
+            err.contains("not found"),
+            "error should mention 'not found': {err}"
+        );
     }
 
     #[tokio::test]
     async fn list_tabs_unknown_id_returns_clear_error() {
         let mgr = BrowserManager::new();
-        let err = mgr.list_tabs("ghost").await.expect_err("absent list_tabs should err");
+        let err = mgr
+            .list_tabs("ghost")
+            .await
+            .expect_err("absent list_tabs should err");
         assert!(err.contains("ghost"));
         assert!(err.contains("not found"));
     }
@@ -306,7 +315,10 @@ mod tests {
     #[tokio::test]
     async fn active_page_unknown_id_returns_clear_error() {
         let mgr = BrowserManager::new();
-        let err = mgr.active_page("ghost").await.expect_err("absent active_page should err");
+        let err = mgr
+            .active_page("ghost")
+            .await
+            .expect_err("absent active_page should err");
         assert!(err.contains("ghost"));
         assert!(err.contains("not found"));
     }

@@ -69,25 +69,20 @@ impl BrowserStatusTool {
                 let instance_info = manager.get(&id);
 
                 // Get current page info
-                let (current_url, current_title) =
-                    if let Ok(page) = manager.active_page(&id).await {
-                        let url = page
-                            .url()
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(|u| u.to_string())
-                            .unwrap_or_else(|| "about:blank".to_string());
-                        let title = page
-                            .get_title()
-                            .await
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default();
-                        (url, title)
-                    } else {
-                        ("unknown".to_string(), String::new())
-                    };
+                let (current_url, current_title) = if let Ok(page) = manager.active_page(&id).await
+                {
+                    let url = page
+                        .url()
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|| "about:blank".to_string());
+                    let title = page.get_title().await.ok().flatten().unwrap_or_default();
+                    (url, title)
+                } else {
+                    ("unknown".to_string(), String::new())
+                };
 
                 json!({
                     "id": id,

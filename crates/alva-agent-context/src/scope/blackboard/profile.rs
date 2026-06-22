@@ -84,10 +84,7 @@ impl AgentProfile {
             ));
         }
 
-        let peers: Vec<&AgentProfile> = all_profiles
-            .iter()
-            .filter(|p| p.id != self.id)
-            .collect();
+        let peers: Vec<&AgentProfile> = all_profiles.iter().filter(|p| p.id != self.id).collect();
 
         if !peers.is_empty() {
             s.push_str("\nTeam members:\n");
@@ -147,8 +144,7 @@ mod tests {
             AgentProfile::new("generator", "coding")
                 .depends_on(["planner"])
                 .provides_to(["evaluator"]),
-            AgentProfile::new("evaluator", "review")
-                .depends_on(["generator"]),
+            AgentProfile::new("evaluator", "review").depends_on(["generator"]),
         ];
 
         let prompt = profiles[1].build_team_prompt(&profiles);
@@ -163,9 +159,7 @@ mod tests {
 
     #[test]
     fn team_prompt_with_capabilities() {
-        let profiles = vec![
-            AgentProfile::new("gen", "coding").with_capability("write rust"),
-        ];
+        let profiles = vec![AgentProfile::new("gen", "coding").with_capability("write rust")];
 
         let prompt = profiles[0].build_team_prompt(&profiles);
         assert!(prompt.contains("write rust"));

@@ -6,15 +6,15 @@ use std::sync::Arc;
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 
-use alva_protocol_mcp::transport::McpTransport;
 use alva_protocol_mcp::error::McpError;
+use alva_protocol_mcp::transport::McpTransport;
 use alva_protocol_mcp::types::McpToolInfo;
 
-use crate::extension::{Plugin, Registrar};
 use crate::extension::mcp::config::McpConfig;
 use crate::extension::mcp::runtime::{McpManager, McpTransportFactory};
 use crate::extension::mcp::tool_adapter::build_mcp_tools;
 use crate::extension::mcp::tools::McpRuntimeTool;
+use crate::extension::{Plugin, Registrar};
 
 /// Stub transport factory used when no real MCP transport implementation is
 /// available.  Creates transports that immediately fail on connect, so the
@@ -23,10 +23,7 @@ use crate::extension::mcp::tools::McpRuntimeTool;
 struct StubTransportFactory;
 
 impl McpTransportFactory for StubTransportFactory {
-    fn create(
-        &self,
-        _config: &alva_protocol_mcp::types::McpServerConfig,
-    ) -> Box<dyn McpTransport> {
+    fn create(&self, _config: &alva_protocol_mcp::types::McpServerConfig) -> Box<dyn McpTransport> {
         Box::new(StubTransport)
     }
 }
@@ -112,7 +109,9 @@ impl Plugin for McpPlugin {
 
 impl McpPlugin {
     /// Internal helper: load config, create manager, connect, discover tools.
-    async fn load_and_connect(&self) -> Result<Vec<Box<dyn Tool>>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn load_and_connect(
+        &self,
+    ) -> Result<Vec<Box<dyn Tool>>, Box<dyn std::error::Error + Send + Sync>> {
         // 1. Load and merge configs from all paths (later paths override earlier).
         let mut merged = McpConfig::default();
         for path in &self.config_paths {
@@ -148,7 +147,10 @@ impl McpPlugin {
 
         // 5. Discover tools from connected servers.
         let tool_infos = manager.list_all_tools().await;
-        tracing::info!("MCP: discovered {} tool(s) from connected servers", tool_infos.len());
+        tracing::info!(
+            "MCP: discovered {} tool(s) from connected servers",
+            tool_infos.len()
+        );
 
         // 6. Wrap MCP tools as standard Tool trait objects.
         let mut tools = build_mcp_tools(manager.clone(), tool_infos);

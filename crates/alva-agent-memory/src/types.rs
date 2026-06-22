@@ -145,7 +145,13 @@ mod tests {
         // — UI relies on the keys being present even with value 0).
         let r = SyncReport::default();
         let v: Value = serde_json::to_value(&r).unwrap();
-        for k in ["files_scanned", "files_added", "files_updated", "files_unchanged", "chunks_created"] {
+        for k in [
+            "files_scanned",
+            "files_added",
+            "files_updated",
+            "files_unchanged",
+            "chunks_created",
+        ] {
             assert_eq!(v[k], json!(0), "{k} must be present and 0 even at default");
         }
     }

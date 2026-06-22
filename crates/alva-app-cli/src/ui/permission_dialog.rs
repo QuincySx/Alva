@@ -46,7 +46,7 @@ impl PermissionType {
     pub fn icon(self) -> &'static str {
         match self {
             Self::Bash => "$",
-            Self::FileEdit => "\u{270f}",  // ✏
+            Self::FileEdit => "\u{270f}",   // ✏
             Self::FileWrite => "\u{1f4be}", // 💾
             Self::WebFetch => "\u{1f310}",  // 🌐
             Self::FileRead => "\u{1f4c4}",  // 📄
@@ -123,22 +123,16 @@ pub fn bash_detail_lines<'a>(command: &str, theme: &Theme) -> Vec<Line<'a>> {
     if dangerous {
         lines.push(Line::styled(
             "⚠ DANGEROUS COMMAND".to_owned(),
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ));
         lines.push(Line::default());
     }
 
-    lines.push(Line::from(vec![
-        Span::styled("Command: ", theme.text_dim),
-    ]));
+    lines.push(Line::from(vec![Span::styled("Command: ", theme.text_dim)]));
 
     // Render the command with appropriate coloring
     let cmd_style = if dangerous {
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else {
         theme.text
     };
@@ -188,7 +182,9 @@ pub fn file_edit_detail_lines<'a>(
 
         lines.push(Line::styled(
             "── new ──".to_owned(),
-            Style::default().fg(Color::Green).add_modifier(Modifier::DIM),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::DIM),
         ));
         for line in new_lines_vec.iter().take(15) {
             lines.push(Line::from(vec![
@@ -280,11 +276,7 @@ impl<'a> PermissionDialogWidget<'a> {
     }
 
     /// Simple constructor from a raw detail string (backward compat).
-    pub fn from_detail(
-        permission_type: PermissionType,
-        detail: &'a str,
-        theme: &'a Theme,
-    ) -> Self {
+    pub fn from_detail(permission_type: PermissionType, detail: &'a str, theme: &'a Theme) -> Self {
         let lines: Vec<Line<'a>> = detail
             .lines()
             .map(|l| Line::styled(l.to_owned(), theme.text))
@@ -325,9 +317,7 @@ impl<'a> Widget for PermissionDialogWidget<'a> {
             Span::raw(" "),
             Span::styled(
                 self.permission_type.label(),
-                self.theme
-                    .text_bold
-                    .add_modifier(Modifier::UNDERLINED),
+                self.theme.text_bold.add_modifier(Modifier::UNDERLINED),
             ),
         ]));
         lines.push(Line::default());
@@ -375,14 +365,35 @@ mod tests {
 
     #[test]
     fn permission_type_from_tool_name() {
-        assert_eq!(PermissionType::from_tool_name("execute_shell"), PermissionType::Bash);
+        assert_eq!(
+            PermissionType::from_tool_name("execute_shell"),
+            PermissionType::Bash
+        );
         assert_eq!(PermissionType::from_tool_name("Bash"), PermissionType::Bash);
-        assert_eq!(PermissionType::from_tool_name("file_edit"), PermissionType::FileEdit);
-        assert_eq!(PermissionType::from_tool_name("Edit"), PermissionType::FileEdit);
-        assert_eq!(PermissionType::from_tool_name("create_file"), PermissionType::FileWrite);
-        assert_eq!(PermissionType::from_tool_name("read_url"), PermissionType::WebFetch);
-        assert_eq!(PermissionType::from_tool_name("read_file"), PermissionType::FileRead);
-        assert_eq!(PermissionType::from_tool_name("unknown_tool"), PermissionType::Bash);
+        assert_eq!(
+            PermissionType::from_tool_name("file_edit"),
+            PermissionType::FileEdit
+        );
+        assert_eq!(
+            PermissionType::from_tool_name("Edit"),
+            PermissionType::FileEdit
+        );
+        assert_eq!(
+            PermissionType::from_tool_name("create_file"),
+            PermissionType::FileWrite
+        );
+        assert_eq!(
+            PermissionType::from_tool_name("read_url"),
+            PermissionType::WebFetch
+        );
+        assert_eq!(
+            PermissionType::from_tool_name("read_file"),
+            PermissionType::FileRead
+        );
+        assert_eq!(
+            PermissionType::from_tool_name("unknown_tool"),
+            PermissionType::Bash
+        );
     }
 
     #[test]
@@ -413,7 +424,11 @@ mod tests {
         let lines = bash_detail_lines("ls -la", &theme);
         assert!(!lines.is_empty());
         // Should NOT have danger warning
-        let text: String = lines.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.as_ref()).collect();
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.as_ref())
+            .collect();
         assert!(!text.contains("DANGEROUS"), "{}", text);
     }
 
@@ -421,15 +436,28 @@ mod tests {
     fn bash_detail_lines_dangerous() {
         let theme = Theme::dark();
         let lines = bash_detail_lines("rm -rf /tmp/data", &theme);
-        let text: String = lines.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("DANGEROUS"), "should warn about dangerous command: {}", text);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            text.contains("DANGEROUS"),
+            "should warn about dangerous command: {}",
+            text
+        );
     }
 
     #[test]
     fn file_edit_detail_lines_with_diff() {
         let theme = Theme::dark();
-        let lines = file_edit_detail_lines("src/main.rs", Some("old code"), Some("new code"), &theme);
-        let text: String = lines.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.as_ref()).collect();
+        let lines =
+            file_edit_detail_lines("src/main.rs", Some("old code"), Some("new code"), &theme);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.as_ref())
+            .collect();
         assert!(text.contains("src/main.rs"), "{}", text);
         assert!(text.contains("old code"), "should show old text: {}", text);
         assert!(text.contains("new code"), "should show new text: {}", text);
@@ -439,30 +467,60 @@ mod tests {
     fn file_write_detail_existing_file() {
         let theme = Theme::dark();
         let lines = file_write_detail_lines("test.txt", true, &theme);
-        let text: String = lines.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("overwritten"), "should warn about overwrite: {}", text);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            text.contains("overwritten"),
+            "should warn about overwrite: {}",
+            text
+        );
     }
 
     #[test]
     fn file_write_detail_new_file() {
         let theme = Theme::dark();
         let lines = file_write_detail_lines("test.txt", false, &theme);
-        let text: String = lines.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.as_ref()).collect();
-        assert!(!text.contains("overwritten"), "should not warn for new file: {}", text);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            !text.contains("overwritten"),
+            "should not warn for new file: {}",
+            text
+        );
     }
 
     #[test]
     fn web_fetch_detail_extracts_domain() {
         let theme = Theme::dark();
         let lines = web_fetch_detail_lines("https://example.com/path/to/page", &theme);
-        let text: String = lines.iter().flat_map(|l| l.spans.iter()).map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("example.com"), "should extract domain: {}", text);
+        let text: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            text.contains("example.com"),
+            "should extract domain: {}",
+            text
+        );
     }
 
     #[test]
     fn extract_domain_works() {
-        assert_eq!(extract_domain("https://example.com/page"), Some("example.com".into()));
-        assert_eq!(extract_domain("http://api.github.com:443/"), Some("api.github.com".into()));
+        assert_eq!(
+            extract_domain("https://example.com/page"),
+            Some("example.com".into())
+        );
+        assert_eq!(
+            extract_domain("http://api.github.com:443/"),
+            Some("api.github.com".into())
+        );
         assert_eq!(extract_domain("ftp://invalid"), None);
     }
 }

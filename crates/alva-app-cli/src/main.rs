@@ -17,12 +17,12 @@
 //! Sessions are stored under `.alva/sessions/` in the working directory.
 
 mod agent_setup;
+mod bundled_skills;
 mod checkpoint;
 mod commands;
 mod context;
 mod event_handler;
 mod output;
-mod bundled_skills;
 mod plugins;
 mod repl;
 mod repl_completer;
@@ -97,25 +97,43 @@ async fn run() -> i32 {
     // keep working unchanged. New users go through the wizard or `alva settings set`.
     let config = match ProviderConfig::load(&workspace) {
         Ok(c) if !c.api_key.is_empty() => c,
-        _ => match settings_cmd::try_load_provider_from_shared() {
-            Some(mut shared) => {
-                // Env vars still override individual fields when present.
-                if let Ok(k) = std::env::var("ALVA_API_KEY") { if !k.is_empty() { shared.api_key = k; } }
-                if let Ok(m) = std::env::var("ALVA_MODEL") { if !m.is_empty() { shared.model = m; } }
-                if let Ok(b) = std::env::var("ALVA_BASE_URL") { if !b.is_empty() { shared.base_url = b; } }
-                if let Ok(k) = std::env::var("ALVA_PROVIDER_KIND") { if !k.is_empty() { shared.kind = Some(k); } }
-                shared
-            }
-            None => match setup::run_setup_wizard(&workspace) {
-                Some(c) => c,
-                None => {
-                    eprintln!();
-                    output::print_error("Setup incomplete. You can also configure manually:");
-                    eprintln!("  export ALVA_API_KEY=sk-...");
-                    eprintln!("  export ALVA_MODEL=gpt-4o");
-                    eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
-                    return 1;
+        _ => {
+            match settings_cmd::try_load_provider_from_shared() {
+                Some(mut shared) => {
+                    // Env vars still override individual fields when present.
+                    if let Ok(k) = std::env::var("ALVA_API_KEY") {
+                        if !k.is_empty() {
+                            shared.api_key = k;
+                        }
+                    }
+                    if let Ok(m) = std::env::var("ALVA_MODEL") {
+                        if !m.is_empty() {
+                            shared.model = m;
+                        }
+                    }
+                    if let Ok(b) = std::env::var("ALVA_BASE_URL") {
+                        if !b.is_empty() {
+                            shared.base_url = b;
+                        }
+                    }
+                    if let Ok(k) = std::env::var("ALVA_PROVIDER_KIND") {
+                        if !k.is_empty() {
+                            shared.kind = Some(k);
+                        }
+                    }
+                    shared
                 }
+                None => match setup::run_setup_wizard(&workspace) {
+                    Some(c) => c,
+                    None => {
+                        eprintln!();
+                        output::print_error("Setup incomplete. You can also configure manually:");
+                        eprintln!("  export ALVA_API_KEY=sk-...");
+                        eprintln!("  export ALVA_MODEL=gpt-4o");
+                        eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
+                        return 1;
+                    }
+                },
             }
         }
     };
@@ -182,7 +200,9 @@ async fn run() -> i32 {
         }
         if mode_override.is_none() {
             if let Ok(env_mode) = std::env::var("ALVA_UI_MODE") {
-                if !env_mode.is_empty() { mode_override = Some(env_mode); }
+                if !env_mode.is_empty() {
+                    mode_override = Some(env_mode);
+                }
             }
         }
         let shared_cfg = alva_app_core::config::load();
@@ -216,9 +236,18 @@ async fn run() -> i32 {
     let mut i = 1;
     while i < argv.len() {
         let a = &argv[i];
-        if a == "--ui-mode" { i += 2; continue; }
-        if a == "-p" || a == "--print" || a == "--tui" || a == "--repl" { i += 1; continue; }
-        if a.starts_with('-') { i += 1; continue; }
+        if a == "--ui-mode" {
+            i += 2;
+            continue;
+        }
+        if a == "-p" || a == "--print" || a == "--tui" || a == "--repl" {
+            i += 1;
+            continue;
+        }
+        if a.starts_with('-') {
+            i += 1;
+            continue;
+        }
         prompt_arg = Some(a.clone());
         break;
     }

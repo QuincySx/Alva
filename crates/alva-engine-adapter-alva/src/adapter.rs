@@ -13,17 +13,17 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::debug;
 
-use alva_kernel_core::middleware::MiddlewareStack;
-use alva_kernel_core::run::run_agent;
-use alva_kernel_core::shared::Extensions;
-use alva_kernel_core::state::{AgentConfig, AgentState};
-use alva_kernel_core::AgentMessage;
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
     RuntimeRequest,
 };
 use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::{CancellationToken, ContentBlock, Message, MessageRole};
+use alva_kernel_core::middleware::MiddlewareStack;
+use alva_kernel_core::run::run_agent;
+use alva_kernel_core::shared::Extensions;
+use alva_kernel_core::state::{AgentConfig, AgentState};
+use alva_kernel_core::AgentMessage;
 
 use crate::config::AlvaAdapterConfig;
 use crate::mapping::EventMapper;
@@ -85,7 +85,8 @@ impl EngineRuntime for AlvaAdapter {
             .unwrap_or_else(|| self.config.system_prompt.clone());
 
         // 3. Build AgentState.
-        let session: Arc<dyn alva_kernel_abi::agent_session::AgentSession> = Arc::new(InMemoryAgentSession::new());
+        let session: Arc<dyn alva_kernel_abi::agent_session::AgentSession> =
+            Arc::new(InMemoryAgentSession::new());
         let state = AgentState {
             model: self.config.model.clone(),
             tools: self.config.tools.clone(),
@@ -241,9 +242,9 @@ impl EngineRuntime for AlvaAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alva_kernel_abi::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
-    use alva_kernel_abi::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
     use async_trait::async_trait;
     use serde_json::json;
     use std::path::Path;

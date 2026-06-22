@@ -9,24 +9,25 @@ pub mod diagnostic;
 pub use scope::context;
 pub mod constants;
 pub mod model;
+pub mod multimodal;
+pub mod phase;
 pub mod task;
 pub mod token_estimation;
 pub mod tool;
-pub mod multimodal;
 // backward-compatible re-exports for old module paths
 pub use multimodal::embedding;
-pub use multimodal::transcription;
-pub use multimodal::speech;
 pub use multimodal::image;
-pub use multimodal::video;
-pub use multimodal::reranking;
 pub use multimodal::moderation;
+pub use multimodal::reranking;
+pub use multimodal::speech;
+pub use multimodal::transcription;
+pub use multimodal::video;
 pub mod provider;
 // provider_test is now at provider::tests; re-export for backward compatibility
 pub use provider::tests as provider_test;
+pub mod agent_session;
 pub mod runtime;
 pub mod scope;
-pub mod agent_session;
 // tool_guard is now at tool::guard
 
 pub use analytics::{AnalyticsEvent, AnalyticsSink, NoopAnalyticsSink};
@@ -38,11 +39,17 @@ pub use base::cancel::CancellationToken;
 pub use base::content::ContentBlock;
 pub use base::error::AgentError;
 pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadata};
-pub use model::{CompletionResponse, LanguageModel, ModelConfig, ReasoningEffort, TokenCounter};
 pub use base::stream::StreamEvent;
-pub use tool::{Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, SearchReadInfo};
+pub use model::{CompletionResponse, LanguageModel, ModelConfig, ReasoningEffort, TokenCounter};
+pub use phase::{Phase, PhaseEffect};
+pub use tool::execution::{
+    MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput,
+};
 pub use tool::scheduler::{ExecutionMode, LockMode, ResourceKey, ToolLockGuards, ToolLockRegistry};
-pub use tool::execution::{MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput};
+pub use tool::{
+    SearchReadInfo, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult,
+    ToolPermissionResult, ToolRegistry, ToolSchemaContext,
+};
 
 // Re-export proc macros from alva-macros. A derive macro and a trait
 // with the same name can coexist: the trait lives in the type namespace,
@@ -57,33 +64,35 @@ pub use alva_macros::Tool;
 // a cross-crate type-surface limit at the definition site. Re-exported
 // from `alva-kernel-abi` so downstream crates don't need a direct
 // `alva-macros` dep.
+pub use agent_session::{
+    AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery,
+    InMemoryAgentSession, ListenableInMemorySession, ScopedSession, SessionError, SessionEvent,
+    SessionEventListener, SessionMessage,
+};
 #[doc(inline)]
 pub use alva_macros::{bus_cap, bus_event};
-pub use task::{TaskType, TaskStatus, TaskState, generate_task_id, create_task_state};
-pub use token_estimation::{TokenEstimator, SimpleTokenEstimator};
 pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
-pub use transcription::{
-    TranscriptionConfig, TranscriptionModel, TranscriptionResult, TranscriptionSegment,
-};
-pub use speech::{SpeechConfig, SpeechModel, SpeechResult};
 pub use image::{ImageConfig, ImageData, ImageEditConfig, ImageModel, ImageResult};
-pub use video::{VideoConfig, VideoData, VideoModel, VideoResult};
-pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
-pub use provider::{CredentialSource, StaticCredential, Provider, ProviderError, ProviderRegistry};
-pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
+pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential};
+pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use scope::spawn::{
     OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication,
     SpawnCommunicationRegistry, SpawnResult,
 };
-pub use agent_session::{
-    AgentSession, InMemoryAgentSession, ListenableInMemorySession, SessionEventListener,
-    SessionError, SessionEvent, SessionMessage,
-    EventEmitter, EmitterKind, ComponentDescriptor, ScopedSession, EventQuery, EventMatch,
+pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
+pub use speech::{SpeechConfig, SpeechModel, SpeechResult};
+pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType};
+pub use token_estimation::{SimpleTokenEstimator, TokenEstimator};
+pub use transcription::{
+    TranscriptionConfig, TranscriptionModel, TranscriptionResult, TranscriptionSegment,
 };
+pub use video::{VideoConfig, VideoData, VideoModel, VideoResult};
 
 // Bus — cross-layer coordination
-pub use alva_kernel_bus::{Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell};
+pub use alva_kernel_bus::{
+    Bus, BusEvent, BusHandle, BusPlugin, BusWriter, PluginRegistrar, StateCell,
+};
 
 // Context bus events
-pub use scope::context::{TokenBudgetExceeded, ContextCompacted, MemoryExtracted};
+pub use scope::context::{ContextCompacted, MemoryExtracted, TokenBudgetExceeded};

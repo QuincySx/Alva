@@ -88,7 +88,10 @@ pub struct ToastStack {
 
 impl ToastStack {
     pub fn new() -> Self {
-        Self { queue: Vec::new(), anchor: Some(Anchor::TopRight) }
+        Self {
+            queue: Vec::new(),
+            anchor: Some(Anchor::TopRight),
+        }
     }
 
     pub fn push(&mut self, t: Toast) {
@@ -102,10 +105,14 @@ impl ToastStack {
         n != self.queue.len()
     }
 
-    pub fn is_empty(&self) -> bool { self.queue.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
 
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        if self.queue.is_empty() { return; }
+        if self.queue.is_empty() {
+            return;
+        }
         let anchor = self.anchor.unwrap_or(Anchor::TopRight);
         let max_w = (area.width / 3).max(20).min(60);
         let mut y_offset = 0u16;
@@ -121,7 +128,9 @@ impl ToastStack {
                 _ => rect.y += y_offset,
             }
             y_offset += h;
-            if rect.y + rect.height > area.y + area.height { break; }
+            if rect.y + rect.height > area.y + area.height {
+                break;
+            }
 
             frame.render_widget(Clear, rect);
             let line = Line::from(vec![
@@ -174,7 +183,11 @@ mod tests {
         // ~ a few ms of construction. expires_at - now should be ~ 3s.
         let remaining = t.expires_at.saturating_duration_since(Instant::now());
         assert!(remaining <= Duration::from_secs(3));
-        assert!(remaining >= Duration::from_millis(2_500), "expected ~3s, got {:?}", remaining);
+        assert!(
+            remaining >= Duration::from_millis(2_500),
+            "expected ~3s, got {:?}",
+            remaining
+        );
     }
 
     #[test]
@@ -226,7 +239,10 @@ mod tests {
     #[test]
     fn is_alive_false_after_expiry() {
         let t = expired_toast("dead", ToastKind::Info);
-        assert!(!t.is_alive(), "toast whose expires_at is in the past must NOT be alive");
+        assert!(
+            !t.is_alive(),
+            "toast whose expires_at is in the past must NOT be alive"
+        );
     }
 
     // -- ToastStack: defaults ---------------------------------------------
@@ -270,7 +286,10 @@ mod tests {
         s.push(Toast::info("still alive"));
         assert_eq!(s.is_empty(), false);
         let removed = s.tick();
-        assert!(removed, "tick must report removal when an expired toast was dropped");
+        assert!(
+            removed,
+            "tick must report removal when an expired toast was dropped"
+        );
         assert!(!s.is_empty(), "live toast must remain");
     }
 

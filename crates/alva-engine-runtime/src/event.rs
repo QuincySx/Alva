@@ -32,10 +32,7 @@ pub enum RuntimeEvent {
     },
 
     /// Streaming delta (reuses alva_kernel_abi::StreamEvent).
-    MessageDelta {
-        id: String,
-        delta: StreamEvent,
-    },
+    MessageDelta { id: String, delta: StreamEvent },
 
     /// Tool call started.
     ToolStart {
@@ -71,10 +68,7 @@ pub enum RuntimeEvent {
     },
 
     /// Error during execution.
-    Error {
-        message: String,
-        recoverable: bool,
-    },
+    Error { message: String, recoverable: bool },
 }
 
 /// Engine-level usage statistics.

@@ -35,11 +35,7 @@ impl CheckpointManager {
 
     /// Create a checkpoint for the given files (saves their current content).
     /// Returns the checkpoint ID.
-    pub fn create(
-        &self,
-        description: &str,
-        file_paths: &[PathBuf],
-    ) -> std::io::Result<String> {
+    pub fn create(&self, description: &str, file_paths: &[PathBuf]) -> std::io::Result<String> {
         let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let checkpoint_dir = self.checkpoints_dir.join(&id);
         let files_dir = checkpoint_dir.join("files");

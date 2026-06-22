@@ -116,9 +116,7 @@ pub async fn update_memory_index(memory_dir: &Path) -> Result<(), std::io::Error
     while let Some(entry) = dir.next_entry().await? {
         let path = entry.path();
         if path.extension().map_or(false, |e| e == "md")
-            && path
-                .file_name()
-                .map_or(false, |n| n != "MEMORY.md")
+            && path.file_name().map_or(false, |n| n != "MEMORY.md")
         {
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 if let Some(desc) = extract_description(&content) {
@@ -157,11 +155,7 @@ fn extract_description(content: &str) -> Option<String> {
             }
         }
         if in_frontmatter && line.starts_with("description:") {
-            return Some(
-                line.trim_start_matches("description:")
-                    .trim()
-                    .to_string(),
-            );
+            return Some(line.trim_start_matches("description:").trim().to_string());
         }
     }
     None
@@ -206,7 +200,8 @@ mod tests {
 
     #[test]
     fn extract_description_from_frontmatter() {
-        let content = "---\nname: test\ndescription: A test memory\ntype: project\n---\n\nContent here.";
+        let content =
+            "---\nname: test\ndescription: A test memory\ntype: project\n---\n\nContent here.";
         assert_eq!(
             extract_description(content),
             Some("A test memory".to_string())

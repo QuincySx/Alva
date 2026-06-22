@@ -112,7 +112,10 @@ impl PermissionRules {
 
     /// Returns true if no rules have been configured.
     pub fn is_empty(&self) -> bool {
-        self.allow.is_empty() && self.deny.is_empty() && self.ask.is_empty() && self.read_only.is_empty()
+        self.allow.is_empty()
+            && self.deny.is_empty()
+            && self.ask.is_empty()
+            && self.read_only.is_empty()
     }
 }
 

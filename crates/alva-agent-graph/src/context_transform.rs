@@ -24,9 +24,7 @@ pub struct TransformPipeline {
 
 impl TransformPipeline {
     pub fn new() -> Self {
-        Self {
-            transforms: vec![],
-        }
+        Self { transforms: vec![] }
     }
 
     /// Append a transform to the end of the pipeline.
@@ -102,13 +100,9 @@ mod tests {
         let mut pipeline = TransformPipeline::new();
 
         // First: append marker "A"
-        pipeline.push(Box::new(AppendMarker {
-            marker: "A".into(),
-        }));
+        pipeline.push(Box::new(AppendMarker { marker: "A".into() }));
         // Second: append marker "B"
-        pipeline.push(Box::new(AppendMarker {
-            marker: "B".into(),
-        }));
+        pipeline.push(Box::new(AppendMarker { marker: "B".into() }));
 
         let messages: Vec<AgentMessage> = vec![];
         let result = pipeline.apply(&messages);

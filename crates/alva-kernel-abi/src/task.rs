@@ -159,7 +159,11 @@ mod tests {
     fn generate_task_id_format() {
         let id = generate_task_id(&TaskType::LocalBash);
         // Must start with the prefix character
-        assert!(id.starts_with('b'), "LocalBash id should start with 'b': {}", id);
+        assert!(
+            id.starts_with('b'),
+            "LocalBash id should start with 'b': {}",
+            id
+        );
         // Must be at least 9 chars: 1 prefix + 8 base36
         assert!(id.len() >= 9, "id too short: {}", id);
         // All chars after prefix must be base36 (lowercase alphanumeric)
@@ -177,8 +181,7 @@ mod tests {
         let ids: Vec<String> = (0..100)
             .map(|_| generate_task_id(&TaskType::LocalAgent))
             .collect();
-        let unique: std::collections::HashSet<&str> =
-            ids.iter().map(|s| s.as_str()).collect();
+        let unique: std::collections::HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
         // Should be all unique (probabilistically)
         assert_eq!(unique.len(), ids.len(), "generated duplicate task IDs");
     }

@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use crate::extension::mcp::runtime::McpManager;
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -65,9 +65,16 @@ impl Tool for McpRuntimeTool {
         })
     }
 
-    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
+    async fn execute(
+        &self,
+        input: Value,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let params: McpRuntimeInput =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "mcp_runtime".into(), message: e.to_string() })?;
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError {
+                tool_name: "mcp_runtime".into(),
+                message: e.to_string(),
+            })?;
 
         let output = match params.action.as_str() {
             "list_servers" => {
@@ -81,8 +88,7 @@ impl Tool for McpRuntimeTool {
                         })
                     })
                     .collect();
-                serde_json::to_string_pretty(&servers)
-                    .unwrap_or_else(|_| "[]".to_string())
+                serde_json::to_string_pretty(&servers).unwrap_or_else(|_| "[]".to_string())
             }
             "list_tools" => {
                 let all_tools = self.manager.list_all_tools().await;
@@ -102,15 +108,16 @@ impl Tool for McpRuntimeTool {
                         })
                     })
                     .collect();
-                serde_json::to_string_pretty(&filtered)
-                    .unwrap_or_else(|_| "[]".to_string())
+                serde_json::to_string_pretty(&filtered).unwrap_or_else(|_| "[]".to_string())
             }
             "call_tool" => {
-                let server_id = params.server_id.ok_or_else(|| {
-                    AgentError::ToolError { tool_name: "mcp_runtime".into(), message: "server_id is required for call_tool".to_string() }
+                let server_id = params.server_id.ok_or_else(|| AgentError::ToolError {
+                    tool_name: "mcp_runtime".into(),
+                    message: "server_id is required for call_tool".to_string(),
                 })?;
-                let tool_name = params.tool_name.ok_or_else(|| {
-                    AgentError::ToolError { tool_name: "mcp_runtime".into(), message: "tool_name is required for call_tool".to_string() }
+                let tool_name = params.tool_name.ok_or_else(|| AgentError::ToolError {
+                    tool_name: "mcp_runtime".into(),
+                    message: "tool_name is required for call_tool".to_string(),
                 })?;
                 let arguments = params.arguments.unwrap_or(json!({}));
 
@@ -118,15 +125,20 @@ impl Tool for McpRuntimeTool {
                     .manager
                     .call_tool(&server_id, &tool_name, arguments)
                     .await
-                    .map_err(|e| AgentError::ToolError { tool_name: "mcp_runtime".into(), message: e.to_string() })?;
+                    .map_err(|e| AgentError::ToolError {
+                        tool_name: "mcp_runtime".into(),
+                        message: e.to_string(),
+                    })?;
 
-                serde_json::to_string_pretty(&result)
-                    .unwrap_or_else(|_| result.to_string())
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string())
             }
             other => {
                 return Err(AgentError::ToolError {
                     tool_name: "mcp_runtime".into(),
-                    message: format!("Unknown action '{}'. Valid actions: list_servers, list_tools, call_tool", other),
+                    message: format!(
+                        "Unknown action '{}'. Valid actions: list_servers, list_tools, call_tool",
+                        other
+                    ),
                 });
             }
         };

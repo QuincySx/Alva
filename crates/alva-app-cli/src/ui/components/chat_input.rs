@@ -42,11 +42,7 @@ impl ChatInput {
         let mut inner = TextArea::default();
         let placeholder: String = placeholder.into();
         inner.set_placeholder_text(&placeholder);
-        inner.set_block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Message "),
-        );
+        inner.set_block(Block::default().borders(Borders::ALL).title(" Message "));
         Self { inner, placeholder }
     }
 
@@ -84,11 +80,15 @@ impl ChatInput {
         let bytes = line.as_bytes();
         while start > 0 {
             let prev = bytes[start - 1];
-            if prev == b' ' || prev == b'\t' { break; }
+            if prev == b' ' || prev == b'\t' {
+                break;
+            }
             start -= 1;
         }
         let head_byte = bytes.get(start).copied()?;
-        if head_byte != b'/' && head_byte != b'@' { return None; }
+        if head_byte != b'/' && head_byte != b'@' {
+            return None;
+        }
         let trigger = head_byte as char;
         let end = col.min(line.len());
         let token = line.get(start + 1..end).unwrap_or("").to_string();
@@ -112,7 +112,9 @@ impl ChatInput {
     /// Multi-line pastes are passed through verbatim.
     pub fn insert_text(&mut self, text: &str) {
         for (i, line) in text.split('\n').enumerate() {
-            if i > 0 { self.inner.insert_newline(); }
+            if i > 0 {
+                self.inner.insert_newline();
+            }
             self.inner.insert_str(line);
         }
     }
@@ -123,14 +125,19 @@ impl ChatInput {
             self.insert_text(s);
             return ChatInputAction::Changed;
         }
-        let Event::Key(KeyEvent { code, modifiers, .. }) = event.clone() else {
+        let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event.clone()
+        else {
             return ChatInputAction::None;
         };
         match (modifiers, code) {
             // Submit: Enter alone (Shift+Enter inserts newline)
             (m, KeyCode::Enter) if !m.contains(KeyModifiers::SHIFT) => {
                 let v = self.value();
-                if v.trim().is_empty() { return ChatInputAction::None; }
+                if v.trim().is_empty() {
+                    return ChatInputAction::None;
+                }
                 ChatInputAction::Submit(v)
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => ChatInputAction::Cancel,

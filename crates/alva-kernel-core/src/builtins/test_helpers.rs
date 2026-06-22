@@ -6,11 +6,11 @@
 pub(crate) mod helpers {
     use std::sync::Arc;
 
+    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::base::error::AgentError;
     use alva_kernel_abi::base::message::Message;
     use alva_kernel_abi::base::stream::StreamEvent;
     use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
-    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::tool::Tool;
     use alva_kernel_abi::ModelConfig;
     use async_trait::async_trait;

@@ -57,7 +57,9 @@ fn list_entries<'a>(
                 results.push(format!("{}/", rel));
                 if depth < max_depth {
                     let child_path = format!("{}/{}", root.trim_end_matches('/'), entry.name);
-                    let sub = list_entries(fs, &child_path, &rel, depth + 1, max_depth, show_hidden).await?;
+                    let sub =
+                        list_entries(fs, &child_path, &rel, depth + 1, max_depth, show_hidden)
+                            .await?;
                     results.extend(sub);
                 }
             } else {
@@ -211,7 +213,10 @@ mod tests {
         assert!(!output.is_error);
         let text = output.model_text();
         assert!(text.contains("top.txt"));
-        assert!(text.contains("nested/inner.txt"), "missing nested file: {text}");
+        assert!(
+            text.contains("nested/inner.txt"),
+            "missing nested file: {text}"
+        );
     }
 
     #[tokio::test]
@@ -233,7 +238,9 @@ mod tests {
                 self
             }
         }
-        let ctx = NoWorkspaceCtx { cancel: CancellationToken::new() };
+        let ctx = NoWorkspaceCtx {
+            cancel: CancellationToken::new(),
+        };
         let tool = ListFilesTool;
         let err = tool
             .execute(json!({}), &ctx)

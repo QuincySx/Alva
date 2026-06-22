@@ -9,9 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use alva_agent_core::extension::{Plugin, Registrar};
-use alva_agent_security::{
-    SandboxMode, SecurityGuard, SecurityMiddleware, SecurityModeControl,
-};
+use alva_agent_security::{SandboxMode, SecurityGuard, SecurityMiddleware, SecurityModeControl};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 

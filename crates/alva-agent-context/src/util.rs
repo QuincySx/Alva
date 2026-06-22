@@ -77,7 +77,10 @@ mod tests {
         // "a中b" = 1 + 3 + 1 = 5. max=2 → byte 2 inside 中 → back to 1.
         let s = "a中b";
         assert!(!s.is_char_boundary(2));
-        assert_eq!(truncate_for_display(s, 2, "...(truncated)"), "a...(truncated)");
+        assert_eq!(
+            truncate_for_display(s, 2, "...(truncated)"),
+            "a...(truncated)"
+        );
     }
 
     #[test]

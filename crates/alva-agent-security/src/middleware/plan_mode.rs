@@ -4,10 +4,10 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use alva_kernel_abi::{bus_cap, ToolCall};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::shared::MiddlewarePriority;
 use alva_kernel_core::state::AgentState;
-use alva_kernel_abi::{bus_cap, ToolCall};
 use async_trait::async_trait;
 
 /// Middleware that blocks non-read-only tools when plan mode is active.
@@ -71,7 +71,6 @@ impl PlanModeControl for PlanModeMiddleware {
 }
 
 impl PlanModeMiddleware {
-
     /// Check if a tool name matches any read_only pattern from settings.
     fn matches_read_only_pattern(&self, tool_name: &str) -> bool {
         for pattern in &self.read_only_patterns {
@@ -137,10 +136,10 @@ impl Middleware for PlanModeMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_core::shared::Extensions;
     use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::tool::Tool;
     use alva_kernel_abi::{AgentError, ToolOutput};
+    use alva_kernel_core::shared::Extensions;
     use std::sync::Arc;
 
     fn make_state_with_tools(tools: Vec<Arc<dyn Tool>>) -> AgentState {
@@ -152,9 +151,26 @@ mod tests {
         struct StubModel;
         #[async_trait]
         impl LanguageModel for StubModel {
-            async fn complete(&self, _: &[Message], _: &[&dyn Tool], _: &ModelConfig) -> Result<CompletionResponse, AgentError> { unreachable!() }
-            fn stream(&self, _: &[Message], _: &[&dyn Tool], _: &ModelConfig) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> { Box::pin(tokio_stream::empty()) }
-            fn model_id(&self) -> &str { "stub" }
+            async fn complete(
+                &self,
+                _: &[Message],
+                _: &[&dyn Tool],
+                _: &ModelConfig,
+            ) -> Result<CompletionResponse, AgentError> {
+                unreachable!()
+            }
+            fn stream(
+                &self,
+                _: &[Message],
+                _: &[&dyn Tool],
+                _: &ModelConfig,
+            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>>
+            {
+                Box::pin(tokio_stream::empty())
+            }
+            fn model_id(&self) -> &str {
+                "stub"
+            }
         }
 
         AgentState {
@@ -168,29 +184,67 @@ mod tests {
     struct ReadOnlyTool(&'static str);
     #[async_trait]
     impl Tool for ReadOnlyTool {
-        fn name(&self) -> &str { self.0 }
-        fn description(&self) -> &str { "read-only" }
-        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
-        fn is_read_only(&self, _: &serde_json::Value) -> bool { true }
-        async fn execute(&self, _: serde_json::Value, _: &dyn alva_kernel_abi::ToolExecutionContext) -> Result<ToolOutput, AgentError> { Ok(ToolOutput::text("ok")) }
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "read-only"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn is_read_only(&self, _: &serde_json::Value) -> bool {
+            true
+        }
+        async fn execute(
+            &self,
+            _: serde_json::Value,
+            _: &dyn alva_kernel_abi::ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
+            Ok(ToolOutput::text("ok"))
+        }
     }
 
     struct WriteTool(&'static str);
     #[async_trait]
     impl Tool for WriteTool {
-        fn name(&self) -> &str { self.0 }
-        fn description(&self) -> &str { "write" }
-        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
-        async fn execute(&self, _: serde_json::Value, _: &dyn alva_kernel_abi::ToolExecutionContext) -> Result<ToolOutput, AgentError> { Ok(ToolOutput::text("ok")) }
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "write"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(
+            &self,
+            _: serde_json::Value,
+            _: &dyn alva_kernel_abi::ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
+            Ok(ToolOutput::text("ok"))
+        }
     }
 
     struct McpTool(&'static str);
     #[async_trait]
     impl Tool for McpTool {
-        fn name(&self) -> &str { self.0 }
-        fn description(&self) -> &str { "mcp tool" }
-        fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
-        async fn execute(&self, _: serde_json::Value, _: &dyn alva_kernel_abi::ToolExecutionContext) -> Result<ToolOutput, AgentError> { Ok(ToolOutput::text("ok")) }
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "mcp tool"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(
+            &self,
+            _: serde_json::Value,
+            _: &dyn alva_kernel_abi::ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
+            Ok(ToolOutput::text("ok"))
+        }
     }
 
     fn test_tools() -> Vec<Arc<dyn Tool>> {
@@ -207,7 +261,11 @@ mod tests {
     async fn blocks_write_tools() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
-        let tc = ToolCall { id: "1".into(), name: "execute_shell".into(), arguments: serde_json::json!({}) };
+        let tc = ToolCall {
+            id: "1".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({}),
+        };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
     }
 
@@ -215,7 +273,11 @@ mod tests {
     async fn allows_read_only_tools() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
-        let tc = ToolCall { id: "2".into(), name: "grep_search".into(), arguments: serde_json::json!({}) };
+        let tc = ToolCall {
+            id: "2".into(),
+            name: "grep_search".into(),
+            arguments: serde_json::json!({}),
+        };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
     }
 
@@ -223,7 +285,11 @@ mod tests {
     async fn mcp_tool_blocked_by_default() {
         let mw = PlanModeMiddleware::new(true);
         let mut state = make_state_with_tools(test_tools());
-        let tc = ToolCall { id: "3".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
+        let tc = ToolCall {
+            id: "3".into(),
+            name: "mcp:context7:query-docs".into(),
+            arguments: serde_json::json!({}),
+        };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
     }
 
@@ -232,9 +298,17 @@ mod tests {
         let mw = PlanModeMiddleware::new(true)
             .with_read_only_patterns(vec!["mcp:context7:*".to_string()]);
         let mut state = make_state_with_tools(test_tools());
-        let tc = ToolCall { id: "4".into(), name: "mcp:context7:query-docs".into(), arguments: serde_json::json!({}) };
+        let tc = ToolCall {
+            id: "4".into(),
+            name: "mcp:context7:query-docs".into(),
+            arguments: serde_json::json!({}),
+        };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
-        let tc = ToolCall { id: "5".into(), name: "mcp:evil-server:run-code".into(), arguments: serde_json::json!({}) };
+        let tc = ToolCall {
+            id: "5".into(),
+            name: "mcp:evil-server:run-code".into(),
+            arguments: serde_json::json!({}),
+        };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_err());
     }
 
@@ -242,7 +316,11 @@ mod tests {
     async fn disabled_allows_everything() {
         let mw = PlanModeMiddleware::new(false);
         let mut state = make_state_with_tools(test_tools());
-        let tc = ToolCall { id: "7".into(), name: "execute_shell".into(), arguments: serde_json::json!({}) };
+        let tc = ToolCall {
+            id: "7".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({}),
+        };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
     }
 
@@ -250,7 +328,11 @@ mod tests {
     async fn toggle() {
         let mw = PlanModeMiddleware::new(false);
         let mut state = make_state_with_tools(test_tools());
-        let tc = ToolCall { id: "8".into(), name: "create_file".into(), arguments: serde_json::json!({}) };
+        let tc = ToolCall {
+            id: "8".into(),
+            name: "create_file".into(),
+            arguments: serde_json::json!({}),
+        };
         assert!(mw.before_tool_call(&mut state, &tc).await.is_ok());
         mw.set_enabled(true);
         assert!(mw.before_tool_call(&mut state, &tc).await.is_err());

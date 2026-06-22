@@ -1,5 +1,8 @@
+// INPUT:  LanguageModel, Tool, Middleware, Plugin, Registrar, AgentState/AgentConfig
+// OUTPUT: AgentBuilder
+// POS:    SDK-level builder that runs plugin lifecycles and records assembly metadata.
 //! AgentBuilder — SDK-level builder that assembles an `Agent` from
-//! extensions, tools, middleware, model, and kernel config.
+//! plugins, tools, middleware, model, and kernel config.
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -13,14 +16,14 @@ use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use tokio::sync::Mutex;
 
-use crate::agent::Agent;
-use crate::extension::{ExtensionHost, LateContext, Plugin, Registrar};
+use crate::agent::{Agent, AgentAssemblySnapshot, PluginAssemblySnapshot};
+use crate::extension::{LateContext, Plugin, PluginHost, Registrar};
 
 /// SDK-level builder for assembling an `Agent`.
 ///
 /// This is the layer at which `alva-agent-core` assembles an agent without
 /// any harness-level opinions. Callers (third-party harnesses or tests)
-/// compose their own model, extensions, and middleware here. Opinionated
+/// compose their own model, plugins, and middleware here. Opinionated
 /// wrappers like `alva_app_core::BaseAgentBuilder` delegate to this.
 pub struct AgentBuilder {
     model: Option<Arc<dyn LanguageModel>>,
@@ -98,10 +101,20 @@ impl AgentBuilder {
         self.extra_middleware.push(mw);
         self
     }
+    /// Use an existing read-side bus handle for a plugin-less agent.
+    ///
+    /// Plugins need a writer during `register()` for `Registrar::provide()`;
+    /// if any plugin is registered, `build()` rejects this handle-only path.
+    /// Use [`with_bus_writer`](Self::with_bus_writer) for normal plugin
+    /// assembly with an external bus.
     pub fn with_bus(mut self, bus: BusHandle) -> Self {
         self.bus = Some(bus);
         self
     }
+    /// Use an existing writable bus for plugin assembly.
+    ///
+    /// This is the correct path when plugins may publish capabilities during
+    /// `register()`.
     pub fn with_bus_writer(mut self, bw: BusWriter) -> Self {
         self.bus = Some(bw.handle());
         self.bus_writer = Some(bw);
@@ -130,13 +143,18 @@ impl AgentBuilder {
         let model = self
             .model
             .ok_or_else(|| AgentError::Other("AgentBuilder requires a model".into()))?;
+        if self.bus.is_some() && self.bus_writer.is_none() && !self.plugins.is_empty() {
+            return Err(AgentError::ConfigError(
+                "AgentBuilder::with_bus() only supplies a read handle; plugin registration needs \
+                 a writable bus. Use AgentBuilder::with_bus_writer() instead."
+                    .into(),
+            ));
+        }
 
         // 2. Set up the bus. Prefer a caller-supplied writer (so the caller
         //    can register capabilities on it). If only a `BusHandle` was
-        //    provided we use that as the routing handle but still spin a
-        //    fresh writer for the contexts — capability `provide()` calls
-        //    made on that writer will not be visible on the caller's bus,
-        //    which is a documented caveat of the handle-only path.
+        //    provided, it is only safe for plugin-less agents because plugin
+        //    `Registrar::provide()` requires a writer for the same bus.
         //    Otherwise create a fresh in-process Bus.
         let (bus, bus_writer): (BusHandle, BusWriter) = if let Some(writer) = self.bus_writer {
             (writer.handle(), writer)
@@ -148,8 +166,8 @@ impl AgentBuilder {
             (fresh.handle(), fresh.writer())
         };
 
-        // 3. Create the ExtensionHost.
-        let host = Arc::new(RwLock::new(ExtensionHost::new()));
+        // 3. Create the PluginHost.
+        let host = Arc::new(RwLock::new(PluginHost::new()));
 
         // 4. Register phase: 每个 plugin 一次性注册 tools/middleware/bus/prompt/command。
         //    `LateContext.workspace` (and the per-plugin Registrar) is
@@ -158,6 +176,8 @@ impl AgentBuilder {
         //    workspace must check.
         let workspace_for_ctx = self.workspace.clone().unwrap_or_default();
         let mut all_tools: Vec<Box<dyn Tool>> = Vec::new();
+        let plugin_names: Vec<String> = self.plugins.iter().map(|p| p.name().to_string()).collect();
+        let mut plugin_snapshots: Vec<PluginAssemblySnapshot> = Vec::new();
         for p in &self.plugins {
             let reg = Registrar::new(
                 host.clone(),
@@ -168,8 +188,40 @@ impl AgentBuilder {
             );
             p.register(&reg).await;
             all_tools.extend(reg.take_tools());
+            let contribution = reg.contribution();
+            plugin_snapshots.push(PluginAssemblySnapshot {
+                name: p.name().to_string(),
+                description: p.description().to_string(),
+                registered_tool_names: contribution.registered_tool_names,
+                finalized_tool_names: Vec::new(),
+                middleware_names: contribution.middleware_names,
+                phase_contribution_names: contribution.phase_contribution_names,
+                command_names: contribution.command_names,
+                system_prompt_fragments: contribution.system_prompt_fragments,
+            });
         }
         all_tools.extend(self.extra_tools);
+
+        // Drain phase contributions after every plugin registered. In the
+        // current kernel they are build-time metadata; the next step is to
+        // compile executable phase handlers into the kernel phase stack.
+        {
+            let mut host_mut = host.write().unwrap();
+            for (plugin_name, contribution) in host_mut.take_phase_contributions() {
+                if let Some(snapshot) = plugin_snapshots
+                    .iter_mut()
+                    .find(|snapshot| snapshot.name == plugin_name)
+                {
+                    if !snapshot
+                        .phase_contribution_names
+                        .iter()
+                        .any(|name| name == &contribution.name)
+                    {
+                        snapshot.phase_contribution_names.push(contribution.name);
+                    }
+                }
+            }
+        }
 
         // 5. Build the middleware stack: middlewares the plugins registered
         //    during register(), then user-supplied extras.
@@ -180,9 +232,15 @@ impl AgentBuilder {
                 middleware_stack.push_sorted(mw);
             }
         }
+        let direct_middleware_names: Vec<String> = self
+            .extra_middleware
+            .iter()
+            .map(|mw| mw.name().to_string())
+            .collect();
         for mw in self.extra_middleware {
             middleware_stack.push_sorted(mw);
         }
+        let middleware_names = middleware_stack.names();
 
         // 6. Register the collected tools into a ToolRegistry.
         let mut registry = ToolRegistry::new();
@@ -210,8 +268,12 @@ impl AgentBuilder {
             tools: registry.list_arc(),
             max_iterations: self.max_iterations,
         };
-        for p in &self.plugins {
+        for (idx, p) in self.plugins.iter().enumerate() {
             for tool in p.finalize(&late_ctx).await {
+                let tool_name = tool.name().to_string();
+                if let Some(snapshot) = plugin_snapshots.get_mut(idx) {
+                    snapshot.finalized_tool_names.push(tool_name);
+                }
                 registry.register_arc(tool);
             }
         }
@@ -219,12 +281,12 @@ impl AgentBuilder {
 
         // 9. Assemble the final system prompt:
         //      [user-provided base]
-        //      [extension contributions, in registration order]
+        //      [plugin contributions, in registration order]
         //      [Environment block — kernel-managed invariant: cwd + date]
         //
         //      The Environment block is the agent-core's hard contract: a
         //      runnable agent should always know its workspace and the
-        //      current date, regardless of what extensions contribute.
+        //      current date, regardless of what plugins contribute.
         //      Matches pi-mono's `buildSystemPrompt` floor (core always
         //      appends cwd + date even when the user supplies a custom
         //      prompt). Placed last so it wins on short-term recency.
@@ -264,7 +326,7 @@ impl AgentBuilder {
         };
 
         // 13. Wrap up. The bus_writer is intentionally dropped here — any
-        //     capabilities the caller / extensions wanted to register on it
+        //     capabilities the caller / plugins wanted to register on it
         //     have already been published, and the run loop only needs the
         //     read-side `BusHandle`.
         drop(bus_writer);
@@ -281,6 +343,12 @@ impl AgentBuilder {
             bus,
             host,
             tools: tools_snapshot,
+            assembly: AgentAssemblySnapshot {
+                plugin_names,
+                middleware_names,
+                direct_middleware_names,
+                plugins: plugin_snapshots,
+            },
         })
     }
 }
@@ -413,11 +481,7 @@ mod tests {
                 "volatile-context".to_string(),
             ),
         ];
-        let out = assemble_system_prompt(
-            base,
-            adds,
-            Some(std::path::Path::new("/ws")),
-        );
+        let out = assemble_system_prompt(base, adds, Some(std::path::Path::new("/ws")));
         // [stable bucket, dynamic bucket]
         assert_eq!(out.len(), 2);
         // Stable: base + ext_a
@@ -437,8 +501,16 @@ mod tests {
         let out = assemble_system_prompt(
             "base".to_string(),
             vec![
-                ("x".to_string(), ContextLayer::AlwaysPresent, "   ".to_string()),
-                ("y".to_string(), ContextLayer::AlwaysPresent, "real".to_string()),
+                (
+                    "x".to_string(),
+                    ContextLayer::AlwaysPresent,
+                    "   ".to_string(),
+                ),
+                (
+                    "y".to_string(),
+                    ContextLayer::AlwaysPresent,
+                    "real".to_string(),
+                ),
             ],
             None,
         );

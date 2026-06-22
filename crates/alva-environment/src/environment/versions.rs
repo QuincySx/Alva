@@ -25,10 +25,7 @@ pub enum VersionStatus {
     /// Installed version matches the manifest.
     UpToDate,
     /// Installed version differs from the manifest.
-    NeedsUpdate {
-        current: String,
-        expected: String,
-    },
+    NeedsUpdate { current: String, expected: String },
     /// Component has no installed version.
     NotInstalled,
     /// Component is excluded on this platform (with reason).
@@ -42,8 +39,8 @@ impl InstalledVersions {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| VersionError::Io(path.to_path_buf(), e))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| VersionError::Io(path.to_path_buf(), e))?;
         serde_json::from_str(&content).map_err(VersionError::Parse)
     }
 

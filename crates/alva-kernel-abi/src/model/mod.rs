@@ -79,8 +79,9 @@ pub trait LanguageModel: Send + Sync {
 /// Bus Capability: Token counting + context-window lookup.
 ///
 /// **Provider**: `BaseAgentBuilder::build` (default `HeuristicTokenCounter`);
-/// `AgentRuntimeBuilder::build` standard-stack path. Replaceable by
-/// publishing a provider-specific counter via a custom Extension (e.g.
+/// the deprecated `AgentRuntimeBuilder::build` standard-stack path also
+/// installs one. Replaceable by publishing a provider-specific counter via a
+/// custom Plugin (e.g.
 /// a real tokenizer for the configured model).
 /// **Consumers**: `alva-kernel-core::run` for budget reporting,
 /// `CompactionMiddleware` (`alva-agent-context`) for token accounting,
@@ -106,7 +107,9 @@ pub struct HeuristicTokenCounter {
 
 impl HeuristicTokenCounter {
     pub fn new(context_window_size: usize) -> Self {
-        Self { context_window_size }
+        Self {
+            context_window_size,
+        }
     }
 }
 
@@ -133,7 +136,10 @@ mod tests {
     fn from_message_ctor_leaves_raw_none() {
         let m = Message::user("hi");
         let r = CompletionResponse::from_message(m.clone());
-        assert!(r.raw.is_none(), "from_message must NOT synthesize a raw blob");
+        assert!(
+            r.raw.is_none(),
+            "from_message must NOT synthesize a raw blob"
+        );
         assert_eq!(r.message.id, m.id);
     }
 

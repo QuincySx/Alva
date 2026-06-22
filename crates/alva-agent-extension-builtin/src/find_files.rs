@@ -66,7 +66,10 @@ impl FindFilesTool {
             .unwrap_or_else(|| workspace.to_path_buf());
         let search_root_str = search_root.to_str().unwrap_or_default();
 
-        let max_results = params.max_results.unwrap_or(DEFAULT_MAX_RESULTS).min(HARD_MAX_RESULTS);
+        let max_results = params
+            .max_results
+            .unwrap_or(DEFAULT_MAX_RESULTS)
+            .min(HARD_MAX_RESULTS);
         let sort_by_mtime = params.sort_by_mtime.unwrap_or(true);
 
         // Parse glob pattern
@@ -129,7 +132,8 @@ impl FindFilesTool {
 
         let total_found = entries.len();
         let capped = total_found > max_results;
-        let display_entries: Vec<&str> = entries.iter()
+        let display_entries: Vec<&str> = entries
+            .iter()
             .take(max_results)
             .map(|e| e.rel_path.as_str())
             .collect();
@@ -214,7 +218,10 @@ mod tests {
         let text = output.model_text();
         assert!(text.contains("main.rs"), "missing main.rs: {text}");
         assert!(text.contains("lib.rs"), "missing lib.rs: {text}");
-        assert!(!text.contains("README.md"), "should not match README.md: {text}");
+        assert!(
+            !text.contains("README.md"),
+            "should not match README.md: {text}"
+        );
     }
 
     #[tokio::test]
@@ -252,6 +259,9 @@ mod tests {
             .execute(json!({ "pattern": "[" }), &ctx)
             .await
             .expect_err("should error on invalid glob");
-        assert!(err.to_string().contains("Invalid glob"), "unexpected error: {err}");
+        assert!(
+            err.to_string().contains("Invalid glob"),
+            "unexpected error: {err}"
+        );
     }
 }

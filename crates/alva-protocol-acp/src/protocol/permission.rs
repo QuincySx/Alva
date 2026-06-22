@@ -62,7 +62,10 @@ mod tests {
             (PermissionOption::RejectAlways, "reject_always"),
         ] {
             let json = serde_json::to_string(&option).unwrap();
-            assert!(json.contains(expected_str), "expected {expected_str} in {json}");
+            assert!(
+                json.contains(expected_str),
+                "expected {expected_str} in {json}"
+            );
             let deserialized: PermissionOption = serde_json::from_str(&json).unwrap();
             assert_eq!(deserialized, option);
         }

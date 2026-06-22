@@ -229,10 +229,7 @@ pub trait Tool: Send + Sync {
     ///
     /// Default falls back to [`Tool::parameters_schema`], preserving
     /// zero-change behavior for every existing `Tool` impl.
-    fn parameters_schema_with(
-        &self,
-        _ctx: &super::schema::ToolSchemaContext,
-    ) -> serde_json::Value {
+    fn parameters_schema_with(&self, _ctx: &super::schema::ToolSchemaContext) -> serde_json::Value {
         self.parameters_schema()
     }
 

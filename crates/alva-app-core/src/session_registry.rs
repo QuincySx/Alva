@@ -105,14 +105,15 @@ impl ThreadUsage {
     /// Accumulate a per-request `UsageMetadata` into this running total.
     pub fn accumulate(&mut self, delta: &UsageMetadata) {
         self.input_tokens = self.input_tokens.saturating_add(delta.input_tokens as u64);
-        self.output_tokens = self.output_tokens.saturating_add(delta.output_tokens as u64);
+        self.output_tokens = self
+            .output_tokens
+            .saturating_add(delta.output_tokens as u64);
         if let Some(c) = delta.cache_creation_input_tokens {
             self.cache_creation_input_tokens =
                 self.cache_creation_input_tokens.saturating_add(c as u64);
         }
         if let Some(c) = delta.cache_read_input_tokens {
-            self.cache_read_input_tokens =
-                self.cache_read_input_tokens.saturating_add(c as u64);
+            self.cache_read_input_tokens = self.cache_read_input_tokens.saturating_add(c as u64);
         }
     }
 }
@@ -471,11 +472,7 @@ pub trait SessionRegistry: Send + Sync {
     /// Add `delta_ms` to this session's `active_ms` counter. Atomic in
     /// reference implementations; non-atomic default impl is provided for
     /// the same reason as `record_usage`.
-    async fn record_active_ms(
-        &self,
-        session_id: &str,
-        delta_ms: u64,
-    ) -> Result<(), SessionError> {
+    async fn record_active_ms(&self, session_id: &str, delta_ms: u64) -> Result<(), SessionError> {
         let mut current = self
             .metadata(session_id)
             .await
@@ -605,11 +602,7 @@ impl SessionRegistry for InMemorySessionRegistry {
     }
 
     /// Atomic accumulate, same rationale as `record_usage`.
-    async fn record_active_ms(
-        &self,
-        session_id: &str,
-        delta_ms: u64,
-    ) -> Result<(), SessionError> {
+    async fn record_active_ms(&self, session_id: &str, delta_ms: u64) -> Result<(), SessionError> {
         let mut entries = self.entries.write().await;
         let entry = entries
             .get_mut(session_id)
@@ -758,10 +751,7 @@ pub async fn thread_view(
 /// All sessions in the spawn tree rooted at `root_id`, BFS order (root
 /// first, then immediate children, then grandchildren), each enriched
 /// with `session_group_id` + `depth`. Empty `Vec` if `root_id` is unknown.
-pub async fn thread_tree(
-    registry: &dyn SessionRegistry,
-    root_id: &str,
-) -> Vec<SessionMetadata> {
+pub async fn thread_tree(registry: &dyn SessionRegistry, root_id: &str) -> Vec<SessionMetadata> {
     let Some(root) = thread_view(registry, root_id).await else {
         return Vec::new();
     };
@@ -790,10 +780,7 @@ pub async fn primary_thread_for(
 /// Climb `parent_session_id` links until `None` or a missing ancestor.
 /// Returns the topmost reachable session id and the depth (hops taken).
 /// Bounded to defend against pathological cycles.
-async fn climb_to_root(
-    registry: &dyn SessionRegistry,
-    meta: &SessionMetadata,
-) -> (String, u32) {
+async fn climb_to_root(registry: &dyn SessionRegistry, meta: &SessionMetadata) -> (String, u32) {
     const MAX_HOPS: u32 = 64;
     let mut cursor = meta.clone();
     let mut depth: u32 = 0;
@@ -849,7 +836,9 @@ mod tests {
     async fn insert_and_get_roundtrip() {
         let r = InMemorySessionRegistry::new();
         let s = make_session("s-1");
-        r.insert(s.clone(), SessionMetadata::new("s-1")).await.unwrap();
+        r.insert(s.clone(), SessionMetadata::new("s-1"))
+            .await
+            .unwrap();
 
         let got = r.get("s-1").await.expect("session present");
         assert_eq!(got.session_id(), "s-1");
@@ -895,7 +884,10 @@ mod tests {
         let after = r.metadata("s-1").await.unwrap();
         assert_eq!(after.status, SessionStatus::Running);
         assert_eq!(after.title.as_deref(), Some("hello"));
-        assert_eq!(after.created_at, before.created_at, "create timestamp preserved");
+        assert_eq!(
+            after.created_at, before.created_at,
+            "create timestamp preserved"
+        );
         assert!(after.updated_at > before.updated_at, "updated_at bumped");
         assert_eq!(after.agent_id, None, "untouched fields preserved");
     }
@@ -918,7 +910,10 @@ mod tests {
     async fn update_missing_session_errors() {
         let r = InMemorySessionRegistry::new();
         let err = r
-            .update("missing", SessionMetadataPatch::default().status(SessionStatus::Idle))
+            .update(
+                "missing",
+                SessionMetadataPatch::default().status(SessionStatus::Idle),
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, SessionError::NotFound(_)));
@@ -1158,7 +1153,9 @@ mod tests {
             ("c", SessionStatus::Running, 300),
             ("d", SessionStatus::Terminated, 400),
         ] {
-            r.insert(make_session(id), meta(id, status, t)).await.unwrap();
+            r.insert(make_session(id), meta(id, status, t))
+                .await
+                .unwrap();
         }
         let filter = SessionFilter {
             statuses: Some(vec![SessionStatus::Running, SessionStatus::Idle]),
@@ -1242,8 +1239,12 @@ mod tests {
         r.insert(make_session("root"), SessionMetadata::new("root"))
             .await
             .unwrap();
-        r.insert(make_session("c1"), child_meta("c1", "root")).await.unwrap();
-        r.insert(make_session("g1"), child_meta("g1", "c1")).await.unwrap();
+        r.insert(make_session("c1"), child_meta("c1", "root"))
+            .await
+            .unwrap();
+        r.insert(make_session("g1"), child_meta("g1", "c1"))
+            .await
+            .unwrap();
 
         let c1 = thread_view(&r, "c1").await.unwrap();
         assert_eq!(c1.session_group_id.as_deref(), Some("root"));
@@ -1271,10 +1272,18 @@ mod tests {
         r.insert(make_session("root"), SessionMetadata::new("root"))
             .await
             .unwrap();
-        r.insert(make_session("a"), child_meta("a", "root")).await.unwrap();
-        r.insert(make_session("b"), child_meta("b", "root")).await.unwrap();
-        r.insert(make_session("a1"), child_meta("a1", "a")).await.unwrap();
-        r.insert(make_session("a2"), child_meta("a2", "a")).await.unwrap();
+        r.insert(make_session("a"), child_meta("a", "root"))
+            .await
+            .unwrap();
+        r.insert(make_session("b"), child_meta("b", "root"))
+            .await
+            .unwrap();
+        r.insert(make_session("a1"), child_meta("a1", "a"))
+            .await
+            .unwrap();
+        r.insert(make_session("a2"), child_meta("a2", "a"))
+            .await
+            .unwrap();
 
         let tree = thread_tree(&r, "root").await;
         let ids: Vec<_> = tree.iter().map(|m| m.session_id.as_str()).collect();
@@ -1296,19 +1305,28 @@ mod tests {
         r.insert(make_session("root"), SessionMetadata::new("root"))
             .await
             .unwrap();
-        r.insert(make_session("c1"), child_meta("c1", "root")).await.unwrap();
-        r.insert(make_session("g1"), child_meta("g1", "c1")).await.unwrap();
+        r.insert(make_session("c1"), child_meta("c1", "root"))
+            .await
+            .unwrap();
+        r.insert(make_session("g1"), child_meta("g1", "c1"))
+            .await
+            .unwrap();
 
         assert_eq!(primary_thread_for(&r, "g1").await.as_deref(), Some("root"));
         assert_eq!(primary_thread_for(&r, "c1").await.as_deref(), Some("root"));
-        assert_eq!(primary_thread_for(&r, "root").await.as_deref(), Some("root"));
+        assert_eq!(
+            primary_thread_for(&r, "root").await.as_deref(),
+            Some("root")
+        );
         assert_eq!(primary_thread_for(&r, "missing").await, None);
     }
 
     #[tokio::test]
     async fn record_usage_and_active_ms_visible_through_thread_view() {
         let r = InMemorySessionRegistry::new();
-        r.insert(make_session("s"), SessionMetadata::new("s")).await.unwrap();
+        r.insert(make_session("s"), SessionMetadata::new("s"))
+            .await
+            .unwrap();
 
         let u = UsageMetadata {
             input_tokens: 100,

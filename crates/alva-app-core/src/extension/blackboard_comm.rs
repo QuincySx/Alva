@@ -42,7 +42,9 @@ impl BlackboardCommPlugin {
     /// Create with an existing `BoardRegistry` (lets the caller share the
     /// same registry across multiple agents if needed).
     pub fn with_registry(registry: Arc<BoardRegistry>) -> Self {
-        Self { board_registry: registry }
+        Self {
+            board_registry: registry,
+        }
     }
 }
 

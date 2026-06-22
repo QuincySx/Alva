@@ -111,7 +111,7 @@ mod tests {
         let est = SimpleTokenEstimator;
         let messages = vec![
             crate::Message::user("Hello, world!"), // 13 ASCII chars => ceil(13/4)=4 + 4 overhead = 8
-            crate::Message::system("Be helpful."),  // 11 ASCII chars => ceil(11/4)=3 + 4 overhead = 7
+            crate::Message::system("Be helpful."), // 11 ASCII chars => ceil(11/4)=3 + 4 overhead = 7
         ];
         let total = est.estimate_message_tokens(&messages);
         // 8 + 7 = 15

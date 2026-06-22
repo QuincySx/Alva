@@ -1,8 +1,9 @@
-# AEP — Alva Extension Protocol (v0.1 draft)
+# AEP — Alva Plugin Protocol (v0.1 draft)
 
 > Wire protocol for dynamically-loaded plugins running as subprocesses.
 > Authors write plugins in Python or JavaScript; the host loads them
-> at runtime and exposes them through the existing `Extension` system.
+> at runtime through `SubprocessLoaderPlugin`, then exposes their
+> subscriptions as normal agent-core phase contributions.
 
 ## 0. Design Principles
 
@@ -12,7 +13,7 @@
    line. Simpler to implement than LSP-style Content-Length framing.
 3. **Plugin authors face the SDK, not the protocol.** The wire format
    is a Rust-side / SDK-side contract; plugin code only sees a
-   language-native `Extension` base class plus decorators.
+   language-native `Plugin` base class plus decorators.
 4. **Capability handles** — large host-owned objects (`AgentState`)
    never cross the process boundary in full. The plugin receives an
    opaque handle and calls back into the host on demand.
@@ -131,6 +132,12 @@ declaration. **In v0.1 this is observation-only** — the host logs a
 warning when the plugin calls a host method it did not declare, but
 does not block. v0.2 will switch to strict enforcement.
 
+Current implementation note: event subscriptions are wired, and remote
+tool declarations are registered as executable `Tool`s by the Rust
+loader. The Python SDK still lacks a high-level decorator/helper for
+declaring tools, so Python plugins must emit the wire shape directly
+until that SDK surface is added.
+
 ### 2.3 `initialized` — host → plugin notification
 
 No params. Signals the plugin may begin normal operation.
@@ -178,18 +185,33 @@ Plugin responds with an `ExtensionAction`:
 
 ### 3.2 Event Catalogue (v0.1)
 
+The runtime source of truth for legal actions is
+`crates/alva-app-extension-loader/src/proxy.rs::legal_actions_for_event`.
+
 | Method | When | Legal Actions |
 |---|---|---|
 | `extension/before_tool_call` | Right before a tool runs | `continue` / `block` / `modify` / `replace_result` |
 | `extension/after_tool_call` | After a tool returns | `continue` / `modify_result` |
 | `extension/on_llm_call_start` | Before the LLM request | `continue` / `modify_messages` / `block` |
 | `extension/on_llm_call_end` | After the LLM response | `continue` / `modify_response` |
-| `extension/on_user_message` | New user message | `continue` / `modify` |
+| `extension/on_user_message` | After a user message is committed to the session | `continue` |
 | `extension/on_agent_start` | Agent loop begins | `continue` / `block` |
 | `extension/on_agent_end` | Agent loop ends | `continue` (others rejected as `INVALID_ACTION`) |
 
-Finer-grained hooks (streaming tokens, tool schema resolution, etc.)
-are deferred to v0.2.
+The loader maps these names to `PhaseContribution`s. The current kernel
+executes the seven middleware-backed subscriptions
+(`before_tool_call`, `after_tool_call`, `on_llm_call_start`,
+`on_llm_call_end`, `on_agent_start`, `on_agent_end`,
+`on_user_message`) through generated phase-handler middleware named
+`phase:aep:<plugin>:<event>`. Mutating AEP actions
+`modify_messages` and `modify_response` are applied for the two LLM hooks;
+`modify` and `replace_result` are applied for `before_tool_call`;
+`modify_result` is applied for `after_tool_call`. Finer-grained hooks
+(streaming tokens, tool schema resolution, etc.) are deferred to v0.2.
+If a plugin returns an action that is malformed or not legal for the
+current event, the loader records it as `INVALID_ACTION`: the agent loop
+continues without applying the action, while CLI/debug surfaces the reason
+as a plugin authoring error.
 
 ### 3.3 Stateless Events
 
@@ -222,6 +244,23 @@ value, avoiding the round trip.
 // modify_result (after_tool_call only)
 { "action": "modify_result", "result": {...} }
 ```
+
+### 3.5 Multiple Plugins and Mutation Order
+
+Plugins are loaded by extension directory priority first. Inside one
+directory, plugin folders are sorted by folder name before loading, so
+mutation order is deterministic.
+
+For `before_tool_call`, AEP handlers run through the tool wrap chain in
+load order. A `modify` action passes the rewritten arguments to the next
+plugin and then to the tool. A `replace_result` action short-circuits the
+remaining tool execution path and returns that result. A `block` action
+returns an error `ToolOutput` for the call.
+
+For `after_tool_call`, handlers run in reverse load order, matching the
+kernel middleware onion model. If several plugins return `modify_result`,
+each plugin sees the result produced by the plugins that ran before it in
+that reverse order.
 
 ---
 

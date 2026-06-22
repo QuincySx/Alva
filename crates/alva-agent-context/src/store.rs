@@ -301,13 +301,7 @@ impl ContextStore {
         self.tool_patterns
             .iter()
             .map(|t| {
-                let recent: Vec<_> = t
-                    .result_tokens
-                    .iter()
-                    .rev()
-                    .take(last_n)
-                    .copied()
-                    .collect();
+                let recent: Vec<_> = t.result_tokens.iter().rev().take(last_n).copied().collect();
                 let total: usize = recent.iter().sum();
                 let count = recent.len();
                 ToolPattern {
@@ -323,7 +317,6 @@ impl ContextStore {
     pub fn increment_turn(&mut self) {
         self.turn_index += 1;
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -482,11 +475,7 @@ mod tests {
         }
         // Also add Memory (L3) entries which are also subject to sliding window.
         for i in 0..3 {
-            store.append(test_entry(
-                &format!("mem{}", i),
-                ContextLayer::Memory,
-                50,
-            ));
+            store.append(test_entry(&format!("mem{}", i), ContextLayer::Memory, 50));
         }
         // Total: 1 L0 + 5 L2 + 3 L3 = 9 entries. 8 conversation entries.
         assert_eq!(store.entries().len(), 9);
@@ -685,7 +674,10 @@ mod tests {
         // Byte 100 falls inside the emoji (bytes 98..102).
         let text = format!("{}{}{}", "a".repeat(98), "🦀", "b".repeat(50));
         assert_eq!(text.len(), 152);
-        assert!(!text.is_char_boundary(100), "test premise: byte 100 mid-emoji");
+        assert!(
+            !text.is_char_boundary(100),
+            "test premise: byte 100 mid-emoji"
+        );
         let msg = AgentMessage::Standard(Message {
             id: "test".to_string(),
             role: MessageRole::User,
@@ -726,8 +718,16 @@ mod tests {
         // turn_index is now 3.
         // A was stamped at turn 0 → age = 3 - 0 = 3
         // B was stamped at turn 2 → age = 3 - 2 = 1
-        let a = snap.entries.iter().find(|e| e.id == "A").expect("entry A in snapshot");
-        let b = snap.entries.iter().find(|e| e.id == "B").expect("entry B in snapshot");
+        let a = snap
+            .entries
+            .iter()
+            .find(|e| e.id == "A")
+            .expect("entry A in snapshot");
+        let b = snap
+            .entries
+            .iter()
+            .find(|e| e.id == "B")
+            .expect("entry B in snapshot");
         assert_eq!(a.age_turns, 3, "A appended at turn 0 should age 3 turns");
         assert_eq!(b.age_turns, 1, "B appended at turn 2 should age 1 turn");
         assert_ne!(

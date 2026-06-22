@@ -163,7 +163,9 @@ impl ProtocolAdapter for OpenAIChatAdapter {
         let mut blocks: Vec<ContentBlock> = Vec::new();
         if let Some(text) = msg.get("content").and_then(Value::as_str) {
             if !text.is_empty() {
-                blocks.push(ContentBlock::Text { text: text.to_string() });
+                blocks.push(ContentBlock::Text {
+                    text: text.to_string(),
+                });
             }
         }
         if let Some(tcs) = msg.get("tool_calls").and_then(Value::as_array) {
@@ -176,8 +178,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                let args_str =
-                    function.get("arguments").and_then(Value::as_str).unwrap_or("{}");
+                let args_str = function
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
                 let input: Value =
                     serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
                 blocks.push(ContentBlock::ToolUse { id, name, input });
@@ -225,7 +229,9 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                 let delta = choice.get("delta").unwrap_or(&Value::Null);
                 if let Some(text) = delta.get("content").and_then(Value::as_str) {
                     if !text.is_empty() {
-                        out.push(StreamEvent::TextDelta { text: text.to_string() });
+                        out.push(StreamEvent::TextDelta {
+                            text: text.to_string(),
+                        });
                     }
                 }
                 if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
@@ -343,11 +349,16 @@ impl ProtocolAdapter for OpenAIChatAdapter {
 
                 // Tool result: {role:"tool", tool_call_id, content}
                 if role_str == "tool" {
-                    let raw_id =
-                        item.get("tool_call_id").and_then(Value::as_str).unwrap_or("unknown");
+                    let raw_id = item
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
                     let id = tool_id::to_normalized(raw_id);
-                    let content_text =
-                        item.get("content").and_then(Value::as_str).unwrap_or("").to_string();
+                    let content_text = item
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
                     messages.push(Message {
                         id: uuid::Uuid::new_v4().to_string(),
                         role: MessageRole::Tool,
@@ -381,8 +392,7 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     Some(Value::Array(parts)) => {
                         let mut blks: Vec<ContentBlock> = Vec::new();
                         for part in parts {
-                            let part_type =
-                                part.get("type").and_then(Value::as_str).unwrap_or("");
+                            let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
                             match part_type {
                                 "image_url" | "image" => {
                                     return Err(AdapterError::UnexpectedFormat(
@@ -390,9 +400,7 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                                     ));
                                 }
                                 "text" => {
-                                    if let Some(text) =
-                                        part.get("text").and_then(Value::as_str)
-                                    {
+                                    if let Some(text) = part.get("text").and_then(Value::as_str) {
                                         blks.push(ContentBlock::Text {
                                             text: text.to_string(),
                                         });
@@ -423,8 +431,8 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                                 .get("arguments")
                                 .and_then(Value::as_str)
                                 .unwrap_or("{}");
-                            let input: Value = serde_json::from_str(args_str)
-                                .unwrap_or(Value::Object(Map::new()));
+                            let input: Value =
+                                serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
                             blocks.push(ContentBlock::ToolUse { id, name, input });
                         }
                     }
@@ -462,7 +470,11 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                             .get("parameters")
                             .cloned()
                             .unwrap_or_else(|| Value::Object(Map::new()));
-                        Some(ToolDefinition { name, description, parameters })
+                        Some(ToolDefinition {
+                            name,
+                            description,
+                            parameters,
+                        })
                     })
                     .collect()
             })
@@ -475,8 +487,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
             .map(|v| v as f32);
         let top_p = body.get("top_p").and_then(Value::as_f64).map(|v| v as f32);
         // Chat uses `max_tokens` (NOT `max_output_tokens` like Responses API).
-        let max_tokens =
-            body.get("max_tokens").and_then(Value::as_u64).map(|v| v as u32);
+        let max_tokens = body
+            .get("max_tokens")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32);
         // Chat passes `reasoning_effort` as a top-level string (not nested under reasoning.effort).
         let reasoning_effort = body
             .get("reasoning_effort")
@@ -494,7 +508,13 @@ impl ProtocolAdapter for OpenAIChatAdapter {
         // -- stream ----------------------------------------------------------
         let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
-        Ok(DecodedRequest { model, messages, tools, config, stream })
+        Ok(DecodedRequest {
+            model,
+            messages,
+            tools,
+            config,
+            stream,
+        })
     }
 
     fn encode_response(&self, resp: &DecodedResponse) -> Result<Value, AdapterError> {
@@ -525,7 +545,11 @@ impl ProtocolAdapter for OpenAIChatAdapter {
         }
 
         // finish_reason: if any ToolUse blocks → "tool_calls", else "stop".
-        let finish_reason = if !tool_calls.is_empty() { "tool_calls" } else { "stop" };
+        let finish_reason = if !tool_calls.is_empty() {
+            "tool_calls"
+        } else {
+            "stop"
+        };
 
         let mut message_obj = serde_json::json!({ "role": "assistant" });
         if !text_parts.is_empty() {
@@ -599,7 +623,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                         "delta": { "role": "assistant" },
                         "finish_reason": null,
                     }]);
-                    out.push(SseFrame { event: None, data: chunk });
+                    out.push(SseFrame {
+                        event: None,
+                        data: chunk,
+                    });
                 }
             }
 
@@ -610,7 +637,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     "delta": { "content": text },
                     "finish_reason": null,
                 }]);
-                out.push(SseFrame { event: None, data: chunk });
+                out.push(SseFrame {
+                    event: None,
+                    data: chunk,
+                });
             }
 
             StreamEvent::ToolCallStart { id, name } => {
@@ -630,12 +660,19 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     },
                     "finish_reason": null,
                 }]);
-                out.push(SseFrame { event: None, data: chunk });
+                out.push(SseFrame {
+                    event: None,
+                    data: chunk,
+                });
                 // Advance index so next ToolCallStart gets a distinct index.
                 st.output_index += 1;
             }
 
-            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+            StreamEvent::ToolCallDelta {
+                id,
+                arguments_delta,
+                ..
+            } => {
                 // Determine the tool index for this id.
                 // output_index was already incremented past this tool's slot, so we
                 // look up by the tool-args map position. Use the count of keys in
@@ -648,13 +685,20 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                 // for tool `id` is (position in insertion order of tool_args keys).
                 let tool_idx = {
                     // Position of this id in tool_args insertion order (0-based).
-                    st.tool_args.entry(id.clone()).or_default().push_str(arguments_delta);
+                    st.tool_args
+                        .entry(id.clone())
+                        .or_default()
+                        .push_str(arguments_delta);
                     // Find position among keys. HashMap doesn't preserve order, but for
                     // a single tool (the common case) this is always 0. For multiple tools,
                     // we accept the inherent HashMap non-determinism (OpenAI clients look up
                     // by index in the delta, not by id, but tools are rarely interleaved).
                     // We use a stable fallback: output_index - 1 if only one tool ever started.
-                    if st.tool_args.len() == 1 { 0usize } else { st.tool_args.len() - 1 }
+                    if st.tool_args.len() == 1 {
+                        0usize
+                    } else {
+                        st.tool_args.len() - 1
+                    }
                 };
                 let provider_id = tool_id::to_provider(id);
                 let mut chunk = chunk_base();
@@ -671,7 +715,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                 // Silence unused variable warning — provider_id is used in more
                 // complex scenarios; keep it here for parity with other adapters.
                 let _ = provider_id;
-                out.push(SseFrame { event: None, data: chunk });
+                out.push(SseFrame {
+                    event: None,
+                    data: chunk,
+                });
             }
 
             StreamEvent::ToolCallEnd { .. } => {
@@ -692,7 +739,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     "completion_tokens": u.output_tokens,
                     "total_tokens": u.total_tokens,
                 });
-                out.push(SseFrame { event: None, data: chunk });
+                out.push(SseFrame {
+                    event: None,
+                    data: chunk,
+                });
             }
 
             StreamEvent::Stop { reason } => {
@@ -708,7 +758,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     "delta": {},
                     "finish_reason": finish_reason,
                 }]);
-                out.push(SseFrame { event: None, data: chunk });
+                out.push(SseFrame {
+                    event: None,
+                    data: chunk,
+                });
             }
 
             StreamEvent::Done => {
@@ -729,7 +782,10 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     "finish_reason": "stop",
                 }]);
                 chunk["error"] = serde_json::json!({ "message": msg });
-                out.push(SseFrame { event: None, data: chunk });
+                out.push(SseFrame {
+                    event: None,
+                    data: chunk,
+                });
             }
 
             // Reasoning events — not part of Chat Completions wire format; skip.
@@ -777,7 +833,9 @@ mod tests {
             id: "m1".into(),
             role: MessageRole::Assistant,
             content: vec![
-                ContentBlock::Text { text: "doing".into() },
+                ContentBlock::Text {
+                    text: "doing".into(),
+                },
                 ContentBlock::ToolUse {
                     // Normalized internal id → strip toolu_ when sending back.
                     id: "toolu_call_1".into(),
@@ -846,7 +904,9 @@ mod tests {
                 }
             }]
         });
-        let out1 = OpenAIChatAdapter.decode_stream_event(&c1, &mut state).unwrap();
+        let out1 = OpenAIChatAdapter
+            .decode_stream_event(&c1, &mut state)
+            .unwrap();
         match &out1[0] {
             StreamEvent::ToolCallStart { id, name } => {
                 assert_eq!(id, "toolu_call_abc");
@@ -855,7 +915,11 @@ mod tests {
             _ => panic!("expected ToolCallStart"),
         }
         match &out1[1] {
-            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+            StreamEvent::ToolCallDelta {
+                id,
+                arguments_delta,
+                ..
+            } => {
                 assert_eq!(id, "toolu_call_abc");
                 assert_eq!(arguments_delta, "{\"pa");
             }
@@ -872,9 +936,15 @@ mod tests {
                 }
             }]
         });
-        let out2 = OpenAIChatAdapter.decode_stream_event(&c2, &mut state).unwrap();
+        let out2 = OpenAIChatAdapter
+            .decode_stream_event(&c2, &mut state)
+            .unwrap();
         match &out2[0] {
-            StreamEvent::ToolCallDelta { id, arguments_delta, .. } => {
+            StreamEvent::ToolCallDelta {
+                id,
+                arguments_delta,
+                ..
+            } => {
                 assert_eq!(id, "toolu_call_abc");
                 assert_eq!(arguments_delta, "th\":\"/a\"}");
             }
@@ -886,10 +956,17 @@ mod tests {
         let c3 = serde_json::json!({
             "choices": [{ "delta": {}, "finish_reason": "tool_calls" }]
         });
-        let out3 = OpenAIChatAdapter.decode_stream_event(&c3, &mut state).unwrap();
+        let out3 = OpenAIChatAdapter
+            .decode_stream_event(&c3, &mut state)
+            .unwrap();
         assert_eq!(out3.len(), 2, "expected ToolCallEnd + Stop");
         assert!(matches!(&out3[0], StreamEvent::ToolCallEnd { .. }));
-        assert!(matches!(&out3[1], StreamEvent::Stop { reason: StopReason::ToolUse }));
+        assert!(matches!(
+            &out3[1],
+            StreamEvent::Stop {
+                reason: StopReason::ToolUse
+            }
+        ));
     }
 
     #[test]
@@ -898,10 +975,17 @@ mod tests {
         let c = serde_json::json!({
             "choices": [{ "delta": {}, "finish_reason": "stop" }]
         });
-        let out = OpenAIChatAdapter.decode_stream_event(&c, &mut state).unwrap();
+        let out = OpenAIChatAdapter
+            .decode_stream_event(&c, &mut state)
+            .unwrap();
         // No open tool calls → only Stop
         assert_eq!(out.len(), 1);
-        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::EndTurn }));
+        assert!(matches!(
+            &out[0],
+            StreamEvent::Stop {
+                reason: StopReason::EndTurn
+            }
+        ));
     }
 
     #[test]
@@ -910,8 +994,15 @@ mod tests {
         let c = serde_json::json!({
             "choices": [{ "delta": {}, "finish_reason": "length" }]
         });
-        let out = OpenAIChatAdapter.decode_stream_event(&c, &mut state).unwrap();
-        assert!(matches!(&out[0], StreamEvent::Stop { reason: StopReason::MaxTokens }));
+        let out = OpenAIChatAdapter
+            .decode_stream_event(&c, &mut state)
+            .unwrap();
+        assert!(matches!(
+            &out[0],
+            StreamEvent::Stop {
+                reason: StopReason::MaxTokens
+            }
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -961,7 +1052,10 @@ mod tests {
         assert_eq!(r.model, "gpt-4o");
         assert!(r.stream);
         assert_eq!(r.config.max_tokens, Some(512));
-        assert_eq!(r.config.reasoning_effort, Some(crate::config::ReasoningEffort::High));
+        assert_eq!(
+            r.config.reasoning_effort,
+            Some(crate::config::ReasoningEffort::High)
+        );
 
         // tools: nested function shape decoded correctly
         assert_eq!(r.tools.len(), 1);
@@ -969,10 +1063,16 @@ mod tests {
         assert_eq!(r.tools[0].description, "read a file");
 
         // system message present
-        assert!(r.messages.iter().any(|m| matches!(m.role, MessageRole::System)));
+        assert!(r
+            .messages
+            .iter()
+            .any(|m| matches!(m.role, MessageRole::System)));
 
         // user message present
-        assert!(r.messages.iter().any(|m| matches!(m.role, MessageRole::User)));
+        assert!(r
+            .messages
+            .iter()
+            .any(|m| matches!(m.role, MessageRole::User)));
 
         // assistant message contains ToolUse block with normalized id
         let assistant_msg = r
@@ -999,7 +1099,10 @@ mod tests {
             .find(|m| matches!(m.role, MessageRole::Tool))
             .expect("tool message");
         assert!(
-            tool_msg.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. })),
+            tool_msg
+                .content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { .. })),
             "Tool message must contain ToolResult block"
         );
     }
@@ -1025,12 +1128,10 @@ mod tests {
     #[test]
     fn chat_decode_request_missing_model_errors() {
         let body = serde_json::json!({ "messages": [] });
-        assert!(
-            matches!(
-                OpenAIChatAdapter::new().decode_request(&body),
-                Err(AdapterError::MissingField("model"))
-            )
-        );
+        assert!(matches!(
+            OpenAIChatAdapter::new().decode_request(&body),
+            Err(AdapterError::MissingField("model"))
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -1047,7 +1148,9 @@ mod tests {
                 id: "r1".into(),
                 role: MessageRole::Assistant,
                 content: vec![
-                    ContentBlock::Text { text: "let me read that".into() },
+                    ContentBlock::Text {
+                        text: "let me read that".into(),
+                    },
                     ContentBlock::ToolUse {
                         id: "toolu_call_abc".into(),
                         name: "read".into(),
@@ -1070,24 +1173,29 @@ mod tests {
         let v = OpenAIChatAdapter::new().encode_response(&dr).unwrap();
 
         // object must be chat.completion
-        assert_eq!(v["object"], "chat.completion", "object must be 'chat.completion'");
+        assert_eq!(
+            v["object"], "chat.completion",
+            "object must be 'chat.completion'"
+        );
 
         // finish_reason must be "tool_calls" (ToolUse present)
         assert_eq!(
-            v["choices"][0]["finish_reason"],
-            "tool_calls",
+            v["choices"][0]["finish_reason"], "tool_calls",
             "finish_reason must be 'tool_calls'"
         );
 
         // tool_calls[0].function.arguments must be a parseable JSON string
         let args_val = &v["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"];
         let args_str = args_val.as_str().expect("arguments must be a string");
-        let parsed: serde_json::Value = serde_json::from_str(args_str)
-            .expect("arguments string must be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(args_str).expect("arguments string must be valid JSON");
         assert_eq!(parsed["path"], "/tmp");
 
         // id must be provider-form (toolu_ stripped)
-        assert_eq!(v["choices"][0]["message"]["tool_calls"][0]["id"], "call_abc");
+        assert_eq!(
+            v["choices"][0]["message"]["tool_calls"][0]["id"],
+            "call_abc"
+        );
 
         // usage fields (prompt_tokens = input_tokens, completion_tokens = output_tokens)
         assert_eq!(v["usage"]["prompt_tokens"], 10);
@@ -1103,7 +1211,9 @@ mod tests {
             message: Message {
                 id: "r2".into(),
                 role: MessageRole::Assistant,
-                content: vec![ContentBlock::Text { text: "hello".into() }],
+                content: vec![ContentBlock::Text {
+                    text: "hello".into(),
+                }],
                 tool_call_id: None,
                 usage: None,
                 timestamp: 0,
@@ -1126,14 +1236,21 @@ mod tests {
         let a = OpenAIChatAdapter::new();
         let mut st = StreamEncodeState::default();
         let frames = a
-            .encode_stream_event(&StreamEvent::Stop { reason: StopReason::MaxTokens }, &mut st)
+            .encode_stream_event(
+                &StreamEvent::Stop {
+                    reason: StopReason::MaxTokens,
+                },
+                &mut st,
+            )
             .unwrap();
         assert_eq!(frames.len(), 1, "Stop must emit exactly one chunk");
         let chunk = &frames[0].data;
-        assert_eq!(chunk["object"], "chat.completion.chunk", "object must be chat.completion.chunk");
         assert_eq!(
-            chunk["choices"][0]["finish_reason"],
-            "length",
+            chunk["object"], "chat.completion.chunk",
+            "object must be chat.completion.chunk"
+        );
+        assert_eq!(
+            chunk["choices"][0]["finish_reason"], "length",
             "MaxTokens must map to finish_reason 'length'"
         );
     }
@@ -1164,15 +1281,24 @@ mod tests {
 
         for ev in [
             StreamEvent::Start,
-            StreamEvent::TextDelta { text: "hello".into() },
-            StreamEvent::ToolCallStart { id: "toolu_t1".into(), name: "read".into() },
+            StreamEvent::TextDelta {
+                text: "hello".into(),
+            },
+            StreamEvent::ToolCallStart {
+                id: "toolu_t1".into(),
+                name: "read".into(),
+            },
             StreamEvent::ToolCallDelta {
                 id: "toolu_t1".into(),
                 name: None,
                 arguments_delta: "{\"p\":1}".into(),
             },
-            StreamEvent::ToolCallEnd { id: "toolu_t1".into() },
-            StreamEvent::Stop { reason: StopReason::ToolUse },
+            StreamEvent::ToolCallEnd {
+                id: "toolu_t1".into(),
+            },
+            StreamEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
             StreamEvent::Done,
         ] {
             frames.extend(a.encode_stream_event(&ev, &mut st).unwrap());

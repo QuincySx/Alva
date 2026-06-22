@@ -10,8 +10,9 @@ use alva_kernel_abi::tool::Tool;
 
 use super::registrar::{LateContext, Registrar};
 
-/// 自包含的能力捆绑包，可向 [`Registrar`] 注册 tools / middleware /
-/// bus 服务 / system-prompt 片段 / command。
+/// 自包含的能力捆绑包，可向 [`Registrar`] 注册 tools /
+/// phase contributions / middleware / bus 服务 / system-prompt 片段 /
+/// command。
 ///
 /// 取代旧的 `Extension` trait（已全面迁移完成，无适配层）。
 ///
@@ -23,7 +24,10 @@ use super::registrar::{LateContext, Registrar};
 /// ```ignore
 /// use std::sync::Arc;
 /// use async_trait::async_trait;
-/// use alva_agent_core::extension::{Plugin, Registrar, LateContext};
+/// use alva_agent_core::extension::{
+///     LateContext, PhaseContribution, PhaseHandler, PhaseOrder, Plugin, Registrar,
+/// };
+/// use alva_kernel_abi::{Phase, PhaseEffect};
 /// use alva_kernel_abi::tool::Tool;
 /// use alva_kernel_abi::scope::context::ContextLayer;
 ///
@@ -38,16 +42,29 @@ use super::registrar::{LateContext, Registrar};
 ///         // 1. 注册 LLM 可调用 tool —— 取具体类型，无需手动 Box::new。
 ///         r.tool(MyTool::new());
 ///
-///         // 2. 注册运行期洋葱中间件（以 Arc 传入，运行期共享所有权）。
+///         // 2. 注册稳定 runtime phase 贡献。Context / Observer / Policy
+///         //    这类语义 helper 最终都应该编译成 phase contribution。
+///         r.phase(PhaseContribution::new(
+///             "my-plugin.before-tool",
+///             Phase::BeforeToolCall,
+///             PhaseEffect::Decide,
+///             PhaseOrder::Hooks,
+///         ));
+///         // 如果贡献需要执行代码，用 r.phase_handler(Arc<dyn PhaseHandler>)；
+///         // 它会记录同样的 PhaseContribution，并在当前 runtime 下编译成
+///         // `phase:<name>` middleware。
+///
+///         // 3. 注册运行期洋葱中间件（以 Arc 传入，运行期共享所有权）。
+///         //    保留给真正需要 wrap/interceptor 的底层控制面。
 ///         r.middleware(Arc::new(MyMiddleware::new()));
 ///
-///         // 3. 向 typed bus 提供一个能力，供别家 plugin / 运行期读取。
+///         // 4. 向 typed bus 提供一个能力，供别家 plugin / 运行期读取。
 ///         r.provide::<dyn MyService>(Arc::new(MyServiceImpl::new()));
 ///
-///         // 4. 追加一段 system prompt（layer 决定缓存归属）。
+///         // 5. 追加一段 system prompt（layer 决定缓存归属）。
 ///         r.system_prompt(ContextLayer::AlwaysPresent, "<my_context>…</my_context>");
 ///
-///         // 5. 声明一个 /command（元数据）。
+///         // 6. 声明一个 /command（元数据）。
 ///         r.command("my-cmd", "do the thing");
 ///     }
 ///
@@ -70,7 +87,8 @@ pub trait Plugin: Send + Sync {
         ""
     }
 
-    /// 唯一装配阶段：注册 tools / middleware / bus 服务 / system prompt / command。
+    /// 唯一装配阶段：注册 tools / phase contributions / middleware /
+    /// bus 服务 / system prompt / command。
     ///
     /// **provide-only**：此处只“提供”能力，不要读取别的 plugin 提供的 bus 能力。
     /// 即使先注册的 plugin 的结果在实现上可能可见，也**不保证**装配顺序——

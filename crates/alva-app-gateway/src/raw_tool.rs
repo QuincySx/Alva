@@ -74,7 +74,10 @@ mod tests {
         );
         assert_eq!(rt.name(), "read");
         assert_eq!(rt.description(), "desc");
-        assert_eq!(rt.parameters_schema(), serde_json::json!({"type": "object"}));
+        assert_eq!(
+            rt.parameters_schema(),
+            serde_json::json!({"type": "object"})
+        );
     }
 
     #[tokio::test]

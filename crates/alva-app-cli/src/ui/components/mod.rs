@@ -38,40 +38,40 @@ use ratatui::Frame;
 
 use super::theme::Theme;
 
+pub mod image;
+pub mod layout;
 pub mod modal;
 pub mod picker;
-pub mod text_field;
-pub mod toast;
-pub mod tabs;
-pub mod toggle;
-pub mod layout;
-pub mod tree;
-pub mod throbber;
 pub mod popup;
-pub mod image;
+pub mod tabs;
+pub mod text_field;
+pub mod throbber;
+pub mod toast;
+pub mod toggle;
+pub mod tree;
 // Chat-screen building blocks (top-to-bottom): pinned header, conversation
 // view (with collapsibles), attachment strip, multi-line chat input.
-pub mod pinned_header;
-pub mod conversation;
-pub mod collapsible;
 pub mod attachment_strip;
 pub mod chat_input;
+pub mod collapsible;
+pub mod conversation;
+pub mod pinned_header;
 
+pub use attachment_strip::{Attachment, AttachmentKind, AttachmentStrip};
+pub use chat_input::{ChatInput, ChatInputAction};
+pub use collapsible::{CollapsibleBlock, CollapsibleKind};
+pub use conversation::{BubbleRole, ConversationItem, ConversationView, MessageBubble};
+pub use image::ImageView;
 pub use modal::ModalFrame;
 pub use picker::Picker;
-pub use text_field::TextField;
-pub use toast::{Toast, ToastKind, ToastStack};
+pub use pinned_header::PinnedHeader;
+pub use popup::ScrollablePopup;
 pub use tabs::Tabs;
+pub use text_field::TextField;
+pub use throbber::ProgressThrobber;
+pub use toast::{Toast, ToastKind, ToastStack};
 pub use toggle::Toggle;
 pub use tree::Tree;
-pub use throbber::ProgressThrobber;
-pub use popup::ScrollablePopup;
-pub use image::ImageView;
-pub use pinned_header::PinnedHeader;
-pub use conversation::{ConversationView, ConversationItem, MessageBubble, BubbleRole};
-pub use collapsible::{CollapsibleBlock, CollapsibleKind};
-pub use attachment_strip::{AttachmentStrip, Attachment, AttachmentKind};
-pub use chat_input::{ChatInput, ChatInputAction};
 
 /// What a component returns to its parent after handling one event.
 /// `None` is "consumed, do nothing"; `Bubble(ev)` is "I didn't want this,

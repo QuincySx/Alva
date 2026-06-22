@@ -84,18 +84,19 @@ impl BrowserScreenshotTool {
         let page = manager
             .active_page(&id)
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "browser_screenshot".into(), message: e })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "browser_screenshot".into(),
+                message: e,
+            })?;
 
         let result = if let Some(ref selector) = params.selector {
             // Screenshot a specific element
             let element = page
                 .find_element(selector)
                 .await
-                .map_err(|e| {
-                    AgentError::ToolError {
-                        tool_name: "browser_screenshot".into(),
-                        message: format!("Element '{}' not found: {}", selector, e),
-                    }
+                .map_err(|e| AgentError::ToolError {
+                    tool_name: "browser_screenshot".into(),
+                    message: format!("Element '{}' not found: {}", selector, e),
                 })?;
 
             {
@@ -106,11 +107,9 @@ impl BrowserScreenshotTool {
                 element
                     .screenshot(img_format)
                     .await
-                    .map_err(|e| {
-                        AgentError::ToolError {
-                            tool_name: "browser_screenshot".into(),
-                            message: format!("Element screenshot failed: {}", e),
-                        }
+                    .map_err(|e| AgentError::ToolError {
+                        tool_name: "browser_screenshot".into(),
+                        message: format!("Element screenshot failed: {}", e),
                     })?
             }
         } else {
@@ -132,27 +131,22 @@ impl BrowserScreenshotTool {
                 screenshot_params = screenshot_params.capture_beyond_viewport(true);
             }
 
-            let cdp_params = screenshot_params
-                .build();
+            let cdp_params = screenshot_params.build();
 
-            let screenshot_response = page
-                .execute(cdp_params)
-                .await
-                .map_err(|e| {
-                    AgentError::ToolError {
+            let screenshot_response =
+                page.execute(cdp_params)
+                    .await
+                    .map_err(|e| AgentError::ToolError {
                         tool_name: "browser_screenshot".into(),
                         message: format!("Screenshot failed: {}", e),
-                    }
-                })?;
+                    })?;
 
             use base64::Engine;
             base64::engine::general_purpose::STANDARD
                 .decode(&screenshot_response.result.data)
-                .map_err(|e| {
-                    AgentError::ToolError {
-                        tool_name: "browser_screenshot".into(),
-                        message: format!("Failed to decode screenshot data: {}", e),
-                    }
+                .map_err(|e| AgentError::ToolError {
+                    tool_name: "browser_screenshot".into(),
+                    message: format!("Failed to decode screenshot data: {}", e),
                 })?
         };
 
@@ -160,25 +154,28 @@ impl BrowserScreenshotTool {
         if let Some(parent) = full_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_err(|e| AgentError::ToolError { tool_name: "browser_screenshot".into(), message: format!("Failed to create directory: {}", e) })?;
+                .map_err(|e| AgentError::ToolError {
+                    tool_name: "browser_screenshot".into(),
+                    message: format!("Failed to create directory: {}", e),
+                })?;
         }
 
         // Write the screenshot file
         tokio::fs::write(&full_path, &result)
             .await
-            .map_err(|e| {
-                AgentError::ToolError {
-                    tool_name: "browser_screenshot".into(),
-                    message: format!("Failed to write screenshot: {}", e),
-                }
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "browser_screenshot".into(),
+                message: format!("Failed to write screenshot: {}", e),
             })?;
 
-        Ok(ToolOutput::text(json!({
-            "status": "captured",
-            "path": full_path.display().to_string(),
-            "format": format_str,
-            "size_bytes": result.len(),
-        })
-        .to_string()))
+        Ok(ToolOutput::text(
+            json!({
+                "status": "captured",
+                "path": full_path.display().to_string(),
+                "format": format_str,
+                "size_bytes": result.len(),
+            })
+            .to_string(),
+        ))
     }
 }

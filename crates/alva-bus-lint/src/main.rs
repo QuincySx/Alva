@@ -25,8 +25,9 @@ use syn::{
 const MAX_EXTERNAL: usize = 2;
 
 const STD_ROOTS: &[&str] = &["std", "core", "alloc"];
-const TRAIT_BOUND_NOISE: &[&str] =
-    &["Send", "Sync", "Sized", "Fn", "FnMut", "FnOnce", "Copy", "Clone"];
+const TRAIT_BOUND_NOISE: &[&str] = &[
+    "Send", "Sync", "Sized", "Fn", "FnMut", "FnOnce", "Copy", "Clone",
+];
 
 fn main() {
     let root = find_workspace_root().expect("alva-bus-lint: no workspace root found");
@@ -39,8 +40,12 @@ fn main() {
 
     for rs in walk_rs(&crates_dir) {
         let self_crate = find_self_crate(&rs).unwrap_or_default();
-        let Ok(src) = fs::read_to_string(&rs) else { continue };
-        let Ok(file) = syn::parse_file(&src) else { continue };
+        let Ok(src) = fs::read_to_string(&rs) else {
+            continue;
+        };
+        let Ok(file) = syn::parse_file(&src) else {
+            continue;
+        };
 
         let use_map = collect_uses(&file.items);
 
@@ -356,7 +361,11 @@ version = "0.1.0"
 name = "alva-bus-lint"
 path = "src/main.rs"
 "#;
-        assert_eq!(parse_package_name(toml), None, "must only read [package].name");
+        assert_eq!(
+            parse_package_name(toml),
+            None,
+            "must only read [package].name"
+        );
     }
 
     #[test]
@@ -403,30 +412,30 @@ name      =     "spaced-name"
     #[test]
     fn has_marker_matches_path_last_segment() {
         // Trait with `#[bus_cap]` — the marker must be detected
-        let file: syn::File = syn::parse_str(
-            "#[bus_cap]\ntrait Foo {}",
-        )
-        .unwrap();
+        let file: syn::File = syn::parse_str("#[bus_cap]\ntrait Foo {}").unwrap();
         let attrs = match &file.items[0] {
             syn::Item::Trait(t) => &t.attrs,
             _ => panic!("expected Item::Trait"),
         };
         assert!(has_marker(attrs, "bus_cap"));
-        assert!(!has_marker(attrs, "bus_event"), "non-matching name should be false");
+        assert!(
+            !has_marker(attrs, "bus_event"),
+            "non-matching name should be false"
+        );
     }
 
     #[test]
     fn has_marker_matches_fully_qualified_marker_path() {
         // Some crates apply the attr fully-qualified: `#[alva_macros::bus_cap]`.
         // `has_marker` checks the LAST path segment so this should still trip.
-        let file: syn::File = syn::parse_str(
-            "#[alva_macros::bus_cap]\ntrait Foo {}",
-        )
-        .unwrap();
+        let file: syn::File = syn::parse_str("#[alva_macros::bus_cap]\ntrait Foo {}").unwrap();
         let attrs = match &file.items[0] {
             syn::Item::Trait(t) => &t.attrs,
             _ => panic!("expected Item::Trait"),
         };
-        assert!(has_marker(attrs, "bus_cap"), "must match on fully-qualified path");
+        assert!(
+            has_marker(attrs, "bus_cap"),
+            "must match on fully-qualified path"
+        );
     }
 }

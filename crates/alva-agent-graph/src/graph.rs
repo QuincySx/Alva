@@ -149,18 +149,15 @@ impl<S: Send + 'static> StateGraph<S> {
     /// clone of the current state. The merge function receives the original
     /// base state and a `Vec` of all node outputs, and must return a single
     /// combined state.
-    pub fn set_merge(
-        &mut self,
-        merge: impl Fn(S, Vec<S>) -> S + Send + Sync + 'static,
-    ) {
+    pub fn set_merge(&mut self, merge: impl Fn(S, Vec<S>) -> S + Send + Sync + 'static) {
         self.merge_fn = Some(Box::new(merge));
     }
 
     /// Validate the graph and produce a `CompiledGraph` ready for execution.
     pub fn compile(self) -> Result<CompiledGraph<S>, AgentError> {
-        let entry_point = self.entry_point.ok_or_else(|| {
-            AgentError::ConfigError("Entry point not set".to_string())
-        })?;
+        let entry_point = self
+            .entry_point
+            .ok_or_else(|| AgentError::ConfigError("Entry point not set".to_string()))?;
 
         if !self.nodes.contains_key(&entry_point) {
             return Err(AgentError::ConfigError(format!(
@@ -258,8 +255,9 @@ mod tests {
     type State = i32;
 
     /// Trivial async passthrough node used for shape-only tests.
-    fn passthrough() -> impl Fn(State) -> Pin<Box<dyn std::future::Future<Output = State> + Send>>
-           + Send + Sync + 'static {
+    fn passthrough(
+    ) -> impl Fn(State) -> Pin<Box<dyn std::future::Future<Output = State> + Send>> + Send + Sync + 'static
+    {
         |s: State| Box::pin(async move { s })
     }
 
@@ -322,7 +320,10 @@ mod tests {
         let err = g.compile().expect_err("unknown source must error");
         let msg = err.to_string();
         assert!(msg.contains("Edge source"), "{msg}");
-        assert!(msg.contains("phantom"), "must name the unknown source: {msg}");
+        assert!(
+            msg.contains("phantom"),
+            "must name the unknown source: {msg}"
+        );
     }
 
     #[test]
@@ -334,7 +335,10 @@ mod tests {
         let err = g.compile().expect_err("unknown target must error");
         let msg = err.to_string();
         assert!(msg.contains("Edge target"), "{msg}");
-        assert!(msg.contains("missing"), "must name the unknown target: {msg}");
+        assert!(
+            msg.contains("missing"),
+            "must name the unknown target: {msg}"
+        );
     }
 
     #[test]
@@ -343,7 +347,9 @@ mod tests {
         g.add_node("real", passthrough());
         g.set_entry_point("real");
         g.add_conditional_edge("phantom_cond", |_| END.to_string());
-        let err = g.compile().expect_err("unknown conditional source must error");
+        let err = g
+            .compile()
+            .expect_err("unknown conditional source must error");
         let msg = err.to_string();
         assert!(msg.contains("Conditional edge source"), "{msg}");
         assert!(
@@ -389,7 +395,8 @@ mod tests {
         g.add_node("first", passthrough());
         g.set_entry_point("first");
         g.add_conditional_edge(START, |_| "first".to_string());
-        g.compile().expect("START as conditional source must be allowed");
+        g.compile()
+            .expect("START as conditional source must be allowed");
     }
 
     // -- Happy path ------------------------------------------------------
@@ -406,7 +413,10 @@ mod tests {
         assert_eq!(compiled.entry_point, "a");
         assert_eq!(compiled.nodes.len(), 2);
         assert_eq!(compiled.edges.len(), 2);
-        assert!(compiled.merge_fn.is_none(), "no merge_fn set → none on output");
+        assert!(
+            compiled.merge_fn.is_none(),
+            "no merge_fn set → none on output"
+        );
     }
 
     #[test]
@@ -420,6 +430,9 @@ mod tests {
         g.set_entry_point("a");
         g.set_merge(|base, _updates: Vec<State>| base);
         let compiled = g.compile().expect("merged graph must compile");
-        assert!(compiled.merge_fn.is_some(), "set_merge must round-trip through compile");
+        assert!(
+            compiled.merge_fn.is_some(),
+            "set_merge must round-trip through compile"
+        );
     }
 }

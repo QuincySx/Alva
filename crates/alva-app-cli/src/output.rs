@@ -65,7 +65,12 @@ pub fn print_tool_end(name: &str, is_error: bool, preview: &str) {
     // otherwise panic on `&preview_clean[..100]`.
     let preview_short = safe_preview(&preview_clean, 100);
     if is_error {
-        eprintln!("  {} {} {}", "✗".red(), name.red(), preview_short.dark_grey());
+        eprintln!(
+            "  {} {} {}",
+            "✗".red(),
+            name.red(),
+            preview_short.dark_grey()
+        );
     } else {
         eprintln!(
             "  {} {} {}",
@@ -86,10 +91,7 @@ pub fn print_assistant_text(text: &str) {
 }
 
 pub fn print_divider() {
-    eprintln!(
-        "{}",
-        "───────────────────────────────────────".dark_grey()
-    );
+    eprintln!("{}", "───────────────────────────────────────".dark_grey());
 }
 
 pub fn print_session_resumed(id: &str, count: usize, summary: &str) {
@@ -134,7 +136,9 @@ pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
     if is_dangerous {
         eprintln!(
             "  {}",
-            "╭─ ⚠ DANGEROUS — Permission Required ──────────".red().bold()
+            "╭─ ⚠ DANGEROUS — Permission Required ──────────"
+                .red()
+                .bold()
         );
     } else {
         eprintln!(
@@ -166,13 +170,31 @@ pub fn print_approval_prompt(tool_name: &str, args: &serde_json::Value) {
     }
 
     // Show old_str/new_str diff for file_edit
-    if let Some(old_str) = args.get("old_string").or_else(|| args.get("old_str")).and_then(|v| v.as_str()) {
+    if let Some(old_str) = args
+        .get("old_string")
+        .or_else(|| args.get("old_str"))
+        .and_then(|v| v.as_str())
+    {
         let preview = safe_preview(old_str, 120);
-        eprintln!("  {}  {}: {}", "│".dark_yellow(), "Old".red(), preview.red());
+        eprintln!(
+            "  {}  {}: {}",
+            "│".dark_yellow(),
+            "Old".red(),
+            preview.red()
+        );
     }
-    if let Some(new_str) = args.get("new_string").or_else(|| args.get("new_str")).and_then(|v| v.as_str()) {
+    if let Some(new_str) = args
+        .get("new_string")
+        .or_else(|| args.get("new_str"))
+        .and_then(|v| v.as_str())
+    {
         let preview = safe_preview(new_str, 120);
-        eprintln!("  {}  {}: {}", "│".dark_yellow(), "New".green(), preview.green());
+        eprintln!(
+            "  {}  {}: {}",
+            "│".dark_yellow(),
+            "New".green(),
+            preview.green()
+        );
     }
 
     // Show URL for web fetch
@@ -249,7 +271,10 @@ mod tests {
         // to byte 1 (the char boundary before 🦀).
         let s = "a🦀b";
         assert_eq!(s.len(), 6);
-        assert!(!s.is_char_boundary(3), "test premise: byte 3 is not a boundary");
+        assert!(
+            !s.is_char_boundary(3),
+            "test premise: byte 3 is not a boundary"
+        );
         assert_eq!(safe_preview(s, 3), "a...");
     }
 

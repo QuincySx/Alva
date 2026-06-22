@@ -1,7 +1,7 @@
-mod types;
-mod loader;
 mod cache;
+mod loader;
+mod types;
 
-pub use types::*;
-pub use loader::*;
 pub use cache::*;
+pub use loader::*;
+pub use types::*;

@@ -3,20 +3,19 @@
 // POS:    Crate root — dynamic loader for subprocess-based extensions.
 
 //! `alva-app-extension-loader` — dynamic loader for third-party
-//! extensions written in languages other than Rust.
+//! plugins written in languages other than Rust.
 //!
-//! This crate implements the host side of **AEP** (Alva Extension
-//! Protocol), a JSON-RPC 2.0 based protocol for running plugins as
+//! This crate implements the host side of **AEP**, a JSON-RPC 2.0
+//! based protocol for running plugins as
 //! subprocesses. Plugin authors write Python / JavaScript files
 //! against the `alva-sdk` libraries; this crate loads them at runtime
-//! and registers each one with `ExtensionHost` as a normal
-//! [`Extension`](alva_agent_core::extension::Extension) via a
-//! `RemoteExtensionProxy` that forwards events over stdio.
+//! and registers each one through the normal
+//! [`Plugin`](alva_agent_core::extension::Plugin) assembly path.
 //!
 //! Plugin authors never see Rust, never touch `Cargo.toml`, and never
-//! learn about the `Extension` trait — they write a single `.py` or
+//! learn about the Rust `Plugin` trait — they write a single `.py` or
 //! `.js` file against their language's SDK and drop it in
-//! `~/.alva/extensions/<name>/`.
+//! `~/.alva/plugins/<name>/` or another configured plugin directory.
 //!
 //! ## Phase status (v0.1 draft)
 //!
@@ -24,7 +23,7 @@
 //!
 //! - [x] **Phase 1** — protocol types + manifest types
 //! - [x] **Phase 2** — subprocess runtime + JSON-RPC dispatcher
-//! - [x] **Phase 3** — `SubprocessLoaderPlugin` + `RemoteExtensionProxy`
+//! - [x] **Phase 3** — `SubprocessLoaderPlugin` + AEP phase handlers
 //! - [ ] **Phase 4** — Python SDK (`alva_sdk` package, separate repo)
 //! - [ ] **Phase 5** — JS SDK (`@alva/sdk` package, separate repo)
 //! - [ ] **Phase 6** — `host/memory.*` integration + first real E2E demo
@@ -46,6 +45,9 @@ pub mod dispatcher;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod proxy;
+
+#[cfg(not(target_family = "wasm"))]
+pub mod remote_tool;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod loader;

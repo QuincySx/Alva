@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use alva_kernel_abi::base::error::AgentError;
-use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::tool::Tool;
 
 use crate::client::McpClient;
 use crate::types::McpToolInfo;
@@ -73,23 +73,17 @@ impl Tool for McpToolAdapter {
                 message: e.to_string(),
             })?;
 
-        let output =
-            serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+        let output = serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
 
         Ok(ToolOutput::text(output))
     }
 }
 
 /// Convert all connected tools from McpClient into Tool list.
-pub fn build_mcp_tools(
-    client: Arc<McpClient>,
-    tools_info: Vec<McpToolInfo>,
-) -> Vec<Box<dyn Tool>> {
+pub fn build_mcp_tools(client: Arc<McpClient>, tools_info: Vec<McpToolInfo>) -> Vec<Box<dyn Tool>> {
     tools_info
         .into_iter()
-        .map(|info| -> Box<dyn Tool> {
-            Box::new(McpToolAdapter::new(info, client.clone()))
-        })
+        .map(|info| -> Box<dyn Tool> { Box::new(McpToolAdapter::new(info, client.clone())) })
         .collect()
 }
 

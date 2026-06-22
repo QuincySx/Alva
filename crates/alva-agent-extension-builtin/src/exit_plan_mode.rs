@@ -31,7 +31,7 @@ impl ExitPlanModeTool {
         // In a full implementation, this would clear the planning-mode flag
         // on the session/context.
         Ok(ToolOutput::text(
-            "Exited planning mode. All tools are now available."
+            "Exited planning mode. All tools are now available.",
         ))
     }
 }
@@ -66,7 +66,9 @@ mod tests {
 
     #[tokio::test]
     async fn exit_plan_mode_returns_success_message() {
-        let ctx = TestContext { cancel: CancellationToken::new() };
+        let ctx = TestContext {
+            cancel: CancellationToken::new(),
+        };
         let tool = ExitPlanModeTool;
 
         let output = tool
@@ -84,7 +86,9 @@ mod tests {
 
     #[tokio::test]
     async fn exit_plan_mode_ignores_extra_fields() {
-        let ctx = TestContext { cancel: CancellationToken::new() };
+        let ctx = TestContext {
+            cancel: CancellationToken::new(),
+        };
         let tool = ExitPlanModeTool;
 
         let output = tool

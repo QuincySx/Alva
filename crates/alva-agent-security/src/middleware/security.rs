@@ -8,15 +8,15 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
-use alva_kernel_core::state::AgentState;
-use alva_kernel_core::shared::MiddlewarePriority;
 use crate::pending_actions::{
     ResolveStatus, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED,
 };
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
 use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
 use alva_kernel_abi::{bus_cap, BusHandle, CancellationToken, MinimalExecutionContext, ToolCall};
+use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
+use alva_kernel_core::shared::MiddlewarePriority;
+use alva_kernel_core::state::AgentState;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
@@ -81,10 +81,10 @@ pub struct ApprovalRequest {
 /// Bus Capability: fire-and-forget channel that wakes the HITL UI when
 /// a tool call needs human approval.
 ///
-/// **Provider**: `ApprovalPlugin::configure`
-/// (`alva-app-core/src/extension/approval.rs`) for the opt-in flow;
-/// also installed by `AgentRuntimeBuilder::build` when the standard
-/// agent stack is enabled (`alva-host-native/src/builder.rs`).
+/// **Provider**: `ApprovalPlugin::register`
+/// (`alva-app-core/src/extension/approval.rs`) for the opt-in flow.
+/// The deprecated `AgentRuntimeBuilder::build` legacy path can also
+/// install it when the standard agent stack is enabled.
 /// **Consumers**: `SecurityMiddleware::before_tool_call` — looks up the
 /// notifier and sends an `ApprovalRequest` into the channel, then
 /// awaits a decision from the security guard.
@@ -179,15 +179,11 @@ impl Middleware for SecurityMiddleware {
                             let mut guard = self.guard.lock().await;
                             guard.take_pending_receiver(&request_id)
                         };
-                        (
-                            SecurityDecision::NeedHumanApproval { request_id },
-                            rx,
-                        )
+                        (SecurityDecision::NeedHumanApproval { request_id }, rx)
                     }
-                    Some(SecurityDecision::Deny { reason }) => (
-                        SecurityDecision::Deny { reason },
-                        None,
-                    ),
+                    Some(SecurityDecision::Deny { reason }) => {
+                        (SecurityDecision::Deny { reason }, None)
+                    }
                     Some(SecurityDecision::Allow) | None => (SecurityDecision::Allow, None),
                 }
             }
@@ -208,18 +204,24 @@ impl Middleware for SecurityMiddleware {
                     emit_requires_action(&state.session, &request_id, tool_call).await;
 
                 // Try to get the approval notifier from the bus
-                let notifier = self.bus.get()
+                let notifier = self
+                    .bus
+                    .get()
                     .and_then(|b| b.get::<ApprovalNotifier>())
                     .map(|arc| (*arc).clone());
 
                 match (notifier, pending_rx) {
                     (Some(notifier), Some(rx)) => {
                         // Notify UI that approval is needed
-                        if notifier.tx.send(ApprovalRequest {
-                            request_id: request_id.clone(),
-                            tool_name: tool_call.name.clone(),
-                            arguments: tool_call.arguments.clone(),
-                        }).is_err() {
+                        if notifier
+                            .tx
+                            .send(ApprovalRequest {
+                                request_id: request_id.clone(),
+                                tool_name: tool_call.name.clone(),
+                                arguments: tool_call.arguments.clone(),
+                            })
+                            .is_err()
+                        {
                             let mut guard = self.guard.lock().await;
                             guard.cancel_permission(&request_id);
                             drop(guard);
@@ -239,7 +241,12 @@ impl Middleware for SecurityMiddleware {
                         }
 
                         enum ApprovalWaitOutcome {
-                            Decision(Result<crate::PermissionDecision, tokio::sync::oneshot::error::RecvError>),
+                            Decision(
+                                Result<
+                                    crate::PermissionDecision,
+                                    tokio::sync::oneshot::error::RecvError,
+                                >,
+                            ),
                             Cancelled,
                             TimedOut,
                         }
@@ -336,10 +343,7 @@ impl Middleware for SecurityMiddleware {
                                 )
                                 .await;
                                 Err(MiddlewareError::Blocked {
-                                    reason: format!(
-                                        "approval for '{}' timed out",
-                                        tool_call.name
-                                    ),
+                                    reason: format!("approval for '{}' timed out", tool_call.name),
                                 })
                             }
                         }
@@ -386,9 +390,9 @@ impl Middleware for SecurityMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_core::shared::Extensions;
     use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::Bus;
+    use alva_kernel_core::shared::Extensions;
 
     fn make_state() -> AgentState {
         use alva_kernel_abi::base::error::AgentError;
@@ -414,7 +418,8 @@ mod tests {
                 _: &[Message],
                 _: &[&dyn Tool],
                 _: &ModelConfig,
-            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>>
+            {
                 Box::pin(tokio_stream::empty())
             }
             fn model_id(&self) -> &str {
@@ -445,8 +450,7 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_exposes_guard() {
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen);
         let guard = mw.guard();
         // Verify we can lock and access
         let _g = guard.lock().await;
@@ -476,9 +480,8 @@ mod tests {
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle);
         let guard = mw.guard();
         let mut state = make_state();
 
@@ -519,9 +522,8 @@ mod tests {
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle);
         let guard = mw.guard();
         let mut state = make_state();
 
@@ -549,16 +551,14 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_cancellation_interrupts_pending_approval() {
-        let (approval_tx, _approval_rx) =
-            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let (approval_tx, _approval_rx) = tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
         let bus_writer = bus.writer();
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle);
         let mut state = make_state();
         let cancel = alva_kernel_abi::CancellationToken::new();
         cancel.cancel();
@@ -585,17 +585,15 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_times_out_pending_approval() {
-        let (approval_tx, _approval_rx) =
-            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let (approval_tx, _approval_rx) = tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
         let bus_writer = bus.writer();
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle)
-                .with_approval_timeout(std::time::Duration::from_millis(20));
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle)
+            .with_approval_timeout(std::time::Duration::from_millis(20));
         let mut state = make_state();
 
         let tc = ToolCall {
@@ -620,7 +618,9 @@ mod tests {
     // `pending_actions()` is a O(n) projection over the log.
     // -----------------------------------------------------------------------
 
-    use crate::pending_actions::{pending_actions, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED};
+    use crate::pending_actions::{
+        pending_actions, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED,
+    };
 
     fn make_state_with_session(session: Arc<dyn AgentSession>) -> AgentState {
         use alva_kernel_abi::base::error::AgentError;
@@ -646,7 +646,8 @@ mod tests {
                 _: &[Message],
                 _: &[&dyn Tool],
                 _: &ModelConfig,
-            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+            ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>>
+            {
                 Box::pin(tokio_stream::empty())
             }
             fn model_id(&self) -> &str {
@@ -673,9 +674,8 @@ mod tests {
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle);
         let guard = mw.guard();
         let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
         let mut state = make_state_with_session(session.clone());
@@ -714,7 +714,10 @@ mod tests {
 
         // Resolved event parent_uuid links back to the request.
         let req_uuid = events[req_pos].event.uuid.clone();
-        assert_eq!(events[res_pos].event.parent_uuid.as_deref(), Some(req_uuid.as_str()));
+        assert_eq!(
+            events[res_pos].event.parent_uuid.as_deref(),
+            Some(req_uuid.as_str())
+        );
 
         // Carried payload matches the ToolCall.
         let req_data = events[req_pos].event.data.as_ref().unwrap();
@@ -740,9 +743,8 @@ mod tests {
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle);
         let guard = mw.guard();
         let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
         let mut state = make_state_with_session(session.clone());
@@ -801,17 +803,15 @@ mod tests {
         // the channel alive — but the middleware doesn't depend on rx;
         // it's the oneshot in PermissionManager that drives the wait.
         // Tight timeout forces the TimedOut branch.
-        let (approval_tx, _approval_rx) =
-            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let (approval_tx, _approval_rx) = tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
         let bus_writer = bus.writer();
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle)
-                .with_approval_timeout(std::time::Duration::from_millis(10));
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle)
+            .with_approval_timeout(std::time::Duration::from_millis(10));
         let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
         let mut state = make_state_with_session(session.clone());
 
@@ -844,9 +844,8 @@ mod tests {
         let bus = Bus::new();
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle);
         let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
         let mut state = make_state_with_session(session.clone());
 
@@ -861,7 +860,9 @@ mod tests {
 
         let events = session.query(&EventQuery::default()).await;
         assert!(
-            events.iter().any(|m| m.event.event_type == EVENT_REQUIRES_ACTION),
+            events
+                .iter()
+                .any(|m| m.event.event_type == EVENT_REQUIRES_ACTION),
             "missing notifier should still record the request in the log"
         );
         let res = events
@@ -883,9 +884,8 @@ mod tests {
         bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
         let bus_handle = bus.handle();
 
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus_handle);
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus_handle);
         let guard = mw.guard();
 
         // ListenableInMemorySession supports live-tail subscriptions, which
@@ -923,11 +923,8 @@ mod tests {
         let mut saw_req = false;
         let mut saw_res = false;
         for _ in 0..32 {
-            let next = tokio::time::timeout(
-                std::time::Duration::from_millis(200),
-                stream.next(),
-            )
-            .await;
+            let next =
+                tokio::time::timeout(std::time::Duration::from_millis(200), stream.next()).await;
             let Ok(Some(event)) = next else { break };
             if event.event_type == EVENT_REQUIRES_ACTION {
                 saw_req = true;
@@ -940,7 +937,10 @@ mod tests {
             }
         }
         assert!(saw_req, "subscriber must observe requires_action live");
-        assert!(saw_res, "subscriber must observe requires_action_resolved live");
+        assert!(
+            saw_res,
+            "subscriber must observe requires_action_resolved live"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -958,13 +958,12 @@ mod tests {
     async fn url_aware_public_url_passes_without_approval() {
         // Public IP literal (8.8.8.8) → Low risk → below default Medium
         // threshold → no HITL request, middleware returns Allow directly.
-        let (approval_tx, _approval_rx) =
-            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let (approval_tx, _approval_rx) = tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
-        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus.handle());
+        bus.writer()
+            .provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus.handle());
         let mut state = make_state();
         let tc = ToolCall {
             id: "u1".into(),
@@ -972,7 +971,10 @@ mod tests {
             arguments: serde_json::json!({ "url": "https://8.8.8.8/" }),
         };
         let result = mw.before_tool_call(&mut state, &tc).await;
-        assert!(result.is_ok(), "public URL must NOT trigger approval: {result:?}");
+        assert!(
+            result.is_ok(),
+            "public URL must NOT trigger approval: {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -982,10 +984,10 @@ mod tests {
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
-        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus.handle());
+        bus.writer()
+            .provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus.handle());
         let guard = mw.guard();
         let mut state = make_state();
 
@@ -1015,7 +1017,10 @@ mod tests {
 
         let result = mw.before_tool_call(&mut state, &tc).await;
         approver.await.unwrap();
-        assert!(result.is_ok(), "AllowOnce must let the URL through: {result:?}");
+        assert!(
+            result.is_ok(),
+            "AllowOnce must let the URL through: {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -1023,10 +1028,10 @@ mod tests {
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
-        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus.handle());
+        bus.writer()
+            .provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus.handle());
         let guard = mw.guard();
         let mut state = make_state();
 
@@ -1060,10 +1065,10 @@ mod tests {
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
-        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus.handle());
+        bus.writer()
+            .provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus.handle());
         let guard = mw.guard();
         let mut state = make_state();
 
@@ -1112,14 +1117,16 @@ mod tests {
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
         let bus = Bus::new();
-        bus.writer().provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
-        let mw =
-            SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
-                .with_bus(bus.handle());
+        bus.writer()
+            .provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus.handle());
         {
             let guard_arc = mw.guard();
             let mut g = guard_arc.lock().await;
-            g.set_url_rules(UrlRules { ask_threshold: None });
+            g.set_url_rules(UrlRules {
+                ask_threshold: None,
+            });
         }
         let mut state = make_state();
         let tc = ToolCall {

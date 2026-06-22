@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use alva_kernel_abi::base::error::AgentError;
-use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::tool::Tool;
 
 // ---------------------------------------------------------------------------
 // MockTool
@@ -113,8 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_tool_returns_preset() {
-        let tool = MockTool::new("test_tool")
-            .with_result(ToolOutput::text("done"));
+        let tool = MockTool::new("test_tool").with_result(ToolOutput::text("done"));
 
         let ctx = MinimalExecutionContext::new();
         let result = tool.execute(serde_json::json!({}), &ctx).await.unwrap();
@@ -124,8 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_tool_records_calls() {
-        let tool = MockTool::new("recorder")
-            .with_result(ToolOutput::text("ok"));
+        let tool = MockTool::new("recorder").with_result(ToolOutput::text("ok"));
 
         let ctx = MinimalExecutionContext::new();
         let input = serde_json::json!({"path": "/tmp/test"});
@@ -137,8 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_tool_error() {
-        let tool = MockTool::new("failing")
-            .with_error("tool exploded");
+        let tool = MockTool::new("failing").with_error("tool exploded");
 
         let ctx = MinimalExecutionContext::new();
         let result = tool.execute(serde_json::json!({}), &ctx).await;
@@ -155,8 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_tool_records_multiple_calls() {
-        let tool = MockTool::new("multi")
-            .with_result(ToolOutput::text("ok"));
+        let tool = MockTool::new("multi").with_result(ToolOutput::text("ok"));
 
         let ctx = MinimalExecutionContext::new();
         let _ = tool.execute(serde_json::json!({"n": 1}), &ctx).await;

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::extension::{Plugin, Registrar};
 use crate::extension::evaluation::{SprintContract, SprintContractMiddleware};
+use crate::extension::{Plugin, Registrar};
 
 /// QA evaluation with sprint contract enforcement.
 pub struct EvaluationPlugin {
@@ -31,8 +31,12 @@ impl Default for EvaluationPlugin {
 
 #[async_trait]
 impl Plugin for EvaluationPlugin {
-    fn name(&self) -> &str { "evaluation" }
-    fn description(&self) -> &str { "QA evaluation and sprint contract enforcement" }
+    fn name(&self) -> &str {
+        "evaluation"
+    }
+    fn description(&self) -> &str {
+        "QA evaluation and sprint contract enforcement"
+    }
 
     async fn register(&self, r: &Registrar) {
         if let Some(contract) = &self.contract {

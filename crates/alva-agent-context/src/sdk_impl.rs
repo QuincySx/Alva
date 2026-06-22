@@ -3,13 +3,13 @@
 // POS:    Concrete ContextHandle backed by ContextStore — uses bus TokenCounter/MemoryBackend/Summarizer for bus-driven capability discovery.
 //! Concrete implementation of ContextHandle backed by ContextStore.
 
-use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
+use std::sync::{Arc, Mutex};
 
 use alva_kernel_abi::AgentMessage;
 
 use crate::sdk::ContextHandle;
-use crate::store::{ContextStore, estimate_tokens};
+use crate::store::{estimate_tokens, ContextStore};
 use crate::types::*;
 use crate::util::truncate_for_display;
 
@@ -28,8 +28,14 @@ pub trait MemoryBackend: Send + Sync {
 /// heuristic summarizer without coupling to a specific model provider.
 ///
 /// Inject via `ContextHandleImpl::with_summarizer()`.
-pub type SummarizeFn =
-    Arc<dyn Fn(&[AgentMessage], &[String]) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>> + Send + Sync>;
+pub type SummarizeFn = Arc<
+    dyn Fn(
+            &[AgentMessage],
+            &[String],
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// Summarization capability — registered on bus by the LLM/provider layer.
 ///
@@ -160,11 +166,11 @@ impl ContextHandle for ContextHandleImpl {
         let entry = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
             message,
-            metadata: ContextMetadata::new(layer)
-                .with_tokens(tokens)
-                .with_origin(EntryOrigin::Plugin {
+            metadata: ContextMetadata::new(layer).with_tokens(tokens).with_origin(
+                EntryOrigin::Plugin {
                     plugin_name: "sdk".to_string(),
-                }),
+                },
+            ),
         };
         store.append(entry);
     }
@@ -317,13 +323,19 @@ impl ContextHandle for ContextHandleImpl {
         // Serialize entries to file
         let store = self.store.lock().expect("ContextStore mutex poisoned");
         let to_externalize: Vec<&ContextEntry> = store.entries()[from..to].iter().collect();
-        let json = serde_json::to_string_pretty(&to_externalize.iter().map(|e| {
-            serde_json::json!({
-                "id": e.id,
-                "message": e.message,
-                "layer": format!("{:?}", e.metadata.layer),
-            })
-        }).collect::<Vec<_>>()).unwrap_or_default();
+        let json = serde_json::to_string_pretty(
+            &to_externalize
+                .iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "id": e.id,
+                        "message": e.message,
+                        "layer": format!("{:?}", e.metadata.layer),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_default();
         drop(store);
 
         if let Err(e) = std::fs::write(path, &json) {
@@ -337,9 +349,10 @@ impl ContextHandle for ContextHandleImpl {
         store.remove_range(from, to);
         let placeholder = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
-            message: AgentMessage::Standard(alva_kernel_abi::Message::system(
-                &format!("[Externalized {} entries to {}]", count, path)
-            )),
+            message: AgentMessage::Standard(alva_kernel_abi::Message::system(&format!(
+                "[Externalized {} entries to {}]",
+                count, path
+            ))),
             metadata: ContextMetadata::new(ContextLayer::RuntimeInject)
                 .with_tokens(10)
                 .with_origin(EntryOrigin::System),
@@ -348,12 +361,7 @@ impl ContextHandle for ContextHandleImpl {
         tracing::debug!(path, count, "externalized entries");
     }
 
-    async fn summarize(
-        &self,
-        _agent_id: &str,
-        range: MessageRange,
-        hints: &[String],
-    ) -> String {
+    async fn summarize(&self, _agent_id: &str, range: MessageRange, hints: &[String]) -> String {
         // Collect messages in the range — lock scope is limited to this block
         let messages: Vec<AgentMessage> = {
             let store = self.store.lock().expect("ContextStore mutex poisoned");
@@ -418,7 +426,9 @@ impl ContextHandle for ContextHandleImpl {
 
     fn query_memory(&self, query: &str, max_results: usize) -> Vec<MemoryFact> {
         // Try bus first, then fallback to injected memory
-        let backend = self.bus.as_ref()
+        let backend = self
+            .bus
+            .as_ref()
             .and_then(|b| b.get::<dyn MemoryBackend>())
             .or_else(|| self.memory.clone());
         match backend {
@@ -429,20 +439,27 @@ impl ContextHandle for ContextHandleImpl {
 
     fn store_memory(&self, fact: MemoryFact) {
         // Try bus first, then fallback to injected memory
-        let backend = self.bus.as_ref()
+        let backend = self
+            .bus
+            .as_ref()
             .and_then(|b| b.get::<dyn MemoryBackend>())
             .or_else(|| self.memory.clone());
         match backend {
             Some(m) => m.store(fact),
             None => {
-                tracing::debug!(fact_id = fact.id, "store_memory: no memory backend configured");
+                tracing::debug!(
+                    fact_id = fact.id,
+                    "store_memory: no memory backend configured"
+                );
             }
         }
     }
 
     fn delete_memory(&self, fact_id: &str) {
         // Try bus first, then fallback to injected memory
-        let backend = self.bus.as_ref()
+        let backend = self
+            .bus
+            .as_ref()
             .and_then(|b| b.get::<dyn MemoryBackend>())
             .or_else(|| self.memory.clone());
         match backend {
@@ -452,7 +469,6 @@ impl ContextHandle for ContextHandleImpl {
             }
         }
     }
-
 }
 
 /// Resolve a MessageRange to (from_index, to_index) on the store.

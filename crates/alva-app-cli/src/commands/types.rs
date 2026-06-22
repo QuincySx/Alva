@@ -1,3 +1,6 @@
+// INPUT:  alva_app_core cost utilities
+// OUTPUT: CommandResult, TokenUsage, CommandContext, Command trait
+// POS:    Shared CLI slash-command contracts and runtime command context.
 // Re-export shared utilities from app-core so builtins.rs can use them.
 pub use alva_app_core::{estimate_cost_usd, format_token_count};
 
@@ -47,6 +50,12 @@ pub struct CommandContext<'a> {
     pub token_usage: TokenUsage,
     /// Names of registered tools.
     pub tool_names: Vec<String>,
+    /// Names of plugins that participated in this agent build.
+    pub plugin_names: Vec<String>,
+    /// Names of middleware layers in final execution order.
+    pub middleware_names: Vec<String>,
+    /// Per-component config overrides from ~/.alva/config.json.
+    pub component_overrides: std::collections::HashMap<String, bool>,
     /// Whether plan mode is active.
     pub plan_mode: bool,
 }

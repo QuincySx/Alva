@@ -1,21 +1,40 @@
 # alva-agent-core
-> Agent-layer core: Extension trait, HostAPI, event dispatch, MockToolFs.
+> Agent-layer core: Plugin/Registrar assembly, AgentBuilder, Agent facade, MockToolFs.
 
 ## Role
-`alva-agent-core` holds the pure agent-internal extension machinery that used
-to live inside `alva-app-core/src/extension/`, plus `MockToolFs` which used
-to live in `alva-agent-tools`. It is the foundation on which built-in tools,
-app-level extensions, and future agent runtimes are layered.
+`alva-agent-core` holds the pure SDK-level agent assembly machinery: plugins
+register tools, phase contributions, middleware, bus capabilities, commands,
+and system prompt fragments through a `Registrar`; `AgentBuilder` runs the
+plugin lifecycle and produces an `Agent` backed by
+`alva-kernel-core::run_agent`. It also contains
+`MockToolFs`, a lightweight in-memory `ToolFs` test fixture.
 
 ## Public Surface
 Re-exported from `src/lib.rs`:
-- `Extension` — the async extension trait (event hooks, command registration).
-- `ExtensionHost` — registers extensions and dispatches `ExtensionEvent`s.
-- `HostAPI` — capability handle passed to extensions (tool registration, bus, workspace).
-- `ExtensionContext`, `FinalizeContext` — per-event execution contexts.
-- `ExtensionEvent`, `EventResult` — the event payload and handler outcome.
-- `ExtensionBridgeMiddleware` — kernel middleware that bridges host events into the kernel middleware stack.
-- `RegisteredCommand` — extension-registered tool/command descriptor.
+- `Agent` — SDK-level runnable agent facade.
+- `AgentAssemblySnapshot` / `PluginAssemblySnapshot` — build-time plugin,
+  phase, middleware, tool, command, and prompt contribution snapshots used by
+  harnesses and CLIs for observability.
+- `AgentBuilder` — SDK-level builder that assembles model, session, plugins,
+  tools, middleware, bus, and context config.
+- `extension::Plugin` — self-contained capability bundle with
+  `register()` and optional late `finalize()`.
+- `extension::Registrar` — setup handle passed to plugins for registering
+  tools, phase contributions, middleware, bus capabilities, system-prompt
+  fragments, and commands.
+- `alva_kernel_abi::{Phase, PhaseEffect}` — kernel-owned stable runtime
+  timeline vocabulary and effect categories.
+- `extension::{PhaseContribution, PhaseOrder}` — agent-core assembly
+  descriptors targeting the kernel phase vocabulary. `Registrar::phase(...)`
+  records metadata-only contributions.
+- `extension::PhaseHandler` — executable phase contribution registered through
+  `Registrar::phase_handler(...)`. Agent-core compiles it into the current
+  middleware stack while kernel-native phase execution is pending.
+- `extension::LateContext` — read context for late tool discovery and
+  cross-plugin wiring after all `register()` calls finish.
+- `PluginHost` — runtime container for plugin-registered middleware,
+  command metadata, prompt fragments, and cancellation binding.
+- `RegisteredCommand` — plugin-registered slash-command descriptor.
 - `MockToolFs` — in-memory `ToolFs` implementation for tests.
 
 ## Dependency Policy
@@ -23,14 +42,26 @@ Re-exported from `src/lib.rs`:
 - NO protocol crates, NO LLM providers, NO `tokio` process/fs, NO persistence.
 - Compiles cleanly for `wasm32-unknown-unknown` (part of the CI wasm invariant).
 
+## Bus Assembly Rule
+- `AgentBuilder::with_bus_writer(...)` is the normal external-bus path when
+  plugins are registered. Plugins receive a `Registrar` and may publish typed
+  capabilities through `Registrar::provide(...)`, which requires the writer for
+  that same bus.
+- `AgentBuilder::with_bus(...)` is handle-only and therefore read-only. It is
+  only valid for plugin-less assembly; `build()` rejects handle-only bus usage
+  when plugins are present so capability registration cannot disappear into a
+  throwaway bus.
+
 ## Module Map
 | Name | Path | Role |
 |------|------|------|
-| `extension/mod.rs` | `src/extension/mod.rs` | `Extension` trait + public re-exports |
-| `extension/host.rs` | `src/extension/host.rs` | `ExtensionHost` + `HostAPI` implementation |
-| `extension/bridge.rs` | `src/extension/bridge.rs` | `ExtensionBridgeMiddleware` wiring host events into kernel middleware |
-| `extension/context.rs` | `src/extension/context.rs` | `ExtensionContext` + `FinalizeContext` |
-| `extension/events.rs` | `src/extension/events.rs` | `ExtensionEvent` + `EventResult` |
+| `agent.rs` | `src/agent.rs` | Runnable `Agent` facade over kernel state/config plus assembly snapshot |
+| `agent_builder.rs` | `src/agent_builder.rs` | Plugin lifecycle, SDK-level assembly, and build metadata capture |
+| `extension/mod.rs` | `src/extension/mod.rs` | Plugin system public re-exports |
+| `extension/plugin.rs` | `src/extension/plugin.rs` | `Plugin` trait (`register` + `finalize`) |
+| `extension/phase.rs` | `src/extension/phase.rs` | Stable phase contribution descriptors |
+| `extension/registrar.rs` | `src/extension/registrar.rs` | `Registrar` and `LateContext` |
+| `extension/host.rs` | `src/extension/host.rs` | `PluginHost`: runtime container for middleware, commands, prompt fragments, cancellation |
 | `mock_fs.rs` | `src/mock_fs.rs` | `MockToolFs` in-memory test fixture |
 
 ## Where Things Do NOT Live

@@ -120,8 +120,14 @@ mod tests {
         let input_b = json!({"command": "rm -rf /"});
         cache.set("Bash", &input_a, CachedDecision::AllowAlways);
         cache.set("Bash", &input_b, CachedDecision::DenyAlways);
-        assert_eq!(cache.get("Bash", &input_a), Some(CachedDecision::AllowAlways));
-        assert_eq!(cache.get("Bash", &input_b), Some(CachedDecision::DenyAlways));
+        assert_eq!(
+            cache.get("Bash", &input_a),
+            Some(CachedDecision::AllowAlways)
+        );
+        assert_eq!(
+            cache.get("Bash", &input_b),
+            Some(CachedDecision::DenyAlways)
+        );
     }
 
     #[test]
@@ -136,8 +142,16 @@ mod tests {
     #[test]
     fn clear_removes_all() {
         let cache = PermissionCache::new();
-        cache.set("Bash", &json!({"command": "ls"}), CachedDecision::AllowAlways);
-        cache.set("Read", &json!({"path": "f.txt"}), CachedDecision::DenyAlways);
+        cache.set(
+            "Bash",
+            &json!({"command": "ls"}),
+            CachedDecision::AllowAlways,
+        );
+        cache.set(
+            "Read",
+            &json!({"path": "f.txt"}),
+            CachedDecision::DenyAlways,
+        );
         assert_eq!(cache.len(), 2);
 
         cache.clear();

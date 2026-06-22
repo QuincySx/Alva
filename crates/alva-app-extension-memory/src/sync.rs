@@ -130,9 +130,10 @@ pub async fn sync_workspace_with_config(
 
         // Compute embeddings in batch
         let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
-        let embeddings = embedder.embed(&texts).await.unwrap_or_else(|_| {
-            texts.iter().map(|_| Vec::new()).collect()
-        });
+        let embeddings = embedder
+            .embed(&texts)
+            .await
+            .unwrap_or_else(|_| texts.iter().map(|_| Vec::new()).collect());
 
         for (chunk, embedding) in chunks.iter().zip(embeddings.iter()) {
             let chunk_hash = compute_hash(&chunk.text);
@@ -243,18 +244,14 @@ mod tests {
         let store = MemorySqlite::open_in_memory().await.unwrap();
         let embedder = alva_agent_memory::embedding::NoopEmbeddingProvider::new();
 
-        let report = sync_workspace(tmp.path(), &store, &embedder)
-            .await
-            .unwrap();
+        let report = sync_workspace(tmp.path(), &store, &embedder).await.unwrap();
 
         assert_eq!(report.files_scanned, 1);
         assert_eq!(report.files_added, 1);
         assert_eq!(report.chunks_created, 1);
 
         // Second sync — should be unchanged
-        let report2 = sync_workspace(tmp.path(), &store, &embedder)
-            .await
-            .unwrap();
+        let report2 = sync_workspace(tmp.path(), &store, &embedder).await.unwrap();
         assert_eq!(report2.files_unchanged, 1);
         assert_eq!(report2.files_added, 0);
         assert_eq!(report2.chunks_created, 0);

@@ -3,8 +3,8 @@
 // POS:    Concrete SpawnScope implementation — pure lifecycle management (tree, depth, resources).
 //         Communication (Blackboard, channels) is NOT managed here — it lives in plugins/middleware.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use alva_kernel_abi::model::LanguageModel;
@@ -206,8 +206,8 @@ mod tests {
     use super::*;
     use alva_kernel_abi::base::error::AgentError;
     use alva_kernel_abi::base::message::Message;
-    use alva_kernel_abi::model::{CompletionResponse, ModelConfig};
     use alva_kernel_abi::base::stream::StreamEvent;
+    use alva_kernel_abi::model::{CompletionResponse, ModelConfig};
     use async_trait::async_trait;
     use futures::stream;
     use futures::Stream;
@@ -276,14 +276,8 @@ mod tests {
     #[tokio::test]
     async fn depth_limit_enforced() {
         let root = test_root(2);
-        let c1 = root
-            .spawn_child(ChildScopeConfig::new("a"))
-            .await
-            .unwrap();
-        let c2 = c1
-            .spawn_child(ChildScopeConfig::new("b"))
-            .await
-            .unwrap();
+        let c1 = root.spawn_child(ChildScopeConfig::new("a")).await.unwrap();
+        let c2 = c1.spawn_child(ChildScopeConfig::new("b")).await.unwrap();
         let result = c2.spawn_child(ChildScopeConfig::new("c")).await;
         assert!(matches!(result, Err(ScopeError::DepthExceeded { .. })));
     }
@@ -311,14 +305,8 @@ mod tests {
     #[tokio::test]
     async fn children_count_tracked() {
         let root = test_root(3);
-        let _c1 = root
-            .spawn_child(ChildScopeConfig::new("a"))
-            .await
-            .unwrap();
-        let _c2 = root
-            .spawn_child(ChildScopeConfig::new("b"))
-            .await
-            .unwrap();
+        let _c1 = root.spawn_child(ChildScopeConfig::new("a")).await.unwrap();
+        let _c2 = root.spawn_child(ChildScopeConfig::new("b")).await.unwrap();
         assert_eq!(root.snapshot().children_count, 2);
     }
 
@@ -370,18 +358,9 @@ mod tests {
     #[tokio::test]
     async fn grandchild_depth() {
         let root = test_root(5);
-        let c1 = root
-            .spawn_child(ChildScopeConfig::new("a"))
-            .await
-            .unwrap();
-        let c2 = c1
-            .spawn_child(ChildScopeConfig::new("b"))
-            .await
-            .unwrap();
-        let c3 = c2
-            .spawn_child(ChildScopeConfig::new("c"))
-            .await
-            .unwrap();
+        let c1 = root.spawn_child(ChildScopeConfig::new("a")).await.unwrap();
+        let c2 = c1.spawn_child(ChildScopeConfig::new("b")).await.unwrap();
+        let c3 = c2.spawn_child(ChildScopeConfig::new("c")).await.unwrap();
         assert_eq!(c3.depth(), 3);
         assert_eq!(c3.parent_id(), Some(c2.id()));
     }

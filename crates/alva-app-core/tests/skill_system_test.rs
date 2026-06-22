@@ -4,17 +4,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_app_core::extension::skills::skill_fs::FsSkillRepository;
-use alva_app_core::extension::skills::{
-    injector::SkillInjector,
-    loader::SkillLoader,
-    store::SkillStore,
-};
 use alva_app_core::extension::skills::skill_domain::{
     skill::{Skill, SkillKind, SkillMeta},
     skill_config::{InjectionPolicy, SkillRef},
 };
+use alva_app_core::extension::skills::skill_fs::FsSkillRepository;
 use alva_app_core::extension::skills::skill_ports::skill_repository::SkillRepository;
+use alva_app_core::extension::skills::{
+    injector::SkillInjector, loader::SkillLoader, store::SkillStore,
+};
 
 /// Test: parse SKILL.md frontmatter
 #[test]
@@ -42,17 +40,11 @@ Use this skill when you need to read or write Word documents.
 
     let meta = FsSkillRepository::parse_frontmatter(content).unwrap();
     assert_eq!(meta.name, "docx");
-    assert_eq!(
-        meta.description,
-        "Parse and generate .docx Word documents"
-    );
+    assert_eq!(meta.description, "Parse and generate .docx Word documents");
     assert_eq!(meta.license, Some("MIT".to_string()));
     assert_eq!(
         meta.allowed_tools,
-        Some(vec![
-            "execute_shell".to_string(),
-            "read_file".to_string()
-        ])
+        Some(vec!["execute_shell".to_string(), "read_file".to_string()])
     );
     let metadata = meta.metadata.unwrap();
     assert_eq!(
@@ -216,11 +208,7 @@ Does custom things.
 
     // Create state file: enable both skills
     std::fs::create_dir_all(tmp.path()).unwrap();
-    std::fs::write(
-        &state_file,
-        r#"{"enabled": ["docx", "my-custom"]}"#,
-    )
-    .unwrap();
+    std::fs::write(&state_file, r#"{"enabled": ["docx", "my-custom"]}"#).unwrap();
 
     // Create empty MBB dir
     std::fs::create_dir_all(&mbb_dir).unwrap();
@@ -444,7 +432,11 @@ You are a browser automation assistant. When the user needs to interact with web
     // Create references directory with a resource
     let refs_dir = skill_dir.join("references");
     std::fs::create_dir_all(&refs_dir).unwrap();
-    std::fs::write(refs_dir.join("selectors.md"), "# Common Selectors\n\n- Login button: `#login-btn`\n").unwrap();
+    std::fs::write(
+        refs_dir.join("selectors.md"),
+        "# Common Selectors\n\n- Login button: `#login-btn`\n",
+    )
+    .unwrap();
 
     let state_file = tmp.path().join("state.json");
     std::fs::write(&state_file, r#"{"enabled": ["browser-helper"]}"#).unwrap();

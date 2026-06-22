@@ -136,8 +136,14 @@ mod tests {
     #[test]
     fn all_variants_implement_debug() {
         let variants = vec![
-            AcpError::AgentNotFound { kind: "k".into(), hint: "h".into() },
-            AcpError::SpawnFailed { agent: "a".into(), reason: "r".into() },
+            AcpError::AgentNotFound {
+                kind: "k".into(),
+                hint: "h".into(),
+            },
+            AcpError::SpawnFailed {
+                agent: "a".into(),
+                reason: "r".into(),
+            },
             AcpError::ProcessDead { pid: 1 },
             AcpError::ProcessNotFound("p".into()),
             AcpError::PermissionRequestNotFound("p".into()),

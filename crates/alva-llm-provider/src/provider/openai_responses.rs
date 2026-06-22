@@ -38,7 +38,9 @@ impl OpenAIResponsesProvider {
     /// are converted to unified headers via `Bearer` scheme.
     pub fn new(config: ProviderConfig) -> Self {
         let auth_headers = crate::auth::resolve_auth_headers(
-            &config.api_key, &config.custom_headers, crate::auth::AuthScheme::Bearer,
+            &config.api_key,
+            &config.custom_headers,
+            crate::auth::AuthScheme::Bearer,
         );
         Self {
             model: config.model,
@@ -136,7 +138,10 @@ impl LanguageModel for OpenAIResponsesProvider {
             "LLM request body"
         );
 
-        let req = self.client.post(&url).header("Content-Type", "application/json");
+        let req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json");
         let req = crate::auth::apply_headers(req, &self.auth_headers);
         let resp = req
             .json(&body)
@@ -164,8 +169,9 @@ impl LanguageModel for OpenAIResponsesProvider {
             )));
         }
 
-        let raw_value: Value = serde_json::from_str(&resp_text)
-            .map_err(|e| AgentError::LlmError(format!("parse response: {} — raw: {}", e, resp_text)))?;
+        let raw_value: Value = serde_json::from_str(&resp_text).map_err(|e| {
+            AgentError::LlmError(format!("parse response: {} — raw: {}", e, resp_text))
+        })?;
         let decoded = adapter
             .decode_response(&raw_value)
             .map_err(|e| AgentError::LlmError(format!("decode: {e}")))?;

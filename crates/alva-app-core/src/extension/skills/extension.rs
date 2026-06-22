@@ -6,14 +6,14 @@ use std::sync::Arc;
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 
-use crate::extension::{Plugin, Registrar};
-use crate::extension::skills::store::SkillStore;
-use crate::extension::skills::loader::SkillLoader;
 use crate::extension::skills::injector::SkillInjector;
-use crate::extension::skills::tools::{SearchSkillsTool, UseSkillTool};
+use crate::extension::skills::loader::SkillLoader;
 use crate::extension::skills::middleware::SkillInjectionMiddleware;
 use crate::extension::skills::skill_fs::FsSkillRepository;
 use crate::extension::skills::skill_ports::skill_repository::SkillRepository;
+use crate::extension::skills::store::SkillStore;
+use crate::extension::skills::tools::{SearchSkillsTool, UseSkillTool};
+use crate::extension::{Plugin, Registrar};
 
 /// Skill system: discovery, loading, and context injection.
 /// Provides SearchSkillsTool + UseSkillTool and SkillInjectionMiddleware.
@@ -31,7 +31,9 @@ impl SkillsPlugin {
     /// Use [`Self::with_bundled`] when the App-bundled skills tree lives
     /// elsewhere (e.g. extracted from the binary into a cache dir).
     pub fn new(skill_dirs: Vec<PathBuf>) -> Self {
-        let primary = skill_dirs.first().cloned()
+        let primary = skill_dirs
+            .first()
+            .cloned()
             .unwrap_or_else(|| PathBuf::from(".alva/skills"));
         Self::with_bundled(primary, None)
     }
@@ -53,22 +55,37 @@ impl SkillsPlugin {
         ));
         let store = Arc::new(SkillStore::new(repo.clone() as Arc<dyn SkillRepository>));
         let loader = Arc::new(SkillLoader::new(repo.clone() as Arc<dyn SkillRepository>));
-        let injector = Arc::new(SkillInjector::new(SkillLoader::new(repo as Arc<dyn SkillRepository>)));
+        let injector = Arc::new(SkillInjector::new(SkillLoader::new(
+            repo as Arc<dyn SkillRepository>,
+        )));
 
-        Self { store, loader, injector }
+        Self {
+            store,
+            loader,
+            injector,
+        }
     }
 }
 
 #[async_trait]
 impl Plugin for SkillsPlugin {
-    fn name(&self) -> &str { "skills" }
-    fn description(&self) -> &str { "Skill discovery, loading, and context injection" }
+    fn name(&self) -> &str {
+        "skills"
+    }
+    fn description(&self) -> &str {
+        "Skill discovery, loading, and context injection"
+    }
 
     async fn register(&self, r: &Registrar) {
         // Tools (was `tools()`).
         let tools: Vec<Box<dyn Tool>> = vec![
-            Box::new(SearchSkillsTool { store: self.store.clone() }),
-            Box::new(UseSkillTool { store: self.store.clone(), loader: self.loader.clone() }),
+            Box::new(SearchSkillsTool {
+                store: self.store.clone(),
+            }),
+            Box::new(UseSkillTool {
+                store: self.store.clone(),
+                loader: self.loader.clone(),
+            }),
         ];
         r.tools(tools);
 

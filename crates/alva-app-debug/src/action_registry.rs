@@ -2,8 +2,8 @@
 // OUTPUT: pub type ActionFn, pub type StateFn, pub struct RegisteredView, pub struct ActionRegistry
 // POS:    Thread-safe registry that maps view IDs to type-erased action dispatch and state-reading closures.
 use parking_lot::RwLock;
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// Type-erased action closure: receives method name + args JSON, returns result or error.
 pub type ActionFn = Box<dyn Fn(&str, Value) -> Result<Value, String> + Send + Sync>;

@@ -160,27 +160,21 @@ mod tests {
     #[test]
     fn update_from_headers_sets_overage_on_zero_remaining() {
         let state = RateLimitState::new();
-        state.update_from_headers(&[
-            ("x-ratelimit-remaining".to_string(), "0".to_string()),
-        ]);
+        state.update_from_headers(&[("x-ratelimit-remaining".to_string(), "0".to_string())]);
         assert!(state.is_overage.load(Ordering::Relaxed));
     }
 
     #[test]
     fn update_from_headers_sets_overage_on_retry_after() {
         let state = RateLimitState::new();
-        state.update_from_headers(&[
-            ("retry-after".to_string(), "60".to_string()),
-        ]);
+        state.update_from_headers(&[("retry-after".to_string(), "60".to_string())]);
         assert!(state.is_overage.load(Ordering::Relaxed));
     }
 
     #[test]
     fn update_from_headers_ignores_nonzero_remaining() {
         let state = RateLimitState::new();
-        state.update_from_headers(&[
-            ("x-ratelimit-remaining".to_string(), "42".to_string()),
-        ]);
+        state.update_from_headers(&[("x-ratelimit-remaining".to_string(), "42".to_string())]);
         assert!(!state.is_overage.load(Ordering::Relaxed));
     }
 
@@ -194,7 +188,11 @@ mod tests {
 
     #[test]
     fn rate_limit_type_serde_roundtrip() {
-        let types = [RateLimitType::FiveHour, RateLimitType::SevenDay, RateLimitType::Overage];
+        let types = [
+            RateLimitType::FiveHour,
+            RateLimitType::SevenDay,
+            RateLimitType::Overage,
+        ];
         for t in &types {
             let json = serde_json::to_string(t).unwrap();
             let parsed: RateLimitType = serde_json::from_str(&json).unwrap();

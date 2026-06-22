@@ -58,10 +58,7 @@ impl Provider for ConfigProviderAdapter {
         self.id
     }
 
-    fn language_model(
-        &self,
-        model_id: &str,
-    ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
+    fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError> {
         let cfg = self.config_for(model_id);
         let lm: Arc<dyn LanguageModel> = match self.id {
             "anthropic" => Arc::new(AnthropicProvider::new(cfg)),
@@ -97,7 +94,9 @@ pub struct AliasRouter {
 impl AliasRouter {
     /// Create an empty router.
     pub fn new() -> Self {
-        Self { routes: std::collections::HashMap::new() }
+        Self {
+            routes: std::collections::HashMap::new(),
+        }
     }
 
     /// Register or replace the upstream config for `alias`.
@@ -153,12 +152,18 @@ mod tests {
 
     #[test]
     fn adapter_id_maps_known_kinds() {
-        assert_eq!(ConfigProviderAdapter::new(cfg(Some("anthropic"))).id(), "anthropic");
+        assert_eq!(
+            ConfigProviderAdapter::new(cfg(Some("anthropic"))).id(),
+            "anthropic"
+        );
         assert_eq!(
             ConfigProviderAdapter::new(cfg(Some("openai-responses"))).id(),
             "openai-responses"
         );
-        assert_eq!(ConfigProviderAdapter::new(cfg(Some("gemini"))).id(), "gemini");
+        assert_eq!(
+            ConfigProviderAdapter::new(cfg(Some("gemini"))).id(),
+            "gemini"
+        );
         assert_eq!(ConfigProviderAdapter::new(cfg(None)).id(), "openai-chat");
         assert_eq!(
             ConfigProviderAdapter::new(cfg(Some("unknown-kind"))).id(),
@@ -205,14 +210,17 @@ mod tests {
     #[test]
     fn alias_router_resolves_and_reports_protocol() {
         let mut r = AliasRouter::new();
-        r.insert("gpt-via-ds".into(), ProviderConfig {
-            api_key: "k".into(),
-            model: "deepseek-chat".into(),
-            base_url: "https://api.deepseek.com/v1".into(),
-            max_tokens: 1024,
-            custom_headers: Default::default(),
-            kind: Some("openai-chat".into()),
-        });
+        r.insert(
+            "gpt-via-ds".into(),
+            ProviderConfig {
+                api_key: "k".into(),
+                model: "deepseek-chat".into(),
+                base_url: "https://api.deepseek.com/v1".into(),
+                max_tokens: 1024,
+                custom_headers: Default::default(),
+                kind: Some("openai-chat".into()),
+            },
+        );
         assert_eq!(r.upstream_protocol("gpt-via-ds"), Some("openai-chat"));
         assert!(r.resolve("gpt-via-ds").is_some());
         assert!(r.resolve("missing").is_none());

@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_kernel_core::middleware::Middleware;
+use alva_agent_core::extension::Plugin;
 use alva_agent_security::SandboxMode;
 use alva_kernel_abi::{Bus, BusPlugin, CancellationToken, LanguageModel, PluginRegistrar, Tool};
-use alva_agent_core::extension::Plugin;
+use alva_kernel_core::middleware::Middleware;
 
 use crate::error::EngineError;
 
@@ -34,7 +34,7 @@ pub struct BaseAgentBuilder {
 
     // Plugins
     pub(crate) plugins: Vec<Box<dyn Plugin>>,
-    // Direct tool/middleware (for special cases beyond extensions)
+    // Direct tool/middleware (for special cases beyond plugins)
     pub(crate) extra_tools: Vec<Box<dyn Tool>>,
     pub(crate) extra_middleware: Vec<Arc<dyn Middleware>>,
     pub(crate) max_iterations: u32,
@@ -168,7 +168,7 @@ impl BaseAgentBuilder {
         let bus_handle = bus.handle();
 
         // 3. Pre-build wiring on the bus (BEFORE delegating to AgentBuilder
-        //    so that any extension `configure()` running inside the builder
+        //    so that any plugin `register()` running inside the builder
         //    can already see these capabilities).
 
         // 3a. Default token counter.
@@ -217,7 +217,7 @@ impl BaseAgentBuilder {
         }
 
         // 5. Compose the inner alva_agent_core::AgentBuilder. The generic
-        //    extension lifecycle (tools/activate/configure/finalize),
+        //    plugin lifecycle (register/finalize),
         //    middleware stack assembly, and AgentState/AgentConfig wiring
         //    all live inside its `build()`.
         let mut agent_builder = alva_agent_core::AgentBuilder::new()
@@ -240,7 +240,7 @@ impl BaseAgentBuilder {
         }
 
         // 5c. Caller-supplied extra middleware (security middleware now
-        //     comes from the SecurityPlugin in the extension stack).
+        //     comes from the SecurityPlugin in the plugin stack).
         for mw in self.extra_middleware {
             agent_builder = agent_builder.middleware(mw);
         }
@@ -251,8 +251,8 @@ impl BaseAgentBuilder {
             .await
             .map_err(|e| EngineError::ToolExecution(format!("agent build failed: {e}")))?;
 
-        // 7. Post-build harness wiring. The extension host now exists and
-        //    extensions have already been activated/configured. We bind the
+        // 7. Post-build harness wiring. The plugin host now exists and
+        //    plugins have already been registered/finalized. We bind the
         //    cancellation token to the host so the running loop can be
         //    cancelled. Steering/follow-up injection is no longer
         //    a kernel concern — users who need it opt in with the
@@ -296,7 +296,7 @@ impl Default for BaseAgentBuilder {
 // Middleware presets — common middleware combinations
 // ---------------------------------------------------------------------------
 
-// middleware_presets removed — use individual middleware extensions instead.
+// middleware_presets removed — use individual middleware registrations instead.
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -333,10 +333,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_without_workspace_fails() {
-        let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("unused")),
-        );
+        let model =
+            Arc::new(MockLanguageModel::new().with_response(make_assistant_message("unused")));
 
         let result = BaseAgent::builder()
             .system_prompt("test")
@@ -348,10 +346,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_with_workspace_succeeds() {
-        let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("unused")),
-        );
+        let model =
+            Arc::new(MockLanguageModel::new().with_response(make_assistant_message("unused")));
 
         let tmp = tempfile::tempdir().expect("tempdir");
         let result = BaseAgent::builder()
@@ -364,20 +360,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_with_preset_succeeds() {
-        let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("unused")),
-        );
+        let model =
+            Arc::new(MockLanguageModel::new().with_response(make_assistant_message("unused")));
 
         let tmp = tempfile::tempdir().expect("tempdir");
         let result = BaseAgent::builder()
             .workspace(tmp.path())
-            .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
-            .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
-            .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
+            .middleware(Arc::new(
+                alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
+            ))
+            .middleware(Arc::new(
+                alva_kernel_core::builtins::DanglingToolCallMiddleware::new(),
+            ))
+            .middleware(Arc::new(
+                alva_kernel_core::builtins::ToolTimeoutMiddleware::default(),
+            ))
             .build(model)
             .await;
 
-        assert!(result.is_ok(), "build with extension should succeed");
+        assert!(result.is_ok(), "build with plugin should succeed");
     }
 }

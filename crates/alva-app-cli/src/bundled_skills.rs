@@ -111,7 +111,11 @@ mod tests {
         assert_eq!(first, dest);
         assert!(first.starts_with(tmp.path()));
         let skill_md = first.join("project-tooling").join("SKILL.md");
-        assert!(skill_md.is_file(), "expected {} to exist", skill_md.display());
+        assert!(
+            skill_md.is_file(),
+            "expected {} to exist",
+            skill_md.display()
+        );
         let body = fs::read_to_string(&skill_md).unwrap();
         assert!(body.contains("name: project-tooling"));
 

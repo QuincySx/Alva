@@ -18,7 +18,12 @@ pub fn render_diff<'a>(diff: &str, theme: &Theme) -> Text<'a> {
     for raw_line in diff.lines() {
         let line = if raw_line.starts_with("+++") || raw_line.starts_with("---") {
             // File header lines
-            Line::styled(raw_line.to_owned(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            Line::styled(
+                raw_line.to_owned(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else if raw_line.starts_with('+') {
             Line::styled(raw_line.to_owned(), Style::default().fg(Color::Green))
         } else if raw_line.starts_with('-') {
@@ -56,7 +61,9 @@ pub fn render_inline_diff<'a>(old: &str, new: &str, _theme: &Theme) -> Text<'a> 
     // Divider
     lines.push(Line::styled(
         "── new ──".to_owned(),
-        Style::default().fg(Color::Green).add_modifier(Modifier::DIM),
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::DIM),
     ));
 
     // New section

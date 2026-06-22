@@ -161,14 +161,20 @@ impl SessionEvent {
     /// Construct a user-message event.
     pub fn user_message(content: serde_json::Value) -> Self {
         let mut e = Self::new("user");
-        e.message = Some(SessionMessage { role: "user".into(), content });
+        e.message = Some(SessionMessage {
+            role: "user".into(),
+            content,
+        });
         e
     }
 
     /// Construct an assistant-message event.
     pub fn assistant_message(content: serde_json::Value) -> Self {
         let mut e = Self::new("assistant");
-        e.message = Some(SessionMessage { role: "assistant".into(), content });
+        e.message = Some(SessionMessage {
+            role: "assistant".into(),
+            content,
+        });
         e
     }
 
@@ -176,7 +182,10 @@ impl SessionEvent {
     pub fn tool_result(parent_tool_use_uuid: &str, content: serde_json::Value) -> Self {
         let mut e = Self::new("tool_result");
         e.parent_uuid = Some(parent_tool_use_uuid.to_string());
-        e.message = Some(SessionMessage { role: "tool".into(), content });
+        e.message = Some(SessionMessage {
+            role: "tool".into(),
+            content,
+        });
         e
     }
 
@@ -625,9 +634,7 @@ impl InMemoryAgentSession {
 
         // Extract the inner Message for the three variants that have one.
         let m = match msg {
-            AgentMessage::Standard(m)
-            | AgentMessage::Steering(m)
-            | AgentMessage::FollowUp(m) => m,
+            AgentMessage::Standard(m) | AgentMessage::Steering(m) | AgentMessage::FollowUp(m) => m,
             AgentMessage::Marker(_) => {
                 // Markers carry no message content.
                 return (event_type.to_string(), None);
@@ -641,8 +648,7 @@ impl InMemoryAgentSession {
             MessageRole::System => "system",
             MessageRole::Tool => "tool",
         };
-        let content = serde_json::to_value(&m.content)
-            .unwrap_or_else(|_| serde_json::json!([]));
+        let content = serde_json::to_value(&m.content).unwrap_or_else(|_| serde_json::json!([]));
         let session_msg = SessionMessage {
             role: role_str.to_string(),
             content,
@@ -678,9 +684,7 @@ impl AgentSession for InMemoryAgentSession {
         let mut event = SessionEvent::new(event_type);
         event.parent_uuid = parent_uuid;
         event.message = session_msg;
-        event.data = Some(
-            serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null),
-        );
+        event.data = Some(serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null));
         event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
 
         // Push to events log and directly to the message cache.
@@ -894,9 +898,7 @@ impl AgentSession for ListenableInMemorySession {
         let mut event = SessionEvent::new(event_type);
         event.message = session_msg;
         event.parent_uuid = parent_uuid;
-        event.data = Some(
-            serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null),
-        );
+        event.data = Some(serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null));
         // Assign seq via inner's counter (same-module private field access).
         event.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
 
@@ -984,9 +986,8 @@ impl AgentSession for ListenableInMemorySession {
         drop(events_guard);
 
         let history_stream = stream::iter(history);
-        let live_stream = stream::unfold(rx, |mut rx| async move {
-            rx.recv().await.map(|e| (e, rx))
-        });
+        let live_stream =
+            stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|e| (e, rx)) });
 
         Box::pin(history_stream.chain(live_stream))
     }
@@ -1157,7 +1158,13 @@ mod tests {
         let mut seqs: Vec<u64> = events.iter().map(|e| e.seq).collect();
         seqs.sort_unstable();
         for (i, seq) in seqs.iter().enumerate() {
-            assert_eq!(*seq, (i + 1) as u64, "seq at index {} should be {}", i, i + 1);
+            assert_eq!(
+                *seq,
+                (i + 1) as u64,
+                "seq at index {} should be {}",
+                i,
+                i + 1
+            );
         }
     }
 
@@ -1184,7 +1191,8 @@ mod tests {
     async fn recent_messages_returns_last_n_from_cache() {
         let s = InMemoryAgentSession::new();
         for i in 0..10 {
-            s.append_message(user_msg(&format!("msg {}", i)), None).await;
+            s.append_message(user_msg(&format!("msg {}", i)), None)
+                .await;
         }
 
         let recent = s.recent_messages(3).await;
@@ -1201,9 +1209,9 @@ mod tests {
     #[tokio::test]
     async fn messages_since_returns_only_newer_messages() {
         let s = InMemoryAgentSession::new();
-        s.append_message(user_msg("one"), None).await;    // seq 1
-        s.append_message(user_msg("two"), None).await;    // seq 2
-        s.append_message(user_msg("three"), None).await;  // seq 3
+        s.append_message(user_msg("one"), None).await; // seq 1
+        s.append_message(user_msg("two"), None).await; // seq 2
+        s.append_message(user_msg("three"), None).await; // seq 3
 
         assert_eq!(s.messages_since(0).await.len(), 3);
         assert_eq!(s.messages_since(1).await.len(), 2);
@@ -1215,9 +1223,10 @@ mod tests {
     #[tokio::test]
     async fn messages_since_skips_non_message_events() {
         let s = InMemoryAgentSession::new();
-        s.append_message(user_msg("m1"), None).await;                          // seq 1 (message)
-        s.append(SessionEvent::progress(serde_json::json!({"p": 1}))).await;   // seq 2 (no data-backed message)
-        s.append_message(user_msg("m2"), None).await;                          // seq 3 (message)
+        s.append_message(user_msg("m1"), None).await; // seq 1 (message)
+        s.append(SessionEvent::progress(serde_json::json!({"p": 1})))
+            .await; // seq 2 (no data-backed message)
+        s.append_message(user_msg("m2"), None).await; // seq 3 (message)
 
         // Default impl deserializes from event.data — only the two messages
         // round-trip; the raw progress event has `data` but it's not an
@@ -1236,22 +1245,29 @@ mod tests {
     #[tokio::test]
     async fn query_by_event_type() {
         let s = InMemoryAgentSession::new();
-        s.append(SessionEvent::user_message(serde_json::json!("hi"))).await;
-        s.append(SessionEvent::progress(serde_json::json!({"ok": true}))).await;
-        s.append(SessionEvent::progress(serde_json::json!({"ok": false}))).await;
+        s.append(SessionEvent::user_message(serde_json::json!("hi")))
+            .await;
+        s.append(SessionEvent::progress(serde_json::json!({"ok": true})))
+            .await;
+        s.append(SessionEvent::progress(serde_json::json!({"ok": false})))
+            .await;
 
-        let progress = s.query(&EventQuery {
-            event_type: Some("progress".into()),
-            limit: 100,
-            ..Default::default()
-        }).await;
+        let progress = s
+            .query(&EventQuery {
+                event_type: Some("progress".into()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(progress.len(), 2);
 
-        let users = s.query(&EventQuery {
-            event_type: Some("user".into()),
-            limit: 100,
-            ..Default::default()
-        }).await;
+        let users = s
+            .query(&EventQuery {
+                event_type: Some("user".into()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(users.len(), 1);
     }
 
@@ -1340,7 +1356,9 @@ mod tests {
 
         // Next append must take a seq past the largest restored — no collisions.
         restored
-            .append(SessionEvent::progress(serde_json::json!({"after": "restore"})))
+            .append(SessionEvent::progress(
+                serde_json::json!({"after": "restore"}),
+            ))
             .await;
         let log = restored.events.read().await;
         let new_event = log.last().unwrap();
@@ -1360,7 +1378,10 @@ mod tests {
         assert!(s.load_snapshot().await.is_none());
 
         // After clear, seq counter restarts at 1.
-        s.append(SessionEvent::progress(serde_json::json!({"after": "clear"}))).await;
+        s.append(SessionEvent::progress(
+            serde_json::json!({"after": "clear"}),
+        ))
+        .await;
         assert_eq!(s.events.read().await[0].seq, 1);
     }
 
@@ -1407,9 +1428,14 @@ mod tests {
         }
     }
 
-    fn make_test_listener() -> (Arc<TestListener>, Arc<tokio::sync::Mutex<Vec<SessionEvent>>>) {
+    fn make_test_listener() -> (
+        Arc<TestListener>,
+        Arc<tokio::sync::Mutex<Vec<SessionEvent>>>,
+    ) {
         let received = Arc::new(tokio::sync::Mutex::new(Vec::new()));
-        let listener = Arc::new(TestListener { received: received.clone() });
+        let listener = Arc::new(TestListener {
+            received: received.clone(),
+        });
         (listener, received)
     }
 
@@ -1457,7 +1483,9 @@ mod tests {
         session.subscribe(l1).await;
         session.subscribe(l2).await;
 
-        session.append(SessionEvent::progress(serde_json::json!({"x": 1}))).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"x": 1})))
+            .await;
 
         assert_eq!(r1.lock().await.len(), 1, "first listener should fire");
         assert_eq!(r2.lock().await.len(), 1, "second listener should fire");
@@ -1470,8 +1498,10 @@ mod tests {
         // InMemoryAgentSession doesn't override subscribe_events, so it
         // gets the default impl: one-shot history snapshot, no live tail.
         let s = InMemoryAgentSession::new();
-        s.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
-        s.append(SessionEvent::progress(serde_json::json!({"n": 2}))).await;
+        s.append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await;
+        s.append(SessionEvent::progress(serde_json::json!({"n": 2})))
+            .await;
 
         let mut stream = s.subscribe_events(0).await;
         let e1 = stream.next().await.expect("seq 1");
@@ -1480,7 +1510,10 @@ mod tests {
         assert_eq!(e2.seq, 2);
 
         // Default impl has no live tail — stream ends after history.
-        assert!(stream.next().await.is_none(), "default impl must end after history");
+        assert!(
+            stream.next().await.is_none(),
+            "default impl must end after history"
+        );
     }
 
     #[tokio::test]
@@ -1488,8 +1521,12 @@ mod tests {
         use futures_util::StreamExt;
 
         let session = ListenableInMemorySession::new();
-        session.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
-        session.append(SessionEvent::progress(serde_json::json!({"n": 2}))).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+            .await;
 
         // Subscribe from seq 0: replay seq 1 and 2, then wait on live.
         let mut stream = session.subscribe_events(0).await;
@@ -1500,7 +1537,9 @@ mod tests {
         assert_eq!(e2.seq, 2);
 
         // Append a live event after subscription; stream should yield it.
-        session.append(SessionEvent::progress(serde_json::json!({"n": 3}))).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+            .await;
         let e3 = stream.next().await.expect("seq 3 should arrive live");
         assert_eq!(e3.seq, 3);
     }
@@ -1510,9 +1549,15 @@ mod tests {
         use futures_util::StreamExt;
 
         let session = ListenableInMemorySession::new();
-        session.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
-        session.append(SessionEvent::progress(serde_json::json!({"n": 2}))).await;
-        session.append(SessionEvent::progress(serde_json::json!({"n": 3}))).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+            .await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+            .await;
 
         // Subscribe after seq 1: history yields seq 2 and 3 only.
         let mut stream = session.subscribe_events(1).await;
@@ -1531,7 +1576,9 @@ mod tests {
         }
         // Subsequent appends must succeed (no panic / no hang) even though
         // the ChannelListener's receiver is gone.
-        session.append(SessionEvent::progress(serde_json::json!({"n": 1}))).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await;
         let events = session.inner.events.read().await;
         assert_eq!(events.len(), 1);
     }
@@ -1554,15 +1601,23 @@ mod tests {
         let child = Arc::new(ListenableInMemorySession::new());
 
         // Attach forwarder: child events -> parent session.
-        child.subscribe(Arc::new(ForwardToSession {
-            target: parent.clone() as Arc<dyn AgentSession>,
-        })).await;
+        child
+            .subscribe(Arc::new(ForwardToSession {
+                target: parent.clone() as Arc<dyn AgentSession>,
+            }))
+            .await;
 
         // Append to child — should appear in parent via the listener.
-        child.append(SessionEvent::progress(serde_json::json!({"from": "child"}))).await;
+        child
+            .append(SessionEvent::progress(serde_json::json!({"from": "child"})))
+            .await;
 
         let parent_events = parent.inner.events.read().await;
-        assert_eq!(parent_events.len(), 1, "parent should have received the child event");
+        assert_eq!(
+            parent_events.len(),
+            1,
+            "parent should have received the child event"
+        );
         assert_eq!(parent_events[0].event_type, "progress");
     }
 }

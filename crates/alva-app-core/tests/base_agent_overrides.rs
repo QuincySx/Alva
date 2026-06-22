@@ -1,11 +1,11 @@
-//! Integration tests for the extension-replacement contract on
+//! Integration tests for the plugin-replacement contract on
 //! `BaseAgentBuilder`.
 //!
 //! `BaseAgentBuilder` no longer exposes `with_memory` / `memory_service` /
 //! `security_middleware` setters. Memory and security ship as default
-//! Extensions (`MemoryPlugin`, `SecurityPlugin` from
+//! plugins (`MemoryPlugin`, `SecurityPlugin` from
 //! `alva-agent-extension-builtin`) and the only customization mechanism is
-//! to register your own extension with the same `name()` — the builder
+//! to register your own plugin with the same `name()` — the builder
 //! detects the duplicate and skips its default. These tests pin that
 //! contract.
 
@@ -27,7 +27,7 @@ use tokio::sync::Mutex;
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn default_memory_extension_is_wired() {
+async fn default_memory_plugin_is_wired() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let model: Arc<dyn alva_kernel_abi::LanguageModel> =
         Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
@@ -52,13 +52,20 @@ async fn default_memory_extension_is_wired() {
         results.iter().any(|e| e.path == "default-key"),
         "default MemoryService should be writable and queryable"
     );
+
+    let snapshot = agent.assembly_snapshot();
+    assert!(
+        snapshot.plugin_names.iter().any(|name| name == "memory"),
+        "default MemoryPlugin should be visible in assembly snapshot: {:?}",
+        snapshot.plugin_names
+    );
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: a user-registered "memory" extension replaces the default
+// Test 2: a user-registered "memory" plugin replaces the default
 // ---------------------------------------------------------------------------
 
-/// Counts how many times `configure()` is called and seeds a marker entry
+/// Counts how many times `register()` is called and seeds a marker entry
 /// in its own MemoryService, so the test can detect the override took.
 struct CustomMemoryPlugin {
     service: Arc<MemoryService>,
@@ -95,7 +102,7 @@ impl Plugin for CustomMemoryPlugin {
 }
 
 #[tokio::test]
-async fn custom_memory_extension_replaces_default() {
+async fn custom_memory_plugin_replaces_default() {
     let activations = Arc::new(AtomicUsize::new(0));
     let tmp = tempfile::tempdir().expect("tempdir");
     let model: Arc<dyn alva_kernel_abi::LanguageModel> =
@@ -111,7 +118,7 @@ async fn custom_memory_extension_replaces_default() {
     assert_eq!(
         activations.load(Ordering::SeqCst),
         1,
-        "custom MemoryPlugin's configure() should have run exactly once"
+        "custom MemoryPlugin's register() should have run exactly once"
     );
 
     let svc = agent
@@ -124,6 +131,18 @@ async fn custom_memory_extension_replaces_default() {
         "expected the custom sentinel entry — instead got: {:?}",
         results.iter().map(|e| &e.path).collect::<Vec<_>>()
     );
+
+    let snapshot = agent.assembly_snapshot();
+    assert_eq!(
+        snapshot
+            .plugin_names
+            .iter()
+            .filter(|name| name.as_str() == "memory")
+            .count(),
+        1,
+        "custom memory plugin should replace, not duplicate, the default: {:?}",
+        snapshot.plugin_names
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +150,7 @@ async fn custom_memory_extension_replaces_default() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn default_security_extension_is_wired() {
+async fn default_security_plugin_is_wired() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let model: Arc<dyn alva_kernel_abi::LanguageModel> =
         Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
@@ -148,13 +167,20 @@ async fn default_security_extension_is_wired() {
         .expect("default SecurityPlugin should publish SecurityGuard on the bus");
     // Just hold the lock briefly to make sure it's a real, usable handle.
     let _g = guard.lock().await;
+
+    let snapshot = agent.assembly_snapshot();
+    assert!(
+        snapshot.plugin_names.iter().any(|name| name == "security"),
+        "default SecurityPlugin should be visible in assembly snapshot: {:?}",
+        snapshot.plugin_names
+    );
 }
 
 // ---------------------------------------------------------------------------
-// Test 4: a user-registered "security" extension replaces the default
+// Test 4: a user-registered "security" plugin replaces the default
 // ---------------------------------------------------------------------------
 
-/// A custom "security" extension that does NOT register a SecurityGuard on
+/// A custom "security" plugin that does NOT register a SecurityGuard on
 /// the bus (it stores a marker instead). If the override mechanism works,
 /// the bus will not have a SecurityGuard published — proving the default
 /// SecurityPlugin was skipped.
@@ -165,7 +191,10 @@ struct CustomSecurityPlugin {
 
 impl CustomSecurityPlugin {
     fn new(activations: Arc<AtomicUsize>, marker: Arc<StdMutex<bool>>) -> Self {
-        Self { activations, marker }
+        Self {
+            activations,
+            marker,
+        }
     }
 }
 
@@ -182,7 +211,7 @@ impl Plugin for CustomSecurityPlugin {
 }
 
 #[tokio::test]
-async fn custom_security_extension_replaces_default() {
+async fn custom_security_plugin_replaces_default() {
     let activations = Arc::new(AtomicUsize::new(0));
     let marker = Arc::new(StdMutex::new(false));
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -202,7 +231,7 @@ async fn custom_security_extension_replaces_default() {
     assert_eq!(
         activations.load(Ordering::SeqCst),
         1,
-        "custom SecurityPlugin's configure() should have run exactly once"
+        "custom SecurityPlugin's register() should have run exactly once"
     );
     assert!(
         *marker.lock().unwrap(),
@@ -211,6 +240,18 @@ async fn custom_security_extension_replaces_default() {
     assert!(
         agent.bus().get::<Mutex<SecurityGuard>>().is_none(),
         "the default SecurityPlugin must NOT have been wired \
-         when the user registered their own 'security' extension"
+         when the user registered their own 'security' plugin"
+    );
+
+    let snapshot = agent.assembly_snapshot();
+    assert_eq!(
+        snapshot
+            .plugin_names
+            .iter()
+            .filter(|name| name.as_str() == "security")
+            .count(),
+        1,
+        "custom security plugin should replace, not duplicate, the default: {:?}",
+        snapshot.plugin_names
     );
 }

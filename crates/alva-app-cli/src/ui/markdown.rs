@@ -60,7 +60,10 @@ pub fn render_markdown<'a>(input: &str, theme: &Theme) -> Text<'a> {
         if trimmed.starts_with('|') && trimmed.ends_with('|') {
             // Check if this is a separator row (e.g. |---|---|)
             let inner = &trimmed[1..trimmed.len() - 1];
-            if inner.chars().all(|c| c == '-' || c == '|' || c == ':' || c == ' ') {
+            if inner
+                .chars()
+                .all(|c| c == '-' || c == '|' || c == ':' || c == ' ')
+            {
                 let rule = "\u{2500}".repeat(trimmed.len().min(60));
                 lines.push(Line::styled(rule, theme.text_dim));
                 continue;
@@ -106,10 +109,7 @@ pub fn render_markdown<'a>(input: &str, theme: &Theme) -> Text<'a> {
             continue;
         }
         if trimmed == ">" {
-            lines.push(Line::from(vec![Span::styled(
-                "\u{2502}",
-                theme.text_dim,
-            )]));
+            lines.push(Line::from(vec![Span::styled("\u{2502}", theme.text_dim)]));
             continue;
         }
 
@@ -165,32 +165,83 @@ fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Vec<Spa
     // Common keywords for popular languages
     let keywords: &[&str] = match lang {
         Some("rust" | "rs") => &[
-            "fn", "let", "mut", "pub", "use", "mod", "struct", "enum", "impl", "trait",
-            "where", "for", "in", "if", "else", "match", "return", "self", "Self",
-            "async", "await", "const", "static", "type", "crate", "super", "true", "false",
-            "loop", "while", "break", "continue", "move", "ref", "as", "dyn", "Box", "Arc",
-            "Vec", "Option", "Result", "Some", "None", "Ok", "Err",
+            "fn", "let", "mut", "pub", "use", "mod", "struct", "enum", "impl", "trait", "where",
+            "for", "in", "if", "else", "match", "return", "self", "Self", "async", "await",
+            "const", "static", "type", "crate", "super", "true", "false", "loop", "while", "break",
+            "continue", "move", "ref", "as", "dyn", "Box", "Arc", "Vec", "Option", "Result",
+            "Some", "None", "Ok", "Err",
         ],
         Some("python" | "py") => &[
-            "def", "class", "import", "from", "return", "if", "elif", "else", "for",
-            "while", "in", "not", "and", "or", "True", "False", "None", "self", "with",
-            "as", "try", "except", "finally", "raise", "yield", "async", "await", "lambda",
+            "def", "class", "import", "from", "return", "if", "elif", "else", "for", "while", "in",
+            "not", "and", "or", "True", "False", "None", "self", "with", "as", "try", "except",
+            "finally", "raise", "yield", "async", "await", "lambda",
         ],
         Some("typescript" | "ts" | "javascript" | "js" | "tsx" | "jsx") => &[
-            "function", "const", "let", "var", "return", "if", "else", "for", "while",
-            "class", "extends", "import", "export", "from", "default", "async", "await",
-            "new", "this", "true", "false", "null", "undefined", "typeof", "interface",
-            "type", "enum", "implements", "throw", "try", "catch", "finally", "yield",
+            "function",
+            "const",
+            "let",
+            "var",
+            "return",
+            "if",
+            "else",
+            "for",
+            "while",
+            "class",
+            "extends",
+            "import",
+            "export",
+            "from",
+            "default",
+            "async",
+            "await",
+            "new",
+            "this",
+            "true",
+            "false",
+            "null",
+            "undefined",
+            "typeof",
+            "interface",
+            "type",
+            "enum",
+            "implements",
+            "throw",
+            "try",
+            "catch",
+            "finally",
+            "yield",
         ],
         Some("go") => &[
-            "func", "package", "import", "return", "if", "else", "for", "range",
-            "var", "const", "type", "struct", "interface", "map", "chan", "go",
-            "defer", "select", "case", "switch", "break", "continue", "true", "false", "nil",
+            "func",
+            "package",
+            "import",
+            "return",
+            "if",
+            "else",
+            "for",
+            "range",
+            "var",
+            "const",
+            "type",
+            "struct",
+            "interface",
+            "map",
+            "chan",
+            "go",
+            "defer",
+            "select",
+            "case",
+            "switch",
+            "break",
+            "continue",
+            "true",
+            "false",
+            "nil",
         ],
         Some("bash" | "sh" | "shell" | "zsh") => &[
-            "if", "then", "else", "elif", "fi", "for", "do", "done", "while", "until",
-            "case", "esac", "function", "return", "exit", "echo", "export", "local",
-            "set", "unset", "source", "true", "false",
+            "if", "then", "else", "elif", "fi", "for", "do", "done", "while", "until", "case",
+            "esac", "function", "return", "exit", "echo", "export", "local", "set", "unset",
+            "source", "true", "false",
         ],
         _ => &[], // No highlighting for unknown languages
     };
@@ -208,9 +259,7 @@ fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Vec<Spa
 
     while let Some(&(i, ch)) = chars.peek() {
         // Comments: // or #
-        if (ch == '/' && line[i..].starts_with("//"))
-            || (ch == '#' && !line[..i].ends_with('$'))
-        {
+        if (ch == '/' && line[i..].starts_with("//")) || (ch == '#' && !line[..i].ends_with('$')) {
             if !buf.is_empty() {
                 flush_buf(&mut buf, keywords, &mut spans, theme);
             }
@@ -284,12 +333,7 @@ fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Vec<Spa
 }
 
 /// Flush the buffer as either a keyword span or a regular code span.
-fn flush_buf(
-    buf: &mut String,
-    keywords: &[&str],
-    spans: &mut Vec<Span<'static>>,
-    theme: &Theme,
-) {
+fn flush_buf(buf: &mut String, keywords: &[&str], spans: &mut Vec<Span<'static>>, theme: &Theme) {
     if buf.is_empty() {
         return;
     }
@@ -506,7 +550,11 @@ mod tests {
         assert_eq!(text.lines.len(), 3);
         // The code line should have multiple spans (keyword highlight)
         let code_line = &text.lines[1];
-        assert!(code_line.spans.len() > 1, "code should be highlighted, got {:?}", code_line.spans);
+        assert!(
+            code_line.spans.len() > 1,
+            "code should be highlighted, got {:?}",
+            code_line.spans
+        );
     }
 
     #[test]
@@ -515,10 +563,15 @@ mod tests {
         let text = render_markdown(input, &theme());
         let code_line = &text.lines[1];
         // Find the "let" span — should have keyword style
-        let has_keyword = code_line.spans.iter().any(|s| {
-            s.content.as_ref() == "let" && s.style.fg == theme().code_keyword.fg
-        });
-        assert!(has_keyword, "should highlight 'let' as keyword: {:?}", code_line.spans);
+        let has_keyword = code_line
+            .spans
+            .iter()
+            .any(|s| s.content.as_ref() == "let" && s.style.fg == theme().code_keyword.fg);
+        assert!(
+            has_keyword,
+            "should highlight 'let' as keyword: {:?}",
+            code_line.spans
+        );
     }
 
     #[test]
@@ -526,10 +579,15 @@ mod tests {
         let input = "```rust\nlet s = \"hello\";\n```";
         let text = render_markdown(input, &theme());
         let code_line = &text.lines[1];
-        let has_string = code_line.spans.iter().any(|s| {
-            s.content.contains("hello") && s.style.fg == theme().code_string.fg
-        });
-        assert!(has_string, "should highlight string literal: {:?}", code_line.spans);
+        let has_string = code_line
+            .spans
+            .iter()
+            .any(|s| s.content.contains("hello") && s.style.fg == theme().code_string.fg);
+        assert!(
+            has_string,
+            "should highlight string literal: {:?}",
+            code_line.spans
+        );
     }
 
     #[test]
@@ -537,10 +595,15 @@ mod tests {
         let input = "```rust\n// this is a comment\n```";
         let text = render_markdown(input, &theme());
         let code_line = &text.lines[1];
-        let has_comment = code_line.spans.iter().any(|s| {
-            s.content.contains("comment") && s.style.fg == theme().code_comment.fg
-        });
-        assert!(has_comment, "should highlight comment: {:?}", code_line.spans);
+        let has_comment = code_line
+            .spans
+            .iter()
+            .any(|s| s.content.contains("comment") && s.style.fg == theme().code_comment.fg);
+        assert!(
+            has_comment,
+            "should highlight comment: {:?}",
+            code_line.spans
+        );
     }
 
     #[test]
@@ -551,7 +614,10 @@ mod tests {
         // Separator row becomes a horizontal line
         let sep = &text.lines[1];
         let content: String = sep.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(content.contains('\u{2500}'), "separator should be horizontal line");
+        assert!(
+            content.contains('\u{2500}'),
+            "separator should be horizontal line"
+        );
     }
 
     #[test]
@@ -560,8 +626,16 @@ mod tests {
         let text = render_markdown(input, &theme());
         let row = &text.lines[0];
         let content: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(content.contains("foo"), "should contain cell 'foo': {}", content);
-        assert!(content.contains("bar"), "should contain cell 'bar': {}", content);
+        assert!(
+            content.contains("foo"),
+            "should contain cell 'foo': {}",
+            content
+        );
+        assert!(
+            content.contains("bar"),
+            "should contain cell 'bar': {}",
+            content
+        );
     }
 
     #[test]
@@ -579,10 +653,13 @@ mod tests {
         let text = render_markdown(input, &theme());
         let spans = &text.lines[0].spans;
         let italic_span = spans.iter().find(|s| {
-            s.content.as_ref() == "italic"
-                && s.style.add_modifier.contains(Modifier::ITALIC)
+            s.content.as_ref() == "italic" && s.style.add_modifier.contains(Modifier::ITALIC)
         });
-        assert!(italic_span.is_some(), "should have italic span: {:?}", spans);
+        assert!(
+            italic_span.is_some(),
+            "should have italic span: {:?}",
+            spans
+        );
     }
 
     #[test]
@@ -600,10 +677,13 @@ mod tests {
         let text = render_markdown(input, &theme());
         let spans = &text.lines[0].spans;
         let link_span = spans.iter().find(|s| {
-            s.content.as_ref() == "docs"
-                && s.style.add_modifier.contains(Modifier::UNDERLINED)
+            s.content.as_ref() == "docs" && s.style.add_modifier.contains(Modifier::UNDERLINED)
         });
-        assert!(link_span.is_some(), "should have underlined link text: {:?}", spans);
+        assert!(
+            link_span.is_some(),
+            "should have underlined link text: {:?}",
+            spans
+        );
     }
 
     #[test]
@@ -611,16 +691,32 @@ mod tests {
         let input = "- item one\n- item two";
         let text = render_markdown(input, &theme());
         assert_eq!(text.lines.len(), 2);
-        let content: String = text.lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(content.contains('\u{2022}'), "should have bullet: {}", content);
+        let content: String = text.lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            content.contains('\u{2022}'),
+            "should have bullet: {}",
+            content
+        );
     }
 
     #[test]
     fn star_bullet_list() {
         let input = "* item one";
         let text = render_markdown(input, &theme());
-        let content: String = text.lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(content.contains('\u{2022}'), "should have bullet for * list: {}", content);
+        let content: String = text.lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            content.contains('\u{2022}'),
+            "should have bullet for * list: {}",
+            content
+        );
     }
 
     #[test]
@@ -634,16 +730,32 @@ mod tests {
     fn blockquote() {
         let input = "> quoted text";
         let text = render_markdown(input, &theme());
-        let content: String = text.lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(content.contains('\u{2502}'), "should have vertical bar: {}", content);
+        let content: String = text.lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            content.contains('\u{2502}'),
+            "should have vertical bar: {}",
+            content
+        );
     }
 
     #[test]
     fn horizontal_rule() {
         let input = "---";
         let text = render_markdown(input, &theme());
-        let content: String = text.lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(content.contains('\u{2500}'), "should have horizontal rule: {}", content);
+        let content: String = text.lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            content.contains('\u{2500}'),
+            "should have horizontal rule: {}",
+            content
+        );
     }
 
     #[test]
@@ -651,10 +763,15 @@ mod tests {
         let input = "```python\ndef hello():\n    return True\n```";
         let text = render_markdown(input, &theme());
         let code_line = &text.lines[1];
-        let has_keyword = code_line.spans.iter().any(|s| {
-            s.content.as_ref() == "def" && s.style.fg == theme().code_keyword.fg
-        });
-        assert!(has_keyword, "should highlight 'def' in python: {:?}", code_line.spans);
+        let has_keyword = code_line
+            .spans
+            .iter()
+            .any(|s| s.content.as_ref() == "def" && s.style.fg == theme().code_keyword.fg);
+        assert!(
+            has_keyword,
+            "should highlight 'def' in python: {:?}",
+            code_line.spans
+        );
     }
 
     #[test]
@@ -662,9 +779,14 @@ mod tests {
         let input = "```js\nconst x = 42;\n```";
         let text = render_markdown(input, &theme());
         let code_line = &text.lines[1];
-        let has_keyword = code_line.spans.iter().any(|s| {
-            s.content.as_ref() == "const" && s.style.fg == theme().code_keyword.fg
-        });
-        assert!(has_keyword, "should highlight 'const' in js: {:?}", code_line.spans);
+        let has_keyword = code_line
+            .spans
+            .iter()
+            .any(|s| s.content.as_ref() == "const" && s.style.fg == theme().code_keyword.fg);
+        assert!(
+            has_keyword,
+            "should highlight 'const' in js: {:?}",
+            code_line.spans
+        );
     }
 }

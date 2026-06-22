@@ -4,8 +4,7 @@
 //! agent_tool — spawn and manage sub-agents
 
 use alva_kernel_abi::{
-    AgentError, Tool, ToolExecutionContext, ToolOutput,
-    TaskType, create_task_state,
+    create_task_state, AgentError, TaskType, Tool, ToolExecutionContext, ToolOutput,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -119,8 +118,12 @@ impl AgentTool {
                 "Agent '{}' completed.\n  Model: {}\n  Mode: {}\n  Isolation: {}\n  \
                  Description: {}\n  Prompt length: {} chars\n  \
                  Result: Sub-agent execution is not yet wired to the runtime.",
-                agent_name, model_info, mode_info, isolation_info,
-                params.description, params.prompt.len()
+                agent_name,
+                model_info,
+                mode_info,
+                isolation_info,
+                params.description,
+                params.prompt.len()
             )))
         }
     }
@@ -178,15 +181,27 @@ mod tests {
         // Name default = "sub-agent"
         assert!(text.contains("'sub-agent'"), "name default missing: {text}");
         // Model default = "default"
-        assert!(text.contains("Model: default"), "model default missing: {text}");
+        assert!(
+            text.contains("Model: default"),
+            "model default missing: {text}"
+        );
         // Mode default = "code" (both None and explicit Code map to "code")
         assert!(text.contains("Mode: code"), "mode default missing: {text}");
         // Isolation default = "none"
-        assert!(text.contains("Isolation: none"), "isolation default missing: {text}");
+        assert!(
+            text.contains("Isolation: none"),
+            "isolation default missing: {text}"
+        );
         // Description echoed
-        assert!(text.contains("Login flow refactor"), "description missing: {text}");
+        assert!(
+            text.contains("Login flow refactor"),
+            "description missing: {text}"
+        );
         // Prompt length echoed
-        assert!(text.contains("Prompt length: 14"), "prompt length wrong: {text}");
+        assert!(
+            text.contains("Prompt length: 14"),
+            "prompt length wrong: {text}"
+        );
     }
 
     #[tokio::test]
@@ -209,9 +224,18 @@ mod tests {
 
         let text = out.model_text();
         assert!(text.contains("'auditor'"), "custom name missing: {text}");
-        assert!(text.contains("Model: claude-opus-4-7"), "custom model missing: {text}");
-        assert!(text.contains("Mode: research"), "custom mode missing: {text}");
-        assert!(text.contains("Isolation: worktree"), "custom isolation missing: {text}");
+        assert!(
+            text.contains("Model: claude-opus-4-7"),
+            "custom model missing: {text}"
+        );
+        assert!(
+            text.contains("Mode: research"),
+            "custom mode missing: {text}"
+        );
+        assert!(
+            text.contains("Isolation: worktree"),
+            "custom isolation missing: {text}"
+        );
     }
 
     #[tokio::test]
@@ -231,11 +255,17 @@ mod tests {
             .expect("background should succeed");
 
         let text = out.model_text();
-        assert!(text.contains("background"), "background marker missing: {text}");
+        assert!(
+            text.contains("background"),
+            "background marker missing: {text}"
+        );
         assert!(text.contains("Task ID:"), "task id label missing: {text}");
         // task ids generated via create_task_state(TaskType::LocalAgent) start with 'a'
         // (see TaskType::prefix in alva-kernel-abi). Assert presence of a hint.
-        assert!(text.contains("task_get or task_output"), "followup hint missing: {text}");
+        assert!(
+            text.contains("task_get or task_output"),
+            "followup hint missing: {text}"
+        );
     }
 
     #[tokio::test]
@@ -259,10 +289,7 @@ mod tests {
     async fn foreground_stub_advertises_unwired_runtime() {
         let tool = AgentTool;
         let out = tool
-            .execute(
-                json!({ "prompt": "x", "description": "y" }),
-                &ctx(),
-            )
+            .execute(json!({ "prompt": "x", "description": "y" }), &ctx())
             .await
             .expect("execute should succeed");
         assert!(

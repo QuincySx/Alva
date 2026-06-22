@@ -108,9 +108,13 @@ fn parse_page_range(range: &str) -> Result<(usize, usize), String> {
     let range = range.trim();
     if range.contains('-') {
         let parts: Vec<&str> = range.splitn(2, '-').collect();
-        let start: usize = parts[0].trim().parse()
+        let start: usize = parts[0]
+            .trim()
+            .parse()
             .map_err(|_| format!("Invalid page start: {}", parts[0]))?;
-        let end: usize = parts[1].trim().parse()
+        let end: usize = parts[1]
+            .trim()
+            .parse()
             .map_err(|_| format!("Invalid page end: {}", parts[1]))?;
         if start == 0 || end == 0 {
             return Err("Page numbers are 1-indexed".into());
@@ -121,7 +125,8 @@ fn parse_page_range(range: &str) -> Result<(usize, usize), String> {
         let clamped_end = end.min(start + 19); // max 20 pages
         Ok((start, clamped_end))
     } else {
-        let page: usize = range.parse()
+        let page: usize = range
+            .parse()
             .map_err(|_| format!("Invalid page number: {}", range))?;
         if page == 0 {
             return Err("Page numbers are 1-indexed".into());
@@ -179,10 +184,14 @@ impl ReadFileTool {
         let path_str = file_path.to_str().unwrap_or_default();
 
         // Check file exists
-        if !fs.exists(path_str).await.map_err(|e| AgentError::ToolError {
-            tool_name: "read_file".into(),
-            message: e.to_string(),
-        })? {
+        if !fs
+            .exists(path_str)
+            .await
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "read_file".into(),
+                message: e.to_string(),
+            })?
+        {
             return Ok(ToolOutput::error(format!(
                 "File not found: {}",
                 params.path
@@ -190,17 +199,19 @@ impl ReadFileTool {
         }
 
         // Read raw bytes
-        let data = fs.read_file(path_str).await.map_err(|e| AgentError::ToolError {
-            tool_name: "read_file".into(),
-            message: format!("Failed to read file: {e}"),
-        })?;
+        let data = fs
+            .read_file(path_str)
+            .await
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "read_file".into(),
+                message: format!("Failed to read file: {e}"),
+            })?;
 
         // Record the read for staleness detection by FileEditTool
         crate::file_edit::record_file_read(path_str, crate::file_edit::content_hash(&data));
 
         // Check if it's an image (magic bytes first, then file extension fallback)
-        let image_mime = detect_image_mime(&data)
-            .or_else(|| detect_image_by_extension(&file_path));
+        let image_mime = detect_image_mime(&data).or_else(|| detect_image_by_extension(&file_path));
         if let Some(mime) = image_mime {
             return self.handle_image(&data, mime, &params.path);
         }
@@ -281,12 +292,7 @@ impl ReadFileTool {
         })
     }
 
-    fn handle_image(
-        &self,
-        data: &[u8],
-        mime: &str,
-        path: &str,
-    ) -> Result<ToolOutput, AgentError> {
+    fn handle_image(&self, data: &[u8], mime: &str, path: &str) -> Result<ToolOutput, AgentError> {
         let file_size = data.len();
 
         // Size guard: 10MB max
@@ -320,11 +326,7 @@ impl ReadFileTool {
     /// Handle PDF files by returning metadata and page info.
     /// Full PDF text extraction would require a dedicated library;
     /// for now we provide file info and suggest the pages parameter.
-    fn handle_pdf(
-        &self,
-        path: &str,
-        pages: &Option<String>,
-    ) -> Result<ToolOutput, AgentError> {
+    fn handle_pdf(&self, path: &str, pages: &Option<String>) -> Result<ToolOutput, AgentError> {
         let mut content = format!("PDF file: {}", path);
 
         if let Some(ref page_range) = pages {
@@ -405,13 +407,20 @@ mod tests {
             .await
             .expect("execution should succeed");
 
-        assert!(!output.is_error, "expected success, got: {}", output.model_text());
+        assert!(
+            !output.is_error,
+            "expected success, got: {}",
+            output.model_text()
+        );
         let text = output.model_text();
         assert!(text.contains("line1"));
         assert!(text.contains("line2"));
         assert!(text.contains("line3"));
         // Line numbers (right-padded to width 6)
-        assert!(text.contains("1\tline1"), "missing line number prefix: {text}");
+        assert!(
+            text.contains("1\tline1"),
+            "missing line number prefix: {text}"
+        );
     }
 
     #[tokio::test]

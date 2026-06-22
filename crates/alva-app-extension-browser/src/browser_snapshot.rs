@@ -63,7 +63,10 @@ impl BrowserSnapshotTool {
         let page = manager
             .active_page(&id)
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "browser_snapshot".into(), message: e })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "browser_snapshot".into(),
+                message: e,
+            })?;
 
         let result = match mode {
             SnapshotMode::Text => extract_text(&page, params.selector.as_deref()).await,
@@ -83,14 +86,16 @@ impl BrowserSnapshotTool {
                     .unwrap_or_default();
                 let title = page.get_title().await.ok().flatten().unwrap_or_default();
 
-                Ok(ToolOutput::text(json!({
-                    "url": url,
-                    "title": title,
-                    "mode": mode_str,
-                    "content": content,
-                    "length": content.len(),
-                })
-                .to_string()))
+                Ok(ToolOutput::text(
+                    json!({
+                        "url": url,
+                        "title": title,
+                        "mode": mode_str,
+                        "content": content,
+                        "length": content.len(),
+                    })
+                    .to_string(),
+                ))
             }
             Err(e) => Ok(ToolOutput::error(json!({ "error": e }).to_string())),
         }

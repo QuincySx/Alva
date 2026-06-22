@@ -52,7 +52,9 @@ impl ToolExecutionContext for TestCtx {
 }
 
 fn ctx() -> TestCtx {
-    TestCtx { cancel: CancellationToken::new() }
+    TestCtx {
+        cancel: CancellationToken::new(),
+    }
 }
 
 /// Parse read_url's success output (a JSON string) back into a Value.
@@ -91,13 +93,11 @@ async fn fetch_text_body_passes_through_verbatim() {
         Some("hello plain text"),
         "text/plain must pass through without HTML conversion"
     );
-    assert!(
-        value
-            .get("content_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .contains("text/plain"),
-    );
+    assert!(value
+        .get("content_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .contains("text/plain"),);
     assert_eq!(value.get("truncated"), Some(&Value::Bool(false)));
 }
 
@@ -166,7 +166,10 @@ async fn non_2xx_response_returns_tool_error() {
         .await
         .expect_err("404 must surface as ToolError");
     let msg = format!("{err}");
-    assert!(msg.contains("404") || msg.contains("HTTP"), "expected status mention: {msg}");
+    assert!(
+        msg.contains("404") || msg.contains("HTTP"),
+        "expected status mention: {msg}"
+    );
 }
 
 // ─── Test 4: cache hit on second fetch ────────────────────────────────

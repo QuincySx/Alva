@@ -145,12 +145,9 @@ impl PermissionManager {
 
     fn canonicalize_json(value: &Value) -> Value {
         match value {
-            Value::Array(values) => Value::Array(
-                values
-                    .iter()
-                    .map(Self::canonicalize_json)
-                    .collect(),
-            ),
+            Value::Array(values) => {
+                Value::Array(values.iter().map(Self::canonicalize_json).collect())
+            }
             Value::Object(map) => {
                 let mut keys: Vec<_> = map.keys().cloned().collect();
                 keys.sort();

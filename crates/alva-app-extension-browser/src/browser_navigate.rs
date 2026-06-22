@@ -50,24 +50,19 @@ impl BrowserNavigateTool {
                     .map(|u| u.to_string())
                     .unwrap_or_else(|| params.url.clone());
 
-                let title = page
-                    .get_title()
-                    .await
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
+                let title = page.get_title().await.ok().flatten().unwrap_or_default();
 
-                Ok(ToolOutput::text(json!({
-                    "status": "navigated",
-                    "url": final_url,
-                    "title": title,
-                    "instance_id": id,
-                })
-                .to_string()))
+                Ok(ToolOutput::text(
+                    json!({
+                        "status": "navigated",
+                        "url": final_url,
+                        "title": title,
+                        "instance_id": id,
+                    })
+                    .to_string(),
+                ))
             }
-            Err(e) => {
-                Ok(ToolOutput::error(json!({ "error": e }).to_string()))
-            }
+            Err(e) => Ok(ToolOutput::error(json!({ "error": e }).to_string())),
         }
     }
 }

@@ -3,9 +3,7 @@
 // POS:    Deletes a multi-agent team by name.
 //! team_delete — delete a team
 
-use alva_kernel_abi::{
-    AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput,
-};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -95,8 +93,7 @@ mod tests {
     fn ctx_with_store() -> (TestContext, Arc<InMemoryTeamStore>) {
         let store = Arc::new(InMemoryTeamStore::new());
         let bus = Bus::new();
-        bus.writer()
-            .provide::<dyn TeamService>(store.clone());
+        bus.writer().provide::<dyn TeamService>(store.clone());
         (
             TestContext {
                 cancel: CancellationToken::new(),

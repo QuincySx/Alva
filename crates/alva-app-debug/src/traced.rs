@@ -173,12 +173,9 @@ mod tests {
         // `move |p1, p2, p3, p4|` arm.
         let counter = Arc::new(AtomicI32::new(0));
         let counter_inner = Arc::clone(&counter);
-        let handler = crate::traced_listener!(
-            "test:listener:move4",
-            move |a, b, c, d| {
-                counter_inner.fetch_add(a + b + c + d, Ordering::SeqCst);
-            }
-        );
+        let handler = crate::traced_listener!("test:listener:move4", move |a, b, c, d| {
+            counter_inner.fetch_add(a + b + c + d, Ordering::SeqCst);
+        });
         handler(5i32, 5, 5, 5);
         assert_eq!(counter.load(Ordering::SeqCst), 20);
     }
@@ -192,12 +189,9 @@ mod tests {
         // fragment) would break this idiom but only show up at the
         // first call site that uses it — pin here to catch immediately.
         let sink = AtomicI32::new(0);
-        let handler = crate::traced_listener!(
-            "test:listener:typed",
-            |a, b: &i32, c, d| {
-                sink.fetch_add(a + *b + c + d, Ordering::SeqCst);
-            }
-        );
+        let handler = crate::traced_listener!("test:listener:typed", |a, b: &i32, c, d| {
+            sink.fetch_add(a + *b + c + d, Ordering::SeqCst);
+        });
         let event: i32 = 99;
         handler(1i32, &event, 2, 3);
         assert_eq!(sink.load(Ordering::SeqCst), 105);
@@ -210,12 +204,10 @@ mod tests {
         // macro_rules cannot make `move` optional in one pattern.
         let counter = Arc::new(AtomicI32::new(0));
         let counter_inner = Arc::clone(&counter);
-        let handler = crate::traced_listener!(
-            "test:listener:typed_move",
-            move |a, b: &i32, c, d| {
+        let handler =
+            crate::traced_listener!("test:listener:typed_move", move |a, b: &i32, c, d| {
                 counter_inner.fetch_add(a * (*b) + c + d, Ordering::SeqCst);
-            }
-        );
+            });
         let event: i32 = 5;
         handler(2i32, &event, 3, 4);
         assert_eq!(counter.load(Ordering::SeqCst), 17);
@@ -224,10 +216,9 @@ mod tests {
     #[test]
     fn traced_listener_body_return_value_propagates() {
         // Same return-value pin as traced!, on the 4-arg variant.
-        let handler = crate::traced_listener!(
-            "test:listener:retval",
-            |a, b, c, d| { a * 1000 + b * 100 + c * 10 + d }
-        );
+        let handler = crate::traced_listener!("test:listener:retval", |a, b, c, d| {
+            a * 1000 + b * 100 + c * 10 + d
+        });
         let result: i32 = handler(1i32, 2, 3, 4);
         assert_eq!(result, 1234);
     }

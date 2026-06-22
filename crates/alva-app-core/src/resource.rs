@@ -260,17 +260,10 @@ pub trait ResourceRegistry: Send + Sync {
 
     async fn retrieve(&self, resource_id: &str) -> Option<SessionResource>;
 
-    async fn update(
-        &self,
-        resource_id: &str,
-        patch: ResourcePatch,
-    ) -> Result<(), ResourceError>;
+    async fn update(&self, resource_id: &str, patch: ResourcePatch) -> Result<(), ResourceError>;
 
-    async fn list_session(
-        &self,
-        session_id: &str,
-        filter: &ResourceFilter,
-    ) -> Vec<SessionResource>;
+    async fn list_session(&self, session_id: &str, filter: &ResourceFilter)
+        -> Vec<SessionResource>;
 
     async fn delete(&self, resource_id: &str) -> Result<(), ResourceError>;
 }
@@ -287,7 +280,9 @@ pub async fn render_resource_instructions(
     registry: &dyn ResourceRegistry,
     session_id: &str,
 ) -> String {
-    let resources = registry.list_session(session_id, &ResourceFilter::default()).await;
+    let resources = registry
+        .list_session(session_id, &ResourceFilter::default())
+        .await;
     let with_text: Vec<&SessionResource> = resources
         .iter()
         .filter(|r| r.instructions.is_some() || r.description.is_some())
@@ -302,12 +297,7 @@ pub async fn render_resource_instructions(
             ResourceAccess::ReadWrite => "read-write",
             ResourceAccess::ReadOnly => "read-only",
         };
-        out.push_str(&format!(
-            "### {} ({}, {})\n",
-            r.kind.tag(),
-            mount,
-            access,
-        ));
+        out.push_str(&format!("### {} ({}, {})\n", r.kind.tag(), mount, access,));
         if let Some(desc) = &r.description {
             out.push_str(desc);
             out.push('\n');
@@ -384,11 +374,7 @@ impl ResourceRegistry for InMemoryResourceRegistry {
         self.by_id.read().await.get(resource_id).cloned()
     }
 
-    async fn update(
-        &self,
-        resource_id: &str,
-        patch: ResourcePatch,
-    ) -> Result<(), ResourceError> {
+    async fn update(&self, resource_id: &str, patch: ResourcePatch) -> Result<(), ResourceError> {
         let mut entries = self.by_id.write().await;
         let entry = entries
             .get_mut(resource_id)
@@ -630,9 +616,15 @@ mod tests {
     #[tokio::test]
     async fn list_session_filters_by_kind_tag() {
         let r = InMemoryResourceRegistry::new();
-        r.add("sesn", ResourceParams::new(file_kind("f"))).await.unwrap();
-        r.add("sesn", ResourceParams::new(memory_kind("m1"))).await.unwrap();
-        r.add("sesn", ResourceParams::new(memory_kind("m2"))).await.unwrap();
+        r.add("sesn", ResourceParams::new(file_kind("f")))
+            .await
+            .unwrap();
+        r.add("sesn", ResourceParams::new(memory_kind("m1")))
+            .await
+            .unwrap();
+        r.add("sesn", ResourceParams::new(memory_kind("m2")))
+            .await
+            .unwrap();
         r.add("sesn", ResourceParams::new(skill_kind("s", Some(3))))
             .await
             .unwrap();
@@ -697,7 +689,9 @@ mod tests {
         .await
         .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        r.add("sesn", ResourceParams::new(memory_kind("m1"))).await.unwrap();
+        r.add("sesn", ResourceParams::new(memory_kind("m1")))
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         r.add(
             "sesn",

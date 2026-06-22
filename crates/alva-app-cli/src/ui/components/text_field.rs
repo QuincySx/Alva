@@ -39,7 +39,7 @@ impl TextField {
         // underlying lines() vector stays at len 1.
         Self {
             inner,
-            label: String::new(),  // (held inside the Block above)
+            label: String::new(), // (held inside the Block above)
             secret: false,
         }
     }
@@ -62,10 +62,16 @@ impl TextField {
         let v: String = v.into();
         // tui-textarea exposes a single-line constructor via from_iter.
         let lines: Vec<String> = v.lines().take(1).map(|s| s.to_string()).collect();
-        let mut new = TextArea::new(if lines.is_empty() { vec![String::new()] } else { lines });
+        let mut new = TextArea::new(if lines.is_empty() {
+            vec![String::new()]
+        } else {
+            lines
+        });
         new.set_block(self.inner.block().cloned().unwrap_or_default());
         new.set_placeholder_text(self.inner.placeholder_text().to_string());
-        if self.secret { new.set_mask_char('•'); }
+        if self.secret {
+            new.set_mask_char('•');
+        }
         new.move_cursor(CursorMove::End);
         self.inner = new;
     }
@@ -84,7 +90,9 @@ impl TextField {
         let l = label.into();
         self.label = l.clone();
         self.inner.set_block(
-            Block::default().borders(Borders::ALL).title(format!(" {} ", l)),
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" {} ", l)),
         );
     }
 }

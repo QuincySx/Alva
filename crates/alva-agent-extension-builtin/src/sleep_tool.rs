@@ -97,7 +97,9 @@ mod tests {
 
     #[tokio::test]
     async fn sleeps_for_short_duration() {
-        let ctx = TestContext { cancel: CancellationToken::new() };
+        let ctx = TestContext {
+            cancel: CancellationToken::new(),
+        };
         let tool = SleepTool;
 
         let start = std::time::Instant::now();
@@ -110,12 +112,17 @@ mod tests {
         assert!(!output.is_error, "got: {}", output.model_text());
         assert!(output.model_text().contains("Slept for 10ms"));
         // Allow ~5ms slack just in case the runtime is fast or slow.
-        assert!(elapsed >= std::time::Duration::from_millis(5), "elapsed was {elapsed:?}");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(5),
+            "elapsed was {elapsed:?}"
+        );
     }
 
     #[tokio::test]
     async fn over_max_duration_returns_error_output() {
-        let ctx = TestContext { cancel: CancellationToken::new() };
+        let ctx = TestContext {
+            cancel: CancellationToken::new(),
+        };
         let tool = SleepTool;
 
         let output = tool
@@ -129,7 +136,9 @@ mod tests {
     #[tokio::test]
     async fn cancellation_returns_error_promptly() {
         let cancel = CancellationToken::new();
-        let ctx = TestContext { cancel: cancel.clone() };
+        let ctx = TestContext {
+            cancel: cancel.clone(),
+        };
         let tool = SleepTool;
 
         // Cancel after a brief delay so the sleep is interrupted.
@@ -149,6 +158,9 @@ mod tests {
         assert!(output.is_error);
         assert!(output.model_text().contains("cancelled"));
         // Should return well under the requested 60s.
-        assert!(elapsed < std::time::Duration::from_secs(2), "took too long: {elapsed:?}");
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "took too long: {elapsed:?}"
+        );
     }
 }

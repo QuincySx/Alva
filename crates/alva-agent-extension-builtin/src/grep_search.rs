@@ -10,8 +10,8 @@ use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::walkdir::walk_dir_filtered;
 use crate::truncate::{truncate_head, truncate_line, MAX_BYTES, MAX_LINES, MAX_LINE_LENGTH};
+use crate::walkdir::walk_dir_filtered;
 
 /// Output mode for grep results.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -83,7 +83,15 @@ struct Input {
 }
 
 /// VCS / build directories to always exclude.
-const AUTO_EXCLUDE_DIRS: &[&str] = &[".git", ".svn", ".hg", "node_modules", "target", "__pycache__", ".tox"];
+const AUTO_EXCLUDE_DIRS: &[&str] = &[
+    ".git",
+    ".svn",
+    ".hg",
+    "node_modules",
+    "target",
+    "__pycache__",
+    ".tox",
+];
 
 /// Map short type names to glob patterns.
 fn type_to_glob(file_type: &str) -> Vec<String> {
@@ -95,7 +103,13 @@ fn type_to_glob(file_type: &str) -> Vec<String> {
         "go" => vec!["*.go".into()],
         "java" => vec!["*.java".into()],
         "c" => vec!["*.c".into(), "*.h".into()],
-        "cpp" => vec!["*.cpp".into(), "*.cxx".into(), "*.cc".into(), "*.hpp".into(), "*.hxx".into()],
+        "cpp" => vec![
+            "*.cpp".into(),
+            "*.cxx".into(),
+            "*.cc".into(),
+            "*.hpp".into(),
+            "*.hxx".into(),
+        ],
         "rb" => vec!["*.rb".into()],
         "swift" => vec!["*.swift".into()],
         "kt" | "kotlin" => vec!["*.kt".into(), "*.kts".into()],
@@ -160,7 +174,9 @@ impl GrepSearchTool {
         let sym_context = params.context_symmetric.or(params.context).unwrap_or(0);
         let context_before = params.context_before.unwrap_or(sym_context);
         let context_after = params.context_after.unwrap_or(sym_context);
-        let show_line_numbers = params.line_numbers.unwrap_or(output_mode == OutputMode::Content);
+        let show_line_numbers = params
+            .line_numbers
+            .unwrap_or(output_mode == OutputMode::Content);
         let case_insensitive = params.case_insensitive_flag.unwrap_or(false);
         let multiline = params.multiline.unwrap_or(false);
 
@@ -179,13 +195,16 @@ impl GrepSearchTool {
         }
         let full_pattern = format!("{}{}", flags, pattern_str);
 
-        let regex = Regex::new(&full_pattern)
-            .map_err(|e| AgentError::ToolError { tool_name: "grep_search".into(), message: format!("Invalid regex: {}", e) })?;
+        let regex = Regex::new(&full_pattern).map_err(|e| AgentError::ToolError {
+            tool_name: "grep_search".into(),
+            message: format!("Invalid regex: {}", e),
+        })?;
 
         // Optional glob filter
-        let glob_pattern = params.glob.as_ref().map(|p| {
-            glob::Pattern::new(p).unwrap_or_else(|_| glob::Pattern::new("*").unwrap())
-        });
+        let glob_pattern = params
+            .glob
+            .as_ref()
+            .map(|p| glob::Pattern::new(p).unwrap_or_else(|_| glob::Pattern::new("*").unwrap()));
 
         // Type-based glob patterns
         let type_globs: Option<Vec<glob::Pattern>> = params.file_type.as_ref().map(|t| {
@@ -310,7 +329,8 @@ impl GrepSearchTool {
                     display_indices.dedup();
 
                     // Convert matching indices to a set for fast lookup
-                    let match_set: std::collections::HashSet<usize> = match_indices.into_iter().collect();
+                    let match_set: std::collections::HashSet<usize> =
+                        match_indices.into_iter().collect();
 
                     // Emit output lines
                     let mut prev_idx: Option<usize> = None;
@@ -336,9 +356,11 @@ impl GrepSearchTool {
                         let truncated = truncate_line(lines[idx], MAX_LINE_LENGTH);
                         if show_line_numbers {
                             if match_set.contains(&idx) {
-                                output_entries.push(format!("{}:{}:{}", rel_path, line_num, truncated));
+                                output_entries
+                                    .push(format!("{}:{}:{}", rel_path, line_num, truncated));
                             } else {
-                                output_entries.push(format!("{}-{}-{}", rel_path, line_num, truncated));
+                                output_entries
+                                    .push(format!("{}-{}-{}", rel_path, line_num, truncated));
                             }
                         } else if match_set.contains(&idx) {
                             output_entries.push(format!("{}:{}", rel_path, truncated));
@@ -460,7 +482,10 @@ mod tests {
             .execute(json!({ "pattern": "(foo" }), &ctx)
             .await
             .expect_err("should error on invalid regex");
-        assert!(err.to_string().contains("Invalid regex"), "unexpected error: {err}");
+        assert!(
+            err.to_string().contains("Invalid regex"),
+            "unexpected error: {err}"
+        );
     }
 
     #[tokio::test]

@@ -202,12 +202,11 @@ impl Default for Blackboard {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::message::MessageKind;
+    use super::*;
 
     fn planner() -> AgentProfile {
-        AgentProfile::new("planner", "requirements analysis")
-            .provides_to(["generator"])
+        AgentProfile::new("planner", "requirements analysis").provides_to(["generator"])
     }
 
     fn generator() -> AgentProfile {
@@ -217,8 +216,7 @@ mod tests {
     }
 
     fn evaluator() -> AgentProfile {
-        AgentProfile::new("evaluator", "quality review")
-            .depends_on(["generator"])
+        AgentProfile::new("evaluator", "quality review").depends_on(["generator"])
     }
 
     #[tokio::test]
@@ -250,10 +248,7 @@ mod tests {
 
         board.post(BoardMessage::new("planner", "spec done")).await;
         board
-            .post(
-                BoardMessage::new("planner", "start coding please")
-                    .with_mention("generator"),
-            )
+            .post(BoardMessage::new("planner", "start coding please").with_mention("generator"))
             .await;
 
         assert_eq!(board.message_count().await, 2);
@@ -285,7 +280,9 @@ mod tests {
 
         // Introduction (visible to all)
         board
-            .post(BoardMessage::new("planner", "Hi I'm planner").with_kind(MessageKind::Introduction))
+            .post(
+                BoardMessage::new("planner", "Hi I'm planner").with_kind(MessageKind::Introduction),
+            )
             .await;
 
         // Broadcast (visible to all)
@@ -295,10 +292,7 @@ mod tests {
 
         // Directed at generator (visible to generator)
         board
-            .post(
-                BoardMessage::new("planner", "Start coding")
-                    .with_mention("generator"),
-            )
+            .post(BoardMessage::new("planner", "Start coding").with_mention("generator"))
             .await;
 
         // From planner (generator depends_on planner, so visible)
@@ -308,10 +302,7 @@ mod tests {
 
         // Evaluator talking to itself (NOT visible to generator)
         board
-            .post(
-                BoardMessage::new("evaluator", "Reviewing my criteria")
-                    .with_mention("evaluator"),
-            )
+            .post(BoardMessage::new("evaluator", "Reviewing my criteria").with_mention("evaluator"))
             .await;
 
         let gen_msgs = board.messages_for("generator").await;

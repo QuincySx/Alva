@@ -90,10 +90,7 @@ mod tests {
 
     #[test]
     fn nested_parent_dirs_resolve_layer_by_layer() {
-        assert_eq!(
-            norm("/foo/bar/baz/../../qux"),
-            PathBuf::from("/foo/qux")
-        );
+        assert_eq!(norm("/foo/bar/baz/../../qux"), PathBuf::from("/foo/qux"));
     }
 
     #[test]

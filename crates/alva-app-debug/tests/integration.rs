@@ -44,11 +44,7 @@ fn log_query_and_level_control() {
         "should not contain 'hello' in: {}",
         resp
     );
-    assert!(
-        resp.contains("warning"),
-        "expected 'warning' in: {}",
-        resp
-    );
+    assert!(resp.contains("warning"), "expected 'warning' in: {}", resp);
 
     // Check current log level
     let resp = http_get("127.0.0.1:19231", "/api/logs/level");
@@ -114,10 +110,7 @@ fn make_test_registry() -> Arc<ActionRegistry> {
         RegisteredView {
             action_fn: Box::new(|method, args| match method {
                 "send_message" => {
-                    let text = args
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("empty");
+                    let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("empty");
                     Ok(serde_json::json!({"sent": text}))
                 }
                 _ => Err(format!("unknown method: {method}")),

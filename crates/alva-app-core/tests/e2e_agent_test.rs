@@ -10,17 +10,19 @@ use std::sync::Arc;
 
 use alva_app_core::base_agent::{BaseAgent, PermissionMode};
 use alva_app_core::AgentEvent;
+use alva_kernel_abi::{ContentBlock, Message, MessageRole, StreamEvent, ToolOutput, UsageMetadata};
 use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
 use alva_test::mock_tool::MockTool;
-use alva_kernel_abi::{ContentBlock, Message, MessageRole, StreamEvent, ToolOutput, UsageMetadata};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /// Build a minimal BaseAgent with a mock model, no browser, temp workspace.
-async fn build_agent(model: Arc<dyn alva_kernel_abi::LanguageModel>) -> (BaseAgent, tempfile::TempDir) {
+async fn build_agent(
+    model: Arc<dyn alva_kernel_abi::LanguageModel>,
+) -> (BaseAgent, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("failed to create tempdir");
     let agent = BaseAgent::builder()
         .workspace(tmp.path())
@@ -110,7 +112,8 @@ async fn e2e_simple_prompt_produces_streaming_events() {
 #[tokio::test]
 async fn e2e_tool_call_chain() {
     // First LLM response: request a tool call
-    let tool_call_resp = make_tool_call_message("my_test_tool", serde_json::json!({"key": "value"}));
+    let tool_call_resp =
+        make_tool_call_message("my_test_tool", serde_json::json!({"key": "value"}));
 
     // Second LLM response: final answer after receiving tool result
     let final_resp = make_assistant_message("Based on the tool output, here is the answer.");
@@ -140,13 +143,19 @@ async fn e2e_tool_call_chain() {
     let got_tool_start = events
         .iter()
         .any(|e| matches!(e, AgentEvent::ToolExecutionStart { tool_call } if tool_call.name == "my_test_tool"));
-    assert!(got_tool_start, "should see ToolExecutionStart for my_test_tool");
+    assert!(
+        got_tool_start,
+        "should see ToolExecutionStart for my_test_tool"
+    );
 
     let got_tool_end = events.iter().any(|e| {
         matches!(e, AgentEvent::ToolExecutionEnd { tool_call, result }
             if tool_call.name == "my_test_tool" && !result.is_error && result.model_text() == "tool result data")
     });
-    assert!(got_tool_end, "should see ToolExecutionEnd with correct result");
+    assert!(
+        got_tool_end,
+        "should see ToolExecutionEnd with correct result"
+    );
 
     // Verify two MessageEnd events (one for tool call response, one for final response)
     let message_end_count = events
@@ -262,7 +271,9 @@ async fn e2e_cancel_stops_agent() {
     let events = collect_events(rx).await;
 
     // Should receive AgentEnd (possibly with a cancellation error)
-    let got_end = events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. }));
+    let got_end = events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::AgentEnd { .. }));
     assert!(got_end, "agent should end after cancel");
 }
 
@@ -362,7 +373,10 @@ async fn e2e_multiple_tool_calls_in_single_response() {
         .iter()
         .filter(|e| matches!(e, AgentEvent::ToolExecutionStart { .. }))
         .count();
-    assert_eq!(tool_start_count, 2, "should have 2 ToolExecutionStart events");
+    assert_eq!(
+        tool_start_count, 2,
+        "should have 2 ToolExecutionStart events"
+    );
 
     let tool_end_count = events
         .iter()
@@ -459,10 +473,9 @@ async fn e2e_new_session_clears_history() {
 
 #[tokio::test]
 async fn e2e_llm_error_propagated() {
-    let model = Arc::new(
-        MockLanguageModel::new()
-            .with_error(alva_kernel_abi::AgentError::LlmError("model exploded".into())),
-    );
+    let model = Arc::new(MockLanguageModel::new().with_error(
+        alva_kernel_abi::AgentError::LlmError("model exploded".into()),
+    ));
 
     let (agent, _tmp) = build_agent(model).await;
     let rx = agent.prompt_text("This will fail.");
@@ -471,10 +484,7 @@ async fn e2e_llm_error_propagated() {
     let has_error = events.iter().any(|e| {
         matches!(e, AgentEvent::AgentEnd { error: Some(msg) } if msg.contains("model exploded"))
     });
-    assert!(
-        has_error,
-        "AgentEnd should contain the LLM error message"
-    );
+    assert!(has_error, "AgentEnd should contain the LLM error message");
 }
 
 // ===========================================================================
@@ -497,11 +507,21 @@ async fn build_agent_with_workspace(
         .system_prompt("You are a test assistant.")
         .plugin(Box::new(alva_app_core::extension::CorePlugin))
         .plugin(Box::new(alva_app_core::extension::ShellPlugin))
-        .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
-        .middleware(Arc::new(alva_host_native::middleware::CompactionMiddleware::default()))
-        .middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
+        ))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::DanglingToolCallMiddleware::new(),
+        ))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::ToolTimeoutMiddleware::default(),
+        ))
+        .middleware(Arc::new(
+            alva_host_native::middleware::CompactionMiddleware::default(),
+        ))
+        .middleware(Arc::new(
+            alva_host_native::middleware::CheckpointMiddleware::new(),
+        ))
         .build(model)
         .await
         .expect("build should succeed")
@@ -546,7 +566,10 @@ async fn e2e_real_read_file_tool() {
     let got_tool_start = events.iter().any(|e| {
         matches!(e, AgentEvent::ToolExecutionStart { tool_call } if tool_call.name == "read_file")
     });
-    assert!(got_tool_start, "should see ToolExecutionStart for read_file");
+    assert!(
+        got_tool_start,
+        "should see ToolExecutionStart for read_file"
+    );
 
     // Verify ToolExecutionEnd was emitted (tool executes through the pipeline)
     let got_tool_end = events.iter().any(|e| {
@@ -556,7 +579,9 @@ async fn e2e_real_read_file_tool() {
 
     // Verify the agent completed without fatal error
     assert!(
-        events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
         "agent should end without error"
     );
 }
@@ -665,13 +690,16 @@ async fn e2e_real_grep_search_tool() {
     let got_tool_start = events.iter().any(|e| {
         matches!(e, AgentEvent::ToolExecutionStart { tool_call } if tool_call.name == "grep_search")
     });
-    assert!(got_tool_start, "should see ToolExecutionStart for grep_search");
+    assert!(
+        got_tool_start,
+        "should see ToolExecutionStart for grep_search"
+    );
 
     // Workspace is now propagated via AgentConfig, so the tool succeeds.
     // AgentEnd should have no error.
-    let has_clean_end = events.iter().any(|e| {
-        matches!(e, AgentEvent::AgentEnd { error: None })
-    });
+    let has_clean_end = events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::AgentEnd { error: None }));
     assert!(
         has_clean_end,
         "AgentEnd should have no error — workspace is now propagated to tools"
@@ -718,13 +746,16 @@ async fn e2e_real_find_files_tool() {
     let got_tool_start = events.iter().any(|e| {
         matches!(e, AgentEvent::ToolExecutionStart { tool_call } if tool_call.name == "find_files")
     });
-    assert!(got_tool_start, "should see ToolExecutionStart for find_files");
+    assert!(
+        got_tool_start,
+        "should see ToolExecutionStart for find_files"
+    );
 
     // Workspace is now propagated via AgentConfig, so the tool succeeds.
     // AgentEnd should have no error.
-    let has_clean_end = events.iter().any(|e| {
-        matches!(e, AgentEvent::AgentEnd { error: None })
-    });
+    let has_clean_end = events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::AgentEnd { error: None }));
     assert!(
         has_clean_end,
         "AgentEnd should have no error — workspace is now propagated to tools"
@@ -777,11 +808,16 @@ async fn e2e_find_files_respects_gitignore() {
     let got_tool_start = events.iter().any(|e| {
         matches!(e, AgentEvent::ToolExecutionStart { tool_call } if tool_call.name == "find_files")
     });
-    assert!(got_tool_start, "should see ToolExecutionStart for find_files");
+    assert!(
+        got_tool_start,
+        "should see ToolExecutionStart for find_files"
+    );
 
     // Workspace is now propagated, so find_files should succeed.
     // The result should contain keep.rs but NOT skip.rs (gitignore filtering).
-    let has_end = events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. }));
+    let has_end = events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::AgentEnd { .. }));
     assert!(has_end, "agent should end (either with or without error)");
 }
 
@@ -829,7 +865,9 @@ async fn e2e_execute_shell_blocked_without_approval() {
     );
 
     assert!(
-        events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
         "agent should end without error"
     );
 }
@@ -880,7 +918,10 @@ async fn e2e_multi_turn_tool_loop() {
         .iter()
         .filter(|e| matches!(e, AgentEvent::ToolExecutionStart { .. }))
         .count();
-    assert_eq!(tool_start_count, 3, "should have 3 ToolExecutionStart events");
+    assert_eq!(
+        tool_start_count, 3,
+        "should have 3 ToolExecutionStart events"
+    );
 
     // Verify exactly 3 ToolExecutionEnd events
     let tool_end_count = events
@@ -922,7 +963,9 @@ async fn e2e_multi_turn_tool_loop() {
     );
 
     assert!(
-        events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
         "agent should end without error"
     );
 }
@@ -999,8 +1042,7 @@ async fn e2e_checkpoint_created_on_file_edit() {
 
     // Register the checkpoint callback
     let checkpoint_cb = TestCheckpointCallback::new();
-    agent
-        .set_checkpoint_callback(Arc::new(checkpoint_cb.clone()));
+    agent.set_checkpoint_callback(Arc::new(checkpoint_cb.clone()));
 
     let rx = agent.prompt_text("Edit the file.");
     let events = collect_events(rx).await;
@@ -1023,13 +1065,18 @@ async fn e2e_checkpoint_created_on_file_edit() {
 
     // Check that the checkpoint path includes target.txt
     assert!(
-        first_call.1.iter().any(|p| p.to_str().unwrap().contains("target.txt")),
+        first_call
+            .1
+            .iter()
+            .any(|p| p.to_str().unwrap().contains("target.txt")),
         "checkpoint should reference target.txt, got: {:?}",
         first_call.1
     );
 
     assert!(
-        events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
         "agent should end without error"
     );
 }
@@ -1087,9 +1134,16 @@ async fn e2e_session_message_flow() {
     }
 
     if let alva_kernel_abi::AgentMessage::Standard(m) = &messages[1] {
-        assert_eq!(m.role, MessageRole::Assistant, "message[1] should be Assistant");
+        assert_eq!(
+            m.role,
+            MessageRole::Assistant,
+            "message[1] should be Assistant"
+        );
         // Should contain a ToolUse block
-        let has_tool_use = m.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+        let has_tool_use = m
+            .content
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
         assert!(has_tool_use, "message[1] should contain ToolUse block");
     } else {
         panic!("message[1] should be Standard");
@@ -1097,16 +1151,33 @@ async fn e2e_session_message_flow() {
 
     if let alva_kernel_abi::AgentMessage::Standard(m) = &messages[2] {
         // Tool result is stored with role=Tool and ToolResult content block
-        assert_eq!(m.role, MessageRole::Tool, "message[2] should be Tool (tool result)");
-        let has_tool_result = m.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }));
-        assert!(has_tool_result, "message[2] should contain ToolResult block");
+        assert_eq!(
+            m.role,
+            MessageRole::Tool,
+            "message[2] should be Tool (tool result)"
+        );
+        let has_tool_result = m
+            .content
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolResult { .. }));
+        assert!(
+            has_tool_result,
+            "message[2] should contain ToolResult block"
+        );
     } else {
         panic!("message[2] should be Standard");
     }
 
     if let alva_kernel_abi::AgentMessage::Standard(m) = &messages[3] {
-        assert_eq!(m.role, MessageRole::Assistant, "message[3] should be Assistant");
-        let has_text = m.content.iter().any(|b| matches!(b, ContentBlock::Text { .. }));
+        assert_eq!(
+            m.role,
+            MessageRole::Assistant,
+            "message[3] should be Assistant"
+        );
+        let has_text = m
+            .content
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Text { .. }));
         assert!(has_text, "message[3] should contain Text block");
     } else {
         panic!("message[3] should be Standard");
@@ -1154,7 +1225,10 @@ async fn e2e_multi_turn_mixed_tools() {
         .iter()
         .filter(|e| matches!(e, AgentEvent::ToolExecutionStart { .. }))
         .count();
-    assert_eq!(tool_start_count, 2, "should have 2 ToolExecutionStart events");
+    assert_eq!(
+        tool_start_count, 2,
+        "should have 2 ToolExecutionStart events"
+    );
 
     // Verify tool results flow through correctly
     let reader_end = events.iter().find(|e| {
@@ -1184,7 +1258,9 @@ async fn e2e_multi_turn_mixed_tools() {
     );
 
     assert!(
-        events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
         "agent should end without error"
     );
 }
@@ -1223,7 +1299,9 @@ async fn e2e_unknown_tool_produces_error_result() {
 
     // Agent should still complete normally
     assert!(
-        events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })),
         "agent should end without error despite unknown tool"
     );
 }
@@ -1236,8 +1314,7 @@ async fn e2e_unknown_tool_produces_error_result() {
 #[tokio::test]
 async fn e2e_event_ordering_is_correct() {
     let model = Arc::new(
-        MockLanguageModel::new()
-            .with_response(make_assistant_message("Ordered response.")),
+        MockLanguageModel::new().with_response(make_assistant_message("Ordered response.")),
     );
 
     let (agent, _tmp) = build_agent(model).await;
@@ -1245,7 +1322,9 @@ async fn e2e_event_ordering_is_correct() {
     let events = collect_events(rx).await;
 
     // Find indices of key events
-    let agent_start_idx = events.iter().position(|e| matches!(e, AgentEvent::AgentStart));
+    let agent_start_idx = events
+        .iter()
+        .position(|e| matches!(e, AgentEvent::AgentStart));
     let msg_start_idx = events
         .iter()
         .position(|e| matches!(e, AgentEvent::MessageStart { .. }));
@@ -1266,9 +1345,24 @@ async fn e2e_event_ordering_is_correct() {
     let me = msg_end_idx.unwrap();
     let ae = agent_end_idx.unwrap();
 
-    assert!(a < ms, "AgentStart ({}) should come before MessageStart ({})", a, ms);
-    assert!(ms < me, "MessageStart ({}) should come before MessageEnd ({})", ms, me);
-    assert!(me < ae, "MessageEnd ({}) should come before AgentEnd ({})", me, ae);
+    assert!(
+        a < ms,
+        "AgentStart ({}) should come before MessageStart ({})",
+        a,
+        ms
+    );
+    assert!(
+        ms < me,
+        "MessageStart ({}) should come before MessageEnd ({})",
+        ms,
+        me
+    );
+    assert!(
+        me < ae,
+        "MessageEnd ({}) should come before AgentEnd ({})",
+        me,
+        ae
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1323,13 +1417,15 @@ async fn e2e_tool_event_ordering() {
     assert!(
         me1 < ts,
         "MessageEnd for tool-call ({}) should come before ToolExecutionStart ({})",
-        me1, ts
+        me1,
+        ts
     );
     // ToolExecutionStart should come before ToolExecutionEnd
     assert!(
         ts < te,
         "ToolExecutionStart ({}) should come before ToolExecutionEnd ({})",
-        ts, te
+        ts,
+        te
     );
 }
 
@@ -1339,10 +1435,7 @@ async fn e2e_tool_event_ordering() {
 
 #[tokio::test]
 async fn e2e_builtin_tool_registry_completeness() {
-    let model = Arc::new(
-        MockLanguageModel::new()
-            .with_response(make_assistant_message("unused")),
-    );
+    let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("unused")));
 
     let tmp = tempfile::tempdir().unwrap();
     let agent = BaseAgent::builder()
@@ -1370,7 +1463,8 @@ async fn e2e_builtin_tool_registry_completeness() {
         assert!(
             names.contains(tool_name),
             "builtin tool '{}' should be registered, available: {:?}",
-            tool_name, names
+            tool_name,
+            names
         );
     }
 }

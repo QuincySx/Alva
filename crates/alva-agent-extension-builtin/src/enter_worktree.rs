@@ -42,7 +42,10 @@ impl EnterWorktreeTool {
 
         // Generate worktree name
         let wt_name = params.name.unwrap_or_else(|| {
-            format!("wt-{}", &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::LocalAgent)[1..9])
+            format!(
+                "wt-{}",
+                &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::LocalAgent)[1..9]
+            )
         });
         let branch_name = format!("worktree/{}", wt_name);
         let wt_path = workspace.parent().unwrap_or(workspace).join(&wt_name);
@@ -56,21 +59,16 @@ impl EnterWorktreeTool {
         let cwd = workspace.to_str();
 
         match fs.exec(&cmd, cwd, 30_000).await {
-            Ok(result) if result.success() => {
-                Ok(ToolOutput::text(format!(
-                    "Worktree created.\n  Path: {}\n  Branch: {}\n  \
+            Ok(result) if result.success() => Ok(ToolOutput::text(format!(
+                "Worktree created.\n  Path: {}\n  Branch: {}\n  \
                      Use exit_worktree to clean up when done.",
-                    wt_path.display(),
-                    branch_name
-                )))
-            }
-            Ok(result) => {
-                Ok(ToolOutput::error(format!(
-                    "Failed to create worktree:\n{}{}",
-                    result.stdout,
-                    result.stderr
-                )))
-            }
+                wt_path.display(),
+                branch_name
+            ))),
+            Ok(result) => Ok(ToolOutput::error(format!(
+                "Failed to create worktree:\n{}{}",
+                result.stdout, result.stderr
+            ))),
             Err(e) => Err(AgentError::ToolError {
                 tool_name: "enter_worktree".into(),
                 message: format!("Failed to run git worktree: {}", e),
@@ -170,14 +168,28 @@ mod tests {
             .await
             .expect("execute should succeed");
 
-        assert!(!output.is_error, "worktree creation failed: {}", output.model_text());
+        assert!(
+            !output.is_error,
+            "worktree creation failed: {}",
+            output.model_text()
+        );
         let text = output.model_text();
-        assert!(text.contains("Worktree created"), "unexpected output: {text}");
-        assert!(text.contains("worktree/feature-a"), "branch name missing: {text}");
+        assert!(
+            text.contains("Worktree created"),
+            "unexpected output: {text}"
+        );
+        assert!(
+            text.contains("worktree/feature-a"),
+            "branch name missing: {text}"
+        );
 
         // Sibling directory should now exist
         let wt_path = repo.parent().unwrap().join("feature-a");
-        assert!(wt_path.exists(), "expected worktree dir at {}", wt_path.display());
+        assert!(
+            wt_path.exists(),
+            "expected worktree dir at {}",
+            wt_path.display()
+        );
     }
 
     #[tokio::test]
@@ -200,7 +212,9 @@ mod tests {
             }
         }
 
-        let ctx = NoWorkspaceCtx { cancel: CancellationToken::new() };
+        let ctx = NoWorkspaceCtx {
+            cancel: CancellationToken::new(),
+        };
         let tool = EnterWorktreeTool;
 
         let err = tool

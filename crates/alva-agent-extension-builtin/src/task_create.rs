@@ -4,8 +4,7 @@
 //! task_create — create a new tracked task
 
 use alva_kernel_abi::{
-    AgentError, TaskType, Tool, ToolExecutionContext, ToolOutput,
-    create_task_state,
+    create_task_state, AgentError, TaskType, Tool, ToolExecutionContext, ToolOutput,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -125,13 +124,10 @@ mod tests {
     /// Build a test context with a fresh `InMemoryTaskStore` provided on the
     /// bus, returning both the context and the store handle so assertions
     /// can verify the service was actually called.
-    fn ctx_with_store(
-        workspace: Option<PathBuf>,
-    ) -> (TestContext, Arc<InMemoryTaskStore>) {
+    fn ctx_with_store(workspace: Option<PathBuf>) -> (TestContext, Arc<InMemoryTaskStore>) {
         let store = Arc::new(InMemoryTaskStore::new());
         let bus = Bus::new();
-        bus.writer()
-            .provide::<dyn TaskService>(store.clone());
+        bus.writer().provide::<dyn TaskService>(store.clone());
         let ctx = TestContext {
             workspace,
             cancel: CancellationToken::new(),
@@ -232,9 +228,6 @@ mod tests {
             .await
             .expect_err("missing service should error");
         let msg = format!("{err}");
-        assert!(
-            msg.contains("task service not registered"),
-            "got: {msg}"
-        );
+        assert!(msg.contains("task service not registered"), "got: {msg}");
     }
 }

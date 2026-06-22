@@ -25,9 +25,5 @@ pub trait McpTransport: Send + Sync {
     async fn list_tools(&self) -> Result<Vec<McpToolInfo>, McpError>;
 
     /// Call a tool by name with the given arguments.
-    async fn call_tool(
-        &self,
-        tool_name: &str,
-        arguments: Value,
-    ) -> Result<Value, McpError>;
+    async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<Value, McpError>;
 }

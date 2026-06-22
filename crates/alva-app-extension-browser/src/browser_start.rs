@@ -51,17 +51,15 @@ impl BrowserStartTool {
         let mut manager = self.manager.lock().await;
 
         match manager.start(&id, headless, profile_dir, proxy).await {
-            Ok(()) => {
-                Ok(ToolOutput::text(json!({
+            Ok(()) => Ok(ToolOutput::text(
+                json!({
                     "status": "started",
                     "id": id,
                     "headless": headless,
                 })
-                .to_string()))
-            }
-            Err(e) => {
-                Ok(ToolOutput::error(json!({ "error": e }).to_string()))
-            }
+                .to_string(),
+            )),
+            Err(e) => Ok(ToolOutput::error(json!({ "error": e }).to_string())),
         }
     }
 }

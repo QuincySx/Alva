@@ -1,3 +1,6 @@
+// INPUT:  Tauri invoke/listen APIs, RunRecord/ConfigSnapshot JSON from Rust
+// OUTPUT: Agent bridge helpers, event subscriptions, frontend data contracts
+// POS:    Frontend IPC boundary for chat, session, provider, and inspector data.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
@@ -262,8 +265,21 @@ export interface ConfigSnapshot {
   tool_definitions: unknown[];
   skill_names: string[];
   max_iterations: number;
-  extension_names: string[];
+  plugin_names: string[];
+  plugin_assembly: PluginAssemblySnapshot[];
   middleware_names: string[];
+  direct_middleware_names?: string[];
+}
+
+export interface PluginAssemblySnapshot {
+  name: string;
+  description: string;
+  registered_tool_names: string[];
+  finalized_tool_names: string[];
+  middleware_names: string[];
+  phase_contribution_names: string[];
+  command_names: string[];
+  system_prompt_fragments: number;
 }
 
 export interface TurnRecord {

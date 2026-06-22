@@ -74,9 +74,8 @@ impl<S: Send + 'static> CompiledGraph<S> {
             let mut next_nodes = Vec::new();
 
             while let Some(join_result) = join_set.join_next().await {
-                let (name, result) = join_result.map_err(|e| {
-                    AgentError::Other(format!("Send task failed: {e}"))
-                })?;
+                let (name, result) =
+                    join_result.map_err(|e| AgentError::Other(format!("Send task failed: {e}")))?;
 
                 config.emit(GraphEvent::NodeEnd {
                     node: name.clone(),
@@ -162,8 +161,10 @@ mod tests {
         // Pin: single-send path actually invokes the node function
         // and writes the returned state back to the caller's `&mut state`.
         let mut g = empty_graph();
-        g.nodes
-            .insert("worker".to_string(), node_fn(|s| NodeResult::Update(s + 10)));
+        g.nodes.insert(
+            "worker".to_string(),
+            node_fn(|s| NodeResult::Update(s + 10)),
+        );
         // edge worker → END will be created implicitly by resolve_next_nodes
         // (no outgoing edge → returns vec![END]).
         let cfg = InvokeConfig::default();
@@ -260,8 +261,14 @@ mod tests {
         g.nodes
             .insert("b".to_string(), node_fn(|s| NodeResult::Update(s + 10)));
         // edges so resolve_next_nodes returns something deterministic
-        g.edges.push(Edge::Direct { from: "a".into(), to: "end_a".into() });
-        g.edges.push(Edge::Direct { from: "b".into(), to: "end_b".into() });
+        g.edges.push(Edge::Direct {
+            from: "a".into(),
+            to: "end_a".into(),
+        });
+        g.edges.push(Edge::Direct {
+            from: "b".into(),
+            to: "end_b".into(),
+        });
         g.merge_fn = Some(Box::new(|base, updates: Vec<State>| {
             // base + sum of deltas (each update was base + N, recompute deltas)
             let total: State = updates.iter().map(|u| u - base).sum();
@@ -272,8 +279,14 @@ mod tests {
         let mut next = g
             .execute_sends(
                 vec![
-                    SendTo { node: "a".into(), state: 1000 },
-                    SendTo { node: "b".into(), state: 1000 },
+                    SendTo {
+                        node: "a".into(),
+                        state: 1000,
+                    },
+                    SendTo {
+                        node: "b".into(),
+                        state: 1000,
+                    },
                 ],
                 &mut state,
                 &cfg,
@@ -306,8 +319,14 @@ mod tests {
         let mut state: State = 0;
         g.execute_sends(
             vec![
-                SendTo { node: "a".into(), state: 0 },
-                SendTo { node: "b".into(), state: 0 },
+                SendTo {
+                    node: "a".into(),
+                    state: 0,
+                },
+                SendTo {
+                    node: "b".into(),
+                    state: 0,
+                },
             ],
             &mut state,
             &cfg,
@@ -333,15 +352,27 @@ mod tests {
         g.nodes
             .insert("b".to_string(), node_fn(|s| NodeResult::Update(s)));
         // both fan out to the SAME target — must dedup to 1 entry
-        g.edges.push(Edge::Direct { from: "a".into(), to: "shared".into() });
-        g.edges.push(Edge::Direct { from: "b".into(), to: "shared".into() });
+        g.edges.push(Edge::Direct {
+            from: "a".into(),
+            to: "shared".into(),
+        });
+        g.edges.push(Edge::Direct {
+            from: "b".into(),
+            to: "shared".into(),
+        });
         let cfg = InvokeConfig::default();
         let mut state: State = 0;
         let next = g
             .execute_sends(
                 vec![
-                    SendTo { node: "a".into(), state: 0 },
-                    SendTo { node: "b".into(), state: 0 },
+                    SendTo {
+                        node: "a".into(),
+                        state: 0,
+                    },
+                    SendTo {
+                        node: "b".into(),
+                        state: 0,
+                    },
                 ],
                 &mut state,
                 &cfg,
@@ -349,7 +380,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(next, vec!["shared".to_string()], "dedup collapsed both routes");
+        assert_eq!(
+            next,
+            vec!["shared".to_string()],
+            "dedup collapsed both routes"
+        );
     }
 
     #[tokio::test]
@@ -385,8 +420,14 @@ mod tests {
         let next = g
             .execute_sends(
                 vec![
-                    SendTo { node: "router".into(), state: 0 },
-                    SendTo { node: "worker".into(), state: 0 },
+                    SendTo {
+                        node: "router".into(),
+                        state: 0,
+                    },
+                    SendTo {
+                        node: "worker".into(),
+                        state: 0,
+                    },
                 ],
                 &mut state,
                 &cfg,
@@ -395,7 +436,10 @@ mod tests {
             .await
             .expect("multi-send with one nested-Sends must NOT panic");
         // worker's update reaches state via fallback (no merge, single update)
-        assert_eq!(state, 5, "worker update applied; router's Sends were dropped");
+        assert_eq!(
+            state, 5,
+            "worker update applied; router's Sends were dropped"
+        );
         assert_eq!(
             next,
             vec!["end_worker".to_string()],
@@ -418,8 +462,14 @@ mod tests {
         let mut state: State = 0;
         g.execute_sends(
             vec![
-                SendTo { node: "a".into(), state: 0 },
-                SendTo { node: "b".into(), state: 0 },
+                SendTo {
+                    node: "a".into(),
+                    state: 0,
+                },
+                SendTo {
+                    node: "b".into(),
+                    state: 0,
+                },
             ],
             &mut state,
             &cfg,

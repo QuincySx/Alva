@@ -90,7 +90,10 @@ impl BrowserActionTool {
         let page = manager
             .active_page(&id)
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "browser_action".into(), message: e })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "browser_action".into(),
+                message: e,
+            })?;
 
         let result = match params.action {
             ActionKind::Click => execute_click(&page, &params).await,
@@ -100,21 +103,20 @@ impl BrowserActionTool {
         };
 
         match result {
-            Ok(msg) => Ok(ToolOutput::text(json!({
-                "status": "ok",
-                "action": action_label,
-                "detail": msg,
-            })
-            .to_string())),
+            Ok(msg) => Ok(ToolOutput::text(
+                json!({
+                    "status": "ok",
+                    "action": action_label,
+                    "detail": msg,
+                })
+                .to_string(),
+            )),
             Err(e) => Ok(ToolOutput::error(json!({ "error": e }).to_string())),
         }
     }
 }
 
-async fn execute_click(
-    page: &chromiumoxide::page::Page,
-    params: &Input,
-) -> Result<String, String> {
+async fn execute_click(page: &chromiumoxide::page::Page, params: &Input) -> Result<String, String> {
     if let Some(ref selector) = params.selector {
         // Click by CSS selector
         let element = page
@@ -162,10 +164,7 @@ async fn execute_click(
     }
 }
 
-async fn execute_type(
-    page: &chromiumoxide::page::Page,
-    params: &Input,
-) -> Result<String, String> {
+async fn execute_type(page: &chromiumoxide::page::Page, params: &Input) -> Result<String, String> {
     let text = params
         .text
         .as_deref()
@@ -215,10 +214,7 @@ async fn execute_type(
     }
 }
 
-async fn execute_press(
-    page: &chromiumoxide::page::Page,
-    params: &Input,
-) -> Result<String, String> {
+async fn execute_press(page: &chromiumoxide::page::Page, params: &Input) -> Result<String, String> {
     let key = params
         .key
         .as_deref()

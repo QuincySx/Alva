@@ -77,11 +77,7 @@ mod tests {
 
         graph.set_entry_point("router_node");
         graph.add_conditional_edge("router_node", |state| {
-            if state
-                .get("go_a")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
+            if state.get("go_a").and_then(|v| v.as_bool()).unwrap_or(false) {
                 "path_a".to_string()
             } else {
                 "path_b".to_string()
@@ -355,17 +351,28 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let config = InvokeConfig::default().with_events(tx);
 
-        let _result = compiled.invoke_with_config(json!({}), config).await.unwrap();
+        let _result = compiled
+            .invoke_with_config(json!({}), config)
+            .await
+            .unwrap();
 
         let mut events = Vec::new();
         while let Ok(event) = rx.try_recv() {
             events.push(event);
         }
 
-        assert!(events.iter().any(|e| matches!(e, GraphEvent::SuperstepStart { step: 1 })));
-        assert!(events.iter().any(|e| matches!(e, GraphEvent::NodeStart { node, .. } if node == "step1")));
-        assert!(events.iter().any(|e| matches!(e, GraphEvent::NodeEnd { node, .. } if node == "step1")));
-        assert!(events.iter().any(|e| matches!(e, GraphEvent::Completed { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, GraphEvent::SuperstepStart { step: 1 })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, GraphEvent::NodeStart { node, .. } if node == "step1")));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, GraphEvent::NodeEnd { node, .. } if node == "step1")));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, GraphEvent::Completed { .. })));
     }
 
     #[tokio::test]
@@ -396,7 +403,10 @@ mod tests {
             .with_checkpoint(saver.clone())
             .with_checkpoint_id("test");
 
-        let _result = compiled.invoke_with_config(json!({}), config).await.unwrap();
+        let _result = compiled
+            .invoke_with_config(json!({}), config)
+            .await
+            .unwrap();
 
         // Should have 2 checkpoints (one per superstep)
         let ids = saver.list().await.unwrap();

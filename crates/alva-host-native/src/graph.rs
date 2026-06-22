@@ -5,19 +5,29 @@
 //! Graph-based agent orchestration — re-exports from alva-agent-graph.
 
 pub use alva_agent_graph::{
-    // Core graph types
-    StateGraph, CompiledGraph, GraphRun,
-    // Constants
-    START, END,
-    // Dynamic routing
-    NodeResult, SendTo,
-    // Execution config & events
-    GraphEvent, InvokeConfig,
-    // Orchestration features
-    CheckpointSaver, InMemoryCheckpointSaver,
-    CompactionConfig, RetryConfig,
-    // Context transforms
-    ContextTransform, TransformPipeline,
     // Compaction utilities
-    compact_messages, estimate_tokens, should_compact,
+    compact_messages,
+    estimate_tokens,
+    should_compact,
+    // Orchestration features
+    CheckpointSaver,
+    CompactionConfig,
+    CompiledGraph,
+    // Context transforms
+    ContextTransform,
+    // Execution config & events
+    GraphEvent,
+    GraphRun,
+    InMemoryCheckpointSaver,
+    InvokeConfig,
+    // Dynamic routing
+    NodeResult,
+    RetryConfig,
+    SendTo,
+    // Core graph types
+    StateGraph,
+    TransformPipeline,
+    END,
+    // Constants
+    START,
 };

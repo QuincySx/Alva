@@ -30,7 +30,11 @@ pub enum GraphEvent {
     /// Graph execution completed successfully.
     Completed { total_steps: u32 },
     /// A Send was emitted by a node for dynamic routing.
-    SendEmitted { from_node: String, to_node: String, step: u32 },
+    SendEmitted {
+        from_node: String,
+        to_node: String,
+        step: u32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -147,9 +151,18 @@ mod tests {
     #[test]
     fn default_state_pins_all_safety_postures() {
         let cfg = InvokeConfig::default();
-        assert!(cfg.checkpoint.is_none(), "default must be opt-in for checkpointing");
-        assert!(cfg.event_tx.is_none(), "default must be opt-in for event streaming");
-        assert_eq!(cfg.checkpoint_id, "graph", "literal key for checkpoint storage");
+        assert!(
+            cfg.checkpoint.is_none(),
+            "default must be opt-in for checkpointing"
+        );
+        assert!(
+            cfg.event_tx.is_none(),
+            "default must be opt-in for event streaming"
+        );
+        assert_eq!(
+            cfg.checkpoint_id, "graph",
+            "literal key for checkpoint storage"
+        );
         assert_eq!(cfg.max_steps, 100, "infinite-loop guard literal");
     }
 
@@ -164,7 +177,10 @@ mod tests {
         assert!(cfg.checkpoint.is_some());
         assert!(cfg.event_tx.is_some());
         assert_eq!(cfg.checkpoint_id, "composed");
-        assert_eq!(cfg.max_steps, 100, "max_steps default must survive builder chain");
+        assert_eq!(
+            cfg.max_steps, 100,
+            "max_steps default must survive builder chain"
+        );
     }
 
     #[test]

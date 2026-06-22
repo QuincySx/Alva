@@ -3,10 +3,10 @@
 // OUTPUT: BaseAgent, BaseAgentBuilder, PermissionMode
 // POS:    Pre-wired batteries-included agent — owns Bus lifecycle, registers plugins, exposes bus_writer/bus for post-init capability wiring.
 
-mod permission;
 mod agent;
 pub mod builder;
+mod permission;
 
-pub use permission::{PermissionMode, PermissionModeService};
 pub use agent::BaseAgent;
 pub use builder::BaseAgentBuilder;
+pub use permission::{PermissionMode, PermissionModeService};

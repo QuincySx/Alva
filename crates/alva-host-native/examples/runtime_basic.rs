@@ -1,27 +1,29 @@
 // INPUT:  alva_host_native, alva_kernel_core, alva_kernel_abi, async_trait, futures_core
 // OUTPUT: (none — example binary)
-// POS:    Example demonstrating agent runtime builder API with a stub LLM provider
-//! Example: building an agent runtime with the builder API.
+// POS:    Legacy smoke example for deprecated AgentRuntimeBuilder with a stub LLM provider
+//! Legacy example: building an agent runtime with the deprecated host-native builder API.
 //!
 //! Demonstrates:
 //! - Setting up a `ProviderRegistry` (with a stub provider)
 //! - Resolving a model via `alva_host_native::model("provider/model_id", &registry)`
-//! - Using the builder API to compose tools and middleware
+//! - Using the deprecated builder API to compose tools and middleware
 //! - Running the agent loop and consuming events
 //!
-//! This example uses a mock model so it runs without any real API keys.
+//! This example uses a mock model so it runs without any real API keys. New
+//! app harnesses should use `alva_app_core::BaseAgentBuilder`; SDK users should
+//! use `alva_agent_core::AgentBuilder`.
 
 use std::pin::Pin;
 use std::sync::Arc;
 
 use alva_host_native::AgentRuntime;
-use alva_kernel_core::middleware::{Middleware, MiddlewareError};
-use alva_kernel_core::state::AgentState;
-use alva_kernel_core::run::run_agent;
 use alva_kernel_abi::{
-    AgentError, CancellationToken, CompletionResponse, LanguageModel, Message, ModelConfig,
-    Provider, ProviderError, ProviderRegistry, StreamEvent, Tool, AgentMessage,
+    AgentError, AgentMessage, CancellationToken, CompletionResponse, LanguageModel, Message,
+    ModelConfig, Provider, ProviderError, ProviderRegistry, StreamEvent, Tool,
 };
+use alva_kernel_core::middleware::{Middleware, MiddlewareError};
+use alva_kernel_core::run::run_agent;
+use alva_kernel_core::state::AgentState;
 use async_trait::async_trait;
 use futures_core::Stream;
 
@@ -80,10 +82,7 @@ impl Provider for StubProvider {
     fn id(&self) -> &str {
         "stub"
     }
-    fn language_model(
-        &self,
-        _model_id: &str,
-    ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
+    fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError> {
         Ok(Arc::new(StubModel))
     }
 }
@@ -101,7 +100,10 @@ impl Middleware for PrintMiddleware {
         _state: &mut AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
-        println!("[PrintMiddleware] before_llm_call — {} message(s)", messages.len());
+        println!(
+            "[PrintMiddleware] before_llm_call — {} message(s)",
+            messages.len()
+        );
         Ok(())
     }
 
@@ -126,7 +128,8 @@ impl Middleware for PrintMiddleware {
 // main
 // ---------------------------------------------------------------------------
 
-fn main() {
+#[allow(deprecated)]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== alva-host-native Basic Example ===\n");
 
     // 1. Set up a provider registry with the stub provider.
@@ -134,16 +137,16 @@ fn main() {
     registry.register(Arc::new(StubProvider));
 
     // 2. Resolve a model via the unified init helper.
-    let llm = alva_host_native::model("stub/any-model-id", &registry)
-        .expect("failed to resolve model");
+    let llm =
+        alva_host_native::model("stub/any-model-id", &registry).expect("failed to resolve model");
     println!("Resolved model: {}\n", llm.model_id());
 
-    // 3. Build the runtime using the builder API.
+    // 3. Build the runtime using the deprecated legacy builder API.
     let runtime = AgentRuntime::builder()
         .system_prompt("You are a helpful assistant.")
         .with_builtin_tools()
         .middleware(Arc::new(PrintMiddleware))
-        .build(llm);
+        .build(llm)?;
 
     println!(
         "Runtime created. Tool registry has {} tool(s):",
@@ -169,14 +172,7 @@ fn main() {
         let user_msg = AgentMessage::Standard(Message::user("Hello, agent!"));
 
         // Run the agent loop
-        let run_result = run_agent(
-            &mut state,
-            &config,
-            cancel,
-            vec![user_msg],
-            event_tx,
-        )
-        .await;
+        let run_result = run_agent(&mut state, &config, cancel, vec![user_msg], event_tx).await;
 
         // Drain events
         while let Ok(event) = event_rx.try_recv() {
@@ -207,4 +203,5 @@ fn main() {
     });
 
     println!("\n=== Done ===");
+    Ok(())
 }

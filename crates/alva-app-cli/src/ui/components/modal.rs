@@ -27,7 +27,10 @@ pub struct ModalFrame<'a> {
 
 impl<'a> ModalFrame<'a> {
     pub fn new(title: &'a str) -> Self {
-        Self { title, esc_hint: false }
+        Self {
+            title,
+            esc_hint: false,
+        }
     }
 
     pub fn with_esc_hint(mut self) -> Self {

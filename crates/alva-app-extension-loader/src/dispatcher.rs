@@ -24,18 +24,16 @@
 //! `ExtensionAction` variant fit this event?) lives in Phase 3.
 
 use std::collections::HashMap;
+use std::process::ExitStatus;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use std::process::ExitStatus;
 
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::protocol::{
-    error_codes, Notification, Request, RequestId, Response, RpcError,
-};
+use crate::protocol::{error_codes, Notification, Request, RequestId, Response, RpcError};
 use crate::subprocess::{ReadHalf, ShutdownHandle, SubprocessError, SubprocessRuntime, WriteHalf};
 
 // ===========================================================
@@ -146,11 +144,7 @@ impl RpcDispatcher {
     }
 
     /// Send a JSON-RPC request and await the response.
-    pub async fn call(
-        &self,
-        method: &str,
-        params: Option<Value>,
-    ) -> Result<Value, DispatchError> {
+    pub async fn call(&self, method: &str, params: Option<Value>) -> Result<Value, DispatchError> {
         let seq = self.next_id.fetch_add(1, Ordering::Relaxed);
         let id: RequestId = format!("h-{}", seq);
         let request = Request::new(id.clone(), method, params);
@@ -193,11 +187,7 @@ impl RpcDispatcher {
     }
 
     /// Send a JSON-RPC notification. Does not await a response.
-    pub async fn notify(
-        &self,
-        method: &str,
-        params: Option<Value>,
-    ) -> Result<(), DispatchError> {
+    pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<(), DispatchError> {
         let notif = Notification::new(method, params);
         let json = serde_json::to_string(&notif)?;
         self.write_tx
@@ -340,8 +330,7 @@ async fn dispatch_incoming(
 
     let has_method = value.get("method").is_some();
     let has_id = value.get("id").is_some();
-    let has_result_or_error =
-        value.get("result").is_some() || value.get("error").is_some();
+    let has_result_or_error = value.get("result").is_some() || value.get("error").is_some();
 
     if has_result_or_error && has_id {
         let response: Response = serde_json::from_value(value)?;
@@ -401,7 +390,9 @@ async fn dispatch_incoming(
         let notif: Notification = serde_json::from_value(value)?;
         let handler = Arc::clone(handler);
         tokio::spawn(async move {
-            handler.handle_notification(notif.method, notif.params).await;
+            handler
+                .handle_notification(notif.method, notif.params)
+                .await;
         });
     } else {
         tracing::warn!(

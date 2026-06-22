@@ -49,8 +49,7 @@ mod tests {
     async fn tokio_sleeper_lets_fast_future_win() {
         let sleeper: Arc<dyn Sleeper> = Arc::new(TokioSleeper);
         // Future that completes immediately vs a long timeout — the future wins.
-        let result =
-            timeout(sleeper.as_ref(), Duration::from_secs(60), async { 42 }).await;
+        let result = timeout(sleeper.as_ref(), Duration::from_secs(60), async { 42 }).await;
         assert_eq!(result, Ok(42));
     }
 }

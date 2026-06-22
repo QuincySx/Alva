@@ -3,9 +3,7 @@
 // POS:    Retrieves the output/results of a task from its output file.
 //! task_output — get task output content
 
-use alva_kernel_abi::{
-    AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput,
-};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -70,8 +68,7 @@ mod tests {
 
     use super::*;
     use alva_kernel_abi::{
-        Bus, BusHandle, CancellationToken, TaskType, Tool, ToolExecutionContext,
-        create_task_state,
+        create_task_state, Bus, BusHandle, CancellationToken, TaskType, Tool, ToolExecutionContext,
     };
     use serde_json::json;
 
@@ -103,8 +100,7 @@ mod tests {
     fn ctx_with_store() -> (TestContext, Arc<InMemoryTaskStore>) {
         let store = Arc::new(InMemoryTaskStore::new());
         let bus = Bus::new();
-        bus.writer()
-            .provide::<dyn TaskService>(store.clone());
+        bus.writer().provide::<dyn TaskService>(store.clone());
         (
             TestContext {
                 cancel: CancellationToken::new(),

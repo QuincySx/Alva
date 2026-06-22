@@ -56,7 +56,9 @@ impl AnthropicProvider {
     /// are converted to unified headers via `XApiKey` scheme.
     pub fn new(config: ProviderConfig) -> Self {
         let auth_headers = crate::auth::resolve_auth_headers(
-            &config.api_key, &config.custom_headers, crate::auth::AuthScheme::XApiKey,
+            &config.api_key,
+            &config.custom_headers,
+            crate::auth::AuthScheme::XApiKey,
         );
         Self {
             model: config.model,
@@ -188,10 +190,7 @@ impl LanguageModel for AnthropicProvider {
         tools: &[&dyn Tool],
         config: &ModelConfig,
     ) -> Result<CompletionResponse, AgentError> {
-        let url = format!(
-            "{}/v1/messages",
-            self.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
 
         // Record request for rate limiting
         let _rate_check = self.rate_limit.record_request();
@@ -220,7 +219,9 @@ impl LanguageModel for AnthropicProvider {
             "LLM request body"
         );
 
-        let req = self.client.post(&url)
+        let req = self
+            .client
+            .post(&url)
             .header("anthropic-version", ANTHROPIC_API_VERSION)
             .header("Content-Type", "application/json");
         let req = crate::auth::apply_headers(req, &self.auth_headers);
@@ -288,10 +289,7 @@ impl LanguageModel for AnthropicProvider {
         tools: &[&dyn Tool],
         config: &ModelConfig,
     ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
-        let url = format!(
-            "{}/v1/messages",
-            self.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let client = self.client.clone();
         let model = self.model.clone();
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
@@ -445,9 +443,15 @@ fn apply_cache_marker_to_last_user(body: &mut Value) {
         .iter()
         .rposition(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"));
     let Some(idx) = last_user_idx else { return };
-    let Some(msg) = messages.get_mut(idx) else { return };
-    let Some(obj) = msg.as_object_mut() else { return };
-    let Some(content) = obj.get_mut("content") else { return };
+    let Some(msg) = messages.get_mut(idx) else {
+        return;
+    };
+    let Some(obj) = msg.as_object_mut() else {
+        return;
+    };
+    let Some(content) = obj.get_mut("content") else {
+        return;
+    };
 
     match content {
         Value::String(text) => {
@@ -463,7 +467,9 @@ fn apply_cache_marker_to_last_user(body: &mut Value) {
             // tool_use / image / etc. — those don't accept cache_control
             // in the same way).
             for block in blocks.iter_mut().rev() {
-                let Some(b_obj) = block.as_object_mut() else { continue };
+                let Some(b_obj) = block.as_object_mut() else {
+                    continue;
+                };
                 if b_obj.get("type").and_then(|t| t.as_str()) == Some("text") {
                     b_obj.insert(
                         "cache_control".to_string(),

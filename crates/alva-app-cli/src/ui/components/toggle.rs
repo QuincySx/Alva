@@ -22,7 +22,11 @@ pub struct Toggle {
 
 impl Toggle {
     pub fn new(label: impl Into<String>, value: bool) -> Self {
-        Self { label: label.into(), value, bordered: false }
+        Self {
+            label: label.into(),
+            value,
+            bordered: false,
+        }
     }
 
     pub fn bordered(mut self, on: bool) -> Self {
@@ -30,8 +34,12 @@ impl Toggle {
         self
     }
 
-    pub fn value(&self) -> bool { self.value }
-    pub fn set(&mut self, v: bool) { self.value = v; }
+    pub fn value(&self) -> bool {
+        self.value
+    }
+    pub fn set(&mut self, v: bool) {
+        self.value = v;
+    }
 }
 
 impl Component for Toggle {
@@ -47,7 +55,9 @@ impl Component for Toggle {
         ]);
         let p = if self.bordered {
             Paragraph::new(line).block(
-                Block::default().borders(Borders::ALL).border_style(theme.border),
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme.border),
             )
         } else {
             Paragraph::new(line)
@@ -64,8 +74,18 @@ impl Component for Toggle {
                 self.value = !self.value;
                 ComponentAction::Changed
             }
-            KeyCode::Left => { if self.value { self.value = false; } ComponentAction::Changed }
-            KeyCode::Right => { if !self.value { self.value = true; } ComponentAction::Changed }
+            KeyCode::Left => {
+                if self.value {
+                    self.value = false;
+                }
+                ComponentAction::Changed
+            }
+            KeyCode::Right => {
+                if !self.value {
+                    self.value = true;
+                }
+                ComponentAction::Changed
+            }
             KeyCode::Esc => ComponentAction::Dismiss,
             _ => ComponentAction::Bubble(event),
         }
@@ -79,7 +99,10 @@ mod tests {
     //! backend setup. Each test asserts the returned action variant
     //! AND the post-event value, since callers read value via `value()`.
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
+        MouseEventKind,
+    };
 
     fn key(code: KeyCode) -> Event {
         Event::Key(KeyEvent {
@@ -175,7 +198,13 @@ mod tests {
                 // Bubbled event must be the same event we passed in
                 // (verbatim re-emission, not a synthesized one)
                 assert!(
-                    matches!(bubbled, Event::Key(KeyEvent { code: KeyCode::Tab, .. })),
+                    matches!(
+                        bubbled,
+                        Event::Key(KeyEvent {
+                            code: KeyCode::Tab,
+                            ..
+                        })
+                    ),
                     "bubbled event lost identity: {bubbled:?}"
                 );
             }

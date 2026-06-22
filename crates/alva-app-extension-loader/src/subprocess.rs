@@ -141,20 +141,14 @@ impl SubprocessRuntime {
     /// stdout, without the trailing newline. Returns `Ok(None)` on
     /// clean EOF.
     pub async fn read_message(&mut self) -> Result<Option<String>, SubprocessError> {
-        let stdout = self
-            .stdout
-            .as_mut()
-            .ok_or(SubprocessError::AlreadyClosed)?;
+        let stdout = self.stdout.as_mut().ok_or(SubprocessError::AlreadyClosed)?;
         read_one_line(stdout).await
     }
 
     /// Write one message to the subprocess's stdin, appending a
     /// newline and flushing.
     pub async fn write_message(&mut self, line: &str) -> Result<(), SubprocessError> {
-        let stdin = self
-            .stdin
-            .as_mut()
-            .ok_or(SubprocessError::AlreadyClosed)?;
+        let stdin = self.stdin.as_mut().ok_or(SubprocessError::AlreadyClosed)?;
         write_one_line(stdin, line).await
     }
 
@@ -243,11 +237,7 @@ impl ShutdownHandle {
     /// `HARD_KILL_TIMEOUT` for reap.
     pub async fn shutdown(mut self) -> Result<std::process::ExitStatus, SubprocessError> {
         let name = self.name.clone();
-        let status = match tokio::time::timeout(
-            GRACEFUL_SHUTDOWN_TIMEOUT,
-            self.child.wait(),
-        )
-        .await
+        let status = match tokio::time::timeout(GRACEFUL_SHUTDOWN_TIMEOUT, self.child.wait()).await
         {
             Ok(Ok(status)) => {
                 tracing::debug!(plugin = %name, ?status, "plugin exited gracefully");
@@ -474,7 +464,10 @@ mod tests {
         // e.g. PYTHONPATH would leak host paths into every plugin
         // subprocess, breaking hermetic execution.
         let lo = default_launcher(Runtime::Python);
-        assert!(lo.env.is_empty(), "Python launcher must not inject env vars by default");
+        assert!(
+            lo.env.is_empty(),
+            "Python launcher must not inject env vars by default"
+        );
     }
 
     // -- default_launcher: JavaScript ----------------------------------
@@ -507,6 +500,9 @@ mod tests {
     #[test]
     fn default_launcher_javascript_has_no_extra_env_vars_by_default() {
         let lo = default_launcher(Runtime::Javascript);
-        assert!(lo.env.is_empty(), "JS launcher must not inject env vars by default");
+        assert!(
+            lo.env.is_empty(),
+            "JS launcher must not inject env vars by default"
+        );
     }
 }

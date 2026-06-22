@@ -1,3 +1,6 @@
+// INPUT:  builtins command structs, Command trait/types
+// OUTPUT: CommandRegistry
+// POS:    CLI slash command registry and dispatcher.
 use super::builtins;
 use super::types::{Command, CommandContext, CommandResult};
 
@@ -52,6 +55,7 @@ impl CommandRegistry {
 
         // Tool commands
         self.register(Box::new(builtins::ToolsCommand));
+        self.register(Box::new(builtins::ComponentsCommand));
         self.register(Box::new(builtins::McpCommand));
 
         // Agent commands
@@ -128,7 +132,12 @@ mod tests {
     }
     impl TestCmd {
         fn new(name: &'static str) -> Self {
-            Self { name, aliases: vec![], enabled: true, last_args: Mutex::new(None) }
+            Self {
+                name,
+                aliases: vec![],
+                enabled: true,
+                last_args: Mutex::new(None),
+            }
         }
         fn with_aliases(mut self, aliases: Vec<&'static str>) -> Self {
             self.aliases = aliases;
@@ -140,10 +149,18 @@ mod tests {
         }
     }
     impl Command for TestCmd {
-        fn name(&self) -> &str { self.name }
-        fn aliases(&self) -> Vec<&str> { self.aliases.clone() }
-        fn description(&self) -> &str { "test command" }
-        fn is_enabled(&self) -> bool { self.enabled }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn aliases(&self) -> Vec<&str> {
+            self.aliases.clone()
+        }
+        fn description(&self) -> &str {
+            "test command"
+        }
+        fn is_enabled(&self) -> bool {
+            self.enabled
+        }
         fn execute(&self, args: &str, _ctx: &CommandContext) -> CommandResult {
             *self.last_args.lock().unwrap() = Some(args.to_string());
             CommandResult::Text(format!("ran with: {args}"))
@@ -158,6 +175,9 @@ mod tests {
             message_count: 0,
             token_usage: TokenUsage::default(),
             tool_names: vec![],
+            plugin_names: vec![],
+            middleware_names: vec![],
+            component_overrides: std::collections::HashMap::new(),
             plan_mode: false,
         }
     }
@@ -168,7 +188,11 @@ mod tests {
         let list = reg.list();
         // 25 builtins are registered in register_builtins(); allow >=20 to
         // tolerate one or two becoming `is_enabled() == false` later.
-        assert!(list.len() >= 20, "expected >=20 enabled builtins, got {}", list.len());
+        assert!(
+            list.len() >= 20,
+            "expected >=20 enabled builtins, got {}",
+            list.len()
+        );
         // Spot-check a stable subset
         let names: Vec<&str> = list.iter().map(|(n, _)| *n).collect();
         for must in ["clear", "help", "model", "config", "status"] {
@@ -180,7 +204,9 @@ mod tests {
     fn register_and_find_custom_command() {
         let mut reg = CommandRegistry::new();
         reg.register(Box::new(TestCmd::new("ztest")));
-        let cmd = reg.find("ztest").expect("registered command should be findable");
+        let cmd = reg
+            .find("ztest")
+            .expect("registered command should be findable");
         assert_eq!(cmd.name(), "ztest");
     }
 
@@ -212,27 +238,44 @@ mod tests {
         // But it must still be findable by name — `is_enabled` only gates
         // listing, not lookup (mirrors real builtins that may be hidden
         // from help but still invokable).
-        assert!(reg.find("hidden").is_some(), "disabled command should still be findable");
+        assert!(
+            reg.find("hidden").is_some(),
+            "disabled command should still be findable"
+        );
     }
 
     #[test]
     fn execute_non_slash_input_returns_none() {
         let reg = CommandRegistry::new();
         let ctx = test_ctx();
-        assert!(reg.execute("hello world", &ctx).is_none(), "non-slash must short-circuit");
+        assert!(
+            reg.execute("hello world", &ctx).is_none(),
+            "non-slash must short-circuit"
+        );
         // Empty string also lacks the leading `/`
-        assert!(reg.execute("", &ctx).is_none(), "empty input must short-circuit");
+        assert!(
+            reg.execute("", &ctx).is_none(),
+            "empty input must short-circuit"
+        );
     }
 
     #[test]
     fn execute_unknown_slash_returns_error_result() {
         let reg = CommandRegistry::new();
         let ctx = test_ctx();
-        let out = reg.execute("/totally-fake-cmd", &ctx).expect("slash must produce Some");
+        let out = reg
+            .execute("/totally-fake-cmd", &ctx)
+            .expect("slash must produce Some");
         match out {
             CommandResult::Error(msg) => {
-                assert!(msg.contains("Unknown command"), "error wording changed: {msg}");
-                assert!(msg.contains("totally-fake-cmd"), "error should echo name: {msg}");
+                assert!(
+                    msg.contains("Unknown command"),
+                    "error wording changed: {msg}"
+                );
+                assert!(
+                    msg.contains("totally-fake-cmd"),
+                    "error should echo name: {msg}"
+                );
             }
             other => panic!("expected Error, got {other:?}"),
         }
@@ -248,7 +291,9 @@ mod tests {
         let ctx = test_ctx();
 
         // Trailing/leading whitespace inside args is trimmed by execute()
-        let out = reg.execute("/targs   foo bar   ", &ctx).expect("slash → Some");
+        let out = reg
+            .execute("/targs   foo bar   ", &ctx)
+            .expect("slash → Some");
         match out {
             CommandResult::Text(t) => assert!(t.contains("foo bar"), "args echo missing: {t}"),
             other => panic!("expected Text, got {other:?}"),
@@ -273,7 +318,10 @@ mod tests {
         // `cost` exists; `cos` is a prefix but not a registered name/alias
         assert!(reg.find("cos").is_none(), "prefix match should NOT resolve");
         // case-sensitive
-        assert!(reg.find("CLEAR").is_none(), "lookup should be case-sensitive");
+        assert!(
+            reg.find("CLEAR").is_none(),
+            "lookup should be case-sensitive"
+        );
         // sanity: lowercase form still works
         assert!(reg.find("clear").is_some());
     }
@@ -298,7 +346,11 @@ mod tests {
             let cmd = reg
                 .find(needle)
                 .unwrap_or_else(|| panic!("`{needle}` must resolve"));
-            assert_eq!(cmd.name(), "primary", "alias `{needle}` returned wrong command");
+            assert_eq!(
+                cmd.name(),
+                "primary",
+                "alias `{needle}` returned wrong command"
+            );
         }
 
         // Unregistered alias still resolves to None (regression guard

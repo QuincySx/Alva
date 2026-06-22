@@ -2,10 +2,10 @@
 // OUTPUT: SecurityDecision, SecurityGuard
 // POS:    Unified security gate composing sensitive-path filtering, authorized-root checking,
 //         HITL permission management, permission rules, caching, modes, and bash classification.
-use std::collections::HashSet;
-use std::sync::Arc;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use alva_kernel_abi::{bus_cap, ToolExecutionContext};
 
@@ -45,9 +45,7 @@ const DEFAULT_DANGEROUS_TOOLS: &[&str] = &[
 /// Default mapping of tools whose arguments contain a URL that needs SSRF
 /// inspection, to the JSON arg key holding that URL.
 /// Added to during construction; user can extend via `add_url_aware_tool`.
-const DEFAULT_URL_AWARE_TOOLS: &[(&str, &str)] = &[
-    ("read_url", "url"),
-];
+const DEFAULT_URL_AWARE_TOOLS: &[(&str, &str)] = &[("read_url", "url")];
 
 /// Default JSON keys that contain file paths in tool arguments.
 const DEFAULT_PATH_KEYS: &[&str] = &[
@@ -80,13 +78,12 @@ fn expand_home(path: &str) -> PathBuf {
     }
 }
 
-
 /// Bus Capability: unified security gate shared by middleware + HITL UI.
 /// Published on the bus wrapped in `tokio::sync::Mutex<SecurityGuard>`.
 ///
-/// **Provider**: `SecurityPlugin::configure`
+/// **Provider**: `SecurityPlugin::register`
 /// (`alva-agent-extension-builtin/src/wrappers/security.rs`). The
-/// default-replacement contract applies — register your own extension
+/// default-replacement contract applies — register your own plugin
 /// named `"security"` to swap the guard.
 /// **Consumers**: `BaseAgent::resolve_permission`
 /// (`alva-app-core/src/base_agent/agent.rs`) so the CLI / UI can
@@ -126,7 +123,10 @@ pub struct SecurityGuard {
     /// JSON keys to extract paths from — configurable at runtime.
     path_keys: HashSet<String>,
     /// Pending approval receivers keyed by request ID.
-    pending_receivers: std::collections::HashMap<String, tokio::sync::oneshot::Receiver<crate::permission::PermissionDecision>>,
+    pending_receivers: std::collections::HashMap<
+        String,
+        tokio::sync::oneshot::Receiver<crate::permission::PermissionDecision>,
+    >,
     /// URL fetch policy (SSRF defense / T6 3C path).
     /// Single knob: `ask_threshold` — default Medium means private/loopback/
     /// link-local/DNS-fail trigger HITL approval; public URLs auto-pass.
@@ -163,7 +163,10 @@ impl SecurityGuard {
             permission_rules: PermissionRules::default(),
             permission_cache: PermissionCache::new(),
             mode,
-            dangerous_tools: DEFAULT_DANGEROUS_TOOLS.iter().map(|s| s.to_string()).collect(),
+            dangerous_tools: DEFAULT_DANGEROUS_TOOLS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             path_keys: DEFAULT_PATH_KEYS.iter().map(|s| s.to_string()).collect(),
             pending_receivers: std::collections::HashMap::new(),
             url_rules: UrlRules::default(),
@@ -272,11 +275,9 @@ impl SecurityGuard {
         // middleware will see `NeedHumanApproval` and reuse its existing
         // notifier-and-receiver dance.
         let request_id = format!("url-{}", uuid::Uuid::new_v4());
-        let rx = self.permission_manager.request_approval(
-            request_id.clone(),
-            tool_name,
-            args,
-        );
+        let rx = self
+            .permission_manager
+            .request_approval(request_id.clone(), tool_name, args);
         self.pending_receivers.insert(request_id.clone(), rx);
         Some(SecurityDecision::NeedHumanApproval { request_id })
     }
@@ -357,10 +358,7 @@ impl SecurityGuard {
             if let Some(reason) = self.sensitive_paths.check(path) {
                 tracing::info!(tool = tool_name, path = %path.display(), "denied: sensitive path");
                 return SecurityDecision::Deny {
-                    reason: format!(
-                        "tool '{}' blocked: {}",
-                        tool_name, reason
-                    ),
+                    reason: format!("tool '{}' blocked: {}", tool_name, reason),
                 };
             }
         }
@@ -370,10 +368,7 @@ impl SecurityGuard {
             if let Err(reason) = self.authorized_roots.check(path) {
                 tracing::info!(tool = tool_name, path = %path.display(), "denied: outside roots");
                 return SecurityDecision::Deny {
-                    reason: format!(
-                        "tool '{}' blocked: {}",
-                        tool_name, reason
-                    ),
+                    reason: format!("tool '{}' blocked: {}", tool_name, reason),
                 };
             }
         }
@@ -388,10 +383,7 @@ impl SecurityGuard {
                 CachedDecision::DenyAlways => {
                     tracing::debug!(tool = tool_name, "denied by cache");
                     return SecurityDecision::Deny {
-                        reason: format!(
-                            "tool '{}' is cached as denied",
-                            tool_name
-                        ),
+                        reason: format!("tool '{}' is cached as denied", tool_name),
                     };
                 }
             }
@@ -408,10 +400,7 @@ impl SecurityGuard {
                 RuleDecision::Deny => {
                     tracing::info!(tool = tool_name, "denied by rule");
                     return SecurityDecision::Deny {
-                        reason: format!(
-                            "tool '{}' blocked by permission rule",
-                            tool_name
-                        ),
+                        reason: format!("tool '{}' blocked by permission rule", tool_name),
                     };
                 }
                 RuleDecision::Ask => {
@@ -429,7 +418,10 @@ impl SecurityGuard {
                         return SecurityDecision::Allow;
                     }
                     CommandClassification::Destructive => {
-                        tracing::info!(tool = tool_name, "denied: destructive command in auto mode");
+                        tracing::info!(
+                            tool = tool_name,
+                            "denied: destructive command in auto mode"
+                        );
                         return SecurityDecision::Deny {
                             reason: format!(
                                 "tool '{}' blocked: destructive command '{}' not allowed in auto mode",
@@ -439,7 +431,10 @@ impl SecurityGuard {
                     }
                     CommandClassification::Unknown => {
                         // Auto mode auto-approves unknown commands too (trusts sandbox)
-                        tracing::debug!(tool = tool_name, "auto-approved: unknown command in auto mode");
+                        tracing::debug!(
+                            tool = tool_name,
+                            "auto-approved: unknown command in auto mode"
+                        );
                         return SecurityDecision::Allow;
                     }
                 }
@@ -461,9 +456,11 @@ impl SecurityGuard {
                 None => {
                     let request_id = uuid::Uuid::new_v4().to_string();
                     // Register pending approval — caller must await the receiver
-                    let rx = self
-                        .permission_manager
-                        .request_approval(request_id.clone(), tool_name, args);
+                    let rx = self.permission_manager.request_approval(
+                        request_id.clone(),
+                        tool_name,
+                        args,
+                    );
                     self.pending_receivers.insert(request_id.clone(), rx);
                     return SecurityDecision::NeedHumanApproval { request_id };
                 }
@@ -528,7 +525,11 @@ impl SecurityGuard {
             return cmd;
         }
         // For file tools, use the path
-        if let Some(path) = args.get("path").or(args.get("file_path")).and_then(|v| v.as_str()) {
+        if let Some(path) = args
+            .get("path")
+            .or(args.get("file_path"))
+            .and_then(|v| v.as_str())
+        {
             return path.to_string();
         }
         // Fallback: serialize the args
@@ -627,10 +628,18 @@ mod tests {
     }
 
     impl alva_kernel_abi::ToolExecutionContext for TestToolContext {
-        fn cancel_token(&self) -> &alva_kernel_abi::CancellationToken { &self.cancel }
-        fn session_id(&self) -> &str { "test-session" }
-        fn workspace(&self) -> Option<&std::path::Path> { Some(&self.workspace) }
-        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn cancel_token(&self) -> &alva_kernel_abi::CancellationToken {
+            &self.cancel
+        }
+        fn session_id(&self) -> &str {
+            "test-session"
+        }
+        fn workspace(&self) -> Option<&std::path::Path> {
+            Some(&self.workspace)
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     fn test_ctx() -> TestToolContext {
@@ -681,7 +690,10 @@ mod tests {
         );
         let args = json!({ "command": "ls /projects/myapp" });
         let decision = guard.check_tool_call("execute_shell", &args, &test_ctx());
-        assert!(matches!(decision, SecurityDecision::NeedHumanApproval { .. }));
+        assert!(matches!(
+            decision,
+            SecurityDecision::NeedHumanApproval { .. }
+        ));
     }
 
     #[test]
@@ -821,7 +833,11 @@ mod tests {
         assert!(rx.is_some(), "receiver should exist after check_tool_call");
 
         // Resolve and verify receiver gets the decision
-        guard.resolve_permission(&request_id, "execute_shell", crate::permission::PermissionDecision::AllowOnce);
+        guard.resolve_permission(
+            &request_id,
+            "execute_shell",
+            crate::permission::PermissionDecision::AllowOnce,
+        );
         let decision = rx.unwrap().await.unwrap();
         assert_eq!(decision, crate::permission::PermissionDecision::AllowOnce);
     }
@@ -848,10 +864,14 @@ mod tests {
     #[test]
     fn set_url_rules_overrides_threshold() {
         let mut g = fresh_guard();
-        g.set_url_rules(UrlRules { ask_threshold: Some(UrlRisk::High) });
+        g.set_url_rules(UrlRules {
+            ask_threshold: Some(UrlRisk::High),
+        });
         assert_eq!(g.url_rules().ask_threshold, Some(UrlRisk::High));
 
-        g.set_url_rules(UrlRules { ask_threshold: None });
+        g.set_url_rules(UrlRules {
+            ask_threshold: None,
+        });
         assert_eq!(g.url_rules().ask_threshold, None);
     }
 
@@ -870,7 +890,9 @@ mod tests {
         // still resolves to High. If this fails, the delegate forgot to
         // await or is calling a stale function.
         let g = fresh_guard();
-        let info = g.inspect_url("http://169.254.169.254/latest/meta-data/").await;
+        let info = g
+            .inspect_url("http://169.254.169.254/latest/meta-data/")
+            .await;
         assert_eq!(info.risk, UrlRisk::High);
         assert_eq!(info.ip_class, Some(crate::url_info::IpClass::LinkLocal));
     }

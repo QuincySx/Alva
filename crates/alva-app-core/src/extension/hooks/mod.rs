@@ -12,12 +12,12 @@
 //! | other| Non-blocking error — stderr shown to user, operation continues|
 
 mod executor;
-mod matcher;
 mod extension;
+mod matcher;
 
 pub use executor::HookExecutor;
-pub use matcher::matches_hook;
 pub use extension::HooksPlugin;
+pub use matcher::matches_hook;
 
 use serde::{Deserialize, Serialize};
 
@@ -120,10 +120,7 @@ pub enum HookOutcome {
     /// Hook produced a blocking error (exit 2). Stderr should be fed to the model.
     Blocked { stderr: String },
     /// Hook produced a non-blocking error. Stderr is shown to the user.
-    NonBlockingError {
-        exit_code: i32,
-        stderr: String,
-    },
+    NonBlockingError { exit_code: i32, stderr: String },
     /// Hook timed out.
     Timeout,
     /// Hook could not be executed (e.g., command not found).
@@ -169,9 +166,9 @@ impl HookResult {
         self.outcomes
             .iter()
             .filter_map(|o| match o {
-                HookOutcome::Success { output: Some(out), .. } => {
-                    out.additional_context.as_deref()
-                }
+                HookOutcome::Success {
+                    output: Some(out), ..
+                } => out.additional_context.as_deref(),
                 _ => None,
             })
             .collect()
@@ -180,7 +177,9 @@ impl HookResult {
     /// Get the first updated_input from successful PreToolUse hooks.
     pub fn updated_input(&self) -> Option<&serde_json::Value> {
         self.outcomes.iter().find_map(|o| match o {
-            HookOutcome::Success { output: Some(out), .. } => out.updated_input.as_ref(),
+            HookOutcome::Success {
+                output: Some(out), ..
+            } => out.updated_input.as_ref(),
             _ => None,
         })
     }
@@ -295,7 +294,8 @@ mod tests {
 
     #[test]
     fn hook_output_deserializes_full() {
-        let json = r#"{"continue": false, "stop_reason": "blocked", "additional_context": "extra info"}"#;
+        let json =
+            r#"{"continue": false, "stop_reason": "blocked", "additional_context": "extra info"}"#;
         let output: HookOutput = serde_json::from_str(json).unwrap();
         assert_eq!(output.should_continue, Some(false));
         assert_eq!(output.stop_reason.as_deref(), Some("blocked"));
@@ -327,7 +327,11 @@ mod tests {
 
         // Failure path returns ONLY failure hooks.
         let failure_configs = settings.configs_for(HookEvent::PostToolUseFailure);
-        assert_eq!(failure_configs.len(), 2, "failure path: 2 hooks, not conflated");
+        assert_eq!(
+            failure_configs.len(),
+            2,
+            "failure path: 2 hooks, not conflated"
+        );
     }
 
     #[test]
@@ -341,7 +345,11 @@ mod tests {
         let json = r#"{"PostToolUse": [{"matcher": "Bash", "hooks": []}]}"#;
         let settings: HooksSettings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.post_tool_use.len(), 1);
-        assert_eq!(settings.post_tool_use_failure.len(), 0, "missing field → empty");
+        assert_eq!(
+            settings.post_tool_use_failure.len(),
+            0,
+            "missing field → empty"
+        );
         assert_eq!(settings.configs_for(HookEvent::PostToolUseFailure).len(), 0);
     }
 }

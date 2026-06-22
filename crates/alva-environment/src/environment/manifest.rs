@@ -92,8 +92,8 @@ impl ArchiveFormat {
 impl ResourceManifest {
     /// Load a manifest from a JSON file on disk.
     pub fn from_file(path: &Path) -> Result<Self, ManifestError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ManifestError::Io(path.to_path_buf(), e))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ManifestError::Io(path.to_path_buf(), e))?;
         Self::from_json(&content)
     }
 
@@ -173,9 +173,18 @@ mod tests {
 
     #[test]
     fn archive_format_parse() {
-        assert_eq!(ArchiveFormat::from_str("zip-flat"), Some(ArchiveFormat::ZipFlat));
-        assert_eq!(ArchiveFormat::from_str("tar.gz"), Some(ArchiveFormat::TarGz));
-        assert_eq!(ArchiveFormat::from_str("qwen-zip"), Some(ArchiveFormat::QwenZip));
+        assert_eq!(
+            ArchiveFormat::from_str("zip-flat"),
+            Some(ArchiveFormat::ZipFlat)
+        );
+        assert_eq!(
+            ArchiveFormat::from_str("tar.gz"),
+            Some(ArchiveFormat::TarGz)
+        );
+        assert_eq!(
+            ArchiveFormat::from_str("qwen-zip"),
+            Some(ArchiveFormat::QwenZip)
+        );
         assert_eq!(ArchiveFormat::from_str("unknown"), None);
     }
 }

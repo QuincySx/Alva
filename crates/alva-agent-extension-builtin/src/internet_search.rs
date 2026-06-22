@@ -58,7 +58,9 @@ struct DdgRelatedTopic {
 
 /// Extract domain from a URL for filtering purposes.
 fn extract_domain_from_url(url: &str) -> Option<String> {
-    let url = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let url = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
     let host = url.split('/').next()?;
     let domain = host.split(':').next()?;
     Some(domain.to_lowercase())
@@ -109,7 +111,10 @@ impl InternetSearchTool {
             .timeout(std::time::Duration::from_secs(15))
             .user_agent("SrowAgent/0.1")
             .build()
-            .map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: format!("HTTP client error: {e}") })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "internet_search".into(),
+                message: format!("HTTP client error: {e}"),
+            })?;
 
         // Report progress: sending request
         ctx.report_progress(ProgressEvent::Status {
@@ -120,7 +125,10 @@ impl InternetSearchTool {
             .get(&url)
             .send()
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: format!("HTTP request failed: {e}") })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "internet_search".into(),
+                message: format!("HTTP request failed: {e}"),
+            })?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -135,10 +143,10 @@ impl InternetSearchTool {
             message: "Parsing search results...".into(),
         });
 
-        let ddg: DdgResponse = resp
-            .json()
-            .await
-            .map_err(|e| AgentError::ToolError { tool_name: "internet_search".into(), message: format!("Failed to parse response: {e}") })?;
+        let ddg: DdgResponse = resp.json().await.map_err(|e| AgentError::ToolError {
+            tool_name: "internet_search".into(),
+            message: format!("Failed to parse response: {e}"),
+        })?;
 
         // Build results
         let mut results: Vec<Value> = Vec::new();
@@ -164,7 +172,11 @@ impl InternetSearchTool {
             if topic.text.is_empty() {
                 continue;
             }
-            if !should_include_result(&topic.first_url, &params.allowed_domains, &params.blocked_domains) {
+            if !should_include_result(
+                &topic.first_url,
+                &params.allowed_domains,
+                &params.blocked_domains,
+            ) {
                 continue;
             }
             results.push(json!({
@@ -191,8 +203,9 @@ impl InternetSearchTool {
             })
         };
 
-        Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
-            .unwrap_or_else(|_| "{}".to_string())))
+        Ok(ToolOutput::text(
+            serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()),
+        ))
     }
 }
 
@@ -364,10 +377,7 @@ mod tests {
     #[test]
     fn domain_matches_returns_false_for_unparseable_url() {
         // No scheme → extract_domain_from_url returns None → no match
-        assert!(!domain_matches(
-            "example.com",
-            &["example.com".to_string()]
-        ));
+        assert!(!domain_matches("example.com", &["example.com".to_string()]));
     }
 
     // ─── should_include_result ────────────────────────────────────────
@@ -384,7 +394,11 @@ mod tests {
     #[test]
     fn should_include_allowed_filters_in() {
         let allowed = Some(vec!["docs.rs".to_string()]);
-        assert!(should_include_result("https://docs.rs/foo", &allowed, &None));
+        assert!(should_include_result(
+            "https://docs.rs/foo",
+            &allowed,
+            &None
+        ));
         assert!(!should_include_result(
             "https://example.com/foo",
             &allowed,
@@ -461,7 +475,10 @@ mod tests {
         assert_eq!(parsed.abstract_url, "https://en.wikipedia.org/wiki/Rust");
         assert_eq!(parsed.heading, "Rust (programming language)");
         assert_eq!(parsed.related_topics.len(), 1);
-        assert_eq!(parsed.related_topics[0].text, "Cargo - Rust's package manager");
+        assert_eq!(
+            parsed.related_topics[0].text,
+            "Cargo - Rust's package manager"
+        );
         assert_eq!(parsed.related_topics[0].first_url, "https://crates.io");
     }
 

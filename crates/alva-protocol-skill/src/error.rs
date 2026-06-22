@@ -81,10 +81,7 @@ mod tests {
         // diagnostics can see what was rejected. A future refactor
         // that dropped the path would lose audit evidence.
         let e = SkillError::PathTraversal("../etc/passwd".into());
-        assert_eq!(
-            e.to_string(),
-            "Path traversal attempt: '../etc/passwd'"
-        );
+        assert_eq!(e.to_string(), "Path traversal attempt: '../etc/passwd'");
     }
 
     #[test]

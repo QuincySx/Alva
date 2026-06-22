@@ -12,10 +12,10 @@ use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{AgentMessage, CancellationToken, ModelConfig};
+use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::run::run_agent;
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
-use alva_kernel_core::middleware::MiddlewareStack;
 use async_trait::async_trait;
 use futures_core::Stream;
 
@@ -185,11 +185,9 @@ async fn full_run_produces_skeleton_events_in_order() {
     // -----------------------------------------------------------------------
     for em in &all_events {
         assert_ne!(
-            em.event.seq,
-            0,
+            em.event.seq, 0,
             "event {} ({}) has unassigned seq",
-            em.event.uuid,
-            em.event.event_type
+            em.event.uuid, em.event.event_type
         );
     }
 
@@ -249,12 +247,9 @@ async fn full_run_produces_skeleton_events_in_order() {
                 em.event.emitter.kind
             );
             assert_eq!(
-                em.event.emitter.id,
-                "kernel_core",
+                em.event.emitter.id, "kernel_core",
                 "skeleton event {} ({}) must have emitter.id == \"kernel_core\", got {:?}",
-                em.event.uuid,
-                em.event.event_type,
-                em.event.emitter.id
+                em.event.uuid, em.event.event_type, em.event.emitter.id
             );
         }
     }

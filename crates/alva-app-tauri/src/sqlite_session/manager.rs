@@ -56,8 +56,7 @@ impl SqliteEvalSessionManager {
     pub fn open(db_path: PathBuf) -> Result<Self, String> {
         let conn = Connection::open(&db_path)
             .map_err(|e| format!("failed to open DB at {}: {}", db_path.display(), e))?;
-        init_schema(&conn)
-            .map_err(|e| format!("failed to init DB schema: {}", e))?;
+        init_schema(&conn).map_err(|e| format!("failed to init DB schema: {}", e))?;
         // Startup cleanup: drop ghost sessions (rows in `sessions` with no
         // corresponding events). These accumulate from failed first-turn
         // runs — auth errors, 404s, network blips — where the session row
@@ -131,13 +130,18 @@ impl SqliteEvalSessionManager {
         conn.query_row(
             "SELECT workspace_id, path, permissions, created_at FROM workspaces WHERE path = ?1",
             params![path],
-            |row| Ok(StoredWorkspace {
-                workspace_id: row.get(0)?,
-                path: row.get(1)?,
-                permissions: row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "{}".into()),
-                created_at: row.get(3)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(StoredWorkspace {
+                    workspace_id: row.get(0)?,
+                    path: row.get(1)?,
+                    permissions: row
+                        .get::<_, Option<String>>(2)?
+                        .unwrap_or_else(|| "{}".into()),
+                    created_at: row.get(3)?,
+                })
+            },
+        )
+        .ok()
     }
 
     // -----------------------------------------------------------------------
@@ -236,9 +240,12 @@ impl SqliteEvalSessionManager {
 
     pub fn delete_session(&self, session_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM sessions WHERE session_id = ?1", params![session_id])
-            .map(|n| n > 0)
-            .unwrap_or(false)
+        conn.execute(
+            "DELETE FROM sessions WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map(|n| n > 0)
+        .unwrap_or(false)
     }
 
     pub fn update_preview(&self, session_id: &str, preview: &str) {
@@ -279,7 +286,8 @@ impl SqliteEvalSessionManager {
              WHERE s.session_id = ?1",
             params![session_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     // -- Session plugin config ----------------------------------------------
@@ -554,7 +562,8 @@ mod tests {
         let real = mgr.create_session("real chat").await;
         // Persist one event so `real` survives the EXISTS filter.
         use alva_kernel_abi::agent_session::{AgentSession, SessionEvent};
-        real.append(SessionEvent::user_message(serde_json::json!("hi"))).await;
+        real.append(SessionEvent::user_message(serde_json::json!("hi")))
+            .await;
         real.flush().await.expect("flush real session");
 
         let list = mgr.list_sessions();

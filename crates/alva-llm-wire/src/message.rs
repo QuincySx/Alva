@@ -97,10 +97,7 @@ pub enum AgentMessage {
     /// State marker (checkpoint, phase change) — never sent to LLM.
     Marker(Marker),
     /// Generic extension point for application-specific messages.
-    Extension {
-        type_name: String,
-        data: Value,
-    },
+    Extension { type_name: String, data: Value },
 }
 
 /// Markers for state transitions and checkpoints.
@@ -131,10 +128,22 @@ mod tests {
         // Pin: every provider's request format expects "user" /
         // "assistant" / "system" / "tool". Switching to PascalCase
         // would break every chat call silently.
-        assert_eq!(serde_json::to_value(MessageRole::User).unwrap(), json!("user"));
-        assert_eq!(serde_json::to_value(MessageRole::Assistant).unwrap(), json!("assistant"));
-        assert_eq!(serde_json::to_value(MessageRole::System).unwrap(), json!("system"));
-        assert_eq!(serde_json::to_value(MessageRole::Tool).unwrap(), json!("tool"));
+        assert_eq!(
+            serde_json::to_value(MessageRole::User).unwrap(),
+            json!("user")
+        );
+        assert_eq!(
+            serde_json::to_value(MessageRole::Assistant).unwrap(),
+            json!("assistant")
+        );
+        assert_eq!(
+            serde_json::to_value(MessageRole::System).unwrap(),
+            json!("system")
+        );
+        assert_eq!(
+            serde_json::to_value(MessageRole::Tool).unwrap(),
+            json!("tool")
+        );
     }
 
     #[test]
@@ -237,8 +246,12 @@ mod tests {
             id: "x".into(),
             role: MessageRole::Assistant,
             content: vec![
-                ContentBlock::Text { text: "part-a ".into() },
-                ContentBlock::Text { text: "part-b".into() },
+                ContentBlock::Text {
+                    text: "part-a ".into(),
+                },
+                ContentBlock::Text {
+                    text: "part-b".into(),
+                },
             ],
             tool_call_id: None,
             usage: None,
@@ -256,7 +269,9 @@ mod tests {
             id: "x".into(),
             role: MessageRole::Assistant,
             content: vec![
-                ContentBlock::Text { text: "visible ".into() },
+                ContentBlock::Text {
+                    text: "visible ".into(),
+                },
                 ContentBlock::ToolUse {
                     id: "t1".into(),
                     name: "tool".into(),
@@ -266,7 +281,9 @@ mod tests {
                     text: "hidden thought".into(),
                     signature: None,
                 },
-                ContentBlock::Text { text: "more".into() },
+                ContentBlock::Text {
+                    text: "more".into(),
+                },
             ],
             tool_call_id: None,
             usage: None,

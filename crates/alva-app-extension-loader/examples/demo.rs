@@ -1,5 +1,5 @@
 //! Phase 3 demo — two Python plugins loaded dynamically from a
-//! tempdir, driven through a real `ExtensionHost`.
+//! tempdir, driven through a real `PluginHost`.
 //!
 //! Run with:
 //!
@@ -15,11 +15,11 @@
 use std::process::Command as StdCommand;
 use std::sync::{Arc, RwLock};
 
-use alva_agent_core::extension::{ExtensionHost, Plugin, Registrar};
+use alva_agent_core::extension::{Plugin, PluginHost, Registrar};
 use alva_app_extension_loader::loader::SubprocessLoaderPlugin;
 use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{AgentMessage, Message, ToolCall};
-use alva_kernel_core::{AgentState, Extensions, MiddlewareError};
+use alva_kernel_core::{AgentState, Extensions, Middleware, MiddlewareError};
 use alva_test::mock_provider::MockLanguageModel;
 
 // ===========================================================
@@ -234,10 +234,10 @@ async fn main() {
 
     // ----- Wire up host + loader -----
     banner("bootstrap");
-    let host = Arc::new(RwLock::new(ExtensionHost::new()));
+    let host = Arc::new(RwLock::new(PluginHost::new()));
     let ext = SubprocessLoaderPlugin::new(vec![temp.path().to_path_buf()]);
 
-    line("register → spawning subprocesses + AEP handshake + bridge middleware");
+    line("register → spawning subprocesses + AEP handshake + phase handlers");
     let bus = alva_kernel_abi::Bus::new();
     let bus_writer = bus.writer();
     let bus_handle = bus_writer.handle();
@@ -252,24 +252,23 @@ async fn main() {
     line(format!("✓ {} plugins loaded", ext.loaded_count()));
     println!();
 
-    // The loader registered exactly one middleware that owns the
-    // plugins; pull it out and drive its hooks like the agent's
-    // middleware stack would.
-    let bridge = {
+    // Pull out the compiled AEP phase handlers and drive their hooks like
+    // the agent's middleware stack would.
+    let adapters: Vec<Arc<dyn Middleware>> = {
         let mws = host.write().unwrap().take_middlewares();
         mws.into_iter()
-            .find(|m| m.name() == "aep-bridge")
-            .expect("loader must register an aep-bridge middleware")
+            .filter(|m| m.name().starts_with("phase:aep:"))
+            .collect()
     };
+    assert!(
+        !adapters.is_empty(),
+        "loader must register executable AEP phase handlers"
+    );
 
-    // Minimal state — seed a user message so on_user_message fires.
+    // Minimal state.
     let session = Arc::new(InMemoryAgentSession::new());
-    session
-        .append_message(
-            AgentMessage::Standard(Message::user("list my files please")),
-            None,
-        )
-        .await;
+    let user_message = AgentMessage::Standard(Message::user("list my files please"));
+    session.append_message(user_message.clone(), None).await;
     let mut state = AgentState {
         model: Arc::new(MockLanguageModel::new()),
         tools: vec![],
@@ -278,11 +277,26 @@ async fn main() {
     };
 
     // ----- Drive a sequence of hooks -----
-    banner("hook: on_agent_start (+ on_user_message)");
-    line(format!(
-        "→ {}",
-        result_summary(&bridge.on_agent_start(&mut state).await)
-    ));
+    banner("hook: on_agent_start");
+    let mut start_result = Ok(());
+    for adapter in &adapters {
+        start_result = adapter.on_agent_start(&mut state).await;
+        if start_result.is_err() {
+            break;
+        }
+    }
+    line(format!("→ {}", result_summary(&start_result)));
+    println!();
+
+    banner("hook: input_committed (on_user_message)");
+    let mut input_result = Ok(());
+    for adapter in &adapters {
+        input_result = adapter.input_committed(&mut state, &user_message).await;
+        if input_result.is_err() {
+            break;
+        }
+    }
+    line(format!("→ {}", result_summary(&input_result)));
     println!();
 
     let tool_calls = vec![
@@ -301,16 +315,26 @@ async fn main() {
             arguments: serde_json::json!({ "command": command }),
         };
         banner(&format!("hook: {label}"));
-        let result = bridge.before_tool_call(&mut state, &tc).await;
+        let mut result = Ok(());
+        for adapter in &adapters {
+            result = adapter.before_tool_call(&mut state, &tc).await;
+            if result.is_err() {
+                break;
+            }
+        }
         line(format!("→ {}", result_summary(&result)));
         println!();
     }
 
     banner("hook: on_agent_end");
-    line(format!(
-        "→ {}",
-        result_summary(&bridge.on_agent_end(&mut state, None).await)
-    ));
+    let mut end_result = Ok(());
+    for adapter in &adapters {
+        end_result = adapter.on_agent_end(&mut state, None).await;
+        if end_result.is_err() {
+            break;
+        }
+    }
+    line(format!("→ {}", result_summary(&end_result)));
     println!();
 
     // ----- Teardown -----

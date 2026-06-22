@@ -16,7 +16,7 @@
 //!
 //! **Not in this table (substrate, always present):** the `ApprovalPlugin`
 //! (REPL needs its `approval_rx`), the checkpoint *callback* wiring, and the
-//! auto-attached memory / security / system-context extensions that
+//! auto-attached memory / security / system-context plugins that
 //! `BaseAgentBuilder::build` installs. The `checkpoint` row below is the
 //! *auto-archiving* `CheckpointMiddleware`, a distinct, toggleable thing.
 
@@ -359,9 +359,9 @@ pub fn apply_components(
                 ),
             )),
             // ── Middleware ───────────────────────────────────────────────
-            "loop-detection" => {
-                b.middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
-            }
+            "loop-detection" => b.middleware(Arc::new(
+                alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
+            )),
             "dangling-tool-call" => b.middleware(Arc::new(
                 alva_kernel_core::builtins::DanglingToolCallMiddleware::new(),
             )),
@@ -375,7 +375,10 @@ pub fn apply_components(
                 alva_host_native::middleware::CheckpointMiddleware::new(),
             )),
             other => {
-                tracing::warn!(component = other, "unknown component id in COMPONENTS; skipping");
+                tracing::warn!(
+                    component = other,
+                    "unknown component id in COMPONENTS; skipping"
+                );
                 b
             }
         };
@@ -391,6 +394,7 @@ mod tests {
     //! disabling `sub-agents`).
     use super::*;
     use crate::base_agent::BaseAgentBuilder;
+    use alva_agent_core::AgentAssemblySnapshot;
     use alva_test::mock_provider::MockLanguageModel;
 
     async fn build_with(toggles: ComponentToggles) -> Vec<String> {
@@ -404,6 +408,19 @@ mod tests {
         let model = Arc::new(MockLanguageModel::new());
         let agent = builder.build(model).await.expect("agent builds");
         agent.tool_names()
+    }
+
+    async fn build_snapshot_with(toggles: ComponentToggles) -> AgentAssemblySnapshot {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ctx = ComponentContext::minimal(tmp.path());
+        let builder = apply_components(
+            BaseAgentBuilder::new().workspace(tmp.path()),
+            &toggles,
+            &ctx,
+        );
+        let model = Arc::new(MockLanguageModel::new());
+        let agent = builder.build(model).await.expect("agent builds");
+        agent.assembly_snapshot()
     }
 
     /// Every catalog id is unique (the `match id` switchboard assumes it).
@@ -437,10 +454,19 @@ mod tests {
     async fn defaults_register_expected_tools() {
         let names = build_with(ComponentToggles::new()).await;
         // Representative default-on tools.
-        assert!(names.contains(&"execute_shell".to_string()), "shell on: {names:?}");
+        assert!(
+            names.contains(&"execute_shell".to_string()),
+            "shell on: {names:?}"
+        );
         assert!(names.contains(&"read_url".to_string()), "web on: {names:?}");
-        assert!(names.contains(&"task_create".to_string()), "task on: {names:?}");
-        assert!(names.contains(&"agent".to_string()), "sub-agents on: {names:?}");
+        assert!(
+            names.contains(&"task_create".to_string()),
+            "task on: {names:?}"
+        );
+        assert!(
+            names.contains(&"agent".to_string()),
+            "sub-agents on: {names:?}"
+        );
         // Default-off components must NOT contribute tools.
         assert!(
             !names.iter().any(|n| n.starts_with("browser_")),
@@ -459,7 +485,10 @@ mod tests {
             "shell explicitly off: {names:?}"
         );
         // Sibling default-on tool still present.
-        assert!(names.contains(&"read_url".to_string()), "web still on: {names:?}");
+        assert!(
+            names.contains(&"read_url".to_string()),
+            "web still on: {names:?}"
+        );
     }
 
     /// Explicitly enabling a default-off component attaches its tools.
@@ -474,12 +503,44 @@ mod tests {
         );
     }
 
+    /// Component-driven assembly is visible in the agent snapshot, including
+    /// direct middleware components that do not go through a Plugin wrapper.
+    #[tokio::test]
+    async fn snapshot_records_component_plugins_and_direct_middleware() {
+        let mut t = ComponentToggles::new();
+        t.insert("shell".into(), false);
+        t.insert("loop-detection".into(), true);
+
+        let snapshot = build_snapshot_with(t).await;
+        assert!(
+            snapshot.plugin_names.iter().any(|name| name == "core"),
+            "default-on core component should be visible: {:?}",
+            snapshot.plugin_names
+        );
+        assert!(
+            !snapshot.plugin_names.iter().any(|name| name == "shell"),
+            "explicitly disabled shell component should be absent: {:?}",
+            snapshot.plugin_names
+        );
+        assert!(
+            snapshot
+                .direct_middleware_names
+                .iter()
+                .any(|name| name == "builtins_loop_detection"),
+            "direct middleware component should be attributed separately: {:?}",
+            snapshot.direct_middleware_names
+        );
+    }
+
     /// `provider_registry = None` → provider-registry skips (no panic), and
     /// sub-agents still registers its `agent` tool.
     #[tokio::test]
     async fn missing_provider_registry_skips_gracefully() {
         // minimal() already sets provider_registry = None; build all defaults.
         let names = build_with(ComponentToggles::new()).await;
-        assert!(names.contains(&"agent".to_string()), "sub-agents still on: {names:?}");
+        assert!(
+            names.contains(&"agent".to_string()),
+            "sub-agents still on: {names:?}"
+        );
     }
 }

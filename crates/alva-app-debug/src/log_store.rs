@@ -198,7 +198,12 @@ mod tests {
     #[test]
     fn filter_by_module_prefix() {
         let mut store = LogStore::new(100);
-        store.push(make_record("INFO", "alva_app_core::agent::engine", "a", 1000));
+        store.push(make_record(
+            "INFO",
+            "alva_app_core::agent::engine",
+            "a",
+            1000,
+        ));
         store.push(make_record("INFO", "srow_ai::chat", "b", 2000));
 
         let result = store.query(&LogQuery {
@@ -258,9 +263,19 @@ mod tests {
     fn combined_filters() {
         let mut store = LogStore::new(100);
         store.push(make_record("DEBUG", "alva_app_core::agent", "step 1", 1000));
-        store.push(make_record("WARN", "alva_app_core::agent", "step 2 failed", 2000));
+        store.push(make_record(
+            "WARN",
+            "alva_app_core::agent",
+            "step 2 failed",
+            2000,
+        ));
         store.push(make_record("WARN", "srow_ai::chat", "chat failed", 3000));
-        store.push(make_record("ERROR", "alva_app_core::mcp", "mcp error", 4000));
+        store.push(make_record(
+            "ERROR",
+            "alva_app_core::mcp",
+            "mcp error",
+            4000,
+        ));
 
         let result = store.query(&LogQuery {
             level: Some("WARN".to_string()),

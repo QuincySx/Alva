@@ -199,7 +199,9 @@ mod tests {
 
     #[test]
     fn middleware_error_blocked_display_has_blocked_prefix() {
-        let e = MiddlewareError::Blocked { reason: "no auth".into() };
+        let e = MiddlewareError::Blocked {
+            reason: "no auth".into(),
+        };
         assert_eq!(format!("{e}"), "blocked: no auth");
     }
 
@@ -222,7 +224,9 @@ mod tests {
     fn into_agent_error_blocked_wraps_reason_with_blocked_prefix() {
         // Pin: blocked errors surface to users with "blocked: ..."
         // prefix so they can diagnose middleware rejections.
-        let e = MiddlewareError::Blocked { reason: "no auth".into() };
+        let e = MiddlewareError::Blocked {
+            reason: "no auth".into(),
+        };
         let agent_err = e.into_agent_error();
         // AgentError::Other carries the message verbatim (its Display
         // has no prefix — pinned in L115).

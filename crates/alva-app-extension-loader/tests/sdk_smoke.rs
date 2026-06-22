@@ -22,18 +22,29 @@ use std::process::Command as StdCommand;
 use std::sync::Arc;
 
 use alva_app_extension_loader::dispatcher::RpcDispatcher;
-use alva_app_extension_loader::host_api::AlvaHostHandler;
+use alva_app_extension_loader::host_api::{AlvaHostHandler, StateSnapshot};
 use alva_app_extension_loader::manifest::Runtime;
 use alva_app_extension_loader::protocol::{
-    methods, ExtensionAction, HostCapabilities, HostInfo, InitializeParams,
-    InitializeResult, PROTOCOL_VERSION,
+    methods, ExtensionAction, HostCapabilities, HostInfo, InitializeParams, InitializeResult,
+    PROTOCOL_VERSION,
 };
 use alva_app_extension_loader::subprocess::{LauncherOverride, SubprocessRuntime};
 
-const SDK_PLUGIN_PY: &str = r#"from alva_sdk import Extension, ToolCall, before_tool_call, run
+const SDK_PLUGIN_PY: &str = r#"from alva_sdk import (
+    Message,
+    Plugin,
+    ToolCall,
+    ToolResult,
+    after_tool_call,
+    before_tool_call,
+    on_llm_call_end,
+    on_llm_call_start,
+    run,
+    tool,
+)
 
 
-class ShellGuard(Extension):
+class ShellGuard(Plugin):
     name = "shell-guard"
     version = "0.1.0"
     description = "Test plugin using alva-sdk decorators"
@@ -47,7 +58,44 @@ class ShellGuard(Extension):
                 f"blocking {command}", level="warn", detail="test"
             )
             return self.block(f"rm -rf forbidden: {command}")
+        if command == "rewrite":
+            return self.modify_args({"command": "rewritten"})
+        if command == "replace":
+            return self.replace_result({
+                "content": [{"type": "text", "text": "sdk replaced"}],
+                "is_error": False,
+            })
+        if command == "state-rewrite":
+            messages = await self.host.state_get_messages()
+            latest = messages[-1].text if messages else ""
+            return self.modify_args({"command": "state:" + latest})
         return self.continue_()
+
+    @tool(
+        name="remote_echo",
+        description="Echo text from the Python plugin",
+        input_schema={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    )
+    async def remote_echo(self, text: str):
+        return ToolResult.text(f"remote:{text}")
+
+    @on_llm_call_start
+    async def rewrite_messages(self, messages):
+        _original = messages[0].text if messages else ""
+        return self.modify_messages([Message.system("sdk system")])
+
+    @on_llm_call_end
+    async def rewrite_response(self, response):
+        _original = response.text
+        return self.modify_response(Message.assistant("sdk response"))
+
+    @after_tool_call
+    async def rewrite_tool_result(self, call: ToolCall, result):
+        return self.modify_result(ToolResult.text(f"sdk result:{call.name}:{result.text}"))
 
 
 if __name__ == "__main__":
@@ -100,20 +148,20 @@ async fn sdk_handshake_and_block_round_trip() {
         Some(LauncherOverride {
             program: "python3".to_string(),
             prepend_args: vec!["-u".to_string()],
-            env: vec![(
-                "PYTHONPATH".to_string(),
-                sdk_dir.display().to_string(),
-            )],
+            env: vec![("PYTHONPATH".to_string(), sdk_dir.display().to_string())],
         }),
     )
     .await
     .expect("spawn SDK plugin");
 
-    // Use the real AlvaHostHandler so host/log actually succeeds.
-    let dispatcher = RpcDispatcher::spawn(
-        runtime,
-        Arc::new(AlvaHostHandler::new("sdk-smoke")),
-    );
+    // Use the real AlvaHostHandler so host/log and host/state.* succeed.
+    let host_handler = Arc::new(AlvaHostHandler::new("sdk-smoke"));
+    host_handler.set_state_snapshot(StateSnapshot {
+        handle: "test-state".to_string(),
+        messages: vec![alva_kernel_abi::Message::user("sdk session")],
+        metadata: serde_json::json!({"session_id": "sdk-session"}),
+    });
+    let dispatcher = RpcDispatcher::spawn(runtime, host_handler);
 
     // ----- initialize -----
     let init_params = InitializeParams {
@@ -146,6 +194,29 @@ async fn sdk_handshake_and_block_round_trip() {
         "expected before_tool_call in subscriptions: {:?}",
         init_result.event_subscriptions
     );
+    assert!(
+        init_result
+            .event_subscriptions
+            .contains(&"after_tool_call".to_string()),
+        "expected after_tool_call in subscriptions: {:?}",
+        init_result.event_subscriptions
+    );
+    assert!(
+        init_result
+            .event_subscriptions
+            .contains(&"on_llm_call_start".to_string()),
+        "expected on_llm_call_start in subscriptions: {:?}",
+        init_result.event_subscriptions
+    );
+    assert!(
+        init_result
+            .event_subscriptions
+            .contains(&"on_llm_call_end".to_string()),
+        "expected on_llm_call_end in subscriptions: {:?}",
+        init_result.event_subscriptions
+    );
+    assert_eq!(init_result.tools.len(), 1);
+    assert_eq!(init_result.tools[0].name, "remote_echo");
 
     // ----- initialized notification -----
     dispatcher
@@ -166,8 +237,7 @@ async fn sdk_handshake_and_block_round_trip() {
         .call(methods::BEFORE_TOOL_CALL, Some(block_params))
         .await
         .expect("before_tool_call rm -rf");
-    let action: ExtensionAction =
-        serde_json::from_value(result).expect("parse action");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
     match action {
         ExtensionAction::Block { reason } => {
             assert!(
@@ -191,12 +261,186 @@ async fn sdk_handshake_and_block_round_trip() {
         .call(methods::BEFORE_TOOL_CALL, Some(safe_params))
         .await
         .expect("before_tool_call ls");
-    let action: ExtensionAction =
-        serde_json::from_value(result).expect("parse action");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
     assert!(
         matches!(action, ExtensionAction::Continue),
         "expected Continue for ls, got {:?}",
         action
+    );
+
+    // ----- rewritten command → expect Modify -----
+    let rewrite_params = serde_json::json!({
+        "stateHandle": "test-state",
+        "toolCall": {
+            "id": "c-rewrite",
+            "name": "shell",
+            "arguments": {"command": "rewrite"},
+        }
+    });
+    let result = dispatcher
+        .call(methods::BEFORE_TOOL_CALL, Some(rewrite_params))
+        .await
+        .expect("before_tool_call rewrite");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
+    match action {
+        ExtensionAction::Modify { modified_arguments } => {
+            assert_eq!(
+                modified_arguments["command"],
+                serde_json::json!("rewritten")
+            );
+        }
+        other => panic!("expected Modify for rewrite, got {:?}", other),
+    }
+
+    // ----- replaced command → expect ReplaceResult -----
+    let replace_params = serde_json::json!({
+        "stateHandle": "test-state",
+        "toolCall": {
+            "id": "c-replace",
+            "name": "shell",
+            "arguments": {"command": "replace"},
+        }
+    });
+    let result = dispatcher
+        .call(methods::BEFORE_TOOL_CALL, Some(replace_params))
+        .await
+        .expect("before_tool_call replace");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
+    match action {
+        ExtensionAction::ReplaceResult { result } => {
+            assert_eq!(
+                result["content"][0]["text"],
+                serde_json::json!("sdk replaced")
+            );
+        }
+        other => panic!("expected ReplaceResult for replace, got {:?}", other),
+    }
+
+    // ----- state-backed command → expect Modify using host/state.get_messages -----
+    let state_params = serde_json::json!({
+        "stateHandle": "test-state",
+        "toolCall": {
+            "id": "c-state",
+            "name": "shell",
+            "arguments": {"command": "state-rewrite"},
+        }
+    });
+    let result = dispatcher
+        .call(methods::BEFORE_TOOL_CALL, Some(state_params))
+        .await
+        .expect("before_tool_call state-rewrite");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
+    match action {
+        ExtensionAction::Modify { modified_arguments } => {
+            assert_eq!(
+                modified_arguments["command"],
+                serde_json::json!("state:sdk session")
+            );
+        }
+        other => panic!("expected Modify for state-rewrite, got {:?}", other),
+    }
+
+    // ----- LLM start mutation → expect ModifyMessages -----
+    let result = dispatcher
+        .call(
+            methods::ON_LLM_CALL_START,
+            Some(serde_json::json!({
+                "stateHandle": "test-state",
+                "messages": [{
+                    "id": "user-1",
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hello"}],
+                    "timestamp": 0
+                }]
+            })),
+        )
+        .await
+        .expect("on_llm_call_start");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
+    match action {
+        ExtensionAction::ModifyMessages { messages } => {
+            assert_eq!(messages[0]["role"], serde_json::json!("system"));
+            assert_eq!(
+                messages[0]["content"][0]["text"],
+                serde_json::json!("sdk system")
+            );
+        }
+        other => panic!("expected ModifyMessages, got {:?}", other),
+    }
+
+    // ----- LLM end mutation → expect ModifyResponse -----
+    let result = dispatcher
+        .call(
+            methods::ON_LLM_CALL_END,
+            Some(serde_json::json!({
+                "stateHandle": "test-state",
+                "response": {
+                    "id": "assistant-original",
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "original"}],
+                    "timestamp": 0
+                }
+            })),
+        )
+        .await
+        .expect("on_llm_call_end");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
+    match action {
+        ExtensionAction::ModifyResponse { response } => {
+            assert_eq!(response["role"], serde_json::json!("assistant"));
+            assert_eq!(
+                response["content"][0]["text"],
+                serde_json::json!("sdk response")
+            );
+        }
+        other => panic!("expected ModifyResponse, got {:?}", other),
+    }
+
+    // ----- Tool result mutation → expect ModifyResult -----
+    let result = dispatcher
+        .call(
+            methods::AFTER_TOOL_CALL,
+            Some(serde_json::json!({
+                "stateHandle": "test-state",
+                "toolCall": {
+                    "id": "c3",
+                    "name": "shell"
+                },
+                "result": {
+                    "content": [{"type": "text", "text": "original"}],
+                    "is_error": false
+                }
+            })),
+        )
+        .await
+        .expect("after_tool_call");
+    let action: ExtensionAction = serde_json::from_value(result).expect("parse action");
+    match action {
+        ExtensionAction::ModifyResult { result } => {
+            assert_eq!(
+                result["content"][0]["text"],
+                serde_json::json!("sdk result:shell:original")
+            );
+        }
+        other => panic!("expected ModifyResult, got {:?}", other),
+    }
+
+    // ----- declared SDK tool -> expect ToolOutput-shaped response -----
+    let tool_value = dispatcher
+        .call(
+            methods::TOOLS_CALL,
+            Some(serde_json::json!({
+                "name": "remote_echo",
+                "arguments": {"text": "hello"},
+            })),
+        )
+        .await
+        .expect("tools/call remote_echo");
+    assert_eq!(tool_value["isError"], serde_json::json!(false));
+    assert_eq!(tool_value["content"][0]["type"], serde_json::json!("text"));
+    assert_eq!(
+        tool_value["content"][0]["text"],
+        serde_json::json!("remote:hello")
     );
 
     // ----- shutdown -----
@@ -204,10 +448,7 @@ async fn sdk_handshake_and_block_round_trip() {
         .call(methods::SHUTDOWN, None)
         .await
         .expect("shutdown");
-    let status = dispatcher
-        .shutdown()
-        .await
-        .expect("dispatcher teardown");
+    let status = dispatcher.shutdown().await.expect("dispatcher teardown");
     assert!(
         status.success(),
         "SDK plugin should exit cleanly, got {:?}",

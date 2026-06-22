@@ -116,9 +116,9 @@ impl EnvironmentManager {
 
     /// Check whether the environment is fully up-to-date.
     pub fn is_ready(&self) -> bool {
-        self.check_versions().values().all(|s| {
-            matches!(s, VersionStatus::UpToDate | VersionStatus::Excluded(_))
-        })
+        self.check_versions()
+            .values()
+            .all(|s| matches!(s, VersionStatus::UpToDate | VersionStatus::Excluded(_)))
     }
 
     // -- Installation --------------------------------------------------------
@@ -136,7 +136,11 @@ impl EnvironmentManager {
                     info!(component = name.as_str(), "Already up-to-date");
                 }
                 VersionStatus::Excluded(reason) => {
-                    info!(component = name.as_str(), reason = reason.as_str(), "Excluded");
+                    info!(
+                        component = name.as_str(),
+                        reason = reason.as_str(),
+                        "Excluded"
+                    );
                 }
                 VersionStatus::NotInstalled => {
                     info!(component = name.as_str(), "Not installed — installing");

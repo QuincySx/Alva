@@ -57,9 +57,9 @@ use super::components::{
 };
 use super::event::{poll_event, TerminalEvent};
 use super::permission_dialog::{PermissionDialogWidget, PermissionType};
-use super::typeahead::Typeahead;
 use super::spinner::{SpinnerWidget, SPINNER_FRAMES};
 use super::theme::{Theme, ThemeMode};
+use super::typeahead::Typeahead;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -97,11 +97,33 @@ struct PendingApproval {
 fn default_slash_commands() -> Vec<String> {
     [
         // Registry builtins (commands/registry.rs)
-        "clear", "compact", "new", "help", "exit", "cost", "status", "doctor",
-        "config", "model", "theme", "permissions", "plan", "fast", "vim",
-        "commit", "review", "export",
+        "clear",
+        "compact",
+        "new",
+        "help",
+        "exit",
+        "cost",
+        "status",
+        "doctor",
+        "config",
+        "model",
+        "theme",
+        "permissions",
+        "plan",
+        "fast",
+        "vim",
+        "commit",
+        "review",
+        "export",
         // Inline-handled in repl.rs (and equivalents in TUI)
-        "quit", "resume", "fork", "rewind", "sessions", "setup", "auto", "locks",
+        "quit",
+        "resume",
+        "fork",
+        "rewind",
+        "sessions",
+        "setup",
+        "auto",
+        "locks",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -200,7 +222,9 @@ impl TuiApp {
             pinned_question: None,
             attachments: AttachmentStrip::new(),
 
-            chat_input: ChatInput::new("Send a message — / for commands, @ for files, Shift+Enter for newline"),
+            chat_input: ChatInput::new(
+                "Send a message — / for commands, @ for files, Shift+Enter for newline",
+            ),
             last_input_snapshot: String::new(),
 
             spinner_active: false,
@@ -245,17 +269,20 @@ impl TuiApp {
 
     pub(crate) fn push_user_message(&mut self, text: &str) {
         self.pinned_question = Some(text.to_string());
-        self.conversation.push(ConversationItem::Message(MessageBubble::user(text)));
+        self.conversation
+            .push(ConversationItem::Message(MessageBubble::user(text)));
         self.conversation.stick_to_bottom();
     }
 
     pub(crate) fn push_system_message(&mut self, text: &str) {
-        self.conversation.push(ConversationItem::Message(MessageBubble::system(text)));
+        self.conversation
+            .push(ConversationItem::Message(MessageBubble::system(text)));
         self.conversation.stick_to_bottom();
     }
 
     pub(crate) fn push_error_message(&mut self, text: &str) {
-        self.conversation.push(ConversationItem::Message(MessageBubble::error(text)));
+        self.conversation
+            .push(ConversationItem::Message(MessageBubble::error(text)));
         self.conversation.stick_to_bottom();
     }
 
@@ -272,13 +299,17 @@ impl TuiApp {
     fn begin_streaming(&mut self) {
         // Push an empty assistant bubble — subsequent deltas append into it.
         self.conversation
-            .push(ConversationItem::Message(MessageBubble::assistant(String::new())));
+            .push(ConversationItem::Message(MessageBubble::assistant(
+                String::new(),
+            )));
         self.streaming_idx = Some(self.conversation.items().len() - 1);
         self.conversation.stick_to_bottom();
     }
 
     fn append_streaming_text(&mut self, text: &str) {
-        let Some(idx) = self.streaming_idx else { return; };
+        let Some(idx) = self.streaming_idx else {
+            return;
+        };
         if let Some(ConversationItem::Message(b)) = self.conversation.items_mut().get_mut(idx) {
             b.text.push_str(text);
         }
@@ -305,15 +336,19 @@ impl TuiApp {
 
     fn complete_tool(&mut self, name: &str, is_error: bool, preview: &str) {
         // Match the most recent pending tool with this name.
-        let Some(pos) = self
-            .pending_tools
-            .iter()
-            .rposition(|(n, _)| n == name)
-        else { return; };
+        let Some(pos) = self.pending_tools.iter().rposition(|(n, _)| n == name) else {
+            return;
+        };
         let (_, idx) = self.pending_tools.remove(pos);
-        let Some(ConversationItem::Block(block)) =
-            self.conversation.items_mut().get_mut(idx) else { return; };
-        block.badge = Some(if is_error { "✗ error".into() } else { "✓ done".into() });
+        let Some(ConversationItem::Block(block)) = self.conversation.items_mut().get_mut(idx)
+        else {
+            return;
+        };
+        block.badge = Some(if is_error {
+            "✗ error".into()
+        } else {
+            "✓ done".into()
+        });
         let preview_owned = preview.to_string();
         block.body = Text::from(preview_owned);
     }
@@ -347,7 +382,9 @@ impl TuiApp {
     /// Seal the current thinking block — called on `ReasoningBlock` so the
     /// authoritative final text replaces the streamed accumulation.
     fn seal_thinking(&mut self, final_text: Option<&str>) {
-        let Some(idx) = self.thinking_idx.take() else { return; };
+        let Some(idx) = self.thinking_idx.take() else {
+            return;
+        };
         if let Some(ConversationItem::Block(b)) = self.conversation.items_mut().get_mut(idx) {
             if let Some(t) = final_text {
                 b.body = Text::from(t.to_string());
@@ -364,7 +401,9 @@ impl TuiApp {
     /// Push the just-submitted text to history and clear the input editor.
     fn record_submission(&mut self, text: &str) {
         let text = text.trim();
-        if text.is_empty() { return; }
+        if text.is_empty() {
+            return;
+        }
         self.input_history.push(text.to_string());
         self.history_index = None;
         self.saved_input.clear();
@@ -373,7 +412,9 @@ impl TuiApp {
     }
 
     fn history_prev(&mut self) {
-        if self.input_history.is_empty() { return; }
+        if self.input_history.is_empty() {
+            return;
+        }
         match self.history_index {
             None => {
                 self.saved_input = self.chat_input.value();
@@ -384,7 +425,8 @@ impl TuiApp {
             Some(idx) if idx > 0 => {
                 let new_idx = idx - 1;
                 self.history_index = Some(new_idx);
-                self.chat_input.set_value(self.input_history[new_idx].clone());
+                self.chat_input
+                    .set_value(self.input_history[new_idx].clone());
             }
             _ => {}
         }
@@ -396,7 +438,8 @@ impl TuiApp {
             if idx + 1 < self.input_history.len() {
                 let new_idx = idx + 1;
                 self.history_index = Some(new_idx);
-                self.chat_input.set_value(self.input_history[new_idx].clone());
+                self.chat_input
+                    .set_value(self.input_history[new_idx].clone());
             } else {
                 self.history_index = None;
                 let saved = std::mem::take(&mut self.saved_input);
@@ -438,7 +481,10 @@ impl TuiApp {
                     }
                     return KeyAction::None;
                 }
-                KeyCode::Esc => { self.close_file_picker(); return KeyAction::None; }
+                KeyCode::Esc => {
+                    self.close_file_picker();
+                    return KeyAction::None;
+                }
                 _ => {} // fall through to ChatInput
             }
         }
@@ -448,19 +494,32 @@ impl TuiApp {
         // can keep editing while the menu re-filters live.
         if self.typeahead.is_active() {
             match key.code {
-                KeyCode::Up => { self.typeahead.prev(); return KeyAction::None; }
-                KeyCode::Down => { self.typeahead.next(); return KeyAction::None; }
+                KeyCode::Up => {
+                    self.typeahead.prev();
+                    return KeyAction::None;
+                }
+                KeyCode::Down => {
+                    self.typeahead.next();
+                    return KeyAction::None;
+                }
                 KeyCode::Enter | KeyCode::Tab => {
                     if let Some(cmd) = self.typeahead.accept() {
                         // Replace the buffer with `/<cmd>` (Typeahead returns
                         // the bare command name).
-                        let value = if cmd.starts_with('/') { cmd } else { format!("/{}", cmd) };
+                        let value = if cmd.starts_with('/') {
+                            cmd
+                        } else {
+                            format!("/{}", cmd)
+                        };
                         self.chat_input.set_value(value);
                         self.last_input_snapshot = self.chat_input.value();
                     }
                     return KeyAction::None;
                 }
-                KeyCode::Esc => { self.typeahead.dismiss(); return KeyAction::None; }
+                KeyCode::Esc => {
+                    self.typeahead.dismiss();
+                    return KeyAction::None;
+                }
                 _ => {} // fall through to normal edit handling
             }
         }
@@ -473,7 +532,10 @@ impl TuiApp {
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => return KeyAction::Interrupt,
             // Conversation scroll keys (only when not paging history).
-            (_, KeyCode::PageUp) => { self.conversation.scroll_up(10); return KeyAction::None; }
+            (_, KeyCode::PageUp) => {
+                self.conversation.scroll_up(10);
+                return KeyAction::None;
+            }
             (_, KeyCode::PageDown) => {
                 // ConversationView clamps via render; pass a reasonable view height.
                 self.conversation.scroll_down(10, 80, 20);
@@ -481,8 +543,16 @@ impl TuiApp {
             }
             // History navigation: Alt+Up/Alt+Down (Up/Down are reserved for
             // multi-line cursor movement inside the editor).
-            (KeyModifiers::ALT, KeyCode::Up)   => { self.history_prev(); self.refresh_typeahead(); return KeyAction::None; }
-            (KeyModifiers::ALT, KeyCode::Down) => { self.history_next(); self.refresh_typeahead(); return KeyAction::None; }
+            (KeyModifiers::ALT, KeyCode::Up) => {
+                self.history_prev();
+                self.refresh_typeahead();
+                return KeyAction::None;
+            }
+            (KeyModifiers::ALT, KeyCode::Down) => {
+                self.history_next();
+                self.refresh_typeahead();
+                return KeyAction::None;
+            }
             // Conversation focus navigation: Tab / Shift+Tab cycles through
             // collapsibles + bubbles; Ctrl+Space toggles the focused block.
             // Tab is otherwise forwarded to the editor (which inserts \t),
@@ -493,9 +563,9 @@ impl TuiApp {
             }
             // Most terminals emit Shift+Tab as KeyCode::BackTab with NONE
             // modifiers; some emit Tab+SHIFT. Handle both.
-            (KeyModifiers::NONE,  KeyCode::BackTab) |
-            (KeyModifiers::SHIFT, KeyCode::Tab)     |
-            (KeyModifiers::SHIFT, KeyCode::BackTab) => {
+            (KeyModifiers::NONE, KeyCode::BackTab)
+            | (KeyModifiers::SHIFT, KeyCode::Tab)
+            | (KeyModifiers::SHIFT, KeyCode::BackTab) => {
                 self.conversation.focus_prev();
                 return KeyAction::None;
             }
@@ -553,18 +623,27 @@ impl TuiApp {
         let trimmed = raw.trim();
         // Strip surrounding quotes — finder/file managers often quote paths.
         let stripped = trimmed.trim_matches(|c| c == '"' || c == '\'');
-        if stripped.is_empty() || stripped.lines().count() != 1 { return false; }
+        if stripped.is_empty() || stripped.lines().count() != 1 {
+            return false;
+        }
 
         let candidate = std::path::PathBuf::from(stripped);
         let exists = candidate.is_file();
         // Resolve `~` since pasted paths often start with it.
         let resolved = if !exists && stripped.starts_with('~') {
-            dirs::home_dir().map(|h| h.join(stripped.trim_start_matches("~/").trim_start_matches('~')))
+            dirs::home_dir()
+                .map(|h| h.join(stripped.trim_start_matches("~/").trim_start_matches('~')))
         } else {
             None
         };
-        let path = if exists { Some(candidate) } else { resolved.filter(|p| p.is_file()) };
-        let Some(path) = path else { return false; };
+        let path = if exists {
+            Some(candidate)
+        } else {
+            resolved.filter(|p| p.is_file())
+        };
+        let Some(path) = path else {
+            return false;
+        };
 
         self.attachments.push(Attachment::auto(path));
         true
@@ -598,7 +677,9 @@ impl TuiApp {
                 None => return, // can't scan without a root
             };
             let entries = scan_workspace_files(&root, 500);
-            if entries.is_empty() { return; }
+            if entries.is_empty() {
+                return;
+            }
             let items: Vec<(PathBuf, String)> = entries
                 .iter()
                 .map(|p| {
@@ -687,8 +768,16 @@ impl TuiApp {
     fn draw(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> io::Result<()> {
         // Snapshot dynamic-section heights so the layout stays stable while
         // rendering (the components borrow &self).
-        let pinned_h = if self.pinned_question.is_some() { 4u16 } else { 0u16 };
-        let attach_h = if self.attachments.is_empty() { 0u16 } else { 2u16 };
+        let pinned_h = if self.pinned_question.is_some() {
+            4u16
+        } else {
+            0u16
+        };
+        let attach_h = if self.attachments.is_empty() {
+            0u16
+        } else {
+            2u16
+        };
 
         terminal.draw(|frame| {
             let area = frame.area();
@@ -706,9 +795,9 @@ impl TuiApp {
 
             let status_area = chunks[0];
             let pinned_area = chunks[1];
-            let conv_area   = chunks[2];
+            let conv_area = chunks[2];
             let attach_area = chunks[3];
-            let input_area  = chunks[4];
+            let input_area = chunks[4];
 
             self.render_status_bar(frame, status_area);
 
@@ -766,10 +855,7 @@ impl TuiApp {
                 self.theme.status_bar,
             ),
             Span::styled(" | ", self.theme.status_bar),
-            Span::styled(
-                format!("{}T ", total_tokens),
-                self.theme.status_bar,
-            ),
+            Span::styled(format!("{}T ", total_tokens), self.theme.status_bar),
             // Fill the rest of the status bar
             Span::styled(
                 " ".repeat(area.width.saturating_sub(40) as usize),
@@ -786,17 +872,21 @@ impl TuiApp {
     /// Shows up to 6 candidates; the selected row is highlighted via theme
     /// `selection`. Indicator on the left edge of each row mirrors fish/zsh.
     fn render_typeahead(&self, frame: &mut ratatui::Frame<'_>, message_area: Rect) {
-        use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
         use ratatui::style::{Modifier, Style};
+        use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 
         let items = self.typeahead.items();
-        if items.is_empty() { return; }
+        if items.is_empty() {
+            return;
+        }
         let visible = items.len().min(6);
         let height = (visible as u16) + 2; // +2 for top/bottom border
 
         // Width: longest candidate + "/ " prefix + 4 padding, capped to area.
         let max_len = items.iter().map(|s| s.len()).max().unwrap_or(0) + 6;
-        let width = (max_len as u16).min(message_area.width.saturating_sub(2)).max(20);
+        let width = (max_len as u16)
+            .min(message_area.width.saturating_sub(2))
+            .max(20);
 
         let popup = Rect {
             x: message_area.x + 2,
@@ -819,7 +909,11 @@ impl TuiApp {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(self.theme.border)
-                    .title(format!(" Slash {}/{} ", self.typeahead.selected() + 1, items.len())),
+                    .title(format!(
+                        " Slash {}/{} ",
+                        self.typeahead.selected() + 1,
+                        items.len()
+                    )),
             )
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
@@ -843,7 +937,12 @@ impl TuiApp {
         let width = conv_area.width.saturating_sub(4).min(60).max(20);
         let x = conv_area.x + 2;
         let y = conv_area.y + conv_area.height.saturating_sub(height + 1);
-        let area = Rect { x, y, width, height };
+        let area = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         frame.render_widget(ratatui::widgets::Clear, area);
         picker.render(frame, area, &self.theme);
@@ -862,8 +961,7 @@ impl TuiApp {
         };
 
         let tip = SPINNER_TIPS[self.spinner_tip_index % SPINNER_TIPS.len()];
-        let widget = SpinnerWidget::new(self.spinner_frame, "Thinking...", &self.theme)
-            .tip(tip);
+        let widget = SpinnerWidget::new(self.spinner_frame, "Thinking...", &self.theme).tip(tip);
 
         frame.render_widget(widget, spinner_area);
     }
@@ -885,7 +983,12 @@ impl TuiApp {
 
         // Build detail string from arguments.
         let mut detail = format!("Tool: {}", approval.request.tool_name);
-        if let Some(cmd) = approval.request.arguments.get("command").and_then(|v| v.as_str()) {
+        if let Some(cmd) = approval
+            .request
+            .arguments
+            .get("command")
+            .and_then(|v| v.as_str())
+        {
             detail.push_str(&format!("\nCommand: {}", cmd));
         }
         if let Some(path) = approval
@@ -1120,9 +1223,9 @@ pub async fn run_tui(
                 TerminalEvent::Paste(s) => {
                     if !app.on_paste(&s) {
                         // Not a path — forward to the chat input as text.
-                        let action = app.chat_input.handle_event(
-                            crossterm::event::Event::Paste(s),
-                        );
+                        let action = app
+                            .chat_input
+                            .handle_event(crossterm::event::Event::Paste(s));
                         // Refresh typeahead/file picker the same way Changed
                         // would be handled if a key were typed.
                         if matches!(action, ChatInputAction::Changed) {
@@ -1336,7 +1439,9 @@ async fn handle_slash_command(
             };
             agent.set_permission_mode(new_mode);
             if new_mode == PermissionMode::AcceptShell {
-                app.push_system_message("Auto-shell ON -- non-destructive shell commands run without prompting");
+                app.push_system_message(
+                    "Auto-shell ON -- non-destructive shell commands run without prompting",
+                );
             } else {
                 app.push_system_message("Auto-shell OFF -- shell commands ask for approval");
             }
@@ -1383,7 +1488,11 @@ async fn handle_slash_command(
                     let date = chrono::DateTime::from_timestamp_millis(s.updated_at)
                         .map(|d| d.format("%m-%d %H:%M").to_string())
                         .unwrap_or_default();
-                    let marker = if s.session_id == *session_id { " <-" } else { "" };
+                    let marker = if s.session_id == *session_id {
+                        " <-"
+                    } else {
+                        ""
+                    };
                     info.push_str(&format!(
                         "  {} | {} events | {}{}\n",
                         date, s.event_count, s.preview, marker,
@@ -1414,7 +1523,10 @@ async fn handle_slash_command(
             ));
         }
         _ => {
-            app.push_error_message(&format!("Unknown command: {}\nType /help for available commands.", cmd));
+            app.push_error_message(&format!(
+                "Unknown command: {}\nType /help for available commands.",
+                cmd
+            ));
         }
     }
 }
@@ -1466,7 +1578,9 @@ fn handle_shell_command(app: &mut TuiApp, shell_cmd: &str, workspace: &Path) {
 /// the one-line tool-call header summary.
 fn truncate(s: &str, max: usize) -> String {
     let count = s.chars().count();
-    if count <= max { return s.to_string(); }
+    if count <= max {
+        return s.to_string();
+    }
     let mut out: String = s.chars().take(max).collect();
     out.push('…');
     out
@@ -1479,16 +1593,25 @@ fn body_text(block: &CollapsibleBlock) -> String {
         .body
         .lines
         .iter()
-        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 /// Format a char count as "1.2K" / "823" for the thinking-block badge.
 fn format_chars(n: usize) -> String {
-    if n < 1000 { format!("{} chars", n) }
-    else if n < 1_000_000 { format!("{:.1}K chars", n as f64 / 1000.0) }
-    else { format!("{:.1}M chars", n as f64 / 1_000_000.0) }
+    if n < 1000 {
+        format!("{} chars", n)
+    } else if n < 1_000_000 {
+        format!("{:.1}K chars", n as f64 / 1000.0)
+    } else {
+        format!("{:.1}M chars", n as f64 / 1_000_000.0)
+    }
 }
 
 /// Locate the byte offset of the active `@`-token in `buf`. Returns the
@@ -1496,10 +1619,16 @@ fn format_chars(n: usize) -> String {
 /// Mirrors the rule ChatInput uses to detect the @-trigger.
 fn find_at_token_start(buf: &str) -> Option<usize> {
     for (i, c) in buf.char_indices().rev() {
-        if c.is_whitespace() { return None; }
+        if c.is_whitespace() {
+            return None;
+        }
         if c == '@' {
             let prev_is_boundary = i == 0
-                || buf[..i].chars().last().map(|p| p.is_whitespace()).unwrap_or(true);
+                || buf[..i]
+                    .chars()
+                    .last()
+                    .map(|p| p.is_whitespace())
+                    .unwrap_or(true);
             return prev_is_boundary.then_some(i);
         }
     }
@@ -1518,10 +1647,16 @@ fn scan_workspace_files(root: &Path, limit: usize) -> Vec<PathBuf> {
         .git_exclude(true)
         .build();
     for entry in walker {
-        let Ok(e) = entry else { continue; };
-        if !e.file_type().map(|t| t.is_file()).unwrap_or(false) { continue; }
+        let Ok(e) = entry else {
+            continue;
+        };
+        if !e.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            continue;
+        }
         out.push(e.into_path());
-        if out.len() >= limit { break; }
+        if out.len() >= limit {
+            break;
+        }
     }
     out
 }

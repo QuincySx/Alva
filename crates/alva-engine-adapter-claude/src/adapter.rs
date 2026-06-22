@@ -141,8 +141,7 @@ impl EngineRuntime for ClaudeAdapter {
 
                 match process.recv().await {
                     Ok(Some(msg)) => {
-                        let is_done =
-                            matches!(&msg, crate::protocol::BridgeMessage::Done);
+                        let is_done = matches!(&msg, crate::protocol::BridgeMessage::Done);
                         let events = mapper.map(msg);
 
                         // Register session once we know the ID
@@ -215,9 +214,8 @@ impl EngineRuntime for ClaudeAdapter {
         let tx = sessions
             .get(session_id)
             .ok_or_else(|| RuntimeError::SessionNotFound(session_id.into()))?;
-        tx.send(BridgeOutbound::Cancel).map_err(|_| {
-            RuntimeError::ProcessError("Session channel closed".into())
-        })
+        tx.send(BridgeOutbound::Cancel)
+            .map_err(|_| RuntimeError::ProcessError("Session channel closed".into()))
     }
 
     async fn respond_permission(
@@ -235,9 +233,7 @@ impl EngineRuntime for ClaudeAdapter {
             PermissionDecision::Allow { updated_input } => {
                 BridgePermissionDecision::Allow { updated_input }
             }
-            PermissionDecision::Deny { message } => {
-                BridgePermissionDecision::Deny { message }
-            }
+            PermissionDecision::Deny { message } => BridgePermissionDecision::Deny { message },
         };
 
         tx.send(BridgeOutbound::PermissionResponse {
@@ -303,7 +299,10 @@ mod tests {
         let bridge = adapter.build_bridge_config(RuntimeRequest::new("hello"));
 
         assert_eq!(
-            bridge.env.get("CLAUDE_CODE_USE_BEDROCK").map(String::as_str),
+            bridge
+                .env
+                .get("CLAUDE_CODE_USE_BEDROCK")
+                .map(String::as_str),
             Some("1")
         );
         assert_eq!(
@@ -311,7 +310,10 @@ mod tests {
             Some("1")
         );
         assert_eq!(
-            bridge.env.get("CLAUDE_CODE_USE_FOUNDRY").map(String::as_str),
+            bridge
+                .env
+                .get("CLAUDE_CODE_USE_FOUNDRY")
+                .map(String::as_str),
             Some("1")
         );
     }

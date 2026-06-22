@@ -61,11 +61,10 @@ impl Tool for ConfigTool {
         input: Value,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let params: Input = serde_json::from_value(input)
-            .map_err(|e| AgentError::ToolError {
-                tool_name: self.name().into(),
-                message: e.to_string(),
-            })?;
+        let params: Input = serde_json::from_value(input).map_err(|e| AgentError::ToolError {
+            tool_name: self.name().into(),
+            message: e.to_string(),
+        })?;
 
         match params.action.as_str() {
             "get" => {
@@ -100,15 +99,13 @@ impl Tool for ConfigTool {
                 // In a full implementation, this would enumerate all config keys.
                 Ok(ToolOutput::text(
                     "Configuration listing is not yet available. \
-                     Use 'get' with a specific key to read individual values."
+                     Use 'get' with a specific key to read individual values.",
                 ))
             }
-            other => {
-                Ok(ToolOutput::error(format!(
-                    "Invalid action '{}'. Must be get, set, or list.",
-                    other
-                )))
-            }
+            other => Ok(ToolOutput::error(format!(
+                "Invalid action '{}'. Must be get, set, or list.",
+                other
+            ))),
         }
     }
 }
@@ -179,7 +176,11 @@ mod tests {
             .expect("get should succeed even when missing");
 
         assert!(!out.is_error, "missing value isn't a tool error");
-        assert!(out.model_text().contains("not set"), "expected 'not set' phrasing: {}", out.model_text());
+        assert!(
+            out.model_text().contains("not set"),
+            "expected 'not set' phrasing: {}",
+            out.model_text()
+        );
     }
 
     #[tokio::test]
@@ -191,7 +192,10 @@ mod tests {
             .await
             .expect_err("set without value should error");
 
-        assert!(format!("{err}").contains("value"), "expected error mentioning value: {err}");
+        assert!(
+            format!("{err}").contains("value"),
+            "expected error mentioning value: {err}"
+        );
     }
 
     #[tokio::test]
@@ -203,7 +207,10 @@ mod tests {
             .await
             .expect_err("set without key should error");
 
-        assert!(format!("{err}").contains("key"), "expected error mentioning key: {err}");
+        assert!(
+            format!("{err}").contains("key"),
+            "expected error mentioning key: {err}"
+        );
     }
 
     #[tokio::test]
@@ -216,7 +223,11 @@ mod tests {
             .expect("unknown action returns Ok(error output)");
 
         assert!(out.is_error, "unknown action should set is_error");
-        assert!(out.model_text().contains("Invalid action"), "expected validation msg: {}", out.model_text());
+        assert!(
+            out.model_text().contains("Invalid action"),
+            "expected validation msg: {}",
+            out.model_text()
+        );
     }
 
     /// Stub-output contract guard: list action is not yet wired to a real

@@ -77,7 +77,9 @@ impl DebugServerBuilder {
             log_handle: self.log_handle,
             inspector: self.inspector,
             action_registry: self.action_registry,
-            shutdown_flag: self.shutdown_flag.unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
+            shutdown_flag: self
+                .shutdown_flag
+                .unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
         })
     }
 }
@@ -93,7 +95,12 @@ impl DebugServer {
 
         let join_handle = thread::spawn(move || {
             tracing::info!("Debug server started");
-            let router = Router::new(log_handle, inspector, action_registry, shutdown_flag.clone());
+            let router = Router::new(
+                log_handle,
+                inspector,
+                action_registry,
+                shutdown_flag.clone(),
+            );
 
             for request in server_for_thread.incoming_requests() {
                 router.handle(request);
@@ -187,8 +194,14 @@ mod tests {
         assert_eq!(b.port, 9229, "default port must be 9229");
         assert!(b.log_handle.is_none(), "default log_handle must be None");
         assert!(b.inspector.is_none(), "default inspector must be None");
-        assert!(b.action_registry.is_none(), "default action_registry must be None");
-        assert!(b.shutdown_flag.is_none(), "default shutdown_flag must be None");
+        assert!(
+            b.action_registry.is_none(),
+            "default action_registry must be None"
+        );
+        assert!(
+            b.shutdown_flag.is_none(),
+            "default shutdown_flag must be None"
+        );
     }
 
     #[test]
@@ -201,7 +214,10 @@ mod tests {
         // Use port 0 so the OS picks an ephemeral port; we never
         // call .start() so the bound socket is dropped immediately
         // when `server` goes out of scope.
-        let server = DebugServer::builder().port(0).build().expect("port 0 must bind");
+        let server = DebugServer::builder()
+            .port(0)
+            .build()
+            .expect("port 0 must bind");
         assert!(
             !server.shutdown_flag.load(Ordering::SeqCst),
             "default shutdown_flag must start as false"
@@ -251,6 +267,9 @@ mod tests {
             .expect("port 0 must bind");
         assert!(server.log_handle.is_some(), "build must thread log_handle");
         assert!(server.inspector.is_some(), "build must thread inspector");
-        assert!(server.action_registry.is_some(), "build must thread action_registry");
+        assert!(
+            server.action_registry.is_some(),
+            "build must thread action_registry"
+        );
     }
 }

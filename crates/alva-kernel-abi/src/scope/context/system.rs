@@ -15,10 +15,7 @@ pub struct ContextSystem {
 }
 
 impl ContextSystem {
-    pub fn new(
-        hooks: Arc<dyn ContextHooks>,
-        handle: Arc<dyn ContextHandle>,
-    ) -> Self {
+    pub fn new(hooks: Arc<dyn ContextHooks>, handle: Arc<dyn ContextHandle>) -> Self {
         Self {
             hooks,
             handle,

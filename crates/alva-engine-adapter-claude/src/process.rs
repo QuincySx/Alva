@@ -52,12 +52,14 @@ impl BridgeProcess {
             ))
         })?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            RuntimeError::ProcessError("Failed to capture stdin".into())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            RuntimeError::ProcessError("Failed to capture stdout".into())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| RuntimeError::ProcessError("Failed to capture stdin".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| RuntimeError::ProcessError("Failed to capture stdout".into()))?;
         let stderr = child.stderr.take();
 
         // Spawn stderr monitoring task
@@ -118,9 +120,10 @@ impl BridgeProcess {
 
     /// Force-kill the process.
     pub async fn kill(&mut self) -> Result<(), RuntimeError> {
-        self.child.kill().await.map_err(|e| {
-            RuntimeError::ProcessError(format!("Failed to kill bridge process: {e}"))
-        })
+        self.child
+            .kill()
+            .await
+            .map_err(|e| RuntimeError::ProcessError(format!("Failed to kill bridge process: {e}")))
     }
 }
 
@@ -170,7 +173,10 @@ mod tests {
         // ECONNREFUSED row also exercises case-insensitivity.
         let positive_cases = [
             ("authentication_error", "authentication_error: invalid key"),
-            ("authentication error", "Got: authentication error from server"),
+            (
+                "authentication error",
+                "Got: authentication error from server",
+            ),
             ("invalid_api_key", "invalid_api_key"),
             ("invalid api key", "Got an invalid API key for request"),
             ("unauthorized", "401 Unauthorized"),

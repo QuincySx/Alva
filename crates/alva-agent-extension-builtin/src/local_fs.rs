@@ -4,9 +4,9 @@
 
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
-use std::time::Duration;
 
 use alva_kernel_abi::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
 
@@ -72,8 +72,12 @@ impl ToolFs for LocalToolFs {
                 message: format!("failed to spawn command: {}", io_err),
             }),
             Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).trim_end().to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).trim_end().to_string();
+                let stdout = String::from_utf8_lossy(&output.stdout)
+                    .trim_end()
+                    .to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr)
+                    .trim_end()
+                    .to_string();
                 let exit_code = output.status.code().unwrap_or(-1);
                 Ok(ToolFsExecResult {
                     stdout,
@@ -86,30 +90,37 @@ impl ToolFs for LocalToolFs {
 
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, AgentError> {
         let full = self.resolve(path);
-        tokio::fs::read(&full).await.map_err(|e| AgentError::ToolError {
-            tool_name: "local_fs::read_file".to_string(),
-            message: format!("cannot read '{}': {}", full.display(), e),
-        })
+        tokio::fs::read(&full)
+            .await
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "local_fs::read_file".to_string(),
+                message: format!("cannot read '{}': {}", full.display(), e),
+            })
     }
 
     async fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgentError> {
         let full = self.resolve(path);
         if let Some(parent) = full.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| AgentError::ToolError {
-                tool_name: "local_fs::write_file".to_string(),
-                message: format!("cannot create parent dirs for '{}': {}", full.display(), e),
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AgentError::ToolError {
+                    tool_name: "local_fs::write_file".to_string(),
+                    message: format!("cannot create parent dirs for '{}': {}", full.display(), e),
+                })?;
         }
-        tokio::fs::write(&full, content).await.map_err(|e| AgentError::ToolError {
-            tool_name: "local_fs::write_file".to_string(),
-            message: format!("cannot write '{}': {}", full.display(), e),
-        })
+        tokio::fs::write(&full, content)
+            .await
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "local_fs::write_file".to_string(),
+                message: format!("cannot write '{}': {}", full.display(), e),
+            })
     }
 
     async fn list_dir(&self, path: &str) -> Result<Vec<ToolFsDirEntry>, AgentError> {
         let full = self.resolve(path);
-        let mut read_dir =
-            tokio::fs::read_dir(&full).await.map_err(|e| AgentError::ToolError {
+        let mut read_dir = tokio::fs::read_dir(&full)
+            .await
+            .map_err(|e| AgentError::ToolError {
                 tool_name: "local_fs::list_dir".to_string(),
                 message: format!("cannot read dir '{}': {}", full.display(), e),
             })?;
@@ -143,10 +154,12 @@ impl ToolFs for LocalToolFs {
 
     async fn exists(&self, path: &str) -> Result<bool, AgentError> {
         let full = self.resolve(path);
-        tokio::fs::try_exists(&full).await.map_err(|e| AgentError::ToolError {
-            tool_name: "local_fs::exists".to_string(),
-            message: format!("cannot check existence of '{}': {}", full.display(), e),
-        })
+        tokio::fs::try_exists(&full)
+            .await
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "local_fs::exists".to_string(),
+                message: format!("cannot check existence of '{}': {}", full.display(), e),
+            })
     }
 }
 
@@ -168,7 +181,10 @@ mod tests {
     #[tokio::test]
     async fn test_exec_echo() {
         let (fs, _dir) = make_fs();
-        let result = fs.exec("echo hello", None, 5000).await.expect("exec succeeded");
+        let result = fs
+            .exec("echo hello", None, 5000)
+            .await
+            .expect("exec succeeded");
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.stdout, "hello");
     }
@@ -182,7 +198,11 @@ mod tests {
             .await
             .expect("exec succeeded");
         assert_eq!(result.exit_code, 0);
-        assert!(result.stdout.contains("/usr"), "stdout was: {}", result.stdout);
+        assert!(
+            result.stdout.contains("/usr"),
+            "stdout was: {}",
+            result.stdout
+        );
     }
 
     #[tokio::test]

@@ -16,15 +16,11 @@ use alva_kernel_abi::context::{ContextHandle, ContextHooks};
 /// and testing. For production, construct a `ContextSystem` manually with your
 /// preferred implementations.
 pub fn default_context_system() -> ContextSystem {
-    let store = Arc::new(std::sync::Mutex::new(
-        crate::store::ContextStore::new(200_000, 180_000),
-    ));
-    let handle: Arc<dyn ContextHandle> = Arc::new(
-        crate::sdk_impl::ContextHandleImpl::new(store),
-    );
-    let hooks: Arc<dyn ContextHooks> = Arc::new(
-        crate::rules_plugin::RulesContextHooks::default(),
-    );
+    let store = Arc::new(std::sync::Mutex::new(crate::store::ContextStore::new(
+        200_000, 180_000,
+    )));
+    let handle: Arc<dyn ContextHandle> = Arc::new(crate::sdk_impl::ContextHandleImpl::new(store));
+    let hooks: Arc<dyn ContextHooks> = Arc::new(crate::rules_plugin::RulesContextHooks::default());
     ContextSystem::new(hooks, handle)
 }
 
@@ -87,7 +83,10 @@ mod tests {
         // these numbers changes when auto-compact fires.
         let system = default_context_system();
         let budget = system.handle().budget("default-agent");
-        assert_eq!(budget.budget_tokens, 180_000, "budget_tokens must be 180_000");
+        assert_eq!(
+            budget.budget_tokens, 180_000,
+            "budget_tokens must be 180_000"
+        );
     }
 
     #[test]

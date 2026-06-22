@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_core::Agent, bus/session/tool registry, permission services
+// OUTPUT: BaseAgent
+// POS:    Harness-level agent facade exposing prompt/session/control and assembly observability.
 use std::sync::Arc;
 
 use alva_agent_core::Agent;
@@ -31,7 +34,7 @@ pub struct BaseAgent {
     pub(super) inner: Arc<Agent>,
     /// Holds the CancellationToken for the currently running prompt() call.
     /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
-    /// Wrapped in Arc so the ExtensionHost can also hold a reference for shutdown().
+    /// Wrapped in Arc so the PluginHost can also hold a reference for shutdown().
     pub(super) current_cancel: Arc<std::sync::Mutex<CancellationToken>>,
     /// Init-phase bus writer — retained for post-init registration (e.g., checkpoint callback).
     pub(super) bus_writer: BusWriter,
@@ -58,7 +61,10 @@ impl BaseAgent {
 
         let cancel = CancellationToken::new();
         {
-            let mut current = self.current_cancel.lock().unwrap_or_else(|e| e.into_inner());
+            let mut current = self
+                .current_cancel
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *current = cancel.clone();
         }
 
@@ -67,15 +73,7 @@ impl BaseAgent {
         tokio::spawn(async move {
             let mut st = inner.state().lock().await;
             let config = inner.config().await;
-            if let Err(e) = run_agent(
-                &mut st,
-                &*config,
-                cancel,
-                messages,
-                event_tx.clone(),
-            )
-            .await
-            {
+            if let Err(e) = run_agent(&mut st, &*config, cancel, messages, event_tx.clone()).await {
                 tracing::error!(error = %e, "agent loop failed");
             }
         });
@@ -85,7 +83,10 @@ impl BaseAgent {
 
     /// Cancel the currently running agent loop.
     pub fn cancel(&self) {
-        let current = self.current_cancel.lock().unwrap_or_else(|e| e.into_inner());
+        let current = self
+            .current_cancel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         current.cancel();
     }
 
@@ -94,19 +95,13 @@ impl BaseAgent {
     ///
     /// Safe to call between turns; a running turn uses whatever effort
     /// was set when it started (reads via RwLock read guard).
-    pub async fn set_reasoning_effort(
-        &self,
-        effort: Option<alva_kernel_abi::ReasoningEffort>,
-    ) {
+    pub async fn set_reasoning_effort(&self, effort: Option<alva_kernel_abi::ReasoningEffort>) {
         self.inner.set_reasoning_effort(effort).await;
     }
 
     /// Per-turn override of the provider-specific JSON pass-through
     /// merged into the LLM request body. `None` / empty map clears.
-    pub async fn set_extra_body(
-        &self,
-        extra: Option<serde_json::Map<String, serde_json::Value>>,
-    ) {
+    pub async fn set_extra_body(&self, extra: Option<serde_json::Map<String, serde_json::Value>>) {
         self.inner.set_extra_body(extra).await;
     }
 
@@ -156,7 +151,10 @@ impl BaseAgent {
     /// The caller is responsible for calling `new_session.restore().await`
     /// before handing it over if the session needs to warm its cache from
     /// durable storage.
-    pub async fn swap_session(&self, new_session: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>) {
+    pub async fn swap_session(
+        &self,
+        new_session: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
+    ) {
         let mut st = self.inner.state().lock().await;
         st.session = new_session;
     }
@@ -180,6 +178,21 @@ impl BaseAgent {
             .iter()
             .map(|t| t.name().to_string())
             .collect()
+    }
+
+    /// Names of plugins that participated in the build, in registration order.
+    pub fn plugin_names(&self) -> Vec<String> {
+        self.inner.assembly_snapshot().plugin_names
+    }
+
+    /// Names of middleware layers in the final sorted middleware stack order.
+    pub fn middleware_names(&self) -> Vec<String> {
+        self.inner.assembly_snapshot().middleware_names
+    }
+
+    /// Full build-time plugin/middleware contribution snapshot.
+    pub fn assembly_snapshot(&self) -> alva_agent_core::AgentAssemblySnapshot {
+        self.inner.assembly_snapshot()
     }
 
     /// Get the current permission mode.
@@ -233,8 +246,8 @@ impl BaseAgent {
         &self.bus_writer
     }
 
-    /// Access the runtime extension host (middleware and command registry).
-    pub fn extension_host(&self) -> &Arc<std::sync::RwLock<crate::extension::ExtensionHost>> {
+    /// Access the runtime plugin host (middleware and command registry).
+    pub fn plugin_host(&self) -> &Arc<std::sync::RwLock<crate::extension::PluginHost>> {
         self.inner.host()
     }
 
@@ -295,8 +308,7 @@ mod tests {
     #[tokio::test]
     async fn test_base_agent_prompt_produces_events() {
         let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("Hello from mock!")),
+            MockLanguageModel::new().with_response(make_assistant_message("Hello from mock!")),
         );
 
         let agent = build_test_agent(model).await;
@@ -328,10 +340,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_base_agent_prompt_text_ends_without_error() {
-        let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("All good!")),
-        );
+        let model =
+            Arc::new(MockLanguageModel::new().with_response(make_assistant_message("All good!")));
 
         let agent = build_test_agent(model).await;
         let mut rx = agent.prompt_text("Tell me something.");
@@ -345,14 +355,17 @@ mod tests {
         }
 
         let error = end_error.expect("should receive AgentEnd");
-        assert!(error.is_none(), "AgentEnd should have no error, got: {:?}", error);
+        assert!(
+            error.is_none(),
+            "AgentEnd should have no error, got: {:?}",
+            error
+        );
     }
 
     #[tokio::test]
     async fn test_base_agent_messages_after_prompt() {
         let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("Response text")),
+            MockLanguageModel::new().with_response(make_assistant_message("Response text")),
         );
 
         let agent = build_test_agent(model).await;
@@ -376,15 +389,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_base_agent_with_custom_tool() {
-        use alva_test::mock_tool::MockTool;
-        use alva_test::fixtures::make_tool_call_message;
         use alva_kernel_abi::ToolOutput;
+        use alva_test::fixtures::make_tool_call_message;
+        use alva_test::mock_tool::MockTool;
 
         // The model will first return a tool call, then a final text response.
-        let tool_call_resp = make_tool_call_message(
-            "my_test_tool",
-            serde_json::json!({"key": "value"}),
-        );
+        let tool_call_resp =
+            make_tool_call_message("my_test_tool", serde_json::json!({"key": "value"}));
         let final_resp = make_assistant_message("Done using the tool.");
 
         let mock_model = MockLanguageModel::new()
@@ -392,8 +403,8 @@ mod tests {
             .with_response(final_resp);
         let model = Arc::new(mock_model);
 
-        let mock_tool = MockTool::new("my_test_tool")
-            .with_result(ToolOutput::text("tool executed"));
+        let mock_tool =
+            MockTool::new("my_test_tool").with_result(ToolOutput::text("tool executed"));
         let mock_tool_clone = mock_tool.clone();
 
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -444,10 +455,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_base_agent_no_tools_by_default() {
-        let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("unused")),
-        );
+        let model =
+            Arc::new(MockLanguageModel::new().with_response(make_assistant_message("unused")));
 
         let tmp = tempfile::tempdir().expect("tempdir");
         let agent = BaseAgent::builder()
@@ -458,16 +467,17 @@ mod tests {
 
         // Builder registers zero tools by default — caller must use .tools()
         let defs = agent.tool_registry().definitions();
-        assert!(defs.is_empty(), "no tools should be registered by default, got: {:?}",
-            defs.iter().map(|d| d.name.clone()).collect::<Vec<_>>());
+        assert!(
+            defs.is_empty(),
+            "no tools should be registered by default, got: {:?}",
+            defs.iter().map(|d| d.name.clone()).collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test]
     async fn test_base_agent_with_tool_presets() {
-        let model = Arc::new(
-            MockLanguageModel::new()
-                .with_response(make_assistant_message("unused")),
-        );
+        let model =
+            Arc::new(MockLanguageModel::new().with_response(make_assistant_message("unused")));
 
         let tmp = tempfile::tempdir().expect("tempdir");
         let agent = BaseAgent::builder()
@@ -478,8 +488,19 @@ mod tests {
             .await
             .expect("build should succeed");
 
-        let names: Vec<String> = agent.tool_registry().definitions().iter().map(|d| d.name.clone()).collect();
-        assert!(names.contains(&"read_file".to_string()), "should have read_file");
-        assert!(names.contains(&"execute_shell".to_string()), "should have execute_shell");
+        let names: Vec<String> = agent
+            .tool_registry()
+            .definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(
+            names.contains(&"read_file".to_string()),
+            "should have read_file"
+        );
+        assert!(
+            names.contains(&"execute_shell".to_string()),
+            "should have execute_shell"
+        );
     }
 }

@@ -99,11 +99,7 @@ impl AcpProcessManager {
     }
 
     /// Send message to specified process
-    pub async fn send(
-        &self,
-        process_id: &str,
-        msg: AcpOutboundMessage,
-    ) -> Result<(), AcpError> {
+    pub async fn send(&self, process_id: &str, msg: AcpOutboundMessage) -> Result<(), AcpError> {
         let processes = self.processes.lock().await;
         let handle = processes
             .get(process_id)

@@ -14,7 +14,7 @@ uuid = { version = "1", features = ["v4"] }
 dirs = { version = "5", optional = true }
 regex = "1"
 tracing = "0.1"
-tokio = { version = "1", features = ["sync", "time", "macros", "net"] }
+tokio = { version = "1", default-features = false, features = ["sync", "time", "macros"] }
 # Loop B (3C/T6 path): URL parsing for inspect_url. `url` is already in
 # the workspace transitively via reqwest; making it direct here keeps
 # the dependency explicit and version-pinned at this layer.
@@ -24,7 +24,10 @@ url = "2"
 default = ["native"]
 native = ["dirs"]
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { version = "1", default-features = false, features = ["net"] }
+
 [dev-dependencies]
 futures-core = "0.3"
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
 tokio-stream = "0.1"

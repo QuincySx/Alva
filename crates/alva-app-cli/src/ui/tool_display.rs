@@ -88,10 +88,7 @@ impl<'a> Widget for ToolStatusWidget<'a> {
         let mut spans: Vec<Span<'_>> = Vec::with_capacity(6);
 
         // Icon
-        spans.push(Span::styled(
-            self.status.icon(),
-            self.status_style(),
-        ));
+        spans.push(Span::styled(self.status.icon(), self.status_style()));
         spans.push(Span::raw(" "));
 
         // Tool name
@@ -107,10 +104,7 @@ impl<'a> Widget for ToolStatusWidget<'a> {
 
         // Elapsed time
         if let Some(elapsed) = self.elapsed {
-            spans.push(Span::styled(
-                format!(" ({})", elapsed),
-                self.theme.text_dim,
-            ));
+            spans.push(Span::styled(format!(" ({})", elapsed), self.theme.text_dim));
         }
 
         let line = Line::from(spans);
@@ -210,7 +204,12 @@ mod tests {
         // Must not panic at any reasonable terminal width.
         for max in [10, 20, 30, 40, 50] {
             let out = truncate_with_ellipsis(s, max);
-            assert!(out.len() <= max.max(3), "max={}: output len {} > max", max, out.len());
+            assert!(
+                out.len() <= max.max(3),
+                "max={}: output len {} > max",
+                max,
+                out.len()
+            );
             // Result must be valid UTF-8 (always true if it didn't panic)
             assert!(out.chars().count() > 0 || s.is_empty());
         }

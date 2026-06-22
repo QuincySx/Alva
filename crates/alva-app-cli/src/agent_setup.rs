@@ -117,7 +117,10 @@ pub(crate) async fn build_agent(
         mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
         subagent_depth: 3,
         hooks_settings: alva_app_core::settings::HooksSettings::default(),
-        subprocess_ext_dirs: vec![paths.project_extensions_dir(), paths.global_extensions_dir()],
+        subprocess_ext_dirs: vec![
+            paths.project_extensions_dir(),
+            paths.global_extensions_dir(),
+        ],
     };
     let builder = alva_app_core::components::apply_components(
         BaseAgentBuilder::new()
@@ -132,10 +135,9 @@ pub(crate) async fn build_agent(
 
     // Register checkpoint callback
     let checkpoint_mgr = checkpoint::CheckpointManager::new(workspace);
-    agent
-        .set_checkpoint_callback(Arc::new(CliCheckpointCallback {
-            manager: checkpoint::CheckpointManager::new(workspace),
-        }));
+    agent.set_checkpoint_callback(Arc::new(CliCheckpointCallback {
+        manager: checkpoint::CheckpointManager::new(workspace),
+    }));
 
     AgentBundle {
         agent,
@@ -166,7 +168,11 @@ mod tests {
         let out = load_project_context(tmp.path());
         assert!(out.contains("# Project Context (from AGENTS.md)"));
         assert!(out.contains("agents content"));
-        assert!(out.starts_with("\n\n"), "leading separator preserved: {:?}", &out[..8]);
+        assert!(
+            out.starts_with("\n\n"),
+            "leading separator preserved: {:?}",
+            &out[..8]
+        );
     }
 
     #[test]

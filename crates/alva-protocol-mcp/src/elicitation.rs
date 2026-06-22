@@ -58,10 +58,12 @@ mod tests {
         let parsed: ElicitationRequest = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.message, "Please provide your API key");
-        assert!(parsed.requested_schema["properties"]["api_key"]["type"]
-            .as_str()
-            .unwrap()
-            == "string");
+        assert!(
+            parsed.requested_schema["properties"]["api_key"]["type"]
+                .as_str()
+                .unwrap()
+                == "string"
+        );
     }
 
     #[test]

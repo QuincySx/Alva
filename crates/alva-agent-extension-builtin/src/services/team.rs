@@ -265,8 +265,14 @@ mod tests {
     async fn send_then_inbox_fifo() {
         let store = InMemoryTeamStore::new();
         store.create(mate("alice")).await.unwrap();
-        store.send_message(msg("me", "alice", "first")).await.unwrap();
-        store.send_message(msg("me", "alice", "second")).await.unwrap();
+        store
+            .send_message(msg("me", "alice", "first"))
+            .await
+            .unwrap();
+        store
+            .send_message(msg("me", "alice", "second"))
+            .await
+            .unwrap();
         let inbox = store.inbox("alice").await;
         assert_eq!(inbox.len(), 2);
         assert_eq!(inbox[0].body, "first");
@@ -317,7 +323,10 @@ mod tests {
         bodies.sort();
         for i in 0..n {
             let expected = format!("msg-{i}");
-            assert!(bodies.binary_search(&expected.as_str()).is_ok(), "{expected} missing");
+            assert!(
+                bodies.binary_search(&expected.as_str()).is_ok(),
+                "{expected} missing"
+            );
         }
     }
 }

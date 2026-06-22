@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use alva_app_core::AlvaPaths;
 use alva_app_extension_loader::loader::{discover_plugins, start_plugin};
-use alva_app_extension_loader::proxy::{AepEvent, RemoteExtensionProxy};
+use alva_app_extension_loader::proxy::{AepDispatchResult, AepEvent, RemotePluginProxy};
 use alva_kernel_abi::tool::execution::ToolOutput;
 use serde_json::Value;
 
@@ -70,7 +70,10 @@ fn print_help() {
 // ---------------------------------------------------------------------------
 
 async fn run_list(paths: &AlvaPaths) -> i32 {
-    let dirs = vec![paths.project_extensions_dir(), paths.global_extensions_dir()];
+    let dirs = vec![
+        paths.project_extensions_dir(),
+        paths.global_extensions_dir(),
+    ];
     let plugins = discover_plugins(&dirs).await;
 
     if plugins.is_empty() {
@@ -173,7 +176,7 @@ async fn run_exec(args: &[String]) -> i32 {
     };
 
     // Start the plugin.
-    let proxy: Arc<RemoteExtensionProxy> = match start_plugin(plugin_dir.clone()).await {
+    let proxy: Arc<RemotePluginProxy> = match start_plugin(plugin_dir.clone()).await {
         Ok(p) => p,
         Err(e) => {
             eprintln!("alva plugins exec: failed to start plugin: {e}");
@@ -216,14 +219,26 @@ async fn run_exec(args: &[String]) -> i32 {
         }
     };
 
-    println!("[plugins] event `{event_name}` handled: {result:?}");
+    let exit_code = dispatch_exit_code(&result);
+    if let AepDispatchResult::InvalidAction { reason } = &result {
+        eprintln!("[plugins] event `{event_name}` returned invalid action: {reason}");
+    } else {
+        println!("[plugins] event `{event_name}` handled: {result:?}");
+    }
 
     // Shutdown.
     let _ = try_shutdown(proxy).await;
-    0
+    exit_code
 }
 
-async fn try_shutdown(proxy: Arc<RemoteExtensionProxy>) -> i32 {
+fn dispatch_exit_code(result: &AepDispatchResult) -> i32 {
+    match result {
+        AepDispatchResult::InvalidAction { .. } => 1,
+        _ => 0,
+    }
+}
+
+async fn try_shutdown(proxy: Arc<RemotePluginProxy>) -> i32 {
     // Arc::try_unwrap so we can consume into shutdown(self).
     match Arc::try_unwrap(proxy) {
         Ok(p) => {
@@ -256,7 +271,9 @@ async fn try_shutdown(proxy: Arc<RemoteExtensionProxy>) -> i32 {
 #[derive(Debug)]
 enum OwnedAepEvent {
     AgentStart,
-    AgentEnd { error: Option<String> },
+    AgentEnd {
+        error: Option<String>,
+    },
     BeforeToolCall {
         tool_name: String,
         tool_call_id: String,
@@ -267,7 +284,9 @@ enum OwnedAepEvent {
         tool_call_id: String,
         result: ToolOutput,
     },
-    UserMessage { text: String },
+    UserMessage {
+        text: String,
+    },
 }
 
 impl OwnedAepEvent {
@@ -395,6 +414,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn dispatch_exit_code_marks_invalid_action_as_failure() {
+        assert_eq!(
+            dispatch_exit_code(&AepDispatchResult::InvalidAction {
+                reason: "bad action".to_string()
+            }),
+            1
+        );
+        assert_eq!(dispatch_exit_code(&AepDispatchResult::Continue), 0);
+    }
+
+    #[test]
     fn build_event_agent_start_takes_no_data() {
         let ev = build_event("agent_start", &json!({})).unwrap();
         assert!(matches!(ev, OwnedAepEvent::AgentStart));
@@ -437,7 +467,11 @@ mod tests {
         )
         .unwrap();
         match ev {
-            OwnedAepEvent::BeforeToolCall { tool_name, tool_call_id, arguments } => {
+            OwnedAepEvent::BeforeToolCall {
+                tool_name,
+                tool_call_id,
+                arguments,
+            } => {
                 assert_eq!(tool_name, "read_file");
                 assert_eq!(tool_call_id, "tc-1");
                 assert_eq!(arguments["path"], "/x");
@@ -449,7 +483,10 @@ mod tests {
     #[test]
     fn build_event_before_tool_call_missing_tool_name_is_err() {
         let err = build_event("before_tool_call", &json!({})).unwrap_err();
-        assert!(err.contains("tool_name"), "err message should mention field: {err}");
+        assert!(
+            err.contains("tool_name"),
+            "err message should mention field: {err}"
+        );
     }
 
     #[test]
@@ -457,7 +494,11 @@ mod tests {
         // tool_call_id defaults to "stub-id", arguments defaults to {}.
         let ev = build_event("before_tool_call", &json!({"tool_name": "t"})).unwrap();
         match ev {
-            OwnedAepEvent::BeforeToolCall { tool_call_id, arguments, .. } => {
+            OwnedAepEvent::BeforeToolCall {
+                tool_call_id,
+                arguments,
+                ..
+            } => {
                 assert_eq!(tool_call_id, "stub-id");
                 assert!(arguments.is_object() && arguments.as_object().unwrap().is_empty());
             }
@@ -473,7 +514,11 @@ mod tests {
         )
         .unwrap();
         match ev {
-            OwnedAepEvent::AfterToolCall { tool_name, tool_call_id, result } => {
+            OwnedAepEvent::AfterToolCall {
+                tool_name,
+                tool_call_id,
+                result,
+            } => {
                 assert_eq!(tool_name, "edit");
                 assert_eq!(tool_call_id, "tc-2");
                 // ToolOutput::text("done") → first content block is Text("done")
@@ -521,7 +566,9 @@ mod tests {
         let err = build_event("definitely_not_an_event", &json!({})).unwrap_err();
         assert!(err.contains("unknown event"));
         assert!(err.contains("definitely_not_an_event"));
-        assert!(err.contains("--help"), "err should point user to --help: {err}");
+        assert!(
+            err.contains("--help"),
+            "err should point user to --help: {err}"
+        );
     }
 }
-

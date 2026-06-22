@@ -21,9 +21,7 @@ use alva_agent_extension_builtin::task_stop::TaskStopTool;
 use alva_agent_extension_builtin::task_update::TaskUpdateTool;
 use alva_agent_extension_builtin::team_create::TeamCreateTool;
 use alva_agent_extension_builtin::team_delete::TeamDeleteTool;
-use alva_kernel_abi::{
-    Bus, BusHandle, CancellationToken, Tool, ToolExecutionContext,
-};
+use alva_kernel_abi::{Bus, BusHandle, CancellationToken, Tool, ToolExecutionContext};
 use serde_json::{json, Value};
 
 struct TestCtx {
@@ -118,12 +116,7 @@ async fn task_lifecycle_end_to_end() {
     assert_eq!(after_stop.status, alva_kernel_abi::TaskStatus::Killed);
 
     // 6. list with running filter is now empty
-    let list_running = invoke(
-        &TaskListTool,
-        json!({ "status": "running" }),
-        &ctx,
-    )
-    .await;
+    let list_running = invoke(&TaskListTool, json!({ "status": "running" }), &ctx).await;
     assert!(
         list_running.contains("No tasks found"),
         "expected empty: {list_running}"

@@ -5,17 +5,14 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::{
+    error::SkillError,
     extension::mcp::runtime::McpManager,
-    extension::skills::{
-        injector::SkillInjector,
-        store::SkillStore,
-    },
     extension::skills::skill_domain::{
         agent_template::{AgentTemplate, GlobalSkillConfig},
         mcp::McpServerConfig,
         skill_config::SkillRef,
     },
-    error::SkillError,
+    extension::skills::{injector::SkillInjector, store::SkillStore},
 };
 
 /// From AgentTemplate, instantiate all runtime config needed:
@@ -82,9 +79,7 @@ impl AgentTemplateService {
         let mcp_server_ids = self.merge_mcp_servers(template).await;
 
         // 5. Build tool whitelist
-        let allowed_tools = self
-            .build_allowed_tools(template, &mcp_server_ids)
-            .await;
+        let allowed_tools = self.build_allowed_tools(template, &mcp_server_ids).await;
 
         Ok(AgentTemplateInstance {
             system_prompt,

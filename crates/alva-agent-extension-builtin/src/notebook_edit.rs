@@ -87,18 +87,22 @@ impl NotebookEditTool {
         let path_str = nb_path.to_str().unwrap_or_default();
 
         // Read notebook
-        let data = fs.read_file(path_str).await.map_err(|e| AgentError::ToolError {
-            tool_name: "notebook_edit".into(),
-            message: format!("Failed to read notebook: {}", e),
-        })?;
-
-        let mut notebook: Value = serde_json::from_slice(&data)
+        let data = fs
+            .read_file(path_str)
+            .await
             .map_err(|e| AgentError::ToolError {
+                tool_name: "notebook_edit".into(),
+                message: format!("Failed to read notebook: {}", e),
+            })?;
+
+        let mut notebook: Value =
+            serde_json::from_slice(&data).map_err(|e| AgentError::ToolError {
                 tool_name: "notebook_edit".into(),
                 message: format!("Invalid notebook JSON: {}", e),
             })?;
 
-        let cells = notebook.get_mut("cells")
+        let cells = notebook
+            .get_mut("cells")
             .and_then(|c| c.as_array_mut())
             .ok_or_else(|| AgentError::ToolError {
                 tool_name: "notebook_edit".into(),
@@ -124,12 +128,13 @@ impl NotebookEditTool {
                 })?;
 
                 // Find cell by id
-                let cell = cells.iter_mut().find(|c| {
-                    c.get("id").and_then(|v| v.as_str()) == Some(&params.cell_id)
-                }).ok_or_else(|| AgentError::ToolError {
-                    tool_name: "notebook_edit".into(),
-                    message: format!("Cell '{}' not found", params.cell_id),
-                })?;
+                let cell = cells
+                    .iter_mut()
+                    .find(|c| c.get("id").and_then(|v| v.as_str()) == Some(&params.cell_id))
+                    .ok_or_else(|| AgentError::ToolError {
+                        tool_name: "notebook_edit".into(),
+                        message: format!("Cell '{}' not found", params.cell_id),
+                    })?;
 
                 // Update source
                 let source_lines: Vec<Value> = new_source
@@ -162,9 +167,7 @@ impl NotebookEditTool {
             }
             EditMode::Delete => {
                 let initial_len = cells.len();
-                cells.retain(|c| {
-                    c.get("id").and_then(|v| v.as_str()) != Some(&params.cell_id)
-                });
+                cells.retain(|c| c.get("id").and_then(|v| v.as_str()) != Some(&params.cell_id));
                 if cells.len() == initial_len {
                     return Ok(ToolOutput::error(format!(
                         "Cell '{}' not found in notebook",
@@ -175,22 +178,21 @@ impl NotebookEditTool {
         }
 
         // Write back
-        let output = serde_json::to_vec_pretty(&notebook)
+        let output = serde_json::to_vec_pretty(&notebook).map_err(|e| AgentError::ToolError {
+            tool_name: "notebook_edit".into(),
+            message: format!("Failed to serialize notebook: {}", e),
+        })?;
+
+        fs.write_file(path_str, &output)
+            .await
             .map_err(|e| AgentError::ToolError {
                 tool_name: "notebook_edit".into(),
-                message: format!("Failed to serialize notebook: {}", e),
+                message: format!("Failed to write notebook: {}", e),
             })?;
-
-        fs.write_file(path_str, &output).await.map_err(|e| AgentError::ToolError {
-            tool_name: "notebook_edit".into(),
-            message: format!("Failed to write notebook: {}", e),
-        })?;
 
         Ok(ToolOutput::text(format!(
             "Notebook cell '{}' {}d in {}.",
-            params.cell_id,
-            edit_mode_str,
-            params.notebook_path
+            params.cell_id, edit_mode_str, params.notebook_path
         )))
     }
 }

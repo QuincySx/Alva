@@ -70,9 +70,7 @@ impl Theme {
             user_text: Style::default().fg(Color::Cyan),
             assistant_text: Style::default().fg(Color::Green),
             system_text: Style::default().fg(Color::Yellow),
-            error_text: Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            error_text: Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
 
             // tool
             tool_name: Style::default()
@@ -85,15 +83,11 @@ impl Theme {
             // chrome
             border: Style::default().fg(Color::DarkGray),
             border_focused: Style::default().fg(Color::Cyan),
-            selection: Style::default()
-                .bg(Color::DarkGray)
-                .fg(Color::White),
+            selection: Style::default().bg(Color::DarkGray).fg(Color::White),
             prompt: Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
-            status_bar: Style::default()
-                .fg(Color::White)
-                .bg(Color::DarkGray),
+            status_bar: Style::default().fg(Color::White).bg(Color::DarkGray),
 
             // code
             code_block_bg: Style::default().bg(Color::Rgb(30, 30, 46)),
@@ -121,9 +115,7 @@ impl Theme {
             user_text: Style::default().fg(Color::Blue),
             assistant_text: Style::default().fg(Color::Rgb(0, 128, 0)),
             system_text: Style::default().fg(Color::Rgb(180, 120, 0)),
-            error_text: Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            error_text: Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
 
             // tool
             tool_name: Style::default()
@@ -136,15 +128,11 @@ impl Theme {
             // chrome
             border: Style::default().fg(Color::Gray),
             border_focused: Style::default().fg(Color::Blue),
-            selection: Style::default()
-                .bg(Color::LightYellow)
-                .fg(Color::Black),
+            selection: Style::default().bg(Color::LightYellow).fg(Color::Black),
             prompt: Style::default()
                 .fg(Color::Blue)
                 .add_modifier(Modifier::BOLD),
-            status_bar: Style::default()
-                .fg(Color::Black)
-                .bg(Color::Gray),
+            status_bar: Style::default().fg(Color::Black).bg(Color::Gray),
 
             // code
             code_block_bg: Style::default().bg(Color::Rgb(240, 240, 240)),
@@ -215,11 +203,17 @@ mod tests {
         // the BOLD modifier, users may miss error messages on a
         // chatty stream.
         assert!(
-            Theme::dark().error_text.add_modifier.contains(Modifier::BOLD),
+            Theme::dark()
+                .error_text
+                .add_modifier
+                .contains(Modifier::BOLD),
             "dark.error_text must be BOLD"
         );
         assert!(
-            Theme::light().error_text.add_modifier.contains(Modifier::BOLD),
+            Theme::light()
+                .error_text
+                .add_modifier
+                .contains(Modifier::BOLD),
             "light.error_text must be BOLD"
         );
     }
@@ -228,8 +222,14 @@ mod tests {
     fn tool_name_is_bold_in_both_themes() {
         // Same affordance for tool invocations — bold so users see
         // "the agent ran X".
-        assert!(Theme::dark().tool_name.add_modifier.contains(Modifier::BOLD));
-        assert!(Theme::light().tool_name.add_modifier.contains(Modifier::BOLD));
+        assert!(Theme::dark()
+            .tool_name
+            .add_modifier
+            .contains(Modifier::BOLD));
+        assert!(Theme::light()
+            .tool_name
+            .add_modifier
+            .contains(Modifier::BOLD));
     }
 
     #[test]
@@ -240,8 +240,14 @@ mod tests {
 
     #[test]
     fn code_comment_is_italic_in_both_themes() {
-        assert!(Theme::dark().code_comment.add_modifier.contains(Modifier::ITALIC));
-        assert!(Theme::light().code_comment.add_modifier.contains(Modifier::ITALIC));
+        assert!(Theme::dark()
+            .code_comment
+            .add_modifier
+            .contains(Modifier::ITALIC));
+        assert!(Theme::light()
+            .code_comment
+            .add_modifier
+            .contains(Modifier::ITALIC));
     }
 
     // -- Light vs dark distinctness ---------------------------------------
@@ -262,10 +268,7 @@ mod tests {
     fn light_and_dark_differ_in_user_text_color() {
         // Pin per-role distinctness — the user_text accent
         // (Cyan vs Blue here) must differ across modes.
-        assert_ne!(
-            Theme::dark().user_text.fg,
-            Theme::light().user_text.fg,
-        );
+        assert_ne!(Theme::dark().user_text.fg, Theme::light().user_text.fg,);
     }
 
     // -- Tool status palette distinctness ---------------------------------

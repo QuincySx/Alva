@@ -7,9 +7,9 @@
 
 use std::sync::Arc;
 
-use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use crate::extension::skills::loader::SkillLoader;
 use crate::extension::skills::store::SkillStore;
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -51,9 +51,16 @@ impl Tool for SearchSkillsTool {
         })
     }
 
-    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
+    async fn execute(
+        &self,
+        input: Value,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let params: SearchSkillsInput =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "search_skills".into(), message: e.to_string() })?;
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError {
+                tool_name: "search_skills".into(),
+                message: e.to_string(),
+            })?;
 
         let results = self.store.search(&params.query).await;
 
@@ -69,8 +76,9 @@ impl Tool for SearchSkillsTool {
             })
             .collect();
 
-        Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
-            .unwrap_or_else(|_| "[]".to_string())))
+        Ok(ToolOutput::text(
+            serde_json::to_string_pretty(&output).unwrap_or_else(|_| "[]".to_string()),
+        ))
     }
 }
 
@@ -124,20 +132,25 @@ impl Tool for UseSkillTool {
         })
     }
 
-    async fn execute(&self, input: Value, _ctx: &dyn ToolExecutionContext) -> Result<ToolOutput, AgentError> {
+    async fn execute(
+        &self,
+        input: Value,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
         let params: UseSkillInput =
-            serde_json::from_value(input).map_err(|e| AgentError::ToolError { tool_name: "use_skill".into(), message: e.to_string() })?;
+            serde_json::from_value(input).map_err(|e| AgentError::ToolError {
+                tool_name: "use_skill".into(),
+                message: e.to_string(),
+            })?;
 
         // Verify skill exists and is enabled
         let skill = self
             .store
             .find_enabled(&params.skill_name)
             .await
-            .ok_or_else(|| {
-                AgentError::ToolError {
-                    tool_name: "use_skill".into(),
-                    message: format!("Skill '{}' not found or not enabled", params.skill_name),
-                }
+            .ok_or_else(|| AgentError::ToolError {
+                tool_name: "use_skill".into(),
+                message: format!("Skill '{}' not found or not enabled", params.skill_name),
             })?;
 
         // Load SKILL.md body (Level 2)
@@ -145,7 +158,10 @@ impl Tool for UseSkillTool {
             .loader
             .load_skill_body(&params.skill_name)
             .await
-            .map_err(|e| AgentError::ToolError { tool_name: "use_skill".into(), message: e.to_string() })?;
+            .map_err(|e| AgentError::ToolError {
+                tool_name: "use_skill".into(),
+                message: e.to_string(),
+            })?;
 
         let mut output = json!({
             "skill_name": skill.meta.name,
@@ -164,7 +180,8 @@ impl Tool for UseSkillTool {
             output["resources"] = json!(resources);
         }
 
-        Ok(ToolOutput::text(serde_json::to_string_pretty(&output)
-            .unwrap_or_else(|_| "{}".to_string())))
+        Ok(ToolOutput::text(
+            serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()),
+        ))
     }
 }

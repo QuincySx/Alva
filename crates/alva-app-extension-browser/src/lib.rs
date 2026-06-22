@@ -19,21 +19,21 @@
 //! directly inside the wasm app, not this crate.
 
 #[cfg(not(target_family = "wasm"))]
+pub mod browser_action;
+#[cfg(not(target_family = "wasm"))]
 pub mod browser_manager;
-#[cfg(not(target_family = "wasm"))]
-pub mod browser_start;
-#[cfg(not(target_family = "wasm"))]
-pub mod browser_stop;
 #[cfg(not(target_family = "wasm"))]
 pub mod browser_navigate;
 #[cfg(not(target_family = "wasm"))]
-pub mod browser_action;
+pub mod browser_screenshot;
 #[cfg(not(target_family = "wasm"))]
 pub mod browser_snapshot;
 #[cfg(not(target_family = "wasm"))]
-pub mod browser_screenshot;
+pub mod browser_start;
 #[cfg(not(target_family = "wasm"))]
 pub mod browser_status;
+#[cfg(not(target_family = "wasm"))]
+pub mod browser_stop;
 
 #[cfg(not(target_family = "wasm"))]
 pub use browser_action::BrowserActionTool;
@@ -58,12 +58,24 @@ pub use browser_stop::BrowserStopTool;
 pub fn browser_tools() -> Vec<Box<dyn alva_kernel_abi::tool::Tool>> {
     let manager = browser_manager::shared_browser_manager();
     vec![
-        Box::new(BrowserStartTool { manager: manager.clone() }),
-        Box::new(BrowserStopTool { manager: manager.clone() }),
-        Box::new(BrowserNavigateTool { manager: manager.clone() }),
-        Box::new(BrowserActionTool { manager: manager.clone() }),
-        Box::new(BrowserSnapshotTool { manager: manager.clone() }),
-        Box::new(BrowserScreenshotTool { manager: manager.clone() }),
+        Box::new(BrowserStartTool {
+            manager: manager.clone(),
+        }),
+        Box::new(BrowserStopTool {
+            manager: manager.clone(),
+        }),
+        Box::new(BrowserNavigateTool {
+            manager: manager.clone(),
+        }),
+        Box::new(BrowserActionTool {
+            manager: manager.clone(),
+        }),
+        Box::new(BrowserSnapshotTool {
+            manager: manager.clone(),
+        }),
+        Box::new(BrowserScreenshotTool {
+            manager: manager.clone(),
+        }),
         Box::new(BrowserStatusTool { manager }),
     ]
 }

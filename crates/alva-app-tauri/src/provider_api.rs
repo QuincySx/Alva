@@ -366,7 +366,11 @@ pub async fn test_connection(
                     Some("provider returned empty response".into())
                 },
                 model: Some(model.to_string()),
-                sample_response: if sample.is_empty() { None } else { Some(sample) },
+                sample_response: if sample.is_empty() {
+                    None
+                } else {
+                    Some(sample)
+                },
                 input_tokens: resp.message.usage.as_ref().map(|u| u.input_tokens),
                 output_tokens: resp.message.usage.as_ref().map(|u| u.output_tokens),
             }
@@ -532,16 +536,16 @@ mod tests {
 
     #[test]
     fn extract_caps_context_length_passes_through() {
-        let entry = parse_entry(r#"{ "id": "anthropic/claude-3.7-sonnet", "context_length": 200000 }"#);
+        let entry =
+            parse_entry(r#"{ "id": "anthropic/claude-3.7-sonnet", "context_length": 200000 }"#);
         let caps = extract_openrouter_capabilities(&entry);
         assert_eq!(caps.context_window, Some(200_000));
     }
 
     #[test]
     fn extract_caps_supports_tools_via_tools_keyword() {
-        let entry = parse_entry(
-            r#"{ "id": "x", "supported_parameters": ["tools", "temperature"] }"#,
-        );
+        let entry =
+            parse_entry(r#"{ "id": "x", "supported_parameters": ["tools", "temperature"] }"#);
         assert_eq!(
             extract_openrouter_capabilities(&entry).supports_tools,
             Some(true)
@@ -552,9 +556,7 @@ mod tests {
     fn extract_caps_supports_tools_via_tool_choice_keyword() {
         // OpenRouter sometimes exposes only `tool_choice` for OpenAI-style
         // function calling models — must still be treated as tool-capable.
-        let entry = parse_entry(
-            r#"{ "id": "x", "supported_parameters": ["tool_choice"] }"#,
-        );
+        let entry = parse_entry(r#"{ "id": "x", "supported_parameters": ["tool_choice"] }"#);
         assert_eq!(
             extract_openrouter_capabilities(&entry).supports_tools,
             Some(true)
@@ -565,9 +567,7 @@ mod tests {
     fn extract_caps_supports_tools_via_function_call_keyword() {
         // Legacy OpenAI naming — older models surface `function_call` instead
         // of `tools`. Still considered tool-capable.
-        let entry = parse_entry(
-            r#"{ "id": "x", "supported_parameters": ["function_call"] }"#,
-        );
+        let entry = parse_entry(r#"{ "id": "x", "supported_parameters": ["function_call"] }"#);
         assert_eq!(
             extract_openrouter_capabilities(&entry).supports_tools,
             Some(true)
@@ -579,9 +579,8 @@ mod tests {
         // `supported_parameters` is present but none of the three tool keys —
         // result should be `Some(false)`, NOT `None`. UI uses the
         // distinction: Some(false) shows "no tools" chip, None shows "?".
-        let entry = parse_entry(
-            r#"{ "id": "x", "supported_parameters": ["temperature", "top_p"] }"#,
-        );
+        let entry =
+            parse_entry(r#"{ "id": "x", "supported_parameters": ["temperature", "top_p"] }"#);
         assert_eq!(
             extract_openrouter_capabilities(&entry).supports_tools,
             Some(false)
@@ -590,9 +589,8 @@ mod tests {
 
     #[test]
     fn extract_caps_is_reasoning_true_when_keyword_present() {
-        let entry = parse_entry(
-            r#"{ "id": "openai/o1", "supported_parameters": ["reasoning", "tools"] }"#,
-        );
+        let entry =
+            parse_entry(r#"{ "id": "openai/o1", "supported_parameters": ["reasoning", "tools"] }"#);
         let caps = extract_openrouter_capabilities(&entry);
         assert_eq!(caps.is_reasoning, Some(true));
         assert_eq!(caps.supports_tools, Some(true));
@@ -600,9 +598,7 @@ mod tests {
 
     #[test]
     fn extract_caps_is_reasoning_false_when_other_params_present() {
-        let entry = parse_entry(
-            r#"{ "id": "x", "supported_parameters": ["temperature"] }"#,
-        );
+        let entry = parse_entry(r#"{ "id": "x", "supported_parameters": ["temperature"] }"#);
         assert_eq!(
             extract_openrouter_capabilities(&entry).is_reasoning,
             Some(false)
@@ -612,9 +608,8 @@ mod tests {
     #[test]
     fn extract_caps_max_output_tokens_from_top_provider() {
         // Real OpenRouter shape: { "top_provider": { "max_completion_tokens": 8192 } }
-        let entry = parse_entry(
-            r#"{ "id": "x", "top_provider": { "max_completion_tokens": 8192 } }"#,
-        );
+        let entry =
+            parse_entry(r#"{ "id": "x", "top_provider": { "max_completion_tokens": 8192 } }"#);
         assert_eq!(
             extract_openrouter_capabilities(&entry).max_output_tokens,
             Some(8192)

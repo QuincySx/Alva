@@ -3,8 +3,8 @@
 // POS:    Context-window compaction via token estimation and message truncation to stay within model limits.
 use std::sync::Arc;
 
-use alva_kernel_abi::{AgentError, LanguageModel};
 use alva_kernel_abi::AgentMessage;
+use alva_kernel_abi::{AgentError, LanguageModel};
 
 /// Configuration for context-window compaction.
 ///

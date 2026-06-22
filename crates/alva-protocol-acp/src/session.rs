@@ -62,13 +62,12 @@ impl AcpSession {
         // The actual send is done by the caller via AcpProcessManager::send().
         // This method validates state transitions and stores the outbound message
         // shape so callers can use it.
-        self.pending_outbound
-            .lock()
-            .await
-            .replace(crate::protocol::message::AcpOutboundMessage::Prompt {
+        self.pending_outbound.lock().await.replace(
+            crate::protocol::message::AcpOutboundMessage::Prompt {
                 content: prompt,
                 resume: if resume { Some(true) } else { None },
-            });
+            },
+        );
 
         Ok(())
     }
@@ -100,10 +99,7 @@ impl AcpSession {
     }
 
     /// Update session state based on an inbound message.
-    pub async fn handle_inbound(
-        &self,
-        msg: &crate::protocol::message::AcpInboundMessage,
-    ) {
+    pub async fn handle_inbound(&self, msg: &crate::protocol::message::AcpInboundMessage) {
         use crate::protocol::message::AcpInboundMessage;
         let mut state = self.state.lock().await;
         match msg {
@@ -112,8 +108,7 @@ impl AcpSession {
                     request_id: request_id.clone(),
                 };
             }
-            AcpInboundMessage::TaskComplete { .. }
-            | AcpInboundMessage::FinishData { .. } => {
+            AcpInboundMessage::TaskComplete { .. } | AcpInboundMessage::FinishData { .. } => {
                 *state = AcpSessionState::Completed;
             }
             AcpInboundMessage::ErrorData { data } => {

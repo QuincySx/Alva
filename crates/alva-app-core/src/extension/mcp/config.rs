@@ -5,8 +5,8 @@
 //!
 //! Reads and writes MCP server configuration files. Callers supply the path.
 
-use crate::extension::skills::skill_domain::mcp::McpServerConfig;
 use crate::error::SkillError;
+use crate::extension::skills::skill_domain::mcp::McpServerConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;

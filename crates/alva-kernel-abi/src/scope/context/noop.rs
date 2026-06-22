@@ -19,7 +19,9 @@ pub struct NoopContextHooks;
 
 #[async_trait]
 impl ContextHooks for NoopContextHooks {
-    fn name(&self) -> &str { "noop" }
+    fn name(&self) -> &str {
+        "noop"
+    }
 }
 
 /// A no-op ContextHandle that returns empty/zero values for all operations.
@@ -50,11 +52,17 @@ impl ContextHandle for NoopContextHandle {
             usage_ratio: 0.0,
         }
     }
-    fn read_message(&self, _agent_id: &str, _message_id: &str) -> Option<ContextEntry> { None }
-    fn tool_patterns(&self, _agent_id: &str, _last_n: usize) -> Vec<ToolPattern> { vec![] }
+    fn read_message(&self, _agent_id: &str, _message_id: &str) -> Option<ContextEntry> {
+        None
+    }
+    fn tool_patterns(&self, _agent_id: &str, _last_n: usize) -> Vec<ToolPattern> {
+        vec![]
+    }
 
     fn inject_message(&self, _agent_id: &str, _layer: ContextLayer, _message: AgentMessage) {}
-    fn inject_memory(&self, _agent_id: &str, _query: &str, _max_tokens: usize) -> Vec<MemoryFact> { vec![] }
+    fn inject_memory(&self, _agent_id: &str, _query: &str, _max_tokens: usize) -> Vec<MemoryFact> {
+        vec![]
+    }
     fn inject_from_file(&self, _agent_id: &str, _path: &str, _lines: Option<(usize, usize)>) {}
 
     fn remove_message(&self, _agent_id: &str, _message_id: &str) {}
@@ -75,7 +83,9 @@ impl ContextHandle for NoopContextHandle {
     fn tag_priority(&self, _agent_id: &str, _message_id: &str, _priority: Priority) {}
     fn tag_exclude(&self, _agent_id: &str, _message_id: &str) {}
 
-    fn query_memory(&self, _query: &str, _max_results: usize) -> Vec<MemoryFact> { vec![] }
+    fn query_memory(&self, _query: &str, _max_results: usize) -> Vec<MemoryFact> {
+        vec![]
+    }
     fn store_memory(&self, _fact: MemoryFact) {}
     fn delete_memory(&self, _fact_id: &str) {}
 }
@@ -86,9 +96,6 @@ impl ContextHandle for NoopContextHandle {
 /// RulesContextHooks, use `alva_agent_context::default_context_system()`.
 impl Default for ContextSystem {
     fn default() -> Self {
-        Self::new(
-            Arc::new(NoopContextHooks),
-            Arc::new(NoopContextHandle),
-        )
+        Self::new(Arc::new(NoopContextHooks), Arc::new(NoopContextHandle))
     }
 }

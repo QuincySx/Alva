@@ -17,8 +17,7 @@ impl SlashCompleter {
         // REPL-side commands handled directly in repl.rs's match arms (not
         // registered in CommandRegistry). Keep in lockstep with repl.rs.
         let extras = [
-            "quit", "resume", "fork", "rewind", "sessions", "setup",
-            "auto", "locks", "model",
+            "quit", "resume", "fork", "rewind", "sessions", "setup", "auto", "locks", "model",
         ];
         let mut all: Vec<String> = registry_names;
         for e in extras {
@@ -67,7 +66,9 @@ impl Completer for SlashCompleter {
         // menu is configured `only_buffer_difference: true`, `line` here is
         // the *post-`/` chars* (empty right after `/`, then "c", "co", …).
         // No leading `/` to strip; we filter command names directly.
-        if line.contains(' ') { return vec![]; }
+        if line.contains(' ') {
+            return vec![];
+        }
         self.matches(line).into_iter().map(Self::make).collect()
     }
 
@@ -78,7 +79,9 @@ impl Completer for SlashCompleter {
         start: usize,
         offset: usize,
     ) -> Vec<Suggestion> {
-        if line.contains(' ') { return vec![]; }
+        if line.contains(' ') {
+            return vec![];
+        }
         // True paged fetch: ListMenu asks for `[start, start+offset)` based on
         // the active page. We slice the filtered list — actual cost is trivial
         // for in-memory commands, but the *interface* matches what an
@@ -92,7 +95,9 @@ impl Completer for SlashCompleter {
     }
 
     fn total_completions(&mut self, line: &str, _pos: usize) -> usize {
-        if line.contains(' ') { return 0; }
+        if line.contains(' ') {
+            return 0;
+        }
         self.matches(line).len()
     }
 }
@@ -122,7 +127,10 @@ mod tests {
         // Sorted alphabetically — `auto` (from extras) before `clear`
         let auto_idx = c.commands.iter().position(|s| s == "auto").unwrap();
         let clear_idx = c.commands.iter().position(|s| s == "clear").unwrap();
-        assert!(auto_idx < clear_idx, "commands should be sorted alphabetically");
+        assert!(
+            auto_idx < clear_idx,
+            "commands should be sorted alphabetically"
+        );
     }
 
     #[test]
@@ -142,7 +150,10 @@ mod tests {
         let m = c.matches("re");
         assert!(m.iter().any(|s| *s == "resume"), "missing `resume`: {m:?}");
         assert!(m.iter().any(|s| *s == "rewind"), "missing `rewind`: {m:?}");
-        assert!(!m.iter().any(|s| *s == "model"), "model should not match `re`");
+        assert!(
+            !m.iter().any(|s| *s == "model"),
+            "model should not match `re`"
+        );
     }
 
     #[test]
@@ -159,14 +170,26 @@ mod tests {
         let total = c.total_completions("re", 0);
         let partial_all = c.partial_complete("re", 0, 0, 100);
         assert_eq!(complete.len(), total, "complete and total disagree");
-        assert_eq!(partial_all.len(), total, "partial(0..100) and total disagree");
+        assert_eq!(
+            partial_all.len(),
+            total,
+            "partial(0..100) and total disagree"
+        );
 
         // partial_complete with start=1 should skip first match
         let partial_skip = c.partial_complete("re", 0, 1, 100);
-        assert_eq!(partial_skip.len(), total.saturating_sub(1), "partial skip wrong");
+        assert_eq!(
+            partial_skip.len(),
+            total.saturating_sub(1),
+            "partial skip wrong"
+        );
         // Returned suggestions carry the command name in `.value`
         for s in &complete {
-            assert!(s.value.starts_with("re"), "value not re-prefixed: {}", s.value);
+            assert!(
+                s.value.starts_with("re"),
+                "value not re-prefixed: {}",
+                s.value
+            );
         }
     }
 

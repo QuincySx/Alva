@@ -7,7 +7,13 @@ pub struct CorePlugin;
 
 #[async_trait]
 impl Plugin for CorePlugin {
-    fn name(&self) -> &str { "core" }
-    fn description(&self) -> &str { "Core file I/O tools" }
-    async fn register(&self, r: &Registrar) { r.tools(crate::tool_presets::file_io()); }
+    fn name(&self) -> &str {
+        "core"
+    }
+    fn description(&self) -> &str {
+        "Core file I/O tools"
+    }
+    async fn register(&self, r: &Registrar) {
+        r.tools(crate::tool_presets::file_io());
+    }
 }

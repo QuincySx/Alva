@@ -3,9 +3,9 @@
 // POS:    mutable state and immutable config — AgentConfig carries optional BusHandle and optional ContextSystem.
 use std::sync::Arc;
 
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::context::ContextSystem;
-use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::tool::Tool;
 
 use alva_kernel_abi::BusHandle;

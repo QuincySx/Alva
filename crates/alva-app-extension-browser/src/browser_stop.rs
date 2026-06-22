@@ -39,16 +39,14 @@ impl BrowserStopTool {
         let mut manager = self.manager.lock().await;
 
         match manager.stop(&id).await {
-            Ok(()) => {
-                Ok(ToolOutput::text(json!({
+            Ok(()) => Ok(ToolOutput::text(
+                json!({
                     "status": "stopped",
                     "id": id,
                 })
-                .to_string()))
-            }
-            Err(e) => {
-                Ok(ToolOutput::error(json!({ "error": e }).to_string()))
-            }
+                .to_string(),
+            )),
+            Err(e) => Ok(ToolOutput::error(json!({ "error": e }).to_string())),
         }
     }
 }

@@ -1,3 +1,6 @@
+// INPUT:  tokio::process::Command, HooksSettings, HookEvent, HookInput
+// OUTPUT: HookExecutor, HookRunResult, HookOutcome
+// POS:    Runs configured hook commands with JSON stdin and timeout handling.
 //! Hook executor — spawns shell subprocesses, feeds JSON input via stdin,
 //! and interprets exit codes + stdout/stderr.
 
@@ -9,9 +12,7 @@ use tokio::process::Command;
 
 use crate::settings::{HookEntry, HooksSettings};
 
-use super::{
-    matcher::matches_hook, HookEvent, HookInput, HookOutcome, HookOutput, HookResult,
-};
+use super::{matcher::matches_hook, HookEvent, HookInput, HookOutcome, HookOutput, HookResult};
 
 /// Default hook timeout (10 seconds).
 const DEFAULT_TIMEOUT_MS: u64 = 10_000;
@@ -131,11 +132,8 @@ impl HookExecutor {
         }
 
         // Wait with timeout
-        let result = tokio::time::timeout(
-            Duration::from_millis(timeout_ms),
-            child.wait_with_output(),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait_with_output()).await;
 
         match result {
             Err(_) => {
@@ -310,7 +308,9 @@ mod tests {
         let input = HookInput::lifecycle(HookEvent::PreToolUse, "sess", Path::new("/tmp"));
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PreToolUse, None, input).await;
+        let result = executor
+            .run(&settings, HookEvent::PreToolUse, None, input)
+            .await;
         assert!(!result.is_blocked());
         assert_eq!(result.outcomes.len(), 1);
         assert!(result.outcomes[0].is_success());
@@ -318,30 +318,26 @@ mod tests {
 
     #[tokio::test]
     async fn exit_2_is_blocked() {
-        let settings = make_settings(
-            HookEvent::PreToolUse,
-            "echo 'dangerous' >&2; exit 2",
-            None,
-        );
+        let settings = make_settings(HookEvent::PreToolUse, "echo 'dangerous' >&2; exit 2", None);
         let input = HookInput::lifecycle(HookEvent::PreToolUse, "sess", Path::new("/tmp"));
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PreToolUse, None, input).await;
+        let result = executor
+            .run(&settings, HookEvent::PreToolUse, None, input)
+            .await;
         assert!(result.is_blocked());
         assert_eq!(result.blocking_messages(), vec!["dangerous"]);
     }
 
     #[tokio::test]
     async fn exit_1_is_non_blocking_error() {
-        let settings = make_settings(
-            HookEvent::PreToolUse,
-            "echo 'warning' >&2; exit 1",
-            None,
-        );
+        let settings = make_settings(HookEvent::PreToolUse, "echo 'warning' >&2; exit 1", None);
         let input = HookInput::lifecycle(HookEvent::PreToolUse, "sess", Path::new("/tmp"));
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PreToolUse, None, input).await;
+        let result = executor
+            .run(&settings, HookEvent::PreToolUse, None, input)
+            .await;
         assert!(!result.is_blocked());
         match &result.outcomes[0] {
             HookOutcome::NonBlockingError { exit_code, stderr } => {
@@ -359,7 +355,9 @@ mod tests {
         let input = HookInput::lifecycle(HookEvent::PostToolUse, "sess", Path::new("/tmp"));
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PostToolUse, None, input).await;
+        let result = executor
+            .run(&settings, HookEvent::PostToolUse, None, input)
+            .await;
         assert_eq!(result.additional_context(), vec!["lint ok"]);
     }
 
@@ -371,7 +369,12 @@ mod tests {
 
         // Match: tool_name = "Bash"
         let result = executor
-            .run(&settings, HookEvent::PreToolUse, Some("Bash"), input.clone())
+            .run(
+                &settings,
+                HookEvent::PreToolUse,
+                Some("Bash"),
+                input.clone(),
+            )
             .await;
         assert_eq!(result.outcomes.len(), 1);
 
@@ -398,7 +401,9 @@ mod tests {
         let input = HookInput::lifecycle(HookEvent::PreToolUse, "sess", Path::new("/tmp"));
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PreToolUse, None, input).await;
+        let result = executor
+            .run(&settings, HookEvent::PreToolUse, None, input)
+            .await;
         assert_eq!(result.outcomes.len(), 1);
         assert!(matches!(result.outcomes[0], HookOutcome::Timeout));
     }
@@ -414,10 +419,16 @@ mod tests {
         );
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PreToolUse, Some("Bash"), input).await;
+        let result = executor
+            .run(&settings, HookEvent::PreToolUse, Some("Bash"), input)
+            .await;
         match &result.outcomes[0] {
             HookOutcome::Success { stdout, .. } => {
-                assert!(stdout.trim().contains("PreToolUse"), "should have HOOK_EVENT: {}", stdout);
+                assert!(
+                    stdout.trim().contains("PreToolUse"),
+                    "should have HOOK_EVENT: {}",
+                    stdout
+                );
             }
             other => panic!("expected Success, got {:?}", other),
         }
@@ -426,7 +437,7 @@ mod tests {
     #[tokio::test]
     async fn stdin_receives_json_input() {
         // Hook reads tool_name from stdin JSON
-        let cmd = r#"cat | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || cat"#;
+        let _cmd = r#"cat | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || cat"#;
         // Simpler test: just verify stdin is piped
         let settings = make_settings(HookEvent::PreToolUse, "cat", None);
         let input = HookInput::pre_tool_use(
@@ -437,12 +448,22 @@ mod tests {
         );
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PreToolUse, None, input).await;
+        let result = executor
+            .run(&settings, HookEvent::PreToolUse, None, input)
+            .await;
         match &result.outcomes[0] {
             HookOutcome::Success { stdout, .. } => {
                 // cat echoes back the JSON input
-                assert!(stdout.contains("tool_name"), "stdin should contain tool_name: {}", stdout);
-                assert!(stdout.contains("Bash"), "stdin should contain Bash: {}", stdout);
+                assert!(
+                    stdout.contains("tool_name"),
+                    "stdin should contain tool_name: {}",
+                    stdout
+                );
+                assert!(
+                    stdout.contains("Bash"),
+                    "stdin should contain Bash: {}",
+                    stdout
+                );
             }
             other => panic!("expected Success, got {:?}", other),
         }
@@ -469,7 +490,9 @@ mod tests {
         let input = HookInput::lifecycle(HookEvent::PreToolUse, "sess", Path::new("/tmp"));
         let executor = test_executor();
 
-        let result = executor.run(&settings, HookEvent::PreToolUse, None, input).await;
+        let result = executor
+            .run(&settings, HookEvent::PreToolUse, None, input)
+            .await;
         // Only the first hook should have run (blocked stops the rest)
         assert_eq!(result.outcomes.len(), 1);
         assert!(result.is_blocked());

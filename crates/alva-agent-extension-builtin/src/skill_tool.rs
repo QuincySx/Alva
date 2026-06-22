@@ -84,10 +84,7 @@ mod tests {
     async fn invocation_echoes_skill_name_and_args() {
         let tool = SkillTool;
         let out = tool
-            .execute(
-                json!({ "skill": "commit", "args": "--amend" }),
-                &ctx(),
-            )
+            .execute(json!({ "skill": "commit", "args": "--amend" }), &ctx())
             .await
             .expect("execute should succeed");
 

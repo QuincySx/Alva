@@ -89,11 +89,9 @@ impl FsSkillRepository {
                 "missing opening '---'".to_string(),
             ))?;
 
-        let end_idx = after_first
-            .find("\n---")
-            .ok_or(SkillError::InvalidSkillMd(
-                "missing closing '---'".to_string(),
-            ))?;
+        let end_idx = after_first.find("\n---").ok_or(SkillError::InvalidSkillMd(
+            "missing closing '---'".to_string(),
+        ))?;
 
         let yaml_str = &after_first[..end_idx];
 
@@ -113,12 +111,10 @@ impl FsSkillRepository {
                     let absolute_pos = 3 + newline_pos + 1 + closing_pos;
                     // Skip past \n---
                     let end = absolute_pos + 4; // \n---
-                    // Skip the newline after closing ---
+                                                // Skip the newline after closing ---
                     if end < content.len() && content.as_bytes()[end] == b'\n' {
                         end + 1
-                    } else if end + 1 < content.len()
-                        && &content[end..end + 2] == "\r\n"
-                    {
+                    } else if end + 1 < content.len() && &content[end..end + 2] == "\r\n" {
                         end + 2
                     } else {
                         end
@@ -242,12 +238,7 @@ impl FsSkillRepository {
             return skills;
         };
         while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry
-                .file_type()
-                .await
-                .map(|t| t.is_dir())
-                .unwrap_or(false)
-            {
+            if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
                 let dir_name = entry.file_name().to_string_lossy().to_string();
                 let kind = kind_fn(&dir_name);
                 if let Ok(Some(skill)) = self
@@ -279,12 +270,7 @@ impl SkillRepository for FsSkillRepository {
         let mbb_dir = self.mbb_dir.clone();
         if let Ok(mut entries) = tokio::fs::read_dir(&mbb_dir).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
-                if entry
-                    .file_type()
-                    .await
-                    .map(|t| t.is_dir())
-                    .unwrap_or(false)
-                {
+                if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
                     let dir_name = entry.file_name().to_string_lossy().to_string();
                     let domains = mbb_domains.get(&dir_name).cloned().unwrap_or_default();
                     let kind = SkillKind::Mbb { domains };
@@ -300,11 +286,7 @@ impl SkillRepository for FsSkillRepository {
 
         // Scan User-installed Skills
         let user = self
-            .scan_dir(
-                &self.user_dir,
-                |_| SkillKind::UserInstalled,
-                &enabled_names,
-            )
+            .scan_dir(&self.user_dir, |_| SkillKind::UserInstalled, &enabled_names)
             .await;
         skills.extend(user);
 
@@ -529,7 +511,12 @@ Do beta things.
         std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();
     }
 
-    fn write_skill_with_resources(base_dir: &Path, name: &str, content: &str, resources: &[(&str, &[u8])]) {
+    fn write_skill_with_resources(
+        base_dir: &Path,
+        name: &str,
+        content: &str,
+        resources: &[(&str, &[u8])],
+    ) {
         let skill_dir = base_dir.join(name);
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();

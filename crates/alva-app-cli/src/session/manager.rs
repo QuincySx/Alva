@@ -1,8 +1,7 @@
 // INPUT:  json_file_session::JsonFileAgentSession, serde, serde_json, std::fs
-// OUTPUT: JsonFileSessionManager, SessionSummary
+// OUTPUT: JsonFileSessionManager, SessionSummary, eval_config_snapshot records
 // POS:    CLI session directory manager — knows about .alva/sessions/ layout,
-//         index.json, and how to construct JsonFileAgentSession instances
-//         pointing at the right files.
+//         index.json, JsonFileAgentSession construction, and agent config snapshots.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -159,7 +158,12 @@ impl JsonFileSessionManager {
 
     /// Update a session's summary in the index after it's been written to
     /// disk (e.g. after event_count has grown).
-    pub fn refresh_summary(&self, session_id: &str, event_count: usize, preview_override: Option<&str>) {
+    pub fn refresh_summary(
+        &self,
+        session_id: &str,
+        event_count: usize,
+        preview_override: Option<&str>,
+    ) {
         let mut index = self.load_index();
         if let Some(entry) = index.iter_mut().find(|e| e.session_id == session_id) {
             entry.updated_at = chrono::Utc::now().timestamp_millis();
@@ -182,32 +186,32 @@ impl JsonFileSessionManager {
         agent: &alva_app_core::BaseAgent,
         model_id: &str,
     ) {
-        let events = session.query(&EventQuery {
-            limit: usize::MAX,
-            ..Default::default()
-        }).await;
+        let events = session
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await;
         let already = events.iter().any(|m| {
             m.event.event_type == "system"
-                && m.event.data.as_ref()
+                && m.event
+                    .data
+                    .as_ref()
                     .and_then(|d| d.get("type"))
                     .and_then(|v| v.as_str())
                     == Some("eval_config_snapshot")
         });
-        if already { return; }
+        if already {
+            return;
+        }
 
         let tool_definitions = agent.tool_registry().definitions();
         let tool_names = agent.tool_names();
         let system_prompt_segments = agent.system_prompt_segments().await;
-        // Lockstep with alva-app-cli::agent_setup::build_agent + alva-app-tauri's
-        // default plugin set. Update both lists when extensions move around.
-        let extension_names = vec![
-            "provider-registry", "tool-lock-registry", "analytics", "approval",
-            "skills", "core", "shell", "interaction", "task", "team",
-            "planning", "utility", "web", "browser",
-            "loop-detection", "dangling-tool-call", "tool-timeout",
-            "compaction", "checkpoint", "permission", "sub-agents",
-            "mcp", "hooks", "subprocess-loader",
-        ];
+        let assembly = agent.assembly_snapshot();
+        let plugin_names = agent.plugin_names();
+        let middleware_names = agent.middleware_names();
+        let direct_middleware_names = assembly.direct_middleware_names.clone();
         let snapshot = serde_json::json!({
             "type": "eval_config_snapshot",
             "system_prompt": system_prompt_segments,
@@ -216,8 +220,10 @@ impl JsonFileSessionManager {
             "tool_definitions": tool_definitions,
             "skill_names": Vec::<String>::new(),
             "max_iterations": 20u32,
-            "extension_names": extension_names,
-            "middleware_names": Vec::<String>::new(),
+            "plugin_names": plugin_names,
+            "plugin_assembly": assembly.plugins,
+            "middleware_names": middleware_names,
+            "direct_middleware_names": direct_middleware_names,
         });
         let event = alva_kernel_abi::agent_session::SessionEvent::system(snapshot);
         // `AgentSession::append` returns `()` (infallible by trait
@@ -235,7 +241,10 @@ impl JsonFileSessionManager {
     pub async fn write_run_record(&self, session: &Arc<JsonFileAgentSession>) {
         let session_id = session.session_id().to_string();
         let events: Vec<alva_kernel_abi::agent_session::SessionEvent> = session
-            .query(&EventQuery { limit: usize::MAX, ..Default::default() })
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
             .await
             .into_iter()
             .map(|m| m.event)
@@ -272,6 +281,7 @@ mod tests {
     //! UTF-8 panic bus fixed in L56-L63); these tests pin down the
     //! 80-char limit + "..." marker contract.
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn truncate_preview_empty_string_returned_unchanged() {
@@ -289,7 +299,10 @@ mod tests {
         // s has exactly 80 chars → truncated.len() == s.len() → no marker.
         let s = "a".repeat(80);
         assert_eq!(truncate_preview(&s), s);
-        assert!(!truncate_preview(&s).ends_with("..."), "no marker at exact boundary");
+        assert!(
+            !truncate_preview(&s).ends_with("..."),
+            "no marker at exact boundary"
+        );
     }
 
     #[test]
@@ -327,5 +340,102 @@ mod tests {
         assert!(out.ends_with("..."));
         let kept = out.strip_suffix("...").unwrap();
         assert_eq!(kept.chars().count(), 80, "exactly 80 emojis kept");
+    }
+
+    #[tokio::test]
+    async fn config_snapshot_records_actual_plugins_and_middleware() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manager = JsonFileSessionManager::for_workspace(tmp.path());
+        let session = manager.create("snapshot test").await;
+        let model = Arc::new(alva_llm_provider::OpenAIChatProvider::new(
+            alva_llm_provider::ProviderConfig {
+                api_key: "test-key".to_string(),
+                model: "test-model".to_string(),
+                base_url: "https://example.invalid/v1".to_string(),
+                max_tokens: 128,
+                custom_headers: Default::default(),
+                kind: Some("openai-chat".to_string()),
+            },
+        ));
+
+        let agent = alva_app_core::BaseAgent::builder()
+            .workspace(tmp.path())
+            .plugin(Box::new(alva_app_core::extension::CorePlugin))
+            .middleware(Arc::new(
+                alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
+            ))
+            .build(model)
+            .await
+            .expect("agent builds");
+
+        manager
+            .append_config_snapshot_if_needed(&session, &agent, "test-model")
+            .await;
+
+        let events = session
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await;
+        let snapshot = events
+            .iter()
+            .find_map(|m| {
+                let data = m.event.data.as_ref()?;
+                (data.get("type").and_then(|v| v.as_str()) == Some("eval_config_snapshot"))
+                    .then_some(data)
+            })
+            .expect("config snapshot event");
+
+        let plugins = snapshot
+            .get("plugin_names")
+            .and_then(|v| v.as_array())
+            .expect("plugin_names array");
+        assert!(
+            snapshot.get("extension_names").is_none(),
+            "extension_names must not be emitted in the new snapshot schema"
+        );
+        assert!(
+            plugins.iter().any(|v| v.as_str() == Some("core")),
+            "actual plugin list should include core: {plugins:?}"
+        );
+        assert!(
+            plugins.iter().any(|v| v.as_str() == Some("security")),
+            "default security plugin should be recorded: {plugins:?}"
+        );
+        let plugin_assembly = snapshot
+            .get("plugin_assembly")
+            .and_then(|v| v.as_array())
+            .expect("plugin_assembly array");
+        assert!(
+            plugin_assembly
+                .iter()
+                .any(|v| v.get("name").and_then(|n| n.as_str()) == Some("core")),
+            "plugin assembly should include structured core contribution: {plugin_assembly:?}"
+        );
+
+        let middleware = snapshot
+            .get("middleware_names")
+            .and_then(|v| v.as_array())
+            .expect("middleware_names array");
+        let direct_middleware = snapshot
+            .get("direct_middleware_names")
+            .and_then(|v| v.as_array())
+            .expect("direct_middleware_names array");
+        assert!(
+            !middleware.is_empty(),
+            "middleware_names should record actual stack"
+        );
+        assert!(
+            middleware
+                .iter()
+                .any(|v| v.as_str() == Some("builtins_loop_detection")),
+            "explicit loop detection middleware should be recorded: {middleware:?}"
+        );
+        assert_eq!(
+            direct_middleware,
+            &[serde_json::json!("builtins_loop_detection")],
+            "direct middleware should be attributed separately"
+        );
     }
 }

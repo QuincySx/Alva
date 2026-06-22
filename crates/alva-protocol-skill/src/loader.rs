@@ -26,10 +26,7 @@ impl SkillLoader {
     /// Build Level 1 context fragment (metadata summary table)
     /// Format follows Wukong's skill list injection: compact list of name + description
     /// This fragment is always injected into system prompt, ~50-150 tokens
-    pub async fn build_meta_summary(
-        &self,
-        skills: &[Skill],
-    ) -> Result<String, SkillError> {
+    pub async fn build_meta_summary(&self, skills: &[Skill]) -> Result<String, SkillError> {
         if skills.is_empty() {
             return Ok(String::new());
         }
@@ -60,10 +57,7 @@ impl SkillLoader {
 
     /// Build Level 2 inline injection (Explicit/Strict mode pre-injection)
     /// Expands SKILL.md body directly in system prompt
-    pub async fn build_explicit_injection(
-        &self,
-        skill: &Skill,
-    ) -> Result<String, SkillError> {
+    pub async fn build_explicit_injection(&self, skill: &Skill) -> Result<String, SkillError> {
         let body = self.repo.load_body(&skill.meta.name).await?;
         Ok(format!(
             "## Skill: {}\n\n{}\n",
@@ -82,10 +76,7 @@ impl SkillLoader {
     }
 
     /// List all resource paths for a Skill (for Agent's selective loading)
-    pub async fn list_resources(
-        &self,
-        skill_name: &str,
-    ) -> Result<Vec<String>, SkillError> {
+    pub async fn list_resources(&self, skill_name: &str) -> Result<Vec<String>, SkillError> {
         self.repo.list_resources(skill_name).await
     }
 }

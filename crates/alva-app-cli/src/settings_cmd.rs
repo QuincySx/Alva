@@ -22,9 +22,57 @@
 //! visible to the desktop app on its next IPC call (the Tauri side never
 //! caches — re-reads the file every `lookup_provider`).
 
-use alva_app_core::config::{self, ProviderEntry};
+use alva_app_core::components::{ComponentMeta, COMPONENTS};
+use alva_app_core::config::{self, AlvaConfig, ProviderEntry};
 
 const KNOWN_KINDS: &[&str] = &["anthropic", "openai-chat", "openai-responses", "gemini"];
+
+struct ComponentRow {
+    id: &'static str,
+    enabled: bool,
+    source: &'static str,
+    meta: &'static ComponentMeta,
+}
+
+fn component_meta(id: &str) -> Option<&'static ComponentMeta> {
+    COMPONENTS.iter().find(|meta| meta.id == id)
+}
+
+fn set_component_override(cfg: &mut AlvaConfig, id: &str, enabled: bool) -> Result<(), String> {
+    if component_meta(id).is_none() {
+        return Err(format!("unknown component: {id}"));
+    }
+    cfg.components.insert(id.to_string(), enabled);
+    Ok(())
+}
+
+fn reset_component_override(cfg: &mut AlvaConfig, id: &str) -> Result<(), String> {
+    if component_meta(id).is_none() {
+        return Err(format!("unknown component: {id}"));
+    }
+    cfg.components.remove(id);
+    Ok(())
+}
+
+fn component_rows(cfg: &AlvaConfig) -> Vec<ComponentRow> {
+    COMPONENTS
+        .iter()
+        .map(|meta| match cfg.components.get(meta.id) {
+            Some(enabled) => ComponentRow {
+                id: meta.id,
+                enabled: *enabled,
+                source: "override",
+                meta,
+            },
+            None => ComponentRow {
+                id: meta.id,
+                enabled: meta.default_on,
+                source: "default",
+                meta,
+            },
+        })
+        .collect()
+}
 
 pub async fn run(args: &[String]) -> i32 {
     match args.first().map(|s| s.as_str()) {
@@ -33,6 +81,7 @@ pub async fn run(args: &[String]) -> i32 {
         Some("set") => run_set(&args[1..]).await,
         Some("active") => run_active(&args[1..]).await,
         Some("remove") | Some("rm") => run_remove(&args[1..]).await,
+        Some("component") | Some("components") => run_component(&args[1..]).await,
         Some("path") => run_path().await,
         Some("help") | Some("-h") | Some("--help") => {
             print_help();
@@ -55,6 +104,11 @@ fn print_help() {
     eprintln!("    flags: --api-key K  --model M  --base-url U");
     eprintln!("  alva settings active <kind>           Set the active provider");
     eprintln!("  alva settings remove <kind>           Drop a provider");
+    eprintln!("  alva settings component list          List component toggles");
+    eprintln!("  alva settings component enable <id>   Force-enable a component");
+    eprintln!("  alva settings component disable <id>  Force-disable a component");
+    eprintln!("  alva settings component reset <id>    Remove one override");
+    eprintln!("  alva settings component reset --all   Remove all overrides");
     eprintln!("  alva settings path                    Print config file path\n");
     eprintln!("Known provider kinds: {}", KNOWN_KINDS.join(", "));
 }
@@ -82,11 +136,19 @@ async fn run_list() -> i32 {
     let active = cfg.active.as_deref();
     let mut kinds: Vec<&String> = cfg.providers.keys().collect();
     kinds.sort();
-    eprintln!("Providers in {}:",
-        config::config_path().map(|p| p.display().to_string()).unwrap_or_else(|| "<no home>".into()));
+    eprintln!(
+        "Providers in {}:",
+        config::config_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<no home>".into())
+    );
     for kind in kinds {
         let entry = &cfg.providers[kind];
-        let star = if Some(kind.as_str()) == active { "*" } else { " " };
+        let star = if Some(kind.as_str()) == active {
+            "*"
+        } else {
+            " "
+        };
         eprintln!(
             "  {star} {kind:<20}  key={key}  model={model}  base_url={base}",
             kind = kind,
@@ -117,7 +179,8 @@ async fn run_get(args: &[String]) -> i32 {
         "model": entry.model,
         "base_url": entry.base_url,
         "active": cfg.active.as_deref() == Some(kind.as_str()),
-    })).unwrap_or_default();
+    }))
+    .unwrap_or_default();
     println!("{json}");
     0
 }
@@ -147,9 +210,16 @@ async fn run_set(args: &[String]) -> i32 {
     }
 
     let mut cfg = config::load().unwrap_or_default();
-    let entry = cfg.providers.entry(kind.clone()).or_insert_with(ProviderEntry::default);
-    if let Some(k) = api_key { entry.api_key = k; }
-    if let Some(m) = model { entry.model = Some(m); }
+    let entry = cfg
+        .providers
+        .entry(kind.clone())
+        .or_insert_with(ProviderEntry::default);
+    if let Some(k) = api_key {
+        entry.api_key = k;
+    }
+    if let Some(m) = model {
+        entry.model = Some(m);
+    }
     if let Some(b) = base_url {
         entry.base_url = if b.is_empty() { None } else { Some(b) };
     }
@@ -239,6 +309,113 @@ async fn run_path() -> i32 {
     }
 }
 
+fn parse_component_bool(value: &str) -> Option<bool> {
+    match value {
+        "on" | "true" | "1" | "yes" | "enable" | "enabled" => Some(true),
+        "off" | "false" | "0" | "no" | "disable" | "disabled" => Some(false),
+        _ => None,
+    }
+}
+
+async fn run_component(args: &[String]) -> i32 {
+    match args.first().map(|s| s.as_str()) {
+        None | Some("list") => {
+            let cfg = config::load().unwrap_or_default();
+            eprintln!("Components:");
+            eprintln!("  state  source    kind        category  id");
+            for row in component_rows(&cfg) {
+                let state = if row.enabled { "on" } else { "off" };
+                let kind = match row.meta.kind {
+                    alva_app_core::components::ComponentKind::Plugin => "plugin",
+                    alva_app_core::components::ComponentKind::Middleware => "middleware",
+                };
+                eprintln!(
+                    "  {state:<5}  {source:<8}  {kind:<10}  {category:<8}  {id}",
+                    source = row.source,
+                    category = row.meta.category,
+                    id = row.id,
+                );
+            }
+            0
+        }
+        Some("enable") | Some("on") => run_component_set(&args[1..], true).await,
+        Some("disable") | Some("off") => run_component_set(&args[1..], false).await,
+        Some("set") => {
+            let Some(id) = args.get(1) else {
+                eprintln!("usage: alva settings component set <id> <on|off>");
+                return 2;
+            };
+            let Some(value) = args.get(2).and_then(|v| parse_component_bool(v)) else {
+                eprintln!("usage: alva settings component set <id> <on|off>");
+                return 2;
+            };
+            run_component_set(&[id.clone()], value).await
+        }
+        Some("reset") => run_component_reset(&args[1..]).await,
+        Some("help") | Some("-h") | Some("--help") => {
+            eprintln!("usage: alva settings component <list|enable|disable|set|reset>");
+            0
+        }
+        Some(other) => {
+            eprintln!("unknown component subcommand: {other}");
+            2
+        }
+    }
+}
+
+async fn run_component_set(args: &[String], enabled: bool) -> i32 {
+    let Some(id) = args.first() else {
+        eprintln!(
+            "usage: alva settings component {} <id>",
+            if enabled { "enable" } else { "disable" }
+        );
+        return 2;
+    };
+    let mut cfg = config::load().unwrap_or_default();
+    if let Err(e) = set_component_override(&mut cfg, id, enabled) {
+        eprintln!("{e}");
+        return 1;
+    }
+    match config::save(&cfg) {
+        Ok(p) => {
+            eprintln!(
+                "Component {id} forced {} in {}",
+                if enabled { "on" } else { "off" },
+                p.display()
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("save failed: {e}");
+            1
+        }
+    }
+}
+
+async fn run_component_reset(args: &[String]) -> i32 {
+    let Some(id) = args.first() else {
+        eprintln!("usage: alva settings component reset <id|--all>");
+        return 2;
+    };
+    let mut cfg = config::load().unwrap_or_default();
+    if id == "--all" {
+        cfg.components.clear();
+    } else if let Err(e) = reset_component_override(&mut cfg, id) {
+        eprintln!("{e}");
+        return 1;
+    }
+    match config::save(&cfg) {
+        Ok(p) => {
+            eprintln!("Component override reset in {}", p.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("save failed: {e}");
+            1
+        }
+    }
+}
+
 /// Public helper: try to load a `ProviderConfig` from the shared
 /// `~/.alva/config.json` (active provider). Returns `None` if no shared
 /// config exists or no active provider is set. Used by main.rs as a layer
@@ -246,7 +423,12 @@ async fn run_path() -> i32 {
 pub fn try_load_provider_from_shared() -> Option<alva_llm_provider::ProviderConfig> {
     let cfg = config::load()?;
     let (kind, entry) = cfg.active_provider()?;
-    if entry.api_key.is_empty() && std::env::var("ALVA_API_KEY").ok().filter(|s| !s.is_empty()).is_none() {
+    if entry.api_key.is_empty()
+        && std::env::var("ALVA_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .is_none()
+    {
         return None;
     }
     let model = entry
@@ -372,25 +554,41 @@ mod tests {
     fn default_model_for_kind_unknown_falls_back_to_gpt4o() {
         assert_eq!(default_model_for_kind(""), "gpt-4o");
         assert_eq!(default_model_for_kind("future-provider"), "gpt-4o");
-        assert_eq!(default_model_for_kind("ANTHROPIC"), "gpt-4o", "match is case-sensitive");
+        assert_eq!(
+            default_model_for_kind("ANTHROPIC"),
+            "gpt-4o",
+            "match is case-sensitive"
+        );
     }
 
     #[test]
     fn default_base_url_for_kind_known_providers() {
-        assert_eq!(default_base_url_for_kind("anthropic"), "https://api.anthropic.com");
+        assert_eq!(
+            default_base_url_for_kind("anthropic"),
+            "https://api.anthropic.com"
+        );
         assert_eq!(
             default_base_url_for_kind("gemini"),
             "https://generativelanguage.googleapis.com"
         );
         // Both openai-chat and openai-responses share the openai endpoint.
-        assert_eq!(default_base_url_for_kind("openai-chat"), "https://api.openai.com/v1");
-        assert_eq!(default_base_url_for_kind("openai-responses"), "https://api.openai.com/v1");
+        assert_eq!(
+            default_base_url_for_kind("openai-chat"),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            default_base_url_for_kind("openai-responses"),
+            "https://api.openai.com/v1"
+        );
     }
 
     #[test]
     fn default_base_url_for_kind_unknown_falls_back_to_openai() {
         assert_eq!(default_base_url_for_kind(""), "https://api.openai.com/v1");
-        assert_eq!(default_base_url_for_kind("xyz"), "https://api.openai.com/v1");
+        assert_eq!(
+            default_base_url_for_kind("xyz"),
+            "https://api.openai.com/v1"
+        );
     }
 
     #[test]
@@ -424,5 +622,53 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn component_override_enable_disable_and_reset_mutates_config() {
+        let mut cfg = config::AlvaConfig::default();
+
+        set_component_override(&mut cfg, "browser", true).expect("browser is a known component");
+        assert_eq!(cfg.components.get("browser"), Some(&true));
+
+        set_component_override(&mut cfg, "browser", false).expect("browser is a known component");
+        assert_eq!(cfg.components.get("browser"), Some(&false));
+
+        reset_component_override(&mut cfg, "browser").expect("browser is a known component");
+        assert!(!cfg.components.contains_key("browser"));
+    }
+
+    #[test]
+    fn component_override_rejects_unknown_component() {
+        let mut cfg = config::AlvaConfig::default();
+        let err = set_component_override(&mut cfg, "not-a-component", true)
+            .expect_err("unknown component should be rejected");
+        assert!(err.contains("unknown component"), "{err}");
+    }
+
+    #[test]
+    fn component_rows_report_effective_state_and_source() {
+        let mut cfg = config::AlvaConfig::default();
+        cfg.components.insert("browser".into(), true);
+        cfg.components.insert("shell".into(), false);
+
+        let rows = component_rows(&cfg);
+        let browser = rows
+            .iter()
+            .find(|row| row.id == "browser")
+            .expect("browser row");
+        assert!(browser.enabled);
+        assert_eq!(browser.source, "override");
+
+        let shell = rows
+            .iter()
+            .find(|row| row.id == "shell")
+            .expect("shell row");
+        assert!(!shell.enabled);
+        assert_eq!(shell.source, "override");
+
+        let core = rows.iter().find(|row| row.id == "core").expect("core row");
+        assert!(core.enabled);
+        assert_eq!(core.source, "default");
     }
 }

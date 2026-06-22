@@ -11,10 +11,7 @@ use crate::base::error::AgentError;
 pub trait ModerationModel: Send + Sync {
     fn model_id(&self) -> &str;
 
-    async fn classify(
-        &self,
-        inputs: &[&str],
-    ) -> Result<ModerationResult, AgentError>;
+    async fn classify(&self, inputs: &[&str]) -> Result<ModerationResult, AgentError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

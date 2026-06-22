@@ -72,7 +72,10 @@ impl Middleware for ToolTimeoutMiddleware {
             .find(|t| t.name() == tool_call.name)
             .is_some_and(|t| t.manages_own_timeout());
         if self_managed {
-            return next.call(state, tool_call).await.map_err(MiddlewareError::from);
+            return next
+                .call(state, tool_call)
+                .await
+                .map_err(MiddlewareError::from);
         }
 
         match alva_kernel_abi::timeout(

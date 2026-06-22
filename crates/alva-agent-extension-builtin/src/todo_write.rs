@@ -142,8 +142,10 @@ mod tests {
         let ctx = TestContext {
             workspace: PathBuf::from("/workspace"),
             cancel: CancellationToken::new(),
-            fs: MockToolFs::new()
-                .with_file("/workspace/notes.md", b"existing line without trailing newline"),
+            fs: MockToolFs::new().with_file(
+                "/workspace/notes.md",
+                b"existing line without trailing newline",
+            ),
         };
         let tool = TodoWriteTool;
 
@@ -156,11 +158,7 @@ mod tests {
             .expect("execution should succeed");
 
         assert!(!output.is_error);
-        let stored = ctx
-            .fs
-            .read_file("/workspace/notes.md")
-            .await
-            .unwrap();
+        let stored = ctx.fs.read_file("/workspace/notes.md").await.unwrap();
         let text = String::from_utf8(stored).unwrap();
         assert_eq!(text, "existing line without trailing newline\nappended\n");
     }
@@ -184,7 +182,9 @@ mod tests {
                 self
             }
         }
-        let ctx = NoWorkspaceCtx { cancel: CancellationToken::new() };
+        let ctx = NoWorkspaceCtx {
+            cancel: CancellationToken::new(),
+        };
         let tool = TodoWriteTool;
         let err = tool
             .execute(json!({ "content": "x" }), &ctx)

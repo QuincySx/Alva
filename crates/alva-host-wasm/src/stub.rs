@@ -33,7 +33,9 @@ pub struct StubLanguageModel {
 impl StubLanguageModel {
     /// Construct with a custom fixed response.
     pub fn new(response: impl Into<String>) -> Self {
-        Self { response: response.into() }
+        Self {
+            response: response.into(),
+        }
     }
 }
 
@@ -172,7 +174,10 @@ mod tests {
 
         // Event 2: Done
         let e2 = poll_fn(|cx| Pin::new(&mut s).poll_next(cx)).await;
-        assert!(matches!(e2, Some(StreamEvent::Done)), "expected Done, got {e2:?}");
+        assert!(
+            matches!(e2, Some(StreamEvent::Done)),
+            "expected Done, got {e2:?}"
+        );
 
         // Event 3: stream terminates
         let e3 = poll_fn(|cx| Pin::new(&mut s).poll_next(cx)).await;

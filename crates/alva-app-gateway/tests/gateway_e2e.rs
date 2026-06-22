@@ -114,7 +114,8 @@ async fn gateway_image_input_returns_400() {
 /// Returns: `(base_url, seen_path_handle, server_join_handle)`.
 /// `seen_path_handle` is populated with the request path once the request
 /// arrives, so the test can assert that the gateway sent to the right route.
-async fn start_mock_openai_chat_server() -> (String, Arc<Mutex<String>>, tokio::task::JoinHandle<()>) {
+async fn start_mock_openai_chat_server() -> (String, Arc<Mutex<String>>, tokio::task::JoinHandle<()>)
+{
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind mock server");
@@ -256,28 +257,44 @@ async fn start_mock_openai_chat_sse_server() -> (String, tokio::task::JoinHandle
                 }
 
                 // 1. Role chunk (opening frame — assistant role)
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}"#
+                );
 
                 // 2. Text delta "A"
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"content":"A"},"finish_reason":null}]}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"content":"A"},"finish_reason":null}]}"#
+                );
 
                 // 3. Tool call start — id + name (first appearance of index 0)
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_tool1","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_tool1","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}"#
+                );
 
                 // 4. Tool call args partial "{\"loc"
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]},"finish_reason":null}]}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]},"finish_reason":null}]}"#
+                );
 
                 // 5. Tool call args continuation "ation\":\"SF\"}"
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"SF\"}"}}]},"finish_reason":null}]}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"SF\"}"}}]},"finish_reason":null}]}"#
+                );
 
                 // 6. Text delta "B" (interleaved AFTER tool call args, before finish)
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"content":"B"},"finish_reason":null}]}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{"content":"B"},"finish_reason":null}]}"#
+                );
 
                 // 7. Finish reason chunk
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#
+                );
 
                 // 8. Usage chunk (stream_options.include_usage format — empty choices)
-                sse!(r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}"#);
+                sse!(
+                    r#"{"id":"chatcmpl-interleaved","object":"chat.completion.chunk","model":"real-model","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}"#
+                );
 
                 // 9. [DONE] sentinel
                 let _ = stream.write_all(b"data: [DONE]\n\n").await;
@@ -429,11 +446,7 @@ async fn gateway_unknown_model_returns_404() {
         .await
         .expect("send request");
 
-    assert_eq!(
-        resp.status().as_u16(),
-        404,
-        "unknown model must return 404"
-    );
+    assert_eq!(resp.status().as_u16(), 404, "unknown model must return 404");
 }
 
 // ---------------------------------------------------------------------------
@@ -523,8 +536,14 @@ async fn gateway_e2e_streaming_responses_interleaved() {
         .expect("send stream request to gateway");
 
     // 5. Assert HTTP 200 with SSE content-type
-    assert_eq!(resp.status().as_u16(), 200, "streaming must return 200, got: {}", resp.status());
-    let content_type = resp.headers()
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "streaming must return 200, got: {}",
+        resp.status()
+    );
+    let content_type = resp
+        .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
@@ -538,14 +557,15 @@ async fn gateway_e2e_streaming_responses_interleaved() {
 
     // 7. Parse SSE events
     let events = parse_sse_events(&body_text);
-    assert!(!events.is_empty(), "SSE stream must contain at least one event; body was:\n{body_text}");
+    assert!(
+        !events.is_empty(),
+        "SSE stream must contain at least one event; body was:\n{body_text}"
+    );
 
     // 8. Collect event names and parse sequence_number values from JSON data frames.
     //    The OpenAI Responses adapter emits named `event:` lines; [DONE] is a plain
     //    data frame without a name.
-    let event_names: Vec<Option<&str>> = events.iter()
-        .map(|(ev, _)| ev.as_deref())
-        .collect();
+    let event_names: Vec<Option<&str>> = events.iter().map(|(ev, _)| ev.as_deref()).collect();
 
     // (a) First event must be "response.created"
     assert_eq!(
@@ -556,9 +576,15 @@ async fn gateway_e2e_streaming_responses_interleaved() {
 
     // (b) A terminal event (response.completed or response.incomplete) must appear
     let has_terminal = event_names.iter().any(|e| {
-        matches!(e.as_deref(), Some("response.completed") | Some("response.incomplete"))
+        matches!(
+            e.as_deref(),
+            Some("response.completed") | Some("response.incomplete")
+        )
     });
-    assert!(has_terminal, "stream must contain response.completed or response.incomplete; events: {event_names:?}");
+    assert!(
+        has_terminal,
+        "stream must contain response.completed or response.incomplete; events: {event_names:?}"
+    );
 
     // (c) Collect sequence_numbers from all JSON data frames
     let mut seq_numbers: Vec<i64> = Vec::new();
@@ -586,9 +612,14 @@ async fn gateway_e2e_streaming_responses_interleaved() {
     }
 
     // (e) Both text deltas and function_call delta events must appear
-    let has_text_delta = event_names.iter().any(|e| e.as_deref() == Some("response.output_text.delta"));
+    let has_text_delta = event_names
+        .iter()
+        .any(|e| e.as_deref() == Some("response.output_text.delta"));
     let has_tool_delta = event_names.iter().any(|e| {
-        matches!(e.as_deref(), Some("response.function_call_arguments.delta") | Some("response.output_item.added"))
+        matches!(
+            e.as_deref(),
+            Some("response.function_call_arguments.delta") | Some("response.output_item.added")
+        )
     });
     assert!(
         has_text_delta,

@@ -13,11 +13,11 @@ fn main() {
     let user_targets: Vec<String> = std::env::args().skip(1).collect();
     let targets: Vec<&str> = if user_targets.is_empty() {
         vec![
-            "10.10.1.100:10443",  // user's local LLM endpoint
-            "8.8.8.8:53",         // Google DNS — public IP literal
-            "1.1.1.1:443",        // Cloudflare — public IP literal
-            "google.com:443",     // public, requires DNS
-            "127.0.0.1:22",       // loopback (likely refused, but reachable)
+            "10.10.1.100:10443", // user's local LLM endpoint
+            "8.8.8.8:53",        // Google DNS — public IP literal
+            "1.1.1.1:443",       // Cloudflare — public IP literal
+            "google.com:443",    // public, requires DNS
+            "127.0.0.1:22",      // loopback (likely refused, but reachable)
         ]
     } else {
         user_targets.iter().map(|s| s.as_str()).collect()
@@ -36,10 +36,7 @@ fn main() {
                         "✓ connected (local={:?})",
                         s.local_addr().ok().map(|a| a.to_string())
                     ),
-                    Err(e) => println!(
-                        "✗ {e} (raw_os_error={:?})",
-                        e.raw_os_error()
-                    ),
+                    Err(e) => println!("✗ {e} (raw_os_error={:?})", e.raw_os_error()),
                 },
                 None => println!("✗ resolved to 0 addresses"),
             },

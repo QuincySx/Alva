@@ -23,14 +23,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::model::{LanguageModel, ModelConfig};
-use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::AgentMessage;
-use alva_kernel_abi::{AgentError, Sleeper};
 #[cfg(not(target_family = "wasm"))]
 use alva_kernel_abi::NoopSleeper;
+use alva_kernel_abi::{AgentError, Sleeper};
 use alva_kernel_core::builtins::ToolTimeoutMiddleware;
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::run::run_agent;
@@ -144,10 +144,7 @@ impl WasmAgent {
     ///
     /// Uses a fresh `CancellationToken` internally; if the caller needs
     /// to cancel the run from outside, use [`run`] with their own token.
-    pub async fn run_simple(
-        &mut self,
-        prompt: impl Into<String>,
-    ) -> Result<String, AgentError> {
+    pub async fn run_simple(&mut self, prompt: impl Into<String>) -> Result<String, AgentError> {
         let cancel = CancellationToken::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         self.run(prompt, cancel, tx).await?;
@@ -208,15 +205,15 @@ mod tests {
 
     #[tokio::test]
     async fn wasm_agent_runs_a_single_turn_on_native() {
-        let mut agent = WasmAgent::new(
-            Arc::new(StubLanguageModel::new("echo-ok")),
-            vec![],
-            "",
-        );
+        let mut agent = WasmAgent::new(Arc::new(StubLanguageModel::new("echo-ok")), vec![], "");
         let cancel = CancellationToken::new();
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let result = agent.run("hi", cancel, tx).await;
-        assert!(result.is_ok(), "WasmAgent::run should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "WasmAgent::run should succeed: {:?}",
+            result
+        );
         // Session should now contain at least the user input + the assistant response.
         let session_len = agent.session_len().await;
         assert!(
@@ -228,11 +225,7 @@ mod tests {
 
     #[tokio::test]
     async fn wasm_agent_run_simple_returns_response_text() {
-        let mut agent = WasmAgent::new(
-            Arc::new(StubLanguageModel::new("echo-ok")),
-            vec![],
-            "",
-        );
+        let mut agent = WasmAgent::new(Arc::new(StubLanguageModel::new("echo-ok")), vec![], "");
         let output = agent
             .run_simple("hello")
             .await
@@ -245,20 +238,24 @@ mod tests {
 
     #[tokio::test]
     async fn wasm_agent_clear_session_resets_history_across_runs() {
-        let mut agent = WasmAgent::new(
-            Arc::new(StubLanguageModel::new("ok")),
-            vec![],
-            "",
-        );
+        let mut agent = WasmAgent::new(Arc::new(StubLanguageModel::new("ok")), vec![], "");
         // First run accumulates messages.
         let _ = agent.run_simple("first").await.unwrap();
         let after_first = agent.session_len().await;
-        assert!(after_first >= 2, "expected user + assistant, got {}", after_first);
+        assert!(
+            after_first >= 2,
+            "expected user + assistant, got {}",
+            after_first
+        );
 
         // Reset and run again — second run should start from zero, not
         // stack on top of the first.
         agent.clear_session();
-        assert_eq!(agent.session_len().await, 0, "clear_session should drop all history");
+        assert_eq!(
+            agent.session_len().await,
+            0,
+            "clear_session should drop all history"
+        );
 
         let _ = agent.run_simple("second").await.unwrap();
         let after_second = agent.session_len().await;

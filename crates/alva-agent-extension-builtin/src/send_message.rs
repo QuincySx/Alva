@@ -3,9 +3,7 @@
 // POS:    Sends messages between agents for inter-agent communication.
 //! send_message — send messages between agents
 
-use alva_kernel_abi::{
-    AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput,
-};
+use alva_kernel_abi::{AgentError, Tool, ToolContent, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -120,8 +118,7 @@ mod tests {
     fn ctx_with_store() -> (TestContext, Arc<InMemoryTeamStore>) {
         let store = Arc::new(InMemoryTeamStore::new());
         let bus = Bus::new();
-        bus.writer()
-            .provide::<dyn TeamService>(store.clone());
+        bus.writer().provide::<dyn TeamService>(store.clone());
         (
             TestContext {
                 cancel: CancellationToken::new(),
@@ -161,7 +158,10 @@ mod tests {
         let text = output.model_text();
         assert!(text.contains("agent-2"), "got: {text}");
         assert!(text.contains("11 chars"), "got: {text}");
-        assert!(text.contains("(no summary)"), "default summary missing: {text}");
+        assert!(
+            text.contains("(no summary)"),
+            "default summary missing: {text}"
+        );
 
         let inbox = store.inbox("agent-2").await;
         assert_eq!(inbox.len(), 1);
@@ -197,7 +197,10 @@ mod tests {
         assert!(!output.is_error);
         let text = output.model_text();
         assert!(text.contains("Summary: ping"), "got: {text}");
-        assert!(!text.contains("(no summary)"), "should use provided summary: {text}");
+        assert!(
+            !text.contains("(no summary)"),
+            "should use provided summary: {text}"
+        );
     }
 
     #[tokio::test]

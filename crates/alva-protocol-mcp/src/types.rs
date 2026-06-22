@@ -198,9 +198,11 @@ mod tests {
         assert_eq!(parsed.server_id, "browser");
         assert_eq!(parsed.tool_name, "screenshot");
         assert_eq!(parsed.description, "Take a screenshot of the current page");
-        assert!(parsed.input_schema["properties"]["url"]["type"]
-            .as_str()
-            .unwrap()
-            == "string");
+        assert!(
+            parsed.input_schema["properties"]["url"]["type"]
+                .as_str()
+                .unwrap()
+                == "string"
+        );
     }
 }

@@ -12,11 +12,8 @@ pub trait ImageModel: Send + Sync {
     fn model_id(&self) -> &str;
     fn max_images_per_call(&self) -> Option<usize>;
 
-    async fn generate(
-        &self,
-        prompt: &str,
-        config: &ImageConfig,
-    ) -> Result<ImageResult, AgentError>;
+    async fn generate(&self, prompt: &str, config: &ImageConfig)
+        -> Result<ImageResult, AgentError>;
 
     /// Edit an existing image. Default: unsupported.
     async fn edit(

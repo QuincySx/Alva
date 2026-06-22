@@ -222,7 +222,7 @@ mod tests {
 
         hs.pop_char(); // "fi"
         hs.pop_char(); // "f"
-        // "f" matches: fix auth, refactor, fix CSS
+                       // "f" matches: fix auth, refactor, fix CSS
         assert!(hs.match_count() >= 2);
 
         hs.pop_char(); // empty

@@ -6,8 +6,8 @@
 //!
 //! After resolution, the rest of the system only deals with `HashMap<String, String>` headers.
 
-use std::collections::HashMap;
 use reqwest::RequestBuilder;
+use std::collections::HashMap;
 
 /// Industry-standard auth schemes for converting an API key to a header.
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +57,10 @@ pub fn resolve_auth_headers(
 ///
 /// This is the only place HTTP headers are set — providers call this with
 /// the pre-resolved headers from `resolve_auth_headers`.
-pub(crate) fn apply_headers(mut req: RequestBuilder, headers: &HashMap<String, String>) -> RequestBuilder {
+pub(crate) fn apply_headers(
+    mut req: RequestBuilder,
+    headers: &HashMap<String, String>,
+) -> RequestBuilder {
     for (k, v) in headers {
         req = req.header(k.as_str(), v.as_str());
     }
@@ -119,14 +122,20 @@ mod tests {
         // require no auth. A refactor that defaulted to sending
         // something would break unauthenticated local flows.
         let result = resolve_auth_headers("", &HashMap::new(), AuthScheme::Bearer);
-        assert!(result.is_empty(), "empty inputs must yield no auth headers: {result:?}");
+        assert!(
+            result.is_empty(),
+            "empty inputs must yield no auth headers: {result:?}"
+        );
     }
 
     #[test]
     fn api_key_only_produces_single_header_per_scheme() {
         let result = resolve_auth_headers("sk-test", &HashMap::new(), AuthScheme::Bearer);
         assert_eq!(result.len(), 1);
-        assert_eq!(result.get("Authorization").map(|s| s.as_str()), Some("Bearer sk-test"));
+        assert_eq!(
+            result.get("Authorization").map(|s| s.as_str()),
+            Some("Bearer sk-test")
+        );
     }
 
     #[test]
@@ -137,7 +146,11 @@ mod tests {
         // that merged them would send conflicting auth.
         let mut custom = HashMap::new();
         custom.insert("X-Custom-Auth".to_string(), "magic-token".to_string());
-        let result = resolve_auth_headers("sk-ignored-because-custom-wins", &custom, AuthScheme::Bearer);
+        let result = resolve_auth_headers(
+            "sk-ignored-because-custom-wins",
+            &custom,
+            AuthScheme::Bearer,
+        );
         assert_eq!(result.len(), 1);
         // The custom header was used verbatim.
         assert_eq!(
@@ -161,9 +174,15 @@ mod tests {
         custom.insert("X-Trace-Id".to_string(), "trace-xyz".to_string());
         let result = resolve_auth_headers("", &custom, AuthScheme::Bearer);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.get("Authorization").map(|s| s.as_str()), Some("Bearer custom-1"));
+        assert_eq!(
+            result.get("Authorization").map(|s| s.as_str()),
+            Some("Bearer custom-1")
+        );
         assert_eq!(result.get("X-Org-Id").map(|s| s.as_str()), Some("org-42"));
-        assert_eq!(result.get("X-Trace-Id").map(|s| s.as_str()), Some("trace-xyz"));
+        assert_eq!(
+            result.get("X-Trace-Id").map(|s| s.as_str()),
+            Some("trace-xyz")
+        );
     }
 
     #[test]

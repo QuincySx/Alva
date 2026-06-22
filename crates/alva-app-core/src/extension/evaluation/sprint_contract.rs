@@ -24,9 +24,9 @@
 
 use std::fmt;
 
+use alva_kernel_abi::Message;
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
 use alva_kernel_core::state::AgentState;
-use alva_kernel_abi::Message;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -98,16 +98,23 @@ impl SprintContract {
             }
         }
 
-        s.push_str("\n**Important**: Do not consider this sprint complete until ALL deliverables \
+        s.push_str(
+            "\n**Important**: Do not consider this sprint complete until ALL deliverables \
                      are met and ALL verifications pass. If you cannot meet a deliverable, \
-                     explain what is blocking you.\n");
+                     explain what is blocking you.\n",
+        );
         s
     }
 }
 
 impl fmt::Display for SprintContract {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SprintContract({}, {} deliverables)", self.goal, self.deliverables.len())
+        write!(
+            f,
+            "SprintContract({}, {} deliverables)",
+            self.goal,
+            self.deliverables.len()
+        )
     }
 }
 
@@ -130,10 +137,7 @@ impl SprintContractMiddleware {
 
 #[async_trait]
 impl Middleware for SprintContractMiddleware {
-    async fn on_agent_start(
-        &self,
-        state: &mut AgentState,
-    ) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
         // Store contract in extensions for evaluator / other middleware to read.
         state.extensions.insert(self.contract.clone());
         Ok(())
@@ -172,8 +176,8 @@ impl Middleware for SprintContractMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_core::shared::Extensions;
     use alva_kernel_abi::agent_session::InMemoryAgentSession;
+    use alva_kernel_core::shared::Extensions;
     use std::sync::Arc;
 
     fn make_state() -> AgentState {
@@ -272,8 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_stores_contract_in_extensions() {
-        let contract = SprintContract::new("Test")
-            .with_deliverable("D1");
+        let contract = SprintContract::new("Test").with_deliverable("D1");
 
         let mw = SprintContractMiddleware::new(contract);
 

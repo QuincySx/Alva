@@ -243,11 +243,7 @@ mod tests {
             Ok(self.tools.clone())
         }
 
-        async fn call_tool(
-            &self,
-            tool_name: &str,
-            arguments: Value,
-        ) -> Result<Value, McpError> {
+        async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<Value, McpError> {
             Ok(serde_json::json!({
                 "tool": tool_name,
                 "args": arguments,
@@ -342,10 +338,7 @@ mod tests {
         client.connect("srv1").await.unwrap();
 
         let states = client.server_states().await;
-        assert_eq!(
-            states["srv1"],
-            McpServerState::Connected { tool_count: 2 }
-        );
+        assert_eq!(states["srv1"], McpServerState::Connected { tool_count: 2 });
     }
 
     #[tokio::test]
@@ -411,10 +404,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_all_tools_aggregates_across_servers() {
-        let tools = vec![
-            sample_tool("srv1", "tool-a"),
-            sample_tool("srv2", "tool-b"),
-        ];
+        let tools = vec![sample_tool("srv1", "tool-a"), sample_tool("srv2", "tool-b")];
         let factory = Arc::new(MockFactory::new(tools));
         let client = McpClient::new(factory);
 

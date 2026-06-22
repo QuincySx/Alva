@@ -69,9 +69,14 @@ impl CollapsibleBlock {
         self.badge = Some(badge.into());
         self
     }
-    pub fn opened(mut self) -> Self { self.open = true; self }
+    pub fn opened(mut self) -> Self {
+        self.open = true;
+        self
+    }
 
-    pub fn toggle(&mut self) { self.open = !self.open; }
+    pub fn toggle(&mut self) {
+        self.open = !self.open;
+    }
 
     /// Total rows this block occupies given the rendering width.
     /// 1 row for header, plus body rows when open.
@@ -81,7 +86,11 @@ impl CollapsibleBlock {
             // Conservative estimate: count text lines and word-wrap to width.
             for line in self.body.lines.iter() {
                 let line_w = line.width() as u16;
-                let lines = if line_w == 0 { 1 } else { line_w.div_ceil(width.max(1)) };
+                let lines = if line_w == 0 {
+                    1
+                } else {
+                    line_w.div_ceil(width.max(1))
+                };
                 h = h.saturating_add(lines);
             }
         }
@@ -89,17 +98,37 @@ impl CollapsibleBlock {
     }
 
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        if area.height == 0 { return; }
+        if area.height == 0 {
+            return;
+        }
 
         let icon = match self.kind {
-            CollapsibleKind::Thinking => if self.open { "▼ 💭" } else { "▶ 💭" },
-            CollapsibleKind::ToolCall => if self.open { "▼ 🛠 " } else { "▶ 🛠 " },
-            CollapsibleKind::Log      => if self.open { "▼ ≡ " } else { "▶ ≡ " },
+            CollapsibleKind::Thinking => {
+                if self.open {
+                    "▼ 💭"
+                } else {
+                    "▶ 💭"
+                }
+            }
+            CollapsibleKind::ToolCall => {
+                if self.open {
+                    "▼ 🛠 "
+                } else {
+                    "▶ 🛠 "
+                }
+            }
+            CollapsibleKind::Log => {
+                if self.open {
+                    "▼ ≡ "
+                } else {
+                    "▶ ≡ "
+                }
+            }
         };
         let title_style = match self.kind {
             CollapsibleKind::Thinking => theme.text_dim,
             CollapsibleKind::ToolCall => theme.tool_name,
-            CollapsibleKind::Log      => theme.text_dim,
+            CollapsibleKind::Log => theme.text_dim,
         };
 
         let mut header_spans = vec![
@@ -116,7 +145,9 @@ impl CollapsibleBlock {
         let header_area = Rect { height: 1, ..area };
         frame.render_widget(Paragraph::new(header_line), header_area);
 
-        if !self.open || area.height < 2 { return; }
+        if !self.open || area.height < 2 {
+            return;
+        }
 
         let body_area = Rect {
             x: area.x + 2,
@@ -137,9 +168,17 @@ impl CollapsibleBlock {
 /// Convenience helpers used by callers that pass plain strings.
 impl CollapsibleBlock {
     pub fn body_text(&self) -> String {
-        self.body.lines.iter().map(|l| {
-            l.spans.iter().map(|s| s.content.as_ref()).collect::<String>()
-        }).collect::<Vec<_>>().join("\n")
+        self.body
+            .lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     pub fn header_style_dim(theme: &Theme) -> Style {
@@ -162,7 +201,12 @@ mod tests {
     use super::*;
 
     fn body_from_strings(lines: &[&str]) -> CollapsibleBody {
-        Text::from(lines.iter().map(|s| Line::raw(s.to_string())).collect::<Vec<_>>())
+        Text::from(
+            lines
+                .iter()
+                .map(|s| Line::raw(s.to_string()))
+                .collect::<Vec<_>>(),
+        )
     }
 
     // -- Constructors + defaults -------------------------------------------
@@ -221,7 +265,11 @@ mod tests {
     #[test]
     fn height_closed_is_always_one() {
         let b = CollapsibleBlock::log("hdr", body_from_strings(&["a", "b", "c"]));
-        assert_eq!(b.height(80), 1, "closed block hides body — only header row counts");
+        assert_eq!(
+            b.height(80),
+            1,
+            "closed block hides body — only header row counts"
+        );
     }
 
     #[test]
@@ -271,10 +319,7 @@ mod tests {
         // Each Line can have multiple Spans (styled fragments). body_text()
         // should glue them back into a single string per line — UI export /
         // copy-to-clipboard contract.
-        let line = Line::from(vec![
-            Span::raw("hello "),
-            Span::raw("world"),
-        ]);
+        let line = Line::from(vec![Span::raw("hello "), Span::raw("world")]);
         let body = Text::from(vec![line]);
         let b = CollapsibleBlock::log("hdr", body);
         assert_eq!(b.body_text(), "hello world");

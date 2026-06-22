@@ -176,15 +176,29 @@ mod tests {
     async fn test_append_and_count() {
         let session = InMemorySession::new("s1");
         assert_eq!(
-            session.count(&EventQuery { limit: 100, ..Default::default() }).await,
+            session
+                .count(&EventQuery {
+                    limit: 100,
+                    ..Default::default()
+                })
+                .await,
             0
         );
 
-        session.append(SessionEvent::user_message(serde_json::json!("hello"))).await;
-        session.append(SessionEvent::assistant_message(serde_json::json!("hi"))).await;
+        session
+            .append(SessionEvent::user_message(serde_json::json!("hello")))
+            .await;
+        session
+            .append(SessionEvent::assistant_message(serde_json::json!("hi")))
+            .await;
 
         assert_eq!(
-            session.count(&EventQuery { limit: 100, ..Default::default() }).await,
+            session
+                .count(&EventQuery {
+                    limit: 100,
+                    ..Default::default()
+                })
+                .await,
             2
         );
     }
@@ -192,53 +206,91 @@ mod tests {
     #[tokio::test]
     async fn test_query_by_role() {
         let session = InMemorySession::new("s1");
-        session.append(SessionEvent::user_message(serde_json::json!("q1"))).await;
-        session.append(SessionEvent::assistant_message(serde_json::json!("a1"))).await;
-        session.append(SessionEvent::user_message(serde_json::json!("q2"))).await;
-        session.append(SessionEvent::progress(serde_json::json!({"tool": "read"}))).await;
+        session
+            .append(SessionEvent::user_message(serde_json::json!("q1")))
+            .await;
+        session
+            .append(SessionEvent::assistant_message(serde_json::json!("a1")))
+            .await;
+        session
+            .append(SessionEvent::user_message(serde_json::json!("q2")))
+            .await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"tool": "read"})))
+            .await;
 
-        let users = session.query(&EventQuery {
-            role: Some("user".into()),
-            limit: 100,
-            ..Default::default()
-        }).await;
+        let users = session
+            .query(&EventQuery {
+                role: Some("user".into()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(users.len(), 2);
 
-        let assistants = session.query(&EventQuery {
-            role: Some("assistant".into()),
-            limit: 100,
-            ..Default::default()
-        }).await;
+        let assistants = session
+            .query(&EventQuery {
+                role: Some("assistant".into()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(assistants.len(), 1);
     }
 
     #[tokio::test]
     async fn test_query_by_type() {
         let session = InMemorySession::new("s1");
-        session.append(SessionEvent::user_message(serde_json::json!("hi"))).await;
-        session.append(SessionEvent::progress(serde_json::json!({"status": "running"}))).await;
-        session.append(SessionEvent::progress(serde_json::json!({"status": "done"}))).await;
+        session
+            .append(SessionEvent::user_message(serde_json::json!("hi")))
+            .await;
+        session
+            .append(SessionEvent::progress(
+                serde_json::json!({"status": "running"}),
+            ))
+            .await;
+        session
+            .append(SessionEvent::progress(
+                serde_json::json!({"status": "done"}),
+            ))
+            .await;
 
-        let progress = session.query(&EventQuery {
-            event_type: Some("progress".into()),
-            limit: 100,
-            ..Default::default()
-        }).await;
+        let progress = session
+            .query(&EventQuery {
+                event_type: Some("progress".into()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(progress.len(), 2);
     }
 
     #[tokio::test]
     async fn test_query_text_search() {
         let session = InMemorySession::new("s1");
-        session.append(SessionEvent::user_message(serde_json::json!("help me fix the bug"))).await;
-        session.append(SessionEvent::user_message(serde_json::json!("show me the logs"))).await;
-        session.append(SessionEvent::assistant_message(serde_json::json!("looking at the bug now"))).await;
+        session
+            .append(SessionEvent::user_message(serde_json::json!(
+                "help me fix the bug"
+            )))
+            .await;
+        session
+            .append(SessionEvent::user_message(serde_json::json!(
+                "show me the logs"
+            )))
+            .await;
+        session
+            .append(SessionEvent::assistant_message(serde_json::json!(
+                "looking at the bug now"
+            )))
+            .await;
 
-        let results = session.query(&EventQuery {
-            text_contains: Some("bug".into()),
-            limit: 100,
-            ..Default::default()
-        }).await;
+        let results = session
+            .query(&EventQuery {
+                text_contains: Some("bug".into()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(results.len(), 2); // user "fix the bug" + assistant "the bug now"
     }
 
@@ -246,14 +298,21 @@ mod tests {
     async fn test_query_last_n() {
         let session = InMemorySession::new("s1");
         for i in 0..10 {
-            session.append(SessionEvent::user_message(serde_json::json!(format!("msg-{}", i)))).await;
+            session
+                .append(SessionEvent::user_message(serde_json::json!(format!(
+                    "msg-{}",
+                    i
+                ))))
+                .await;
         }
 
-        let last3 = session.query(&EventQuery {
-            last_n: Some(3),
-            limit: 100,
-            ..Default::default()
-        }).await;
+        let last3 = session
+            .query(&EventQuery {
+                last_n: Some(3),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(last3.len(), 3);
         assert!(last3[0].preview.contains("msg-7"));
         assert!(last3[2].preview.contains("msg-9"));
@@ -273,7 +332,12 @@ mod tests {
         let removed = session.rollback_after(&uuids[2]).await;
         assert_eq!(removed, 2);
         assert_eq!(
-            session.count(&EventQuery { limit: 100, ..Default::default() }).await,
+            session
+                .count(&EventQuery {
+                    limit: 100,
+                    ..Default::default()
+                })
+                .await,
             3
         );
     }
@@ -323,12 +387,19 @@ mod tests {
     #[tokio::test]
     async fn test_clear() {
         let session = InMemorySession::new("s1");
-        session.append(SessionEvent::user_message(serde_json::json!("hi"))).await;
+        session
+            .append(SessionEvent::user_message(serde_json::json!("hi")))
+            .await;
         session.save_snapshot(b"snap").await;
 
         session.clear().await;
         assert_eq!(
-            session.count(&EventQuery { limit: 100, ..Default::default() }).await,
+            session
+                .count(&EventQuery {
+                    limit: 100,
+                    ..Default::default()
+                })
+                .await,
             0
         );
         assert!(session.load_snapshot().await.is_none());

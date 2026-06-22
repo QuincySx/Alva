@@ -226,11 +226,7 @@ impl ContextHooks for DefaultContextHooks {
     // PHASE 1: Lifecycle
     // =====================================================================
 
-    async fn bootstrap(
-        &self,
-        sdk: &dyn ContextHandle,
-        agent_id: &str,
-    ) -> Result<(), ContextError> {
+    async fn bootstrap(&self, sdk: &dyn ContextHandle, agent_id: &str) -> Result<(), ContextError> {
         let mut state = self.state.lock().await;
         if state.bootstrapped {
             return Ok(());
@@ -282,7 +278,10 @@ impl ContextHooks for DefaultContextHooks {
         }
 
         let max_messages = self.config.sliding_window_keep;
-        let mut total_tokens: usize = entries.iter().map(|e| Self::estimate_message_tokens(&e.message)).sum();
+        let mut total_tokens: usize = entries
+            .iter()
+            .map(|e| Self::estimate_message_tokens(&e.message))
+            .sum();
 
         // --- S2: micro_compact — replace old tool results in-place -------
         // Walk entries, for any ToolResult older than the recent 5, replace
@@ -343,7 +342,10 @@ impl ContextHooks for DefaultContextHooks {
                                 (idx, None)
                             }
                             Err(_) => {
-                                tracing::warn!("assemble LLM summarize timed out for index {}", idx);
+                                tracing::warn!(
+                                    "assemble LLM summarize timed out for index {}",
+                                    idx
+                                );
                                 (idx, None)
                             }
                         }
@@ -484,7 +486,11 @@ impl ContextHooks for DefaultContextHooks {
         );
 
         // Level 1: remove Disposable (effective once store holds real entries)
-        if snapshot.entries.iter().any(|e| e.priority == Priority::Disposable) {
+        if snapshot
+            .entries
+            .iter()
+            .any(|e| e.priority == Priority::Disposable)
+        {
             actions.push(CompressAction::RemoveByPriority {
                 priority: Priority::Disposable,
             });
@@ -612,11 +618,7 @@ impl ContextHooks for DefaultContextHooks {
     // PHASE 6: Post-turn
     // =====================================================================
 
-    async fn after_turn(
-        &self,
-        sdk: &dyn ContextHandle,
-        agent_id: &str,
-    ) {
+    async fn after_turn(&self, sdk: &dyn ContextHandle, agent_id: &str) {
         // Collect recent messages under lock, then release before async LLM work.
         let conversation = {
             let mut state = self.state.lock().await;
@@ -737,9 +739,7 @@ mod tests {
             .map(|i| wrap_entry(user_msg(&format!("message number {}", i))))
             .collect();
 
-        let result = plugin
-            .assemble(&sdk, "agent-1", entries, 100_000)
-            .await;
+        let result = plugin.assemble(&sdk, "agent-1", entries, 100_000).await;
 
         // Should keep only the last 5.
         assert_eq!(result.len(), 5);
@@ -775,9 +775,7 @@ mod tests {
             entries.push(wrap_entry(user_msg(&format!("recent {}", i))));
         }
 
-        let result = plugin
-            .assemble(&sdk, "agent-1", entries, 100_000)
-            .await;
+        let result = plugin.assemble(&sdk, "agent-1", entries, 100_000).await;
 
         assert_eq!(result.len(), 11); // All 11 entries kept (no sliding window)
 
@@ -834,9 +832,7 @@ mod tests {
 
         // Budget of 300 tokens. Each message ~100 tokens.
         // Budget enforcement drops oldest until total <= 300, keeping at least 1.
-        let result = plugin
-            .assemble(&sdk, "agent-1", entries, 300)
-            .await;
+        let result = plugin.assemble(&sdk, "agent-1", entries, 300).await;
 
         // 300 budget / 100 tokens per message = 3 messages should fit.
         assert!(result.len() <= 3, "Expected <=3, got {}", result.len());
@@ -853,9 +849,7 @@ mod tests {
         let sdk = test_sdk();
         let plugin = DefaultContextHooks::new(DefaultHooksConfig::default());
 
-        let result = plugin
-            .assemble(&sdk, "agent-1", vec![], 100_000)
-            .await;
+        let result = plugin.assemble(&sdk, "agent-1", vec![], 100_000).await;
 
         assert!(result.is_empty());
     }

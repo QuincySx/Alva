@@ -13,8 +13,12 @@ pub struct BrowserPlugin;
 
 #[async_trait]
 impl Plugin for BrowserPlugin {
-    fn name(&self) -> &str { "browser" }
-    fn description(&self) -> &str { "Browser automation tools (Chrome via CDP)" }
+    fn name(&self) -> &str {
+        "browser"
+    }
+    fn description(&self) -> &str {
+        "Browser automation tools (Chrome via CDP)"
+    }
     async fn register(&self, r: &Registrar) {
         r.tools(alva_app_extension_browser::browser_tools());
     }

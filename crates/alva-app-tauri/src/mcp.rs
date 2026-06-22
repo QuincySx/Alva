@@ -75,10 +75,7 @@ fn parse_mcp_config(bytes: &[u8]) -> Vec<McpServerInfo> {
         .into_iter()
         .map(|e| {
             let kind = e.kind.unwrap_or_else(|| "stdio".into());
-            let command_or_url = e
-                .command
-                .or(e.url)
-                .unwrap_or_else(|| "(unset)".into());
+            let command_or_url = e.command.or(e.url).unwrap_or_else(|| "(unset)".into());
             McpServerInfo {
                 id: e.id.unwrap_or_else(|| e.name.clone()),
                 name: e.name,

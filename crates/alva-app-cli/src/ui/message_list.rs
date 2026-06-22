@@ -125,10 +125,7 @@ impl<'a> MessageListWidget<'a> {
             // -- Role header --
             let mut header_spans = vec![Self::role_indicator(msg.role, self.theme)];
             if let Some(ts) = &msg.timestamp {
-                header_spans.push(Span::styled(
-                    ts.clone(),
-                    self.theme.text_dim,
-                ));
+                header_spans.push(Span::styled(ts.clone(), self.theme.text_dim));
             }
             if msg.is_streaming {
                 header_spans.push(Span::styled(" ...", self.theme.text_dim));
@@ -145,10 +142,8 @@ impl<'a> MessageListWidget<'a> {
             for tool in &msg.tool_uses {
                 let icon = Self::tool_status_icon(tool.status, self.theme);
                 let name_span = Span::styled(tool.name.clone(), self.theme.tool_name);
-                let input_span = Span::styled(
-                    format!(" {}", tool.input_summary),
-                    self.theme.text_dim,
-                );
+                let input_span =
+                    Span::styled(format!(" {}", tool.input_summary), self.theme.text_dim);
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     icon,
@@ -242,7 +237,10 @@ mod tests {
     #[test]
     fn user_role_renders_with_you_indicator() {
         let s = render_to_string(&[msg(MessageRole::User, "hi")], 40, 4);
-        assert!(s.contains("You"), "user role must show 'You' indicator: {s}");
+        assert!(
+            s.contains("You"),
+            "user role must show 'You' indicator: {s}"
+        );
         assert!(s.contains("hi"));
     }
 
@@ -298,26 +296,38 @@ mod tests {
     #[test]
     fn tool_running_renders_filled_circle_icon() {
         let mut m = msg(MessageRole::Assistant, "");
-        m.tool_uses.push(tool("read_file", ToolStatus::Running, "main.rs", ""));
+        m.tool_uses
+            .push(tool("read_file", ToolStatus::Running, "main.rs", ""));
         let s = render_to_string(&[m], 60, 6);
-        assert!(s.contains('\u{25cf}'), "Running must render '●' (U+25CF): {s}");
+        assert!(
+            s.contains('\u{25cf}'),
+            "Running must render '●' (U+25CF): {s}"
+        );
         assert!(s.contains("read_file"));
     }
 
     #[test]
     fn tool_success_renders_checkmark_icon() {
         let mut m = msg(MessageRole::Assistant, "");
-        m.tool_uses.push(tool("bash", ToolStatus::Success, "ls", "ok"));
+        m.tool_uses
+            .push(tool("bash", ToolStatus::Success, "ls", "ok"));
         let s = render_to_string(&[m], 60, 6);
-        assert!(s.contains('\u{2713}'), "Success must render '✓' (U+2713): {s}");
+        assert!(
+            s.contains('\u{2713}'),
+            "Success must render '✓' (U+2713): {s}"
+        );
     }
 
     #[test]
     fn tool_error_renders_cross_icon() {
         let mut m = msg(MessageRole::Assistant, "");
-        m.tool_uses.push(tool("bash", ToolStatus::Error, "false", ""));
+        m.tool_uses
+            .push(tool("bash", ToolStatus::Error, "false", ""));
         let s = render_to_string(&[m], 60, 6);
-        assert!(s.contains('\u{2717}'), "Error must render '✗' (U+2717): {s}");
+        assert!(
+            s.contains('\u{2717}'),
+            "Error must render '✗' (U+2717): {s}"
+        );
     }
 
     // -- Tool output_preview -----------------------------------------------
@@ -328,7 +338,8 @@ mod tests {
         // vertical space in the chat). A regression that always renders
         // an empty preview row would push real content down.
         let mut m = msg(MessageRole::Assistant, "");
-        m.tool_uses.push(tool("bash", ToolStatus::Success, "ls", ""));
+        m.tool_uses
+            .push(tool("bash", ToolStatus::Success, "ls", ""));
         let s = render_to_string(&[m], 60, 8);
         // The tool line has the tool name; the next non-blank row
         // should NOT exist. Cheap check: "ls" appears, but no preview
@@ -339,7 +350,8 @@ mod tests {
     #[test]
     fn non_empty_tool_output_preview_appears_in_render() {
         let mut m = msg(MessageRole::Assistant, "");
-        m.tool_uses.push(tool("bash", ToolStatus::Success, "ls", "file_a.txt"));
+        m.tool_uses
+            .push(tool("bash", ToolStatus::Success, "ls", "file_a.txt"));
         let s = render_to_string(&[m], 60, 8);
         assert!(s.contains("file_a.txt"), "output preview must appear: {s}");
     }

@@ -39,7 +39,9 @@ impl SandboxConfig {
     pub fn new(mode: SandboxMode) -> Self {
         let allow_network = matches!(
             mode,
-            SandboxMode::RestrictiveOpen | SandboxMode::RestrictiveProxied | SandboxMode::PermissiveOpen
+            SandboxMode::RestrictiveOpen
+                | SandboxMode::RestrictiveProxied
+                | SandboxMode::PermissiveOpen
         );
         Self {
             mode,

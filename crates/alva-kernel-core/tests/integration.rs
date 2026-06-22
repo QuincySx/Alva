@@ -5,21 +5,21 @@ use std::sync::{
     Arc,
 };
 
-use alva_kernel_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
-use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
-use alva_kernel_core::run::run_agent;
-use alva_kernel_core::state::{AgentConfig, AgentState};
-use alva_kernel_core::AgentEvent;
+use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::base::content::ContentBlock;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::{Message, MessageRole};
 use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
-use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
-    AgentMessage, Bus, CancellationToken, ModelConfig, ToolExecutionContext, ToolOutput,
+    AgentMessage, CancellationToken, ModelConfig, ToolExecutionContext, ToolOutput,
 };
+use alva_kernel_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
+use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
+use alva_kernel_core::run::run_agent;
+use alva_kernel_core::state::{AgentConfig, AgentState};
+use alva_kernel_core::AgentEvent;
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -1026,7 +1026,9 @@ async fn context_hooks_fire_at_lifecycle_points() {
 
     #[async_trait]
     impl ContextHooks for CountingHooks {
-        fn name(&self) -> &str { "counting" }
+        fn name(&self) -> &str {
+            "counting"
+        }
 
         async fn bootstrap(
             &self,
@@ -1069,7 +1071,9 @@ async fn context_hooks_fire_at_lifecycle_points() {
     }
 
     let counters = Arc::new(Counters::default());
-    let hooks: Arc<dyn ContextHooks> = Arc::new(CountingHooks { c: counters.clone() });
+    let hooks: Arc<dyn ContextHooks> = Arc::new(CountingHooks {
+        c: counters.clone(),
+    });
     let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
     let cs = Arc::new(ContextSystem::new(hooks, handle));
 
@@ -1130,7 +1134,9 @@ async fn assemble_can_inject_extra_message() {
 
     #[async_trait]
     impl ContextHooks for InjectingHooks {
-        fn name(&self) -> &str { "injecting" }
+        fn name(&self) -> &str {
+            "injecting"
+        }
 
         async fn assemble(
             &self,
@@ -1192,7 +1198,9 @@ async fn assemble_can_inject_extra_message() {
                 StreamEvent::Done,
             ]))
         }
-        fn model_id(&self) -> &str { "capturing" }
+        fn model_id(&self) -> &str {
+            "capturing"
+        }
     }
 
     let model = Arc::new(CapturingModel::default());
@@ -1263,7 +1271,9 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
     }
     #[async_trait]
     impl ContextHooks for WindowHooks {
-        fn name(&self) -> &str { "window" }
+        fn name(&self) -> &str {
+            "window"
+        }
 
         async fn on_budget_exceeded(
             &self,
@@ -1272,7 +1282,9 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
             _snapshot: &ContextSnapshot,
         ) -> Vec<CompressAction> {
             self.fired.fetch_add(1, Ordering::SeqCst);
-            vec![CompressAction::SlidingWindow { keep_recent: self.keep }]
+            vec![CompressAction::SlidingWindow {
+                keep_recent: self.keep,
+            }]
         }
 
         async fn on_message(
@@ -1319,7 +1331,9 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
                 StreamEvent::Done,
             ]))
         }
-        fn model_id(&self) -> &str { "capturing" }
+        fn model_id(&self) -> &str {
+            "capturing"
+        }
     }
 
     let fired = Arc::new(AtomicUsize::new(0));
@@ -1334,10 +1348,14 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
     {
         let s: &dyn alva_kernel_abi::agent_session::AgentSession = session.as_ref();
         for i in 0..30 {
-            s.append_message(AgentMessage::Standard(Message::user(&format!(
-                "msg-{}-with-some-padding-text-to-pump-up-the-token-estimate",
-                i
-            ))), None).await;
+            s.append_message(
+                AgentMessage::Standard(Message::user(&format!(
+                    "msg-{}-with-some-padding-text-to-pump-up-the-token-estimate",
+                    i
+                ))),
+                None,
+            )
+            .await;
         }
     }
 
@@ -1367,7 +1385,11 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
     let result = run_agent(&mut state, &config, cancel, vec![], tx).await;
     assert!(result.is_ok(), "run_agent should succeed: {:?}", result);
 
-    assert_eq!(fired.load(Ordering::SeqCst), 1, "on_budget_exceeded fired once");
+    assert_eq!(
+        fired.load(Ordering::SeqCst),
+        1,
+        "on_budget_exceeded fired once"
+    );
 
     let captured = captured_handle.captured.lock().unwrap();
     assert_eq!(captured.len(), 1, "exactly one LLM call");
@@ -1379,8 +1401,16 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
         llm_msgs.len()
     );
     let texts: Vec<String> = llm_msgs.iter().map(|m| m.text_content()).collect();
-    assert!(texts[0].contains("msg-25"), "first kept = msg-25, got {}", texts[0]);
-    assert!(texts[4].contains("msg-29"), "last kept = msg-29, got {}", texts[4]);
+    assert!(
+        texts[0].contains("msg-25"),
+        "first kept = msg-25, got {}",
+        texts[0]
+    );
+    assert!(
+        texts[4].contains("msg-29"),
+        "last kept = msg-29, got {}",
+        texts[4]
+    );
 }
 
 #[tokio::test]

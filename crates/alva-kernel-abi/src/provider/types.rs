@@ -83,16 +83,10 @@ pub trait Provider: Send + Sync {
     fn id(&self) -> &str;
 
     /// Create a language model instance for the given model ID.
-    fn language_model(
-        &self,
-        model_id: &str,
-    ) -> Result<Arc<dyn LanguageModel>, ProviderError>;
+    fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError>;
 
     /// Create an embedding model instance for the given model ID.
-    fn embedding_model(
-        &self,
-        _model_id: &str,
-    ) -> Result<Arc<dyn EmbeddingModel>, ProviderError> {
+    fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn EmbeddingModel>, ProviderError> {
         Err(ProviderError::UnsupportedFunctionality(
             "embedding models are not supported by this provider".to_string(),
         ))
@@ -109,50 +103,35 @@ pub trait Provider: Send + Sync {
     }
 
     /// Create a speech model instance for the given model ID.
-    fn speech_model(
-        &self,
-        _model_id: &str,
-    ) -> Result<Arc<dyn SpeechModel>, ProviderError> {
+    fn speech_model(&self, _model_id: &str) -> Result<Arc<dyn SpeechModel>, ProviderError> {
         Err(ProviderError::UnsupportedFunctionality(
             "speech models are not supported by this provider".to_string(),
         ))
     }
 
     /// Create an image model instance for the given model ID.
-    fn image_model(
-        &self,
-        _model_id: &str,
-    ) -> Result<Arc<dyn ImageModel>, ProviderError> {
+    fn image_model(&self, _model_id: &str) -> Result<Arc<dyn ImageModel>, ProviderError> {
         Err(ProviderError::UnsupportedFunctionality(
             "image models are not supported by this provider".to_string(),
         ))
     }
 
     /// Create a video model instance for the given model ID.
-    fn video_model(
-        &self,
-        _model_id: &str,
-    ) -> Result<Arc<dyn VideoModel>, ProviderError> {
+    fn video_model(&self, _model_id: &str) -> Result<Arc<dyn VideoModel>, ProviderError> {
         Err(ProviderError::UnsupportedFunctionality(
             "video models are not supported by this provider".to_string(),
         ))
     }
 
     /// Create a reranking model instance for the given model ID.
-    fn reranking_model(
-        &self,
-        _model_id: &str,
-    ) -> Result<Arc<dyn RerankingModel>, ProviderError> {
+    fn reranking_model(&self, _model_id: &str) -> Result<Arc<dyn RerankingModel>, ProviderError> {
         Err(ProviderError::UnsupportedFunctionality(
             "reranking models are not supported by this provider".to_string(),
         ))
     }
 
     /// Create a moderation model instance for the given model ID.
-    fn moderation_model(
-        &self,
-        _model_id: &str,
-    ) -> Result<Arc<dyn ModerationModel>, ProviderError> {
+    fn moderation_model(&self, _model_id: &str) -> Result<Arc<dyn ModerationModel>, ProviderError> {
         Err(ProviderError::UnsupportedFunctionality(
             "moderation models are not supported by this provider".to_string(),
         ))
@@ -165,7 +144,7 @@ pub trait Provider: Send + Sync {
 
 /// Bus Capability: central registry of all configured LLM providers.
 ///
-/// **Provider**: `ProviderRegistryPlugin::configure`
+/// **Provider**: `ProviderRegistryPlugin::register`
 /// (`alva-app-core/src/extension/provider_registry.rs`). Fully opt-in —
 /// no built-in default, no builder setter.
 /// **Consumers**: `AgentSpawnTool` — when a `SpawnInput.model` carries a
@@ -209,12 +188,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "language".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "language".to_string(),
+                })?;
         provider.language_model(model_id)
     }
 
@@ -224,12 +204,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn EmbeddingModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "embedding".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "embedding".to_string(),
+                })?;
         provider.embedding_model(model_id)
     }
 
@@ -239,12 +220,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn TranscriptionModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "transcription".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "transcription".to_string(),
+                })?;
         provider.transcription_model(model_id)
     }
 
@@ -254,12 +236,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn SpeechModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "speech".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "speech".to_string(),
+                })?;
         provider.speech_model(model_id)
     }
 
@@ -269,12 +252,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn ImageModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "image".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "image".to_string(),
+                })?;
         provider.image_model(model_id)
     }
 
@@ -284,12 +268,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn VideoModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "video".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "video".to_string(),
+                })?;
         provider.video_model(model_id)
     }
 
@@ -299,12 +284,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn RerankingModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "reranking".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "reranking".to_string(),
+                })?;
         provider.reranking_model(model_id)
     }
 
@@ -314,12 +300,13 @@ impl ProviderRegistry {
         provider_id: &str,
         model_id: &str,
     ) -> Result<Arc<dyn ModerationModel>, ProviderError> {
-        let provider = self.providers.get(provider_id).ok_or_else(|| {
-            ProviderError::NoSuchModel {
-                model_id: format!("{provider_id}:{model_id}"),
-                model_type: "moderation".to_string(),
-            }
-        })?;
+        let provider =
+            self.providers
+                .get(provider_id)
+                .ok_or_else(|| ProviderError::NoSuchModel {
+                    model_id: format!("{provider_id}:{model_id}"),
+                    model_type: "moderation".to_string(),
+                })?;
         provider.moderation_model(model_id)
     }
 
@@ -357,13 +344,8 @@ mod tests {
         fn id(&self) -> &str {
             self.id
         }
-        fn language_model(
-            &self,
-            _model_id: &str,
-        ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
-            Err(ProviderError::UnsupportedFunctionality(
-                "stub".to_string(),
-            ))
+        fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError> {
+            Err(ProviderError::UnsupportedFunctionality("stub".to_string()))
         }
     }
 
@@ -390,7 +372,9 @@ mod tests {
     fn register_then_get_returns_the_same_provider_handle() {
         let mut r = ProviderRegistry::new();
         r.register(stub("openai"));
-        let p = r.get("openai").expect("registered provider must be retrievable");
+        let p = r
+            .get("openai")
+            .expect("registered provider must be retrievable");
         assert_eq!(p.id(), "openai");
     }
 
@@ -442,7 +426,10 @@ mod tests {
         // Avoid `.unwrap_err()` — `Arc<dyn LanguageModel>` doesn't impl
         // Debug, so we destructure the Result manually.
         match r.language_model("oai", "gpt-4o") {
-            Err(ProviderError::NoSuchModel { model_id, model_type }) => {
+            Err(ProviderError::NoSuchModel {
+                model_id,
+                model_type,
+            }) => {
                 assert_eq!(model_id, "oai:gpt-4o", "must use ':' separator");
                 assert_eq!(model_type, "language");
             }
@@ -455,7 +442,10 @@ mod tests {
     fn embedding_model_unknown_provider_labels_embedding_type() {
         let r = ProviderRegistry::new();
         match r.embedding_model("oai", "ada") {
-            Err(ProviderError::NoSuchModel { model_id, model_type }) => {
+            Err(ProviderError::NoSuchModel {
+                model_id,
+                model_type,
+            }) => {
                 assert_eq!(model_id, "oai:ada");
                 assert_eq!(model_type, "embedding");
             }

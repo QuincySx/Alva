@@ -72,11 +72,15 @@ impl PartialConfig {
         PartialConfig {
             api_key: std::env::var("ALVA_API_KEY").ok().filter(|s| !s.is_empty()),
             model: std::env::var("ALVA_MODEL").ok().filter(|s| !s.is_empty()),
-            base_url: std::env::var("ALVA_BASE_URL").ok().filter(|s| !s.is_empty()),
+            base_url: std::env::var("ALVA_BASE_URL")
+                .ok()
+                .filter(|s| !s.is_empty()),
             max_tokens: std::env::var("ALVA_MAX_TOKENS")
                 .ok()
                 .and_then(|s| s.parse().ok()),
-            kind: std::env::var("ALVA_PROVIDER_KIND").ok().filter(|s| !s.is_empty()),
+            kind: std::env::var("ALVA_PROVIDER_KIND")
+                .ok()
+                .filter(|s| !s.is_empty()),
         }
     }
 
@@ -146,8 +150,7 @@ impl ProviderConfig {
 
     /// Save configuration to the global config file.
     pub fn save_global(&self) -> Result<PathBuf, String> {
-        let dir = Self::global_config_dir()
-            .ok_or("cannot determine config directory")?;
+        let dir = Self::global_config_dir().ok_or("cannot determine config directory")?;
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("cannot create config dir {}: {}", dir.display(), e))?;
 
@@ -163,8 +166,7 @@ impl ProviderConfig {
     /// Save a project-level override config (only non-default fields).
     pub fn save_project(&self, workspace: &Path) -> Result<PathBuf, String> {
         let dir = workspace.join(".alva");
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("cannot create .alva dir: {}", e))?;
+        std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create .alva dir: {}", e))?;
 
         let path = dir.join("config.json");
         let json = serde_json::to_string_pretty(self)

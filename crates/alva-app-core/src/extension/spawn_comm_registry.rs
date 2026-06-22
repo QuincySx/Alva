@@ -116,8 +116,12 @@ mod tests {
 
     #[async_trait]
     impl SpawnCommunication for StubComm {
-        fn kind(&self) -> &str { self.0 }
-        fn description(&self) -> &str { "stub" }
+        fn kind(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "stub"
+        }
         async fn attach(
             &self,
             _ctx: &SpawnCommContext<'_>,

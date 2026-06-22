@@ -37,48 +37,69 @@ impl Tabs {
     }
 
     pub fn next(&mut self) {
-        if self.titles.is_empty() { return; }
+        if self.titles.is_empty() {
+            return;
+        }
         self.active = (self.active + 1) % self.titles.len();
     }
 
     pub fn prev(&mut self) {
-        if self.titles.is_empty() { return; }
-        self.active = if self.active == 0 { self.titles.len() - 1 } else { self.active - 1 };
+        if self.titles.is_empty() {
+            return;
+        }
+        self.active = if self.active == 0 {
+            self.titles.len() - 1
+        } else {
+            self.active - 1
+        };
     }
 
     pub fn set_active(&mut self, i: usize) {
-        if i < self.titles.len() { self.active = i; }
+        if i < self.titles.len() {
+            self.active = i;
+        }
     }
 }
 
 impl Component for Tabs {
     fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        let titles: Vec<Line> = self.titles.iter()
-            .map(|t| Line::from(t.clone()))
-            .collect();
+        let titles: Vec<Line> = self.titles.iter().map(|t| Line::from(t.clone())).collect();
         let mut tabs = RatatuiTabs::new(titles)
             .style(theme.text_dim)
-            .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(theme.text.fg.unwrap_or_default()))
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .fg(theme.text.fg.unwrap_or_default()),
+            )
             .select(self.active)
             .divider("│");
         if self.bordered {
-            tabs = tabs.block(Block::default().borders(Borders::BOTTOM).border_style(theme.border));
+            tabs = tabs.block(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .border_style(theme.border),
+            );
         }
         frame.render_widget(tabs, area);
     }
 
     fn handle_event(&mut self, event: Event) -> ComponentAction {
-        let Event::Key(KeyEvent { code, modifiers, .. }) = event.clone() else {
+        let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event.clone()
+        else {
             return ComponentAction::Bubble(event);
         };
         match (modifiers, code) {
             (KeyModifiers::CONTROL, KeyCode::Tab) | (_, KeyCode::Right) => {
-                self.next(); ComponentAction::Changed
+                self.next();
+                ComponentAction::Changed
             }
             (KeyModifiers::CONTROL | KeyModifiers::SHIFT, KeyCode::BackTab)
             | (KeyModifiers::SHIFT, KeyCode::Tab)
             | (_, KeyCode::Left) => {
-                self.prev(); ComponentAction::Changed
+                self.prev();
+                ComponentAction::Changed
             }
             _ => ComponentAction::Bubble(event),
         }
@@ -181,14 +202,23 @@ mod tests {
     #[test]
     fn right_arrow_advances_and_left_arrow_decrements() {
         let mut t = three_tabs();
-        assert!(matches!(t.handle_event(key(KeyCode::Right)), ComponentAction::Changed));
+        assert!(matches!(
+            t.handle_event(key(KeyCode::Right)),
+            ComponentAction::Changed
+        ));
         assert_eq!(t.active, 1, "Right must call next()");
 
-        assert!(matches!(t.handle_event(key(KeyCode::Left)), ComponentAction::Changed));
+        assert!(matches!(
+            t.handle_event(key(KeyCode::Left)),
+            ComponentAction::Changed
+        ));
         assert_eq!(t.active, 0, "Left must call prev()");
 
         // Left at 0 wraps via prev()
-        assert!(matches!(t.handle_event(key(KeyCode::Left)), ComponentAction::Changed));
+        assert!(matches!(
+            t.handle_event(key(KeyCode::Left)),
+            ComponentAction::Changed
+        ));
         assert_eq!(t.active, 2, "Left at 0 wraps to len-1");
     }
 
@@ -201,7 +231,10 @@ mod tests {
         assert!(matches!(t.handle_event(ctrl_tab), ComponentAction::Changed));
         assert_eq!(t.active, 1, "Ctrl+Tab must advance");
 
-        assert!(matches!(t.handle_event(shift_tab), ComponentAction::Changed));
+        assert!(matches!(
+            t.handle_event(shift_tab),
+            ComponentAction::Changed
+        ));
         assert_eq!(t.active, 0, "Shift+Tab must go back");
     }
 
@@ -218,21 +251,33 @@ mod tests {
 
         // SHIFT alone on BackTab → prev() ✓
         let shift_backtab = key_mod(KeyCode::BackTab, KeyModifiers::SHIFT);
-        assert!(matches!(t.handle_event(shift_backtab), ComponentAction::Changed));
+        assert!(matches!(
+            t.handle_event(shift_backtab),
+            ComponentAction::Changed
+        ));
         assert_eq!(t.active, 1, "Shift+BackTab must call prev()");
 
         // CTRL alone on BackTab → prev() ✓
         let ctrl_backtab = key_mod(KeyCode::BackTab, KeyModifiers::CONTROL);
-        assert!(matches!(t.handle_event(ctrl_backtab), ComponentAction::Changed));
+        assert!(matches!(
+            t.handle_event(ctrl_backtab),
+            ComponentAction::Changed
+        ));
         assert_eq!(t.active, 0, "Ctrl+BackTab must call prev()");
 
         // CTRL+SHIFT combined on BackTab is NOT matched today — bubbles
-        let combo = key_mod(KeyCode::BackTab, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let combo = key_mod(
+            KeyCode::BackTab,
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
         match t.handle_event(combo) {
             ComponentAction::Bubble(_) => {}
             other => panic!("T10: CTRL+SHIFT+BackTab currently bubbles, got {other:?}"),
         }
-        assert_eq!(t.active, 0, "T10: CTRL+SHIFT+BackTab must NOT change active until T10 is fixed");
+        assert_eq!(
+            t.active, 0,
+            "T10: CTRL+SHIFT+BackTab must NOT change active until T10 is fixed"
+        );
     }
 
     #[test]
@@ -241,7 +286,10 @@ mod tests {
 
         // Unknown key (Char): not consumed → Bubble
         match t.handle_event(key(KeyCode::Char('x'))) {
-            ComponentAction::Bubble(Event::Key(KeyEvent { code: KeyCode::Char('x'), .. })) => {}
+            ComponentAction::Bubble(Event::Key(KeyEvent {
+                code: KeyCode::Char('x'),
+                ..
+            })) => {}
             other => panic!("unknown key must bubble, got {other:?}"),
         }
         assert_eq!(t.active, 0, "unknown key must not mutate");

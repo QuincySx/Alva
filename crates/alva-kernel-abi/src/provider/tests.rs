@@ -21,7 +21,10 @@ use crate::{Provider, ProviderError};
 /// Assert that provider.id() returns a non-empty, space-free string.
 pub fn assert_provider_id_non_empty(provider: &dyn Provider) {
     let id = provider.id();
-    assert!(!id.is_empty(), "Provider.id() must return a non-empty string");
+    assert!(
+        !id.is_empty(),
+        "Provider.id() must return a non-empty string"
+    );
     assert!(
         !id.contains(' '),
         "Provider.id() should not contain spaces, got: '{}'",

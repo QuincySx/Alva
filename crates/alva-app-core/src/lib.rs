@@ -1,4 +1,4 @@
-//! Alva App Core — BaseAgent + Extension system.
+//! Alva App Core — BaseAgent + Plugin system.
 //!
 //! This crate provides the thin orchestration layer that composes extracted
 //! agent crates (types, core, tools, security, memory, runtime) into a
@@ -7,7 +7,7 @@
 //! Modules:
 //!   base_agent/  — BaseAgent, BaseAgentBuilder, PermissionMode
 //!   extension/   — Plugin trait, Registrar, and all built-in
-//!                  extensions (skills, mcp, hooks, agent_spawn, evaluation)
+//!                  plugins (skills, mcp, hooks, agent_spawn, evaluation)
 //!   settings/    — Settings + HooksSettings types
 //!   paths/       — Workspace/global path resolution
 //!   utils/       — Small shared helpers (token formatting, cost estimate)
@@ -17,23 +17,22 @@
 
 pub use alva_kernel_abi;
 
-pub use alva_kernel_core::{AgentState, AgentConfig, AgentEvent, AgentMessage};
-pub use alva_kernel_core::{MiddlewareStack, Extensions};
 pub use alva_kernel_core::run_agent;
+pub use alva_kernel_core::{AgentConfig, AgentEvent, AgentMessage, AgentState};
+pub use alva_kernel_core::{Extensions, MiddlewareStack};
 
 pub use alva_agent_extension_builtin::tool_presets;
 
 pub use alva_agent_security::{
-    SecurityGuard, SecurityDecision,
-    PermissionManager, PermissionDecision,
-    SensitivePathFilter, AuthorizedRoots,
-    SandboxConfig, SandboxMode,
+    AuthorizedRoots, PermissionDecision, PermissionManager, SandboxConfig, SandboxMode,
+    SecurityDecision, SecurityGuard, SensitivePathFilter,
 };
 
-pub use alva_agent_memory::{MemoryService, MemoryEntry, MemoryChunk, MemoryFile, SyncReport, MemoryError};
 pub use alva_agent_memory::{EmbeddingProvider, NoopEmbeddingProvider};
+pub use alva_agent_memory::{
+    MemoryChunk, MemoryEntry, MemoryError, MemoryFile, MemoryService, SyncReport,
+};
 
-pub use alva_host_native::{AgentRuntime, AgentRuntimeBuilder};
 pub use alva_host_native::model;
 
 pub use alva_protocol_acp;
@@ -52,28 +51,30 @@ pub mod analytics;
 pub mod base_agent;
 pub mod components;
 pub mod config;
+pub mod error;
 pub mod extension;
 pub mod outcome;
+pub mod paths;
 pub mod resource;
 pub mod roster;
 pub mod session_projection;
 pub mod session_registry;
 pub mod settings;
-pub mod paths;
 pub mod utils;
-pub mod error;
 
 // ── Convenience re-exports ───────────────────────────────────────────
 
 pub use base_agent::{BaseAgent, BaseAgentBuilder, PermissionMode};
 pub use error::EngineError;
+pub use extension::hooks::{
+    HookEvent, HookExecutor, HookInput, HookOutcome, HookOutput, HookResult,
+};
 pub use paths::AlvaPaths;
-pub use extension::hooks::{HookEvent, HookExecutor, HookInput, HookOutcome, HookOutput, HookResult};
-pub use settings::{Settings, SettingsCache, load_settings, settings_file_paths};
+pub use settings::{load_settings, settings_file_paths, Settings, SettingsCache};
 pub use utils::{estimate_cost_usd, format_token_count};
 
-// Extension runtime API
-pub use crate::extension::ExtensionHost;
+// Plugin runtime API
+pub use crate::extension::PluginHost;
 
 // Managed Agents parity surface — see docs/plans/2026-05-11-managed-agents-parity.md.
 pub use outcome::{

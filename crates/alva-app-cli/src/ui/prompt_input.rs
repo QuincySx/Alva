@@ -104,11 +104,7 @@ impl<'a> PromptInputWidget<'a> {
 impl<'a> Widget for PromptInputWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Split: input row(s) on top, 1-line footer on bottom.
-        let chunks = Layout::vertical([
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
-        .split(area);
+        let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(area);
 
         let input_area = chunks[0];
         let footer_area = chunks[1];
@@ -129,18 +125,9 @@ impl<'a> Widget for PromptInputWidget<'a> {
 
         // -- Footer (model + tokens) --
         let footer = Line::from(vec![
-            Span::styled(
-                format!(" {} ", self.mode.label()),
-                self.theme.status_bar,
-            ),
-            Span::styled(
-                format!(" {} ", self.model_name),
-                self.theme.text_dim,
-            ),
-            Span::styled(
-                format!(" {}T ", self.token_count),
-                self.theme.text_dim,
-            ),
+            Span::styled(format!(" {} ", self.mode.label()), self.theme.status_bar),
+            Span::styled(format!(" {} ", self.model_name), self.theme.text_dim),
+            Span::styled(format!(" {}T ", self.token_count), self.theme.text_dim),
         ]);
         let footer_paragraph = Paragraph::new(footer);
         footer_paragraph.render(footer_area, buf);
@@ -228,12 +215,21 @@ mod tests {
         // Normal, no model name, 0 tokens. Render reflects all of these.
         let theme = theme();
         let s = render_to_string(PromptInputWidget::new("hi", &theme), 40, 4);
-        assert!(s.contains("> "), "default mode must render '> ' prefix: {s}");
+        assert!(
+            s.contains("> "),
+            "default mode must render '> ' prefix: {s}"
+        );
         assert!(s.contains("hi"), "input text must appear: {s}");
-        assert!(s.contains("NORMAL"), "default mode label must be NORMAL: {s}");
+        assert!(
+            s.contains("NORMAL"),
+            "default mode label must be NORMAL: {s}"
+        );
         // Default model_name is "" — still shows the trailing space chrome
         // around it but no specific name to check.
-        assert!(s.contains("0T"), "default token_count=0 must show '0T': {s}");
+        assert!(
+            s.contains("0T"),
+            "default token_count=0 must show '0T': {s}"
+        );
     }
 
     // -- Render: mode prefix + input text ---------------------------------
@@ -247,7 +243,10 @@ mod tests {
             4,
         );
         // Slash prefix at the input line.
-        assert!(s.contains("/ help"), "command-mode line must show '/ help': {s}");
+        assert!(
+            s.contains("/ help"),
+            "command-mode line must show '/ help': {s}"
+        );
         assert!(s.contains("COMMAND"), "footer must show COMMAND label: {s}");
     }
 
@@ -297,11 +296,7 @@ mod tests {
         // the number is tokens (not messages / lines). Dropping the
         // suffix makes the number ambiguous.
         let theme = theme();
-        let s = render_to_string(
-            PromptInputWidget::new("", &theme).token_count(12345),
-            60,
-            4,
-        );
+        let s = render_to_string(PromptInputWidget::new("", &theme).token_count(12345), 60, 4);
         assert!(s.contains("12345T"), "footer must show '12345T': {s}");
     }
 

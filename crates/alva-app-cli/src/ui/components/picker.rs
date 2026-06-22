@@ -19,14 +19,14 @@ use super::{Component, ComponentAction};
 /// `label_for` decides how it's rendered. Items are filtered by substring
 /// match against the label (case-insensitive).
 pub struct Picker<T: Clone> {
-    items: Vec<(T, String)>,        // (value, display label)
-    filtered: Vec<usize>,            // indices into `items`, post-filter
-    selected: usize,                 // index into `filtered`
-    query: String,                   // current filter
-    title: String,                   // shown in border
-    page_size: usize,                // visible rows per page
-    page: usize,                     // 0-based current page index
-    show_query: bool,                // render `query` in title?
+    items: Vec<(T, String)>, // (value, display label)
+    filtered: Vec<usize>,    // indices into `items`, post-filter
+    selected: usize,         // index into `filtered`
+    query: String,           // current filter
+    title: String,           // shown in border
+    page_size: usize,        // visible rows per page
+    page: usize,             // 0-based current page index
+    show_query: bool,        // render `query` in title?
 }
 
 impl<T: Clone> Picker<T> {
@@ -77,7 +77,9 @@ impl<T: Clone> Picker<T> {
             .filter(|(_, (_, label))| q.is_empty() || label.to_lowercase().contains(&q))
             .map(|(i, _)| i)
             .collect();
-        if self.selected >= self.filtered.len() { self.selected = 0; }
+        if self.selected >= self.filtered.len() {
+            self.selected = 0;
+        }
         self.page = self.selected / self.page_size;
     }
 
@@ -86,36 +88,56 @@ impl<T: Clone> Picker<T> {
     }
 
     pub fn selected_label(&self) -> Option<&str> {
-        self.filtered.get(self.selected).map(|i| self.items[*i].1.as_str())
+        self.filtered
+            .get(self.selected)
+            .map(|i| self.items[*i].1.as_str())
     }
 
-    pub fn is_empty(&self) -> bool { self.filtered.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.filtered.is_empty()
+    }
 
     /// Move selection down by 1 (wraps).
     pub fn next(&mut self) {
-        if self.filtered.is_empty() { return; }
+        if self.filtered.is_empty() {
+            return;
+        }
         self.selected = (self.selected + 1) % self.filtered.len();
         self.page = self.selected / self.page_size;
     }
 
     /// Move selection up by 1 (wraps).
     pub fn prev(&mut self) {
-        if self.filtered.is_empty() { return; }
-        self.selected = if self.selected == 0 { self.filtered.len() - 1 } else { self.selected - 1 };
+        if self.filtered.is_empty() {
+            return;
+        }
+        self.selected = if self.selected == 0 {
+            self.filtered.len() - 1
+        } else {
+            self.selected - 1
+        };
         self.page = self.selected / self.page_size;
     }
 
     pub fn page_next(&mut self) {
-        if self.filtered.is_empty() { return; }
+        if self.filtered.is_empty() {
+            return;
+        }
         let pages = (self.filtered.len() + self.page_size - 1) / self.page_size;
         self.page = (self.page + 1) % pages;
         self.selected = (self.page * self.page_size).min(self.filtered.len() - 1);
     }
 
     pub fn page_prev(&mut self) {
-        if self.filtered.is_empty() { return; }
+        if self.filtered.is_empty() {
+            return;
+        }
         let pages = (self.filtered.len() + self.page_size - 1) / self.page_size;
-        self.page = if self.page == 0 { pages - 1 } else { self.page - 1 };
+        self.page = if self.page == 0 {
+            pages - 1
+        } else {
+            self.page - 1
+        };
         self.selected = (self.page * self.page_size).min(self.filtered.len() - 1);
     }
 }
@@ -125,13 +147,24 @@ impl<T: Clone> Component for Picker<T> {
         let total = self.filtered.len();
         let pages = (total + self.page_size - 1) / self.page_size.max(1);
         let title = if self.show_query && !self.query.is_empty() {
-            format!(" {} · {} · {}/{} ", self.title, self.query,
-                if total == 0 { 0 } else { self.selected + 1 }, total)
+            format!(
+                " {} · {} · {}/{} ",
+                self.title,
+                self.query,
+                if total == 0 { 0 } else { self.selected + 1 },
+                total
+            )
         } else if total == 0 {
             format!(" {} (no matches) ", self.title)
         } else {
-            format!(" {} · {}/{} (p {}/{}) ", self.title, self.selected + 1, total,
-                self.page + 1, pages.max(1))
+            format!(
+                " {} · {}/{} (p {}/{}) ",
+                self.title,
+                self.selected + 1,
+                total,
+                self.page + 1,
+                pages.max(1)
+            )
         };
 
         let block = Block::default()
@@ -162,16 +195,37 @@ impl<T: Clone> Component for Picker<T> {
     }
 
     fn handle_event(&mut self, event: Event) -> ComponentAction {
-        let Event::Key(KeyEvent { code, modifiers, .. }) = event.clone() else {
+        let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event.clone()
+        else {
             return ComponentAction::Bubble(event);
         };
         match (modifiers, code) {
-            (_, KeyCode::Up) => { self.prev(); ComponentAction::None }
-            (_, KeyCode::Down) => { self.next(); ComponentAction::None }
-            (_, KeyCode::PageUp) => { self.page_prev(); ComponentAction::None }
-            (_, KeyCode::PageDown) => { self.page_next(); ComponentAction::None }
-            (KeyModifiers::CONTROL, KeyCode::Char('p')) => { self.prev(); ComponentAction::None }
-            (KeyModifiers::CONTROL, KeyCode::Char('n')) => { self.next(); ComponentAction::None }
+            (_, KeyCode::Up) => {
+                self.prev();
+                ComponentAction::None
+            }
+            (_, KeyCode::Down) => {
+                self.next();
+                ComponentAction::None
+            }
+            (_, KeyCode::PageUp) => {
+                self.page_prev();
+                ComponentAction::None
+            }
+            (_, KeyCode::PageDown) => {
+                self.page_next();
+                ComponentAction::None
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                self.prev();
+                ComponentAction::None
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+                self.next();
+                ComponentAction::None
+            }
             (_, KeyCode::Enter) | (_, KeyCode::Tab) => match self.selected_label() {
                 Some(s) => ComponentAction::Submit(s.to_string()),
                 None => ComponentAction::None,
@@ -351,7 +405,7 @@ mod tests {
     #[test]
     fn page_next_advances_by_page_size_and_cycles() {
         // page_size=2, items: 0..5 → pages of [0,1] [2,3] [4]
-        let mut p = picker_of(&["0","1","2","3","4"]).page_size(2);
+        let mut p = picker_of(&["0", "1", "2", "3", "4"]).page_size(2);
         assert_eq!(p.selected_label(), Some("0"));
         p.page_next();
         // page 1 starts at index 2.
@@ -368,7 +422,7 @@ mod tests {
     fn page_next_last_page_clamps_to_last_index_not_overshoot() {
         // page_size=3, items: 4 → pages [0,1,2] [3]. Last page only
         // has one item; selected must clamp to 3, not overshoot.
-        let mut p = picker_of(&["0","1","2","3"]).page_size(3);
+        let mut p = picker_of(&["0", "1", "2", "3"]).page_size(3);
         p.page_next();
         assert_eq!(p.selected_label(), Some("3"));
     }

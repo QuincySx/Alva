@@ -12,10 +12,10 @@ Then start alva — the plugin loads automatically and blocks any
 tool call whose arguments contain ``rm -rf``.
 """
 
-from alva_sdk import Extension, ToolCall, before_tool_call, run
+from alva_sdk import Plugin, ToolCall, before_tool_call, run
 
 
-class ShellGuard(Extension):
+class ShellGuard(Plugin):
     name = "shell-guard"
     version = "0.1.0"
     description = "Blocks destructive shell commands"

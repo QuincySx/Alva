@@ -22,11 +22,11 @@
 
 use std::sync::Arc;
 
+use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::ModelConfig;
-use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::AgentMessage;
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::run::run_agent;

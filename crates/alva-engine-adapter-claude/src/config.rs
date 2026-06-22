@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default)]
 pub struct ClaudeAdapterConfig {
     // ── Bridge 运行环境 ──────────────────────────────────────────
-
     /// Node.js executable path (default: "node").
     pub node_path: Option<String>,
 
@@ -19,7 +18,6 @@ pub struct ClaudeAdapterConfig {
     pub sdk_package_path: Option<String>,
 
     // ── API 认证 ─────────────────────────────────────────────────
-
     /// API key. Falls back to ANTHROPIC_API_KEY env var if unset.
     /// 不设置时 SDK 会尝试使用本地 Claude Code 登录态。
     pub api_key: Option<String>,
@@ -30,7 +28,6 @@ pub struct ClaudeAdapterConfig {
     pub api_base_url: Option<String>,
 
     // ── 模型与能力 ───────────────────────────────────────────────
-
     /// Model name (e.g., "claude-sonnet-4-6").
     pub model: Option<String>,
 
@@ -42,7 +39,6 @@ pub struct ClaudeAdapterConfig {
     pub effort: Option<String>,
 
     // ── 权限与工具 ───────────────────────────────────────────────
-
     /// Permission mode for tool execution.
     pub permission_mode: PermissionMode,
 
@@ -53,7 +49,6 @@ pub struct ClaudeAdapterConfig {
     pub disallowed_tools: Vec<String>,
 
     // ── 执行环境 ─────────────────────────────────────────────────
-
     /// Enable sandbox execution.
     /// Maps to SDK `sandbox` option.
     pub sandbox: Option<SandboxConfig>,
@@ -62,7 +57,6 @@ pub struct ClaudeAdapterConfig {
     pub mcp_servers: HashMap<String, serde_json::Value>,
 
     // ── Cloud Provider 认证 ──────────────────────────────────────
-
     /// Use Amazon Bedrock as the API provider.
     /// Sets CLAUDE_CODE_USE_BEDROCK=1. AWS credentials must be configured in env.
     pub use_bedrock: bool,
@@ -76,7 +70,6 @@ pub struct ClaudeAdapterConfig {
     pub use_azure: bool,
 
     // ── Agent 与 Session ─────────────────────────────────────────
-
     /// Enable subagent support. Include "Agent" in allowed_tools to use.
     /// Agents are defined via the `agents` field.
     pub agents: HashMap<String, serde_json::Value>,
@@ -90,7 +83,6 @@ pub struct ClaudeAdapterConfig {
     pub persist_session: Option<bool>,
 
     // ── 透传 ─────────────────────────────────────────────────────
-
     /// Additional environment variables for the subprocess.
     /// 可用于设置任意 Claude Code 支持的环境变量。
     pub env: HashMap<String, String>,
@@ -320,7 +312,10 @@ mod tests {
         // start sending `"max_turns": null` and trip SDK validation.
         let cfg = empty_bridge_config();
         let json = serde_json::to_value(&cfg).unwrap();
-        assert!(json.get("max_turns").is_none(), "max_turns=None must be omitted: {json}");
+        assert!(
+            json.get("max_turns").is_none(),
+            "max_turns=None must be omitted: {json}"
+        );
     }
 
     #[test]
@@ -337,7 +332,10 @@ mod tests {
     fn bridge_config_none_sandbox_omitted_from_json() {
         let cfg = empty_bridge_config();
         let json = serde_json::to_value(&cfg).unwrap();
-        assert!(json.get("sandbox").is_none(), "sandbox=None must be omitted: {json}");
+        assert!(
+            json.get("sandbox").is_none(),
+            "sandbox=None must be omitted: {json}"
+        );
     }
 
     #[test]
@@ -348,7 +346,10 @@ mod tests {
         // rather than "use default agent set".
         let cfg = empty_bridge_config();
         let json = serde_json::to_value(&cfg).unwrap();
-        assert!(json.get("agents").is_none(), "empty agents must be omitted: {json}");
+        assert!(
+            json.get("agents").is_none(),
+            "empty agents must be omitted: {json}"
+        );
     }
 
     #[test]
@@ -379,7 +380,8 @@ mod tests {
         let mut cfg = empty_bridge_config();
         cfg.max_turns = Some(7);
         cfg.resume_session = Some("sess-1".into());
-        cfg.agents.insert("worker".into(), serde_json::json!({"k": "v"}));
+        cfg.agents
+            .insert("worker".into(), serde_json::json!({"k": "v"}));
         cfg.setting_sources.push("user".into());
         cfg.persist_session = Some(true);
         let json = serde_json::to_value(&cfg).unwrap();

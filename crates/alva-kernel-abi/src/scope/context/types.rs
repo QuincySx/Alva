@@ -232,11 +232,24 @@ pub enum IngestAction {
 /// Compression actions the plugin can request.
 #[derive(Debug, Clone)]
 pub enum CompressAction {
-    SlidingWindow { keep_recent: usize },
-    Summarize { range: MessageRange, hints: Vec<String> },
-    ReplaceToolResult { message_id: String, summary: String },
-    Externalize { range: MessageRange, path: String },
-    RemoveByPriority { priority: Priority },
+    SlidingWindow {
+        keep_recent: usize,
+    },
+    Summarize {
+        range: MessageRange,
+        hints: Vec<String>,
+    },
+    ReplaceToolResult {
+        message_id: String,
+        summary: String,
+    },
+    Externalize {
+        range: MessageRange,
+        path: String,
+    },
+    RemoveByPriority {
+        priority: Priority,
+    },
 }
 
 // ---------------------------------------------------------------------------

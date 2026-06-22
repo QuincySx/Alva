@@ -78,7 +78,10 @@ mod tests {
         let inner = io::Error::new(io::ErrorKind::TimedOut, "the request");
         let e: MemoryError = inner.into();
         let s = e.to_string();
-        assert!(s.contains("the request"), "io message lost through From: {s}");
+        assert!(
+            s.contains("the request"),
+            "io message lost through From: {s}"
+        );
     }
 
     // -- Debug smoke -------------------------------------------------------

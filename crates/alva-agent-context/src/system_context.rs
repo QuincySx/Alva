@@ -149,10 +149,7 @@ async fn load_context_files(workspace: &Path) -> Option<String> {
         let path = workspace.join(file);
         if path.exists() {
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                contents.push(format!(
-                    "Contents of {}:\n\n{}",
-                    file, content
-                ));
+                contents.push(format!("Contents of {}:\n\n{}", file, content));
             }
         }
     }
@@ -190,9 +187,12 @@ mod tests {
     #[tokio::test]
     async fn get_user_context_loads_claude_md() {
         let tmp = tempfile::TempDir::new().unwrap();
-        tokio::fs::write(tmp.path().join("CLAUDE.md"), "# My Project\nSome rules here.")
-            .await
-            .unwrap();
+        tokio::fs::write(
+            tmp.path().join("CLAUDE.md"),
+            "# My Project\nSome rules here.",
+        )
+        .await
+        .unwrap();
 
         let ctx = get_user_context(tmp.path()).await;
 

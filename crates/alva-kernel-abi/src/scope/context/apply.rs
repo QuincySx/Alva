@@ -73,10 +73,8 @@ pub fn apply_injections(
                         .map(|f| format!("- {}", f.text))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    stable_seg(system_prompt).push_str(&format!(
-                        "\n\n<user_memory>\n{}\n</user_memory>",
-                        text
-                    ));
+                    stable_seg(system_prompt)
+                        .push_str(&format!("\n\n<user_memory>\n{}\n</user_memory>", text));
                 }
             }
             InjectionContent::Skill { name, content } => {
@@ -151,10 +149,8 @@ pub async fn apply_compressions(
                     // (e.g., LLM-backed) should bound its own latency; a noop or
                     // synchronous impl returns immediately. This keeps kernel-abi
                     // free of any tokio::time dependency.
-                    let _range_text =
-                        serialize_range(&messages[from_idx..to_idx], from_idx);
-                    let summary_text =
-                        handle.summarize(session_id, range.clone(), &hints).await;
+                    let _range_text = serialize_range(&messages[from_idx..to_idx], from_idx);
+                    let summary_text = handle.summarize(session_id, range.clone(), &hints).await;
 
                     let summary_msg = AgentMessage::Standard(Message {
                         id: uuid::Uuid::new_v4().to_string(),
@@ -255,11 +251,11 @@ mod tests {
     //! Summarize variant actually invokes `handle.summarize()` and that
     //! noop returns a known string we can assert on.
     use super::*;
+    use crate::base::message::{Message, MessageRole};
     use crate::scope::context::{
         CompressAction, ContextLayer, Injection, InjectionContent, MemoryCategory, MemoryFact,
         MessageRange, MessageSelector, NoopContextHandle, PromptSection,
     };
-    use crate::base::message::{Message, MessageRole};
     use crate::AgentMessage;
 
     fn user_msg(text: &str) -> AgentMessage {
@@ -297,7 +293,11 @@ mod tests {
         };
         apply_injections(vec![inj], &mut sys, &mut msgs);
 
-        assert!(sys[0].contains("<user_memory>"), "stable bucket should get memory: {:?}", sys);
+        assert!(
+            sys[0].contains("<user_memory>"),
+            "stable bucket should get memory: {:?}",
+            sys
+        );
         assert!(sys[0].contains("- user prefers Rust"));
         assert!(sys[0].contains("- uses macOS"));
         assert_eq!(sys[1], "DYNAMIC", "dynamic bucket must be untouched");
@@ -327,7 +327,10 @@ mod tests {
         let mut sys = vec!["STABLE".to_string(), "DYNAMIC".to_string()];
         let mut msgs = vec![];
         apply_injections(
-            vec![Injection::skill("git".to_string(), "use rebase".to_string())],
+            vec![Injection::skill(
+                "git".to_string(),
+                "use rebase".to_string(),
+            )],
             &mut sys,
             &mut msgs,
         );
@@ -345,11 +348,7 @@ mod tests {
             content: "You are Claude.".to_string(),
             priority: crate::scope::context::Priority::Critical,
         };
-        apply_injections(
-            vec![Injection::system_prompt(section)],
-            &mut sys,
-            &mut msgs,
-        );
+        apply_injections(vec![Injection::system_prompt(section)], &mut sys, &mut msgs);
         assert!(sys[0].ends_with("You are Claude."));
         assert_eq!(sys[1], "DYNAMIC");
     }
@@ -432,10 +431,17 @@ mod tests {
             &mut sys,
             &mut msgs,
         );
-        assert!(sys[0].starts_with("BASE_STABLE"), "stable prefix preserved: {}", sys[0]);
+        assert!(
+            sys[0].starts_with("BASE_STABLE"),
+            "stable prefix preserved: {}",
+            sys[0]
+        );
         assert!(sys[0].contains("<user_memory>"));
         assert!(sys[0].contains("<skill name=\"s\">"));
-        assert!(!sys[0].contains("<runtime>"), "runtime should NOT be in stable");
+        assert!(
+            !sys[0].contains("<runtime>"),
+            "runtime should NOT be in stable"
+        );
         assert!(sys[1].starts_with("BASE_DYN"));
         assert!(sys[1].contains("<runtime>"));
         assert_eq!(msgs.len(), 1);
@@ -445,11 +451,7 @@ mod tests {
 
     #[test]
     fn resolve_selector_variants() {
-        let msgs = vec![
-            user_msg("first"),
-            user_msg("second"),
-            user_msg("third"),
-        ];
+        let msgs = vec![user_msg("first"), user_msg("second"), user_msg("third")];
 
         assert_eq!(resolve_selector(&MessageSelector::FromStart, &msgs, 99), 0);
         assert_eq!(resolve_selector(&MessageSelector::ToEnd, &msgs, 99), 3);
@@ -497,8 +499,16 @@ mod tests {
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), 2);
         // base_idx of 10 means first entry shows as [10], second as [11]
-        assert!(lines[0].starts_with("[10] User: hello"), "got: {}", lines[0]);
-        assert!(lines[1].starts_with("[11] User: world"), "got: {}", lines[1]);
+        assert!(
+            lines[0].starts_with("[10] User: hello"),
+            "got: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1].starts_with("[11] User: world"),
+            "got: {}",
+            lines[1]
+        );
     }
 
     #[test]
@@ -506,10 +516,18 @@ mod tests {
         let big = "a".repeat(2500);
         let msgs = vec![user_msg(&big)];
         let s = serialize_range(&msgs, 0);
-        assert!(s.contains("...[truncated]"), "expected truncation marker: {}…", &s[..80]);
+        assert!(
+            s.contains("...[truncated]"),
+            "expected truncation marker: {}…",
+            &s[..80]
+        );
         // The kept portion is the first 2000 chars of `text`, prefixed
         // by `[0] User: `. So full line len ≈ 10 prefix + 2000 + 15 suffix.
-        assert!(s.len() < 2100, "truncation didn't actually shorten output: len={}", s.len());
+        assert!(
+            s.len() < 2100,
+            "truncation didn't actually shorten output: len={}",
+            s.len()
+        );
     }
 
     #[test]
@@ -525,7 +543,10 @@ mod tests {
         // byte 1998 (the boundary before the emoji).
         let text = format!("{}{}{}", "a".repeat(1998), "🦀", "b".repeat(100));
         assert_eq!(text.len(), 2102, "test premise: 2102 bytes");
-        assert!(!text.is_char_boundary(2000), "test premise: byte 2000 mid-emoji");
+        assert!(
+            !text.is_char_boundary(2000),
+            "test premise: byte 2000 mid-emoji"
+        );
         let msgs = vec![user_msg(&text)];
         // Must not panic. Output must end with "...[truncated]".
         let s = serialize_range(&msgs, 0);
@@ -550,7 +571,9 @@ mod tests {
         AgentMessage::Standard(Message {
             id: id.to_string(),
             role: MessageRole::Assistant,
-            content: vec![ContentBlock::Text { text: text.to_string() }],
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
             tool_call_id: None,
             usage: None,
             timestamp: 0,
@@ -559,12 +582,7 @@ mod tests {
 
     #[tokio::test]
     async fn sliding_window_drops_oldest_when_over_keep_recent() {
-        let mut msgs = vec![
-            user_msg("a"),
-            user_msg("b"),
-            user_msg("c"),
-            user_msg("d"),
-        ];
+        let mut msgs = vec![user_msg("a"), user_msg("b"), user_msg("c"), user_msg("d")];
         apply_compressions(
             vec![CompressAction::SlidingWindow { keep_recent: 2 }],
             &mut msgs,
@@ -681,9 +699,21 @@ mod tests {
             AgentMessage::Standard(m) => {
                 assert_eq!(m.role, MessageRole::User, "summary inserted as User role");
                 let t = m.text_content();
-                assert!(t.starts_with("<conversation_summary>"), "summary tags missing: {}", t);
-                assert!(t.contains("[no context system configured]"), "noop output missing: {}", t);
-                assert!(t.trim_end().ends_with("</conversation_summary>"), "close tag missing: {}", t);
+                assert!(
+                    t.starts_with("<conversation_summary>"),
+                    "summary tags missing: {}",
+                    t
+                );
+                assert!(
+                    t.contains("[no context system configured]"),
+                    "noop output missing: {}",
+                    t
+                );
+                assert!(
+                    t.trim_end().ends_with("</conversation_summary>"),
+                    "close tag missing: {}",
+                    t
+                );
             }
             _ => panic!("summary should be Standard message"),
         }

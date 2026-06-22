@@ -41,7 +41,9 @@ impl OpenAIChatProvider {
     /// are converted to unified headers via `Bearer` scheme.
     pub fn new(config: ProviderConfig) -> Self {
         let auth_headers = crate::auth::resolve_auth_headers(
-            &config.api_key, &config.custom_headers, crate::auth::AuthScheme::Bearer,
+            &config.api_key,
+            &config.custom_headers,
+            crate::auth::AuthScheme::Bearer,
         );
         Self {
             model: config.model,
@@ -122,10 +124,9 @@ pub(crate) fn openai_effort_string(
     if !is_reasoning {
         return None;
     }
-    let is_gpt5_original = model == "gpt-5" || model.starts_with("gpt-5-") && !model.starts_with("gpt-5.");
-    let is_gpt51_plus = model.starts_with("gpt-5.")
-        || model == "gpt-5.1"
-        || model == "gpt-5.2";
+    let is_gpt5_original =
+        model == "gpt-5" || model.starts_with("gpt-5-") && !model.starts_with("gpt-5.");
+    let is_gpt51_plus = model.starts_with("gpt-5.") || model == "gpt-5.1" || model == "gpt-5.2";
     let is_codex_max = model.contains("codex-max");
     // `o1-mini` has no reasoning_effort at all per docs.
     if model == "o1-mini" {
@@ -207,7 +208,10 @@ impl LanguageModel for OpenAIChatProvider {
             "LLM request body"
         );
 
-        let req = self.client.post(&url).header("Content-Type", "application/json");
+        let req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json");
         let req = crate::auth::apply_headers(req, &self.auth_headers);
         let resp = req
             .json(&body)
@@ -235,8 +239,9 @@ impl LanguageModel for OpenAIChatProvider {
             )));
         }
 
-        let raw_value: Value = serde_json::from_str(&resp_text)
-            .map_err(|e| AgentError::LlmError(format!("parse response: {} — raw: {}", e, resp_text)))?;
+        let raw_value: Value = serde_json::from_str(&resp_text).map_err(|e| {
+            AgentError::LlmError(format!("parse response: {} — raw: {}", e, resp_text))
+        })?;
         let decoded = adapter
             .decode_response(&raw_value)
             .map_err(|e| AgentError::LlmError(format!("decode: {e}")))?;
@@ -262,7 +267,14 @@ impl LanguageModel for OpenAIChatProvider {
         let encoded = adapter.encode_messages(messages);
         let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
         let api_tools = adapter.encode_tools(&tool_defs);
-        let body = build_body(&model, max_tokens, &encoded.messages, &api_tools, config, true);
+        let body = build_body(
+            &model,
+            max_tokens,
+            &encoded.messages,
+            &api_tools,
+            config,
+            true,
+        );
 
         let body_str = serde_json::to_string(&body).unwrap_or_default();
         tracing::info!(

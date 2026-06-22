@@ -99,10 +99,7 @@ impl AnalyticsSink for JsonlSink {
 }
 
 fn open_writer(path: &Path) -> std::io::Result<(BufWriter<File>, u64)> {
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
     let size = file.metadata().map(|m| m.len()).unwrap_or(0);
     Ok((BufWriter::new(file), size))
 }

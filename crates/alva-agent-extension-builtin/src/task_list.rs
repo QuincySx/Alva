@@ -3,9 +3,7 @@
 // POS:    Lists all tracked tasks with optional status filter.
 //! task_list — list tracked tasks
 
-use alva_kernel_abi::{
-    AgentError, TaskStatus, Tool, ToolExecutionContext, ToolOutput,
-};
+use alva_kernel_abi::{AgentError, TaskStatus, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -84,10 +82,7 @@ impl TaskListTool {
         let tasks = svc.list(filter).await;
 
         if tasks.is_empty() {
-            return Ok(ToolOutput::text(format!(
-                "No tasks found{}.",
-                filter_msg
-            )));
+            return Ok(ToolOutput::text(format!("No tasks found{}.", filter_msg)));
         }
 
         let mut out = format!("Tasks ({}){}", tasks.len(), filter_msg);
@@ -113,8 +108,7 @@ mod tests {
 
     use super::*;
     use alva_kernel_abi::{
-        Bus, BusHandle, CancellationToken, TaskType, Tool, ToolExecutionContext,
-        create_task_state,
+        create_task_state, Bus, BusHandle, CancellationToken, TaskType, Tool, ToolExecutionContext,
     };
     use serde_json::json;
 
@@ -146,8 +140,7 @@ mod tests {
     fn ctx_with_store() -> (TestContext, Arc<InMemoryTaskStore>) {
         let store = Arc::new(InMemoryTaskStore::new());
         let bus = Bus::new();
-        bus.writer()
-            .provide::<dyn TaskService>(store.clone());
+        bus.writer().provide::<dyn TaskService>(store.clone());
         (
             TestContext {
                 cancel: CancellationToken::new(),
@@ -170,7 +163,10 @@ mod tests {
         assert!(!output.is_error);
         let text = output.model_text();
         assert!(text.contains("No tasks found"), "got: {text}");
-        assert!(!text.contains("filter:"), "should have no filter clause: {text}");
+        assert!(
+            !text.contains("filter:"),
+            "should have no filter clause: {text}"
+        );
     }
 
     #[tokio::test]

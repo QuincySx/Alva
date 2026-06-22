@@ -139,7 +139,9 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
              and tracking tasks. Use the tools to complete the user's request. \
              When the work is done, briefly state what you did. Do not ask follow-up questions.",
         )
-        .plugin(Box::new(PermissionPlugin::new().with_initial(PermissionMode::AcceptShell)))
+        .plugin(Box::new(
+            PermissionPlugin::new().with_initial(PermissionMode::AcceptShell),
+        ))
         .plugin(Box::new(approval_ext))
         .plugin(Box::new(alva_app_core::extension::CorePlugin))
         .plugin(Box::new(alva_app_core::extension::ShellPlugin))
@@ -147,10 +149,18 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
         .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
         .plugin(Box::new(alva_app_core::extension::UtilityPlugin))
         .plugin(Box::new(alva_app_core::extension::WebPlugin))
-        .middleware(Arc::new(alva_kernel_core::builtins::LoopDetectionMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::DanglingToolCallMiddleware::new()))
-        .middleware(Arc::new(alva_kernel_core::builtins::ToolTimeoutMiddleware::default()))
-        .middleware(Arc::new(alva_host_native::middleware::CheckpointMiddleware::new()))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
+        ))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::DanglingToolCallMiddleware::new(),
+        ))
+        .middleware(Arc::new(
+            alva_kernel_core::builtins::ToolTimeoutMiddleware::default(),
+        ))
+        .middleware(Arc::new(
+            alva_host_native::middleware::CheckpointMiddleware::new(),
+        ))
         .max_iterations(eval_max_iters())
         .build(model)
         .await
@@ -162,8 +172,7 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
     let bus = agent.bus().clone();
     tokio::spawn(async move {
         while let Some(req) = approval_rx.recv().await {
-            if let Some(guard) =
-                bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
             {
                 let mut g = guard.lock().await;
                 g.resolve_permission(
@@ -385,10 +394,7 @@ struct AttemptOutcome {
 
 async fn run_attempt(case: &EvalCase) -> AttemptOutcome {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let ws: PathBuf = tmp
-        .path()
-        .canonicalize()
-        .expect("canonicalize workspace");
+    let ws: PathBuf = tmp.path().canonicalize().expect("canonicalize workspace");
     if let Some(setup) = case.setup {
         setup(&ws);
     }
@@ -548,18 +554,31 @@ async fn eval_raw_tcp_probe() {
         .unwrap_or("");
     eprintln!("\n[raw_tcp_probe] target = {host_port}");
 
-    let addrs: Vec<_> = host_port.to_socket_addrs().map(|i| i.collect()).unwrap_or_default();
-    eprintln!("[raw_tcp_probe] getaddrinfo returned {} addrs: {:?}", addrs.len(), addrs);
+    let addrs: Vec<_> = host_port
+        .to_socket_addrs()
+        .map(|i| i.collect())
+        .unwrap_or_default();
+    eprintln!(
+        "[raw_tcp_probe] getaddrinfo returned {} addrs: {:?}",
+        addrs.len(),
+        addrs
+    );
 
     for (i, addr) in addrs.iter().enumerate() {
         eprintln!("\n[raw_tcp_probe] attempt #{} → {addr}", i + 1);
         match TcpStream::connect_timeout(addr, Duration::from_secs(5)) {
             Ok(s) => {
-                eprintln!("[raw_tcp_probe]   ✓ connected, local addr = {:?}, peer = {:?}",
-                    s.local_addr().ok(), s.peer_addr().ok());
+                eprintln!(
+                    "[raw_tcp_probe]   ✓ connected, local addr = {:?}, peer = {:?}",
+                    s.local_addr().ok(),
+                    s.peer_addr().ok()
+                );
             }
             Err(e) => {
-                eprintln!("[raw_tcp_probe]   ✗ failed: {e} (raw_os_error = {:?})", e.raw_os_error());
+                eprintln!(
+                    "[raw_tcp_probe]   ✗ failed: {e} (raw_os_error = {:?})",
+                    e.raw_os_error()
+                );
             }
         }
     }
@@ -568,8 +587,14 @@ async fn eval_raw_tcp_probe() {
     // takes a different code path through std::net.
     eprintln!("\n[raw_tcp_probe] now trying TcpStream::connect (no timeout)…");
     match TcpStream::connect(host_port) {
-        Ok(s) => eprintln!("[raw_tcp_probe]   ✓ connected peer={:?}", s.peer_addr().ok()),
-        Err(e) => eprintln!("[raw_tcp_probe]   ✗ {e} (raw_os_error = {:?})", e.raw_os_error()),
+        Ok(s) => eprintln!(
+            "[raw_tcp_probe]   ✓ connected peer={:?}",
+            s.peer_addr().ok()
+        ),
+        Err(e) => eprintln!(
+            "[raw_tcp_probe]   ✗ {e} (raw_os_error = {:?})",
+            e.raw_os_error()
+        ),
     }
 }
 
@@ -585,16 +610,15 @@ async fn eval_reqwest_probe() {
         .timeout(Duration::from_secs(10))
         .build()
         .expect("client");
-    let r = client
-        .get(&url)
-        .bearer_auth(eval_api_key())
-        .send()
-        .await;
+    let r = client.get(&url).bearer_auth(eval_api_key()).send().await;
     match r {
         Ok(resp) => {
             eprintln!("[reqwest_probe] STATUS = {}", resp.status());
             let body = resp.text().await.unwrap_or_default();
-            eprintln!("[reqwest_probe] body (first 300): {}", &body[..body.len().min(300)]);
+            eprintln!(
+                "[reqwest_probe] body (first 300): {}",
+                &body[..body.len().min(300)]
+            );
         }
         Err(e) => {
             use std::error::Error as _;
@@ -670,7 +694,10 @@ async fn eval_agent_tools_main() {
 
     let total_elapsed = started.elapsed();
 
-    eprintln!("\n=== Eval Summary ({:.1}s total) ===", total_elapsed.as_secs_f64());
+    eprintln!(
+        "\n=== Eval Summary ({:.1}s total) ===",
+        total_elapsed.as_secs_f64()
+    );
     let mut cases_passed = 0;
     let mut total_pass = 0;
     let mut total_runs = 0;

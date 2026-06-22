@@ -7,13 +7,12 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 use alva_kernel_abi::agent_session::{
-    AgentSession, EventMatch, EventQuery, InMemoryAgentSession, SessionError,
-    SessionEvent,
+    AgentSession, EventMatch, EventQuery, InMemoryAgentSession, SessionError, SessionEvent,
 };
 use alva_kernel_abi::AgentMessage;
 
@@ -100,8 +99,7 @@ impl JsonFileAgentSession {
             snapshot_base64: snapshot.map(|b| B64.encode(b)),
         };
 
-        let json = serde_json::to_string_pretty(&file)
-            .map_err(SessionError::Serialization)?;
+        let json = serde_json::to_string_pretty(&file).map_err(SessionError::Serialization)?;
 
         if let Some(parent) = self.path.parent() {
             tokio::fs::create_dir_all(parent)
@@ -123,8 +121,8 @@ impl JsonFileAgentSession {
         let contents = tokio::fs::read_to_string(&self.path)
             .await
             .map_err(SessionError::Io)?;
-        let file: SessionFile = serde_json::from_str(&contents)
-            .map_err(SessionError::Serialization)?;
+        let file: SessionFile =
+            serde_json::from_str(&contents).map_err(SessionError::Serialization)?;
 
         // Replay events via `restore_events` so both the event log AND
         // the messages projection get rebuilt. Plain `append()` only
@@ -286,17 +284,23 @@ mod tests {
         let path = session_path(tmp.path(), "rtrip");
         {
             let writer = JsonFileAgentSession::with_id_at(path.clone(), "rtrip-id".into());
-            writer.append(SessionEvent::user_message(json!("first"))).await;
-            writer.append(SessionEvent::progress(json!({"k": "v"}))).await;
+            writer
+                .append(SessionEvent::user_message(json!("first")))
+                .await;
+            writer
+                .append(SessionEvent::progress(json!({"k": "v"})))
+                .await;
         }
 
         let reader = JsonFileAgentSession::with_id_at(path, "rtrip-id".into());
         reader.restore().await.expect("restore ok");
 
-        let events = reader.query(&EventQuery {
-            limit: usize::MAX,
-            ..Default::default()
-        }).await;
+        let events = reader
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(events.len(), 2);
         let types: Vec<_> = events.iter().map(|m| m.event.event_type.clone()).collect();
         assert!(types.iter().any(|t| t == "user"));
@@ -330,12 +334,18 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = session_path(tmp.path(), "rollback");
         let writer = JsonFileAgentSession::with_id_at(path.clone(), "rb-id".into());
-        writer.append(SessionEvent::user_message(json!("keep-1"))).await;
+        writer
+            .append(SessionEvent::user_message(json!("keep-1")))
+            .await;
         let pivot = SessionEvent::user_message(json!("pivot"));
         let pivot_uuid = pivot.uuid.clone();
         writer.append(pivot).await;
-        writer.append(SessionEvent::user_message(json!("drop-1"))).await;
-        writer.append(SessionEvent::user_message(json!("drop-2"))).await;
+        writer
+            .append(SessionEvent::user_message(json!("drop-1")))
+            .await;
+        writer
+            .append(SessionEvent::user_message(json!("drop-2")))
+            .await;
 
         let dropped = writer.rollback_after(&pivot_uuid).await;
         assert_eq!(dropped, 2, "must drop the two events after pivot");
@@ -344,11 +354,17 @@ mod tests {
         // same path must see only the 2 surviving events.
         let reader = JsonFileAgentSession::with_id_at(path, "rb-id".into());
         reader.restore().await.expect("restore");
-        let events = reader.query(&EventQuery {
-            limit: usize::MAX,
-            ..Default::default()
-        }).await;
-        assert_eq!(events.len(), 2, "disk file must reflect post-rollback state");
+        let events = reader
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(
+            events.len(),
+            2,
+            "disk file must reflect post-rollback state"
+        );
     }
 
     #[tokio::test]
@@ -375,10 +391,12 @@ mod tests {
         let s = JsonFileAgentSession::with_id_at(path, "new-id".into());
         s.restore().await.expect("restore on missing must succeed");
 
-        let events = s.query(&EventQuery {
-            limit: usize::MAX,
-            ..Default::default()
-        }).await;
+        let events = s
+            .query(&EventQuery {
+                limit: usize::MAX,
+                ..Default::default()
+            })
+            .await;
         assert!(events.is_empty(), "no events loaded from non-existent file");
     }
 }

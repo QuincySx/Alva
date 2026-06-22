@@ -23,7 +23,10 @@ pub struct ScrollablePopup<'a> {
 
 impl<'a> ScrollablePopup<'a> {
     pub fn new(title: &'a str, body: impl Into<Text<'a>>) -> Self {
-        Self { title, body: body.into() }
+        Self {
+            title,
+            body: body.into(),
+        }
     }
 
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {

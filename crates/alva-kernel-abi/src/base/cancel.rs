@@ -96,7 +96,10 @@ mod tests {
         let original = CancellationToken::new();
         let cloned = original.clone();
         original.cancel();
-        assert!(cloned.is_cancelled(), "clone must observe original's cancel");
+        assert!(
+            cloned.is_cancelled(),
+            "clone must observe original's cancel"
+        );
     }
 
     #[test]
@@ -133,7 +136,10 @@ mod tests {
         t.cancel();
         // Wrap in a timeout to fail loudly if it actually blocks.
         let result = tokio::time::timeout(Duration::from_millis(100), t.cancelled()).await;
-        assert!(result.is_ok(), "cancelled() must complete fast when already cancelled");
+        assert!(
+            result.is_ok(),
+            "cancelled() must complete fast when already cancelled"
+        );
     }
 
     #[tokio::test]

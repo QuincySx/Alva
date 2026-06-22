@@ -2,7 +2,7 @@
 name = "alva-app-extension-loader"
 version = "0.1.0"
 edition = "2021"
-description = "Dynamic loader for third-party extensions written in JS/Python/etc. Runs plugins as subprocesses over AEP (Alva Extension Protocol)."
+description = "Dynamic loader for third-party plugins written in JS/Python/etc. Runs plugins as subprocesses over AEP."
 
 # Native-only by construction: subprocess spawning does not exist on
 # wasm32. On wasm the crate compiles to an empty lib so it stays in

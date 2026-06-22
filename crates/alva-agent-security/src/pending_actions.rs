@@ -141,10 +141,7 @@ pub async fn pending_actions(session: &dyn AgentSession) -> Vec<PendingAction> {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let arguments = data
-            .get("arguments")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let arguments = data.get("arguments").cloned().unwrap_or(Value::Null);
         pending.push(PendingAction {
             event_uuid: m.event.uuid.clone(),
             request_id: request_id.to_string(),

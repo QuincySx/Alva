@@ -92,7 +92,9 @@ mod tests {
     #[test]
     fn allows_workspace_paths() {
         let roots = AuthorizedRoots::new(PathBuf::from("/projects/myapp"));
-        assert!(roots.check(Path::new("/projects/myapp/src/main.rs")).is_ok());
+        assert!(roots
+            .check(Path::new("/projects/myapp/src/main.rs"))
+            .is_ok());
         assert!(roots.check(Path::new("/projects/myapp")).is_ok());
     }
 
@@ -107,7 +109,9 @@ mod tests {
     fn allows_extra_root() {
         let mut roots = AuthorizedRoots::new(PathBuf::from("/projects/myapp"));
         roots.add_root(PathBuf::from("/tmp/srow-output"));
-        assert!(roots.check(Path::new("/tmp/srow-output/results.json")).is_ok());
+        assert!(roots
+            .check(Path::new("/tmp/srow-output/results.json"))
+            .is_ok());
     }
 
     #[test]
@@ -115,6 +119,8 @@ mod tests {
         let mut roots = AuthorizedRoots::new(PathBuf::from("/projects/myapp"));
         roots.add_root(PathBuf::from("/tmp/srow-output"));
         roots.remove_root(Path::new("/tmp/srow-output"));
-        assert!(roots.check(Path::new("/tmp/srow-output/results.json")).is_err());
+        assert!(roots
+            .check(Path::new("/tmp/srow-output/results.json"))
+            .is_err());
     }
 }

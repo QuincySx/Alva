@@ -53,11 +53,7 @@ pub fn version() -> String {
 /// of calling this entry.
 #[wasm_bindgen]
 pub async fn run_stub_agent(prompt: String) -> Result<String, JsValue> {
-    let mut agent = WasmAgent::new(
-        Arc::new(StubLanguageModel::default()),
-        Vec::new(),
-        "",
-    );
+    let mut agent = WasmAgent::new(Arc::new(StubLanguageModel::default()), Vec::new(), "");
     agent
         .run_simple(prompt)
         .await

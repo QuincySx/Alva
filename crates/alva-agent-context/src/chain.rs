@@ -126,11 +126,7 @@ impl ContextHooks for ContextHooksChain {
     }
 
     /// Additive: all plugins run after-turn cleanup.
-    async fn after_turn(
-        &self,
-        handle: &dyn ContextHandle,
-        agent_id: &str,
-    ) {
+    async fn after_turn(&self, handle: &dyn ContextHandle, agent_id: &str) {
         for p in &self.plugins {
             p.after_turn(handle, agent_id).await;
         }
@@ -157,10 +153,15 @@ mod tests {
 
     #[async_trait]
     impl ContextHooks for InjectPlugin {
-        fn name(&self) -> &str { "inject-plugin" }
+        fn name(&self) -> &str {
+            "inject-plugin"
+        }
 
         async fn on_message(
-            &self, _handle: &dyn ContextHandle, _id: &str, _msg: &AgentMessage,
+            &self,
+            _handle: &dyn ContextHandle,
+            _id: &str,
+            _msg: &AgentMessage,
         ) -> Vec<Injection> {
             vec![Injection::skill(self.skill_name.clone(), "content".into())]
         }
@@ -170,10 +171,15 @@ mod tests {
 
     #[async_trait]
     impl ContextHooks for SkipToolResults {
-        fn name(&self) -> &str { "skip-tool-results" }
+        fn name(&self) -> &str {
+            "skip-tool-results"
+        }
 
         async fn ingest(
-            &self, _handle: &dyn ContextHandle, _id: &str, entry: &ContextEntry,
+            &self,
+            _handle: &dyn ContextHandle,
+            _id: &str,
+            entry: &ContextEntry,
         ) -> IngestAction {
             if matches!(&entry.metadata.origin, EntryOrigin::Tool { .. }) {
                 IngestAction::Skip
@@ -187,11 +193,16 @@ mod tests {
 
     #[async_trait]
     impl ContextHooks for HalveAssembler {
-        fn name(&self) -> &str { "halve-assembler" }
+        fn name(&self) -> &str {
+            "halve-assembler"
+        }
 
         async fn assemble(
-            &self, _handle: &dyn ContextHandle, _id: &str,
-            entries: Vec<ContextEntry>, _budget: usize,
+            &self,
+            _handle: &dyn ContextHandle,
+            _id: &str,
+            entries: Vec<ContextEntry>,
+            _budget: usize,
         ) -> Vec<ContextEntry> {
             let len = entries.len();
             let keep = len / 2;
@@ -200,9 +211,9 @@ mod tests {
     }
 
     fn make_sdk() -> crate::sdk_impl::ContextHandleImpl {
-        let store = Arc::new(std::sync::Mutex::new(
-            crate::store::ContextStore::new(100_000, 80_000),
-        ));
+        let store = Arc::new(std::sync::Mutex::new(crate::store::ContextStore::new(
+            100_000, 80_000,
+        )));
         crate::sdk_impl::ContextHandleImpl::new(store)
     }
 
@@ -228,8 +239,12 @@ mod tests {
     #[tokio::test]
     async fn test_on_message_additive() {
         let chain = ContextHooksChain::new(vec![
-            Arc::new(InjectPlugin { skill_name: "rust".into() }),
-            Arc::new(InjectPlugin { skill_name: "python".into() }),
+            Arc::new(InjectPlugin {
+                skill_name: "rust".into(),
+            }),
+            Arc::new(InjectPlugin {
+                skill_name: "python".into(),
+            }),
         ]);
         let sdk = make_sdk();
         let msg = user_msg("hi");
@@ -240,10 +255,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_assemble_pipeline() {
-        let chain = ContextHooksChain::new(vec![
-            Arc::new(HalveAssembler),
-            Arc::new(HalveAssembler),
-        ]);
+        let chain =
+            ContextHooksChain::new(vec![Arc::new(HalveAssembler), Arc::new(HalveAssembler)]);
         let sdk = make_sdk();
 
         let entries: Vec<ContextEntry> = (0..8).map(|i| make_entry(&format!("e{}", i))).collect();
@@ -262,7 +275,9 @@ mod tests {
 
         // Tool entry → should be skipped
         let mut tool_entry = make_entry("tool-1");
-        tool_entry.metadata.origin = EntryOrigin::Tool { tool_name: "read_file".into() };
+        tool_entry.metadata.origin = EntryOrigin::Tool {
+            tool_name: "read_file".into(),
+        };
         let action = chain.ingest(&sdk, "a1", &tool_entry).await;
         assert!(matches!(action, IngestAction::Skip));
 

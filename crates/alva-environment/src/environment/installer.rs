@@ -54,8 +54,7 @@ impl Installer {
             fs::remove_dir_all(&target_dir)
                 .map_err(|e| InstallerError::Io(target_dir.clone(), e))?;
         }
-        fs::create_dir_all(&target_dir)
-            .map_err(|e| InstallerError::Io(target_dir.clone(), e))?;
+        fs::create_dir_all(&target_dir).map_err(|e| InstallerError::Io(target_dir.clone(), e))?;
 
         // Extract
         info!(
@@ -72,9 +71,9 @@ impl Installer {
 
         // Record the installed version
         installed.set_version(name, version);
-        installed.save(&self.config.versions_path()).map_err(|e| {
-            InstallerError::Other(format!("Failed to save versions.json: {e}"))
-        })?;
+        installed
+            .save(&self.config.versions_path())
+            .map_err(|e| InstallerError::Other(format!("Failed to save versions.json: {e}")))?;
 
         info!(component = name, version = version, "Component installed");
         Ok(())
@@ -190,8 +189,8 @@ impl Installer {
     /// Extract a "zip-flat" archive: all entries are placed directly into `target_dir`,
     /// stripping any single top-level directory wrapper.
     fn extract_zip_flat(archive: &Path, target_dir: &Path) -> Result<(), InstallerError> {
-        let file = fs::File::open(archive)
-            .map_err(|e| InstallerError::Io(archive.to_path_buf(), e))?;
+        let file =
+            fs::File::open(archive).map_err(|e| InstallerError::Io(archive.to_path_buf(), e))?;
         let mut zip = zip::ZipArchive::new(file)
             .map_err(|e| InstallerError::Extract(format!("Invalid zip: {e}")))?;
 
@@ -220,8 +219,7 @@ impl Installer {
             let out_path = target_dir.join(&relative);
 
             if entry.is_dir() {
-                fs::create_dir_all(&out_path)
-                    .map_err(|e| InstallerError::Io(out_path, e))?;
+                fs::create_dir_all(&out_path).map_err(|e| InstallerError::Io(out_path, e))?;
             } else {
                 if let Some(parent) = out_path.parent() {
                     fs::create_dir_all(parent)
@@ -276,8 +274,8 @@ impl Installer {
 
     /// Extract a tar.gz archive into `target_dir`.
     fn extract_tar_gz(archive: &Path, target_dir: &Path) -> Result<(), InstallerError> {
-        let file = fs::File::open(archive)
-            .map_err(|e| InstallerError::Io(archive.to_path_buf(), e))?;
+        let file =
+            fs::File::open(archive).map_err(|e| InstallerError::Io(archive.to_path_buf(), e))?;
         let gz = flate2::read::GzDecoder::new(file);
         let mut tar = tar::Archive::new(gz);
 
@@ -406,11 +404,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let config = EnvironmentConfig::new(tmp.path());
 
-        create_test_tar_gz(
-            tmp.path(),
-            "test.tar.gz",
-            &[("hello.txt", b"tar world")],
-        );
+        create_test_tar_gz(tmp.path(), "test.tar.gz", &[("hello.txt", b"tar world")]);
 
         let installer = Installer::new(config.clone());
         let artifact = ArtifactConfig {

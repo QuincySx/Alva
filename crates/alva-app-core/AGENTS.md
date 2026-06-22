@@ -2,18 +2,18 @@
 > Thin facade over extracted agent crates, plus skill system, MCP, and environment management
 
 ## Role
-`alva-app-core` is the central crate that re-exports public APIs from extracted
-crates (`alva-kernel-abi`, `alva-kernel-core`, `alva-agent-extension-builtin`, `alva-agent-security`,
-`alva-agent-memory`, `alva-host-native`) and keeps modules that have not yet been
-extracted: ACP client, skills, MCP, environment runtime, domain models, and
-DDD ports/adapters.
+`alva-app-core` is the harness crate for the product-facing agent stack. It
+re-exports shared vocabulary from extracted crates and owns `BaseAgent`,
+component presets, session projection, and app-level plugins. It no longer
+re-exports the legacy `alva-host-native::AgentRuntimeBuilder`; app callers
+should use `BaseAgentBuilder`, while SDK callers should use
+`alva-agent-core::AgentBuilder`.
 
 ## Architecture
-- **Facade re-exports** (`lib.rs`) — re-exports `Agent`, `AgentHooks`,
-  `AgentEvent`, `AgentMessage` from `alva-kernel-core`; type vocabulary from
-  `alva-kernel-abi`; tool registrations from `alva-agent-extension-builtin`; security from
-  `alva-agent-security`; memory from `alva-agent-memory`; runtime builder from
-  `alva-host-native`.
+- **Facade re-exports** (`lib.rs`) — re-exports kernel event/config vocabulary,
+  `alva-kernel-abi` types, built-in tool presets, security/memory types, and
+  native model resolution. Runtime construction is through `BaseAgentBuilder`,
+  not `AgentRuntimeBuilder`.
 - **Kept modules**:
   - `agent/` — ACP client (`agent_client/`), session management, persistence.
   - `skills/` — Skill system (loader, store, injector, agent templates).

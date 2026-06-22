@@ -72,7 +72,10 @@ async fn run_list() -> i32 {
         println!("No sessions in {}", workspace.display());
         return 0;
     }
-    println!("{:<40}  {:>8}  {:>8}  preview", "session_id", "events", "~tokens");
+    println!(
+        "{:<40}  {:>8}  {:>8}  preview",
+        "session_id", "events", "~tokens"
+    );
     println!("{}", "─".repeat(80));
     let counter = HeuristicTokenCounter::new(200_000);
     for e in &entries {
@@ -192,9 +195,8 @@ fn analyze(messages: &[AgentMessage], counter: &HeuristicTokenCounter) -> Analys
                         }
                         ContentBlock::ToolUse { name, input, .. } => {
                             a.tool_use_count += 1;
-                            a.tool_use_tokens +=
-                                counter.count_tokens(name)
-                                    + counter.count_tokens(&input.to_string());
+                            a.tool_use_tokens += counter.count_tokens(name)
+                                + counter.count_tokens(&input.to_string());
                         }
                         _ => {}
                     }
@@ -285,7 +287,12 @@ fn render(session_id: &str, workspace: &Path, a: &Analysis) {
         a.tool_use_tokens,
         total,
     );
-    print_row("tool result", a.tool_result_count, a.tool_result_tokens, total);
+    print_row(
+        "tool result",
+        a.tool_result_count,
+        a.tool_result_tokens,
+        total,
+    );
     if a.system_tokens > 0 {
         print_row("system", a.system_count, a.system_tokens, total);
     }
@@ -301,7 +308,10 @@ fn render(session_id: &str, workspace: &Path, a: &Analysis) {
         println!();
         println!("{}", "─".repeat(60));
         println!("Last LLM call usage (Anthropic-style; others may lack cache fields):");
-        println!("  Input tokens:        {}", format_tokens(u.input_tokens as usize));
+        println!(
+            "  Input tokens:        {}",
+            format_tokens(u.input_tokens as usize)
+        );
         if let Some(cc) = u.cache_creation_input_tokens {
             println!("  Cache create:        {}", format_tokens(cc as usize));
         }
@@ -324,16 +334,17 @@ fn render(session_id: &str, workspace: &Path, a: &Analysis) {
                 rate
             );
         }
-        println!("  Output tokens:       {}", format_tokens(u.output_tokens as usize));
+        println!(
+            "  Output tokens:       {}",
+            format_tokens(u.output_tokens as usize)
+        );
     } else {
         println!();
         println!("(No LLM usage captured in this session — run an inference turn to populate.)");
     }
 
     println!();
-    println!(
-        "Note: system prompt + tool definitions aren't recorded in session files."
-    );
+    println!("Note: system prompt + tool definitions aren't recorded in session files.");
     println!("      Those are rebuilt at agent start; count above is thread history only.");
 }
 
@@ -523,10 +534,7 @@ mod analytics {
                 report.sessions[idx].llm_calls += 1;
                 report.sessions[idx].cost_usd += cost_usd;
 
-                let entry = report
-                    .by_model
-                    .entry((provider, model))
-                    .or_default();
+                let entry = report.by_model.entry((provider, model)).or_default();
                 entry.calls += 1;
                 entry.input_tokens += input_tokens as u64;
                 entry.output_tokens += output_tokens as u64;
@@ -723,7 +731,10 @@ mod analytics {
             assert_eq!(r.total_events, 5, "5 valid events parsed");
             assert_eq!(r.bad_lines, 1);
             // by_model: 1 entry
-            let model_stats = r.by_model.get(&("anthropic".into(), "claude".into())).unwrap();
+            let model_stats = r
+                .by_model
+                .get(&("anthropic".into(), "claude".into()))
+                .unwrap();
             assert_eq!(model_stats.calls, 1);
             assert_eq!(model_stats.input_tokens, 1000);
             assert_eq!(model_stats.cache_read, 800);

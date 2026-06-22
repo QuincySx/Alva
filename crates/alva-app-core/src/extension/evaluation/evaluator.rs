@@ -264,7 +264,11 @@ impl EvaluatorNode {
         prompt.push_str(&format!(
             "**Score**: {:.0}% | **Status**: {}\n\n",
             result.score.weighted_score * 100.0,
-            if result.score.passed { "PASS" } else { "NEEDS REVISION" },
+            if result.score.passed {
+                "PASS"
+            } else {
+                "NEEDS REVISION"
+            },
         ));
 
         if !result.score.issues.is_empty() {
@@ -433,11 +437,21 @@ mod tests {
     }
 
     impl EvaluatorState for MockState {
-        fn generator_output(&self) -> &str { &self.output }
-        fn retry_count(&self) -> u32 { self.retries }
-        fn evaluation(&self) -> Option<&EvaluationResult> { self.eval.as_ref() }
-        fn set_evaluation(&mut self, result: EvaluationResult) { self.eval = Some(result); }
-        fn set_evaluator_feedback(&mut self, feedback: String) { self.feedback = Some(feedback); }
+        fn generator_output(&self) -> &str {
+            &self.output
+        }
+        fn retry_count(&self) -> u32 {
+            self.retries
+        }
+        fn evaluation(&self) -> Option<&EvaluationResult> {
+            self.eval.as_ref()
+        }
+        fn set_evaluation(&mut self, result: EvaluationResult) {
+            self.eval = Some(result);
+        }
+        fn set_evaluator_feedback(&mut self, feedback: String) {
+            self.feedback = Some(feedback);
+        }
     }
 
     #[test]
@@ -453,10 +467,7 @@ mod tests {
         let result = node.evaluate(&state.output, state.retries, |_, _| (0.9, "great".into()));
         state.set_evaluation(result);
 
-        assert_eq!(
-            evaluator_router(&state),
-            END.to_string()
-        );
+        assert_eq!(evaluator_router(&state), END.to_string());
     }
 
     #[test]

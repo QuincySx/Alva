@@ -17,8 +17,7 @@ const CACHE_DIR_OVERRIDE_ENV: &str = "ALVA_ENGINE_CLAUDE_BRIDGE_CACHE_DIR";
 ///
 /// **Contains sync I/O** — callers should use `spawn_blocking` in async context.
 pub(crate) fn ensure_bridge_script() -> Result<PathBuf, RuntimeError> {
-    let base = bridge_base_dir()
-        .join(BRIDGE_DIR_NAME);
+    let base = bridge_base_dir().join(BRIDGE_DIR_NAME);
 
     std::fs::create_dir_all(&base).map_err(|e| {
         RuntimeError::ProcessError(format!("Failed to create bridge directory: {e}"))
@@ -89,7 +88,10 @@ mod tests {
         // shell rc files, deploy scripts, or container env. A silent
         // rename would make every existing override silently no-op,
         // sending the bridge script to dirs::cache_dir instead.
-        assert_eq!(CACHE_DIR_OVERRIDE_ENV, "ALVA_ENGINE_CLAUDE_BRIDGE_CACHE_DIR");
+        assert_eq!(
+            CACHE_DIR_OVERRIDE_ENV,
+            "ALVA_ENGINE_CLAUDE_BRIDGE_CACHE_DIR"
+        );
     }
 
     #[test]

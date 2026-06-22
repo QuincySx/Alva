@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
+use alva_kernel_abi::{Message, MessageRole};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::state::AgentState;
-use alva_kernel_abi::{Message, MessageRole};
 use async_trait::async_trait;
 
 use crate::extension::skills::injector::SkillInjector;
@@ -126,14 +126,45 @@ impl SkillInjectionMiddleware {
             .filter(|w| {
                 !matches!(
                     w.as_str(),
-                    "the" | "and" | "for" | "are" | "but" | "not"
-                    | "you" | "all" | "can" | "had" | "her"
-                    | "was" | "one" | "our" | "out" | "has"
-                    | "this" | "that" | "with" | "have" | "from"
-                    | "they" | "been" | "said" | "each" | "which"
-                    | "will" | "what" | "there" | "their" | "about"
-                    | "would" | "make" | "like" | "just" | "please"
-                    | "could" | "help" | "want"
+                    "the"
+                        | "and"
+                        | "for"
+                        | "are"
+                        | "but"
+                        | "not"
+                        | "you"
+                        | "all"
+                        | "can"
+                        | "had"
+                        | "her"
+                        | "was"
+                        | "one"
+                        | "our"
+                        | "out"
+                        | "has"
+                        | "this"
+                        | "that"
+                        | "with"
+                        | "have"
+                        | "from"
+                        | "they"
+                        | "been"
+                        | "said"
+                        | "each"
+                        | "which"
+                        | "will"
+                        | "what"
+                        | "there"
+                        | "their"
+                        | "about"
+                        | "would"
+                        | "make"
+                        | "like"
+                        | "just"
+                        | "please"
+                        | "could"
+                        | "help"
+                        | "want"
                 )
             })
             .take(5) // Limit keywords to avoid over-searching
@@ -143,10 +174,7 @@ impl SkillInjectionMiddleware {
 
 #[async_trait]
 impl Middleware for SkillInjectionMiddleware {
-    async fn on_agent_start(
-        &self,
-        state: &mut AgentState,
-    ) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
         // Initialize the injected-skills tracker in Extensions
         state.extensions.insert(InjectedSkills {
             names: std::collections::HashSet::new(),
@@ -303,7 +331,10 @@ mod tests {
             Message::user("second question about PDF conversion"),
         ];
         let text = SkillInjectionMiddleware::extract_latest_user_text(&messages);
-        assert_eq!(text, Some("second question about PDF conversion".to_string()));
+        assert_eq!(
+            text,
+            Some("second question about PDF conversion".to_string())
+        );
     }
 
     #[test]

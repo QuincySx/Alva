@@ -28,6 +28,8 @@ fn build_command_context<'a>(
     message_count: usize,
     tokens: &TokenUsage,
     tool_names: Vec<String>,
+    plugin_names: Vec<String>,
+    middleware_names: Vec<String>,
     plan_mode: bool,
 ) -> CommandContext<'a> {
     CommandContext {
@@ -37,6 +39,11 @@ fn build_command_context<'a>(
         message_count,
         token_usage: tokens.clone(),
         tool_names,
+        plugin_names,
+        middleware_names,
+        component_overrides: alva_app_core::config::load()
+            .map(|cfg| cfg.components)
+            .unwrap_or_default(),
         plan_mode,
     }
 }
@@ -110,19 +117,18 @@ pub(crate) async fn run_repl(
 
     let history_path = dirs::home_dir().map(|h| h.join(".alva").join("repl-history"));
     if let Some(p) = &history_path {
-        if let Some(parent) = p.parent() { let _ = std::fs::create_dir_all(parent); }
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
     }
     use reedline::MenuBuilder; // for ColumnarMenu::with_name
     let history: Box<dyn reedline::History> = match &history_path {
         Some(p) => Box::new(
-            reedline::FileBackedHistory::with_file(2000, p.clone())
-                .unwrap_or_else(|_| {
-                    reedline::FileBackedHistory::new(2000).expect("in-memory history fallback")
-                }),
+            reedline::FileBackedHistory::with_file(2000, p.clone()).unwrap_or_else(|_| {
+                reedline::FileBackedHistory::new(2000).expect("in-memory history fallback")
+            }),
         ),
-        None => Box::new(
-            reedline::FileBackedHistory::new(2000).expect("in-memory history"),
-        ),
+        None => Box::new(reedline::FileBackedHistory::new(2000).expect("in-memory history")),
     };
 
     // Pageable single-column list — 6 entries per page, true paged loading
@@ -213,7 +219,9 @@ pub(crate) async fn run_repl(
 
     let edit_mode = Box::new(reedline::Emacs::new(keybindings));
     let mut line_editor = reedline::Reedline::create()
-        .with_completer(Box::new(crate::repl_completer::SlashCompleter::new(registry_names)))
+        .with_completer(Box::new(crate::repl_completer::SlashCompleter::new(
+            registry_names,
+        )))
         .with_menu(reedline::ReedlineMenu::EngineCompleter(menu))
         .with_edit_mode(edit_mode)
         .with_history(history);
@@ -226,7 +234,10 @@ pub(crate) async fn run_repl(
             // Ctrl+C and Ctrl+D both exit immediately. Matches the user's
             // expectation that ^C kills the REPL (vs shell-like "clear line").
             Ok(reedline::Signal::CtrlC) | Ok(reedline::Signal::CtrlD) => break,
-            Err(e) => { output::print_error(&format!("readline error: {e}")); break; }
+            Err(e) => {
+                output::print_error(&format!("readline error: {e}"));
+                break;
+            }
         };
         // Inline-rewrap into the original `match read_line { Ok(_) => { ... } }`
         // body: the surrounding block uses `let trimmed = line.trim()` then a
@@ -246,10 +257,7 @@ pub(crate) async fn run_repl(
                     "/clear" => {
                         print!("\x1B[2J\x1B[1;1H");
                         io::stdout().flush().ok();
-                        output::print_banner(
-                            &config.model,
-                            &workspace.display().to_string(),
-                        );
+                        output::print_banner(&config.model, &workspace.display().to_string());
                         output::print_git_status(workspace);
                         output::print_banner_end();
                         continue;
@@ -304,10 +312,7 @@ pub(crate) async fn run_repl(
                         continue;
                     }
                     "/locks" => {
-                        if let Some(reg) = agent
-                            .bus()
-                            .get::<alva_kernel_abi::ToolLockRegistry>()
-                        {
+                        if let Some(reg) = agent.bus().get::<alva_kernel_abi::ToolLockRegistry>() {
                             let snap = reg.inspect();
                             if snap.is_empty() {
                                 eprintln!("  no active locks");
@@ -374,7 +379,8 @@ pub(crate) async fn run_repl(
                     }
                     "/resume" => {
                         if let Some((new_id, new_session)) =
-                            handle_resume(agent, session_manager, &active_session, &session_id).await
+                            handle_resume(agent, session_manager, &active_session, &session_id)
+                                .await
                         {
                             session_id = new_id;
                             active_session = new_session;
@@ -412,6 +418,8 @@ pub(crate) async fn run_repl(
                 if trimmed.starts_with('/') {
                     let message_count = agent.messages().await.len();
                     let tool_names = agent.tool_names();
+                    let plugin_names = agent.plugin_names();
+                    let middleware_names = agent.middleware_names();
                     let plan_mode = agent.permission_mode() == PermissionMode::Plan;
                     let ctx = build_command_context(
                         workspace,
@@ -420,6 +428,8 @@ pub(crate) async fn run_repl(
                         message_count,
                         &tokens,
                         tool_names,
+                        plugin_names,
+                        middleware_names,
                         plan_mode,
                     );
 
@@ -436,38 +446,32 @@ pub(crate) async fn run_repl(
                                 if let Some(msg) = &progress_message {
                                     eprintln!("  {}", msg);
                                 }
-                                let (in_tok, out_tok) = event_handler::run_prompt(
-                                    agent,
-                                    &content,
-                                    approval_rx,
-                                )
-                                .await;
+                                let (in_tok, out_tok) =
+                                    event_handler::run_prompt(agent, &content, approval_rx).await;
                                 tokens.input_tokens += in_tok;
                                 tokens.output_tokens += out_tok;
 
                                 // Persistence is automatic; refresh index summary
                                 // and dump the structured RunRecord (same projection
                                 // Tauri builds for Inspector — see write_run_record).
-                                let event_count = active_session.count(&EventQuery::default()).await;
+                                let event_count =
+                                    active_session.count(&EventQuery::default()).await;
                                 session_manager.refresh_summary(&session_id, event_count, None);
                                 session_manager.write_run_record(&active_session).await;
                             }
                             CommandResult::Compact { summary } => {
                                 eprintln!("  {}", summary);
                                 // Trigger compaction via prompt
-                                let (in_tok, out_tok) = event_handler::run_prompt(
-                                    agent,
-                                    &summary,
-                                    approval_rx,
-                                )
-                                .await;
+                                let (in_tok, out_tok) =
+                                    event_handler::run_prompt(agent, &summary, approval_rx).await;
                                 tokens.input_tokens += in_tok;
                                 tokens.output_tokens += out_tok;
 
                                 // Persistence is automatic; refresh index summary
                                 // and dump the structured RunRecord (same projection
                                 // Tauri builds for Inspector — see write_run_record).
-                                let event_count = active_session.count(&EventQuery::default()).await;
+                                let event_count =
+                                    active_session.count(&EventQuery::default()).await;
                                 session_manager.refresh_summary(&session_id, event_count, None);
                                 session_manager.write_run_record(&active_session).await;
                             }
@@ -545,10 +549,7 @@ impl reedline::Prompt for ReplPrompt {
 /// Emit `AnalyticsEvent::SessionStart` if an `AnalyticsSink` is on the bus.
 /// No-op if the analytics extension wasn't installed.
 fn emit_session_start(agent: &BaseAgent, session_id: &str, workspace: &std::path::Path) {
-    if let Some(sink) = agent
-        .bus()
-        .get::<dyn alva_kernel_abi::AnalyticsSink>()
-    {
+    if let Some(sink) = agent.bus().get::<dyn alva_kernel_abi::AnalyticsSink>() {
         sink.record(alva_kernel_abi::AnalyticsEvent::SessionStart {
             session_id: session_id.to_string(),
             workspace: workspace.to_path_buf(),
@@ -560,10 +561,7 @@ fn emit_session_start(agent: &BaseAgent, session_id: &str, workspace: &std::path
 /// Emit `AnalyticsEvent::SessionEnd`. Duration is wall-clock since
 /// `started_at` (captured at the matching `SessionStart`).
 fn emit_session_end(agent: &BaseAgent, session_id: &str, started_at: std::time::Instant) {
-    if let Some(sink) = agent
-        .bus()
-        .get::<dyn alva_kernel_abi::AnalyticsSink>()
-    {
+    if let Some(sink) = agent.bus().get::<dyn alva_kernel_abi::AnalyticsSink>() {
         sink.record(alva_kernel_abi::AnalyticsEvent::SessionEnd {
             session_id: session_id.to_string(),
             duration_ms: started_at.elapsed().as_millis() as u64,
@@ -738,10 +736,7 @@ fn handle_shell(cmd: &str, workspace: &std::path::Path) {
                 eprint!("{}", String::from_utf8_lossy(&out.stderr));
             }
             if !out.status.success() {
-                output::print_error(&format!(
-                    "exit code: {}",
-                    out.status.code().unwrap_or(-1)
-                ));
+                output::print_error(&format!("exit code: {}", out.status.code().unwrap_or(-1)));
             }
         }
         Err(e) => output::print_error(&format!("failed to execute: {}", e)),

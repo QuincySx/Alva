@@ -15,7 +15,7 @@ use crate::protocol::{
 };
 
 use super::discovery::AgentCliCommand;
-use super::orphan::{PARENT_PID_ENV, parent_pid_env_value};
+use super::orphan::{parent_pid_env_value, PARENT_PID_ENV};
 
 /// Child process lifecycle state
 #[derive(Debug, Clone, PartialEq)]
@@ -78,8 +78,8 @@ impl AcpProcessHandle {
         let stderr = child.stderr.take().unwrap();
 
         // Write bootstrap (one JSON line)
-        let bootstrap_json =
-            serde_json::to_string(&bootstrap).map_err(|e| AcpError::Serialization(e.to_string()))?;
+        let bootstrap_json = serde_json::to_string(&bootstrap)
+            .map_err(|e| AcpError::Serialization(e.to_string()))?;
 
         let mut writer = BufWriter::new(stdin);
         writer

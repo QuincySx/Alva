@@ -1,8 +1,8 @@
 // INPUT:  std::sync, alva_kernel_abi
 // OUTPUT: model
 // POS:    Resolves a "provider/model_id" spec string into a LanguageModel via ProviderRegistry.
+use alva_kernel_abi::{LanguageModel, ProviderError, ProviderRegistry};
 use std::sync::Arc;
-use alva_kernel_abi::{LanguageModel, ProviderRegistry, ProviderError};
 
 /// Parse a `provider/model_id` string and resolve from registry.
 ///
@@ -16,12 +16,12 @@ pub fn model(
     spec: &str,
     registry: &ProviderRegistry,
 ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
-    let (provider_id, model_id) = spec.split_once('/').ok_or_else(|| {
-        ProviderError::InvalidArgument {
-            argument: "spec".to_string(),
-            message: format!("expected 'provider/model_id' format, got '{}'", spec),
-        }
-    })?;
+    let (provider_id, model_id) =
+        spec.split_once('/')
+            .ok_or_else(|| ProviderError::InvalidArgument {
+                argument: "spec".to_string(),
+                message: format!("expected 'provider/model_id' format, got '{}'", spec),
+            })?;
     registry.language_model(provider_id, model_id)
 }
 
@@ -49,10 +49,7 @@ mod tests {
         fn id(&self) -> &str {
             self.id
         }
-        fn language_model(
-            &self,
-            model_id: &str,
-        ) -> Result<Arc<dyn LanguageModel>, ProviderError> {
+        fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError> {
             // Echo model_id in the error so tests can verify what was
             // forwarded.
             Err(ProviderError::InvalidArgument {
@@ -80,7 +77,10 @@ mod tests {
                     message.contains("just-a-model"),
                     "message must include the user's spec for copy-paste diagnosis: {message}"
                 );
-                assert!(message.contains("expected"), "message must hint at expected format");
+                assert!(
+                    message.contains("expected"),
+                    "message must hint at expected format"
+                );
             }
             Err(other) => panic!("expected InvalidArgument, got {other:?}"),
             Ok(_) => panic!("expected Err"),
@@ -104,7 +104,10 @@ mod tests {
         // fails → registry's NoSuchModel surfaces.
         let registry = ProviderRegistry::new();
         match model("openai/gpt-4o", &registry) {
-            Err(ProviderError::NoSuchModel { model_id, model_type }) => {
+            Err(ProviderError::NoSuchModel {
+                model_id,
+                model_type,
+            }) => {
                 assert_eq!(model_id, "openai:gpt-4o");
                 assert_eq!(model_type, "language");
             }
@@ -119,10 +122,16 @@ mod tests {
         // after the first '/' — no rewriting.
         let registry = registry_with("openai");
         match model("openai/gpt-4o", &registry) {
-            Err(ProviderError::InvalidArgument { argument: _, message }) => {
+            Err(ProviderError::InvalidArgument {
+                argument: _,
+                message,
+            }) => {
                 // Our ErringProvider echoes model_id; verify it
                 // received "gpt-4o" not "openai/gpt-4o".
-                assert!(message.contains("'gpt-4o'"), "model_id forwarded wrongly: {message}");
+                assert!(
+                    message.contains("'gpt-4o'"),
+                    "model_id forwarded wrongly: {message}"
+                );
             }
             Err(other) => panic!("expected echo error, got {other:?}"),
             Ok(_) => panic!("expected Err"),
@@ -141,7 +150,10 @@ mod tests {
         // "openrouter/openai" (no such provider) silently.
         let registry = registry_with("openrouter");
         match model("openrouter/openai/gpt-4o", &registry) {
-            Err(ProviderError::InvalidArgument { argument: _, message }) => {
+            Err(ProviderError::InvalidArgument {
+                argument: _,
+                message,
+            }) => {
                 assert!(
                     message.contains("'openai/gpt-4o'"),
                     "model_id must preserve all '/' after the first split: {message}"
@@ -161,7 +173,10 @@ mod tests {
         let registry = ProviderRegistry::new();
         match model("/foo", &registry) {
             Err(ProviderError::NoSuchModel { model_id, .. }) => {
-                assert_eq!(model_id, ":foo", "empty provider preserved in model_id format");
+                assert_eq!(
+                    model_id, ":foo",
+                    "empty provider preserved in model_id format"
+                );
             }
             Err(other) => panic!("expected NoSuchModel for empty provider, got {other:?}"),
             Ok(_) => panic!("expected Err"),

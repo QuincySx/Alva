@@ -12,41 +12,58 @@
 //! - `host/notify` — same idea, `target = "aep.plugin.notify"`
 //! - `host/emit_metric` — tracing with structured fields; real metric
 //!   routing is a Phase 6 item
+//! - `host/state.get_messages` / `host/state.get_metadata` /
+//!   `host/state.count_tokens` — read the current event-scoped state
+//!   snapshot populated by the AEP phase bridge
 //!
 //! Deliberately **not** in scope here:
 //!
-//! - `host/state.*` — requires carrying an `AgentState` handle
-//!   through to the plugin bridge, which is an invasive change to the
-//!   middleware-hook plumbing. Methods return `METHOD_NOT_FOUND` until
-//!   Phase 5 wires this up.
 //! - `host/memory.*` — same reason, plus needs access to the current
 //!   memory backend through the bus. Phase 6.
 //! - `host/request_approval` — needs the approval channel from
 //!   `ApprovalPlugin`, which we do not have a reference to here.
 //!   Phase 6 once we wire the approval bridge.
 
+use alva_kernel_abi::Message;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::{Arc, Mutex};
 
 use crate::dispatcher::HostHandler;
 use crate::protocol::{error_codes, HostLogParams, LogLevel, RpcError};
 
 /// The production host handler wired in by `SubprocessLoaderPlugin`.
 ///
-/// Stateless for now — all it does is translate plugin RPC calls
-/// into `tracing` events. Hold-everything-in-one-struct keeps Phase 3.5
-/// diff-small; each future capability becomes a field here.
+/// Holds a plugin name for tracing and the current event-scoped state
+/// snapshot for `host/state.*` calls.
 #[derive(Debug, Clone, Default)]
 pub struct AlvaHostHandler {
     plugin_name: String,
+    state: Arc<Mutex<Option<StateSnapshot>>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StateSnapshot {
+    pub handle: String,
+    pub messages: Vec<Message>,
+    pub metadata: Value,
 }
 
 impl AlvaHostHandler {
     pub fn new(plugin_name: impl Into<String>) -> Self {
         Self {
             plugin_name: plugin_name.into(),
+            state: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn set_state_snapshot(&self, snapshot: StateSnapshot) {
+        *self.state.lock().expect("state snapshot mutex poisoned") = Some(snapshot);
+    }
+
+    pub fn clear_state_snapshot(&self) {
+        *self.state.lock().expect("state snapshot mutex poisoned") = None;
     }
 }
 
@@ -87,14 +104,9 @@ impl HostHandler for AlvaHostHandler {
                 self.do_emit_metric(params);
                 Ok(Value::Object(Default::default()))
             }
-            // Explicitly unimplemented — return a clear error so plugin
-            // authors know what is coming vs what is broken.
-            "host/state.get_messages"
-            | "host/state.get_metadata"
-            | "host/state.count_tokens" => Err(RpcError::new(
-                error_codes::METHOD_NOT_FOUND,
-                format!("{} is not yet implemented (Phase 5)", method),
-            )),
+            "host/state.get_messages" => self.state_get_messages(params),
+            "host/state.get_metadata" => self.state_get_metadata(params),
+            "host/state.count_tokens" => self.state_count_tokens(params),
             "host/memory.read" | "host/memory.write" => Err(RpcError::new(
                 error_codes::METHOD_NOT_FOUND,
                 format!("{} is not yet implemented (Phase 6)", method),
@@ -120,6 +132,42 @@ impl HostHandler for AlvaHostHandler {
 }
 
 impl AlvaHostHandler {
+    fn snapshot_for_handle(&self, params: Option<Value>) -> Result<StateSnapshot, RpcError> {
+        #[derive(Deserialize)]
+        struct StateParams {
+            handle: String,
+        }
+        let params: StateParams = parse_params(params)?;
+        let guard = self.state.lock().expect("state snapshot mutex poisoned");
+        match guard.as_ref() {
+            Some(snapshot) if snapshot.handle == params.handle => Ok(snapshot.clone()),
+            _ => Err(RpcError::new(
+                error_codes::HANDLE_EXPIRED,
+                format!("state handle expired: {}", params.handle),
+            )),
+        }
+    }
+
+    fn state_get_messages(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let snapshot = self.snapshot_for_handle(params)?;
+        Ok(serde_json::json!({ "messages": snapshot.messages }))
+    }
+
+    fn state_get_metadata(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let snapshot = self.snapshot_for_handle(params)?;
+        Ok(serde_json::json!({ "metadata": snapshot.metadata }))
+    }
+
+    fn state_count_tokens(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let snapshot = self.snapshot_for_handle(params)?;
+        let tokens: usize = snapshot
+            .messages
+            .iter()
+            .map(|message| message.text_content().len().div_ceil(4))
+            .sum();
+        Ok(serde_json::json!({ "tokens": tokens }))
+    }
+
     fn do_log(&self, params: HostLogParams) {
         let plugin = self.plugin_name.as_str();
         let msg = params.message.as_str();
@@ -192,9 +240,7 @@ impl AlvaHostHandler {
     }
 }
 
-fn parse_params<T: serde::de::DeserializeOwned>(
-    params: Option<Value>,
-) -> Result<T, RpcError> {
+fn parse_params<T: serde::de::DeserializeOwned>(params: Option<Value>) -> Result<T, RpcError> {
     let params = params.unwrap_or(Value::Null);
     serde_json::from_value(params)
         .map_err(|e| RpcError::new(error_codes::INVALID_PARAMS, e.to_string()))
@@ -227,23 +273,86 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn state_methods_return_phase5_hint() {
+    async fn state_methods_reject_unknown_handle() {
         let h = AlvaHostHandler::new("demo");
         let params = serde_json::json!({"handle": "x"});
         let result = h
             .handle_request("host/state.get_messages".to_string(), Some(params))
             .await;
         match result {
-            Err(e) => {
-                assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
-                assert!(e.message.contains("Phase 5"));
-            }
-            other => panic!("expected Phase 5 hint, got {:?}", other),
+            Err(e) => assert_eq!(e.code, error_codes::HANDLE_EXPIRED),
+            other => panic!("expected HANDLE_EXPIRED, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn state_get_messages_returns_current_snapshot_for_matching_handle() {
+        let h = AlvaHostHandler::new("demo");
+        h.set_state_snapshot(StateSnapshot {
+            handle: "s-1".to_string(),
+            messages: vec![alva_kernel_abi::Message::user("hello")],
+            metadata: serde_json::json!({"session_id": "session-1"}),
+        });
+
+        let result = h
+            .handle_request(
+                "host/state.get_messages".to_string(),
+                Some(serde_json::json!({"handle": "s-1"})),
+            )
+            .await
+            .expect("state messages should resolve");
+        assert_eq!(result["messages"][0]["role"], serde_json::json!("user"));
+        assert_eq!(
+            result["messages"][0]["content"][0]["text"],
+            serde_json::json!("hello")
+        );
+    }
+
+    #[tokio::test]
+    async fn state_get_messages_rejects_expired_handle() {
+        let h = AlvaHostHandler::new("demo");
+        h.set_state_snapshot(StateSnapshot {
+            handle: "s-1".to_string(),
+            messages: vec![alva_kernel_abi::Message::user("hello")],
+            metadata: serde_json::json!({}),
+        });
+
+        let result = h
+            .handle_request(
+                "host/state.get_messages".to_string(),
+                Some(serde_json::json!({"handle": "old"})),
+            )
+            .await;
+        match result {
+            Err(e) => assert_eq!(e.code, error_codes::HANDLE_EXPIRED),
+            other => panic!("expected HANDLE_EXPIRED, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn clear_state_snapshot_expires_previous_handle() {
+        let h = AlvaHostHandler::new("demo");
+        h.set_state_snapshot(StateSnapshot {
+            handle: "s-1".to_string(),
+            messages: vec![alva_kernel_abi::Message::user("hello")],
+            metadata: serde_json::json!({}),
+        });
+        h.clear_state_snapshot();
+
+        let result = h
+            .handle_request(
+                "host/state.get_messages".to_string(),
+                Some(serde_json::json!({"handle": "s-1"})),
+            )
+            .await;
+        match result {
+            Err(e) => assert_eq!(e.code, error_codes::HANDLE_EXPIRED),
+            other => panic!("expected HANDLE_EXPIRED, got {other:?}"),
         }
     }
 
     // -- Gap-fill (Loop 144): parse_params + host/notify + host/emit_metric +
-    //    Phase 5 siblings + Phase 6 trio + handle_notification + ctor -----
+    //    state siblings + Phase 6 trio + handle_notification + ctor -----
 
     #[tokio::test]
     async fn malformed_params_return_invalid_params_code_not_method_not_found() {
@@ -254,9 +363,7 @@ mod tests {
         // retrying with the same broken payload.
         let h = AlvaHostHandler::new("demo");
         let bad = serde_json::json!({"this": "is not HostLogParams"});
-        let result = h
-            .handle_request("host/log".to_string(), Some(bad))
-            .await;
+        let result = h.handle_request("host/log".to_string(), Some(bad)).await;
         match result {
             Err(e) => {
                 assert_eq!(
@@ -323,38 +430,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn state_get_metadata_returns_phase5_hint() {
-        // Sibling of state_methods_return_phase5_hint (which only
-        // covers get_messages). Pin each Phase 5 endpoint separately
-        // — a refactor that handled one but not the others would
-        // silently change the discriminator.
+    async fn state_get_metadata_returns_current_snapshot_for_matching_handle() {
         let h = AlvaHostHandler::new("demo");
+        h.set_state_snapshot(StateSnapshot {
+            handle: "s-1".to_string(),
+            messages: vec![],
+            metadata: serde_json::json!({"session_id": "session-1"}),
+        });
         let result = h
-            .handle_request("host/state.get_metadata".to_string(), None)
-            .await;
-        match result {
-            Err(e) => {
-                assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
-                assert!(e.message.contains("Phase 5"), "missing Phase 5 hint: {}", e.message);
-                assert!(e.message.contains("host/state.get_metadata"), "must name method: {}", e.message);
-            }
-            other => panic!("expected Phase 5 hint, got {:?}", other),
-        }
+            .handle_request(
+                "host/state.get_metadata".to_string(),
+                Some(serde_json::json!({"handle": "s-1"})),
+            )
+            .await
+            .expect("metadata should resolve");
+        assert_eq!(
+            result["metadata"]["session_id"],
+            serde_json::json!("session-1")
+        );
     }
 
     #[tokio::test]
-    async fn state_count_tokens_returns_phase5_hint() {
+    async fn state_count_tokens_returns_snapshot_estimate() {
         let h = AlvaHostHandler::new("demo");
+        h.set_state_snapshot(StateSnapshot {
+            handle: "s-1".to_string(),
+            messages: vec![alva_kernel_abi::Message::user("hello")],
+            metadata: serde_json::json!({}),
+        });
         let result = h
-            .handle_request("host/state.count_tokens".to_string(), None)
-            .await;
-        match result {
-            Err(e) => {
-                assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
-                assert!(e.message.contains("Phase 5"), "missing Phase 5 hint: {}", e.message);
-            }
-            other => panic!("expected Phase 5 hint, got {:?}", other),
-        }
+            .handle_request(
+                "host/state.count_tokens".to_string(),
+                Some(serde_json::json!({"handle": "s-1"})),
+            )
+            .await
+            .expect("count_tokens should resolve");
+        assert_eq!(result["tokens"], serde_json::json!(2));
     }
 
     #[tokio::test]
@@ -364,13 +475,15 @@ mod tests {
         // uses 2 separate match arms for memory.* + request_approval,
         // a refactor that consolidated them might drop one.
         let h = AlvaHostHandler::new("demo");
-        let result = h
-            .handle_request("host/memory.read".to_string(), None)
-            .await;
+        let result = h.handle_request("host/memory.read".to_string(), None).await;
         match result {
             Err(e) => {
                 assert_eq!(e.code, error_codes::METHOD_NOT_FOUND);
-                assert!(e.message.contains("Phase 6"), "missing Phase 6 hint: {}", e.message);
+                assert!(
+                    e.message.contains("Phase 6"),
+                    "missing Phase 6 hint: {}",
+                    e.message
+                );
             }
             other => panic!("expected Phase 6 hint, got {:?}", other),
         }
@@ -414,7 +527,8 @@ mod tests {
         // just log + drop).
         let h = AlvaHostHandler::new("demo");
         h.handle_notification("any/method".into(), None).await;
-        h.handle_notification("garbage".into(), Some(serde_json::json!(null))).await;
+        h.handle_notification("garbage".into(), Some(serde_json::json!(null)))
+            .await;
         h.handle_notification(
             "host/log".into(),
             Some(serde_json::json!({"this": "is malformed"})),

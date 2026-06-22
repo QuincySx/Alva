@@ -1,5 +1,7 @@
 //! Built-in Extension wrappers (formerly in `alva-app-core/src/extension/`).
 
+#[cfg(feature = "browser")]
+pub mod browser;
 pub mod core;
 pub mod interaction;
 pub mod memory;
@@ -14,10 +16,10 @@ pub mod task;
 pub mod team;
 pub mod utility;
 pub mod web;
-#[cfg(feature = "browser")]
-pub mod browser;
 
 pub use self::core::CorePlugin;
+#[cfg(feature = "browser")]
+pub use browser::BrowserPlugin;
 pub use interaction::InteractionPlugin;
 pub use memory::MemoryPlugin;
 pub use planning::PlanningPlugin;
@@ -31,5 +33,3 @@ pub use task::TaskPlugin;
 pub use team::TeamPlugin;
 pub use utility::UtilityPlugin;
 pub use web::WebPlugin;
-#[cfg(feature = "browser")]
-pub use browser::BrowserPlugin;

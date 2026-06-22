@@ -141,7 +141,10 @@ impl Router {
         let Some(method) = parsed.get("method").and_then(|v| v.as_str()) else {
             return error_response(400, "missing 'method' field in JSON body");
         };
-        let args = parsed.get("args").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+        let args = parsed
+            .get("args")
+            .cloned()
+            .unwrap_or(serde_json::Value::Object(Default::default()));
 
         match registry.dispatch(target, method, args) {
             Ok(result) => {
@@ -156,7 +159,8 @@ impl Router {
                 } else {
                     "execution_failed"
                 };
-                let body = serde_json::json!({"ok": false, "error": error_type, "message": e}).to_string();
+                let body =
+                    serde_json::json!({"ok": false, "error": error_type, "message": e}).to_string();
                 json_response(400, &body)
             }
         }
@@ -176,7 +180,8 @@ impl Router {
                 json_response(200, &body)
             }
             Err(e) => {
-                let body = serde_json::json!({"ok": false, "error": "state_error", "message": e}).to_string();
+                let body = serde_json::json!({"ok": false, "error": "state_error", "message": e})
+                    .to_string();
                 json_response(400, &body)
             }
         }
@@ -212,7 +217,8 @@ impl Router {
                 json_response(200, &body)
             }
             _ => {
-                let body = serde_json::json!({"ok": false, "error": "screenshot_failed"}).to_string();
+                let body =
+                    serde_json::json!({"ok": false, "error": "screenshot_failed"}).to_string();
                 json_response(500, &body)
             }
         }

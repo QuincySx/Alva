@@ -75,12 +75,18 @@ mod tests {
 
     #[test]
     fn agent_start_unit_variant_renders_only_type_tag() {
-        assert_eq!(ev_value(AgentEvent::AgentStart), json!({"type": "AgentStart"}));
+        assert_eq!(
+            ev_value(AgentEvent::AgentStart),
+            json!({"type": "AgentStart"})
+        );
     }
 
     #[test]
     fn turn_start_unit_variant_renders_only_type_tag() {
-        assert_eq!(ev_value(AgentEvent::TurnStart), json!({"type": "TurnStart"}));
+        assert_eq!(
+            ev_value(AgentEvent::TurnStart),
+            json!({"type": "TurnStart"})
+        );
     }
 
     #[test]
@@ -113,7 +119,9 @@ mod tests {
         // under a per-variant key. UI consumers walk the JSON
         // expecting this shape; nesting would break every consumer.
         let m = Message::user("hi");
-        let v = ev_value(AgentEvent::MessageStart { message: AgentMessage::Standard(m) });
+        let v = ev_value(AgentEvent::MessageStart {
+            message: AgentMessage::Standard(m),
+        });
         assert_eq!(v["type"], json!("MessageStart"));
         // `message` field exists at the top level (not nested).
         assert!(v.get("message").is_some(), "message must be top-level: {v}");
@@ -124,7 +132,9 @@ mod tests {
     #[test]
     fn message_end_includes_message_field() {
         let m = Message::user("done");
-        let v = ev_value(AgentEvent::MessageEnd { message: AgentMessage::Standard(m) });
+        let v = ev_value(AgentEvent::MessageEnd {
+            message: AgentMessage::Standard(m),
+        });
         assert_eq!(v["type"], json!("MessageEnd"));
         assert!(v.get("message").is_some());
     }
@@ -175,7 +185,9 @@ mod tests {
         // CLI / web consumers key off the snake_case form.
         let v = ev_value(AgentEvent::ToolExecutionUpdate {
             tool_call_id: "tc1".into(),
-            event: ProgressEvent::Status { message: "running".into() },
+            event: ProgressEvent::Status {
+                message: "running".into(),
+            },
         });
         assert_eq!(v["type"], json!("ToolExecutionUpdate"));
         assert_eq!(v["tool_call_id"], json!("tc1"));
@@ -201,6 +213,8 @@ mod tests {
         // result.is_error pinned via ToolOutput::text (false)
         assert_eq!(v["result"]["is_error"], json!(false));
         // Sanity that ContentBlock import compiles in this test mod.
-        let _ = ContentBlock::Text { text: "smoke".into() };
+        let _ = ContentBlock::Text {
+            text: "smoke".into(),
+        };
     }
 }

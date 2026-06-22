@@ -14,15 +14,12 @@ impl<S: Send + 'static> CompiledGraph<S> {
     where
         S: Clone + serde::Serialize,
     {
-        self.invoke_with_config(input, InvokeConfig::default()).await
+        self.invoke_with_config(input, InvokeConfig::default())
+            .await
     }
 
     /// Execute the graph with optional checkpointing and event streaming.
-    pub async fn invoke_with_config(
-        &self,
-        input: S,
-        config: InvokeConfig,
-    ) -> Result<S, AgentError>
+    pub async fn invoke_with_config(&self, input: S, config: InvokeConfig) -> Result<S, AgentError>
     where
         S: Clone + serde::Serialize,
     {
@@ -81,7 +78,8 @@ impl<S: Send + 'static> CompiledGraph<S> {
                                 step,
                             });
                         }
-                        current_nodes = self.execute_sends(sends, &mut state, &config, step).await?;
+                        current_nodes =
+                            self.execute_sends(sends, &mut state, &config, step).await?;
                     }
                 }
             } else {
@@ -143,7 +141,9 @@ impl<S: Send + 'static> CompiledGraph<S> {
 
                 // Process Sends (they create the next round of nodes)
                 if !all_sends.is_empty() {
-                    current_nodes = self.execute_sends(all_sends, &mut state, &config, step).await?;
+                    current_nodes = self
+                        .execute_sends(all_sends, &mut state, &config, step)
+                        .await?;
                 } else {
                     // Collect next nodes from all executed nodes via edges
                     let mut next = Vec::new();
@@ -178,7 +178,11 @@ impl<S: Send + 'static> CompiledGraph<S> {
     }
 
     /// Collect all next nodes from edges matching `current`.
-    pub(crate) fn resolve_next_nodes(&self, current: &str, state: &S) -> Result<Vec<String>, AgentError> {
+    pub(crate) fn resolve_next_nodes(
+        &self,
+        current: &str,
+        state: &S,
+    ) -> Result<Vec<String>, AgentError> {
         let mut targets = Vec::new();
         for edge in &self.edges {
             match edge {
@@ -252,10 +256,20 @@ mod tests {
         // don't accidentally route us. Verifies the `if from == current`
         // guard, not just edges.is_empty().
         let mut g = empty_graph();
-        g.edges.push(Edge::Direct { from: "other".into(), to: "x".into() });
-        g.edges.push(Edge::Direct { from: "another".into(), to: "y".into() });
+        g.edges.push(Edge::Direct {
+            from: "other".into(),
+            to: "x".into(),
+        });
+        g.edges.push(Edge::Direct {
+            from: "another".into(),
+            to: "y".into(),
+        });
         let next = g.resolve_next_nodes("me", &0).unwrap();
-        assert_eq!(next, vec![END.to_string()], "no edge matches `me` → END fallback");
+        assert_eq!(
+            next,
+            vec![END.to_string()],
+            "no edge matches `me` → END fallback"
+        );
     }
 
     // -- Direct edges ----------------------------------------------------
@@ -263,7 +277,10 @@ mod tests {
     #[test]
     fn single_direct_edge_returns_target() {
         let mut g = empty_graph();
-        g.edges.push(Edge::Direct { from: "a".into(), to: "b".into() });
+        g.edges.push(Edge::Direct {
+            from: "a".into(),
+            to: "b".into(),
+        });
         let next = g.resolve_next_nodes("a", &0).unwrap();
         assert_eq!(next, vec!["b".to_string()]);
     }
@@ -277,9 +294,18 @@ mod tests {
         // would silently change scheduling order in the single-send
         // fast path.
         let mut g = empty_graph();
-        g.edges.push(Edge::Direct { from: "src".into(), to: "z".into() });
-        g.edges.push(Edge::Direct { from: "src".into(), to: "a".into() });
-        g.edges.push(Edge::Direct { from: "src".into(), to: "m".into() });
+        g.edges.push(Edge::Direct {
+            from: "src".into(),
+            to: "z".into(),
+        });
+        g.edges.push(Edge::Direct {
+            from: "src".into(),
+            to: "a".into(),
+        });
+        g.edges.push(Edge::Direct {
+            from: "src".into(),
+            to: "m".into(),
+        });
         let next = g.resolve_next_nodes("src", &0).unwrap();
         assert_eq!(
             next,
@@ -294,7 +320,10 @@ mod tests {
         // it's just a string the layer above (invoke loop) recognises.
         // Pin: resolve_next_nodes treats it as any other target.
         let mut g = empty_graph();
-        g.edges.push(Edge::Direct { from: "n".into(), to: END.into() });
+        g.edges.push(Edge::Direct {
+            from: "n".into(),
+            to: END.into(),
+        });
         let next = g.resolve_next_nodes("n", &0).unwrap();
         assert_eq!(next, vec![END.to_string()]);
     }
@@ -322,12 +351,18 @@ mod tests {
         // in declaration order. Useful for "default + override" routing
         // patterns.
         let mut g = empty_graph();
-        g.edges.push(Edge::Direct { from: "n".into(), to: "static_first".into() });
+        g.edges.push(Edge::Direct {
+            from: "n".into(),
+            to: "static_first".into(),
+        });
         g.edges.push(Edge::Conditional {
             from: "n".into(),
             router: Box::new(|_| "dynamic_second".into()),
         });
-        g.edges.push(Edge::Direct { from: "n".into(), to: "static_third".into() });
+        g.edges.push(Edge::Direct {
+            from: "n".into(),
+            to: "static_third".into(),
+        });
         let next = g.resolve_next_nodes("n", &0).unwrap();
         assert_eq!(
             next,
