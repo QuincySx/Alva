@@ -32,6 +32,24 @@ enum ForegroundOutcome {
     SpawnFailed(String),
 }
 
+/// Wrap `s` as a POSIX single-quoted literal that is safe to embed anywhere a
+/// shell word is expected (including inside another `sh -c '...'`). Every
+/// embedded `'` is rewritten as `'\''` (close-quote, escaped-quote, re-open).
+fn sh_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// True if `key` is a valid POSIX shell variable name: a leading letter or
+/// underscore followed by letters, digits, or underscores.
+fn is_valid_env_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 async fn exec_foreground_cancellable(
     command: &str,
     cwd: &Path,
@@ -197,9 +215,22 @@ impl ExecuteShellTool {
                 // Prefix command with env var exports
                 let mut exports = String::new();
                 for (key, value) in env_vars {
-                    // Escape single quotes in values
-                    let escaped = value.replace('\'', "'\\''");
-                    exports.push_str(&format!("export {}='{}'; ", key, escaped));
+                    // The key is interpolated unquoted into `export <key>=...`;
+                    // reject anything that isn't a valid shell identifier so a
+                    // malicious key (e.g. `x; rm -rf /`) cannot inject commands.
+                    if !is_valid_env_key(key) {
+                        return Ok(ToolOutput {
+                            content: vec![ToolContent::text(format!(
+                                "Invalid environment variable name: {:?} (must match [A-Za-z_][A-Za-z0-9_]*)",
+                                key
+                            ))],
+                            is_error: true,
+                            details: Some(json!({ "invalid_env_key": key })),
+                        });
+                    }
+                    // Single-quote the value so its contents are never expanded
+                    // or re-parsed by the shell.
+                    exports.push_str(&format!("export {}={}; ", key, sh_single_quote(value)));
                 }
                 format!("{}{}", exports, params.command)
             }
@@ -209,10 +240,14 @@ impl ExecuteShellTool {
 
         // Handle background execution
         if params.run_in_background.unwrap_or(false) {
-            // For background: spawn the command but don't wait for it
+            // For background: spawn the command but don't wait for it.
+            // `effective_command` may itself contain single quotes (from the
+            // env exports above), so it must be safely single-quoted before
+            // being embedded in the outer `sh -c '...'` — otherwise the inner
+            // quotes break out of the wrapper and corrupt/inject the command.
             let bg_command = format!(
-                "nohup sh -c '{}' > /dev/null 2>&1 & echo $!",
-                effective_command
+                "nohup sh -c {} > /dev/null 2>&1 & echo $!",
+                sh_single_quote(&effective_command)
             );
             match fs.exec(&bg_command, cwd, 5000).await {
                 Ok(result) => {
@@ -356,6 +391,29 @@ mod tests {
     use alva_kernel_abi::{CancellationToken, ToolExecutionContext};
     use serde_json::json;
     use tempfile::TempDir;
+
+    #[test]
+    fn sh_single_quote_neutralizes_metacharacters() {
+        // A value that would expand/inject if left unquoted becomes an inert
+        // literal once single-quoted.
+        assert_eq!(sh_single_quote("$(rm -rf /)"), "'$(rm -rf /)'");
+        // Embedded single quotes are escaped so the literal stays balanced.
+        assert_eq!(sh_single_quote("a'b"), r#"'a'\''b'"#);
+        // Nesting a quoted command inside another `sh -c '...'` stays balanced.
+        let inner = sh_single_quote("export K='v'; echo hi");
+        assert_eq!(inner.matches('\'').count() % 2, 0);
+    }
+
+    #[test]
+    fn is_valid_env_key_rejects_injection() {
+        assert!(is_valid_env_key("PATH"));
+        assert!(is_valid_env_key("_X1"));
+        assert!(!is_valid_env_key(""));
+        assert!(!is_valid_env_key("1ABC"));
+        assert!(!is_valid_env_key("x; rm -rf /"));
+        assert!(!is_valid_env_key("a b"));
+        assert!(!is_valid_env_key("K=v"));
+    }
 
     struct TestContext {
         workspace: PathBuf,
