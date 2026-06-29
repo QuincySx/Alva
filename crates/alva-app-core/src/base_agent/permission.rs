@@ -17,6 +17,9 @@ pub enum PermissionMode {
     AcceptShell,
     /// No tools execute — agent can only read and analyze.
     Plan,
+    /// Allow everything without prompting ("dangerously skip permissions").
+    /// Assumes a sandbox is in effect; intended for headless / CI runs.
+    Bypass,
 }
 
 impl Default for PermissionMode {
@@ -34,6 +37,7 @@ impl PermissionMode {
             PermissionMode::AcceptEdits => Sec::Interactive,
             PermissionMode::AcceptShell => Sec::Auto,
             PermissionMode::Plan => Sec::Plan,
+            PermissionMode::Bypass => Sec::Bypass,
         }
     }
 }
@@ -160,6 +164,18 @@ mod tests {
         assert_eq!(
             PermissionMode::Plan.to_security_mode(),
             alva_agent_security::PermissionMode::Plan
+        );
+    }
+
+    #[test]
+    fn bypass_maps_to_security_bypass() {
+        // Bypass = "dangerously skip permissions": allow everything,
+        // assumes a sandbox is in effect. Used by headless `-p` runs in
+        // CI/sandboxed environments. Must map to security Bypass, never to
+        // Auto/Interactive (which would re-introduce prompts/classifier gating).
+        assert_eq!(
+            PermissionMode::Bypass.to_security_mode(),
+            alva_agent_security::PermissionMode::Bypass
         );
     }
 
