@@ -163,7 +163,12 @@ fn is_read_only(cmd: &str) -> bool {
 }
 
 fn is_destructive(cmd: &str) -> bool {
-    let lower = cmd.to_lowercase();
+    // Normalize runs of whitespace (spaces, tabs) to a single space before
+    // matching. The patterns assume single-space separators, so without this
+    // `rm  -rf` / `rm\t-rf` would slip past the substring check and be
+    // misclassified as non-destructive in auto-mode.
+    let normalized = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lower = normalized.to_lowercase();
     DESTRUCTIVE_PATTERNS.iter().any(|p| lower.contains(p))
 }
 
@@ -291,6 +296,23 @@ mod tests {
     fn rm_fr_is_destructive() {
         assert_eq!(
             BashClassifier::classify("rm -fr /tmp/*"),
+            CommandClassification::Destructive
+        );
+    }
+
+    #[test]
+    fn rm_rf_with_irregular_whitespace_is_destructive() {
+        // Extra spaces / tabs between tokens must not bypass detection.
+        assert_eq!(
+            BashClassifier::classify("rm  -rf /"),
+            CommandClassification::Destructive
+        );
+        assert_eq!(
+            BashClassifier::classify("rm\t-rf ."),
+            CommandClassification::Destructive
+        );
+        assert_eq!(
+            BashClassifier::classify("git   push   --force origin main"),
             CommandClassification::Destructive
         );
     }
