@@ -91,3 +91,29 @@ Agent 看的精简报告：
 3. 对随机失败设置 `ALVA_TEST_REPEAT=3` 或更高，看 `case_stability`，不要凭单次失败判断回滚。
 4. Agent 自动继续时先读 `latest-agent-summary.json`，只处理最低 pass rate 或最高 failure count 的问题。
 5. 改 prompt/schema 后重新跑同一模型、同一 component set、同一 repeat count；如果 pass rate 下降，回退最近一次 prompt/schema 变更。
+
+## Headless CLI (`-p`) 与权限模式
+
+eval suite 验证工具/组件；要手动 headless 驱动同一个 agent（单 prompt、流式 stdout、退出码），用 `alva -p`：
+
+```bash
+alva -p "summarize README.md"
+echo "explain this error" | alva -p          # prompt 从 stdin 读
+```
+
+`-p` 是非交互的，**没有人能回答权限提示**。需要审批的工具（默认 `Ask` 模式下包括所有 `execute_shell`）会被 **fail-closed 拒绝**并打印原因，绝不挂起。用 `--permission-mode` 选策略：
+
+| MODE | 行为 | 适用 |
+|------|------|------|
+| `ask`（默认） | 写/执行工具需审批；`-p` 下＝拒绝并提示改用更宽模式 | 默认安全 |
+| `accept-edits` | 自动放行文件写；shell 仍受控 | 半自动 |
+| `accept-shell` | 分类器判定安全/未知的 shell 自动放行，破坏性命令拦截 | **headless/沙箱测试首选** |
+| `plan` | 只读，禁止写文件与执行命令 | 只分析 |
+| `bypass` | 全放行、不提示（"dangerously skip permissions"，假设有沙箱） | CI / 沙箱内 |
+
+```bash
+alva -p --permission-mode accept-shell "run the test suite and report failures"
+alva -p --permission-mode bypass "format the repo"     # 仅限 CI / 沙箱
+```
+
+测"权限拦截对不对"这类用例时：`accept-shell` 下跑破坏性命令应被拒（owner=`tool`/`runtime`），普通命令应放行；`ask` 下 `-p` 跑任何 shell 应得到拒绝提示而非挂起。完整 flag 见 `alva --help`。

@@ -10,31 +10,123 @@ use tokio::sync::mpsc;
 
 use crate::output;
 
+/// Format a terminal agent error for non-interactive (`-p`) mode.
+///
+/// In headless mode the only consumer of an error is another program (often an
+/// AI). A bare "Error: X" is a dead end — so we always echo the raw error AND
+/// append a targeted next step (*why* + *how to fix*) when the text matches a
+/// known failure class, falling back to a generic-but-actionable hint.
+pub(crate) fn format_print_mode_error(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    let hint = if lower.contains("401")
+        || lower.contains("unauthorized")
+        || lower.contains("api key")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("authentication")
+        || lower.contains("403")
+        || lower.contains("forbidden")
+    {
+        "Looks like an authentication problem. Check your provider credentials: \
+         set ALVA_API_KEY (and ALVA_MODEL / ALVA_BASE_URL / ALVA_PROVIDER_KIND) or run \
+         `alva settings set <provider> --api-key ... --model ...`."
+    } else if lower.contains("429")
+        || lower.contains("rate limit")
+        || lower.contains("rate_limit")
+        || lower.contains("quota")
+        || lower.contains("overloaded")
+    {
+        "The provider rate-limited or is overloaded. Wait a few seconds and retry, \
+         reduce concurrency, or switch model/provider via `alva settings`."
+    } else if lower.contains("denied")
+        || lower.contains("approval")
+        || lower.contains("permission")
+        || lower.contains("not allowed")
+        || lower.contains("blocked")
+    {
+        "A tool was blocked by the permission policy. In -p mode tools needing approval \
+         are denied by default. Re-run with `--permission-mode accept-shell` (safe shell \
+         auto-approved) or `--permission-mode bypass` (allow everything; sandbox only). \
+         See `alva --help`."
+    } else if lower.contains("timeout") || lower.contains("timed out") || lower.contains("deadline")
+    {
+        "The request or a tool timed out. Check network/provider reachability (ALVA_BASE_URL), \
+         retry, or the tool may be hanging — re-run with RUST_LOG=debug to see where."
+    } else if lower.contains("connect")
+        || lower.contains("dns")
+        || lower.contains("network")
+        || lower.contains("transport")
+    {
+        "Network/transport error reaching the provider. Verify ALVA_BASE_URL and connectivity, \
+         then retry."
+    } else {
+        "Re-run with RUST_LOG=debug for a full trace, or `alva --help` for options. If a tool \
+         was blocked, try `--permission-mode accept-shell`."
+    };
+    format!("Error: {raw}\nHint: {hint}")
+}
+
+/// User-facing notice when a tool requires approval during non-interactive
+/// (`-p`) mode. There is no human to answer, so the call is denied; the
+/// message names the tool and points at `--permission-mode` to opt in.
+pub(crate) fn print_mode_denial_notice(tool_name: &str) -> String {
+    format!(
+        "[permission] '{tool_name}' needs approval but -p mode is non-interactive — denied. \
+         Re-run with --permission-mode accept-shell (or bypass) to allow it."
+    )
+}
+
 /// Run a single prompt in non-interactive print mode.
 /// Streams only the assistant's text to stdout, then exits.
-pub(crate) async fn run_print_mode(agent: &BaseAgent, prompt: &str) -> i32 {
+///
+/// Approval requests are drained and **fail-closed denied** (with a stderr
+/// notice) so a tool that needs a human prompt cannot hang the run until the
+/// 300s approval timeout. Use `--permission-mode accept-shell|bypass` to let
+/// such tools run without a prompt.
+pub(crate) async fn run_print_mode(
+    agent: &BaseAgent,
+    prompt: &str,
+    approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
+) -> i32 {
     let mut rx = agent.prompt_text(prompt);
     let mut exit_code = 0;
 
-    while let Some(event) = rx.recv().await {
-        match event {
-            AgentEvent::MessageUpdate { delta, .. } => {
-                if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
-                    print!("{}", text);
-                    io::stdout().flush().ok();
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                match event {
+                    Some(AgentEvent::MessageUpdate { delta, .. }) => {
+                        if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
+                            print!("{}", text);
+                            io::stdout().flush().ok();
+                        }
+                    }
+                    Some(AgentEvent::MessageEnd { .. }) => {
+                        println!(); // final newline
+                    }
+                    Some(AgentEvent::AgentEnd { error }) => {
+                        if let Some(e) = &error {
+                            eprintln!("{}", format_print_mode_error(e));
+                            exit_code = 1;
+                        }
+                        break;
+                    }
+                    Some(_) => {}
+                    None => break,
                 }
             }
-            AgentEvent::MessageEnd { .. } => {
-                println!(); // final newline
-            }
-            AgentEvent::AgentEnd { error } => {
-                if let Some(e) = &error {
-                    eprintln!("Error: {}", e);
-                    exit_code = 1;
+            approval = approval_rx.recv() => {
+                if let Some(req) = approval {
+                    eprintln!("{}", print_mode_denial_notice(&req.tool_name));
+                    agent
+                        .resolve_permission(
+                            &req.request_id,
+                            &req.tool_name,
+                            PermissionDecision::RejectOnce,
+                        )
+                        .await;
                 }
-                break;
             }
-            _ => {}
         }
     }
 
@@ -147,6 +239,69 @@ mod tests {
     //! regression with no compile-time signal. All variants + the
     //! trim + lowercase normalization are pinned.
     use super::*;
+
+    #[test]
+    fn format_print_mode_error_always_includes_raw() {
+        let out = format_print_mode_error("some weird provider blew up");
+        assert!(
+            out.contains("some weird provider blew up"),
+            "raw error preserved: {out}"
+        );
+    }
+
+    #[test]
+    fn format_print_mode_error_auth_points_at_credentials() {
+        for raw in ["HTTP 401 Unauthorized", "invalid api key", "authentication failed"] {
+            let out = format_print_mode_error(raw);
+            assert!(
+                out.contains("ALVA_API_KEY") || out.contains("alva settings set"),
+                "auth error should point at credentials, got: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_print_mode_error_rate_limit_says_retry() {
+        let out = format_print_mode_error("HTTP 429 rate limit exceeded");
+        assert!(
+            out.to_lowercase().contains("retry") || out.to_lowercase().contains("rate"),
+            "rate-limit hint: {out}"
+        );
+    }
+
+    #[test]
+    fn format_print_mode_error_permission_points_at_flag() {
+        let out = format_print_mode_error("tool 'execute_shell' denied by user");
+        assert!(
+            out.contains("--permission-mode"),
+            "permission error should point at the flag: {out}"
+        );
+    }
+
+    #[test]
+    fn format_print_mode_error_unknown_still_actionable() {
+        // Even an unrecognized error must give the AI a next step, not a dead end.
+        let out = format_print_mode_error("kaboom");
+        assert!(out.len() > "kaboom".len(), "appends guidance: {out}");
+        assert!(
+            out.contains("RUST_LOG") || out.contains("--help"),
+            "generic next step present: {out}"
+        );
+    }
+
+    #[test]
+    fn print_mode_denial_notice_names_tool_and_hint() {
+        // The notice the user sees when a tool needs approval in non-interactive
+        // `-p` mode. Must name the offending tool and point at the escape hatch
+        // (--permission-mode) so a headless run is self-explanatory, not a
+        // silent denial.
+        let notice = print_mode_denial_notice("execute_shell");
+        assert!(notice.contains("execute_shell"), "names the tool: {notice}");
+        assert!(
+            notice.contains("--permission-mode"),
+            "points at the flag: {notice}"
+        );
+    }
 
     #[test]
     fn lowercase_y_is_allow_once() {

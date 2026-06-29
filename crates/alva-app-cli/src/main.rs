@@ -78,6 +78,10 @@ async fn run() -> i32 {
     // that need no LLM config or session init.
     let argv: Vec<String> = std::env::args().collect();
     match argv.get(1).map(|s| s.as_str()) {
+        Some("--help") | Some("-h") | Some("help") => {
+            print!("{}", usage_text());
+            return 0;
+        }
         Some("plugins") => return plugins::run(&argv[2..]).await,
         Some("context") => return context::run(&argv[2..]).await,
         Some("settings") => return settings_cmd::run(&argv[2..]).await,
@@ -147,17 +151,41 @@ async fn run() -> i32 {
         checkpoint_mgr: _checkpoint_mgr,
     } = agent_setup::build_agent(&config, &workspace, &paths).await;
 
-    // 3. Check for -p/--print mode (non-interactive, single prompt, stdout-only)
+    // 2b. Apply --permission-mode (headless permission control; mirrors
+    //     Claude Code / Codex). Applies to all run modes. Default is left
+    //     untouched (Ask) when the flag is absent.
     let args: Vec<String> = std::env::args().collect();
+    match parse_permission_mode(&args) {
+        Ok(Some(mode)) => agent.set_permission_mode(mode),
+        Ok(None) => {}
+        Err(e) => {
+            output::print_error(&e);
+            return 1;
+        }
+    }
+
+    // 3. Check for -p/--print mode (non-interactive, single prompt, stdout-only)
     let print_mode = args.iter().any(|a| a == "-p" || a == "--print");
 
     if print_mode {
-        let prompt_args: Vec<String> = args
-            .iter()
-            .skip(1) // skip binary name
-            .filter(|a| *a != "-p" && *a != "--print")
-            .cloned()
-            .collect();
+        // Collect the prompt from positional args, skipping the print flags
+        // and the `--permission-mode <value>` flag pair so they don't leak
+        // into the prompt text.
+        let mut prompt_args: Vec<String> = Vec::new();
+        let mut i = 1; // skip binary name
+        while i < args.len() {
+            let a = &args[i];
+            if a == "-p" || a == "--print" {
+                i += 1;
+                continue;
+            }
+            if a == "--permission-mode" {
+                i += 2; // skip the flag and its value
+                continue;
+            }
+            prompt_args.push(a.clone());
+            i += 1;
+        }
 
         let prompt = if prompt_args.is_empty() {
             let mut buf = String::new();
@@ -168,11 +196,18 @@ async fn run() -> i32 {
         };
 
         if prompt.is_empty() {
-            eprintln!("Error: no prompt provided. Usage: alva -p \"your prompt\"");
+            eprintln!(
+                "Error: no prompt provided in -p mode.\n\
+                 Hint: pass the prompt as an argument or pipe it via stdin:\n\
+                 \x20\x20alva -p \"summarize README.md\"\n\
+                 \x20\x20echo \"summarize README.md\" | alva -p\n\
+                 See `alva --help` for flags (including --permission-mode)."
+            );
             return 1;
         }
 
-        let exit_code = event_handler::run_print_mode(&agent, &prompt).await;
+        let exit_code =
+            event_handler::run_print_mode(&agent, &prompt, &mut approval_rx).await;
         return exit_code;
     }
 
@@ -236,8 +271,8 @@ async fn run() -> i32 {
     let mut i = 1;
     while i < argv.len() {
         let a = &argv[i];
-        if a == "--ui-mode" {
-            i += 2;
+        if a == "--ui-mode" || a == "--permission-mode" {
+            i += 2; // flag + its value
             continue;
         }
         if a == "-p" || a == "--print" || a == "--tui" || a == "--repl" {
@@ -284,4 +319,138 @@ async fn run() -> i32 {
     .await;
 
     0
+}
+
+/// Top-level CLI usage text. Kept as a function so the documented flag
+/// inventory is unit-tested — a flag that exists but isn't advertised here is
+/// a discoverability bug, especially for an AI driving the CLI headlessly.
+fn usage_text() -> String {
+    "\
+alva — coding agent CLI
+
+USAGE:
+    alva [FLAGS] [PROMPT]          Interactive (TUI by default)
+    alva -p [FLAGS] \"PROMPT\"       Non-interactive: run one prompt, stream to stdout, exit
+    echo \"PROMPT\" | alva -p        Non-interactive: read the prompt from stdin
+    alva <plugins|context|settings> ...   Subcommands (each has its own --help)
+
+FLAGS:
+    -p, --print                   Non-interactive single-prompt mode (no REPL/TUI).
+                                  Tools that need approval are denied (fail-closed)
+                                  unless --permission-mode allows them.
+    --permission-mode <MODE>      How tool permissions are handled. MODE is one of:
+                                    ask           Prompt for each write/execute tool (default).
+                                                  In -p mode this means: deny + tell you to
+                                                  re-run with a looser mode.
+                                    accept-edits  Auto-approve file writes; shell still gated.
+                                    accept-shell  Auto-approve shell when the classifier deems it
+                                                  safe/unknown; destructive commands blocked.
+                                                  Best for headless/sandboxed runs.
+                                    plan          Read-only: no file writes or commands.
+                                    bypass        Allow everything, no prompts ('dangerously
+                                                  skip permissions'); assumes a sandbox.
+    --repl                        Use the legacy line-mode REPL instead of the TUI.
+    --ui-mode <inline|fullscreen> TUI viewport mode.
+    -h, --help                    Show this help.
+
+EXAMPLES:
+    alva -p \"summarize README.md\"
+    alva -p --permission-mode accept-shell \"run the test suite and report failures\"
+    alva -p --permission-mode bypass \"format the repo\"        # CI / sandbox only
+"
+    .to_string()
+}
+
+/// Parse `--permission-mode <value>` from argv.
+///
+/// - `Ok(None)` — flag absent; caller keeps the agent's default mode.
+/// - `Ok(Some(mode))` — recognized value.
+/// - `Err(msg)` — flag present but value missing or unrecognized.
+///
+/// Mirrors the headless permission controls in Claude Code / Codex so a
+/// non-interactive `-p` run can pick its policy instead of hanging on a
+/// prompt nobody can answer.
+fn parse_permission_mode(
+    args: &[String],
+) -> Result<Option<alva_app_core::PermissionMode>, String> {
+    use alva_app_core::PermissionMode;
+    let Some(pos) = args.iter().position(|a| a == "--permission-mode") else {
+        return Ok(None);
+    };
+    let Some(val) = args.get(pos + 1) else {
+        return Err(
+            "--permission-mode requires a value (ask|accept-edits|accept-shell|plan|bypass)".into(),
+        );
+    };
+    let mode = match val.as_str() {
+        "ask" => PermissionMode::Ask,
+        "accept-edits" => PermissionMode::AcceptEdits,
+        "accept-shell" => PermissionMode::AcceptShell,
+        "plan" => PermissionMode::Plan,
+        "bypass" => PermissionMode::Bypass,
+        other => {
+            return Err(format!(
+                "unknown --permission-mode '{}' (expected ask|accept-edits|accept-shell|plan|bypass)",
+                other
+            ))
+        }
+    };
+    Ok(Some(mode))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_app_core::PermissionMode;
+
+    fn argv(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn usage_lists_print_and_permission_mode() {
+        // A flag that exists but isn't documented is a discoverability bug.
+        // Pin that `--help` advertises -p and the permission controls.
+        let u = usage_text();
+        assert!(u.contains("-p"), "mentions print mode: {u}");
+        assert!(u.contains("--permission-mode"), "mentions the flag: {u}");
+        assert!(u.contains("accept-shell"), "lists the modes: {u}");
+        assert!(u.contains("bypass"), "lists bypass: {u}");
+    }
+
+    #[test]
+    fn permission_mode_absent_returns_none() {
+        assert_eq!(
+            parse_permission_mode(&argv(&["alva", "-p", "hello"])),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn permission_mode_each_known_value_parses() {
+        let cases = [
+            ("ask", PermissionMode::Ask),
+            ("accept-edits", PermissionMode::AcceptEdits),
+            ("accept-shell", PermissionMode::AcceptShell),
+            ("plan", PermissionMode::Plan),
+            ("bypass", PermissionMode::Bypass),
+        ];
+        for (s, expected) in cases {
+            assert_eq!(
+                parse_permission_mode(&argv(&["alva", "--permission-mode", s])),
+                Ok(Some(expected)),
+                "value {s:?} should parse"
+            );
+        }
+    }
+
+    #[test]
+    fn permission_mode_unknown_value_is_error() {
+        assert!(parse_permission_mode(&argv(&["alva", "--permission-mode", "yolo"])).is_err());
+    }
+
+    #[test]
+    fn permission_mode_missing_value_is_error() {
+        assert!(parse_permission_mode(&argv(&["alva", "--permission-mode"])).is_err());
+    }
 }
