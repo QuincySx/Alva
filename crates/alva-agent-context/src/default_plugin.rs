@@ -163,6 +163,17 @@ impl DefaultContextHooks {
         }
     }
 
+    /// True if the message contains any `tool_use` block. Such an assistant
+    /// message must not be flattened to plain text during summarization, or the
+    /// paired `tool_result` that follows it would be orphaned and rejected by
+    /// providers (e.g. Anthropic returns 400 for an unmatched tool_result).
+    fn has_tool_use(msg: &AgentMessage) -> bool {
+        match msg {
+            AgentMessage::Standard(m) => m.content.iter().any(|b| b.is_tool_use()),
+            _ => false,
+        }
+    }
+
     /// Compress a tool result into a one-line summary.
     fn compact_tool_result(msg: &AgentMessage) -> String {
         match msg {
@@ -305,8 +316,14 @@ impl ContextHooks for DefaultContextHooks {
                 let msg_tokens = Self::estimate_message_tokens(&entry.message);
                 let is_tool_result = Self::is_tool_result(&entry.message);
                 // Only LLM-summarize non-tool messages > 2000 tokens (tool results
-                // use the cheaper compact_tool_result path below).
-                if !is_tool_result && msg_tokens > 2000 && llm_summary_candidates.len() < 3 {
+                // use the cheaper compact_tool_result path below). Skip messages
+                // that carry tool_use blocks: flattening them to text would drop
+                // the tool_use and orphan the paired tool_result.
+                if !is_tool_result
+                    && !Self::has_tool_use(&entry.message)
+                    && msg_tokens > 2000
+                    && llm_summary_candidates.len() < 3
+                {
                     let text = match &entry.message {
                         AgentMessage::Standard(m) => m.text_content(),
                         AgentMessage::Extension { data, .. } => data.to_string(),
@@ -419,9 +436,14 @@ impl ContextHooks for DefaultContextHooks {
             }
         }
 
+        // Track whether we drop any leading entries below; only then do we need
+        // to clean up tool_results that compaction itself orphaned.
+        let mut dropped_from_front = false;
+
         // --- S1: sliding window — cap message count ----------------------
         let mut kept: Vec<ContextEntry> = if compacted.len() > max_messages {
             let dropped = compacted.len() - max_messages;
+            dropped_from_front = true;
             // Recalculate tokens for dropped messages
             for entry in compacted.iter().take(dropped) {
                 total_tokens -= Self::estimate_message_tokens(&entry.message);
@@ -441,6 +463,26 @@ impl ContextHooks for DefaultContextHooks {
         while total_tokens > token_budget && kept.len() > 1 {
             let removed = kept.remove(0);
             total_tokens -= Self::estimate_message_tokens(&removed.message);
+            dropped_from_front = true;
+        }
+
+        // --- Orphaned tool_result guard ----------------------------------
+        // The sliding-window and budget drops above remove the oldest entries
+        // without regard to tool_use↔tool_result pairing. If we dropped any
+        // leading entries and the window now starts with a tool_result, its
+        // originating assistant tool_use was dropped too — providers (e.g.
+        // Anthropic) reject such an orphaned tool_result. Strip the orphans
+        // compaction created so the kept window starts on a self-contained
+        // message. Gated on `dropped_from_front` so we never reshape input that
+        // already led with tool_results and that compaction left untouched.
+        if dropped_from_front {
+            while kept
+                .first()
+                .is_some_and(|e| Self::is_tool_result(&e.message))
+            {
+                let removed = kept.remove(0);
+                total_tokens -= Self::estimate_message_tokens(&removed.message);
+            }
         }
 
         tracing::debug!(
@@ -753,6 +795,41 @@ mod tests {
                 panic!("Expected Standard message");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_assemble_strips_leading_orphaned_tool_result() {
+        let sdk = test_sdk();
+        let config = DefaultHooksConfig {
+            sliding_window_keep: 5,
+            ..DefaultHooksConfig::default()
+        };
+        let plugin = DefaultContextHooks::new(config);
+
+        // 0..=4 user, 5 = tool_result, 6..=9 user. The sliding window keeps the
+        // last 5 (indices 5..=9), which would start with the tool_result whose
+        // originating tool_use (dropped at index 4) is gone — an orphan that
+        // providers reject. The guard must strip it.
+        let mut entries: Vec<ContextEntry> = Vec::new();
+        for i in 0..5 {
+            entries.push(wrap_entry(user_msg(&format!("u{}", i))));
+        }
+        entries.push(wrap_entry(tool_msg("t5", "tool output")));
+        for i in 6..10 {
+            entries.push(wrap_entry(user_msg(&format!("u{}", i))));
+        }
+
+        let result = plugin.assemble(&sdk, "agent-1", entries, 100_000).await;
+
+        assert!(
+            !matches!(
+                result.first().map(|e| &e.message),
+                Some(AgentMessage::Standard(m)) if m.role == MessageRole::Tool
+            ),
+            "kept window must not start with an orphaned tool_result"
+        );
+        // The 4 trailing user messages remain.
+        assert_eq!(result.len(), 4);
     }
 
     #[tokio::test]
