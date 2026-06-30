@@ -11,6 +11,55 @@ use tokio::time::timeout;
 use alva_kernel_abi::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
 
 // ---------------------------------------------------------------------------
+// Secret env scrubbing for spawned shells
+// ---------------------------------------------------------------------------
+
+/// Env var names that hold credentials and must never be inherited by a shell
+/// command the model can drive. A child process inherits the parent's
+/// environment by default, so without this an injected prompt could run
+/// `printenv` / `echo $ANTHROPIC_API_KEY` and exfiltrate the key.
+///
+/// This is a deny-LIST (belt-and-suspenders): the app layer is expected to
+/// also `remove_var` its own key from the agent process at startup (which
+/// additionally closes the `/proc/<pid>/environ` vector). The list errs toward
+/// well-known provider credentials and avoids names like `SSH_AUTH_SOCK` /
+/// `XAUTHORITY` that legitimate commands rely on.
+const SECRET_ENV_VARS: &[&str] = &[
+    // Alva's own provider key (also scrubbed from the process by the host).
+    "ALVA_API_KEY",
+    "ALVA_AUTH_TOKEN",
+    // Common LLM provider credentials a user may also have exported.
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "OPENAI_API_KEY",
+    "OPENAI_API_KEY_PATH",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "MOONSHOT_API_KEY",
+    "KIMI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "COHERE_API_KEY",
+    "OPENROUTER_API_KEY",
+    // Cloud / VCS credentials commonly present in a dev environment.
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+];
+
+/// Strip credential-bearing env vars from a [`Command`] before it is spawned,
+/// so a model-driven shell cannot read them back. Non-secret env (PATH, HOME,
+/// locale, …) is left inherited so ordinary commands keep working.
+pub(crate) fn scrub_secret_env(cmd: &mut Command) {
+    for var in SECRET_ENV_VARS {
+        cmd.env_remove(var);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // LocalToolFs
 // ---------------------------------------------------------------------------
 
@@ -52,6 +101,7 @@ impl ToolFs for LocalToolFs {
         let mut cmd = Command::new("sh");
         cmd.kill_on_drop(true);
         cmd.arg("-c").arg(command);
+        scrub_secret_env(&mut cmd);
 
         if let Some(dir) = cwd {
             cmd.current_dir(self.resolve(dir));
@@ -176,6 +226,34 @@ mod tests {
         let dir = TempDir::new().expect("create tempdir");
         let fs = LocalToolFs::new(dir.path().to_path_buf());
         (fs, dir)
+    }
+
+    #[test]
+    fn scrub_secret_env_marks_credentials_for_removal() {
+        // Pin the security property: after scrubbing, the Command is configured
+        // to remove the well-known credential vars from the child's environment
+        // (so an inherited ANTHROPIC_API_KEY / ALVA_API_KEY can't be read back
+        // via `printenv`). We inspect the staged env mutations rather than
+        // mutating the process environment (which would race other tests).
+        let mut cmd = Command::new("sh");
+        scrub_secret_env(&mut cmd);
+        let removed: Vec<String> = cmd
+            .as_std()
+            .get_envs()
+            .filter(|(_, v)| v.is_none())
+            .map(|(k, _)| k.to_string_lossy().into_owned())
+            .collect();
+        for expected in ["ALVA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"] {
+            assert!(
+                removed.iter().any(|k| k == expected),
+                "{expected} should be scrubbed from the child env; removed = {removed:?}"
+            );
+        }
+        // A non-secret var must NOT be scrubbed (ordinary commands need PATH etc.)
+        assert!(
+            !removed.iter().any(|k| k == "PATH"),
+            "PATH must not be scrubbed"
+        );
     }
 
     #[tokio::test]

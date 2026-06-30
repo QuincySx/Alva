@@ -212,11 +212,22 @@ impl BaseAgent {
     ///
     /// Writes through to the bus-published [`PermissionModeService`], which
     /// fans out to whichever control handles are registered on the bus
-    /// (`PlanModeControl`, `SecurityModeControl`). A no-op if no service is
-    /// registered (e.g. `PermissionPlugin` was not added).
-    pub fn set_permission_mode(&self, mode: PermissionMode) {
+    /// (`PlanModeControl`, `SecurityModeControl`).
+    ///
+    /// Returns `true` if the change was applied, `false` if no
+    /// [`PermissionModeService`] is registered (e.g. the `permission`
+    /// component / `PermissionPlugin` was not added). Callers that honor an
+    /// explicit user request — e.g. a `--permission-mode` flag — MUST check
+    /// the return value: a silent `false` means the requested mode (including
+    /// the read-only `Plan` mode) had no effect, which is a safety-relevant
+    /// surprise rather than a benign no-op.
+    #[must_use = "a `false` return means the permission mode was NOT applied (no service registered)"]
+    pub fn set_permission_mode(&self, mode: PermissionMode) -> bool {
         if let Some(service) = self.inner.bus().get::<PermissionModeService>() {
             service.set(mode);
+            true
+        } else {
+            false
         }
     }
 

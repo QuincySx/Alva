@@ -102,6 +102,9 @@ pub struct SecurityMiddleware {
     guard: Arc<Mutex<SecurityGuard>>,
     bus: OnceLock<BusHandle>,
     approval_timeout: Duration,
+    /// One-shot latch so the "no approval handler wired" warning is logged at
+    /// most once per middleware, instead of on every approval-needing tool.
+    no_handler_warned: std::sync::atomic::AtomicBool,
 }
 
 impl SecurityMiddleware {
@@ -110,6 +113,7 @@ impl SecurityMiddleware {
             guard: Arc::new(Mutex::new(guard)),
             bus: OnceLock::new(),
             approval_timeout: Duration::from_secs(300),
+            no_handler_warned: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -359,7 +363,25 @@ impl Middleware for SecurityMiddleware {
                             ResolveStatus::NoHandler,
                         )
                         .await;
-                        // No approval handler configured — fall back to blocking
+                        // No approval handler configured. The behavior is
+                        // fail-closed (we block), which is safe — but a missing
+                        // ApprovalNotifier means EVERY approval-needing tool
+                        // will be blocked, which presents to the user as
+                        // mysterious tool failures. Surface it once in the logs
+                        // so the missing HITL wiring is diagnosable up front
+                        // rather than discovered tool-by-tool.
+                        if !self
+                            .no_handler_warned
+                            .swap(true, std::sync::atomic::Ordering::Relaxed)
+                        {
+                            tracing::warn!(
+                                "tool requires human approval but no ApprovalNotifier is registered \
+                                 on the bus; all approval-requiring tools will be blocked. Wire an \
+                                 approval handler (provide ApprovalNotifier) or use a permission \
+                                 mode that does not require approval."
+                            );
+                        }
+                        // Fall back to blocking.
                         Err(MiddlewareError::Blocked {
                             reason: format!(
                                 "tool '{}' requires human approval (request: {}) but no approval handler is configured",

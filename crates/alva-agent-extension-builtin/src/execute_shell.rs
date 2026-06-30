@@ -60,6 +60,9 @@ async fn exec_foreground_cancellable(
     cmd.kill_on_drop(true);
     cmd.arg("-c").arg(command);
     cmd.current_dir(cwd);
+    // Strip credential-bearing env vars so a model-driven command cannot read
+    // them back (e.g. `printenv ANTHROPIC_API_KEY`). See `scrub_secret_env`.
+    crate::local_fs::scrub_secret_env(&mut cmd);
     // `spawn()` inherits stdio from the parent by default; `wait_with_output()`
     // only reads captured pipes. Explicit `piped()` here is what
     // `Command::output()` does internally — required to get stdout/stderr.

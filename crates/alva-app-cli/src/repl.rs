@@ -278,8 +278,11 @@ pub(crate) async fn run_repl(
                         } else {
                             PermissionMode::Plan
                         };
-                        agent.set_permission_mode(new_mode);
-                        if new_mode == PermissionMode::Plan {
+                        if !agent.set_permission_mode(new_mode) {
+                            eprintln!(
+                                "  Cannot change permission mode — the `permission` component is disabled."
+                            );
+                        } else if new_mode == PermissionMode::Plan {
                             eprintln!("  Plan mode ON — read-only, no file changes or commands");
                         } else {
                             eprintln!("  Plan mode OFF — tools can modify files");
@@ -293,8 +296,11 @@ pub(crate) async fn run_repl(
                         } else {
                             PermissionMode::AcceptShell
                         };
-                        agent.set_permission_mode(new_mode);
-                        if new_mode == PermissionMode::AcceptShell {
+                        if !agent.set_permission_mode(new_mode) {
+                            eprintln!(
+                                "  Cannot change permission mode — the `permission` component is disabled."
+                            );
+                        } else if new_mode == PermissionMode::AcceptShell {
                             eprintln!("  Auto-shell ON — non-destructive shell commands run without prompting");
                         } else {
                             eprintln!("  Auto-shell OFF — shell commands ask for approval");

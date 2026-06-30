@@ -29,6 +29,17 @@ impl Default for PermissionMode {
 }
 
 impl PermissionMode {
+    /// Whether this mode's safety story relies on an OS-level sandbox being in
+    /// effect. `AcceptShell` ("trust the sandbox") and `Bypass` ("dangerously
+    /// skip permissions; assumes a sandbox") both auto-run commands that would
+    /// otherwise need approval, and only do so safely *because* a sandbox is
+    /// supposed to contain them. Callers should refuse / re-confirm these modes
+    /// when [`SandboxConfig::is_enforced`](alva_agent_security::SandboxConfig::is_enforced)
+    /// reports no enforcement on the current platform.
+    pub fn assumes_sandbox(self) -> bool {
+        matches!(self, PermissionMode::AcceptShell | PermissionMode::Bypass)
+    }
+
     /// Map the app-level mode to the underlying security guard mode.
     pub fn to_security_mode(self) -> alva_agent_security::PermissionMode {
         use alva_agent_security::PermissionMode as Sec;

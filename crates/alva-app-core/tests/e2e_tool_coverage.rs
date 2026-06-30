@@ -86,7 +86,10 @@ async fn build_agent_with_responses(
 
     // Mode is initialized to AcceptShell via the extension; reasserting
     // here is a no-op but keeps the intent visible at the call site.
-    agent.set_permission_mode(PermissionMode::AcceptShell);
+    // `assert!` also pins that the PermissionModeService is actually on the
+    // bus (see the comment above) — a `false` return would mean Plan-mode
+    // tests could falsely pass.
+    assert!(agent.set_permission_mode(PermissionMode::AcceptShell));
 
     // Auto-approve approval requests via the bus-published SecurityGuard.
     // BaseAgent is not Clone, so we operate on the guard directly instead
@@ -525,7 +528,7 @@ async fn stage1_enter_plan_mode_tool_stub_and_real_plan_mode_blocks_writes() {
     );
 
     // (b) Real plan mode (set via the UI-layer API) DOES block writes.
-    agent.set_permission_mode(PermissionMode::Plan);
+    assert!(agent.set_permission_mode(PermissionMode::Plan));
     let new_target = ws.join("blocked.txt");
     let new_model = MockLanguageModel::new()
         .with_response(tool_use_message(
@@ -952,7 +955,7 @@ async fn stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes() 
     );
 
     // (b) Real plan-mode round trip: Plan → blocks; back to AcceptShell → allows.
-    agent.set_permission_mode(PermissionMode::Plan);
+    assert!(agent.set_permission_mode(PermissionMode::Plan));
     let blocked_path = ws.join("plan-blocked.txt");
     let blocked_model = MockLanguageModel::new()
         .with_response(tool_use_message(
@@ -972,7 +975,7 @@ async fn stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes() 
     );
 
     // Now exit plan mode (production API) and verify write goes through.
-    agent.set_permission_mode(PermissionMode::AcceptShell);
+    assert!(agent.set_permission_mode(PermissionMode::AcceptShell));
     let allowed_path = ws.join("post-exit.txt");
     let allow_model = MockLanguageModel::new()
         .with_response(tool_use_message(

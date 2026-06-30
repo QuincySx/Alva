@@ -1422,8 +1422,11 @@ async fn handle_slash_command(
             } else {
                 PermissionMode::Plan
             };
-            agent.set_permission_mode(new_mode);
-            if new_mode == PermissionMode::Plan {
+            if !agent.set_permission_mode(new_mode) {
+                app.push_system_message(
+                    "Cannot change permission mode -- the `permission` component is disabled.",
+                );
+            } else if new_mode == PermissionMode::Plan {
                 app.push_system_message("Plan mode ON -- read-only, no file changes or commands");
             } else {
                 app.push_system_message("Plan mode OFF -- tools can modify files");
@@ -1437,8 +1440,11 @@ async fn handle_slash_command(
             } else {
                 PermissionMode::AcceptShell
             };
-            agent.set_permission_mode(new_mode);
-            if new_mode == PermissionMode::AcceptShell {
+            if !agent.set_permission_mode(new_mode) {
+                app.push_system_message(
+                    "Cannot change permission mode -- the `permission` component is disabled.",
+                );
+            } else if new_mode == PermissionMode::AcceptShell {
                 app.push_system_message(
                     "Auto-shell ON -- non-destructive shell commands run without prompting",
                 );

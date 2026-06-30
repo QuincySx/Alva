@@ -54,6 +54,23 @@ impl SandboxConfig {
         self.mode
     }
 
+    /// Whether this platform can actually *enforce* the sandbox at the OS
+    /// level. Today only macOS (Seatbelt / `sandbox-exec`) is enforced; on
+    /// every other platform [`wrap_command`](Self::wrap_command) runs the
+    /// command unchanged. Callers that gate dangerous permission modes
+    /// (`Bypass`, `AcceptShell`) on "a sandbox is in effect" MUST consult
+    /// this rather than assuming the sandbox is real.
+    pub const fn is_enforced() -> bool {
+        cfg!(target_os = "macos")
+    }
+
+    /// Whether the configured mode is one that promises isolation
+    /// (restrictive / proxied). `PermissiveOpen` makes no such promise, so a
+    /// no-op on a non-macOS platform is not a broken promise for it.
+    pub fn promises_isolation(&self) -> bool {
+        !matches!(self.mode, SandboxMode::PermissiveOpen)
+    }
+
     pub fn add_writable_dir(&mut self, dir: std::path::PathBuf) {
         if !self.writable_dirs.contains(&dir) {
             self.writable_dirs.push(dir);
@@ -121,9 +138,20 @@ impl SandboxConfig {
         result
     }
 
-    /// On non-macOS platforms, return the command unchanged.
+    /// On non-macOS platforms there is no OS-level sandbox, so the command is
+    /// returned unchanged. When the configured mode *promised* isolation
+    /// (restrictive / proxied) we emit a warning so the missing enforcement is
+    /// observable rather than a silent false promise — see [`Self::is_enforced`].
     #[cfg(not(target_os = "macos"))]
     pub fn wrap_command(&self, command: &str, args: &[&str]) -> Vec<String> {
+        if self.promises_isolation() {
+            tracing::warn!(
+                mode = ?self.mode,
+                command = %command,
+                "sandbox mode requested but this platform has no OS-level \
+                 enforcement; the command will run WITHOUT isolation"
+            );
+        }
         let mut result = vec![command.to_string()];
         result.extend(args.iter().map(|a| a.to_string()));
         result

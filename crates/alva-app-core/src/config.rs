@@ -109,9 +109,34 @@ pub fn save(cfg: &AlvaConfig) -> Result<PathBuf, std::io::Error> {
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no home dir"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
+        // The config holds plaintext API keys — keep the directory owner-only
+        // (0700) so other local users can't traverse into it.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
     }
     let body = serde_json::to_string_pretty(cfg)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    // Write with owner-only permissions (0600) from the start. Creating the
+    // file with the right mode (rather than write-then-chmod) avoids a window
+    // where the plaintext keys are briefly world-readable.
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)?;
+        f.write_all(body.as_bytes())?;
+        // An existing file keeps its old mode through OpenOptions, so force it.
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
     std::fs::write(&path, body)?;
     Ok(path)
 }

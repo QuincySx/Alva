@@ -32,7 +32,7 @@ mod settings_cmd;
 mod setup;
 pub mod ui;
 
-use std::io::{self, Read as _};
+use std::io::{self, IsTerminal as _, Read as _};
 
 use alva_app_core::AlvaPaths;
 use alva_kernel_abi::agent_session::EventQuery;
@@ -127,20 +127,51 @@ async fn run() -> i32 {
                     }
                     shared
                 }
-                None => match setup::run_setup_wizard(&workspace) {
-                    Some(c) => c,
-                    None => {
-                        eprintln!();
-                        output::print_error("Setup incomplete. You can also configure manually:");
+                None => {
+                    // The interactive setup wizard reads from stdin. In a
+                    // non-interactive run (CI / `echo ... | alva -p`) stdin
+                    // carries the *prompt*, not menu answers — entering the
+                    // wizard would consume that piped input and garble the
+                    // run. Fail fast with config instructions instead.
+                    if !std::io::stdin().is_terminal() {
+                        output::print_error(
+                            "No API key configured and stdin is not a terminal, so the \
+                             interactive setup wizard can't run.",
+                        );
+                        eprintln!("Configure a provider first, e.g.:");
                         eprintln!("  export ALVA_API_KEY=sk-...");
                         eprintln!("  export ALVA_MODEL=gpt-4o");
                         eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
                         return 1;
                     }
-                },
+                    match setup::run_setup_wizard(&workspace) {
+                        Some(c) => c,
+                        None => {
+                            eprintln!();
+                            output::print_error("Setup incomplete. You can also configure manually:");
+                            eprintln!("  export ALVA_API_KEY=sk-...");
+                            eprintln!("  export ALVA_MODEL=gpt-4o");
+                            eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
+                            return 1;
+                        }
+                    }
+                }
             }
         }
     };
+
+    // Defense-in-depth: the API key has now been resolved into `config`
+    // (in memory). Scrub the secret-bearing env vars from THIS process so a
+    // child shell spawned by the agent's `execute_shell` tool cannot read
+    // them back — neither via `printenv`/`env`/`$ALVA_API_KEY` (child inherits
+    // our env) nor via `/proc/<our-pid>/environ` on Linux (a child running as
+    // the same user can read the parent's environment). The provider already
+    // holds the key, so removing it here does not affect outbound LLM calls.
+    // This is `safe` on edition 2021; it runs before the agent (and its tool
+    // threads) are built, minimizing concurrent-env-access risk.
+    for var in ["ALVA_API_KEY", "ALVA_AUTH_TOKEN"] {
+        std::env::remove_var(var);
+    }
 
     let session_manager = JsonFileSessionManager::for_workspace(&workspace);
 
@@ -155,17 +186,55 @@ async fn run() -> i32 {
     //     Claude Code / Codex). Applies to all run modes. Default is left
     //     untouched (Ask) when the flag is absent.
     let args: Vec<String> = std::env::args().collect();
+
+    // 3. Check for -p/--print mode (non-interactive, single prompt, stdout-only).
+    //    Computed before applying --permission-mode because the sandbox gate
+    //    below behaves differently in headless vs interactive runs.
+    let print_mode = args.iter().any(|a| a == "-p" || a == "--print");
+
     match parse_permission_mode(&args) {
-        Ok(Some(mode)) => agent.set_permission_mode(mode),
+        Ok(Some(mode)) => {
+            // CLI#7: `accept-shell` / `bypass` auto-run commands on the
+            // assumption that an OS sandbox will contain them. When no sandbox
+            // is actually enforced (today: any non-macOS platform) that
+            // assumption is false, so refuse in headless mode and require an
+            // explicit confirmation interactively rather than silently running
+            // unsandboxed commands with elevated permissions.
+            if mode.assumes_sandbox() && !alva_app_core::SandboxConfig::is_enforced() {
+                if print_mode {
+                    output::print_error(&format!(
+                        "--permission-mode {} assumes an OS sandbox, but none is enforced on \
+                         this platform.\nRefusing to auto-run commands unsandboxed in headless \
+                         (-p) mode. Use `--permission-mode ask` (or run on a platform with \
+                         sandbox support).",
+                        permission_mode_label(mode),
+                    ));
+                    return 1;
+                }
+                if !confirm_unsandboxed_mode(permission_mode_label(mode)) {
+                    output::print_error("Aborted: unsandboxed elevated permission mode declined.");
+                    return 1;
+                }
+            }
+            // The user *explicitly* asked for a mode, so a silent no-op is a
+            // safety surprise (e.g. they think they're in read-only `plan` but
+            // the `permission` component is disabled and tools still run).
+            if !agent.set_permission_mode(mode) {
+                output::print_error(&format!(
+                    "--permission-mode {} was requested, but the `permission` component is \
+                     disabled, so it has no effect.\nEnable it in ~/.alva/config.json (or remove \
+                     the flag).",
+                    permission_mode_label(mode),
+                ));
+                return 1;
+            }
+        }
         Ok(None) => {}
         Err(e) => {
             output::print_error(&e);
             return 1;
         }
     }
-
-    // 3. Check for -p/--print mode (non-interactive, single prompt, stdout-only)
-    let print_mode = args.iter().any(|a| a == "-p" || a == "--print");
 
     if print_mode {
         // Collect the prompt from positional args, skipping the print flags
@@ -396,6 +465,40 @@ fn parse_permission_mode(
         }
     };
     Ok(Some(mode))
+}
+
+/// Human-facing label for a permission mode (matches the `--permission-mode`
+/// flag spelling).
+fn permission_mode_label(mode: alva_app_core::PermissionMode) -> &'static str {
+    use alva_app_core::PermissionMode;
+    match mode {
+        PermissionMode::Ask => "ask",
+        PermissionMode::AcceptEdits => "accept-edits",
+        PermissionMode::AcceptShell => "accept-shell",
+        PermissionMode::Plan => "plan",
+        PermissionMode::Bypass => "bypass",
+    }
+}
+
+/// Interactive y/N confirmation before enabling a sandbox-assuming permission
+/// mode on a platform with no enforced sandbox (CLI#7). Returns `true` only on
+/// an explicit affirmative. Declines automatically when stdin is not a TTY (no
+/// one can answer), which keeps the unsafe mode from slipping through a pipe.
+fn confirm_unsandboxed_mode(label: &str) -> bool {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        return false;
+    }
+    eprint!(
+        "warning: --permission-mode {label} auto-runs commands and assumes an OS sandbox, \
+         but none is enforced on this platform.\nCommands will run UNSANDBOXED. Continue? [y/N] "
+    );
+    let _ = std::io::stderr().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim(), "y" | "Y" | "yes" | "YES")
 }
 
 #[cfg(test)]

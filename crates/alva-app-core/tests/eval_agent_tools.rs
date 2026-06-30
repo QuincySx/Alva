@@ -166,7 +166,7 @@ async fn build_agent(workspace: &Path) -> BaseAgent {
         .await
         .expect("agent build should succeed");
 
-    agent.set_permission_mode(PermissionMode::AcceptShell);
+    assert!(agent.set_permission_mode(PermissionMode::AcceptShell));
 
     // Auto-approve every approval request via the bus-published SecurityGuard.
     let bus = agent.bus().clone();

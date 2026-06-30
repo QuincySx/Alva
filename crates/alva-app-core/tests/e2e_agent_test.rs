@@ -229,7 +229,7 @@ async fn e2e_plan_mode_blocks_writes() {
     );
 
     let (agent, _tmp) = build_agent(model).await;
-    agent.set_permission_mode(PermissionMode::Plan);
+    assert!(agent.set_permission_mode(PermissionMode::Plan));
 
     let rx = agent.prompt_text("Create a file.");
     let events = collect_events(rx).await;
