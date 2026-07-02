@@ -2,3 +2,5 @@
 index.json
 run-*.json
 data.js
+agent-summary-*.json
+latest-agent-summary.json
