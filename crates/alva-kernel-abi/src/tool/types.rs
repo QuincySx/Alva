@@ -172,7 +172,10 @@ pub trait Tool: Send + Sync {
     /// honors `resource_keys()` and runs concurrently with non-conflicting
     /// peers. Override with `SerialGlobal` for tools whose side effects
     /// cannot be precisely modeled (e.g. Bash: arbitrary FS + env + process
-    /// mutations → safer to treat as globally exclusive).
+    /// mutations → safer to treat as globally exclusive). Override with
+    /// `Coordinator` for orchestrator tools that take no lock themselves and
+    /// drive nested tools inline (e.g. `AgentSpawnTool`) — holding any lock
+    /// there would deadlock a nested `SerialGlobal` tool on the same task.
     fn execution_mode(&self) -> super::scheduler::ExecutionMode {
         super::scheduler::ExecutionMode::Parallel
     }

@@ -220,10 +220,16 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
                 ::alva_kernel_abi::ExecutionMode::SerialGlobal
             }
         },
+        Some("coordinator") | Some("Coordinator") => quote! {
+            fn execution_mode(&self) -> ::alva_kernel_abi::ExecutionMode {
+                ::alva_kernel_abi::ExecutionMode::Coordinator
+            }
+        },
         Some("parallel") | Some("Parallel") | None => quote! {},
         Some(other) => {
             let msg = format!(
-                "unknown execution_mode `{other}` (expected `parallel` or `serial-global`)"
+                "unknown execution_mode `{other}` \
+                 (expected `parallel`, `serial-global`, or `coordinator`)"
             );
             quote! { compile_error!(#msg); }
         }

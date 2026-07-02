@@ -225,6 +225,11 @@ struct SpawnInput {
         Sub-agents can spawn further sub-agents up to the configured depth limit.",
     input = SpawnInput,
     manages_own_timeout,
+    // Orchestrator: takes no scheduler lock. The spawned sub-agent runs inline
+    // on this same task and executes its own tools (which take their own
+    // locks). Holding the global read lock here would deadlock a child's
+    // `serial-global` tool (e.g. execute_shell) requesting the global write.
+    execution_mode = "coordinator",
 )]
 pub struct AgentSpawnTool {
     scope: Arc<SpawnScopeImpl>,

@@ -211,6 +211,75 @@ async fn video_template_wires_into_spawn_and_skill_service() {
     );
 }
 
+/// KILL-1 regression: a sub-agent that runs a `serial-global` tool
+/// (`execute_shell`) must not deadlock the whole session.
+///
+/// The parent's `agent` spawn tool defaults to `Parallel` execution, so the
+/// scheduler holds the global READ lock for the entire inline child run. The
+/// child inherits the same bus → the same `ToolLockRegistry`; its
+/// `execute_shell` is `serial-global` and requests the global WRITE lock on
+/// the same task that still holds the read guard → deadlock. This is the
+/// default component set (`tool-lock` + `sub-agents` are both `default_on`),
+/// so it is the default path, not an edge case.
+///
+/// The whole run is wrapped in a timeout so a regression surfaces as a failed
+/// assertion instead of a hung test process.
+#[tokio::test]
+async fn subagent_running_shell_does_not_deadlock() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path();
+
+    // Parent delegates a shell command to a sub-agent, granting it
+    // `execute_shell`. Parent and child share this one mock model's response
+    // queue (with no ProviderRegistry the child inherits the parent model),
+    // drawn in strict inline order: parent spawns → child runs shell → child
+    // finishes → parent finishes.
+    let model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "spawn",
+            "agent",
+            serde_json::json!({
+                "task": "run a shell command and report its output",
+                "role": "worker",
+                "tools": ["execute_shell"],
+            }),
+        ))
+        .with_response(tool_use_message(
+            "sh",
+            "execute_shell",
+            serde_json::json!({ "command": "echo child_ran" }),
+        ))
+        .with_response(make_assistant_message("child done"))
+        .with_response(make_assistant_message("parent done"));
+
+    // Retain a handle so we can inspect how far the scripted conversation got.
+    // The mock shares its state across clones (Arc<Mutex>), so calls made
+    // through the agent's copy are visible here.
+    let model_handle = model.clone();
+
+    let agent = build_mini_agent(ws, Arc::new(model), &default_toggles()).await;
+
+    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.");
+    let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
+        .await
+        .expect("KILL-1: sub-agent running a serial-global tool deadlocked the session");
+
+    // The full scripted chain must have executed: parent spawns (call 1) →
+    // child runs execute_shell (call 2) → child finishes (call 3) → parent
+    // finishes (call 4). If the child had deadlocked or bailed before the
+    // shell, the queue could not have advanced past call 2.
+    assert_eq!(
+        model_handle.calls().len(),
+        4,
+        "expected the full parent→child→shell→done chain (4 model turns)"
+    );
+    assert!(
+        matches!(events.last(), Some(AgentEvent::AgentEnd { error: None })),
+        "the parent agent run should end cleanly, got: {:?}",
+        events.last()
+    );
+}
+
 /// Resolve the component toggles for the REAL suite from `ALVA_TEST_COMPONENTS`:
 ///   - unset / empty → `default_toggles()` (catalog `default_on`).
 ///   - `all`         → every catalog id forced ON (maximal tool-set).

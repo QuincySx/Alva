@@ -152,6 +152,14 @@ pub enum ExecutionMode {
     /// alone. Nothing else runs while it does. Reserved for tools whose
     /// side effects can't be precisely modeled (e.g. Bash).
     SerialGlobal,
+    /// Orchestrator — acquires NO lock. The tool performs no side effects of
+    /// its own; it drives nested tools that each take their own locks (e.g.
+    /// `AgentSpawnTool`, whose inlined sub-agent runs its own `execute_shell`).
+    /// Taking any lock here would deadlock: an orchestrator that ran inline
+    /// while holding the global read lock would block on the same task's
+    /// nested `SerialGlobal` tool requesting the global write lock, which can
+    /// never be granted while the read guard is alive.
+    Coordinator,
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +325,16 @@ impl ToolLockRegistry {
         holder: Option<String>,
     ) -> ToolLockGuards {
         match mode {
+            ExecutionMode::Coordinator => ToolLockGuards {
+                global_write: None,
+                global_read: None,
+                read: Vec::new(),
+                write: Vec::new(),
+                ticket: HolderTicket {
+                    registry: Arc::downgrade(&self.inspect),
+                    holds: Vec::new(),
+                },
+            },
             ExecutionMode::SerialGlobal => {
                 let guard = self.global.clone().write_owned().await;
                 let id = self.track_holder(GLOBAL_SERIAL_KEY, LockMode::Write, holder);
