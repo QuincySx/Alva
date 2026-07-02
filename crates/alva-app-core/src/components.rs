@@ -126,7 +126,7 @@ pub static COMPONENTS: &[ComponentMeta] = &[
     ComponentMeta {
         id: "web",
         label: "Web",
-        description: "internet_search + read_url.",
+        description: "internet_search + read_url + understand_video.",
         category: "tools",
         default_on: true,
         kind: ComponentKind::Plugin,

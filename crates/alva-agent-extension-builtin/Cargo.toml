@@ -25,7 +25,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "wasm
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
 ignore = "0.4"
-reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"], optional = true }
 alva-app-extension-browser = { path = "../alva-app-extension-browser", optional = true }
 alva-agent-context = { path = "../alva-agent-context" }
 

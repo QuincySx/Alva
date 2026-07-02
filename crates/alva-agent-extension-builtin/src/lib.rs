@@ -9,6 +9,7 @@
 // Tool implementations and Extension wrappers are added task-by-task
 // during the rest of the refactor.
 
+pub mod media;
 pub mod services;
 pub mod truncate;
 pub mod wrappers;
@@ -76,6 +77,8 @@ pub mod tool_search;
 pub mod internet_search;
 #[cfg(all(feature = "web", not(target_family = "wasm")))]
 pub mod read_url;
+#[cfg(all(feature = "web", not(target_family = "wasm")))]
+pub mod understand_video;
 
 // ---- notebook feature tool ----
 
@@ -252,6 +255,7 @@ pub mod tool_presets {
         {
             tools.push(Box::new(crate::internet_search::InternetSearchTool));
             tools.push(Box::new(crate::read_url::ReadUrlTool));
+            tools.push(Box::new(crate::understand_video::UnderstandVideoTool));
         }
         tools
     }
@@ -434,7 +438,7 @@ mod tool_preset_tests {
     #[test]
     fn web_preset_includes_internet_search_and_read_url() {
         let got = names(tool_presets::web());
-        contains_all(&got, &["internet_search", "read_url"]);
+        contains_all(&got, &["internet_search", "read_url", "understand_video"]);
     }
 
     #[cfg(all(feature = "notebook", not(target_family = "wasm")))]
