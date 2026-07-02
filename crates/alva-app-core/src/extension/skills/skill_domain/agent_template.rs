@@ -10,7 +10,9 @@ use crate::extension::skills::skill_domain::skill_config::{InjectionPolicy, Skil
 /// Corresponds to the "Agent Template Library" concept in Wukong
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentTemplate {
-    /// Template ID, kebab-case, e.g. "browser-agent"
+    /// Template ID, kebab-case, e.g. "browser-agent". Defaults to the
+    /// `name` when omitted in config.
+    #[serde(default)]
     pub id: String,
     /// Human-readable name
     pub name: String,
@@ -21,17 +23,50 @@ pub struct AgentTemplate {
     pub system_prompt_base: String,
 
     /// Skill set used by this template
+    #[serde(default)]
     pub skills: SkillSet,
 
     /// MCP Server set used by this template
+    #[serde(default)]
     pub mcp_servers: McpSet,
 
     /// Allowed tool name list (None = use all registered tools)
     /// Note: MCP tool names use format "mcp:<server_id>:<tool_name>"
+    #[serde(default)]
     pub allowed_tools: Option<Vec<String>>,
 
     /// Max loop iterations (overrides engine default)
+    #[serde(default)]
     pub max_iterations: Option<u32>,
+
+    /// Optional dedicated model/endpoint for this sub-agent. `None` → the
+    /// sub-agent inherits the parent agent's model.
+    #[serde(default)]
+    pub model: Option<AgentModelConfig>,
+}
+
+/// Per-template model + endpoint, so a sub-agent can run on its own provider.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentModelConfig {
+    /// Model id, e.g. "qwen3.5", "claude-haiku-4.5", "gpt-4o".
+    pub model: String,
+    /// API endpoint / node. Empty → the provider impl's default.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Provider impl: "anthropic" | "openai-chat" | "openai-responses" |
+    /// "gemini". Omitted / unknown → OpenAI Chat Completions (broadest
+    /// OpenAI-compatible path).
+    #[serde(default)]
+    pub provider_kind: Option<String>,
+    /// Literal API key. Prefer `api_key_env` so secrets stay out of config.
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Name of an environment variable to read the API key from.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    /// Max output tokens (default 4096).
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
 }
 
 /// Agent template's Skill declaration set

@@ -6,9 +6,12 @@ use std::sync::Arc;
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 
+use crate::extension::mcp::runtime::McpManager;
+use crate::extension::skills::agent_template_service::AgentTemplateService;
 use crate::extension::skills::injector::SkillInjector;
 use crate::extension::skills::loader::SkillLoader;
 use crate::extension::skills::middleware::SkillInjectionMiddleware;
+use crate::extension::skills::skill_domain::agent_template::GlobalSkillConfig;
 use crate::extension::skills::skill_fs::FsSkillRepository;
 use crate::extension::skills::skill_ports::skill_repository::SkillRepository;
 use crate::extension::skills::store::SkillStore;
@@ -94,6 +97,19 @@ impl Plugin for SkillsPlugin {
             self.store.clone(),
             self.injector.clone(),
         )));
+
+        // Publish AgentTemplateService on the bus so the spawn tool can
+        // instantiate sub-agent templates (skill injection into the child's
+        // system prompt). The MCP manager is `disconnected()` — template
+        // `mcp_servers` register but expose no tools until a real MCP
+        // transport + shared manager is wired (transport is a stub today).
+        let template_service = Arc::new(AgentTemplateService::new(
+            self.store.clone(),
+            self.injector.clone(),
+            Arc::new(McpManager::disconnected()),
+            GlobalSkillConfig::default(),
+        ));
+        r.provide::<AgentTemplateService>(template_service);
 
         // Async init (was `configure()`).
         if let Err(e) = self.store.scan().await {

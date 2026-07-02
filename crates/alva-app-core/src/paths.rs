@@ -81,6 +81,16 @@ impl AlvaPaths {
         self.project_dir.join("mcp.json")
     }
 
+    // ── Agent templates ─────────────────────────────────────────────
+
+    pub fn global_agents_config(&self) -> PathBuf {
+        self.global_dir.join("agents.toml")
+    }
+
+    pub fn project_agents_config(&self) -> PathBuf {
+        self.project_dir.join("agents.toml")
+    }
+
     // ── Skills ──────────────────────────────────────────────────────
 
     pub fn global_skills_dir(&self) -> PathBuf {

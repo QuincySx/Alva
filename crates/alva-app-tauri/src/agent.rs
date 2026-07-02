@@ -1478,6 +1478,10 @@ async fn ensure_agent(
         )),
         mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
         subagent_depth: 3,
+        agent_templates: alva_app_core::extension::agent_templates::resolve_agent_templates(&[
+            paths.global_agents_config(),
+            paths.project_agents_config(),
+        ]),
         hooks_settings: alva_app_core::settings::HooksSettings::default(),
         subprocess_ext_dirs: vec![
             paths.project_extensions_dir(),

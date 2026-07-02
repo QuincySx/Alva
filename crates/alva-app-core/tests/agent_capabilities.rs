@@ -99,6 +99,7 @@ async fn build_mini_agent(
         skills: Some((workspace.join(".alva/skills"), None)),
         mcp_config_paths: vec![],
         subagent_depth: 3,
+        agent_templates: vec![],
         hooks_settings: alva_app_core::settings::HooksSettings::default(),
         subprocess_ext_dirs: vec![],
     };
@@ -152,6 +153,62 @@ async fn build_mini_agent(
 /// assertion build with (it covers every tool they pin).
 fn default_toggles() -> alva_app_core::components::ComponentToggles {
     alva_app_core::components::ComponentToggles::new()
+}
+
+/// End-to-end wiring proof (no API key): assembling the agent with the
+/// built-in `video` template publishes (a) the spawn tool, (b) the template
+/// registry on the bus listing `video`, and (c) the AgentTemplateService
+/// (phase 2 — skill injection). This is the full chain CLI/Tauri use.
+#[tokio::test]
+async fn video_template_wires_into_spawn_and_skill_service() {
+    use alva_app_core::extension::agent_spawn::AgentTemplateRegistry;
+    use alva_app_core::extension::skills::agent_template_service::AgentTemplateService;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().to_path_buf();
+    let model = MockLanguageModel::new().with_response(make_assistant_message("noop"));
+    let (approval_ext, _rx) = alva_app_core::extension::ApprovalPlugin::with_channel();
+
+    let ctx = alva_app_core::components::ComponentContext {
+        workspace: ws.clone(),
+        provider_registry: None,
+        skills: Some((ws.join(".alva/skills"), None)),
+        mcp_config_paths: vec![],
+        subagent_depth: 3,
+        agent_templates: alva_app_core::extension::agent_templates::builtin_agent_templates(),
+        hooks_settings: alva_app_core::settings::HooksSettings::default(),
+        subprocess_ext_dirs: vec![],
+    };
+    let builder = alva_app_core::components::apply_components(
+        BaseAgent::builder()
+            .workspace(&ws)
+            .system_prompt("x")
+            .max_iterations(5)
+            .plugin(Box::new(approval_ext)),
+        &default_toggles(),
+        &ctx,
+    );
+    let agent = builder.build(Arc::new(model)).await.expect("agent builds");
+
+    // (a) spawn tool present
+    assert!(
+        agent.tool_names().iter().any(|n| n == "agent"),
+        "spawn `agent` tool should be registered"
+    );
+    // (b) template registry on the bus lists the built-in `video`
+    let reg = agent
+        .bus()
+        .get::<dyn AgentTemplateRegistry>()
+        .expect("AgentTemplateRegistry published on the bus");
+    assert!(
+        reg.list().iter().any(|t| t.name == "video"),
+        "registry should list the built-in video template"
+    );
+    // (c) phase 2: skills component published the AgentTemplateService
+    assert!(
+        agent.bus().get::<AgentTemplateService>().is_some(),
+        "AgentTemplateService should be on the bus (skill injection wired)"
+    );
 }
 
 /// Resolve the component toggles for the REAL suite from `ALVA_TEST_COMPONENTS`:

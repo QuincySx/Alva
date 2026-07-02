@@ -3,9 +3,11 @@
 // POS:    MCP Server lifecycle manager — handles registration, connection, disconnection, tool enumeration, and tool invocation.
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::error::SkillError;
+use alva_protocol_mcp::error::McpError;
 use alva_protocol_mcp::transport::McpTransport;
 use alva_protocol_mcp::types::{McpServerConfig, McpServerState, McpToolInfo};
 
@@ -24,6 +26,38 @@ pub trait McpTransportFactory: Send + Sync {
     fn create(&self, config: &McpServerConfig) -> Box<dyn McpTransport>;
 }
 
+/// A factory whose transports never connect — used to build a manager that
+/// can hold/register server configs but establishes no live sessions (e.g.
+/// for template instantiation where no shared MCP runtime is available).
+struct DisconnectedTransportFactory;
+
+impl McpTransportFactory for DisconnectedTransportFactory {
+    fn create(&self, _config: &McpServerConfig) -> Box<dyn McpTransport> {
+        Box::new(DisconnectedTransport)
+    }
+}
+
+struct DisconnectedTransport;
+
+#[async_trait::async_trait]
+impl McpTransport for DisconnectedTransport {
+    async fn connect(&mut self) -> Result<(), McpError> {
+        Err(McpError::Transport("no MCP runtime available".into()))
+    }
+    async fn disconnect(&mut self) -> Result<(), McpError> {
+        Ok(())
+    }
+    fn is_connected(&self) -> bool {
+        false
+    }
+    async fn list_tools(&self) -> Result<Vec<McpToolInfo>, McpError> {
+        Ok(Vec::new())
+    }
+    async fn call_tool(&self, _tool_name: &str, _arguments: Value) -> Result<Value, McpError> {
+        Err(McpError::Transport("no MCP runtime available".into()))
+    }
+}
+
 /// MCP Server lifecycle manager
 /// Manages connection state and tool lists for all MCP Servers
 pub struct McpManager {
@@ -38,6 +72,14 @@ impl McpManager {
             factory,
             servers: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// A manager backed by a transport that never connects. Lets callers
+    /// build services that require an `McpManager` (e.g.
+    /// `AgentTemplateService`) without a live MCP runtime — registered
+    /// servers simply expose no tools.
+    pub fn disconnected() -> Self {
+        Self::new(Arc::new(DisconnectedTransportFactory))
     }
 
     /// Register MCP Server config (does not connect immediately)
@@ -173,5 +215,18 @@ impl McpManager {
             }
         }
         errors
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn disconnected_manager_constructs_and_exposes_no_tools() {
+        let mgr = McpManager::disconnected();
+        // No servers registered → no tools, and the no-op transport keeps it
+        // from ever connecting to anything real.
+        assert!(mgr.list_all_tools().await.is_empty());
     }
 }

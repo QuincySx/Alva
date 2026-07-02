@@ -274,6 +274,9 @@ pub struct ComponentContext {
     pub mcp_config_paths: Vec<PathBuf>,
     /// Max spawn depth for `sub-agents`.
     pub subagent_depth: u32,
+    /// Predefined sub-agent templates exposed via `agent_type` on the spawn
+    /// tool. Empty → dynamic-only spawning (no named templates).
+    pub agent_templates: Vec<crate::extension::skills::skill_domain::agent_template::AgentTemplate>,
     /// User hook settings for `hooks`.
     pub hooks_settings: HooksSettings,
     /// Third-party AEP extension dirs for `subprocess-loader`.
@@ -291,6 +294,7 @@ impl ComponentContext {
             skills: None,
             mcp_config_paths: Vec::new(),
             subagent_depth: 3,
+            agent_templates: Vec::new(),
             hooks_settings: HooksSettings::default(),
             subprocess_ext_dirs: Vec::new(),
         }
@@ -327,7 +331,10 @@ pub fn apply_components(
             "analytics" => b.plugin(Box::new(ext::AnalyticsPlugin::new())),
             "permission" => b.plugin(Box::new(ext::PermissionPlugin::new())),
             "tool-lock" => b.plugin(Box::new(ext::ToolLockRegistryPlugin::new())),
-            "sub-agents" => b.plugin(Box::new(ext::SubAgentPlugin::new(ctx.subagent_depth))),
+            "sub-agents" => b.plugin(Box::new(
+                ext::SubAgentPlugin::new(ctx.subagent_depth)
+                    .with_templates(ctx.agent_templates.clone()),
+            )),
             "hooks" => b.plugin(Box::new(ext::HooksPlugin::new(ctx.hooks_settings.clone()))),
             "mcp" => b.plugin(Box::new(ext::McpPlugin::new(ctx.mcp_config_paths.clone()))),
             "provider-registry" => match &ctx.provider_registry {

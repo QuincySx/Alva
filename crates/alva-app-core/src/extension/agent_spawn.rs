@@ -43,6 +43,91 @@ use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
 use alva_agent_context::scope::SpawnScopeImpl;
 use alva_agent_context::{default_context_system, ContextHooksChain};
 
+use crate::extension::skills::agent_template_service::AgentTemplateService;
+use crate::extension::skills::skill_domain::agent_template::{AgentModelConfig, AgentTemplate};
+
+// ---------------------------------------------------------------------------
+// AgentTemplateRegistry — named, predefined sub-agent profiles
+// ---------------------------------------------------------------------------
+
+/// Registry of named [`AgentTemplate`]s the spawn tool can instantiate by
+/// name (the `agent_type` input), mirroring kimi-code's `subagent_type` →
+/// profile model. Looked up off the bus (like `SpawnCommunicationRegistry`)
+/// so it stays optional: when absent, spawning falls back to the dynamic
+/// `role` + `tools` path unchanged.
+pub trait AgentTemplateRegistry: Send + Sync {
+    /// Fetch a template by its `name`.
+    fn get(&self, name: &str) -> Option<Arc<AgentTemplate>>;
+    /// All registered templates (used to build the `agent_type` enum and to
+    /// surface each template's `description`/when-to-use to the parent).
+    fn list(&self) -> Vec<Arc<AgentTemplate>>;
+}
+
+/// Simple in-memory [`AgentTemplateRegistry`]. The source of templates
+/// (config files, defaults) is the caller's concern — this just holds them.
+pub struct InMemoryAgentTemplateRegistry {
+    templates: Vec<Arc<AgentTemplate>>,
+}
+
+impl InMemoryAgentTemplateRegistry {
+    pub fn new(templates: Vec<AgentTemplate>) -> Self {
+        Self {
+            templates: templates.into_iter().map(Arc::new).collect(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.templates.is_empty()
+    }
+}
+
+impl AgentTemplateRegistry for InMemoryAgentTemplateRegistry {
+    fn get(&self, name: &str) -> Option<Arc<AgentTemplate>> {
+        self.templates.iter().find(|t| t.name == name).cloned()
+    }
+    fn list(&self) -> Vec<Arc<AgentTemplate>> {
+        self.templates.clone()
+    }
+}
+
+/// Build a dedicated [`LanguageModel`] for a sub-agent from its template's
+/// [`AgentModelConfig`] (own model id, endpoint, provider kind, and key).
+/// The key is taken from `api_key`, else read from `api_key_env`, else empty.
+fn build_template_model(cfg: &AgentModelConfig) -> Arc<dyn LanguageModel> {
+    use alva_llm_provider::{
+        AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider,
+        ProviderConfig,
+    };
+
+    let api_key = cfg
+        .api_key
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            cfg.api_key_env
+                .as_ref()
+                .and_then(|e| std::env::var(e).ok())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_default();
+
+    let provider_config = ProviderConfig {
+        api_key,
+        model: cfg.model.clone(),
+        base_url: cfg.base_url.clone().unwrap_or_default(),
+        max_tokens: cfg.max_tokens.unwrap_or(4096),
+        custom_headers: std::collections::HashMap::new(),
+        kind: cfg.provider_kind.clone(),
+    };
+
+    match cfg.provider_kind.as_deref() {
+        Some("anthropic") => Arc::new(AnthropicProvider::new(provider_config)),
+        Some("openai-responses") => Arc::new(OpenAIResponsesProvider::new(provider_config)),
+        Some("gemini") => Arc::new(GeminiProvider::new(provider_config)),
+        // None / "openai-chat" / unknown → OpenAI Chat (broadest compat path).
+        _ => Arc::new(OpenAIChatProvider::new(provider_config)),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // ForwardToSession listener
 // ---------------------------------------------------------------------------
@@ -92,6 +177,13 @@ struct CommSpec {
 struct SpawnInput {
     /// Complete task description for the sub-agent.
     task: String,
+    /// Optional predefined agent template to spawn (see the `agent_type`
+    /// enum + per-template "when to use" notes in this field's
+    /// description). When set, the template supplies the system prompt and
+    /// tool set, and `role`/`system_prompt`/`tools` below are only used as
+    /// overrides/fallbacks. Leave unset to define the sub-agent ad-hoc.
+    #[serde(default)]
+    agent_type: Option<String>,
     /// Short role name (e.g. 'planner', 'coder', 'reviewer').
     role: String,
     /// System prompt for the sub-agent. If empty, a default is
@@ -155,7 +247,12 @@ impl AgentSpawnTool {
     ///   or no capabilities are registered (kind stays a free-form
     ///   string, and the executor still validates against the live
     ///   registry at call time).
-    fn inject_dynamic_enums(&self, schema: &mut Value, comm_kinds: &[String]) {
+    fn inject_dynamic_enums(
+        &self,
+        schema: &mut Value,
+        comm_kinds: &[String],
+        templates: &[Arc<AgentTemplate>],
+    ) {
         let available_tools = self.scope.parent_tool_names();
         if let Some(items) = schema
             .pointer_mut("/properties/tools/items")
@@ -165,6 +262,35 @@ impl AgentSpawnTool {
                 "enum".into(),
                 Value::Array(available_tools.into_iter().map(Value::String).collect()),
             );
+        }
+
+        // `agent_type` enum + per-template "when to use" guidance, so the
+        // parent picks a predefined profile the way kimi-code surfaces
+        // `subagent_type` choices. Omitted when no templates are registered
+        // (the field stays an unconstrained optional string).
+        if !templates.is_empty() {
+            if let Some(at) = schema
+                .pointer_mut("/properties/agent_type")
+                .and_then(Value::as_object_mut)
+            {
+                at.insert(
+                    "enum".into(),
+                    Value::Array(
+                        templates
+                            .iter()
+                            .map(|t| Value::String(t.name.clone()))
+                            .collect(),
+                    ),
+                );
+                let mut lines = vec![
+                    "Predefined agent template to spawn. Available types (use when):"
+                        .to_string(),
+                ];
+                for t in templates {
+                    lines.push(format!("- {}: {}", t.name, t.description));
+                }
+                at.insert("description".into(), Value::String(lines.join("\n")));
+            }
         }
 
         if !comm_kinds.is_empty() {
@@ -193,7 +319,7 @@ impl AgentSpawnTool {
     /// inherent method (winning over `Tool::apply_schema_overrides`'s
     /// trait default).
     fn apply_schema_overrides(&self, schema: &mut Value) {
-        self.inject_dynamic_enums(schema, &[]);
+        self.inject_dynamic_enums(schema, &[], &[]);
     }
 
     /// Context-aware path — invoked by the `#[derive(Tool)]`-generated
@@ -217,7 +343,12 @@ impl AgentSpawnTool {
             .and_then(|b| b.get::<dyn SpawnCommunicationRegistry>())
             .map(|reg| reg.list().iter().map(|c| c.kind().to_string()).collect())
             .unwrap_or_default();
-        self.inject_dynamic_enums(schema, &comm_kinds);
+        let templates: Vec<Arc<AgentTemplate>> = ctx
+            .bus
+            .and_then(|b| b.get::<dyn AgentTemplateRegistry>())
+            .map(|reg| reg.list())
+            .unwrap_or_default();
+        self.inject_dynamic_enums(schema, &comm_kinds, &templates);
     }
 
     /// Core execution, with the input already deserialized. Called by
@@ -228,17 +359,93 @@ impl AgentSpawnTool {
         input: SpawnInput,
         ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
-        let system_prompt = if input.system_prompt.is_empty() {
-            format!(
-                "You are a {} agent. Complete the task given to you.",
-                input.role
-            )
-        } else {
+        // ── Resolve a predefined template (kimi-code `subagent_type`) ────
+        // When `agent_type` is set, the named AgentTemplate supplies the
+        // system prompt and tool whitelist; explicit `role`/`system_prompt`/
+        // `tools` still win as overrides. NOTE: skills/MCP instantiation via
+        // AgentTemplateService is a follow-up slice — this wires the prompt +
+        // tool set, which is the core of the connection.
+        let template = match input.agent_type.as_deref() {
+            Some(name) if !name.is_empty() => {
+                let Some(reg) = ctx.bus().and_then(|b| b.get::<dyn AgentTemplateRegistry>()) else {
+                    return Ok(ToolOutput::error(format!(
+                        "agent_type '{name}' requested but no AgentTemplateRegistry is configured."
+                    )));
+                };
+                match reg.get(name) {
+                    Some(t) => Some(t),
+                    None => {
+                        let available: Vec<String> =
+                            reg.list().iter().map(|t| t.name.clone()).collect();
+                        return Ok(ToolOutput::error(format!(
+                            "unknown agent_type '{name}'; available: {available:?}"
+                        )));
+                    }
+                }
+            }
+            _ => None,
+        };
+
+        // role: explicit non-empty role wins; else the template's name; else
+        // whatever role string was passed (possibly empty).
+        let role = match &template {
+            Some(t) if input.role.is_empty() => t.name.clone(),
+            _ => input.role.clone(),
+        };
+
+        // Instantiate the template via AgentTemplateService when it's on the
+        // bus: this is what makes the template's `skills` take effect — the
+        // returned `system_prompt` has the skill-injection block appended, and
+        // `allowed_tools` reflects the template's MCP/tool whitelist. Falls
+        // back to the template's raw fields when the service is absent (skills
+        // component off) or instantiation fails.
+        let instance = match &template {
+            Some(t) => match ctx.bus().and_then(|b| b.get::<AgentTemplateService>()) {
+                Some(svc) => match svc.instantiate(t).await {
+                    Ok(inst) => Some(inst),
+                    Err(e) => {
+                        tracing::warn!(
+                            agent_type = %t.name,
+                            error = %e,
+                            "template instantiation failed; using raw template fields"
+                        );
+                        None
+                    }
+                },
+                None => None,
+            },
+            None => None,
+        };
+
+        let system_prompt = if !input.system_prompt.is_empty() {
             input.system_prompt.clone()
+        } else if let Some(inst) = &instance {
+            inst.system_prompt.clone()
+        } else if let Some(t) = &template {
+            t.system_prompt_base.clone()
+        } else {
+            format!("You are a {role} agent. Complete the task given to you.")
+        };
+
+        // tool names: explicit `tools` wins; else the instantiated whitelist
+        // (template tools + any MCP tools); else the template's raw
+        // allowed_tools (None = inherit all parent tools); else empty.
+        let tool_names: Vec<String> = if !input.tools.is_empty() {
+            input.tools.clone()
+        } else if let Some(inst) = &instance {
+            inst.allowed_tools
+                .clone()
+                .unwrap_or_else(|| self.scope.parent_tool_names())
+        } else if let Some(t) = &template {
+            t.allowed_tools
+                .clone()
+                .unwrap_or_else(|| self.scope.parent_tool_names())
+        } else {
+            Vec::new()
         };
 
         // Build child scope — spawn_child() enforces the depth limit.
-        let child_config = ChildScopeConfig::new(&input.role).with_system_prompt(&system_prompt);
+        let child_config = ChildScopeConfig::new(&role).with_system_prompt(&system_prompt);
 
         let child_scope = match self.scope.spawn_child(child_config).await {
             Ok(s) => s,
@@ -257,6 +464,9 @@ impl AgentSpawnTool {
         };
 
         // ── Model resolution ────────────────────────────────────────────
+        // Priority: explicit per-spawn `model` (runtime, via ProviderRegistry)
+        // > the template's own `[agent.model]` (config: own model + endpoint)
+        // > the parent agent's model (inherited).
         let child_model: Arc<dyn LanguageModel> = match input.model.as_deref() {
             Some(spec) if !spec.is_empty() => {
                 match ctx.bus().and_then(|b| b.get::<ProviderRegistry>()) {
@@ -269,7 +479,10 @@ impl AgentSpawnTool {
                     None => child_scope.model(),
                 }
             }
-            _ => child_scope.model(),
+            _ => match template.as_ref().and_then(|t| t.model.as_ref()) {
+                Some(mc) if !mc.model.is_empty() => build_template_model(mc),
+                _ => child_scope.model(),
+            },
         };
 
         // ── Communication capabilities ──────────────────────────────────
@@ -301,7 +514,7 @@ impl AgentSpawnTool {
                 parent_session_id: self.scope.session_id(),
                 child_scope_id: child_scope.id().as_str(),
                 child_session_id: child_scope.session_id(),
-                role: &input.role,
+                role: &role,
                 bus: ctx.bus(),
             };
 
@@ -328,17 +541,18 @@ impl AgentSpawnTool {
         // spawn calls to the parent-scoped instance, creating siblings at
         // parent-depth instead of grandchildren at child-depth — silently
         // bypassing max_depth.
-        let mut child_tools = child_scope.tools_by_names(&input.tools);
+        let mut child_tools = child_scope.tools_by_names(&tool_names);
         child_tools.push(Arc::new(AgentSpawnTool {
             scope: child_scope.clone(),
         }));
 
         tracing::info!(
             sub_agent_task = %input.task,
-            sub_agent_role = %input.role,
+            sub_agent_role = %role,
+            agent_type = ?input.agent_type,
             depth = child_scope.depth(),
             parent_scope_id = %self.scope.id(),
-            granted_tools = ?input.tools,
+            granted_tools = ?tool_names,
             tool_count = child_tools.len(),
             model_override = ?input.model,
             comm_kinds = ?input.comms.iter().map(|c| c.kind.as_str()).collect::<Vec<_>>(),
@@ -414,7 +628,7 @@ impl AgentSpawnTool {
         }
 
         tracing::info!(
-            sub_agent_role = %input.role,
+            sub_agent_role = %role,
             depth = child_scope.depth(),
             parent_scope_id = %self.scope.id(),
             output_len = result.text.len(),
@@ -442,7 +656,7 @@ impl AgentSpawnTool {
         if result.is_error {
             Ok(ToolOutput::error(format!(
                 "[Agent '{}' error: {}]\n{}",
-                input.role,
+                role,
                 result.error.unwrap_or_default(),
                 result.text
             )))
@@ -472,11 +686,25 @@ use crate::extension::{LateContext, Plugin, Registrar};
 /// construct the `SpawnScopeImpl` root scope.
 pub struct SubAgentPlugin {
     max_depth: u32,
+    /// Predefined sub-agent templates exposed via the `agent_type` input.
+    /// Empty (the default) keeps the dynamic-only spawn behavior.
+    templates: Vec<AgentTemplate>,
 }
 
 impl SubAgentPlugin {
     pub fn new(max_depth: u32) -> Self {
-        Self { max_depth }
+        Self {
+            max_depth,
+            templates: Vec::new(),
+        }
+    }
+
+    /// Attach predefined [`AgentTemplate`]s so the parent can spawn them by
+    /// name via `agent_type`. The templates are published on the bus as an
+    /// [`AgentTemplateRegistry`] at registration time.
+    pub fn with_templates(mut self, templates: Vec<AgentTemplate>) -> Self {
+        self.templates = templates;
+        self
     }
 }
 
@@ -489,8 +717,15 @@ impl Plugin for SubAgentPlugin {
         "Sub-agent spawning via the agent tool"
     }
 
-    // SubAgent registers nothing at assembly time — all wiring is late.
-    async fn register(&self, _r: &Registrar) {}
+    // Publish the template registry (if any) so the spawn tool can resolve
+    // `agent_type` off the bus. The spawn tool itself is wired late.
+    async fn register(&self, r: &Registrar) {
+        if !self.templates.is_empty() {
+            let registry: Arc<dyn AgentTemplateRegistry> =
+                Arc::new(InMemoryAgentTemplateRegistry::new(self.templates.clone()));
+            r.provide::<dyn AgentTemplateRegistry>(registry);
+        }
+    }
 
     async fn finalize(&self, ctx: &LateContext) -> Vec<Arc<dyn Tool>> {
         // Build a clean tool list without any placeholder agent tool
@@ -755,5 +990,155 @@ mod tests {
             "child output should come from parent model fallback: {}",
             out.model_text()
         );
+    }
+
+    // ── AgentTemplate ↔ AgentSpawnTool connection ─────────────────────
+
+    use crate::extension::skills::skill_domain::agent_template::AgentTemplate;
+
+    fn make_template(name: &str, prompt: &str, tools: Option<Vec<String>>) -> AgentTemplate {
+        AgentTemplate {
+            id: name.to_string(),
+            name: name.to_string(),
+            description: format!("Use {name} when you need a {name}."),
+            system_prompt_base: prompt.to_string(),
+            skills: Default::default(),
+            mcp_servers: Default::default(),
+            allowed_tools: tools,
+            max_iterations: None,
+            model: None,
+        }
+    }
+
+    #[test]
+    fn build_template_model_uses_config_model_and_key_env() {
+        use crate::extension::skills::skill_domain::agent_template::AgentModelConfig;
+        // SAFETY: single-threaded test; sets then reads one env var.
+        std::env::set_var("ALVA_TEST_SUBAGENT_KEY", "sk-test");
+        let cfg = AgentModelConfig {
+            model: "qwen3.5".into(),
+            base_url: Some("https://example.test/v1".into()),
+            provider_kind: Some("openai-chat".into()),
+            api_key: None,
+            api_key_env: Some("ALVA_TEST_SUBAGENT_KEY".into()),
+            max_tokens: Some(2048),
+        };
+        let model = build_template_model(&cfg);
+        assert_eq!(model.model_id(), "qwen3.5");
+        std::env::remove_var("ALVA_TEST_SUBAGENT_KEY");
+    }
+
+    #[test]
+    fn in_memory_registry_get_and_list() {
+        let reg = InMemoryAgentTemplateRegistry::new(vec![
+            make_template("a", "p", None),
+            make_template("b", "p", None),
+        ]);
+        assert!(reg.get("a").is_some());
+        assert!(reg.get("missing").is_none());
+        assert_eq!(reg.list().len(), 2);
+    }
+
+    /// With templates on the bus, the schema exposes an `agent_type` enum
+    /// plus each template's "when to use" description — the kimi-code
+    /// `subagent_type` surfacing.
+    #[test]
+    fn schema_injects_agent_type_enum_and_when_to_use() {
+        let bus = Bus::new();
+        let reg: Arc<dyn AgentTemplateRegistry> = Arc::new(InMemoryAgentTemplateRegistry::new(vec![
+            make_template("video", "You watch videos.", Some(vec!["understand_video".into()])),
+            make_template("coder", "You write code.", None),
+        ]));
+        bus.writer().provide::<dyn AgentTemplateRegistry>(reg);
+        let handle = bus.handle();
+
+        let tool = build_spawn_tool();
+        let ctx = ToolSchemaContext::with_bus(&handle);
+        let schema = tool.parameters_schema_with(&ctx);
+
+        let at = &schema["properties"]["agent_type"];
+        let enum_vals = at["enum"]
+            .as_array()
+            .expect("agent_type.enum populated from registry")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(enum_vals.contains(&"video".to_string()));
+        assert!(enum_vals.contains(&"coder".to_string()));
+        assert!(
+            at["description"].as_str().unwrap().contains("when you need"),
+            "agent_type description should list per-template when-to-use"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_type_without_registry_errors() {
+        let tool = build_spawn_tool();
+        let bus = Bus::new();
+        let ctx = TestExecutionContext {
+            cancel: CancellationToken::new(),
+            bus: Some(bus.handle()),
+        };
+        let out = tool
+            .execute(
+                serde_json::json!({ "task": "t", "role": "", "agent_type": "video" }),
+                &ctx,
+            )
+            .await
+            .expect("resolves to an error output");
+        assert!(out.is_error);
+        assert!(out.model_text().contains("no AgentTemplateRegistry"));
+    }
+
+    #[tokio::test]
+    async fn unknown_agent_type_lists_available() {
+        let tool = build_spawn_tool();
+        let bus = Bus::new();
+        bus.writer().provide::<dyn AgentTemplateRegistry>(Arc::new(
+            InMemoryAgentTemplateRegistry::new(vec![make_template("coder", "p", None)]),
+        ));
+        let ctx = TestExecutionContext {
+            cancel: CancellationToken::new(),
+            bus: Some(bus.handle()),
+        };
+        let out = tool
+            .execute(
+                serde_json::json!({ "task": "t", "role": "", "agent_type": "nope" }),
+                &ctx,
+            )
+            .await
+            .expect("resolves to an error output");
+        assert!(out.is_error);
+        assert!(out.model_text().contains("unknown agent_type"));
+        assert!(out.model_text().contains("coder"));
+    }
+
+    /// Happy path: spawning by `agent_type` resolves the template and runs
+    /// the child (against the parent's mock model) without error.
+    #[tokio::test]
+    async fn spawn_by_agent_type_runs_via_template() {
+        let model = MockLanguageModel::new().with_response(make_assistant_message("child done"));
+        let tool = build_spawn_tool_with_model(Arc::new(model));
+        let bus = Bus::new();
+        bus.writer().provide::<dyn AgentTemplateRegistry>(Arc::new(
+            InMemoryAgentTemplateRegistry::new(vec![make_template(
+                "video",
+                "You watch videos.",
+                None,
+            )]),
+        ));
+        let ctx = TestExecutionContext {
+            cancel: CancellationToken::new(),
+            bus: Some(bus.handle()),
+        };
+        let out = tool
+            .execute(
+                serde_json::json!({ "task": "watch it", "role": "", "agent_type": "video" }),
+                &ctx,
+            )
+            .await
+            .expect("spawn by agent_type should run");
+        assert!(!out.is_error, "should not error: {}", out.model_text());
+        assert!(out.model_text().contains("child done"));
     }
 }

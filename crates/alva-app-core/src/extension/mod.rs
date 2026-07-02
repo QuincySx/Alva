@@ -10,6 +10,7 @@ pub use alva_agent_core::extension::{
 
 // Folder-based built-in plugins
 pub mod agent_spawn;
+pub mod agent_templates;
 pub mod evaluation;
 pub mod hooks;
 pub mod lsp;
