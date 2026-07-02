@@ -280,6 +280,73 @@ async fn subagent_running_shell_does_not_deadlock() {
     );
 }
 
+/// KILL-1b regression: cancelling the parent must propagate to a running
+/// sub-agent. The child is spawned with a fresh, disconnected
+/// `CancellationToken`, so the parent's cancel never reaches it — a child
+/// blocked in a cooperative-cancel tool (`sleep`) hangs until its own
+/// never-fired token or the 5-minute scope cap, long past any caller's
+/// patience.
+///
+/// We grant the child `sleep`, kick off a 5-minute sleep, then cancel the
+/// parent the instant its `agent` tool starts (the child is now running
+/// inline). With the token connected the child aborts and the run unwinds;
+/// without it the run hangs and the outer timeout fires this assertion.
+#[tokio::test]
+async fn parent_cancel_propagates_to_subagent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path();
+
+    // `sleep` lives in the (default-off) `utility` component — enable it on
+    // top of the defaults so the parent can hand it down to the child.
+    let mut toggles = default_toggles();
+    toggles.insert("utility".to_string(), true);
+
+    let model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "spawn",
+            "agent",
+            serde_json::json!({
+                "task": "sleep for a long time",
+                "role": "sleeper",
+                "tools": ["sleep"],
+            }),
+        ))
+        .with_response(tool_use_message(
+            "sleep",
+            "sleep",
+            serde_json::json!({ "duration_ms": 300000 }),
+        ))
+        .with_response(make_assistant_message("child done"))
+        .with_response(make_assistant_message("parent done"));
+
+    let agent = build_mini_agent(ws, Arc::new(model), &toggles).await;
+
+    let mut rx = agent.prompt_text("Delegate a long sleep to a sub-agent.");
+
+    let drive = async {
+        let mut cancelled = false;
+        while let Some(ev) = rx.recv().await {
+            if !cancelled {
+                if let AgentEvent::ToolExecutionStart { tool_call } = &ev {
+                    if tool_call.name == "agent" {
+                        // Parent is now inside the spawn tool; the child is
+                        // running. Cancelling the parent must reach the child.
+                        cancelled = true;
+                        agent.cancel();
+                    }
+                }
+            }
+            if matches!(ev, AgentEvent::AgentEnd { .. }) {
+                break;
+            }
+        }
+    };
+
+    tokio::time::timeout(std::time::Duration::from_secs(15), drive)
+        .await
+        .expect("KILL-1b: parent cancel did not propagate to the sub-agent (it hung)");
+}
+
 /// Resolve the component toggles for the REAL suite from `ALVA_TEST_COMPONENTS`:
 ///   - unset / empty → `default_toggles()` (catalog `default_on`).
 ///   - `all`         → every catalog id forced ON (maximal tool-set).

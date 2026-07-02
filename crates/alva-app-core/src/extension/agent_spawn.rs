@@ -27,7 +27,6 @@ use serde_json::Value;
 use alva_kernel_abi::agent_session::{
     AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener,
 };
-use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::context::{ContextHooks, ContextSystem};
 use alva_kernel_abi::model::LanguageModel;
@@ -611,7 +610,13 @@ impl AgentSpawnTool {
             max_iterations: child_scope.max_iterations(),
             timeout: child_scope.timeout(),
             parent_session_id: Some(self.scope.session_id().to_string()),
-            cancel: CancellationToken::new(),
+            // Derive the child's cancel token from the parent's so a cancel
+            // on the parent run reaches the sub-agent. A fresh token here
+            // would leave the child disconnected — a child blocked in a
+            // cooperative-cancel tool (e.g. `sleep`) would never stop. The
+            // token clones share one watch channel (latching), so this also
+            // covers a cancel that races ahead of the child spawning.
+            cancel: ctx.cancel_token().clone(),
             model_config: None,
             context_window: 0,
             workspace: ctx.workspace().map(|p| p.to_path_buf()),
