@@ -138,7 +138,7 @@ impl Default for InMemoryTeamStore {
 #[async_trait]
 impl TeamService for InMemoryTeamStore {
     async fn create(&self, mate: Teammate) -> Result<(), TeamError> {
-        let mut members = self.members.lock().unwrap();
+        let mut members = self.members.lock().unwrap_or_else(|e| e.into_inner());
         if members.contains_key(&mate.name) {
             return Err(TeamError::AlreadyExists(mate.name));
         }
@@ -147,7 +147,7 @@ impl TeamService for InMemoryTeamStore {
     }
 
     async fn delete(&self, name: &str) -> Result<(), TeamError> {
-        let mut members = self.members.lock().unwrap();
+        let mut members = self.members.lock().unwrap_or_else(|e| e.into_inner());
         members
             .remove(name)
             .ok_or_else(|| TeamError::NotFound(name.to_string()))?;
@@ -158,24 +158,32 @@ impl TeamService for InMemoryTeamStore {
     }
 
     async fn list(&self) -> Vec<Teammate> {
-        let members = self.members.lock().unwrap();
+        let members = self.members.lock().unwrap_or_else(|e| e.into_inner());
         let mut out: Vec<_> = members.values().cloned().collect();
         out.sort_by(|a, b| a.name.cmp(&b.name));
         out
     }
 
     async fn get(&self, name: &str) -> Option<Teammate> {
-        self.members.lock().unwrap().get(name).cloned()
+        self.members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+            .cloned()
     }
 
     async fn send_message(&self, msg: TeamMessage) -> Result<(), TeamError> {
-        let exists = self.members.lock().unwrap().contains_key(&msg.to);
+        let exists = self
+            .members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&msg.to);
         if !exists {
             return Err(TeamError::NotFound(msg.to.clone()));
         }
         self.messages
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .entry(msg.to.clone())
             .or_default()
             .push(msg);
@@ -185,7 +193,7 @@ impl TeamService for InMemoryTeamStore {
     async fn inbox(&self, recipient: &str) -> Vec<TeamMessage> {
         self.messages
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .get(recipient)
             .cloned()
             .unwrap_or_default()

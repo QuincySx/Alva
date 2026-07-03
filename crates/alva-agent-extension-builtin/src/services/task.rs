@@ -143,16 +143,23 @@ impl Default for InMemoryTaskStore {
 #[async_trait]
 impl TaskService for InMemoryTaskStore {
     async fn create(&self, state: TaskState) -> Result<(), TaskError> {
-        self.tasks.lock().unwrap().insert(state.id.clone(), state);
+        self.tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(state.id.clone(), state);
         Ok(())
     }
 
     async fn get(&self, id: &str) -> Option<TaskState> {
-        self.tasks.lock().unwrap().get(id).cloned()
+        self.tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 
     async fn list(&self, status_filter: Option<TaskStatus>) -> Vec<TaskState> {
-        let tasks = self.tasks.lock().unwrap();
+        let tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
         let mut out: Vec<TaskState> = tasks
             .values()
             .filter(|t| status_filter.map_or(true, |s| t.status == s))
@@ -166,7 +173,7 @@ impl TaskService for InMemoryTaskStore {
 
     async fn update(&self, id: &str, mutation: TaskUpdate) -> Result<TaskState, TaskError> {
         let final_state = {
-            let mut tasks = self.tasks.lock().unwrap();
+            let mut tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
             let task = tasks
                 .get_mut(id)
                 .ok_or_else(|| TaskError::NotFound(id.to_string()))?;
@@ -187,7 +194,7 @@ impl TaskService for InMemoryTaskStore {
         if let Some(out) = mutation.append_output {
             self.output
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .entry(id.to_string())
                 .or_default()
                 .push_str(&out);
@@ -207,14 +214,18 @@ impl TaskService for InMemoryTaskStore {
     }
 
     async fn read_output(&self, id: &str) -> Result<String, TaskError> {
-        let exists = self.tasks.lock().unwrap().contains_key(id);
+        let exists = self
+            .tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(id);
         if !exists {
             return Err(TaskError::NotFound(id.to_string()));
         }
         Ok(self
             .output
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .get(id)
             .cloned()
             .unwrap_or_default())
@@ -238,6 +249,35 @@ mod tests {
             None,
             PathBuf::from("/tmp/out"),
         )
+    }
+
+    /// A panic on another thread while holding the store's mutex must not
+    /// permanently take the task subsystem down. The guarded state is a
+    /// plain HashMap whose update patterns can't be torn mid-operation, so
+    /// the poison flag carries no information here — recover the guard
+    /// instead of panicking on every subsequent task operation forever.
+    #[tokio::test]
+    async fn store_survives_a_poisoned_lock() {
+        use std::sync::Arc;
+
+        let store = Arc::new(InMemoryTaskStore::new());
+        let t = sample("alpha");
+        let id = t.id.clone();
+        store.create(t).await.unwrap();
+
+        // Poison `tasks`: panic on a helper thread while holding the guard.
+        let poisoner = store.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.tasks.lock().unwrap_or_else(|e| e.into_inner());
+            panic!("deliberately poison the tasks lock");
+        })
+        .join();
+
+        // Every operation must keep working — and the pre-poison data must
+        // still be there.
+        let got = store.get(&id).await.expect("poisoned lock must recover");
+        assert_eq!(got.description, "alpha");
+        assert_eq!(store.list(None).await.len(), 1);
     }
 
     #[tokio::test]

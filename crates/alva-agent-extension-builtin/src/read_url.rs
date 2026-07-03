@@ -170,7 +170,7 @@ impl ReadUrlTool {
 
         // Check cache first
         {
-            let mut cache = global_cache().lock().unwrap();
+            let mut cache = global_cache().lock().unwrap_or_else(|e| e.into_inner());
             if let Some((cached_content, cached_ct)) = cache.get(&params.url) {
                 let content = cached_content.to_string();
                 let ct = cached_ct.to_string();
@@ -270,7 +270,7 @@ impl ReadUrlTool {
 
         // Store in cache
         {
-            let mut cache = global_cache().lock().unwrap();
+            let mut cache = global_cache().lock().unwrap_or_else(|e| e.into_inner());
             cache.insert(params.url.clone(), plain_text.clone(), content_type.clone());
         }
 

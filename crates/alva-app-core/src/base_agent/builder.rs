@@ -259,7 +259,9 @@ impl BaseAgentBuilder {
         //    `PendingPlugin` (in `alva_app_core::extension::pending`).
         let current_cancel = Arc::new(std::sync::Mutex::new(CancellationToken::new()));
         {
-            let mut host = inner.host().write().unwrap();
+            // Poison-safe: a panic elsewhere while holding the host lock must
+            // not turn every subsequent bind into a panic.
+            let mut host = inner.host().write().unwrap_or_else(|e| e.into_inner());
             host.bind_agent(current_cancel.clone());
         }
 
