@@ -228,7 +228,18 @@ async fn e2e_plan_mode_blocks_writes() {
             .with_response(final_resp),
     );
 
-    let (agent, _tmp) = build_agent(model).await;
+    // Plan mode lives in the `permission` component (PlanModeMiddleware +
+    // bus-published PermissionModeService) — the bare builder used by the
+    // shared `build_agent` helper does not include it, and without it
+    // `set_permission_mode` has nothing to write to and returns false.
+    let _tmp = tempfile::tempdir().expect("failed to create tempdir");
+    let agent = BaseAgent::builder()
+        .workspace(_tmp.path())
+        .system_prompt("You are a test assistant.")
+        .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
+        .build(model)
+        .await
+        .expect("build should succeed");
     assert!(agent.set_permission_mode(PermissionMode::Plan));
 
     let rx = agent.prompt_text("Create a file.");
