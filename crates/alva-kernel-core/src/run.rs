@@ -718,8 +718,11 @@ async fn run_loop(
             .await;
             // Wall-clock start for analytics. Captured here (just before
             // before_llm_call middleware) so the latency includes any
-            // pre-call middleware work too.
-            let llm_call_started_at = std::time::Instant::now();
+            // pre-call middleware work too. web_time, NOT std::time —
+            // std::time::Instant::now() panics on wasm32-unknown-unknown
+            // (`:608` uses web_time for the same reason; this line was the
+            // regression that made every wasm agent die on its first turn).
+            let llm_call_started_at = web_time::Instant::now();
 
             // 3c. Middleware: before_llm_call
             config
@@ -830,7 +833,15 @@ async fn run_loop(
                         .unwrap_or(0),
                     cost_usd: 0.0,
                     latency_ms: llm_call_started_at.elapsed().as_millis() as u64,
-                    ts: std::time::SystemTime::now(),
+                    // The analytics ABI field is std::time::SystemTime, whose
+                    // `now()` panics on wasm32. Take "now" from web_time and
+                    // rebase it onto the std type — SystemTime ARITHMETIC is
+                    // wasm-safe, only ::now() is not. On native web_time is a
+                    // re-export of std, so this is byte-identical there.
+                    ts: std::time::SystemTime::UNIX_EPOCH
+                        + web_time::SystemTime::now()
+                            .duration_since(web_time::SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default(),
                 });
             }
 
