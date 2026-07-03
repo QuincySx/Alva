@@ -115,7 +115,7 @@ pub(crate) async fn run_repl(
         .map(|(name, _)| name.to_string())
         .collect();
 
-    let history_path = dirs::home_dir().map(|h| h.join(".alva").join("repl-history"));
+    let history_path = alva_app_core::config::alva_home_dir().map(|h| h.join("repl-history"));
     if let Some(p) = &history_path {
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);

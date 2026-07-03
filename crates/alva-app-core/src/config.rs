@@ -76,9 +76,22 @@ pub struct ProviderEntry {
     pub base_url: Option<String>,
 }
 
-/// `~/.alva/config.json`. Returns `None` when `home_dir()` is undefined.
+/// Root of the shared alva home — `~/.alva` by default, overridable via the
+/// `ALVA_CONFIG_DIR` env var so tests/sandboxes can redirect ALL shared
+/// state (config.json, CLI history, …) away from the real home directory.
+/// Returns `None` only when there is no override AND `home_dir()` is
+/// undefined.
+pub fn alva_home_dir() -> Option<PathBuf> {
+    match std::env::var_os("ALVA_CONFIG_DIR") {
+        Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
+        _ => Some(dirs::home_dir()?.join(".alva")),
+    }
+}
+
+/// `~/.alva/config.json` (honoring `ALVA_CONFIG_DIR`). Returns `None` when
+/// [`alva_home_dir`] is undefined.
 pub fn config_path() -> Option<PathBuf> {
-    Some(dirs::home_dir()?.join(".alva").join("config.json"))
+    Some(alva_home_dir()?.join("config.json"))
 }
 
 /// Load the config, or `None` if the file is missing / unreadable / invalid.
@@ -102,7 +115,7 @@ pub fn load() -> Option<AlvaConfig> {
     }
 }
 
-/// Persist the config to `~/.alva/config.json`. Pretty-printed; `~/.alva/`
+/// Persist the config to the shared config.json (honoring `ALVA_CONFIG_DIR`). Pretty-printed; the home dir
 /// is created if missing. Returns the canonical path written to.
 pub fn save(cfg: &AlvaConfig) -> Result<PathBuf, std::io::Error> {
     let path = config_path()
@@ -170,6 +183,27 @@ impl AlvaConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alva_config_dir_env_redirects_the_shared_home() {
+        // Tests and sandboxes must be able to point ALL shared state
+        // (config.json, CLI history) away from the real ~/.alva. Env vars
+        // are process-global: keep set→assert→remove inside ONE test.
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("ALVA_CONFIG_DIR", tmp.path());
+        let home = alva_home_dir();
+        let cfg = config_path();
+        std::env::remove_var("ALVA_CONFIG_DIR");
+
+        assert_eq!(home.as_deref(), Some(tmp.path()));
+        assert_eq!(cfg, Some(tmp.path().join("config.json")));
+        // And without the override, the default is ~/.alva.
+        assert_eq!(
+            alva_home_dir(),
+            dirs::home_dir().map(|h| h.join(".alva")),
+            "default must remain ~/.alva when the env var is unset"
+        );
+    }
 
     #[test]
     fn parses_multi_provider_schema() {
