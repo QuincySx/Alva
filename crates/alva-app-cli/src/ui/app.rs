@@ -1010,6 +1010,7 @@ impl TuiApp {
 // Key action enum
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 enum KeyAction {
     None,
     Submit(String),
@@ -1665,4 +1666,307 @@ fn scan_workspace_files(root: &Path, limit: usize) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Tests — TuiApp is a terminal-free state machine: `handle_agent_event`
+// mutates pure in-memory state and `on_key` returns a `KeyAction`. These
+// tests pin the core transitions without ever creating a terminal.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::components::conversation::{BubbleRole, ConversationItem};
+    use alva_kernel_abi::tool::execution::ToolOutput;
+    use alva_kernel_abi::{
+        ContentBlock, Message, MessageRole, StreamEvent, ToolCall, UsageMetadata,
+    };
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn app() -> TuiApp {
+        TuiApp::new("test-model", "session-1")
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn assistant_msg(text: &str, usage: Option<UsageMetadata>) -> AgentMessage {
+        AgentMessage::Standard(Message {
+            id: "m1".into(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::Text { text: text.into() }],
+            tool_call_id: None,
+            usage,
+            timestamp: 0,
+        })
+    }
+
+    fn bubbles(app: &TuiApp) -> Vec<(BubbleRole, String)> {
+        app.conversation
+            .items()
+            .iter()
+            .filter_map(|i| match i {
+                ConversationItem::Message(b) => Some((b.role, b.text.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // -- agent lifecycle ----------------------------------------------------
+
+    #[test]
+    fn agent_start_and_end_drive_the_spinner() {
+        let mut a = app();
+        assert!(!a.spinner_active);
+        handle_agent_event(&mut a, AgentEvent::AgentStart);
+        assert!(a.spinner_active);
+        handle_agent_event(&mut a, AgentEvent::AgentEnd { error: None });
+        assert!(!a.spinner_active);
+    }
+
+    #[test]
+    fn agent_end_with_error_pushes_an_error_bubble() {
+        let mut a = app();
+        handle_agent_event(
+            &mut a,
+            AgentEvent::AgentEnd {
+                error: Some("boom".into()),
+            },
+        );
+        let b = bubbles(&a);
+        assert!(
+            b.iter()
+                .any(|(r, t)| matches!(r, BubbleRole::Error) && t.contains("boom")),
+            "expected an error bubble, got: {b:?}"
+        );
+    }
+
+    // -- streaming ------------------------------------------------------------
+
+    #[test]
+    fn text_deltas_accumulate_into_one_assistant_bubble() {
+        let mut a = app();
+        handle_agent_event(
+            &mut a,
+            AgentEvent::MessageStart {
+                message: assistant_msg("", None),
+            },
+        );
+        for chunk in ["Hel", "lo ", "world"] {
+            handle_agent_event(
+                &mut a,
+                AgentEvent::MessageUpdate {
+                    message: assistant_msg("", None),
+                    delta: StreamEvent::TextDelta { text: chunk.into() },
+                },
+            );
+        }
+        handle_agent_event(
+            &mut a,
+            AgentEvent::MessageEnd {
+                message: assistant_msg("Hello world", None),
+            },
+        );
+
+        let assistant: Vec<_> = bubbles(&a)
+            .into_iter()
+            .filter(|(r, _)| matches!(r, BubbleRole::Assistant))
+            .collect();
+        assert_eq!(
+            assistant.len(),
+            1,
+            "3 deltas must merge into ONE bubble, got: {assistant:?}"
+        );
+        assert_eq!(assistant[0].1, "Hello world");
+        assert!(
+            a.streaming_idx.is_none(),
+            "MessageEnd must close the streaming bubble"
+        );
+    }
+
+    #[test]
+    fn message_end_accumulates_token_usage() {
+        let mut a = app();
+        for (inp, out) in [(10u32, 20u32), (5, 7)] {
+            handle_agent_event(
+                &mut a,
+                AgentEvent::MessageEnd {
+                    message: assistant_msg(
+                        "x",
+                        Some(UsageMetadata {
+                            input_tokens: inp,
+                            output_tokens: out,
+                            total_tokens: inp + out,
+                            cache_creation_input_tokens: Some(0),
+                            cache_read_input_tokens: Some(0),
+                        }),
+                    ),
+                },
+            );
+        }
+        assert_eq!(a.total_input_tokens, 15);
+        assert_eq!(a.total_output_tokens, 27);
+    }
+
+    #[test]
+    fn unsealed_reasoning_is_closed_defensively_on_message_end() {
+        let mut a = app();
+        handle_agent_event(
+            &mut a,
+            AgentEvent::MessageUpdate {
+                message: assistant_msg("", None),
+                delta: StreamEvent::ReasoningDelta {
+                    text: "thinking…".into(),
+                },
+            },
+        );
+        assert!(a.thinking_idx.is_some(), "reasoning delta opens a block");
+        // No ReasoningBlock seal arrives — MessageEnd must close it anyway.
+        handle_agent_event(
+            &mut a,
+            AgentEvent::MessageEnd {
+                message: assistant_msg("done", None),
+            },
+        );
+        assert!(
+            a.thinking_idx.is_none(),
+            "MessageEnd must defensively seal an unsealed thinking block"
+        );
+    }
+
+    #[test]
+    fn message_error_closes_the_stream_and_reports() {
+        let mut a = app();
+        handle_agent_event(
+            &mut a,
+            AgentEvent::MessageStart {
+                message: assistant_msg("", None),
+            },
+        );
+        handle_agent_event(
+            &mut a,
+            AgentEvent::MessageError {
+                message: assistant_msg("", None),
+                error: "rate limited".into(),
+            },
+        );
+        assert!(a.streaming_idx.is_none());
+        assert!(bubbles(&a)
+            .iter()
+            .any(|(r, t)| matches!(r, BubbleRole::Error) && t.contains("rate limited")));
+    }
+
+    // -- tool blocks ------------------------------------------------------------
+
+    #[test]
+    fn tool_start_then_end_pairs_up_and_drains_pending() {
+        let mut a = app();
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "echo hi" }),
+        };
+        handle_agent_event(
+            &mut a,
+            AgentEvent::ToolExecutionStart {
+                tool_call: call.clone(),
+            },
+        );
+        assert_eq!(a.pending_tools.len(), 1, "start registers a pending block");
+        handle_agent_event(
+            &mut a,
+            AgentEvent::ToolExecutionEnd {
+                tool_call: call,
+                result: ToolOutput::text("hi"),
+            },
+        );
+        assert!(
+            a.pending_tools.is_empty(),
+            "end must complete the matching pending block"
+        );
+    }
+
+    // -- key dispatch -------------------------------------------------------------
+
+    #[test]
+    fn typing_then_enter_submits_the_buffer_and_records_history() {
+        let mut a = app();
+        assert!(matches!(a.on_key(key(KeyCode::Char('h'))), KeyAction::None));
+        assert!(matches!(a.on_key(key(KeyCode::Char('i'))), KeyAction::None));
+        match a.on_key(key(KeyCode::Enter)) {
+            KeyAction::Submit(text) => assert_eq!(text, "hi"),
+            other => panic!("Enter on non-empty buffer must submit, got {other:?}"),
+        }
+        assert!(a.input_history.contains(&"hi".to_string()));
+    }
+
+    #[test]
+    fn ctrl_c_interrupts_and_ctrl_d_quits() {
+        let mut a = app();
+        assert!(matches!(a.on_key(ctrl('c')), KeyAction::Interrupt));
+        assert!(!a.should_quit);
+        assert!(matches!(a.on_key(ctrl('d')), KeyAction::None));
+        assert!(a.should_quit, "Ctrl+D must set the quit flag");
+    }
+
+    // -- approval dialog ------------------------------------------------------------
+
+    fn arm_approval(a: &mut TuiApp) {
+        a.pending_approval = Some(PendingApproval {
+            request: ApprovalRequest {
+                request_id: "req-1".into(),
+                tool_name: "execute_shell".into(),
+                arguments: serde_json::json!({ "command": "rm -rf ./x" }),
+            },
+        });
+    }
+
+    #[test]
+    fn approval_keys_map_to_the_four_decisions() {
+        let cases = [
+            (KeyCode::Char('y'), PermissionDecision::AllowOnce),
+            (KeyCode::Enter, PermissionDecision::AllowOnce),
+            (KeyCode::Char('a'), PermissionDecision::AllowAlways),
+            (KeyCode::Char('n'), PermissionDecision::RejectOnce),
+            (KeyCode::Esc, PermissionDecision::RejectOnce),
+            (KeyCode::Char('d'), PermissionDecision::RejectAlways),
+        ];
+        for (code, expected) in cases {
+            let mut a = app();
+            arm_approval(&mut a);
+            match a.on_key(key(code)) {
+                KeyAction::ApprovalDecision { request, decision } => {
+                    assert_eq!(request.request_id, "req-1");
+                    assert_eq!(decision, expected, "key {code:?}");
+                }
+                other => panic!("key {code:?} must resolve the dialog, got {other:?}"),
+            }
+            assert!(
+                a.pending_approval.is_none(),
+                "a decision must clear the pending dialog"
+            );
+        }
+    }
+
+    #[test]
+    fn unrelated_key_keeps_the_dialog_armed_and_off_the_input() {
+        let mut a = app();
+        arm_approval(&mut a);
+        assert!(matches!(a.on_key(key(KeyCode::Char('x'))), KeyAction::None));
+        assert!(
+            a.pending_approval.is_some(),
+            "unmapped key must not resolve the dialog"
+        );
+        assert_eq!(
+            a.chat_input.value(),
+            "",
+            "keys pressed during approval must not leak into the chat input"
+        );
+    }
 }
