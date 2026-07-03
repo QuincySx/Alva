@@ -88,6 +88,26 @@ pub(crate) async fn run_print_mode(
     prompt: &str,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
 ) -> i32 {
+    run_print_mode_with(
+        agent,
+        prompt,
+        approval_rx,
+        &mut io::stdout(),
+        &mut io::stderr(),
+    )
+    .await
+}
+
+/// Writer-injected core of [`run_print_mode`] — the seam that makes the
+/// headless main loop testable in-process. Production passes stdout/stderr;
+/// tests pass `Vec<u8>` buffers and assert the exact byte contract.
+pub(crate) async fn run_print_mode_with(
+    agent: &BaseAgent,
+    prompt: &str,
+    approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
+    out: &mut (dyn Write + Send),
+    err: &mut (dyn Write + Send),
+) -> i32 {
     let mut rx = agent.prompt_text(prompt);
     let mut exit_code = 0;
 
@@ -97,16 +117,16 @@ pub(crate) async fn run_print_mode(
                 match event {
                     Some(AgentEvent::MessageUpdate { delta, .. }) => {
                         if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
-                            print!("{}", text);
-                            io::stdout().flush().ok();
+                            write!(out, "{}", text).ok();
+                            out.flush().ok();
                         }
                     }
                     Some(AgentEvent::MessageEnd { .. }) => {
-                        println!(); // final newline
+                        writeln!(out).ok(); // final newline
                     }
                     Some(AgentEvent::AgentEnd { error }) => {
                         if let Some(e) = &error {
-                            eprintln!("{}", format_print_mode_error(e));
+                            writeln!(err, "{}", format_print_mode_error(e)).ok();
                             exit_code = 1;
                         }
                         break;
@@ -117,7 +137,7 @@ pub(crate) async fn run_print_mode(
             }
             approval = approval_rx.recv() => {
                 if let Some(req) = approval {
-                    eprintln!("{}", print_mode_denial_notice(&req.tool_name));
+                    writeln!(err, "{}", print_mode_denial_notice(&req.tool_name)).ok();
                     agent
                         .resolve_permission(
                             &req.request_id,
@@ -239,6 +259,114 @@ mod tests {
     //! regression with no compile-time signal. All variants + the
     //! trim + lowercase normalization are pinned.
     use super::*;
+
+    // -- run_print_mode_with: in-process contract tests ---------------------
+    //
+    // These drive the REAL headless loop against a mock model and assert the
+    // stdout/stderr byte contract — the CLI's -p mode promise: stdout carries
+    // ONLY the assistant text (+ trailing newline), everything else (errors,
+    // permission notices) goes to stderr.
+
+    async fn print_mode_agent(
+        model: alva_test::mock_provider::MockLanguageModel,
+    ) -> (
+        alva_app_core::BaseAgent,
+        mpsc::UnboundedReceiver<ApprovalRequest>,
+        tempfile::TempDir,
+    ) {
+        let (approval_ext, approval_rx) = alva_app_core::extension::ApprovalPlugin::with_channel();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let agent = alva_app_core::BaseAgent::builder()
+            .workspace(tmp.path())
+            .system_prompt("test")
+            .plugin(Box::new(alva_app_core::extension::ShellPlugin))
+            .plugin(Box::new(approval_ext))
+            .build(std::sync::Arc::new(model))
+            .await
+            .expect("agent builds");
+        (agent, approval_rx, tmp)
+    }
+
+    #[tokio::test]
+    async fn print_mode_stdout_is_text_only_and_exit_zero() {
+        use alva_test::fixtures::make_assistant_message;
+        let model = alva_test::mock_provider::MockLanguageModel::new()
+            .with_response(make_assistant_message("hello from -p"));
+        let (agent, mut approval_rx, _tmp) = print_mode_agent(model).await;
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = run_print_mode_with(&agent, "hi", &mut approval_rx, &mut out, &mut err).await;
+
+        assert_eq!(code, 0);
+        assert_eq!(String::from_utf8(out).unwrap(), "hello from -p\n");
+        assert!(
+            err.is_empty(),
+            "clean run must write nothing to stderr: {}",
+            String::from_utf8_lossy(&err)
+        );
+    }
+
+    #[tokio::test]
+    async fn print_mode_error_goes_to_stderr_with_hint_and_exit_one() {
+        // Empty response queue → the mock model errors → AgentEnd { error }.
+        let model = alva_test::mock_provider::MockLanguageModel::new();
+        let (agent, mut approval_rx, _tmp) = print_mode_agent(model).await;
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = run_print_mode_with(&agent, "hi", &mut approval_rx, &mut out, &mut err).await;
+
+        assert_eq!(code, 1, "AgentEnd with error must exit 1");
+        let err = String::from_utf8(err).unwrap();
+        assert!(err.contains("Error:"), "raw error must be echoed: {err}");
+        assert!(
+            err.contains("Hint:"),
+            "error must carry an actionable hint: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn print_mode_denies_approvals_fail_closed_and_finishes() {
+        use alva_test::fixtures::{make_assistant_message, tool_use_message};
+        // Model asks for a shell command (HITL-gated); -p mode must deny it
+        // on stderr WITHOUT hanging, feed the rejection back, and let the
+        // model finish its scripted turn.
+        let model = alva_test::mock_provider::MockLanguageModel::new()
+            .with_response(tool_use_message(
+                "sh",
+                "execute_shell",
+                serde_json::json!({ "command": "echo hi" }),
+            ))
+            .with_response(make_assistant_message("done without shell"));
+        let (agent, mut approval_rx, _tmp) = print_mode_agent(model).await;
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let run = run_print_mode_with(
+            &agent,
+            "run a command",
+            &mut approval_rx,
+            &mut out,
+            &mut err,
+        );
+        let code = tokio::time::timeout(std::time::Duration::from_secs(10), run)
+            .await
+            .expect("fail-closed denial must not hang the run");
+
+        assert_eq!(code, 0, "denied tool is not a run failure");
+        let err = String::from_utf8(err).unwrap();
+        assert!(
+            err.contains("[permission]") && err.contains("execute_shell"),
+            "stderr must carry the denial notice: {err}"
+        );
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.contains("done without shell"),
+            "the run must continue to the final message: {out}"
+        );
+        assert!(
+            !out.contains("[permission]"),
+            "stdout must stay clean of permission noise: {out}"
+        );
+    }
 
     #[test]
     fn format_print_mode_error_always_includes_raw() {

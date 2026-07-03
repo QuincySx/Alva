@@ -53,3 +53,5 @@ ignore = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
+# In-process print-mode tests drive run_print_mode_with against a mock model.
+alva-test = { path = "../alva-test" }

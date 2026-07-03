@@ -456,10 +456,12 @@ fn parse_permission_mode(args: &[String]) -> Result<Option<alva_app_core::Permis
         "accept-shell" => PermissionMode::AcceptShell,
         "plan" => PermissionMode::Plan,
         "bypass" => PermissionMode::Bypass,
-        other => return Err(format!(
+        other => {
+            return Err(format!(
             "unknown --permission-mode '{}' (expected ask|accept-edits|accept-shell|plan|bypass)",
             other
-        )),
+        ))
+        }
     };
     Ok(Some(mode))
 }
