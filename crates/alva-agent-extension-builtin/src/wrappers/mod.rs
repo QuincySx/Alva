@@ -1,7 +1,8 @@
 //! Built-in Extension wrappers (formerly in `alva-app-core/src/extension/`).
 
-#[cfg(feature = "browser")]
-pub mod browser;
+// NOTE: no browser wrapper here — it lives in `alva-app-extension-browser`
+// (app layer). This SDK crate must not depend on alva-app-* under any
+// feature; the dependency firewall (Rule 16/17) enforces it.
 pub mod core;
 pub mod interaction;
 pub mod memory;
@@ -18,8 +19,6 @@ pub mod utility;
 pub mod web;
 
 pub use self::core::CorePlugin;
-#[cfg(feature = "browser")]
-pub use browser::BrowserPlugin;
 pub use interaction::InteractionPlugin;
 pub use memory::MemoryPlugin;
 pub use planning::PlanningPlugin;

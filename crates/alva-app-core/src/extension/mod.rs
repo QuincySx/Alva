@@ -40,9 +40,13 @@ pub use skills::SkillsPlugin;
 
 // Thin Plugin wrappers now live in `alva-agent-extension-builtin::wrappers`.
 pub use alva_agent_extension_builtin::wrappers::{
-    BrowserPlugin, CorePlugin, InteractionPlugin, PlanningPlugin, ShellPlugin, TaskPlugin,
-    TeamPlugin, UtilityPlugin, WebPlugin,
+    CorePlugin, InteractionPlugin, PlanningPlugin, ShellPlugin, TaskPlugin, TeamPlugin,
+    UtilityPlugin, WebPlugin,
 };
+// BrowserPlugin comes from the app-layer browser crate itself: the SDK tool
+// crate must not depend on alva-app-* under any feature (dependency
+// firewall Rule 16/17).
+pub use alva_app_extension_browser::BrowserPlugin;
 pub use analytics::{AnalyticsMiddleware, AnalyticsPlugin};
 pub use approval::ApprovalPlugin;
 pub use blackboard_comm::BlackboardCommPlugin;

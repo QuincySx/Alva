@@ -9,6 +9,9 @@ description = "Heavy app-layer extension: Chrome browser automation via CDP. Liv
 # browser must use web_sys::* directly inside the wasm app, not this crate.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+# For the BrowserPlugin wrapper (Plugin/Registrar). app→SDK is the allowed
+# direction; the reverse (builtin→this crate) was the firewall breach.
+alva-agent-core = { path = "../alva-agent-core" }
 async-trait = "0.1"
 chromiumoxide = { version = "0.9", default-features = false }
 schemars = "1"

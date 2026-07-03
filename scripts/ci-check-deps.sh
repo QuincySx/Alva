@@ -14,7 +14,14 @@ check_no_workspace_deps() {
 
     echo "Checking $crate..."
     local deps
-    deps=$(cargo tree -p "$crate" --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-agent-|alva-app|alva-protocol-|alva-engine-)" | grep -v "^${crate} " || true)
+    # -e normal: shipped deps only (dev-deps like alva-test don't count).
+    # --all-features: the boundary must hold under EVERY feature combination —
+    #   a violation hidden behind an optional feature is still a violation
+    #   (that is exactly how builtin→browser slipped through before).
+    # ^alva-: match ALL workspace crates, not a hand-picked prefix subset —
+    #   the old filter (agent/app/protocol/engine only) was blind to
+    #   kernel/host/llm/macros deps.
+    deps=$(cargo tree -p "$crate" --depth 1 --prefix none -e normal --all-features 2>/dev/null | grep -E "^alva-" | grep -v "^${crate} " || true)
 
     if [ -n "$allowed" ]; then
         deps=$(echo "$deps" | grep -v -E "^($allowed) " || true)
@@ -35,8 +42,8 @@ check_no_workspace_deps "alva-llm-wire"
 # Rule 0: alva-kernel-bus has ZERO workspace deps
 check_no_workspace_deps "alva-kernel-bus"
 
-# Rule 1: alva-kernel-abi only depends on alva-kernel-bus + alva-llm-wire
-check_no_workspace_deps "alva-kernel-abi" "alva-kernel-bus|alva-llm-wire"
+# Rule 1: alva-kernel-abi only depends on alva-kernel-bus + alva-llm-wire + alva-macros
+check_no_workspace_deps "alva-kernel-abi" "alva-kernel-bus|alva-llm-wire|alva-macros"
 
 # Rule 2: alva-kernel-core only depends on alva-kernel-abi
 check_no_workspace_deps "alva-kernel-core" "alva-kernel-abi"
@@ -67,8 +74,13 @@ check_no_workspace_deps "alva-engine-adapter-claude" "alva-kernel-abi|alva-engin
 # Rule 11: alva-engine-adapter-alva only depends on alva-kernel-abi + alva-engine-runtime + alva-kernel-core
 check_no_workspace_deps "alva-engine-adapter-alva" "alva-kernel-abi|alva-engine-runtime|alva-kernel-core"
 
-# Rule 12: alva-provider only depends on alva-kernel-abi
-check_no_workspace_deps "alva-provider" "alva-kernel-abi"
+# Rule 12: alva-llm-provider only depends on alva-kernel-abi
+# (was `alva-provider` — a crate that does not exist; `cargo tree` failed,
+#  the error was swallowed and the rule printed a fake OK forever)
+check_no_workspace_deps "alva-llm-provider" "alva-kernel-abi"
+
+# Rule 12b: alva-macros has ZERO workspace deps
+check_no_workspace_deps "alva-macros"
 
 # Rule 13: alva-environment has ZERO workspace deps
 check_no_workspace_deps "alva-environment"
@@ -81,7 +93,7 @@ check_no_workspace_deps "alva-protocol-acp"  # zero workspace deps
 # Rule 15: protocol crates don't depend on alva-app-*
 echo "Checking protocol crates..."
 for proto in alva-protocol-skill alva-protocol-mcp alva-protocol-acp; do
-    local_deps=$(cargo tree -p "$proto" --depth 1 --prefix none 2>/dev/null | grep -E "^alva-app" || true)
+    local_deps=$(cargo tree -p "$proto" --depth 1 --prefix none -e normal --all-features 2>/dev/null | grep -E "^alva-app" || true)
     if [ -n "$local_deps" ]; then
         echo -e "${RED}VIOLATION: $proto depends on alva-app crates:${NC}"
         echo "$local_deps"
@@ -91,16 +103,12 @@ for proto in alva-protocol-skill alva-protocol-mcp alva-protocol-acp; do
     fi
 done
 
-# Rule 16: alva-app must NOT directly depend on internal agent-* crates
-echo "Checking alva-app facade boundary..."
-app_deps=$(cargo tree -p alva-app --depth 1 --prefix none 2>/dev/null | grep -E "^(alva-kernel-abi|alva-kernel-core|alva-agent-graph|alva-agent-extension-builtin|alva-agent-security|alva-agent-memory|alva-host-native) " || true)
-if [ -n "$app_deps" ]; then
-    echo -e "${RED}VIOLATION: alva-app directly depends on internal crates:${NC}"
-    echo "$app_deps"
-    VIOLATIONS=$((VIOLATIONS + 1))
-else
-    echo -e "${GREEN}OK: alva-app uses facade only${NC}"
-fi
+# Rule 16: alva-agent-extension-builtin (SDK tool layer) only depends on the
+# SDK crates below — in particular NEVER on any alva-app-* crate, under any
+# feature. (The old Rule 16 checked a facade crate `alva-app` that does not
+# exist; it printed a fake OK forever while the real tool-layer boundary
+# went unchecked.)
+check_no_workspace_deps "alva-agent-extension-builtin" "alva-kernel-abi|alva-agent-core|alva-agent-context|alva-agent-memory|alva-agent-security"
 
 # Rule 17: Hard SDK boundary — no SDK crate (kernel / agent / protocol / engine /
 #          macros / llm-provider / environment) may (transitively) depend on any
@@ -133,7 +141,10 @@ SDK_CRATES=(
 )
 
 for crate in "${SDK_CRATES[@]}"; do
-    bad=$(cargo tree -p "$crate" --prefix none 2>/dev/null \
+    # --all-features: a SDK→app/host edge hidden behind an optional feature
+    # is still a violation — real builds (app-core) turn those features on.
+    # -e normal: dev-deps don't ship, so they don't breach the boundary.
+    bad=$(cargo tree -p "$crate" --prefix none -e normal --all-features 2>/dev/null \
         | grep -E "^alva-(app|host)" \
         || true)
     if [ -n "$bad" ]; then

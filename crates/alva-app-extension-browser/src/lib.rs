@@ -52,6 +52,13 @@ pub use browser_status::BrowserStatusTool;
 #[cfg(not(target_family = "wasm"))]
 pub use browser_stop::BrowserStopTool;
 
+// Plugin wrapper (moved here from alva-agent-extension-builtin so the SDK
+// tool crate carries no alva-app-* dependency under any feature).
+#[cfg(not(target_family = "wasm"))]
+pub mod plugin;
+#[cfg(not(target_family = "wasm"))]
+pub use plugin::BrowserPlugin;
+
 /// Pre-built browser tool set — returns `Vec<Box<dyn Tool>>` so it can
 /// be passed straight to a `ToolRegistry`. Native: 7 tools. wasm32: empty.
 #[cfg(not(target_family = "wasm"))]

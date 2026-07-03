@@ -26,7 +26,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "wasm
 tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
 ignore = "0.4"
 reqwest = { version = "0.12", features = ["json", "stream", "multipart"], optional = true }
-alva-app-extension-browser = { path = "../alva-app-extension-browser", optional = true }
 alva-agent-context = { path = "../alva-agent-context" }
 
 [dev-dependencies]
@@ -55,4 +54,5 @@ worktree = []            # enter/exit_worktree
 team = []                # team_create/delete + send_message
 task = []                # task_create/update/get/list/output/stop
 schedule = []            # schedule_cron + remote_trigger
-browser = ["dep:alva-app-extension-browser"]  # BrowserExtension wrapper
+# (no `browser` feature: the BrowserPlugin wrapper lives in
+#  alva-app-extension-browser — SDK crates carry no alva-app-* deps)

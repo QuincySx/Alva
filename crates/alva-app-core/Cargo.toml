@@ -13,7 +13,7 @@ path = "src/lib.rs"
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-agent-core = { path = "../alva-agent-core" }
-alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin", features = ["core", "utility", "web", "task", "team", "worktree", "browser"] }
+alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin", features = ["core", "utility", "web", "task", "team", "worktree"] }
 alva-app-extension-browser = { path = "../alva-app-extension-browser" }
 alva-agent-security = { path = "../alva-agent-security" }
 alva-agent-memory = { path = "../alva-agent-memory" }
