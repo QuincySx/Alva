@@ -26,4 +26,7 @@ uuid = { version = "1", features = ["v4", "js"] }
 getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+# rt-multi-thread is test-only: the concurrency regressions in agent_session
+# need real parallelism (on `current_thread` the races can never manifest).
+# The production dependency above stays sync+time (wasm-clean).
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

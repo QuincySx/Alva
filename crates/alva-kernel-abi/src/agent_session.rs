@@ -669,13 +669,18 @@ impl AgentSession for InMemoryAgentSession {
     }
 
     async fn append(&self, mut event: SessionEvent) {
-        // Assign seq atomically. This is the only place seq is assigned
-        // on the raw-event write path.
-        event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+        // Seq assignment and push share ONE critical section: concurrent
+        // appenders would otherwise grab seqs in one order and win the lock
+        // in another, storing events out of seq order (e.g. a tool_result
+        // ahead of its tool_use). Storage order == seq order is the contract
+        // every replay/projection consumer builds on.
+        //
         // Raw events go into the event log ONLY. Message-bearing events
         // should use append_message so that both the log and the cache
         // stay consistent.
-        self.events.write().await.push(event);
+        let mut events = self.events.write().await;
+        event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+        events.push(event);
     }
 
     async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
@@ -685,12 +690,16 @@ impl AgentSession for InMemoryAgentSession {
         event.parent_uuid = parent_uuid;
         event.message = session_msg;
         event.data = Some(serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null));
-        event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
 
-        // Push to events log and directly to the message cache.
-        // The cache holds the original AgentMessage — no round-trip.
-        self.events.write().await.push(event);
-        self.messages.write().await.push_back(msg);
+        // One critical section for seq + both stores (lock order events →
+        // messages, same as restore/rollback), so the log, the message
+        // cache, and seq order can never diverge. The cache holds the
+        // original AgentMessage — no round-trip.
+        let mut events = self.events.write().await;
+        let mut messages = self.messages.write().await;
+        event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+        events.push(event);
+        messages.push_back(msg);
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
@@ -878,12 +887,18 @@ impl AgentSession for ListenableInMemorySession {
     }
 
     async fn append(&self, event: SessionEvent) {
-        // Assign seq directly via inner's atomic counter, then push to
-        // inner's events vec. We do NOT call self.inner.append() so that
-        // we have the post-seq-assign event in hand to broadcast.
+        // Assign seq inside inner's events write lock (same critical section
+        // as the push — see InMemoryAgentSession::append for why), then
+        // broadcast OUTSIDE the lock: listeners run arbitrary async code and
+        // may read this very session, which would deadlock under the held
+        // write guard. We do NOT call self.inner.append() so that we have
+        // the post-seq-assign event in hand to broadcast.
         let mut e = event;
-        e.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
-        self.inner.events.write().await.push(e.clone());
+        {
+            let mut events = self.inner.events.write().await;
+            e.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+            events.push(e.clone());
+        }
 
         let listeners = self.listeners.read().await;
         for l in listeners.iter() {
@@ -899,12 +914,17 @@ impl AgentSession for ListenableInMemorySession {
         event.message = session_msg;
         event.parent_uuid = parent_uuid;
         event.data = Some(serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null));
-        // Assign seq via inner's counter (same-module private field access).
-        event.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
 
-        // Store in inner's fields.
-        self.inner.events.write().await.push(event.clone());
-        self.inner.messages.write().await.push_back(msg);
+        // One critical section for seq + both stores (lock order events →
+        // messages, same as InMemoryAgentSession::append_message); broadcast
+        // after release — listeners may read this session.
+        {
+            let mut events = self.inner.events.write().await;
+            let mut messages = self.inner.messages.write().await;
+            event.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+            events.push(event.clone());
+            messages.push_back(msg);
+        }
 
         // Notify listeners.
         let listeners = self.listeners.read().await;
@@ -1132,17 +1152,26 @@ mod tests {
         assert_eq!(events[2].seq, 3);
     }
 
-    #[tokio::test]
+    /// STORAGE order must equal seq order under concurrent appends — the
+    /// projection/live-tail layers replay the events vec as-is, so an event
+    /// stored out of seq order (e.g. a `tool_result` landing before its
+    /// `tool_use`) corrupts every consumer downstream. Requires a
+    /// multi-thread runtime: on `current_thread` the appends serialize and
+    /// the race can never manifest. Do NOT sort before asserting — sorting
+    /// is exactly what would hide the bug this test exists to catch.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn concurrent_append_preserves_monotonic_seq() {
         use std::sync::Arc;
 
         let s = Arc::new(InMemoryAgentSession::new());
         let mut handles = Vec::new();
-        for i in 0..100 {
+        for t in 0..8 {
             let s = s.clone();
             handles.push(tokio::spawn(async move {
-                let e = SessionEvent::progress(serde_json::json!({"i": i}));
-                s.append(e).await;
+                for i in 0..250 {
+                    let e = SessionEvent::progress(serde_json::json!({"t": t, "i": i}));
+                    s.append(e).await;
+                }
             }));
         }
         for h in handles {
@@ -1150,22 +1179,51 @@ mod tests {
         }
 
         let events = s.events.read().await;
-        assert_eq!(events.len(), 100);
+        assert_eq!(events.len(), 2000);
 
-        // Collect seqs and verify they are exactly {1..=100} with no duplicates
-        // and no gaps. Ordering in the Vec matches insertion order, which matches
-        // seq order because append grabs the counter before pushing.
-        let mut seqs: Vec<u64> = events.iter().map(|e| e.seq).collect();
-        seqs.sort_unstable();
-        for (i, seq) in seqs.iter().enumerate() {
+        // Strict: seq in STORAGE order must be exactly 1, 2, 3, … — dense,
+        // duplicate-free, AND in place. seq is assigned inside the events
+        // write lock, so insertion order and seq order cannot diverge.
+        for (i, e) in events.iter().enumerate() {
             assert_eq!(
-                *seq,
+                e.seq,
                 (i + 1) as u64,
-                "seq at index {} should be {}",
-                i,
-                i + 1
+                "storage order diverged from seq order at index {i}"
             );
         }
+    }
+
+    /// Same invariant for the message path, which additionally keeps the
+    /// message cache in step with the event log under one critical section.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn concurrent_append_message_preserves_storage_order() {
+        use std::sync::Arc;
+
+        let s = Arc::new(InMemoryAgentSession::new());
+        let mut handles = Vec::new();
+        for t in 0..8 {
+            let s = s.clone();
+            handles.push(tokio::spawn(async move {
+                for i in 0..250 {
+                    s.append_message(user_msg(&format!("{t}-{i}")), None).await;
+                }
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let events = s.events.read().await;
+        assert_eq!(events.len(), 2000);
+        for (i, e) in events.iter().enumerate() {
+            assert_eq!(
+                e.seq,
+                (i + 1) as u64,
+                "storage order diverged from seq order at index {i}"
+            );
+        }
+        drop(events);
+        assert_eq!(s.messages().await.len(), 2000);
     }
 
     #[tokio::test]
