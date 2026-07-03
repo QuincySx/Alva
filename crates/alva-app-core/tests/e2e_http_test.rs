@@ -13,6 +13,7 @@ use alva_app_core::base_agent::BaseAgent;
 use alva_app_core::AgentEvent;
 use alva_kernel_abi::{LanguageModel, StreamEvent};
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
+use alva_test::assertions::collect_events;
 
 // ---------------------------------------------------------------------------
 // Mock OpenAI HTTP server
@@ -171,19 +172,6 @@ async fn start_mock_openai_tool_server() -> (String, tokio::task::JoinHandle<()>
 // ---------------------------------------------------------------------------
 
 /// Drain events from an agent prompt, returning all collected events.
-async fn collect_events(
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
-) -> Vec<AgentEvent> {
-    let mut events = Vec::new();
-    while let Some(event) = rx.recv().await {
-        let is_end = matches!(event, AgentEvent::AgentEnd { .. });
-        events.push(event);
-        if is_end {
-            break;
-        }
-    }
-    events
-}
 
 // ---------------------------------------------------------------------------
 // Test: Full HTTP streaming pipeline — text only

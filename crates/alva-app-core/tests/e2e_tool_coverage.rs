@@ -17,8 +17,10 @@ use alva_agent_extension_builtin::notebook_edit::NotebookEditTool;
 use alva_app_core::base_agent::{BaseAgent, PermissionMode};
 use alva_app_core::extension::{ApprovalPlugin, PermissionPlugin};
 use alva_app_core::AgentEvent;
-use alva_kernel_abi::{ContentBlock, Message, MessageRole};
+use alva_kernel_abi::Message;
+use alva_test::assertions::{agent_ended_cleanly, collect_events, ran_tool, tool_result_for};
 use alva_test::fixtures::make_assistant_message;
+use alva_test::fixtures::tool_use_message;
 use alva_test::mock_provider::MockLanguageModel;
 
 // ---------------------------------------------------------------------------
@@ -113,62 +115,6 @@ async fn build_agent_with_responses(
 }
 
 /// Build a single Message containing one ToolUse block with the given args.
-fn tool_use_message(id: &str, name: &str, input: serde_json::Value) -> Message {
-    Message {
-        id: format!("msg-{id}"),
-        role: MessageRole::Assistant,
-        content: vec![ContentBlock::ToolUse {
-            id: format!("call-{id}"),
-            name: name.to_string(),
-            input,
-        }],
-        tool_call_id: None,
-        usage: None,
-        timestamp: 0,
-    }
-}
-
-/// Drain all events until AgentEnd. Returns the full event list.
-async fn collect_events(
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
-) -> Vec<AgentEvent> {
-    let mut events = Vec::new();
-    while let Some(event) = rx.recv().await {
-        let is_end = matches!(event, AgentEvent::AgentEnd { .. });
-        events.push(event);
-        if is_end {
-            break;
-        }
-    }
-    events
-}
-
-/// Find the first ToolExecutionEnd event for the given tool name and
-/// return a clone of its `result` field. Panics if not found — the
-/// caller knows the tool was supposed to run.
-fn tool_result_for(events: &[AgentEvent], tool_name: &str) -> alva_kernel_abi::ToolOutput {
-    events
-        .iter()
-        .find_map(|e| match e {
-            AgentEvent::ToolExecutionEnd { tool_call, result } if tool_call.name == tool_name => {
-                Some(result.clone())
-            }
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("no ToolExecutionEnd for `{tool_name}` in event stream"))
-}
-
-fn ran_tool(events: &[AgentEvent], tool_name: &str) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolExecutionEnd { tool_call, .. } if tool_call.name == tool_name))
-}
-
-fn agent_ended_cleanly(events: &[AgentEvent]) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::AgentEnd { error: None }))
-}
 
 // ===========================================================================
 // STAGE 1: individual-tool coverage

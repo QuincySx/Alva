@@ -54,8 +54,10 @@ use std::sync::Arc;
 
 use alva_app_core::base_agent::BaseAgent;
 use alva_app_core::AgentEvent;
-use alva_kernel_abi::{ContentBlock, LanguageModel, Message, MessageRole, ToolCall, ToolOutput};
+use alva_kernel_abi::{LanguageModel, Message, MessageRole, ToolCall, ToolOutput};
+use alva_test::assertions::{collect_events, ran_tool};
 use alva_test::fixtures::make_assistant_message;
+use alva_test::fixtures::tool_use_message;
 use alva_test::mock_provider::MockLanguageModel;
 
 // ---------------------------------------------------------------------------
@@ -631,43 +633,6 @@ async fn mini_agent_registers_p3_p4_tools() {
 // ---------------------------------------------------------------------------
 // Event helpers (shared by both suites' `check` closures).
 // ---------------------------------------------------------------------------
-
-/// Build a single Message containing one ToolUse block.
-fn tool_use_message(id: &str, name: &str, input: serde_json::Value) -> Message {
-    Message {
-        id: format!("msg-{id}"),
-        role: MessageRole::Assistant,
-        content: vec![ContentBlock::ToolUse {
-            id: format!("call-{id}"),
-            name: name.to_string(),
-            input,
-        }],
-        tool_call_id: None,
-        usage: None,
-        timestamp: 0,
-    }
-}
-
-/// Drain events until AgentEnd.
-async fn collect_events(
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
-) -> Vec<AgentEvent> {
-    let mut events = Vec::new();
-    while let Some(event) = rx.recv().await {
-        let is_end = matches!(event, AgentEvent::AgentEnd { .. });
-        events.push(event);
-        if is_end {
-            break;
-        }
-    }
-    events
-}
-
-fn ran_tool(events: &[AgentEvent], tool_name: &str) -> bool {
-    events.iter().any(|e| {
-        matches!(e, AgentEvent::ToolExecutionEnd { tool_call, .. } if tool_call.name == tool_name)
-    })
-}
 
 /// First successful (or any, if all errored) ToolOutput for `tool_name`.
 fn result_for(events: &[AgentEvent], tool_name: &str) -> Option<ToolOutput> {

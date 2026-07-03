@@ -26,6 +26,24 @@ pub fn make_assistant_message(text: &str) -> Message {
     }
 }
 
+/// Deterministic-id variant of [`make_tool_call_message`]: message id
+/// `msg-{id}`, call id `call-{id}`. Use when the test correlates tool_use /
+/// tool_result pairs or scripts multi-turn conversations by readable ids.
+pub fn tool_use_message(id: &str, name: &str, input: Value) -> Message {
+    Message {
+        id: format!("msg-{id}"),
+        role: MessageRole::Assistant,
+        content: vec![ContentBlock::ToolUse {
+            id: format!("call-{id}"),
+            name: name.to_string(),
+            input,
+        }],
+        tool_call_id: None,
+        usage: None,
+        timestamp: 0,
+    }
+}
+
 pub fn make_tool_call_message(tool_name: &str, args: Value) -> Message {
     Message {
         id: uuid_str(),

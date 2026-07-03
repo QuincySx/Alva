@@ -11,6 +11,7 @@ use std::sync::Arc;
 use alva_app_core::base_agent::{BaseAgent, PermissionMode};
 use alva_app_core::AgentEvent;
 use alva_kernel_abi::{ContentBlock, Message, MessageRole, StreamEvent, ToolOutput, UsageMetadata};
+use alva_test::assertions::collect_events;
 use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
 use alva_test::mock_tool::MockTool;
@@ -31,21 +32,6 @@ async fn build_agent(
         .await
         .expect("build should succeed");
     (agent, tmp)
-}
-
-/// Drain events from an agent prompt, returning all collected events.
-async fn collect_events(
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
-) -> Vec<AgentEvent> {
-    let mut events = Vec::new();
-    while let Some(event) = rx.recv().await {
-        let is_end = matches!(event, AgentEvent::AgentEnd { .. });
-        events.push(event);
-        if is_end {
-            break;
-        }
-    }
-    events
 }
 
 // ---------------------------------------------------------------------------
