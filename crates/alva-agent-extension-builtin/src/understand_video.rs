@@ -186,8 +186,15 @@ mod tests {
 
     #[test]
     fn resolve_path_absolute_is_unchanged() {
-        let abs = if cfg!(windows) { r"C:\v\a.mp4" } else { "/v/a.mp4" };
-        assert_eq!(resolve_path(abs, Some(Path::new("/ws"))), PathBuf::from(abs));
+        let abs = if cfg!(windows) {
+            r"C:\v\a.mp4"
+        } else {
+            "/v/a.mp4"
+        };
+        assert_eq!(
+            resolve_path(abs, Some(Path::new("/ws"))),
+            PathBuf::from(abs)
+        );
     }
 
     #[test]
@@ -236,10 +243,13 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits the real Kimi API; needs KIMI_API_KEY + KIMI_TEST_VIDEO"]
     async fn understand_video_live() {
-        let video = std::env::var("KIMI_TEST_VIDEO")
-            .expect("set KIMI_TEST_VIDEO to a local video path");
+        let video =
+            std::env::var("KIMI_TEST_VIDEO").expect("set KIMI_TEST_VIDEO to a local video path");
         let out = UnderstandVideoTool
-            .execute(json!({ "path": video, "prompt": "Summarize this video." }), &ctx())
+            .execute(
+                json!({ "path": video, "prompt": "Summarize this video." }),
+                &ctx(),
+            )
             .await
             .expect("should resolve");
         eprintln!("is_error={}\n{}", out.is_error, out.model_text());

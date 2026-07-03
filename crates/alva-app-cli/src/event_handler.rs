@@ -251,7 +251,11 @@ mod tests {
 
     #[test]
     fn format_print_mode_error_auth_points_at_credentials() {
-        for raw in ["HTTP 401 Unauthorized", "invalid api key", "authentication failed"] {
+        for raw in [
+            "HTTP 401 Unauthorized",
+            "invalid api key",
+            "authentication failed",
+        ] {
             let out = format_print_mode_error(raw);
             assert!(
                 out.contains("ALVA_API_KEY") || out.contains("alva settings set"),

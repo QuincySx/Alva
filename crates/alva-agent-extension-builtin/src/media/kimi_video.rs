@@ -77,7 +77,11 @@ pub enum VideoUnderstandError {
     /// Network-level failure (connect/timeout/etc.).
     Http(String),
     /// Backend returned a non-2xx status.
-    Api { stage: &'static str, status: u16, body: String },
+    Api {
+        stage: &'static str,
+        status: u16,
+        body: String,
+    },
     /// Response body could not be parsed into the expected shape.
     Parse(String),
 }
@@ -85,13 +89,16 @@ pub enum VideoUnderstandError {
 impl std::fmt::Display for VideoUnderstandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MissingApiKey => write!(
-                f,
-                "missing API key: set KIMI_API_KEY (or MOONSHOT_API_KEY)"
-            ),
+            Self::MissingApiKey => {
+                write!(f, "missing API key: set KIMI_API_KEY (or MOONSHOT_API_KEY)")
+            }
             Self::Client(m) => write!(f, "HTTP client error: {m}"),
             Self::Http(m) => write!(f, "HTTP request failed: {m}"),
-            Self::Api { stage, status, body } => {
+            Self::Api {
+                stage,
+                status,
+                body,
+            } => {
                 write!(f, "backend error during {stage}: HTTP {status}: {body}")
             }
             Self::Parse(m) => write!(f, "failed to parse backend response: {m}"),
@@ -177,8 +184,8 @@ async fn upload_video(
         });
     }
 
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| VideoUnderstandError::Parse(e.to_string()))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| VideoUnderstandError::Parse(e.to_string()))?;
     json.get("id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
@@ -224,10 +231,11 @@ async fn chat_understand(
         });
     }
 
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| VideoUnderstandError::Parse(e.to_string()))?;
-    extract_message_text(&json)
-        .ok_or_else(|| VideoUnderstandError::Parse(format!("no message content in response: {body}")))
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| VideoUnderstandError::Parse(e.to_string()))?;
+    extract_message_text(&json).ok_or_else(|| {
+        VideoUnderstandError::Parse(format!("no message content in response: {body}"))
+    })
 }
 
 /// Pull `choices[0].message.content` out of an OpenAI-compatible response.

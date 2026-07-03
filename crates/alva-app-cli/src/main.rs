@@ -148,7 +148,9 @@ async fn run() -> i32 {
                         Some(c) => c,
                         None => {
                             eprintln!();
-                            output::print_error("Setup incomplete. You can also configure manually:");
+                            output::print_error(
+                                "Setup incomplete. You can also configure manually:",
+                            );
                             eprintln!("  export ALVA_API_KEY=sk-...");
                             eprintln!("  export ALVA_MODEL=gpt-4o");
                             eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
@@ -275,8 +277,7 @@ async fn run() -> i32 {
             return 1;
         }
 
-        let exit_code =
-            event_handler::run_print_mode(&agent, &prompt, &mut approval_rx).await;
+        let exit_code = event_handler::run_print_mode(&agent, &prompt, &mut approval_rx).await;
         return exit_code;
     }
 
@@ -439,9 +440,7 @@ EXAMPLES:
 /// Mirrors the headless permission controls in Claude Code / Codex so a
 /// non-interactive `-p` run can pick its policy instead of hanging on a
 /// prompt nobody can answer.
-fn parse_permission_mode(
-    args: &[String],
-) -> Result<Option<alva_app_core::PermissionMode>, String> {
+fn parse_permission_mode(args: &[String]) -> Result<Option<alva_app_core::PermissionMode>, String> {
     use alva_app_core::PermissionMode;
     let Some(pos) = args.iter().position(|a| a == "--permission-mode") else {
         return Ok(None);
@@ -457,12 +456,10 @@ fn parse_permission_mode(
         "accept-shell" => PermissionMode::AcceptShell,
         "plan" => PermissionMode::Plan,
         "bypass" => PermissionMode::Bypass,
-        other => {
-            return Err(format!(
-                "unknown --permission-mode '{}' (expected ask|accept-edits|accept-shell|plan|bypass)",
-                other
-            ))
-        }
+        other => return Err(format!(
+            "unknown --permission-mode '{}' (expected ask|accept-edits|accept-shell|plan|bypass)",
+            other
+        )),
     };
     Ok(Some(mode))
 }

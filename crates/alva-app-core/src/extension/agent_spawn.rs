@@ -300,8 +300,7 @@ impl AgentSpawnTool {
                     ),
                 );
                 let mut lines = vec![
-                    "Predefined agent template to spawn. Available types (use when):"
-                        .to_string(),
+                    "Predefined agent template to spawn. Available types (use when):".to_string(),
                 ];
                 for t in templates {
                     lines.push(format!("- {}: {}", t.name, t.description));
@@ -621,8 +620,7 @@ impl AgentSpawnTool {
         // with no HITL gate at all.
         let mut child_middleware = alva_kernel_core::MiddlewareStack::new();
         if let Some(bus) = ctx.bus() {
-            if let Some(guard) =
-                bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
             {
                 child_middleware.push(Arc::new(
                     alva_agent_security::SecurityMiddleware::from_shared(guard)
@@ -1114,10 +1112,15 @@ mod tests {
     #[test]
     fn schema_injects_agent_type_enum_and_when_to_use() {
         let bus = Bus::new();
-        let reg: Arc<dyn AgentTemplateRegistry> = Arc::new(InMemoryAgentTemplateRegistry::new(vec![
-            make_template("video", "You watch videos.", Some(vec!["understand_video".into()])),
-            make_template("coder", "You write code.", None),
-        ]));
+        let reg: Arc<dyn AgentTemplateRegistry> =
+            Arc::new(InMemoryAgentTemplateRegistry::new(vec![
+                make_template(
+                    "video",
+                    "You watch videos.",
+                    Some(vec!["understand_video".into()]),
+                ),
+                make_template("coder", "You write code.", None),
+            ]));
         bus.writer().provide::<dyn AgentTemplateRegistry>(reg);
         let handle = bus.handle();
 
@@ -1135,7 +1138,10 @@ mod tests {
         assert!(enum_vals.contains(&"video".to_string()));
         assert!(enum_vals.contains(&"coder".to_string()));
         assert!(
-            at["description"].as_str().unwrap().contains("when you need"),
+            at["description"]
+                .as_str()
+                .unwrap()
+                .contains("when you need"),
             "agent_type description should list per-template when-to-use"
         );
     }
