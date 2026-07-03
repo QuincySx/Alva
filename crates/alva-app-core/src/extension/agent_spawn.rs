@@ -612,6 +612,25 @@ impl AgentSpawnTool {
             Some(Arc::new(cs))
         };
 
+        // ── Child middleware ────────────────────────────────────────────
+        // The child loop must enforce the SAME security policy as the
+        // parent: wrap the bus-published SecurityGuard (the parent
+        // middleware's own guard, so mode flips and allow-always grants
+        // stay in sync) in a fresh SecurityMiddleware for the child stack.
+        // Without this the child runs dangerous tools (execute_shell & co.)
+        // with no HITL gate at all.
+        let mut child_middleware = alva_kernel_core::MiddlewareStack::new();
+        if let Some(bus) = ctx.bus() {
+            if let Some(guard) =
+                bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            {
+                child_middleware.push(Arc::new(
+                    alva_agent_security::SecurityMiddleware::from_shared(guard)
+                        .with_bus(bus.clone()),
+                ));
+            }
+        }
+
         // Run child agent using the shared helper, supplying the listenable session.
         let result = run_child_agent(ChildAgentParams {
             model: child_model,
@@ -643,6 +662,7 @@ impl AgentSpawnTool {
             sleeper: self.sleeper.clone(),
             session: Some(child_session as Arc<dyn AgentSession>),
             context_system,
+            middleware: child_middleware,
         })
         .await;
 

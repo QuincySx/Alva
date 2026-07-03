@@ -121,6 +121,20 @@ impl SecurityMiddleware {
         Self::new(SecurityGuard::new(workspace.into(), mode))
     }
 
+    /// Build a middleware around an EXISTING shared guard (e.g. the one the
+    /// parent agent published on the bus). Unlike [`Self::new`], decisions,
+    /// mode flips, and allow-always grants stay in sync with every other
+    /// middleware holding the same guard — this is how a sub-agent loop
+    /// enforces the same HITL gate as its parent.
+    pub fn from_shared(guard: Arc<Mutex<SecurityGuard>>) -> Self {
+        Self {
+            guard,
+            bus: OnceLock::new(),
+            approval_timeout: Duration::from_secs(300),
+            no_handler_warned: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
     /// Attach a bus handle so the middleware can look up capabilities (e.g. ApprovalNotifier).
     ///
     /// Can also be wired lazily by `Middleware::configure()`; the first

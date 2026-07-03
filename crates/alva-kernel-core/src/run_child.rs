@@ -59,6 +59,11 @@ pub struct ChildAgentParams {
     /// the child runs without any context plugins (kernel behavior
     /// unchanged).
     pub context_system: Option<Arc<ContextSystem>>,
+    /// Middleware for the child loop. An empty stack means the child runs
+    /// with NO gates at all — in particular no security/HITL middleware —
+    /// so callers spawning children that hold dangerous tools must pass a
+    /// stack that enforces the same policy as the parent loop.
+    pub middleware: MiddlewareStack,
 }
 
 /// Output from a completed child agent run.
@@ -93,7 +98,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
     };
 
     let config = AgentConfig {
-        middleware: MiddlewareStack::new(),
+        middleware: params.middleware,
         system_prompt: params.system_prompt,
         max_iterations: params.max_iterations,
         model_config: params.model_config.unwrap_or_default(),

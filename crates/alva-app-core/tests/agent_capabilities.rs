@@ -106,7 +106,41 @@ async fn build_mini_agent_with_timeout(
     toggles: &alva_app_core::components::ComponentToggles,
     subagent_timeout: std::time::Duration,
 ) -> BaseAgent {
-    let (approval_ext, mut approval_rx) = alva_app_core::extension::ApprovalPlugin::with_channel();
+    let (agent, mut approval_rx) =
+        build_mini_agent_inner(workspace, model, toggles, subagent_timeout).await;
+
+    // Auto-approve every approval request via the bus-published SecurityGuard.
+    let bus = agent.bus().clone();
+    tokio::spawn(async move {
+        while let Some(req) = approval_rx.recv().await {
+            if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            {
+                let mut g = guard.lock().await;
+                g.resolve_permission(
+                    &req.request_id,
+                    &req.tool_name,
+                    alva_agent_security::PermissionDecision::AllowOnce,
+                );
+            }
+        }
+    });
+
+    agent
+}
+
+/// Innermost harness: builds the agent and hands the approval stream back to
+/// the caller UNCONSUMED, so tests can observe (and decide on) each HITL
+/// request instead of blanket auto-approving.
+async fn build_mini_agent_inner(
+    workspace: &Path,
+    model: Arc<dyn LanguageModel>,
+    toggles: &alva_app_core::components::ComponentToggles,
+    subagent_timeout: std::time::Duration,
+) -> (
+    BaseAgent,
+    tokio::sync::mpsc::UnboundedReceiver<alva_host_native::middleware::ApprovalRequest>,
+) {
+    let (approval_ext, approval_rx) = alva_app_core::extension::ApprovalPlugin::with_channel();
 
     let ctx = alva_app_core::components::ComponentContext {
         workspace: workspace.to_path_buf(),
@@ -143,23 +177,7 @@ async fn build_mini_agent_with_timeout(
         .await
         .expect("failed to build mini agent");
 
-    // Auto-approve every approval request via the bus-published SecurityGuard.
-    let bus = agent.bus().clone();
-    tokio::spawn(async move {
-        while let Some(req) = approval_rx.recv().await {
-            if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
-            {
-                let mut g = guard.lock().await;
-                g.resolve_permission(
-                    &req.request_id,
-                    &req.tool_name,
-                    alva_agent_security::PermissionDecision::AllowOnce,
-                );
-            }
-        }
-    });
-
-    agent
+    (agent, approval_rx)
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +448,81 @@ async fn subagent_timeout_fires() {
     assert!(
         final_call.contains("timed out"),
         "parent's final call should carry the child's timeout tool result: {final_call}"
+    );
+}
+
+/// Sub-agents must pass dangerous tools through the same HITL gate as the
+/// parent. run_child previously built the child loop with an EMPTY middleware
+/// stack, so a child running `execute_shell` (on the default HITL review
+/// list) executed without any approval — silently bypassing the security
+/// gate the parent enforces for the very same tool.
+#[tokio::test]
+async fn subagent_dangerous_tool_goes_through_hitl() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path();
+
+    let model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "spawn",
+            "agent",
+            serde_json::json!({
+                "task": "run a shell command and report its output",
+                "role": "worker",
+                "tools": ["execute_shell"],
+            }),
+        ))
+        .with_response(tool_use_message(
+            "sh",
+            "execute_shell",
+            serde_json::json!({ "command": "echo child_ran" }),
+        ))
+        .with_response(make_assistant_message("child done"))
+        .with_response(make_assistant_message("parent done"));
+
+    let model_handle = model.clone();
+    let (agent, mut approval_rx) = build_mini_agent_inner(
+        ws,
+        Arc::new(model),
+        &default_toggles(),
+        alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
+    )
+    .await;
+
+    // Approve every request, recording which tools asked.
+    let approved = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let approved_writer = approved.clone();
+    let bus = agent.bus().clone();
+    tokio::spawn(async move {
+        while let Some(req) = approval_rx.recv().await {
+            approved_writer.lock().unwrap().push(req.tool_name.clone());
+            if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            {
+                let mut g = guard.lock().await;
+                g.resolve_permission(
+                    &req.request_id,
+                    &req.tool_name,
+                    alva_agent_security::PermissionDecision::AllowOnce,
+                );
+            }
+        }
+    });
+
+    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.");
+    let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
+        .await
+        .expect("run hung (an approval was never resolved?)");
+
+    assert!(
+        matches!(events.last(), Some(AgentEvent::AgentEnd { error: None })),
+        "run should end cleanly, got: {:?}",
+        events.last()
+    );
+    assert_eq!(model_handle.calls().len(), 4, "full chain must execute");
+    let approvals = approved.lock().unwrap().clone();
+    assert!(
+        approvals.iter().any(|t| t == "execute_shell"),
+        "the sub-agent's execute_shell must raise an HITL approval request \
+         (child middleware gates dangerous tools); approvals seen: {approvals:?}"
     );
 }
 
