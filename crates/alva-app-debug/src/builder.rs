@@ -85,6 +85,18 @@ impl DebugServerBuilder {
 }
 
 impl DebugServer {
+    /// The port the server is actually bound to. `build()` binds the
+    /// listener, so this is already resolved — pass `.port(0)` to let the
+    /// OS pick a free port (parallel-safe tests), then read it back here
+    /// before calling [`Self::start`].
+    pub fn local_port(&self) -> u16 {
+        self.server
+            .server_addr()
+            .to_ip()
+            .map(|a| a.port())
+            .unwrap_or(0)
+    }
+
     pub fn start(self) -> DebugServerHandle {
         let server = Arc::new(self.server);
         let server_for_thread = Arc::clone(&server);
@@ -202,6 +214,18 @@ mod tests {
             b.shutdown_flag.is_none(),
             "default shutdown_flag must be None"
         );
+    }
+
+    #[test]
+    fn port_zero_exposes_the_real_bound_port() {
+        // Integration tests bind with port 0 (OS-assigned) to stay
+        // parallel-safe; they need the REAL port back to talk to the
+        // server. build() binds, so the port is known immediately.
+        let server = DebugServer::builder()
+            .port(0)
+            .build()
+            .expect("port 0 must bind");
+        assert_ne!(server.local_port(), 0, "bound port must be resolved");
     }
 
     #[test]

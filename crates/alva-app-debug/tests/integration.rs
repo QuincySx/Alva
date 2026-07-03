@@ -8,11 +8,11 @@ use tracing_subscriber::prelude::*;
 
 #[test]
 fn health_endpoint() {
-    let server = DebugServer::builder().port(19230).build().unwrap();
+    let server = DebugServer::builder().port(0).build().unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19230", "/api/health");
+    let resp = http_get(&addr, "/api/health");
     assert!(resp.contains("ok"), "expected 'ok' in response: {}", resp);
 
     handle.shutdown();
@@ -24,21 +24,21 @@ fn log_query_and_level_control() {
     let _guard = tracing_subscriber::registry().with(layer).set_default();
 
     let server = DebugServer::builder()
-        .port(19231)
+        .port(0)
         .with_log_handle(log_handle)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     tracing::info!(target: "test_mod", "hello");
     tracing::warn!(target: "test_mod", "warning");
 
-    let resp = http_get("127.0.0.1:19231", "/api/logs");
+    let resp = http_get(&addr, "/api/logs");
     assert!(resp.contains("hello"), "expected 'hello' in: {}", resp);
     assert!(resp.contains("warning"), "expected 'warning' in: {}", resp);
 
-    let resp = http_get("127.0.0.1:19231", "/api/logs?level=warn");
+    let resp = http_get(&addr, "/api/logs?level=warn");
     assert!(
         !resp.contains("hello"),
         "should not contain 'hello' in: {}",
@@ -47,19 +47,15 @@ fn log_query_and_level_control() {
     assert!(resp.contains("warning"), "expected 'warning' in: {}", resp);
 
     // Check current log level
-    let resp = http_get("127.0.0.1:19231", "/api/logs/level");
+    let resp = http_get(&addr, "/api/logs/level");
     assert!(resp.contains("trace"), "expected 'trace' in: {}", resp);
 
     // Change log level
-    let resp = http_put(
-        "127.0.0.1:19231",
-        "/api/logs/level",
-        r#"{"filter": "warn"}"#,
-    );
+    let resp = http_put(&addr, "/api/logs/level", r#"{"filter": "warn"}"#);
     assert!(resp.contains("ok"), "expected 'ok' in: {}", resp);
 
     // Verify it changed
-    let resp = http_get("127.0.0.1:19231", "/api/logs/level");
+    let resp = http_get(&addr, "/api/logs/level");
     assert!(resp.contains("warn"), "expected 'warn' in: {}", resp);
 
     handle.shutdown();
@@ -67,11 +63,11 @@ fn log_query_and_level_control() {
 
 #[test]
 fn inspect_tree_without_inspector() {
-    let server = DebugServer::builder().port(19232).build().unwrap();
+    let server = DebugServer::builder().port(0).build().unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19232", "/api/inspect/tree");
+    let resp = http_get(&addr, "/api/inspect/tree");
     assert!(resp.contains("error"), "expected 'error' in: {}", resp);
     assert!(
         resp.contains("not registered"),
@@ -84,11 +80,11 @@ fn inspect_tree_without_inspector() {
 
 #[test]
 fn unknown_endpoint_returns_404() {
-    let server = DebugServer::builder().port(19233).build().unwrap();
+    let server = DebugServer::builder().port(0).build().unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19233", "/api/nonexistent");
+    let resp = http_get(&addr, "/api/nonexistent");
     assert!(resp.contains("error"), "expected 'error' in: {}", resp);
     assert!(
         resp.contains("unknown endpoint"),
@@ -126,15 +122,15 @@ fn make_test_registry() -> Arc<ActionRegistry> {
 fn action_endpoint_success() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19240)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let resp = http_post(
-        "127.0.0.1:19240",
+        &addr,
         "/api/action",
         r#"{"target":"chat_panel","method":"send_message","args":{"text":"hello"}}"#,
     );
@@ -152,15 +148,15 @@ fn action_endpoint_success() {
 fn action_endpoint_unknown_target() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19241)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let resp = http_post(
-        "127.0.0.1:19241",
+        &addr,
         "/api/action",
         r#"{"target":"nope","method":"foo","args":{}}"#,
     );
@@ -177,15 +173,15 @@ fn action_endpoint_unknown_target() {
 fn action_endpoint_unknown_method() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19242)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let resp = http_post(
-        "127.0.0.1:19242",
+        &addr,
         "/api/action",
         r#"{"target":"chat_panel","method":"nonexistent","args":{}}"#,
     );
@@ -200,12 +196,12 @@ fn action_endpoint_unknown_method() {
 
 #[test]
 fn action_endpoint_without_registry() {
-    let server = DebugServer::builder().port(19243).build().unwrap();
+    let server = DebugServer::builder().port(0).build().unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let resp = http_post(
-        "127.0.0.1:19243",
+        &addr,
         "/api/action",
         r#"{"target":"x","method":"y","args":{}}"#,
     );
@@ -222,14 +218,14 @@ fn action_endpoint_without_registry() {
 fn inspect_state_endpoint() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19244)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19244", "/api/inspect/state?view=chat_panel");
+    let resp = http_get(&addr, "/api/inspect/state?view=chat_panel");
     assert!(
         resp.contains(r#""view":"chat_panel""#),
         "expected view field in: {}",
@@ -248,14 +244,14 @@ fn inspect_state_endpoint() {
 fn inspect_state_unknown_view() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19245)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19245", "/api/inspect/state?view=unknown");
+    let resp = http_get(&addr, "/api/inspect/state?view=unknown");
     assert!(
         resp.contains("state_error"),
         "expected state_error in: {}",
@@ -269,14 +265,14 @@ fn inspect_state_unknown_view() {
 fn inspect_state_missing_param() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19246)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19246", "/api/inspect/state");
+    let resp = http_get(&addr, "/api/inspect/state");
     assert!(
         resp.contains("missing"),
         "expected 'missing' error in: {}",
@@ -290,14 +286,14 @@ fn inspect_state_missing_param() {
 fn inspect_views_endpoint() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19247)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19247", "/api/inspect/views");
+    let resp = http_get(&addr, "/api/inspect/views");
     assert!(
         resp.contains("chat_panel"),
         "expected 'chat_panel' in views list: {}",
@@ -314,11 +310,11 @@ fn inspect_views_endpoint() {
 
 #[test]
 fn inspect_views_without_registry() {
-    let server = DebugServer::builder().port(19248).build().unwrap();
+    let server = DebugServer::builder().port(0).build().unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_get("127.0.0.1:19248", "/api/inspect/views");
+    let resp = http_get(&addr, "/api/inspect/views");
     assert!(
         resp.contains("not registered"),
         "expected 'not registered' in: {}",
@@ -332,14 +328,14 @@ fn inspect_views_without_registry() {
 fn shutdown_endpoint() {
     let shutdown_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let server = DebugServer::builder()
-        .port(19249)
+        .port(0)
         .with_shutdown_flag(shutdown_flag.clone())
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_post("127.0.0.1:19249", "/api/shutdown", "");
+    let resp = http_post(&addr, "/api/shutdown", "");
     assert!(resp.contains(r#""ok":true"#), "expected ok in: {}", resp);
     assert!(
         shutdown_flag.load(std::sync::atomic::Ordering::SeqCst),
@@ -365,16 +361,16 @@ fn set_log_level_malformed_json_returns_400_with_error_message() {
     let (layer, log_handle) = LogCaptureLayer::new(100);
     let _guard = tracing_subscriber::registry().with(layer).set_default();
     let server = DebugServer::builder()
-        .port(19250)
+        .port(0)
         .with_log_handle(log_handle)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Body is not valid JSON at all — must NOT panic / 500; must 400
     // with a diagnostic that lets the frontend display "fix your JSON".
-    let resp = http_put("127.0.0.1:19250", "/api/logs/level", "{not json");
+    let resp = http_put(&addr, "/api/logs/level", "{not json");
     assert!(
         resp.contains("malformed JSON body"),
         "expected diagnostic 'malformed JSON body' in: {}",
@@ -389,20 +385,16 @@ fn set_log_level_missing_filter_field_returns_400_with_field_name() {
     let (layer, log_handle) = LogCaptureLayer::new(100);
     let _guard = tracing_subscriber::registry().with(layer).set_default();
     let server = DebugServer::builder()
-        .port(19251)
+        .port(0)
         .with_log_handle(log_handle)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Valid JSON but missing the required 'filter' field — diagnostic
     // MUST name the missing field by name so frontend can guide user.
-    let resp = http_put(
-        "127.0.0.1:19251",
-        "/api/logs/level",
-        r#"{"other_key": "warn"}"#,
-    );
+    let resp = http_put(&addr, "/api/logs/level", r#"{"other_key": "warn"}"#);
     assert!(
         resp.contains("missing 'filter' field"),
         "expected diagnostic naming 'filter' field in: {}",
@@ -416,14 +408,14 @@ fn set_log_level_missing_filter_field_returns_400_with_field_name() {
 fn action_malformed_json_returns_400_with_error_message() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19252)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let resp = http_post("127.0.0.1:19252", "/api/action", "{not json");
+    let resp = http_post(&addr, "/api/action", "{not json");
     assert!(
         resp.contains("malformed JSON body"),
         "expected diagnostic 'malformed JSON body' in: {}",
@@ -437,15 +429,15 @@ fn action_malformed_json_returns_400_with_error_message() {
 fn action_missing_target_field_returns_400_with_field_name() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19253)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let resp = http_post(
-        "127.0.0.1:19253",
+        &addr,
         "/api/action",
         r#"{"method": "send_message", "args": {}}"#,
     );
@@ -462,15 +454,15 @@ fn action_missing_target_field_returns_400_with_field_name() {
 fn action_missing_method_field_returns_400_with_field_name() {
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19254)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     let resp = http_post(
-        "127.0.0.1:19254",
+        &addr,
         "/api/action",
         r#"{"target": "chat_panel", "args": {}}"#,
     );
@@ -493,19 +485,19 @@ fn action_with_missing_args_field_defaults_to_empty_object() {
     // pass arguments.
     let registry = make_test_registry();
     let server = DebugServer::builder()
-        .port(19255)
+        .port(0)
         .with_action_registry(registry)
         .build()
         .unwrap();
+    let addr = format!("127.0.0.1:{}", server.local_port());
     let mut handle = server.start();
-    std::thread::sleep(std::time::Duration::from_millis(100));
 
     // make_test_registry registers chat_panel.send_message which
     // checks args.text — without args this hits a downstream error
     // (NOT a 400 from missing 'args' field). The router accepting
     // missing 'args' is what we pin here.
     let resp = http_post(
-        "127.0.0.1:19255",
+        &addr,
         "/api/action",
         r#"{"target": "chat_panel", "method": "send_message"}"#,
     );

@@ -3,10 +3,8 @@
 # Design notes:
 # - alva-app-tauri is excluded everywhere: it needs system webkit/gtk packages
 #   and belongs in its own (future) job with an OS matrix.
-# - alva-app-debug is excluded from tests: its integration tests still use
-#   fixed sleeps + hardcoded ports 19230-19255 and would be the first flaky
-#   source on shared runners. Re-include once they move to port 0 + readiness
-#   polling (src already supports `.port(0)`).
+# - alva-app-debug is INCLUDED: its integration tests bind port 0 and read
+#   the real port back via DebugServer::local_port(), no fixed sleeps.
 # - clippy is report-only (continue-on-error) until the pre-existing warning
 #   backlog is cleared; then flip to `-D warnings`. fmt DOES gate — the tree
 #   was formatted clean when this pipeline landed.
@@ -48,8 +46,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: cargo test (workspace minus tauri/app-debug)
-        run: cargo test --workspace --exclude alva-app-tauri --exclude alva-app-debug
+      - name: cargo test (workspace minus tauri)
+        run: cargo test --workspace --exclude alva-app-tauri
 
   deps-firewall:
     name: dependency firewall + wasm32
@@ -76,7 +74,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: llvm-cov summary + lcov artifact
         run: |
-          cargo llvm-cov --workspace --exclude alva-app-tauri --exclude alva-app-debug \
+          cargo llvm-cov --workspace --exclude alva-app-tauri \
             --lcov --output-path lcov.info
           cargo llvm-cov report --summary-only
       - uses: actions/upload-artifact@v4
