@@ -1478,6 +1478,7 @@ async fn ensure_agent(
         )),
         mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
         subagent_depth: 3,
+        subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
         agent_templates: alva_app_core::extension::agent_templates::resolve_agent_templates(&[
             paths.global_agents_config(),
             paths.project_agents_config(),

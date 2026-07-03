@@ -116,6 +116,7 @@ pub(crate) async fn build_agent(
         skills: Some((paths.project_skills_dir(), bundled_skill_dir())),
         mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
         subagent_depth: 3,
+        subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
         // Built-in templates (e.g. `video`) + any user/project agents.toml.
         agent_templates: alva_app_core::extension::agent_templates::resolve_agent_templates(&[
             paths.global_agents_config(),

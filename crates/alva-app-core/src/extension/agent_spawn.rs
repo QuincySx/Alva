@@ -34,7 +34,7 @@ use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
-    OnChildComplete, ProviderRegistry, SpawnCommContext, SpawnCommHandle,
+    OnChildComplete, ProviderRegistry, Sleeper, SpawnCommContext, SpawnCommHandle,
     SpawnCommunicationRegistry, SpawnResult,
 };
 use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
@@ -232,11 +232,24 @@ struct SpawnInput {
 )]
 pub struct AgentSpawnTool {
     scope: Arc<SpawnScopeImpl>,
+    /// Enforces the child scope's wall-clock budget inside `run_child_agent`.
+    /// `None` falls back to `NoopSleeper` there — the budget never fires — so
+    /// production assembly must inject a real sleeper (see `SubAgentPlugin`).
+    sleeper: Option<Arc<dyn Sleeper>>,
 }
 
 impl AgentSpawnTool {
     pub fn new(scope: Arc<SpawnScopeImpl>) -> Self {
-        Self { scope }
+        Self {
+            scope,
+            sleeper: None,
+        }
+    }
+
+    /// Inject the sleeper that enforces the sub-agent wall-clock budget.
+    pub fn with_sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
+        self.sleeper = Some(sleeper);
+        self
     }
 }
 
@@ -548,6 +561,8 @@ impl AgentSpawnTool {
         let mut child_tools = child_scope.tools_by_names(&tool_names);
         child_tools.push(Arc::new(AgentSpawnTool {
             scope: child_scope.clone(),
+            // Grandchildren get the same budget enforcement as this child.
+            sleeper: self.sleeper.clone(),
         }));
 
         tracing::info!(
@@ -610,18 +625,22 @@ impl AgentSpawnTool {
             max_iterations: child_scope.max_iterations(),
             timeout: child_scope.timeout(),
             parent_session_id: Some(self.scope.session_id().to_string()),
-            // Derive the child's cancel token from the parent's so a cancel
-            // on the parent run reaches the sub-agent. A fresh token here
-            // would leave the child disconnected — a child blocked in a
-            // cooperative-cancel tool (e.g. `sleep`) would never stop. The
-            // token clones share one watch channel (latching), so this also
-            // covers a cancel that races ahead of the child spawning.
-            cancel: ctx.cancel_token().clone(),
+            // Hierarchical child token: a cancel on the parent run reaches
+            // the sub-agent (latching, so it also covers a cancel that races
+            // ahead of the child spawning), while the child's own cancel —
+            // run_child cancels it when the wall-clock budget fires — stops
+            // ONLY the child subtree. A plain `.clone()` here would share the
+            // parent's channel and let a child timeout take down the whole
+            // parent run; a fresh token would leave the child disconnected.
+            cancel: ctx.cancel_token().child(),
             model_config: None,
             context_window: 0,
             workspace: ctx.workspace().map(|p| p.to_path_buf()),
             bus: ctx.bus().cloned(),
-            sleeper: None,
+            // Real sleeper (injected at assembly) so the child scope's
+            // wall-clock budget actually fires; None would fall back to
+            // NoopSleeper and let a runaway child run unbounded.
+            sleeper: self.sleeper.clone(),
             session: Some(child_session as Arc<dyn AgentSession>),
             context_system,
         })
@@ -680,8 +699,15 @@ impl AgentSpawnTool {
 // Factory
 // ---------------------------------------------------------------------------
 
-pub fn create_agent_spawn_tool(scope: Arc<SpawnScopeImpl>) -> Box<dyn Tool> {
-    Box::new(AgentSpawnTool::new(scope))
+pub fn create_agent_spawn_tool(
+    scope: Arc<SpawnScopeImpl>,
+    sleeper: Option<Arc<dyn Sleeper>>,
+) -> Box<dyn Tool> {
+    let tool = AgentSpawnTool::new(scope);
+    Box::new(match sleeper {
+        Some(s) => tool.with_sleeper(s),
+        None => tool,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -696,17 +722,33 @@ use crate::extension::{LateContext, Plugin, Registrar};
 /// construct the `SpawnScopeImpl` root scope.
 pub struct SubAgentPlugin {
     max_depth: u32,
+    /// Wall-clock budget per sub-agent run. The single authoritative cap on a
+    /// sub-agent (the parent's `ToolTimeoutMiddleware` exempts the `agent`
+    /// tool) — but it only fires when a real sleeper is attached via
+    /// [`Self::with_sleeper`]; without one the budget is dead (`NoopSleeper`).
+    timeout: std::time::Duration,
+    /// Enforces `timeout` inside `run_child_agent`. `None` → no enforcement.
+    sleeper: Option<Arc<dyn Sleeper>>,
     /// Predefined sub-agent templates exposed via the `agent_type` input.
     /// Empty (the default) keeps the dynamic-only spawn behavior.
     templates: Vec<AgentTemplate>,
 }
 
 impl SubAgentPlugin {
-    pub fn new(max_depth: u32) -> Self {
+    pub fn new(max_depth: u32, timeout: std::time::Duration) -> Self {
         Self {
             max_depth,
+            timeout,
+            sleeper: None,
             templates: Vec::new(),
         }
+    }
+
+    /// Attach the sleeper that makes `timeout` actually fire. Production
+    /// assembly (`apply_components`) passes the host's real sleeper here.
+    pub fn with_sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
+        self.sleeper = Some(sleeper);
+        self
     }
 
     /// Attach predefined [`AgentTemplate`]s so the parent can spawn them by
@@ -749,14 +791,11 @@ impl Plugin for SubAgentPlugin {
         let root_scope = Arc::new(alva_agent_context::scope::SpawnScopeImpl::root(
             ctx.model.clone(),
             tools_without_agent,
-            // 15-minute budget per sub-agent. The parent's ToolTimeoutMiddleware
-            // exempts the `agent` tool, so this scope timeout is the single
-            // authoritative cap on sub-agent execution.
-            std::time::Duration::from_secs(900),
+            self.timeout,
             ctx.max_iterations,
             self.max_depth,
         ));
-        let spawn_tool = create_agent_spawn_tool(root_scope);
+        let spawn_tool = create_agent_spawn_tool(root_scope, self.sleeper.clone());
         vec![Arc::from(spawn_tool)]
     }
 }

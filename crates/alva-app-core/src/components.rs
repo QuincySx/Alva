@@ -262,6 +262,10 @@ pub fn is_on(toggles: &ComponentToggles, meta: &ComponentMeta) -> bool {
 /// Parameterized components read their args from here. Components whose inputs
 /// are absent (`provider_registry` / `skills` = `None`) gracefully skip with a
 /// log line rather than panicking.
+/// Default wall-clock budget per sub-agent run (see
+/// [`ComponentContext::subagent_timeout`]).
+pub const DEFAULT_SUBAGENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
+
 pub struct ComponentContext {
     /// Agent workspace root (informational / for callers building paths).
     pub workspace: PathBuf,
@@ -274,6 +278,11 @@ pub struct ComponentContext {
     pub mcp_config_paths: Vec<PathBuf>,
     /// Max spawn depth for `sub-agents`.
     pub subagent_depth: u32,
+    /// Wall-clock budget per sub-agent run for `sub-agents`. The parent's
+    /// `ToolTimeoutMiddleware` exempts the `agent` tool, so this is the single
+    /// authoritative cap on a sub-agent. Use [`DEFAULT_SUBAGENT_TIMEOUT`]
+    /// unless a test needs a short fuse.
+    pub subagent_timeout: std::time::Duration,
     /// Predefined sub-agent templates exposed via `agent_type` on the spawn
     /// tool. Empty → dynamic-only spawning (no named templates).
     pub agent_templates: Vec<crate::extension::skills::skill_domain::agent_template::AgentTemplate>,
@@ -294,6 +303,7 @@ impl ComponentContext {
             skills: None,
             mcp_config_paths: Vec::new(),
             subagent_depth: 3,
+            subagent_timeout: DEFAULT_SUBAGENT_TIMEOUT,
             agent_templates: Vec::new(),
             hooks_settings: HooksSettings::default(),
             subprocess_ext_dirs: Vec::new(),
@@ -332,7 +342,10 @@ pub fn apply_components(
             "permission" => b.plugin(Box::new(ext::PermissionPlugin::new())),
             "tool-lock" => b.plugin(Box::new(ext::ToolLockRegistryPlugin::new())),
             "sub-agents" => b.plugin(Box::new(
-                ext::SubAgentPlugin::new(ctx.subagent_depth)
+                ext::SubAgentPlugin::new(ctx.subagent_depth, ctx.subagent_timeout)
+                    // Real sleeper: without it the sub-agent wall-clock budget
+                    // silently never fires (NoopSleeper fallback in run_child).
+                    .with_sleeper(Arc::new(alva_host_native::TokioSleeper))
                     .with_templates(ctx.agent_templates.clone()),
             )),
             "hooks" => b.plugin(Box::new(ext::HooksPlugin::new(ctx.hooks_settings.clone()))),

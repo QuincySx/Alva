@@ -89,6 +89,23 @@ async fn build_mini_agent(
     model: Arc<dyn LanguageModel>,
     toggles: &alva_app_core::components::ComponentToggles,
 ) -> BaseAgent {
+    build_mini_agent_with_timeout(
+        workspace,
+        model,
+        toggles,
+        alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
+    )
+    .await
+}
+
+/// Same as [`build_mini_agent`] but with a caller-chosen sub-agent wall-clock
+/// budget — the timeout regression uses a short fuse.
+async fn build_mini_agent_with_timeout(
+    workspace: &Path,
+    model: Arc<dyn LanguageModel>,
+    toggles: &alva_app_core::components::ComponentToggles,
+    subagent_timeout: std::time::Duration,
+) -> BaseAgent {
     let (approval_ext, mut approval_rx) = alva_app_core::extension::ApprovalPlugin::with_channel();
 
     let ctx = alva_app_core::components::ComponentContext {
@@ -99,6 +116,7 @@ async fn build_mini_agent(
         skills: Some((workspace.join(".alva/skills"), None)),
         mcp_config_paths: vec![],
         subagent_depth: 3,
+        subagent_timeout,
         agent_templates: vec![],
         hooks_settings: alva_app_core::settings::HooksSettings::default(),
         subprocess_ext_dirs: vec![],
@@ -175,6 +193,7 @@ async fn video_template_wires_into_spawn_and_skill_service() {
         skills: Some((ws.join(".alva/skills"), None)),
         mcp_config_paths: vec![],
         subagent_depth: 3,
+        subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
         agent_templates: alva_app_core::extension::agent_templates::builtin_agent_templates(),
         hooks_settings: alva_app_core::settings::HooksSettings::default(),
         subprocess_ext_dirs: vec![],
@@ -345,6 +364,73 @@ async fn parent_cancel_propagates_to_subagent() {
     tokio::time::timeout(std::time::Duration::from_secs(15), drive)
         .await
         .expect("KILL-1b: parent cancel did not propagate to the sub-agent (it hung)");
+}
+
+/// KILL-1b(2) regression: the sub-agent wall-clock budget must actually fire.
+///
+/// The scope timeout is only enforced when a real `Sleeper` reaches
+/// `run_child_agent`; with `sleeper: None` the child falls back to
+/// `NoopSleeper` and the budget silently never fires — a runaway child (here:
+/// a 60s sleep) keeps running with nobody to stop it in headless runs.
+///
+/// We build the agent with a 200ms sub-agent budget, script the child into a
+/// 60-second sleep, and require the run to unwind promptly with the spawn
+/// tool reporting the timeout back to the parent: the parent's final model
+/// call must carry a "timed out" tool result.
+#[tokio::test]
+async fn subagent_timeout_fires() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path();
+
+    // `sleep` lives in the (default-off) `utility` component.
+    let mut toggles = default_toggles();
+    toggles.insert("utility".to_string(), true);
+
+    let model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "spawn",
+            "agent",
+            serde_json::json!({
+                "task": "sleep for a long time",
+                "role": "sleeper",
+                "tools": ["sleep"],
+            }),
+        ))
+        .with_response(tool_use_message(
+            "sleep",
+            "sleep",
+            serde_json::json!({ "duration_ms": 60000 }),
+        ))
+        .with_response(make_assistant_message("parent done"));
+
+    let model_handle = model.clone();
+    let agent = build_mini_agent_with_timeout(
+        ws,
+        Arc::new(model),
+        &toggles,
+        std::time::Duration::from_millis(200),
+    )
+    .await;
+
+    let rx = agent.prompt_text("Delegate a long sleep to a sub-agent.");
+    let events = tokio::time::timeout(std::time::Duration::from_secs(10), collect_events(rx))
+        .await
+        .expect("KILL-1b(2): sub-agent wall-clock timeout did not fire (child ran unbounded)");
+
+    assert!(
+        matches!(events.last(), Some(AgentEvent::AgentEnd { .. })),
+        "run should end after the child times out, got: {:?}",
+        events.last()
+    );
+    // parent spawn → child sleep → parent final; the killed child makes no
+    // further model calls.
+    let calls = model_handle.calls();
+    assert_eq!(calls.len(), 3, "parent → child(sleep) → parent-final");
+    let final_call = format!("{:?}", calls[2]);
+    assert!(
+        final_call.contains("timed out"),
+        "parent's final call should carry the child's timeout tool result: {final_call}"
+    );
 }
 
 /// Resolve the component toggles for the REAL suite from `ALVA_TEST_COMPONENTS`:
