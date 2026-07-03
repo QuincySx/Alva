@@ -8,6 +8,15 @@ use tokio::sync::watch;
 pub struct CancellationToken {
     sender: Arc<watch::Sender<bool>>,
     receiver: watch::Receiver<bool>,
+    /// Read-only views of every ancestor channel (root first) for
+    /// hierarchical tokens (see [`Self::child`]): a child also observes its
+    /// ancestors' cancellation, but cancelling the child sends only on its
+    /// own channel — nothing propagates upward.
+    ancestors: Vec<watch::Receiver<bool>>,
+    /// Keeps the paired ancestor senders alive so the channels in
+    /// `ancestors` can never close (and `changed()` never errors) while a
+    /// descendant exists.
+    ancestor_senders: Vec<Arc<watch::Sender<bool>>>,
 }
 
 impl CancellationToken {
@@ -16,6 +25,29 @@ impl CancellationToken {
         Self {
             sender: Arc::new(sender),
             receiver,
+            ancestors: Vec::new(),
+            ancestor_senders: Vec::new(),
+        }
+    }
+
+    /// Derive a child token: cancelling `self` (or any ancestor) cancels the
+    /// child, but cancelling the child does NOT reach `self`. Use this for
+    /// sub-scopes with their own kill switch (e.g. a sub-agent whose
+    /// wall-clock budget fires) that must not take the parent run down.
+    ///
+    /// `Clone`, by contrast, is a peer handle on the SAME token: cancel on
+    /// either side is visible from the other.
+    pub fn child(&self) -> Self {
+        let (sender, receiver) = watch::channel(false);
+        let mut ancestors = self.ancestors.clone();
+        ancestors.push(self.receiver.clone());
+        let mut ancestor_senders = self.ancestor_senders.clone();
+        ancestor_senders.push(self.sender.clone());
+        Self {
+            sender: Arc::new(sender),
+            receiver,
+            ancestors,
+            ancestor_senders,
         }
     }
 
@@ -24,13 +56,42 @@ impl CancellationToken {
     }
 
     pub fn is_cancelled(&self) -> bool {
-        *self.receiver.borrow()
+        *self.receiver.borrow() || self.ancestors.iter().any(|r| *r.borrow())
     }
 
     pub async fn cancelled(&mut self) {
-        while !*self.receiver.borrow_and_update() {
-            if self.receiver.changed().await.is_err() {
-                break;
+        loop {
+            if *self.receiver.borrow_and_update() {
+                return;
+            }
+            if self.ancestors.iter_mut().any(|r| *r.borrow_and_update()) {
+                return;
+            }
+            // Wait for a change on the own channel or any ancestor channel.
+            // All their senders are held alive (self.sender /
+            // ancestor_senders), so Err from `changed()` is unreachable; it
+            // is still treated as "stop waiting" to preserve the previous
+            // closed-channel contract.
+            let Self {
+                receiver,
+                ancestors,
+                ..
+            } = self;
+            type ChangedFut<'a> = std::pin::Pin<
+                Box<
+                    dyn core::future::Future<Output = Result<(), watch::error::RecvError>>
+                        + Send
+                        + 'a,
+                >,
+            >;
+            let mut futs: Vec<ChangedFut<'_>> = Vec::with_capacity(1 + ancestors.len());
+            futs.push(Box::pin(receiver.changed()));
+            for r in ancestors.iter_mut() {
+                futs.push(Box::pin(r.changed()));
+            }
+            let (res, _idx, _rest) = futures_util::future::select_all(futs).await;
+            if res.is_err() {
+                return;
             }
         }
     }
@@ -140,6 +201,104 @@ mod tests {
             result.is_ok(),
             "cancelled() must complete fast when already cancelled"
         );
+    }
+
+    #[test]
+    fn child_observes_parent_cancel() {
+        let parent = CancellationToken::new();
+        let child = parent.child();
+        parent.cancel();
+        assert!(child.is_cancelled(), "child must observe parent's cancel");
+    }
+
+    #[test]
+    fn child_cancel_does_not_reach_parent() {
+        // The load-bearing asymmetry: a child's cancel (e.g. its wall-clock
+        // budget firing in run_child) must stop the child subtree ONLY.
+        // With a plain clone the shared channel would take the whole parent
+        // run down with it.
+        let parent = CancellationToken::new();
+        let child = parent.child();
+        child.cancel();
+        assert!(child.is_cancelled());
+        assert!(
+            !parent.is_cancelled(),
+            "child cancel must not propagate upward"
+        );
+    }
+
+    #[test]
+    fn grandchild_observes_root_cancel() {
+        let root = CancellationToken::new();
+        let child = root.child();
+        let grandchild = child.child();
+        root.cancel();
+        assert!(
+            grandchild.is_cancelled(),
+            "cancel must reach all descendants"
+        );
+    }
+
+    #[test]
+    fn grandchild_cancel_leaves_ancestors_untouched() {
+        let root = CancellationToken::new();
+        let child = root.child();
+        let grandchild = child.child();
+        grandchild.cancel();
+        assert!(!child.is_cancelled());
+        assert!(!root.is_cancelled());
+    }
+
+    #[test]
+    fn child_created_after_parent_cancel_is_already_cancelled() {
+        // Latch: a cancel that races ahead of the child spawning must not
+        // be lost.
+        let parent = CancellationToken::new();
+        parent.cancel();
+        let child = parent.child();
+        assert!(child.is_cancelled());
+    }
+
+    #[test]
+    fn sibling_children_are_independent() {
+        let parent = CancellationToken::new();
+        let a = parent.child();
+        let b = parent.child();
+        a.cancel();
+        assert!(!b.is_cancelled(), "siblings must not share cancel state");
+        assert!(!parent.is_cancelled());
+    }
+
+    #[test]
+    fn clone_of_child_shares_child_state_not_parent() {
+        // A clone of a child is a handle on the SAME child token: cancel on
+        // the clone is visible from the child, and still does not reach the
+        // parent.
+        let parent = CancellationToken::new();
+        let child = parent.child();
+        let handle = child.clone();
+        handle.cancel();
+        assert!(child.is_cancelled());
+        assert!(!parent.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn cancelled_future_wakes_on_parent_cancel() {
+        // The async path must observe the parent chain, not just the own
+        // channel — a child blocked in `cancelled()` wakes when the PARENT
+        // cancels.
+        let parent = CancellationToken::new();
+        let mut child = parent.child();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_secs(2), child.cancelled())
+                .await
+                .expect("child cancelled() did not fire after parent cancel")
+        });
+
+        tokio::task::yield_now().await;
+        parent.cancel();
+        handle.await.expect("waiter task panicked");
     }
 
     #[tokio::test]
