@@ -86,6 +86,13 @@ pub struct AppState {
     /// Abort handle for an embedded gateway instance started via
     /// `start_gateway`. `None` when no gateway is running.
     pub gateway: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
+    /// Serializes the turn-start critical section of `send_message`
+    /// (ensure_agent → swap_session → per-turn knobs → prompt_text). The
+    /// shared agent is process-global state: without this lock two
+    /// concurrent send_message invocations (multi-window / double-send)
+    /// interleave across the awaits in that section, and turn A ends up
+    /// prompting against turn B's session and reasoning/extra_body knobs.
+    turn_start_lock: tokio::sync::Mutex<()>,
 }
 
 impl AppState {
@@ -109,6 +116,7 @@ impl AppState {
             active_session_id: RwLock::new(None),
             pending_approvals: Arc::new(RwLock::new(std::collections::HashMap::new())),
             gateway: std::sync::Mutex::new(None),
+            turn_start_lock: tokio::sync::Mutex::new(()),
         })
     }
 }
@@ -1098,6 +1106,17 @@ pub async fn respond_approval(
     decision: String,
 ) -> Result<(), String> {
     let parsed = parse_decision(&decision)?;
+    // Resolve the agent BEFORE taking the pending entry out (D-7):
+    // removing first and then failing any later step would drop the entry
+    // on the floor — prompt gone from the UI, but the tool call still
+    // parked on an unresolved oneshot forever.
+    let agent = state
+        .agent
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| "no agent built yet".to_string())?;
+
     let pa = state.pending_approvals.write().await.remove(&request_id);
     let Some(pa) = pa else {
         // Already answered (double-click, multi-window race) or cleared
@@ -1108,13 +1127,6 @@ pub async fn respond_approval(
         );
         return Ok(());
     };
-
-    let agent = state
-        .agent
-        .read()
-        .await
-        .clone()
-        .ok_or_else(|| "no agent built yet".to_string())?;
     agent
         .resolve_permission(&pa.request_id, &pa.tool_name, parsed)
         .await;
@@ -1188,6 +1200,14 @@ pub async fn send_message(
         }
     }
 
+    // ── Turn-start critical section (D-4) ─────────────────────────────
+    // ensure_agent → swap_session → per-turn knobs → prompt_text mutate
+    // process-global agent state across several awaits. Serialize the
+    // whole section so a concurrent send_message (multi-window,
+    // double-send) can't interleave and run turn A on turn B's session
+    // or knob values. Held until after prompt_text captures the turn.
+    let turn_guard = state.turn_start_lock.lock().await;
+
     let agent = ensure_agent(&app, &state, &request).await?;
     agent
         .swap_session(session_arc.clone() as Arc<dyn AgentSession>)
@@ -1229,6 +1249,10 @@ pub async fn send_message(
         .await;
 
     let mut rx = agent.prompt_text(&request.text);
+    // The turn is now started against the right session/knobs; the event
+    // pump below is per-turn state and needs no serialization.
+    drop(turn_guard);
+
     let app_handle = app.clone();
     let sid_for_events = session_id.clone();
     let session_for_flush = session_arc.clone();
