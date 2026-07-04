@@ -6,7 +6,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder};
-use alva_host_native::middleware::checkpoint::CheckpointCallback;
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::LanguageModel;
 use alva_llm_provider::{
@@ -15,24 +14,6 @@ use alva_llm_provider::{
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
-
-/// CLI checkpoint callback — bridges CheckpointMiddleware to CheckpointManager.
-pub(crate) struct CliCheckpointCallback {
-    manager: checkpoint::CheckpointManager,
-}
-
-impl CheckpointCallback for CliCheckpointCallback {
-    fn create_checkpoint(&self, description: &str, file_paths: &[std::path::PathBuf]) {
-        match self.manager.create(description, file_paths) {
-            Ok(id) => {
-                tracing::debug!(id = %id, "auto-checkpoint created");
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "auto-checkpoint failed");
-            }
-        }
-    }
-}
 
 /// Resolve where the App-bundled skills tree was extracted to. Returns
 /// `None` (with a logged warning) on extraction failure so the agent
@@ -142,9 +123,11 @@ pub(crate) async fn build_agent(
 
     // Register checkpoint callback
     let checkpoint_mgr = checkpoint::CheckpointManager::new(workspace);
-    agent.set_checkpoint_callback(Arc::new(CliCheckpointCallback {
-        manager: checkpoint::CheckpointManager::new(workspace),
-    }));
+    agent.set_checkpoint_callback(Arc::new(
+        alva_app_core::checkpoint::ManagerCheckpointCallback::new(
+            checkpoint::CheckpointManager::new(workspace),
+        ),
+    ));
 
     AgentBundle {
         agent,

@@ -43,6 +43,11 @@ pub struct CheckpointMiddleware {
     bus: std::sync::OnceLock<BusHandle>,
     /// Settings-based read_only patterns for dynamic tools.
     read_only_patterns: Vec<String>,
+    /// One-shot latch: warn ONCE when a write tool runs with no
+    /// CheckpointCallbackRef on the bus. Without this, a shell that forgot
+    /// to wire `set_checkpoint_callback` ships a checkpoint middleware that
+    /// silently protects nothing (exactly how the Tauri gap went unnoticed).
+    no_callback_warned: std::sync::atomic::AtomicBool,
 }
 
 impl CheckpointMiddleware {
@@ -50,6 +55,7 @@ impl CheckpointMiddleware {
         Self {
             bus: std::sync::OnceLock::new(),
             read_only_patterns: Vec::new(),
+            no_callback_warned: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -144,6 +150,17 @@ impl Middleware for CheckpointMiddleware {
                 );
                 cb.0.create_checkpoint(&desc, &paths);
             }
+        } else if !self
+            .no_callback_warned
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            tracing::warn!(
+                tool = %tool_call.name,
+                "checkpoint middleware is active but no CheckpointCallbackRef is on the bus; \
+                 NO pre-edit snapshots are being taken. Wire \
+                 BaseAgent::set_checkpoint_callback (see ManagerCheckpointCallback) or disable \
+                 the `checkpoint` component."
+            );
         }
 
         Ok(()) // Never block — checkpoint is best-effort

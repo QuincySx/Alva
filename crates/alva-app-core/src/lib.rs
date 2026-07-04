@@ -49,6 +49,7 @@ pub use alva_agent_context::scope::scope_impl as scope;
 
 pub mod analytics;
 pub mod base_agent;
+pub mod checkpoint;
 pub mod components;
 pub mod config;
 pub mod error;

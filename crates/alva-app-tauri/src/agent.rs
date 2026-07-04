@@ -1522,6 +1522,17 @@ async fn ensure_agent(
         .map_err(|e| format!("build BaseAgent: {e}"))?;
 
     let agent = Arc::new(agent);
+
+    // Auto-checkpoint callback (gap scan 2026-07-05 P1-4): the `checkpoint`
+    // component is default-on, but without a callback the middleware
+    // silently no-ops — the GUI believed it had pre-edit snapshots and had
+    // none. Same shared manager the CLI wires.
+    agent.set_checkpoint_callback(Arc::new(
+        alva_app_core::checkpoint::ManagerCheckpointCallback::new(
+            alva_app_core::checkpoint::CheckpointManager::new(&workspace),
+        ),
+    ));
+
     *state.agent.write().await = Some(agent.clone());
     *state.current_agent_key.write().await = Some(agent_key);
 
