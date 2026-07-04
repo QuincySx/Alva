@@ -207,6 +207,51 @@ fn find_subagent_range(events: &[SessionEvent], tool_call_id: &str) -> Option<Ve
     Some(events[start_idx + 1..end_idx].to_vec())
 }
 
+/// The parent's TOP-LEVEL view of its event stream: everything, minus every
+/// `subagent_run_start` … `subagent_run_end` block (markers + interior).
+///
+/// Child events are forwarded inline into the parent stream AND projected
+/// separately into `sub_run` — so parent-level turn grouping and token
+/// aggregation must run on this stripped view or every child llm call is
+/// counted twice and child iterations masquerade as parent turns.
+///
+/// Blocks are matched by the start marker's `tool_call_id` (nested
+/// grandchild markers carry different ids and sit inside the outer block,
+/// so they are removed with it — the recursive `sub_run` projection handles
+/// them in its own frame). A start marker with no matching end (a log
+/// truncated mid-child) strips to the end of the log: everything after an
+/// unterminated start belongs to the child.
+fn strip_subagent_ranges(events: &[SessionEvent]) -> Vec<SessionEvent> {
+    let mut out = Vec::with_capacity(events.len());
+    let mut i = 0;
+    while i < events.len() {
+        let e = &events[i];
+        if e.event_type == "subagent_run_start" {
+            let id = e
+                .data
+                .as_ref()
+                .and_then(|d| d.get("tool_call_id"))
+                .and_then(|v| v.as_str());
+            let end_rel = events[i + 1..].iter().position(|c| {
+                c.event_type == "subagent_run_end"
+                    && c.data
+                        .as_ref()
+                        .and_then(|d| d.get("tool_call_id"))
+                        .and_then(|v| v.as_str())
+                        == id
+            });
+            match end_rel {
+                Some(rel) => i = i + 1 + rel + 1, // skip past the end marker
+                None => break,                    // truncated child: rest is child's
+            }
+            continue;
+        }
+        out.push(e.clone());
+        i += 1;
+    }
+    out
+}
+
 // ===========================================================================
 // Main projection entry point
 // ===========================================================================
@@ -251,9 +296,13 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
     let config_snapshot = build_config_snapshot(cfg_event, max_iterations);
 
     // -------------------------------------------------------------------
-    // 3. Walk events to group by iteration
+    // 3. Walk events to group by iteration — on the TOP-LEVEL view only.
+    //    Child events (inlined between subagent markers) belong to the
+    //    nested sub_run records (step 3b), not to the parent's own turns
+    //    or token totals.
     // -------------------------------------------------------------------
-    let mut turns = build_turns(events);
+    let top_level = strip_subagent_ranges(events);
+    let mut turns = build_turns(&top_level);
 
     // -------------------------------------------------------------------
     // 3b. Attach sub_run records to tool calls that spawned sub-agents.
@@ -273,11 +322,13 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
     }
 
     // -------------------------------------------------------------------
-    // 4. Aggregate token counts from llm_call_end events
+    // 4. Aggregate token counts from llm_call_end events — top-level only;
+    //    child usage lives in the corresponding sub_run record. Consumers
+    //    wanting whole-tree totals sum recursively over sub_runs.
     // -------------------------------------------------------------------
     let mut total_input_tokens: u64 = 0;
     let mut total_output_tokens: u64 = 0;
-    for event in events {
+    for event in &top_level {
         if event.event_type == "llm_call_end" {
             if let Some(d) = &event.data {
                 total_input_tokens += d.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -2465,6 +2516,47 @@ mod tests {
         assert!(
             s.tool_definitions.is_empty(),
             "from_value failure should yield empty, not panic"
+        );
+    }
+
+    // -- sub-agent double-counting guard ------------------------------------
+
+    /// Child events are forwarded INLINE into the parent's stream (delimited
+    /// by subagent_run_start/end markers) AND projected separately into
+    /// `sub_run`. The parent record's own turns/token totals must therefore
+    /// EXCLUDE the marker interiors — otherwise every child llm call is
+    /// counted twice (once in the parent totals, once in the sub_run) and
+    /// child iterations masquerade as parent turns.
+    #[test]
+    fn parent_totals_and_turns_exclude_subagent_ranges() {
+        let events = vec![
+            event("run_start", json!({"max_iterations": 5})),
+            // Parent iteration with its own llm call: 10 in / 20 out.
+            iter_start("P1", 100),
+            llm_call_end(150, json!({"input_tokens": 10, "output_tokens": 20})),
+            iter_end("P1", 200),
+            // Child run, inlined between markers: 100 in / 200 out.
+            event("subagent_run_start", json!({"tool_call_id": "spawn-1"})),
+            iter_start("C1", 210),
+            llm_call_end(250, json!({"input_tokens": 100, "output_tokens": 200})),
+            iter_end("C1", 290),
+            event("subagent_run_end", json!({"tool_call_id": "spawn-1"})),
+        ];
+
+        let rec = build_run_record(&events);
+
+        assert_eq!(
+            rec.total_input_tokens, 10,
+            "child input tokens must not be double-counted into the parent"
+        );
+        assert_eq!(
+            rec.total_output_tokens, 20,
+            "child output tokens must not be double-counted into the parent"
+        );
+        assert_eq!(
+            rec.turns.len(),
+            1,
+            "child iterations must not masquerade as parent turns"
         );
     }
 }
