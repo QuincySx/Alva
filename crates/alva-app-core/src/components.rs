@@ -257,6 +257,18 @@ pub fn is_on(toggles: &ComponentToggles, meta: &ComponentMeta) -> bool {
     *toggles.get(meta.id).unwrap_or(&meta.default_on)
 }
 
+/// Toggle keys that do not name any catalog component — a typo like
+/// `"shel": false` would otherwise be silently ignored and the component
+/// it meant to disable stays on. `apply_components` warns about these;
+/// exposed so config UIs/validators can surface them too.
+pub fn unknown_toggle_ids<'a>(toggles: &'a ComponentToggles) -> Vec<&'a str> {
+    toggles
+        .keys()
+        .map(String::as_str)
+        .filter(|k| !COMPONENTS.iter().any(|m| m.id == *k))
+        .collect()
+}
+
 /// Harness-supplied inputs needed to construct parameterized components.
 ///
 /// Parameterized components read their args from here. Components whose inputs
@@ -332,6 +344,18 @@ pub fn apply_components(
     ctx: &ComponentContext,
 ) -> BaseAgentBuilder {
     use crate::extension as ext;
+
+    // Surface toggle typos: an unknown id can neither enable nor disable
+    // anything, and silently ignoring it means "shel": false leaves the
+    // shell ON with zero diagnostics.
+    let unknown = unknown_toggle_ids(toggles);
+    if !unknown.is_empty() {
+        tracing::warn!(
+            unknown_component_ids = ?unknown,
+            "component toggles contain ids not in the catalog; they have NO effect \
+             (check for typos — valid ids are listed by COMPONENTS)"
+        );
+    }
 
     for meta in COMPONENTS {
         if !is_on(toggles, meta) {
@@ -433,6 +457,15 @@ mod tests {
     use crate::base_agent::BaseAgentBuilder;
     use alva_agent_core::AgentAssemblySnapshot;
     use alva_test::mock_provider::MockLanguageModel;
+
+    #[test]
+    fn unknown_toggle_ids_flags_typos_and_accepts_catalog_ids() {
+        let mut toggles = ComponentToggles::new();
+        toggles.insert("shel".to_string(), false); // typo for "shell"
+        toggles.insert("shell".to_string(), false); // real id
+        let unknown = unknown_toggle_ids(&toggles);
+        assert_eq!(unknown, vec!["shel"], "only the typo is unknown");
+    }
 
     async fn build_with(toggles: ComponentToggles) -> Vec<String> {
         let tmp = tempfile::TempDir::new().unwrap();

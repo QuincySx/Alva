@@ -241,11 +241,20 @@ impl FsSkillRepository {
             if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
                 let dir_name = entry.file_name().to_string_lossy().to_string();
                 let kind = kind_fn(&dir_name);
-                if let Ok(Some(skill)) = self
+                match self
                     .parse_skill_dir(&entry.path(), kind, enabled_names)
                     .await
                 {
-                    skills.push(skill);
+                    Ok(Some(skill)) => skills.push(skill),
+                    Ok(None) => {}
+                    // A broken SKILL.md must not take the whole scan down,
+                    // but silently vanishing is how users lose hours: name
+                    // the file and the parse error.
+                    Err(e) => tracing::warn!(
+                        skill_dir = %entry.path().display(),
+                        error = %e,
+                        "skill skipped: SKILL.md failed to parse"
+                    ),
                 }
             }
         }
@@ -274,11 +283,17 @@ impl SkillRepository for FsSkillRepository {
                     let dir_name = entry.file_name().to_string_lossy().to_string();
                     let domains = mbb_domains.get(&dir_name).cloned().unwrap_or_default();
                     let kind = SkillKind::Mbb { domains };
-                    if let Ok(Some(skill)) = self
+                    match self
                         .parse_skill_dir(&entry.path(), kind, &enabled_names)
                         .await
                     {
-                        skills.push(skill);
+                        Ok(Some(skill)) => skills.push(skill),
+                        Ok(None) => {}
+                        Err(e) => tracing::warn!(
+                            skill_dir = %entry.path().display(),
+                            error = %e,
+                            "MBB skill skipped: SKILL.md failed to parse"
+                        ),
                     }
                 }
             }
@@ -509,6 +524,36 @@ Do beta things.
         let skill_dir = base_dir.join(name);
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+    }
+
+    /// One broken SKILL.md must not take down the scan (the sibling still
+    /// loads), and must not vanish without a trace — the scan warns with
+    /// the path + parse error (the silent `if let Ok` swallow is exactly
+    /// how users lost skills to a stray `---`).
+    #[tokio::test]
+    async fn broken_frontmatter_skips_that_skill_but_keeps_siblings() {
+        let (dir, repo) = setup_repo();
+
+        // Good skill.
+        let good = dir.path().join("user").join("good");
+        std::fs::create_dir_all(&good).unwrap();
+        std::fs::write(good.join("SKILL.md"), SKILL_MD_ALPHA).unwrap();
+
+        // Broken skill: unterminated frontmatter fence.
+        let bad = dir.path().join("user").join("bad");
+        std::fs::create_dir_all(&bad).unwrap();
+        std::fs::write(bad.join("SKILL.md"), "---\nname: bad\nno closing fence").unwrap();
+
+        let skills = repo.list_skills().await.expect("scan must not fail");
+        let names: Vec<&str> = skills.iter().map(|s| s.meta.name.as_str()).collect();
+        assert!(
+            names.contains(&"alpha"),
+            "good sibling must survive: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| *n == "bad"),
+            "broken skill must be skipped, not half-loaded: {names:?}"
+        );
     }
 
     fn write_skill_with_resources(
