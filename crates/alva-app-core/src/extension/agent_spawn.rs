@@ -641,6 +641,18 @@ impl AgentSpawnTool {
             }
         }
 
+        if child_middleware.is_empty() {
+            // No SecurityGuard on the bus (the `security` component is off,
+            // or a custom stack replaced it without publishing the guard):
+            // this child will run its granted tools with NO HITL gate. When
+            // security is off the parent runs ungated too, so the postures
+            // match — but make the state visible instead of silent.
+            tracing::warn!(
+                sub_agent_role = %role,
+                "sub-agent spawned without a SecurityGuard on the bus — its tools run \
+                 with no HITL approval gate (matches the parent's ungated posture)"
+            );
+        }
         // Stability pair — a child without these can spin on identical tool
         // calls or hang on one stuck tool until the whole-run budget fires:
         // loop detection strips repeated identical tool_calls at the hard

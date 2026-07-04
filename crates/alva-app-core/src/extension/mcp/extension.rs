@@ -147,6 +147,14 @@ impl McpPlugin {
 
         // 5. Discover tools from connected servers.
         let tool_infos = manager.list_all_tools().await;
+        if !merged.servers.is_empty() && tool_infos.is_empty() {
+            tracing::warn!(
+                configured_servers = merged.servers.len(),
+                "MCP: servers are configured but ZERO tools were discovered — no working \
+                 transport implementation is bundled yet (stdio/SSE are stubs), so the mcp \
+                 component currently cannot expose any tools"
+            );
+        }
         tracing::info!(
             "MCP: discovered {} tool(s) from connected servers",
             tool_infos.len()
