@@ -108,8 +108,14 @@ async fn build_mini_agent_with_timeout(
     toggles: &alva_app_core::components::ComponentToggles,
     subagent_timeout: std::time::Duration,
 ) -> BaseAgent {
-    let (agent, mut approval_rx) =
-        build_mini_agent_inner(workspace, model, toggles, subagent_timeout).await;
+    let (agent, mut approval_rx) = build_mini_agent_inner(
+        workspace,
+        model,
+        toggles,
+        subagent_timeout,
+        alva_app_core::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
+    )
+    .await;
 
     // Auto-approve every approval request via the bus-published SecurityGuard.
     let bus = agent.bus().clone();
@@ -138,6 +144,7 @@ async fn build_mini_agent_inner(
     model: Arc<dyn LanguageModel>,
     toggles: &alva_app_core::components::ComponentToggles,
     subagent_timeout: std::time::Duration,
+    subagent_tool_timeout: std::time::Duration,
 ) -> (
     BaseAgent,
     tokio::sync::mpsc::UnboundedReceiver<alva_host_native::middleware::ApprovalRequest>,
@@ -153,6 +160,7 @@ async fn build_mini_agent_inner(
         mcp_config_paths: vec![],
         subagent_depth: 3,
         subagent_timeout,
+        subagent_tool_timeout,
         agent_templates: vec![],
         hooks_settings: alva_app_core::settings::HooksSettings::default(),
         subprocess_ext_dirs: vec![],
@@ -214,6 +222,7 @@ async fn video_template_wires_into_spawn_and_skill_service() {
         mcp_config_paths: vec![],
         subagent_depth: 3,
         subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
+        subagent_tool_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
         agent_templates: alva_app_core::extension::agent_templates::builtin_agent_templates(),
         hooks_settings: alva_app_core::settings::HooksSettings::default(),
         subprocess_ext_dirs: vec![],
@@ -487,6 +496,7 @@ async fn subagent_dangerous_tool_goes_through_hitl() {
         Arc::new(model),
         &default_toggles(),
         alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
+        alva_app_core::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
     )
     .await;
 
@@ -525,6 +535,120 @@ async fn subagent_dangerous_tool_goes_through_hitl() {
         approvals.iter().any(|t| t == "execute_shell"),
         "the sub-agent's execute_shell must raise an HITL approval request \
          (child middleware gates dangerous tools); approvals seen: {approvals:?}"
+    );
+}
+
+/// Stability regression: a tool stuck inside a sub-agent must be bounded by
+/// the child's PER-TOOL timeout — erroring that one call and letting the
+/// child continue — instead of stalling until the whole-run budget kills
+/// the entire child. Without ToolTimeoutMiddleware in the child stack the
+/// 60s sleep below runs unbounded.
+#[tokio::test]
+async fn subagent_tool_timeout_bounds_a_stuck_tool() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path();
+
+    let mut toggles = default_toggles();
+    toggles.insert("utility".to_string(), true);
+
+    let model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "spawn",
+            "agent",
+            serde_json::json!({
+                "task": "sleep briefly and report",
+                "role": "sleeper",
+                "tools": ["sleep"],
+            }),
+        ))
+        .with_response(tool_use_message(
+            "sleep",
+            "sleep",
+            serde_json::json!({ "duration_ms": 60000 }),
+        ))
+        .with_response(make_assistant_message("child done"))
+        .with_response(make_assistant_message("parent done"));
+
+    let model_handle = model.clone();
+    let (agent, _approval_rx) = build_mini_agent_inner(
+        ws,
+        Arc::new(model),
+        &toggles,
+        alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
+        std::time::Duration::from_millis(300),
+    )
+    .await;
+
+    let rx = agent.prompt_text("Delegate a nap to a sub-agent.");
+    let events = tokio::time::timeout(std::time::Duration::from_secs(10), collect_events(rx))
+        .await
+        .expect("child per-tool timeout did not fire (stuck tool ran unbounded)");
+
+    assert!(
+        matches!(events.last(), Some(AgentEvent::AgentEnd { error: None })),
+        "run should end cleanly, got: {:?}",
+        events.last()
+    );
+    // parent spawn → child sleep (times out as a TOOL error) → child
+    // continues to its scripted final → parent final. The child surviving
+    // its stuck tool is exactly the difference from the whole-run budget.
+    let calls = model_handle.calls();
+    assert_eq!(calls.len(), 4, "child must survive the timed-out tool");
+    let child_followup = format!("{:?}", calls[2]);
+    assert!(
+        child_followup.contains("timed out"),
+        "child's follow-up call must carry the tool-timeout result: {child_followup}"
+    );
+}
+
+/// Stability regression: a sub-agent spinning on identical tool calls must
+/// be broken by loop detection (hard limit 5 → tool_calls stripped and a
+/// "[Loop detected" notice injected), not left to burn its entire
+/// iteration budget.
+#[tokio::test]
+async fn subagent_loop_detection_breaks_repeated_tool_calls() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path();
+
+    let mut model = MockLanguageModel::new().with_response(tool_use_message(
+        "spawn",
+        "agent",
+        serde_json::json!({
+            "task": "read the file",
+            "role": "reader",
+            "tools": ["read_file"],
+        }),
+    ));
+    // Five IDENTICAL tool calls — at the hard limit (5) the middleware
+    // strips the tool_use and injects the loop notice, ending the child.
+    for i in 0..5 {
+        model = model.with_response(tool_use_message(
+            &format!("r{i}"),
+            "read_file",
+            serde_json::json!({ "path": "does_not_exist.txt" }),
+        ));
+    }
+    let model = model.with_response(make_assistant_message("parent done"));
+
+    let model_handle = model.clone();
+    let agent = build_mini_agent(ws, Arc::new(model), &default_toggles()).await;
+
+    let rx = agent.prompt_text("Delegate a read to a sub-agent.");
+    let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
+        .await
+        .expect("run hung");
+
+    assert!(
+        matches!(events.last(), Some(AgentEvent::AgentEnd { error: None })),
+        "run should end cleanly, got: {:?}",
+        events.last()
+    );
+    let calls = model_handle.calls();
+    let final_call = format!("{:?}", calls.last().unwrap());
+    assert!(
+        final_call.contains("Loop detected"),
+        "the loop notice must flow back through the spawn tool result \
+         (child loop detection active); final call: {final_call}"
     );
 }
 

@@ -266,6 +266,11 @@ pub fn is_on(toggles: &ComponentToggles, meta: &ComponentMeta) -> bool {
 /// [`ComponentContext::subagent_timeout`]).
 pub const DEFAULT_SUBAGENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
 
+/// Default per-tool timeout inside a sub-agent loop (see
+/// [`ComponentContext::subagent_tool_timeout`]). Mirrors the parent-side
+/// `ToolTimeoutMiddleware` default (120s).
+pub const DEFAULT_SUBAGENT_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 pub struct ComponentContext {
     /// Agent workspace root (informational / for callers building paths).
     pub workspace: PathBuf,
@@ -283,6 +288,10 @@ pub struct ComponentContext {
     /// authoritative cap on a sub-agent. Use [`DEFAULT_SUBAGENT_TIMEOUT`]
     /// unless a test needs a short fuse.
     pub subagent_timeout: std::time::Duration,
+    /// Per-tool timeout inside a sub-agent loop (the child's
+    /// `ToolTimeoutMiddleware`). Use [`DEFAULT_SUBAGENT_TOOL_TIMEOUT`]
+    /// unless a test needs a short fuse.
+    pub subagent_tool_timeout: std::time::Duration,
     /// Predefined sub-agent templates exposed via `agent_type` on the spawn
     /// tool. Empty → dynamic-only spawning (no named templates).
     pub agent_templates: Vec<crate::extension::skills::skill_domain::agent_template::AgentTemplate>,
@@ -304,6 +313,7 @@ impl ComponentContext {
             mcp_config_paths: Vec::new(),
             subagent_depth: 3,
             subagent_timeout: DEFAULT_SUBAGENT_TIMEOUT,
+            subagent_tool_timeout: DEFAULT_SUBAGENT_TOOL_TIMEOUT,
             agent_templates: Vec::new(),
             hooks_settings: HooksSettings::default(),
             subprocess_ext_dirs: Vec::new(),
@@ -346,6 +356,7 @@ pub fn apply_components(
                     // Real sleeper: without it the sub-agent wall-clock budget
                     // silently never fires (NoopSleeper fallback in run_child).
                     .with_sleeper(Arc::new(alva_host_native::TokioSleeper))
+                    .with_tool_timeout(ctx.subagent_tool_timeout)
                     .with_templates(ctx.agent_templates.clone()),
             )),
             "hooks" => b.plugin(Box::new(ext::HooksPlugin::new(ctx.hooks_settings.clone()))),
@@ -385,8 +396,14 @@ pub fn apply_components(
             "dangling-tool-call" => b.middleware(Arc::new(
                 alva_kernel_core::builtins::DanglingToolCallMiddleware::new(),
             )),
+            // Real sleeper here too: `::default()` uses NoopSleeper, which
+            // means "no timeout is actually enforced" — the production 120s
+            // per-tool cap was silently dead until this was wired.
             "tool-timeout" => b.middleware(Arc::new(
-                alva_kernel_core::builtins::ToolTimeoutMiddleware::default(),
+                alva_kernel_core::builtins::ToolTimeoutMiddleware::with_sleeper(
+                    std::time::Duration::from_secs(120),
+                    Arc::new(alva_host_native::TokioSleeper),
+                ),
             )),
             "compaction" => b.middleware(Arc::new(
                 alva_host_native::middleware::CompactionMiddleware::default(),

@@ -236,6 +236,9 @@ pub struct AgentSpawnTool {
     /// `None` falls back to `NoopSleeper` there — the budget never fires — so
     /// production assembly must inject a real sleeper (see `SubAgentPlugin`).
     sleeper: Option<Arc<dyn Sleeper>>,
+    /// Per-tool timeout for the child's `ToolTimeoutMiddleware` (only
+    /// enforced when `sleeper` is present).
+    tool_timeout: std::time::Duration,
 }
 
 impl AgentSpawnTool {
@@ -243,12 +246,20 @@ impl AgentSpawnTool {
         Self {
             scope,
             sleeper: None,
+            tool_timeout: crate::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
         }
     }
 
     /// Inject the sleeper that enforces the sub-agent wall-clock budget.
     pub fn with_sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
         self.sleeper = Some(sleeper);
+        self
+    }
+
+    /// Per-tool timeout for the child loop (defaults to
+    /// [`crate::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT`]).
+    pub fn with_tool_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.tool_timeout = timeout;
         self
     }
 }
@@ -562,6 +573,7 @@ impl AgentSpawnTool {
             scope: child_scope.clone(),
             // Grandchildren get the same budget enforcement as this child.
             sleeper: self.sleeper.clone(),
+            tool_timeout: self.tool_timeout,
         }));
 
         tracing::info!(
@@ -622,13 +634,30 @@ impl AgentSpawnTool {
         if let Some(bus) = ctx.bus() {
             if let Some(guard) = bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
             {
-                child_middleware.push(Arc::new(
+                child_middleware.push_sorted(Arc::new(
                     alva_agent_security::SecurityMiddleware::from_shared(guard)
                         .with_bus(bus.clone()),
                 ));
             }
         }
 
+        // Stability pair — a child without these can spin on identical tool
+        // calls or hang on one stuck tool until the whole-run budget fires:
+        // loop detection strips repeated identical tool_calls at the hard
+        // limit; the per-tool timeout bounds each call (the nested `agent`
+        // tool is exempt via manages_own_timeout — grandchildren are already
+        // governed by their own scope budgets).
+        child_middleware.push_sorted(Arc::new(
+            alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
+        ));
+        if let Some(sleeper) = &self.sleeper {
+            child_middleware.push_sorted(Arc::new(
+                alva_kernel_core::builtins::ToolTimeoutMiddleware::with_sleeper(
+                    self.tool_timeout,
+                    sleeper.clone(),
+                ),
+            ));
+        }
         // Run child agent using the shared helper, supplying the listenable session.
         let result = run_child_agent(ChildAgentParams {
             model: child_model,
@@ -720,8 +749,9 @@ impl AgentSpawnTool {
 pub fn create_agent_spawn_tool(
     scope: Arc<SpawnScopeImpl>,
     sleeper: Option<Arc<dyn Sleeper>>,
+    tool_timeout: std::time::Duration,
 ) -> Box<dyn Tool> {
-    let tool = AgentSpawnTool::new(scope);
+    let tool = AgentSpawnTool::new(scope).with_tool_timeout(tool_timeout);
     Box::new(match sleeper {
         Some(s) => tool.with_sleeper(s),
         None => tool,
@@ -747,6 +777,8 @@ pub struct SubAgentPlugin {
     timeout: std::time::Duration,
     /// Enforces `timeout` inside `run_child_agent`. `None` → no enforcement.
     sleeper: Option<Arc<dyn Sleeper>>,
+    /// Per-tool timeout for the child loop's `ToolTimeoutMiddleware`.
+    tool_timeout: std::time::Duration,
     /// Predefined sub-agent templates exposed via the `agent_type` input.
     /// Empty (the default) keeps the dynamic-only spawn behavior.
     templates: Vec<AgentTemplate>,
@@ -758,6 +790,7 @@ impl SubAgentPlugin {
             max_depth,
             timeout,
             sleeper: None,
+            tool_timeout: crate::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
             templates: Vec::new(),
         }
     }
@@ -766,6 +799,13 @@ impl SubAgentPlugin {
     /// assembly (`apply_components`) passes the host's real sleeper here.
     pub fn with_sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
         self.sleeper = Some(sleeper);
+        self
+    }
+
+    /// Per-tool timeout inside the child loop (defaults to
+    /// [`crate::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT`]).
+    pub fn with_tool_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.tool_timeout = timeout;
         self
     }
 
@@ -813,7 +853,8 @@ impl Plugin for SubAgentPlugin {
             ctx.max_iterations,
             self.max_depth,
         ));
-        let spawn_tool = create_agent_spawn_tool(root_scope, self.sleeper.clone());
+        let spawn_tool =
+            create_agent_spawn_tool(root_scope, self.sleeper.clone(), self.tool_timeout);
         vec![Arc::from(spawn_tool)]
     }
 }
