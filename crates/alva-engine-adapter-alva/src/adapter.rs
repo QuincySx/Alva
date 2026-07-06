@@ -17,8 +17,8 @@ use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
     RuntimeRequest,
 };
-use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::{CancellationToken, ContentBlock, Message, MessageRole};
+use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::run::run_agent;
 use alva_kernel_core::shared::Extensions;
@@ -85,7 +85,7 @@ impl EngineRuntime for AlvaAdapter {
             .unwrap_or_else(|| self.config.system_prompt.clone());
 
         // 3. Build AgentState.
-        let session: Arc<dyn alva_kernel_abi::agent_session::AgentSession> =
+        let session: Arc<dyn alva_kernel_core::agent_session::AgentSession> =
             Arc::new(InMemoryAgentSession::new());
         let state = AgentState {
             model: self.config.model.clone(),

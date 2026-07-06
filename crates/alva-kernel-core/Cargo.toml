@@ -12,6 +12,10 @@ serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 futures-core = "0.3"
+# futures-util (std, no default features) backs the moved ListenableInMemorySession
+# ::subscribe_events stream combinators (stream::iter / unfold / chain). Byte-identical
+# to alva-kernel-abi's dep, which is already proven wasm32-clean.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
 sha2 = "0.10"

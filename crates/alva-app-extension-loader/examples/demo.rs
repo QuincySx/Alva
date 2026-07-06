@@ -17,8 +17,8 @@ use std::sync::{Arc, RwLock};
 
 use alva_agent_core::extension::{Plugin, PluginHost, Registrar};
 use alva_app_extension_loader::loader::SubprocessLoaderPlugin;
-use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{AgentMessage, Message, ToolCall};
+use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::{AgentState, Extensions, Middleware, MiddlewareError};
 use alva_test::mock_provider::MockLanguageModel;
 

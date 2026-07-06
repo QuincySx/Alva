@@ -3,7 +3,7 @@
 // POS:    mutable state and immutable config — AgentConfig carries optional BusHandle and optional ContextSystem.
 use std::sync::Arc;
 
-use alva_kernel_abi::agent_session::AgentSession;
+use crate::agent_session::AgentSession;
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::context::ContextSystem;
 use alva_kernel_abi::tool::Tool;
@@ -82,8 +82,8 @@ pub struct AgentConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_session::InMemoryAgentSession;
     use crate::builtins::test_helpers::helpers::{make_state, StubModel};
-    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::ModelConfig;
 
     #[test]

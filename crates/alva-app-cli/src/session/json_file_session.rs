@@ -11,10 +11,10 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-use alva_kernel_abi::agent_session::{
+use alva_kernel_abi::AgentMessage;
+use alva_kernel_core::agent_session::{
     AgentSession, EventMatch, EventQuery, InMemoryAgentSession, SessionError, SessionEvent,
 };
-use alva_kernel_abi::AgentMessage;
 
 /// On-disk representation of a session file.
 #[derive(Debug, Serialize, Deserialize)]

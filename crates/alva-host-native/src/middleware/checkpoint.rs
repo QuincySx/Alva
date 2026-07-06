@@ -179,9 +179,9 @@ impl Middleware for CheckpointMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::tool::Tool;
     use alva_kernel_abi::{AgentError, Bus, ToolOutput};
+    use alva_kernel_core::agent_session::InMemoryAgentSession;
     use alva_kernel_core::shared::Extensions;
     use std::sync::{Arc, Mutex as StdMutex};
 

@@ -12,8 +12,8 @@ use crate::pending_actions::{
     ResolveStatus, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED,
 };
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
-use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
 use alva_kernel_abi::{bus_cap, BusHandle, CancellationToken, MinimalExecutionContext, ToolCall};
+use alva_kernel_core::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
 use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
 use alva_kernel_core::shared::MiddlewarePriority;
 use alva_kernel_core::state::AgentState;
@@ -426,8 +426,8 @@ impl Middleware for SecurityMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::Bus;
+    use alva_kernel_core::agent_session::InMemoryAgentSession;
     use alva_kernel_core::shared::Extensions;
 
     fn make_state() -> AgentState {
@@ -701,7 +701,7 @@ mod tests {
 
     #[tokio::test]
     async fn approval_emits_requires_action_into_session_log() {
-        use alva_kernel_abi::agent_session::EventQuery;
+        use alva_kernel_core::agent_session::EventQuery;
 
         let (approval_tx, mut approval_rx) =
             tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
@@ -833,7 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_records_resolved_with_timed_out_status() {
-        use alva_kernel_abi::agent_session::EventQuery;
+        use alva_kernel_core::agent_session::EventQuery;
 
         // Drop the rx side immediately so even a successful send doesn't keep
         // the channel alive — but the middleware doesn't depend on rx;
@@ -873,7 +873,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_handler_records_resolved_with_no_handler_status() {
-        use alva_kernel_abi::agent_session::EventQuery;
+        use alva_kernel_core::agent_session::EventQuery;
 
         // Bus without ApprovalNotifier — the (None, _) fallback should still
         // emit the request and a resolved event with status="no_handler".
@@ -910,7 +910,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscriber_sees_requires_action_live() {
-        use alva_kernel_abi::agent_session::ListenableInMemorySession;
+        use alva_kernel_core::agent_session::ListenableInMemorySession;
         use tokio_stream::StreamExt;
 
         let (approval_tx, mut approval_rx) =

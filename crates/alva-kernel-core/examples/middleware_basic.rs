@@ -11,8 +11,8 @@
 
 use std::sync::Arc;
 
-use alva_kernel_abi::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::{Message, ToolCall, ToolOutput};
+use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
@@ -216,7 +216,7 @@ fn main() {
     );
 
     // 2. Create AgentState + AgentConfig
-    let session: Arc<dyn alva_kernel_abi::agent_session::AgentSession> =
+    let session: Arc<dyn alva_kernel_core::agent_session::AgentSession> =
         Arc::new(InMemoryAgentSession::new());
     let mut state = AgentState {
         model: Arc::new(StubModel),

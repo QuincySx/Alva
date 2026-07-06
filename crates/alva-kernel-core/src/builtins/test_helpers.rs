@@ -6,7 +6,7 @@
 pub(crate) mod helpers {
     use std::sync::Arc;
 
-    use alva_kernel_abi::agent_session::InMemoryAgentSession;
+    use crate::agent_session::InMemoryAgentSession;
     use alva_kernel_abi::base::error::AgentError;
     use alva_kernel_abi::base::message::Message;
     use alva_kernel_abi::base::stream::StreamEvent;

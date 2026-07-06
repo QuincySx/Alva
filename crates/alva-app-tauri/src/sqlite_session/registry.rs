@@ -27,7 +27,7 @@ use async_trait::async_trait;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
-use alva_kernel_abi::agent_session::{AgentSession, SessionError};
+use alva_kernel_core::agent_session::{AgentSession, SessionError};
 
 use alva_app_core::session_registry::{
     SessionFilter, SessionMetadata, SessionMetadataPatch, SessionOrder, SessionPage,
@@ -477,7 +477,7 @@ fn build_where(filter: &SessionFilter) -> (String, Vec<Box<dyn rusqlite::ToSql +
 mod tests {
     use super::*;
     use crate::sqlite_session::schema::init_schema;
-    use alva_kernel_abi::agent_session::InMemoryAgentSession;
+    use alva_kernel_core::agent_session::InMemoryAgentSession;
 
     fn make_registry() -> SqliteSessionRegistry {
         // In-memory DB so each test is hermetic. Schema is the same one

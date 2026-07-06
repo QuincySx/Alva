@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventQuery, InMemoryAgentSession};
 use alva_kernel_abi::base::content::ContentBlock;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::{Message, MessageRole};
@@ -12,6 +11,9 @@ use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{AgentMessage, CancellationToken, ModelConfig};
+use alva_kernel_core::agent_session::{
+    AgentSession, EmitterKind, EventQuery, InMemoryAgentSession,
+};
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::run::run_agent;
 use alva_kernel_core::shared::Extensions;

@@ -17,11 +17,11 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use rusqlite::{params, Connection};
 
-use alva_kernel_abi::agent_session::{
+use alva_kernel_abi::AgentMessage;
+use alva_kernel_core::agent_session::{
     AgentSession, EventEmitter, EventMatch, EventQuery, InMemoryAgentSession, SessionError,
     SessionEvent,
 };
-use alva_kernel_abi::AgentMessage;
 
 /// Eval-private `AgentSession` backend backed by a shared SQLite connection.
 ///

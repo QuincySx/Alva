@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{
     AgentError, AgentMessage, CancellationToken, CompletionResponse, ContentBlock, LanguageModel,
     Message, MessageRole, ModelConfig, StreamEvent, Tool,
 };
+use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
 use alva_kernel_core::run_agent;
 use alva_kernel_core::shared::Extensions;

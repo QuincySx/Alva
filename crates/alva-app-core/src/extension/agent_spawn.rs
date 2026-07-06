@@ -24,9 +24,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alva_kernel_abi::agent_session::{
-    AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener,
-};
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::context::{ContextHooks, ContextSystem};
 use alva_kernel_abi::model::LanguageModel;
@@ -36,6 +33,9 @@ use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
     OnChildComplete, ProviderRegistry, Sleeper, SpawnCommContext, SpawnCommHandle,
     SpawnCommunicationRegistry, SpawnResult,
+};
+use alva_kernel_core::agent_session::{
+    AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener,
 };
 use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
 

@@ -7,10 +7,10 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::{
     AgentError, Bus, BusHandle, BusWriter, LanguageModel, ModelConfig, Tool, ToolRegistry,
 };
+use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareStack};
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};

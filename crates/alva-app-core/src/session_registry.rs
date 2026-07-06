@@ -18,8 +18,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use alva_kernel_abi::agent_session::{AgentSession, SessionError};
 use alva_kernel_abi::base::message::UsageMetadata;
+use alva_kernel_core::agent_session::{AgentSession, SessionError};
 
 // ===========================================================================
 // SessionStatus
@@ -818,7 +818,7 @@ async fn enrich_with_tree_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::agent_session::InMemoryAgentSession;
+    use alva_kernel_core::agent_session::InMemoryAgentSession;
 
     fn make_session(id: &str) -> Arc<dyn AgentSession> {
         Arc::new(InMemoryAgentSession::with_id(id.to_string()))

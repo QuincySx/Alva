@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alva_kernel_abi::agent_session::{AgentSession, InMemoryAgentSession};
+use crate::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::LanguageModel;
