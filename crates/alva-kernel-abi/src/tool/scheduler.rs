@@ -177,7 +177,15 @@ pub enum ExecutionMode {
 /// one lock map for cross-agent contention to work; per-agent state would
 /// let two sub-agents both think they have the write lock on `/src/foo.rs`.
 #[crate::bus_cap]
+/// Default bound for lock acquisition on the tool hot path. Generous on
+/// purpose: legitimate queueing behind serial-global tools can take a few
+/// tool-timeouts' worth of waiting; anything past this is deadlock-shaped
+/// and a bounded error naming the keys beats an indefinite hang.
+pub const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(300);
+
 pub struct ToolLockRegistry {
+    /// Bound applied by [`Self::acquire_bounded`] (the tool hot path).
+    acquire_timeout: Duration,
     /// Per-key RwLock map. Lazily populated on first access.
     locks: std::sync::Mutex<HashMap<String, Arc<RwLock<()>>>>,
     /// Exclusive global lock held by `SerialGlobal` tools. A `SerialGlobal`
@@ -251,10 +259,18 @@ impl std::error::Error for AcquireError {}
 impl ToolLockRegistry {
     pub fn new() -> Self {
         Self {
+            acquire_timeout: DEFAULT_ACQUIRE_TIMEOUT,
             locks: std::sync::Mutex::new(HashMap::new()),
             global: Arc::new(RwLock::new(())),
             inspect: Arc::new(Mutex::new(InspectState::default())),
         }
+    }
+
+    /// Override the [`Self::acquire_bounded`] deadline (tests use a short
+    /// fuse; production keeps [`DEFAULT_ACQUIRE_TIMEOUT`]).
+    pub fn with_acquire_timeout(mut self, timeout: Duration) -> Self {
+        self.acquire_timeout = timeout;
+        self
     }
 
     /// Snapshot all currently held locks. Diagnostic only — readers see
@@ -459,6 +475,31 @@ impl ToolLockRegistry {
             })
             .collect();
         self.acquire(&resolved, mode).await
+    }
+
+    /// The tool hot-path acquire: workspace-resolved (when a workspace is
+    /// known) AND bounded by this registry's `acquire_timeout`. A wait past
+    /// the bound returns [`AcquireError::Timeout`] instead of hanging the
+    /// agent loop forever — deadlock-shaped contention becomes a visible,
+    /// retryable tool error.
+    pub async fn acquire_bounded(
+        &self,
+        keys: &[ResourceKey],
+        mode: ExecutionMode,
+        workspace: Option<&std::path::Path>,
+    ) -> Result<ToolLockGuards, AcquireError> {
+        let resolved: Vec<ResourceKey> = match workspace {
+            Some(ws) => keys
+                .iter()
+                .map(|k| ResourceKey {
+                    key: resolve_against_workspace(&k.key, ws),
+                    mode: k.mode,
+                })
+                .collect(),
+            None => keys.to_vec(),
+        };
+        self.acquire_with_holder_and_timeout(&resolved, mode, None, self.acquire_timeout)
+            .await
     }
 
     fn get_or_create(&self, key: &str) -> Arc<RwLock<()>> {

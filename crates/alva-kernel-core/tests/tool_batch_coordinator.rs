@@ -254,3 +254,70 @@ async fn coordinator_commits_cancelled_results_for_remaining_declared_calls() {
 
     assert_eq!(tool_result_ids, vec!["toolu_cancel", "toolu_second"]);
 }
+
+/// Deadlock-shaped lock contention must surface as a bounded tool ERROR,
+/// not an indefinite hang. The registry's acquire_bounded deadline is the
+/// guard: here another holder keeps the GLOBAL write lock (as a
+/// serial-global tool would), and a parallel tool's read acquisition must
+/// time out and land an error result instead of parking the batch forever.
+#[tokio::test]
+async fn lock_contention_times_out_as_tool_error_instead_of_hanging() {
+    use alva_kernel_abi::{Bus, ExecutionMode, ToolLockRegistry};
+
+    let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+    let tool = MockTool::new("blocked_tool").with_result(ToolOutput::text("never runs"));
+    let mut state = AgentState {
+        model: Arc::new(UnusedModel),
+        tools: vec![Arc::new(tool)],
+        session,
+        extensions: Extensions::new(),
+    };
+
+    // Registry with a 100ms fuse, published on the bus like production.
+    let registry = Arc::new(
+        ToolLockRegistry::new().with_acquire_timeout(std::time::Duration::from_millis(100)),
+    );
+    let bus = Bus::new();
+    bus.writer().provide::<ToolLockRegistry>(registry.clone());
+
+    // Simulate an in-flight serial-global tool: hold the GLOBAL write lock
+    // for the whole test.
+    let _global_write = registry.acquire(&[], ExecutionMode::SerialGlobal).await;
+
+    let mut config = test_config();
+    config.bus = Some(bus.handle());
+
+    let cancel = CancellationToken::new();
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let tool_calls = vec![ToolCall {
+        id: "toolu_blocked".to_string(),
+        name: "blocked_tool".to_string(),
+        arguments: serde_json::json!({}),
+    }];
+
+    let committed = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        ToolBatchCoordinator::new().execute_batch(
+            &mut state,
+            &config,
+            cancel,
+            &tool_calls,
+            "llm_parent".to_string(),
+            event_tx,
+        ),
+    )
+    .await
+    .expect("lock contention must NOT hang the batch (bounded acquire)")
+    .unwrap();
+
+    assert_eq!(committed.len(), 1);
+    assert!(
+        committed[0].result.is_error,
+        "the blocked tool must land an error result"
+    );
+    let text = committed[0].result.model_text();
+    assert!(
+        text.contains("timed out") || text.contains("Timeout"),
+        "error must say the lock wait timed out, got: {text}"
+    );
+}

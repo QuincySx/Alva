@@ -83,15 +83,28 @@ impl ToolBatchCoordinator {
                     return Err(e.into_agent_error());
                 }
                 Ok(()) => match tool {
-                    Some(ref t) => {
+                    Some(ref t) => 'locked: {
                         let _lock_guards = if let Some(bus) = config.bus.as_ref() {
                             if let Some(registry) = bus.get::<alva_kernel_abi::ToolLockRegistry>() {
                                 let keys = t.resource_keys(&tool_call.arguments);
                                 let mode = t.execution_mode();
-                                Some(match config.workspace.as_deref() {
-                                    Some(ws) => registry.acquire_within(&keys, mode, ws).await,
-                                    None => registry.acquire(&keys, mode).await,
-                                })
+                                // Bounded acquire: deadlock-shaped contention
+                                // becomes a visible, retryable tool error
+                                // instead of parking the agent loop forever
+                                // (the timeout variant sat unused while the
+                                // hot path hung — gap scan 2026-07-05).
+                                match registry
+                                    .acquire_bounded(&keys, mode, config.workspace.as_deref())
+                                    .await
+                                {
+                                    Ok(guards) => Some(guards),
+                                    Err(e) => {
+                                        break 'locked ToolOutput::error(format!(
+                                            "Tool lock acquisition failed: {e}. Another tool may \
+                                             be holding the lock unusually long; try again."
+                                        ));
+                                    }
+                                }
                             } else {
                                 None
                             }
