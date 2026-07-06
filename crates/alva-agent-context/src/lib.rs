@@ -23,9 +23,7 @@
 //! the concrete implementations: `RulesContextHooks`, `DefaultContextHooks`,
 //! `ContextHooksChain`, `ContextHandleImpl`, `ContextStore`, `InMemorySession`.
 
-pub mod auto_compact;
 pub mod chain;
-pub mod compact;
 pub mod context_system;
 pub mod default_plugin;
 pub mod plugin;
@@ -48,12 +46,7 @@ pub(crate) mod util;
 
 pub use middleware::CompactionMiddleware;
 
-pub use auto_compact::AutoCompactState;
 pub use chain::ContextHooksChain;
-pub use compact::{
-    compact_messages, micro_compact_messages, should_compact, CompactionConfig, CompactionResult,
-    MicroCompactResult,
-};
 pub use context_system::{default_context_system, ContextSystem};
 pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig, DefaultSummarizeFn};
 pub use plugin::{ContextError, ContextHooks};
