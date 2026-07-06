@@ -311,6 +311,78 @@ mod tests {
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
 
+    // -- default-replacement contract ---------------------------------------
+    //
+    // Registering a plugin under the SAME name as a default ("memory" /
+    // "security" / "system_context") must skip the default entirely. This
+    // is the whole opt-out mechanism AGENTS.md documents; the strings below
+    // are load-bearing and a silent dedup regression re-installs our
+    // opinionated defaults on top of the user's replacements.
+
+    struct NamedNoopPlugin(&'static str);
+
+    #[async_trait::async_trait]
+    impl crate::extension::Plugin for NamedNoopPlugin {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "test replacement plugin"
+        }
+        async fn register(&self, _r: &crate::extension::Registrar) {}
+    }
+
+    async fn build_with(plugins: Vec<Box<dyn crate::extension::Plugin>>) -> crate::BaseAgent {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut b = crate::BaseAgent::builder()
+            .workspace(tmp.path())
+            .system_prompt("t");
+        for p in plugins {
+            b = b.plugin(p);
+        }
+        b.build(std::sync::Arc::new(
+            MockLanguageModel::new().with_response(make_assistant_message("x")),
+        ))
+        .await
+        .expect("agent builds")
+    }
+
+    #[tokio::test]
+    async fn default_security_is_installed_when_not_replaced() {
+        let agent = build_with(vec![]).await;
+        assert!(
+            agent
+                .bus()
+                .get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+                .is_some(),
+            "default SecurityPlugin must publish the SecurityGuard"
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_security_plugin_replaces_the_default() {
+        let agent = build_with(vec![Box::new(NamedNoopPlugin("security"))]).await;
+        assert!(
+            agent
+                .bus()
+                .get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+                .is_none(),
+            "a same-name plugin must SKIP the default SecurityPlugin (opt-out contract)"
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_memory_plugin_replaces_the_default() {
+        let agent = build_with(vec![Box::new(NamedNoopPlugin("memory"))]).await;
+        assert!(
+            agent
+                .bus()
+                .get::<alva_agent_memory::MemoryService>()
+                .is_none(),
+            "a same-name plugin must SKIP the default MemoryPlugin (opt-out contract)"
+        );
+    }
+
     #[test]
     fn builder_defaults() {
         let builder = BaseAgentBuilder::new();
