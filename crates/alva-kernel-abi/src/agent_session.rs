@@ -834,6 +834,16 @@ impl AgentSession for InMemoryAgentSession {
 #[async_trait]
 pub trait SessionEventListener: Send + Sync {
     async fn on_event(&self, event: &SessionEvent);
+
+    /// Is this listener still worth broadcasting to? A broadcasting session
+    /// reaps listeners that report `false` after each notify, so a listener
+    /// backed by a dropped consumer (e.g. a `subscribe_events` stream that
+    /// was dropped) does not accumulate forever. Defaults to `true` — a
+    /// listener with no liveness signal is treated as permanent (the right
+    /// default for forwarders that live as long as their target).
+    fn is_active(&self) -> bool {
+        true
+    }
 }
 
 /// An `InMemoryAgentSession` wrapper that broadcasts every written event to
@@ -868,6 +878,28 @@ impl ListenableInMemorySession {
     pub async fn subscribe(&self, listener: Arc<dyn SessionEventListener>) {
         self.listeners.write().await.push(listener);
     }
+
+    /// Broadcast one event to every listener, then reap any that reported
+    /// themselves inactive. The notify loop runs under a read guard (many
+    /// appends can broadcast concurrently); the reap takes the write guard
+    /// only when something actually died, so the steady state (all live)
+    /// pays no extra lock. Broadcast happens OUTSIDE any inner-session lock —
+    /// listeners run arbitrary async code and may read this very session.
+    async fn broadcast(&self, event: &SessionEvent) {
+        let mut any_dead = false;
+        {
+            let listeners = self.listeners.read().await;
+            for l in listeners.iter() {
+                l.on_event(event).await;
+                if !l.is_active() {
+                    any_dead = true;
+                }
+            }
+        }
+        if any_dead {
+            self.listeners.write().await.retain(|l| l.is_active());
+        }
+    }
 }
 
 impl Default for ListenableInMemorySession {
@@ -900,10 +932,7 @@ impl AgentSession for ListenableInMemorySession {
             events.push(e.clone());
         }
 
-        let listeners = self.listeners.read().await;
-        for l in listeners.iter() {
-            l.on_event(&e).await;
-        }
+        self.broadcast(&e).await;
     }
 
     async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
@@ -926,11 +955,7 @@ impl AgentSession for ListenableInMemorySession {
             messages.push_back(msg);
         }
 
-        // Notify listeners.
-        let listeners = self.listeners.read().await;
-        for l in listeners.iter() {
-            l.on_event(&event).await;
-        }
+        self.broadcast(&event).await;
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
@@ -1023,9 +1048,13 @@ struct ChannelListener {
 #[async_trait]
 impl SessionEventListener for ChannelListener {
     async fn on_event(&self, event: &SessionEvent) {
-        // Receiver dropped → stream was dropped by consumer. Silently
-        // no-op; the listener stays in the Vec (lazy cleanup).
+        // Receiver dropped → stream was dropped by consumer. Send fails
+        // silently; `is_active` then reports dead so the session reaps us.
         let _ = self.tx.send(event.clone());
+    }
+
+    fn is_active(&self) -> bool {
+        !self.tx.is_closed()
     }
 }
 
@@ -1639,6 +1668,57 @@ mod tests {
             .await;
         let events = session.inner.events.read().await;
         assert_eq!(events.len(), 1);
+    }
+
+    /// D-3 regression: a subscription whose stream was dropped must be
+    /// REAPED, not kept forever. On a long-lived parent session a live-tail
+    /// subscriber that comes and goes (each `subscribe_events` pushes a
+    /// ChannelListener) otherwise accumulates dead listeners unboundedly —
+    /// every future append then broadcasts into channels no one reads.
+    #[tokio::test]
+    async fn dropped_subscription_is_reaped_on_next_append() {
+        let session = ListenableInMemorySession::new();
+        {
+            let _stream = session.subscribe_events(0).await;
+            assert_eq!(
+                session.listeners.read().await.len(),
+                1,
+                "subscribe_events registers one listener"
+            );
+        } // stream dropped → receiver dropped → the ChannelListener is dead
+
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await;
+
+        assert_eq!(
+            session.listeners.read().await.len(),
+            0,
+            "the dead subscription's listener must be reaped, not leaked"
+        );
+    }
+
+    /// A still-live explicit listener (the common case: ForwardToSession on
+    /// a child) must NOT be reaped by the same sweep — only genuinely dead
+    /// ones go.
+    #[tokio::test]
+    async fn live_explicit_listener_survives_the_reap() {
+        struct AlwaysLive;
+        #[async_trait]
+        impl SessionEventListener for AlwaysLive {
+            async fn on_event(&self, _e: &SessionEvent) {}
+        }
+
+        let session = ListenableInMemorySession::new();
+        session.subscribe(Arc::new(AlwaysLive)).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await;
+        assert_eq!(
+            session.listeners.read().await.len(),
+            1,
+            "a live listener must survive the dead-listener sweep"
+        );
     }
 
     #[tokio::test]
