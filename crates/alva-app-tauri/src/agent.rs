@@ -24,9 +24,7 @@ use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
 use alva_kernel_abi::base::content::ContentBlock;
 use alva_kernel_abi::base::message::{AgentMessage, Message, MessageRole};
 use alva_kernel_abi::LanguageModel;
-use alva_llm_provider::{
-    AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
-};
+use alva_llm_provider::ProviderConfig;
 
 use crate::sqlite_session::{
     SessionSummary, SqliteEvalSession, SqliteEvalSessionManager, SqliteSessionRegistry,
@@ -642,12 +640,8 @@ pub struct RemoteModelsRequest {
 }
 
 fn default_base_url_for(provider: &str) -> String {
-    match provider {
-        "anthropic" => "https://api.anthropic.com".into(),
-        "openai-responses" => "https://api.openai.com".into(),
-        "gemini" => "https://generativelanguage.googleapis.com".into(),
-        _ => "https://api.openai.com/v1".into(),
-    }
+    // Canonical table lives in alva-llm-provider (PR-10).
+    alva_llm_provider::default_base_url(Some(provider)).to_string()
 }
 
 #[tauri::command]
@@ -1690,12 +1684,9 @@ fn build_model(
 ) -> Result<(Arc<dyn LanguageModel>, ProviderConfig), String> {
     let config = build_provider_config(req)?;
 
-    let model: Arc<dyn LanguageModel> = match req.provider.as_str() {
-        "anthropic" => Arc::new(AnthropicProvider::new(config.clone())),
-        "openai-responses" => Arc::new(OpenAIResponsesProvider::new(config.clone())),
-        "gemini" => Arc::new(GeminiProvider::new(config.clone())),
-        _ => Arc::new(OpenAIChatProvider::new(config.clone())),
-    };
+    // Single kind→provider switch lives in alva-llm-provider (PR-10).
+    let model: Arc<dyn LanguageModel> =
+        alva_llm_provider::build_language_model(Some(req.provider.as_str()), config.clone());
     Ok((model, config))
 }
 

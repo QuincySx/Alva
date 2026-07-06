@@ -12,9 +12,7 @@ use serde::{Deserialize, Serialize};
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::{LanguageModel, ModelConfig};
 use alva_kernel_abi::ContentBlock;
-use alva_llm_provider::{
-    AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
-};
+use alva_llm_provider::ProviderConfig;
 
 #[derive(Serialize, Clone)]
 pub struct RemoteModelInfo {
@@ -322,12 +320,9 @@ pub async fn test_connection(
         kind: Some(provider.to_string()),
     };
 
-    let lm: Arc<dyn LanguageModel> = match provider {
-        "anthropic" => Arc::new(AnthropicProvider::new(config)),
-        "openai-responses" => Arc::new(OpenAIResponsesProvider::new(config)),
-        "gemini" => Arc::new(GeminiProvider::new(config)),
-        _ => Arc::new(OpenAIChatProvider::new(config)),
-    };
+    // Single kind→provider switch lives in alva-llm-provider (PR-10).
+    let lm: Arc<dyn LanguageModel> =
+        alva_llm_provider::build_language_model(Some(provider), config);
 
     let messages = vec![Message::user(
         "Respond with the single word OK and nothing else.",

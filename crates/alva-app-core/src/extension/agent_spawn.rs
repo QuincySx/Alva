@@ -92,10 +92,7 @@ impl AgentTemplateRegistry for InMemoryAgentTemplateRegistry {
 /// [`AgentModelConfig`] (own model id, endpoint, provider kind, and key).
 /// The key is taken from `api_key`, else read from `api_key_env`, else empty.
 fn build_template_model(cfg: &AgentModelConfig) -> Arc<dyn LanguageModel> {
-    use alva_llm_provider::{
-        AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider,
-        ProviderConfig,
-    };
+    use alva_llm_provider::ProviderConfig;
 
     let api_key = cfg
         .api_key
@@ -118,13 +115,8 @@ fn build_template_model(cfg: &AgentModelConfig) -> Arc<dyn LanguageModel> {
         kind: cfg.provider_kind.clone(),
     };
 
-    match cfg.provider_kind.as_deref() {
-        Some("anthropic") => Arc::new(AnthropicProvider::new(provider_config)),
-        Some("openai-responses") => Arc::new(OpenAIResponsesProvider::new(provider_config)),
-        Some("gemini") => Arc::new(GeminiProvider::new(provider_config)),
-        // None / "openai-chat" / unknown → OpenAI Chat (broadest compat path).
-        _ => Arc::new(OpenAIChatProvider::new(provider_config)),
-    }
+    // Single kind→provider switch lives in alva-llm-provider (PR-10).
+    alva_llm_provider::build_language_model(cfg.provider_kind.as_deref(), provider_config)
 }
 
 // ---------------------------------------------------------------------------

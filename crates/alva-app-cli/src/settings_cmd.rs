@@ -465,11 +465,10 @@ fn default_model_for_kind(kind: &str) -> &'static str {
 /// openai-chat / openai-responses / unknown all fall through to the
 /// official OpenAI endpoint.
 fn default_base_url_for_kind(kind: &str) -> &'static str {
-    match kind {
-        "anthropic" => "https://api.anthropic.com",
-        "gemini" => "https://generativelanguage.googleapis.com",
-        _ => "https://api.openai.com/v1",
-    }
+    // Canonical table lives in alva-llm-provider. The old local copy sent
+    // openai-responses to the /v1 base — the provider appends /v1/responses
+    // itself, so requests hit /v1/v1/responses and 404'd.
+    alva_llm_provider::default_base_url(Some(kind))
 }
 
 #[cfg(test)]
@@ -571,14 +570,16 @@ mod tests {
             default_base_url_for_kind("gemini"),
             "https://generativelanguage.googleapis.com"
         );
-        // Both openai-chat and openai-responses share the openai endpoint.
+        // The /v1 asymmetry is load-bearing: the responses provider appends
+        // /v1/responses ITSELF, so its base has no /v1 — the old local table
+        // sent it to the /v1 base and requests 404'd on /v1/v1/responses.
         assert_eq!(
             default_base_url_for_kind("openai-chat"),
             "https://api.openai.com/v1"
         );
         assert_eq!(
             default_base_url_for_kind("openai-responses"),
-            "https://api.openai.com/v1"
+            "https://api.openai.com"
         );
     }
 

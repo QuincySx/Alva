@@ -8,9 +8,7 @@ use std::sync::Arc;
 use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder};
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::LanguageModel;
-use alva_llm_provider::{
-    AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
-};
+use alva_llm_provider::ProviderConfig;
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
@@ -68,13 +66,9 @@ pub(crate) async fn build_agent(
         project_context
     );
 
-    let model: Arc<dyn LanguageModel> = match config.kind.as_deref() {
-        Some("anthropic") => Arc::new(AnthropicProvider::new(config.clone())),
-        Some("openai-responses") => Arc::new(OpenAIResponsesProvider::new(config.clone())),
-        Some("gemini") => Arc::new(GeminiProvider::new(config.clone())),
-        // None / "openai-chat" / unknown → OpenAI Chat (broadest OpenAI-compat path).
-        _ => Arc::new(OpenAIChatProvider::new(config.clone())),
-    };
+    // Single kind→provider switch lives in alva-llm-provider (PR-10).
+    let model: Arc<dyn LanguageModel> =
+        alva_llm_provider::build_language_model(config.kind.as_deref(), config.clone());
     // Provider registry — lets SubAgent/Task spawn against named providers.
     let provider_registry = alva_llm_provider::build_provider_registry(config);
 

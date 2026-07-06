@@ -8,9 +8,7 @@ use std::sync::Arc;
 
 use alva_kernel_abi::{LanguageModel, Provider, ProviderError, ProviderRegistry};
 
-use crate::{
-    AnthropicProvider, GeminiProvider, OpenAIChatProvider, OpenAIResponsesProvider, ProviderConfig,
-};
+use crate::ProviderConfig;
 
 /// Resolves the canonical provider id (`anthropic` / `openai-chat` /
 /// `openai-responses` / `gemini`) from a config's `kind` field, with
@@ -60,13 +58,7 @@ impl Provider for ConfigProviderAdapter {
 
     fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError> {
         let cfg = self.config_for(model_id);
-        let lm: Arc<dyn LanguageModel> = match self.id {
-            "anthropic" => Arc::new(AnthropicProvider::new(cfg)),
-            "openai-responses" => Arc::new(OpenAIResponsesProvider::new(cfg)),
-            "gemini" => Arc::new(GeminiProvider::new(cfg)),
-            _ => Arc::new(OpenAIChatProvider::new(cfg)),
-        };
-        Ok(lm)
+        Ok(crate::build_language_model(Some(self.id), cfg))
     }
 }
 

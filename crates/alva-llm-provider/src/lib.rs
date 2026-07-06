@@ -54,3 +54,85 @@ pub use provider::openai_chat::OpenAIChatProvider;
 pub use provider::openai_responses::OpenAIResponsesProvider;
 pub use rate_limit::{RateLimitCheck, RateLimitState, RateLimitType};
 pub use registry::{build_provider_registry, AliasRouter, ConfigProviderAdapter};
+
+/// THE single kind→provider switch. Every call site must go through here —
+/// this match existed as five drifting copies (CLI, Tauri ×2, app-core
+/// template spawn, registry) before PR-10 collapsed them.
+///
+/// `None` / `"openai-chat"` / unknown → OpenAI Chat (broadest compat path).
+pub fn build_language_model(
+    kind: Option<&str>,
+    config: ProviderConfig,
+) -> std::sync::Arc<dyn alva_kernel_abi::LanguageModel> {
+    use std::sync::Arc;
+    match kind {
+        Some("anthropic") => Arc::new(AnthropicProvider::new(config)),
+        Some("openai-responses") => Arc::new(OpenAIResponsesProvider::new(config)),
+        Some("gemini") => Arc::new(GeminiProvider::new(config)),
+        _ => Arc::new(OpenAIChatProvider::new(config)),
+    }
+}
+
+/// THE default endpoint per provider kind. The /v1 asymmetry is load-
+/// bearing: OpenAIResponsesProvider appends `/v1/responses` itself (base
+/// WITHOUT /v1), OpenAIChatProvider appends `/chat/completions` (base WITH
+/// /v1). One of the four former copies had responses falling through to
+/// the /v1 base — producing `/v1/v1/responses`.
+pub fn default_base_url(kind: Option<&str>) -> &'static str {
+    match kind {
+        Some("anthropic") => "https://api.anthropic.com",
+        Some("gemini") => "https://generativelanguage.googleapis.com",
+        Some("openai-responses") => "https://api.openai.com",
+        _ => "https://api.openai.com/v1",
+    }
+}
+
+#[cfg(test)]
+mod factory_tests {
+    use super::*;
+
+    #[test]
+    fn default_base_url_pins_the_v1_asymmetry() {
+        // responses appends /v1/responses itself; chat appends
+        // /chat/completions. Getting these crossed yields /v1/v1/… or a
+        // missing /v1 — both 404 in production.
+        assert_eq!(
+            default_base_url(Some("openai-responses")),
+            "https://api.openai.com"
+        );
+        assert_eq!(
+            default_base_url(Some("openai-chat")),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(default_base_url(None), "https://api.openai.com/v1");
+        assert_eq!(
+            default_base_url(Some("anthropic")),
+            "https://api.anthropic.com"
+        );
+        assert_eq!(
+            default_base_url(Some("gemini")),
+            "https://generativelanguage.googleapis.com"
+        );
+    }
+
+    #[test]
+    fn build_language_model_dispatches_by_kind_with_chat_fallback() {
+        let cfg = || ProviderConfig {
+            api_key: "k".into(),
+            model: "m".into(),
+            base_url: "http://x".into(),
+            max_tokens: 16,
+            custom_headers: Default::default(),
+            kind: None,
+        };
+        assert_eq!(
+            build_language_model(Some("anthropic"), cfg()).model_id(),
+            "m"
+        );
+        assert_eq!(build_language_model(None, cfg()).model_id(), "m");
+        assert_eq!(
+            build_language_model(Some("unknown-kind"), cfg()).model_id(),
+            "m"
+        );
+    }
+}

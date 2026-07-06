@@ -2620,18 +2620,9 @@ async fn real_capability_suite() {
         kind: kind.clone(),
     };
 
-    // Same match the CLI uses (agent_setup.rs).
+    // Same factory the CLI uses (alva-llm-provider, PR-10).
     let make_model = || -> Arc<dyn LanguageModel> {
-        match config.kind.as_deref() {
-            Some("anthropic") => {
-                Arc::new(alva_llm_provider::AnthropicProvider::new(config.clone()))
-            }
-            Some("openai-responses") => Arc::new(alva_llm_provider::OpenAIResponsesProvider::new(
-                config.clone(),
-            )),
-            Some("gemini") => Arc::new(alva_llm_provider::GeminiProvider::new(config.clone())),
-            _ => Arc::new(alva_llm_provider::OpenAIChatProvider::new(config.clone())),
-        }
+        alva_llm_provider::build_language_model(config.kind.as_deref(), config.clone())
     };
 
     // Component subset for this run, from ALVA_TEST_COMPONENTS (default / `all` /
