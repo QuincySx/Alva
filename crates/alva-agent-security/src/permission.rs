@@ -15,6 +15,35 @@ pub enum PermissionDecision {
     RejectAlways,
 }
 
+impl PermissionDecision {
+    /// Strict machine-token parse for UI protocols (Tauri commands, the
+    /// gateway): exactly the four wire tokens, no trimming, no case
+    /// folding. Unknown input is an error — a protocol client sending a
+    /// bad token is a bug to surface, not a preference to guess.
+    pub fn parse_token(s: &str) -> Result<Self, String> {
+        Ok(match s {
+            "allow_once" => Self::AllowOnce,
+            "allow_always" => Self::AllowAlways,
+            "reject_once" => Self::RejectOnce,
+            "reject_always" => Self::RejectAlways,
+            other => return Err(format!("unknown approval decision: {other}")),
+        })
+    }
+
+    /// Lenient human-input parse for interactive terminal prompts:
+    /// trimmed + case-insensitive; Enter (empty) means "allow once";
+    /// anything unrecognized FAILS SAFE to a one-time rejection —
+    /// mistyped input must never grant more than the user intended.
+    pub fn parse_interactive(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "y" | "yes" | "" => Self::AllowOnce,
+            "a" | "always" => Self::AllowAlways,
+            "d" | "deny" => Self::RejectAlways,
+            _ => Self::RejectOnce,
+        }
+    }
+}
+
 /// Tracks session-level permission decisions and manages pending approval
 /// requests.
 ///
@@ -174,6 +203,64 @@ impl Default for PermissionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- canonical decision parsers (formerly drifting twins in Tauri/CLI) --
+
+    #[test]
+    fn parse_token_accepts_exactly_the_four_wire_tokens() {
+        assert_eq!(
+            PermissionDecision::parse_token("allow_once"),
+            Ok(PermissionDecision::AllowOnce)
+        );
+        assert_eq!(
+            PermissionDecision::parse_token("allow_always"),
+            Ok(PermissionDecision::AllowAlways)
+        );
+        assert_eq!(
+            PermissionDecision::parse_token("reject_once"),
+            Ok(PermissionDecision::RejectOnce)
+        );
+        assert_eq!(
+            PermissionDecision::parse_token("reject_always"),
+            Ok(PermissionDecision::RejectAlways)
+        );
+    }
+
+    #[test]
+    fn parse_token_is_strict_no_trim_no_case_fold_unknown_errors() {
+        // Protocol clients sending bad tokens are bugs to surface, not
+        // preferences to guess. Pin strictness so a "helpful" fold doesn't
+        // sneak in and diverge from the wire contract.
+        assert!(PermissionDecision::parse_token("ALLOW_ONCE").is_err());
+        assert!(PermissionDecision::parse_token(" allow_once").is_err());
+        assert!(PermissionDecision::parse_token("yes").is_err());
+        assert!(PermissionDecision::parse_token("").is_err());
+    }
+
+    #[test]
+    fn parse_interactive_maps_human_shorthand() {
+        use PermissionDecision::*;
+        assert_eq!(PermissionDecision::parse_interactive("y"), AllowOnce);
+        assert_eq!(PermissionDecision::parse_interactive("YES"), AllowOnce);
+        assert_eq!(PermissionDecision::parse_interactive(""), AllowOnce);
+        assert_eq!(PermissionDecision::parse_interactive("  a  "), AllowAlways);
+        assert_eq!(PermissionDecision::parse_interactive("always"), AllowAlways);
+        assert_eq!(PermissionDecision::parse_interactive("d"), RejectAlways);
+        assert_eq!(PermissionDecision::parse_interactive("deny"), RejectAlways);
+    }
+
+    #[test]
+    fn parse_interactive_fails_safe_on_unrecognized_input() {
+        // Mistyped input must never grant MORE than intended.
+        assert_eq!(
+            PermissionDecision::parse_interactive("n"),
+            PermissionDecision::RejectOnce
+        );
+        assert_eq!(
+            PermissionDecision::parse_interactive("whatever"),
+            PermissionDecision::RejectOnce
+        );
+    }
     use serde_json::json;
 
     #[test]

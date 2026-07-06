@@ -243,12 +243,9 @@ pub(crate) async fn handle_approval(agent: &BaseAgent, req: ApprovalRequest) {
 /// matching, so "Y\n", "  YES  ", "Always" all behave identically
 /// to the lowercase forms above.
 pub(crate) fn parse_approval_input(input: &str) -> PermissionDecision {
-    match input.trim().to_lowercase().as_str() {
-        "y" | "yes" | "" => PermissionDecision::AllowOnce,
-        "a" | "always" => PermissionDecision::AllowAlways,
-        "d" | "deny" => PermissionDecision::RejectAlways,
-        _ => PermissionDecision::RejectOnce,
-    }
+    // Canonical parser lives on PermissionDecision (alva-agent-security);
+    // the strict machine-token twin is PermissionDecision::parse_token.
+    PermissionDecision::parse_interactive(input)
 }
 
 #[cfg(test)]

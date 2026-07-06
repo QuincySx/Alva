@@ -1084,13 +1084,9 @@ pub async fn cancel_run(state: State<'_, AppState>) -> Result<(), String> {
 /// User decision string from the inline approval bubble. Mirrors
 /// `PermissionDecision`'s 4 variants.
 fn parse_decision(s: &str) -> Result<PermissionDecision, String> {
-    Ok(match s {
-        "allow_once" => PermissionDecision::AllowOnce,
-        "allow_always" => PermissionDecision::AllowAlways,
-        "reject_once" => PermissionDecision::RejectOnce,
-        "reject_always" => PermissionDecision::RejectAlways,
-        other => return Err(format!("unknown approval decision: {other}")),
-    })
+    // Canonical parser lives on PermissionDecision (alva-agent-security) —
+    // this was a drifting twin of the CLI's human-input parser until PR-9.
+    PermissionDecision::parse_token(s)
 }
 
 /// Resolve a pending approval. Called by the inline "Allow / Reject"
