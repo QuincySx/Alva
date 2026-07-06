@@ -9,7 +9,7 @@ use alva_app_core::{AlvaPaths, BaseAgent, PermissionMode};
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::agent_session::EventQuery;
 use alva_kernel_abi::AgentSession;
-use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
+use alva_llm_provider::ProviderConfig;
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
@@ -251,260 +251,46 @@ pub(crate) async fn run_repl(
                     continue;
                 }
 
-                // === Commands handled directly by REPL (need mutable agent/state access) ===
-                match trimmed {
-                    "/quit" | "/exit" => break,
-                    "/clear" => {
-                        print!("\x1B[2J\x1B[1;1H");
-                        io::stdout().flush().ok();
-                        output::print_banner(&config.model, &workspace.display().to_string());
-                        output::print_git_status(workspace);
-                        output::print_banner_end();
-                        continue;
-                    }
-                    "/setup" => {
-                        eprintln!("  Reconfiguring requires restart.");
-                        if let Some(new_config) = crate::setup::run_setup_wizard(workspace) {
-                            eprintln!();
-                            eprintln!("  Configuration saved. Please restart alva-cli to use the new settings.");
-                            let _ = new_config;
+                let mut ctx = ReplCtx {
+                    agent,
+                    config,
+                    workspace,
+                    registry: &registry,
+                    session_manager,
+                    checkpoint_mgr,
+                    session_id: &mut session_id,
+                    active_session: &mut active_session,
+                    tokens: &mut tokens,
+                };
+                match dispatch(trimmed, &mut ctx).await {
+                    ReplAction::Quit => break,
+                    ReplAction::Continue => continue,
+                    ReplAction::Prompt { content, snapshot } => {
+                        if snapshot {
+                            // Idempotent — only writes the snapshot if this
+                            // session doesn't have one yet. Covers /new +
+                            // /fork paths that swapped in a fresh session.
+                            session_manager
+                                .append_config_snapshot_if_needed(
+                                    &active_session,
+                                    agent,
+                                    &config.model,
+                                )
+                                .await;
                         }
-                        continue;
+                        let (in_tok, out_tok) =
+                            event_handler::run_prompt(agent, &content, approval_rx).await;
+                        tokens.input_tokens += in_tok;
+                        tokens.output_tokens += out_tok;
+
+                        // Persistence is automatic; refresh index summary +
+                        // structured run record (same projection Tauri builds
+                        // for Inspector).
+                        let event_count = active_session.count(&EventQuery::default()).await;
+                        session_manager.refresh_summary(&session_id, event_count, None);
+                        session_manager.write_run_record(&active_session).await;
                     }
-                    "/plan" => {
-                        let current = agent.permission_mode();
-                        let new_mode = if current == PermissionMode::Plan {
-                            PermissionMode::Ask
-                        } else {
-                            PermissionMode::Plan
-                        };
-                        if !agent.set_permission_mode(new_mode) {
-                            eprintln!(
-                                "  Cannot change permission mode — the `permission` component is disabled."
-                            );
-                        } else if new_mode == PermissionMode::Plan {
-                            eprintln!("  Plan mode ON — read-only, no file changes or commands");
-                        } else {
-                            eprintln!("  Plan mode OFF — tools can modify files");
-                        }
-                        continue;
-                    }
-                    "/auto" => {
-                        let current = agent.permission_mode();
-                        let new_mode = if current == PermissionMode::AcceptShell {
-                            PermissionMode::Ask
-                        } else {
-                            PermissionMode::AcceptShell
-                        };
-                        if !agent.set_permission_mode(new_mode) {
-                            eprintln!(
-                                "  Cannot change permission mode — the `permission` component is disabled."
-                            );
-                        } else if new_mode == PermissionMode::AcceptShell {
-                            eprintln!("  Auto-shell ON — non-destructive shell commands run without prompting");
-                        } else {
-                            eprintln!("  Auto-shell OFF — shell commands ask for approval");
-                        }
-                        continue;
-                    }
-                    "/model" => {
-                        let current = agent.model_id().await;
-                        eprintln!("  Current model: {}", current);
-                        eprintln!("  Usage: /model <model_id>");
-                        continue;
-                    }
-                    "/rewind" => {
-                        handle_rewind(checkpoint_mgr);
-                        continue;
-                    }
-                    "/locks" => {
-                        if let Some(reg) = agent.bus().get::<alva_kernel_abi::ToolLockRegistry>() {
-                            let snap = reg.inspect();
-                            if snap.is_empty() {
-                                eprintln!("  no active locks");
-                            } else {
-                                eprintln!(
-                                    "  {:<32}  {:<5}  {:<24}  {}",
-                                    "key", "mode", "holder", "age"
-                                );
-                                for s in &snap {
-                                    let mode = match s.mode {
-                                        alva_kernel_abi::LockMode::Read => "read",
-                                        alva_kernel_abi::LockMode::Write => "write",
-                                    };
-                                    let holder = s.holder.as_deref().unwrap_or("-");
-                                    eprintln!(
-                                        "  {:<32}  {:<5}  {:<24}  {:.1?}",
-                                        truncate(&s.key, 32),
-                                        mode,
-                                        truncate(holder, 24),
-                                        s.age
-                                    );
-                                }
-                            }
-                        } else {
-                            eprintln!("  ToolLockRegistry not available on bus");
-                        }
-                        continue;
-                    }
-                    "/new" => {
-                        let _ = active_session.flush().await;
-                        let new_session = session_manager.create("").await;
-                        session_id = new_session.session_id().to_string();
-                        agent.swap_session(new_session.clone()).await;
-                        active_session = new_session;
-                        tokens = TokenUsage::default();
-                        output::print_session_new(&session_id);
-                        output::print_divider();
-                        continue;
-                    }
-                    "/fork" => {
-                        let _ = active_session.flush().await;
-                        let old_id = session_id.clone();
-                        // Load current messages before swapping
-                        let messages = agent.messages().await;
-                        let new_session = session_manager.create("").await;
-                        session_id = new_session.session_id().to_string();
-                        // Copy messages into new session
-                        for msg in &messages {
-                            new_session.append_message(msg.clone(), None).await;
-                        }
-                        agent.swap_session(new_session.clone()).await;
-                        active_session = new_session;
-                        eprintln!(
-                            "  Forked from {} → {}",
-                            &old_id[..8.min(old_id.len())],
-                            &session_id[..8.min(session_id.len())]
-                        );
-                        eprintln!(
-                            "  {} messages carried over. Try a different approach.",
-                            messages.len()
-                        );
-                        output::print_divider();
-                        continue;
-                    }
-                    "/resume" => {
-                        if let Some((new_id, new_session)) =
-                            handle_resume(agent, session_manager, &active_session, &session_id)
-                                .await
-                        {
-                            session_id = new_id;
-                            active_session = new_session;
-                        }
-                        output::print_divider();
-                        continue;
-                    }
-                    "/sessions" => {
-                        handle_sessions(session_manager, &session_id);
-                        continue;
-                    }
-                    _ => {} // Fall through to registry or model/shell handling
                 }
-
-                // === /model <id> ===
-                if let Some(model_id) = trimmed.strip_prefix("/model ") {
-                    let model_id = model_id.trim();
-                    if !model_id.is_empty() {
-                        let mut new_config = config.clone();
-                        new_config.model = model_id.to_string();
-                        let new_model = Arc::new(OpenAIChatProvider::new(new_config));
-                        agent.set_model(new_model).await;
-                        eprintln!("  Switched to model: {}", model_id);
-                    }
-                    continue;
-                }
-
-                // === !shell ===
-                if trimmed.starts_with('!') {
-                    handle_shell(trimmed, workspace);
-                    continue;
-                }
-
-                // === Slash commands via registry ===
-                if trimmed.starts_with('/') {
-                    let message_count = agent.messages().await.len();
-                    let tool_names = agent.tool_names();
-                    let plugin_names = agent.plugin_names();
-                    let middleware_names = agent.middleware_names();
-                    let plan_mode = agent.permission_mode() == PermissionMode::Plan;
-                    let ctx = build_command_context(
-                        workspace,
-                        config,
-                        &session_id,
-                        message_count,
-                        &tokens,
-                        tool_names,
-                        plugin_names,
-                        middleware_names,
-                        plan_mode,
-                    );
-
-                    if let Some(result) = registry.execute(trimmed, &ctx) {
-                        match result {
-                            CommandResult::Text(text) => {
-                                eprintln!("{}", text);
-                            }
-                            CommandResult::Prompt {
-                                content,
-                                progress_message,
-                                ..
-                            } => {
-                                if let Some(msg) = &progress_message {
-                                    eprintln!("  {}", msg);
-                                }
-                                let (in_tok, out_tok) =
-                                    event_handler::run_prompt(agent, &content, approval_rx).await;
-                                tokens.input_tokens += in_tok;
-                                tokens.output_tokens += out_tok;
-
-                                // Persistence is automatic; refresh index summary
-                                // and dump the structured RunRecord (same projection
-                                // Tauri builds for Inspector — see write_run_record).
-                                let event_count =
-                                    active_session.count(&EventQuery::default()).await;
-                                session_manager.refresh_summary(&session_id, event_count, None);
-                                session_manager.write_run_record(&active_session).await;
-                            }
-                            CommandResult::Compact { summary } => {
-                                eprintln!("  {}", summary);
-                                // Trigger compaction via prompt
-                                let (in_tok, out_tok) =
-                                    event_handler::run_prompt(agent, &summary, approval_rx).await;
-                                tokens.input_tokens += in_tok;
-                                tokens.output_tokens += out_tok;
-
-                                // Persistence is automatic; refresh index summary
-                                // and dump the structured RunRecord (same projection
-                                // Tauri builds for Inspector — see write_run_record).
-                                let event_count =
-                                    active_session.count(&EventQuery::default()).await;
-                                session_manager.refresh_summary(&session_id, event_count, None);
-                                session_manager.write_run_record(&active_session).await;
-                            }
-                            CommandResult::Error(e) => {
-                                output::print_error(&e);
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                // === Regular prompt ===
-                // Idempotent — only writes the snapshot if this session
-                // doesn't have one yet. Covers /new + /fork paths that
-                // swapped in a fresh session since the last prompt.
-                session_manager
-                    .append_config_snapshot_if_needed(&active_session, agent, &config.model)
-                    .await;
-                let (in_tok, out_tok) =
-                    event_handler::run_prompt(agent, trimmed, approval_rx).await;
-                tokens.input_tokens += in_tok;
-                tokens.output_tokens += out_tok;
-
-                // Persistence is automatic; refresh index summary + structured run record.
-                let event_count = active_session.count(&EventQuery::default()).await;
-                session_manager.refresh_summary(&session_id, event_count, None);
-                session_manager.write_run_record(&active_session).await;
             }
             Err(e) => {
                 output::print_error(&format!("stdin error: {}", e));
@@ -520,6 +306,287 @@ pub(crate) async fn run_repl(
     emit_session_end(agent, &session_id, session_started_at);
     let _ = active_session.flush().await;
     eprintln!("Session saved: {}", session_id);
+}
+
+// === Line dispatch (CLI test layer 4) ===
+
+/// What the REPL loop should do with one decoded line.
+pub(crate) enum ReplAction {
+    /// Exit the REPL.
+    Quit,
+    /// Line fully handled; read the next one.
+    Continue,
+    /// Run `content` as an agent prompt turn (loop persists the run record).
+    /// `snapshot` = write the idempotent config snapshot first (plain user
+    /// prompts do; registry-expanded prompts historically don't — preserved).
+    Prompt { content: String, snapshot: bool },
+}
+
+/// Borrowed view of everything a REPL line can touch.
+pub(crate) struct ReplCtx<'a> {
+    pub agent: &'a BaseAgent,
+    pub config: &'a ProviderConfig,
+    pub workspace: &'a std::path::Path,
+    pub registry: &'a CommandRegistry,
+    pub session_manager: &'a JsonFileSessionManager,
+    pub checkpoint_mgr: &'a checkpoint::CheckpointManager,
+    pub session_id: &'a mut String,
+    pub active_session: &'a mut Arc<JsonFileAgentSession>,
+    pub tokens: &'a mut TokenUsage,
+}
+
+/// Decide one REPL line, terminal-free.
+///
+/// All stateful slash commands (session lifecycle, permission toggles,
+/// checkpoint rewind, lock inspection, model switch, `!shell`) and the
+/// `CommandRegistry` fallback live HERE; the read_line loop only executes
+/// the returned action. Extracted so this decision layer is unit-testable
+/// (diagnosis 2026-07-02 §5, layer 4).
+pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction {
+    let ReplCtx {
+        agent,
+        config,
+        workspace,
+        registry,
+        session_manager,
+        checkpoint_mgr,
+        session_id,
+        active_session,
+        tokens,
+    } = ctx;
+
+    // === Commands handled directly by REPL (need mutable agent/state access) ===
+    match trimmed {
+        "/quit" | "/exit" => return ReplAction::Quit,
+        "/clear" => {
+            print!("\x1B[2J\x1B[1;1H");
+            io::stdout().flush().ok();
+            output::print_banner(&config.model, &workspace.display().to_string());
+            output::print_git_status(workspace);
+            output::print_banner_end();
+            return ReplAction::Continue;
+        }
+        "/setup" => {
+            eprintln!("  Reconfiguring requires restart.");
+            if let Some(new_config) = crate::setup::run_setup_wizard(workspace) {
+                eprintln!();
+                eprintln!(
+                    "  Configuration saved. Please restart alva-cli to use the new settings."
+                );
+                let _ = new_config;
+            }
+            return ReplAction::Continue;
+        }
+        "/plan" => {
+            let current = agent.permission_mode();
+            let new_mode = if current == PermissionMode::Plan {
+                PermissionMode::Ask
+            } else {
+                PermissionMode::Plan
+            };
+            if !agent.set_permission_mode(new_mode) {
+                eprintln!(
+                    "  Cannot change permission mode — the `permission` component is disabled."
+                );
+            } else if new_mode == PermissionMode::Plan {
+                eprintln!("  Plan mode ON — read-only, no file changes or commands");
+            } else {
+                eprintln!("  Plan mode OFF — tools can modify files");
+            }
+            return ReplAction::Continue;
+        }
+        "/auto" => {
+            let current = agent.permission_mode();
+            let new_mode = if current == PermissionMode::AcceptShell {
+                PermissionMode::Ask
+            } else {
+                PermissionMode::AcceptShell
+            };
+            if !agent.set_permission_mode(new_mode) {
+                eprintln!(
+                    "  Cannot change permission mode — the `permission` component is disabled."
+                );
+            } else if new_mode == PermissionMode::AcceptShell {
+                eprintln!("  Auto-shell ON — non-destructive shell commands run without prompting");
+            } else {
+                eprintln!("  Auto-shell OFF — shell commands ask for approval");
+            }
+            return ReplAction::Continue;
+        }
+        "/model" => {
+            let current = agent.model_id().await;
+            eprintln!("  Current model: {}", current);
+            eprintln!("  Usage: /model <model_id>");
+            return ReplAction::Continue;
+        }
+        "/rewind" => {
+            handle_rewind(checkpoint_mgr);
+            return ReplAction::Continue;
+        }
+        "/locks" => {
+            if let Some(reg) = agent.bus().get::<alva_kernel_abi::ToolLockRegistry>() {
+                let snap = reg.inspect();
+                if snap.is_empty() {
+                    eprintln!("  no active locks");
+                } else {
+                    eprintln!(
+                        "  {:<32}  {:<5}  {:<24}  {}",
+                        "key", "mode", "holder", "age"
+                    );
+                    for s in &snap {
+                        let mode = match s.mode {
+                            alva_kernel_abi::LockMode::Read => "read",
+                            alva_kernel_abi::LockMode::Write => "write",
+                        };
+                        let holder = s.holder.as_deref().unwrap_or("-");
+                        eprintln!(
+                            "  {:<32}  {:<5}  {:<24}  {:.1?}",
+                            truncate(&s.key, 32),
+                            mode,
+                            truncate(holder, 24),
+                            s.age
+                        );
+                    }
+                }
+            } else {
+                eprintln!("  ToolLockRegistry not available on bus");
+            }
+            return ReplAction::Continue;
+        }
+        "/new" => {
+            let _ = active_session.flush().await;
+            let new_session = session_manager.create("").await;
+            **session_id = new_session.session_id().to_string();
+            agent.swap_session(new_session.clone()).await;
+            **active_session = new_session;
+            **tokens = TokenUsage::default();
+            output::print_session_new(&session_id);
+            output::print_divider();
+            return ReplAction::Continue;
+        }
+        "/fork" => {
+            let _ = active_session.flush().await;
+            let old_id = session_id.clone();
+            // Load current messages before swapping
+            let messages = agent.messages().await;
+            let new_session = session_manager.create("").await;
+            **session_id = new_session.session_id().to_string();
+            // Copy messages into new session
+            for msg in &messages {
+                new_session.append_message(msg.clone(), None).await;
+            }
+            agent.swap_session(new_session.clone()).await;
+            **active_session = new_session;
+            eprintln!(
+                "  Forked from {} → {}",
+                &old_id[..8.min(old_id.len())],
+                &session_id[..8.min(session_id.len())]
+            );
+            eprintln!(
+                "  {} messages carried over. Try a different approach.",
+                messages.len()
+            );
+            output::print_divider();
+            return ReplAction::Continue;
+        }
+        "/resume" => {
+            if let Some((new_id, new_session)) =
+                handle_resume(agent, session_manager, active_session, session_id).await
+            {
+                **session_id = new_id;
+                **active_session = new_session;
+            }
+            output::print_divider();
+            return ReplAction::Continue;
+        }
+        "/sessions" => {
+            handle_sessions(session_manager, &session_id);
+            return ReplAction::Continue;
+        }
+        _ => {} // Fall through to registry or model/shell handling
+    }
+
+    // === /model <id> ===
+    if let Some(model_id) = trimmed.strip_prefix("/model ") {
+        let model_id = model_id.trim();
+        if !model_id.is_empty() {
+            let mut new_config = config.clone();
+            new_config.model = model_id.to_string();
+            // Canonical factory (PR-10) — this was a sixth copied
+            // match, and worse: it hardcoded the chat provider
+            // regardless of the configured kind.
+            let kind = new_config.kind.clone();
+            let new_model = alva_llm_provider::build_language_model(kind.as_deref(), new_config);
+            agent.set_model(new_model).await;
+            eprintln!("  Switched to model: {}", model_id);
+        }
+        return ReplAction::Continue;
+    }
+
+    // === !shell ===
+    if trimmed.starts_with('!') {
+        handle_shell(trimmed, workspace);
+        return ReplAction::Continue;
+    }
+
+    // === Slash commands via registry ===
+    if trimmed.starts_with('/') {
+        let message_count = agent.messages().await.len();
+        let tool_names = agent.tool_names();
+        let plugin_names = agent.plugin_names();
+        let middleware_names = agent.middleware_names();
+        let plan_mode = agent.permission_mode() == PermissionMode::Plan;
+        let ctx = build_command_context(
+            workspace,
+            config,
+            &session_id,
+            message_count,
+            &tokens,
+            tool_names,
+            plugin_names,
+            middleware_names,
+            plan_mode,
+        );
+
+        if let Some(result) = registry.execute(trimmed, &ctx) {
+            match result {
+                CommandResult::Text(text) => {
+                    eprintln!("{}", text);
+                }
+                CommandResult::Prompt {
+                    content,
+                    progress_message,
+                    ..
+                } => {
+                    if let Some(msg) = &progress_message {
+                        eprintln!("  {}", msg);
+                    }
+                    return ReplAction::Prompt {
+                        content,
+                        snapshot: false,
+                    };
+                }
+                CommandResult::Compact { summary } => {
+                    eprintln!("  {}", summary);
+                    // Compaction runs as a prompt turn.
+                    return ReplAction::Prompt {
+                        content: summary,
+                        snapshot: false,
+                    };
+                }
+                CommandResult::Error(e) => {
+                    output::print_error(&e);
+                }
+            }
+        }
+        return ReplAction::Continue;
+    }
+
+    // === Regular prompt ===
+    ReplAction::Prompt {
+        content: trimmed.to_string(),
+        snapshot: true,
+    }
 }
 
 // === reedline Prompt — matches the previous ">" cyan look ===
@@ -746,5 +813,226 @@ fn handle_shell(cmd: &str, workspace: &std::path::Path) {
             }
         }
         Err(e) => output::print_error(&format!("failed to execute: {}", e)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — dispatch() decides each REPL line terminal-free. These drive the
+// real dispatch against a real agent + real session manager (mock model,
+// tempdir), asserting the returned ReplAction and the state mutations —
+// the CLI's fourth interaction surface, previously untestable inside the
+// read_line loop.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_test::fixtures::make_assistant_message;
+    use alva_test::mock_provider::MockLanguageModel;
+
+    async fn harness() -> (
+        BaseAgent,
+        ProviderConfig,
+        JsonFileSessionManager,
+        checkpoint::CheckpointManager,
+        CommandRegistry,
+        String,
+        Arc<JsonFileAgentSession>,
+        tempfile::TempDir,
+    ) {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path();
+        let agent = BaseAgent::builder()
+            .workspace(ws)
+            .system_prompt("t")
+            .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
+            .build(Arc::new(
+                MockLanguageModel::new().with_response(make_assistant_message("x")),
+            ))
+            .await
+            .unwrap();
+        let config = ProviderConfig {
+            api_key: "k".into(),
+            model: "m".into(),
+            base_url: "http://x".into(),
+            max_tokens: 16,
+            custom_headers: Default::default(),
+            kind: None,
+        };
+        let mgr = JsonFileSessionManager::for_workspace(ws);
+        let ckpt = checkpoint::CheckpointManager::new(ws);
+        let registry = CommandRegistry::new();
+        let session = mgr.create("").await;
+        let sid = session.session_id().to_string();
+        (agent, config, mgr, ckpt, registry, sid, session, tmp)
+    }
+
+    macro_rules! ctx {
+        ($agent:expr, $config:expr, $ws:expr, $registry:expr, $mgr:expr, $ckpt:expr, $sid:expr, $sess:expr, $tok:expr) => {
+            ReplCtx {
+                agent: &$agent,
+                config: &$config,
+                workspace: $ws,
+                registry: &$registry,
+                session_manager: &$mgr,
+                checkpoint_mgr: &$ckpt,
+                session_id: &mut $sid,
+                active_session: &mut $sess,
+                tokens: &mut $tok,
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn quit_and_exit_return_quit() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        for line in ["/quit", "/exit"] {
+            let mut c = ctx!(
+                agent,
+                config,
+                tmp.path(),
+                registry,
+                mgr,
+                ckpt,
+                sid,
+                sess,
+                tok
+            );
+            assert!(
+                matches!(dispatch(line, &mut c).await, ReplAction::Quit),
+                "{line}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn plain_text_becomes_a_prompt_with_snapshot() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        let mut c = ctx!(
+            agent,
+            config,
+            tmp.path(),
+            registry,
+            mgr,
+            ckpt,
+            sid,
+            sess,
+            tok
+        );
+        match dispatch("hello there", &mut c).await {
+            ReplAction::Prompt { content, snapshot } => {
+                assert_eq!(content, "hello there");
+                assert!(snapshot, "plain prompts write the config snapshot");
+            }
+            other => panic!(
+                "expected Prompt, got a different action: {}",
+                matches!(other, ReplAction::Continue)
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn plan_toggles_permission_mode_and_continues() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        assert_ne!(agent.permission_mode(), PermissionMode::Plan);
+        {
+            let mut c = ctx!(
+                agent,
+                config,
+                tmp.path(),
+                registry,
+                mgr,
+                ckpt,
+                sid,
+                sess,
+                tok
+            );
+            assert!(matches!(
+                dispatch("/plan", &mut c).await,
+                ReplAction::Continue
+            ));
+        }
+        assert_eq!(
+            agent.permission_mode(),
+            PermissionMode::Plan,
+            "/plan turns plan mode ON"
+        );
+        {
+            let mut c = ctx!(
+                agent,
+                config,
+                tmp.path(),
+                registry,
+                mgr,
+                ckpt,
+                sid,
+                sess,
+                tok
+            );
+            assert!(matches!(
+                dispatch("/plan", &mut c).await,
+                ReplAction::Continue
+            ));
+        }
+        assert_ne!(
+            agent.permission_mode(),
+            PermissionMode::Plan,
+            "/plan again toggles OFF"
+        );
+    }
+
+    #[tokio::test]
+    async fn new_swaps_in_a_fresh_session_and_resets_tokens() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage {
+            input_tokens: 5,
+            output_tokens: 7,
+        };
+        let old_sid = sid.clone();
+        let mut c = ctx!(
+            agent,
+            config,
+            tmp.path(),
+            registry,
+            mgr,
+            ckpt,
+            sid,
+            sess,
+            tok
+        );
+        assert!(matches!(
+            dispatch("/new", &mut c).await,
+            ReplAction::Continue
+        ));
+        assert_ne!(sid, old_sid, "/new allocates a new session id");
+        assert_eq!(tok.input_tokens, 0, "/new resets token accounting");
+        assert_eq!(tok.output_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn unknown_slash_is_handled_not_prompted() {
+        // A "/…" line must never fall through to a prompt turn (that would
+        // send the slash text to the model). Registry handles or reports it;
+        // either way dispatch returns Continue.
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        let mut c = ctx!(
+            agent,
+            config,
+            tmp.path(),
+            registry,
+            mgr,
+            ckpt,
+            sid,
+            sess,
+            tok
+        );
+        assert!(matches!(
+            dispatch("/definitely-not-a-command", &mut c).await,
+            ReplAction::Continue
+        ));
     }
 }
