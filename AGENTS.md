@@ -74,6 +74,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 
 | crate | 层 | 职责 |
 |------|------|------|
+| `alva-llm-wire` | L0 | LLM 线格式类型：`Message` / `ContentBlock` / `UsageMetadata` / `AgentMessage` 等纯 serde 值类型。零 workspace 依赖，wasm-clean，被 kernel-abi re-export。 |
 | `alva-kernel-bus` | L0 | `Bus` / `Caps`（typed 能力注册）/ `EventBus`（typed pub/sub）/ `StateCell` / `BusPlugin`（两阶段：register + start）/ `BusWriter` vs `BusHandle` 编译期读写分离。零依赖。 |
 | `alva-kernel-abi` | L1 纯契约 | 全部核心 trait + 值类型：`Tool` / `ToolRegistry` / `ToolFs` / `LanguageModel` / `Provider` / `AgentSession` + `InMemorySession` / `scope::context::{ContextHooks, ContextHandle, ContextSystem}` 7 钩子生命周期（+ `name()` 标识方法） / `Message` / `AgentMessage` / `ContentBlock` / `ModelConfig` / `TokenCounter` + `HeuristicTokenCounter` / `CancellationToken` / `AgentError`。 |
 | `alva-kernel-core` | L2 agent loop | `run_agent` 双层循环（inner = LLM stream + tool batch 执行；outer = 透传外壳，follow-up/steering 已迁至 `alva-app-core::PendingPlugin`）/ `AgentState`（mut: model / tools / session / extensions）+ `AgentConfig`（immut: middleware / system_prompt / max_iter / model_config / context_window / workspace / bus）读写分离 / `ContextRuntime`（pending injection / assemble / budget compression 的 prepare-LLM 阶段协调器）/ `ToolBatchCoordinator`（按模型声明顺序提交 `tool_use`/`tool_result`，中途取消也补齐 cancelled result，未来并发调度入口）/ 洋葱式 `MiddlewareStack`（on_agent_start/on_agent_end、input_committed、before/after/wrap_llm_call、before/after/wrap_tool_call）/ `RuntimeExecutionContext`（tool progress → `AgentEvent`）/ kernel 卫生 builtins：`DanglingToolCallMiddleware` / `LoopDetectionMiddleware` / `ToolTimeoutMiddleware`。 |
@@ -107,6 +108,8 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 
 ### L4.5：引擎桥接（给 app 层用的统一引擎接口）
 
+> **状态（2026-07）**：整簇零生产消费者（Tauri/CLI 均未接 `EngineRuntime`）。按 PR-8 裁决缓刑至 2026-12：期满仍无消费者即移出 workspace。跨环境子 agent 方案若采用 in-process adapter 先例（见 2026-07-02 wasm 可行性文档），本层将获得真实存在理由。
+
 | crate | 职责 |
 |------|------|
 | `alva-engine-runtime` | `EngineRuntime` trait：`execute` / `cancel` / `respond_permission` / `capabilities`。让 app 层用同一套接口驱动多种 agent 后端。 |
@@ -120,7 +123,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-protocol-skill` | Skill 系统：加载 / 注入 / 存储 / 渐进式三级加载。 |
 | `alva-protocol-mcp` | Model Context Protocol 客户端 + `McpToolAdapter`（把远端 MCP 工具桥接成 `Tool` trait）。 |
 | `alva-protocol-acp` | Agent Client Protocol：消息类型 / 会话 / 连接 / 进程管理。 |
-| `alva-llm-provider` | LLM provider 实现：`AnthropicProvider` / `OpenAIChatProvider` / `OpenAIResponsesProvider`。 |
+| `alva-llm-provider` | LLM provider 实现：`AnthropicProvider` / `OpenAIChatProvider` / `OpenAIResponsesProvider` / `GeminiProvider`；**canonical 工厂 `build_language_model(kind, config)` 与默认端点表 `default_base_url(kind)`（PR-10 之后调用方一律走这两个入口，禁止再复制 match）**。 |
 | `alva-environment` | 运行环境检测与抽象。 |
 | `alva-macros` | 过程宏：`#[derive(Tool)]` 等。 |
 | `alva-test` | 测试辅助：`MockLanguageModel` 等。 |
@@ -133,6 +136,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-app-debug` | AI 调试系统：HTTP API / 日志捕获 / 视图树检查 / `traced!` 宏。 |
 | `alva-app-devtools-mcp` | MCP 服务器：包装 `alva-app-debug` HTTP API，供外部 IDE 调试。 |
 | `alva-app-tauri` | Tauri 2 桌面壳 + React/Vite 前端：新一代 GUI，内置 Inspector、持久化 session（SQLite）、多窗口。 |
+| `alva-app-gateway` | 内嵌 HTTP gateway（OpenAI 兼容对外面）。**被 `alva-app-tauri::start_gateway` 承重**——曾被误判为死代码，勿删。 |
 
 ---
 
@@ -178,7 +182,7 @@ let agent = BaseAgent::builder()
 | `scripts/ci-check-deps.sh` | CI 强制 crate 边界规则。Rule 17 = SDK 不得依赖 app/host。wasm-clean crate 集合必须通过 `wasm32-unknown-unknown`；native host 由 `alva-host-native` 承担，不要求 wasm-clean。 |
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object）。 |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app。 |
-| `Cargo.toml` | Rust workspace，管理 30 个 crate。 |
+| `Cargo.toml` | Rust workspace，管理 32 个 crate。 |
 | `alva-bus-lint` | CI lint binary：扫 `#[bus_cap]` trait 的跨 crate 类型表面，配合 `docs/BUS-RULES.md` 防止 bus 退化为 God Object。 |
 | `sdk/python/` | Python 插件 SDK（`alva_sdk` 包）。供第三方用 Python 写 `alva-app-extension-loader` 的子进程插件，不在 Cargo workspace 里。 |
 
