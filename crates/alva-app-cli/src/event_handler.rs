@@ -177,12 +177,7 @@ pub(crate) async fn run_prompt(
                     }
                     Some(AgentEvent::MessageEnd { message }) => {
                         println!();
-                        if let AgentMessage::Standard(msg) = &message {
-                            if let Some(usage) = &msg.usage {
-                                total_input_tokens += usage.input_tokens as u64;
-                                total_output_tokens += usage.output_tokens as u64;
-                            }
-                        }
+                        accumulate_usage(&message, &mut total_input_tokens, &mut total_output_tokens);
                     }
                     Some(AgentEvent::ToolExecutionStart { tool_call }) => {
                         output::print_tool_start(&tool_call.name);
@@ -212,6 +207,26 @@ pub(crate) async fn run_prompt(
     }
 
     (total_input_tokens, total_output_tokens)
+}
+
+/// Fold a `MessageEnd`'s token usage into the running per-turn totals.
+///
+/// The interactive REPL loop (`run_prompt`) is a thin shell around
+/// `output::print_*` + stdin; this is its one piece of stateful logic —
+/// and it gates whether the usage line prints at all (only when a total is
+/// nonzero), so a miscount silently drops the accounting. Pure + testable,
+/// unlike the surrounding print loop.
+pub(crate) fn accumulate_usage(
+    message: &AgentMessage,
+    total_input: &mut u64,
+    total_output: &mut u64,
+) {
+    if let AgentMessage::Standard(msg) = message {
+        if let Some(usage) = &msg.usage {
+            *total_input += usage.input_tokens as u64;
+            *total_output += usage.output_tokens as u64;
+        }
+    }
 }
 
 /// Handle a single approval request: prompt the user and resolve the permission.
@@ -256,6 +271,36 @@ mod tests {
     //! regression with no compile-time signal. All variants + the
     //! trim + lowercase normalization are pinned.
     use super::*;
+    use alva_kernel_abi::{AgentMessage, UsageMetadata};
+    use alva_test::fixtures::make_assistant_message;
+
+    fn msg_with_usage(inp: u32, out: u32) -> AgentMessage {
+        let mut m = make_assistant_message("x");
+        m.usage = Some(UsageMetadata {
+            input_tokens: inp,
+            output_tokens: out,
+            total_tokens: inp + out,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+        });
+        AgentMessage::Standard(m)
+    }
+
+    #[test]
+    fn accumulate_usage_sums_across_messages_and_ignores_usageless_turns() {
+        let (mut i, mut o) = (0u64, 0u64);
+        accumulate_usage(&msg_with_usage(10, 20), &mut i, &mut o);
+        accumulate_usage(&msg_with_usage(5, 7), &mut i, &mut o);
+        // A message with no usage must not perturb the totals — this is what
+        // gates the usage line (it prints only when a total is nonzero).
+        accumulate_usage(
+            &AgentMessage::Standard(make_assistant_message("no usage")),
+            &mut i,
+            &mut o,
+        );
+        assert_eq!(i, 15);
+        assert_eq!(o, 27);
+    }
 
     // -- run_print_mode_with: in-process contract tests ---------------------
     //
