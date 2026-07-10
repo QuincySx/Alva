@@ -240,9 +240,10 @@ async fn run() -> i32 {
 
     if print_mode {
         // Collect the prompt from positional args, skipping the print flags
-        // and the `--permission-mode <value>` flag pair so they don't leak
-        // into the prompt text.
+        // and the flag pairs (`--permission-mode X`, `--output-format X`) so
+        // they don't leak into the prompt text.
         let mut prompt_args: Vec<String> = Vec::new();
+        let mut output_json = false;
         let mut i = 1; // skip binary name
         while i < args.len() {
             let a = &args[i];
@@ -252,6 +253,21 @@ async fn run() -> i32 {
             }
             if a == "--permission-mode" {
                 i += 2; // skip the flag and its value
+                continue;
+            }
+            if a == "--output-format" {
+                match args.get(i + 1).map(String::as_str) {
+                    Some("json") => output_json = true,
+                    Some("text") => output_json = false,
+                    other => {
+                        eprintln!(
+                            "Error: --output-format expects `text` or `json`, got {:?}",
+                            other.unwrap_or("<missing>")
+                        );
+                        return 1;
+                    }
+                }
+                i += 2;
                 continue;
             }
             prompt_args.push(a.clone());
@@ -277,7 +293,46 @@ async fn run() -> i32 {
             return 1;
         }
 
-        let exit_code = event_handler::run_print_mode(&agent, &prompt, &mut approval_rx).await;
+        // Persist the run like every other mode: a real session on disk is
+        // what makes the returned session_id a usable --resume handle, and
+        // gives external tooling the same RunRecord projection.
+        let print_session = session_manager.create(&prompt).await;
+        agent.swap_session(print_session.clone()).await;
+        session_manager
+            .append_config_snapshot_if_needed(&print_session, &agent, &config.model)
+            .await;
+
+        let exit_code = if output_json {
+            let started = std::time::Instant::now();
+            let mut err = io::stderr();
+            let outcome =
+                event_handler::run_print_mode_collect(&agent, &prompt, &mut approval_rx, &mut err)
+                    .await;
+            let is_error = outcome.error.is_some();
+            // ONE json object on stdout — the whole machine contract.
+            println!(
+                "{}",
+                serde_json::json!({
+                    "type": "result",
+                    "result": outcome.text,
+                    "is_error": is_error,
+                    "error": outcome.error,
+                    "session_id": print_session.session_id(),
+                    "usage": {
+                        "input_tokens": outcome.input_tokens,
+                        "output_tokens": outcome.output_tokens,
+                    },
+                    "duration_ms": started.elapsed().as_millis() as u64,
+                })
+            );
+            i32::from(is_error)
+        } else {
+            event_handler::run_print_mode(&agent, &prompt, &mut approval_rx).await
+        };
+
+        let event_count = print_session.count(&EventQuery::default()).await;
+        session_manager.refresh_summary(print_session.session_id(), event_count, Some(&prompt));
+        session_manager.write_run_record(&print_session).await;
         return exit_code;
     }
 
@@ -408,6 +463,9 @@ FLAGS:
     -p, --print                   Non-interactive single-prompt mode (no REPL/TUI).
                                   Tools that need approval are denied (fail-closed)
                                   unless --permission-mode allows them.
+    --output-format <text|json>   -p output: `text` streams the reply (default);
+                                  `json` emits one object {result, is_error, error,
+                                  session_id, usage, duration_ms} for orchestrators.
     --permission-mode <MODE>      How tool permissions are handled. MODE is one of:
                                     ask           Prompt for each write/execute tool (default).
                                                   In -p mode this means: deny + tell you to

@@ -227,3 +227,36 @@ fn accept_shell_without_sandbox_refuses_in_headless_mode() {
         "refusal must explain the sandbox assumption, got: {all}"
     );
 }
+
+/// Machine contract for orchestrators: `--output-format json` emits ONE json
+/// object on stdout — result text, usage, session_id (resume handle),
+/// duration — instead of streaming text. This is what a planning agent
+/// (Claude Code skill) parses to dispatch work to alva-backed workers.
+#[test]
+fn print_mode_json_output_carries_result_usage_and_session() {
+    let (home, ws) = dirs();
+    let (url, _server) = start_mock_openai_server();
+    write_shared_config(&home, &format!("{url}/v1"));
+
+    let assert = alva(&home, &ws)
+        .args(["-p", "--output-format", "json", "hi"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
+    let v: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout must be a single JSON object");
+
+    assert_eq!(v["type"], "result");
+    assert_eq!(v["result"], "Hello from mock!");
+    assert_eq!(v["is_error"], false);
+    assert_eq!(
+        v["usage"]["input_tokens"], 10,
+        "usage from the mock SSE chunk"
+    );
+    assert_eq!(v["usage"]["output_tokens"], 3);
+    assert!(
+        v["session_id"].as_str().map_or(false, |s| !s.is_empty()),
+        "session_id is the --resume handle, must be present: {v}"
+    );
+    assert!(v["duration_ms"].is_number());
+}

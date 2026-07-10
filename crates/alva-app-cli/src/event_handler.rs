@@ -153,6 +153,78 @@ pub(crate) async fn run_print_mode_with(
     exit_code
 }
 
+/// Machine-readable outcome of one headless prompt run — the core behind
+/// `-p --output-format json`. Where the text mode streams deltas to stdout,
+/// this collects them; main assembles the final JSON object (adding
+/// session_id / duration, which live outside the event loop).
+pub(crate) struct PrintOutcome {
+    /// Concatenated assistant text (all TextDeltas of the run).
+    pub text: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// `AgentEnd` error, if the run failed.
+    pub error: Option<String>,
+}
+
+/// Collect-variant of [`run_print_mode_with`]: same event/approval loop and
+/// the same fail-closed denial policy (notices go to `err`), but nothing is
+/// streamed — the result is returned as a [`PrintOutcome`].
+pub(crate) async fn run_print_mode_collect(
+    agent: &BaseAgent,
+    prompt: &str,
+    approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
+    err: &mut (dyn Write + Send),
+) -> PrintOutcome {
+    let mut rx = agent.prompt_text(prompt);
+    let mut outcome = PrintOutcome {
+        text: String::new(),
+        input_tokens: 0,
+        output_tokens: 0,
+        error: None,
+    };
+
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                match event {
+                    Some(AgentEvent::MessageUpdate { delta, .. }) => {
+                        if let alva_kernel_abi::StreamEvent::TextDelta { text } = &delta {
+                            outcome.text.push_str(text);
+                        }
+                    }
+                    Some(AgentEvent::MessageEnd { message }) => {
+                        accumulate_usage(
+                            &message,
+                            &mut outcome.input_tokens,
+                            &mut outcome.output_tokens,
+                        );
+                    }
+                    Some(AgentEvent::AgentEnd { error }) => {
+                        outcome.error = error;
+                        break;
+                    }
+                    Some(_) => {}
+                    None => break,
+                }
+            }
+            approval = approval_rx.recv() => {
+                if let Some(req) = approval {
+                    writeln!(err, "{}", print_mode_denial_notice(&req.tool_name)).ok();
+                    agent
+                        .resolve_permission(
+                            &req.request_id,
+                            &req.tool_name,
+                            PermissionDecision::RejectOnce,
+                        )
+                        .await;
+                }
+            }
+        }
+    }
+
+    outcome
+}
+
 /// Run a single prompt, handling both agent events and approval requests concurrently.
 /// Returns (input_tokens, output_tokens) accumulated during this prompt.
 pub(crate) async fn run_prompt(
@@ -327,6 +399,46 @@ mod tests {
             .await
             .expect("agent builds");
         (agent, approval_rx, tmp)
+    }
+
+    // -- run_print_mode_collect: the machine-readable (json) core ----------
+
+    #[tokio::test]
+    async fn print_mode_collect_gathers_text_usage_and_clean_exit() {
+        use alva_test::fixtures::make_assistant_message;
+        let mut msg = make_assistant_message("collected result");
+        msg.usage = Some(alva_kernel_abi::UsageMetadata {
+            input_tokens: 11,
+            output_tokens: 7,
+            total_tokens: 18,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+        });
+        let model = alva_test::mock_provider::MockLanguageModel::new().with_response(msg);
+        let (agent, mut approval_rx, _tmp) = print_mode_agent(model).await;
+
+        let mut err = Vec::new();
+        let outcome = run_print_mode_collect(&agent, "hi", &mut approval_rx, &mut err).await;
+
+        assert_eq!(outcome.text, "collected result");
+        assert_eq!(outcome.input_tokens, 11);
+        assert_eq!(outcome.output_tokens, 7);
+        assert!(outcome.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn print_mode_collect_surfaces_run_errors() {
+        // Empty response queue → the mock model errors → AgentEnd { error }.
+        let model = alva_test::mock_provider::MockLanguageModel::new();
+        let (agent, mut approval_rx, _tmp) = print_mode_agent(model).await;
+
+        let mut err = Vec::new();
+        let outcome = run_print_mode_collect(&agent, "hi", &mut approval_rx, &mut err).await;
+
+        assert!(
+            outcome.error.is_some(),
+            "run error must land in the outcome"
+        );
     }
 
     #[tokio::test]
