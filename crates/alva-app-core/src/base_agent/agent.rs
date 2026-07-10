@@ -180,6 +180,17 @@ impl BaseAgent {
             .collect()
     }
 
+    /// `(name, description)` for every registered tool — the discovery
+    /// surface for orchestrators deciding a per-invocation allowlist
+    /// (`alva tools list`).
+    pub fn tool_summaries(&self) -> Vec<(String, String)> {
+        self.inner
+            .tools()
+            .iter()
+            .map(|t| (t.name().to_string(), t.description().to_string()))
+            .collect()
+    }
+
     /// Names of plugins that participated in the build, in registration order.
     pub fn plugin_names(&self) -> Vec<String> {
         self.inner.assembly_snapshot().plugin_names

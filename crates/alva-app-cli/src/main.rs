@@ -30,6 +30,7 @@ pub mod services;
 mod session;
 mod settings_cmd;
 mod setup;
+mod tools_cmd;
 pub mod ui;
 
 use std::io::{self, IsTerminal as _, Read as _};
@@ -83,6 +84,7 @@ async fn run() -> i32 {
             return 0;
         }
         Some("plugins") => return plugins::run(&argv[2..]).await,
+        Some("tools") => return tools_cmd::run(&argv[2..]).await,
         Some("context") => return context::run(&argv[2..]).await,
         Some("settings") => return settings_cmd::run(&argv[2..]).await,
         _ => {}
@@ -457,6 +459,7 @@ USAGE:
     alva [FLAGS] [PROMPT]          Interactive (TUI by default)
     alva -p [FLAGS] \"PROMPT\"       Non-interactive: run one prompt, stream to stdout, exit
     echo \"PROMPT\" | alva -p        Non-interactive: read the prompt from stdin
+    alva tools list [--output-format json]  List registered tools (no API key needed)
     alva <plugins|context|settings> ...   Subcommands (each has its own --help)
 
 FLAGS:
