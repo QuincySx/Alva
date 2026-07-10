@@ -20,7 +20,7 @@
 #   mock capability suite runs as part of `test`.
 # - Coverage has no threshold yet (ratchet later); it uploads an lcov artifact.
 
-name: CI
+name: Continuous Integration
 
 on:
   push:
