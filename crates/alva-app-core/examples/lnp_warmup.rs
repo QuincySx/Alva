@@ -33,6 +33,21 @@
 //! cargo run --example lnp_warmup
 //! ```
 
+// macOS-only example: it links Apple's DNS-SD (Bonjour) C API, whose
+// symbols (DNSServiceBrowse, …) live in libSystem on macOS only. On other
+// platforms it compiles to a no-op so `cargo test --workspace` links on
+// Linux CI. The extern declarations below are never *called* off macOS, so
+// they produce no undefined-symbol link errors.
+#![cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, unused_imports, non_camel_case_types)
+)]
+
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("lnp_warmup is macOS-only (Apple DNS-SD / Local Network Privacy); no-op here.");
+}
+
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};
@@ -122,6 +137,7 @@ extern "C" fn browse_reply(
     );
 }
 
+#[cfg(target_os = "macos")]
 fn main() {
     eprintln!("==> macOS Local Network Privacy warmup");
     eprintln!();
