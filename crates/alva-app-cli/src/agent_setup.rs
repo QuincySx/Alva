@@ -56,15 +56,19 @@ pub(crate) async fn build_agent(
     workspace: &Path,
     // P3:SkillsPlugin 用到 paths.project_skills_dir()(Mcp/Loader 组件加回时复用其 mcp/extensions 目录)。
     paths: &AlvaPaths,
+    // `--system-prompt` (headless v2): replaces the default persona so an
+    // orchestrator fully owns the worker's role. Project context (AGENTS.md
+    // etc.) is still appended — the worker runs in this workspace either way.
+    system_prompt_override: Option<&str>,
 ) -> AgentBundle {
     let project_context = load_project_context(workspace);
-    let system_prompt = format!(
+    let base_prompt = system_prompt_override.unwrap_or(
         "You are a helpful coding assistant. You have access to tools for \
          running shell commands, reading/writing files, and searching code. \
          Use tools when needed to accomplish the user's task. \
-         Be concise in your responses.{}",
-        project_context
+         Be concise in your responses.",
     );
+    let system_prompt = format!("{base_prompt}{project_context}");
 
     // Single kind→provider switch lives in alva-llm-provider (PR-10).
     let model: Arc<dyn LanguageModel> =

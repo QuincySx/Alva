@@ -84,6 +84,95 @@ fn start_mock_openai_server() -> (String, std::thread::JoinHandle<()>) {
     (url, handle)
 }
 
+/// Recording variant of the mock: appends every request BODY to
+/// `record_path` (separated by \n---8<---\n) so tests can assert what the
+/// binary actually SENT — resumed history, system prompt, filtered tools.
+/// Reads each request fully (headers + Content-Length body) so large
+/// resumed-history bodies are not truncated by a single read().
+fn start_recording_mock_openai_server(
+    record_path: std::path::PathBuf,
+) -> (String, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+    let url = format!("http://{}", listener.local_addr().unwrap());
+
+    let handle = std::thread::spawn(move || {
+        for _ in 0..8 {
+            let Ok((mut stream, _)) = listener.accept() else {
+                break;
+            };
+            // Read headers fully.
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 4096];
+            let header_end = loop {
+                match stream.read(&mut tmp) {
+                    Ok(0) => break None,
+                    Ok(n) => {
+                        buf.extend_from_slice(&tmp[..n]);
+                        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break Some(pos + 4);
+                        }
+                    }
+                    Err(_) => break None,
+                }
+            };
+            let Some(header_end) = header_end else {
+                continue;
+            };
+            let headers = String::from_utf8_lossy(&buf[..header_end]).to_string();
+            let content_length: usize = headers
+                .lines()
+                .find_map(|l| {
+                    let (k, v) = l.split_once(':')?;
+                    k.eq_ignore_ascii_case("content-length")
+                        .then(|| v.trim().parse().ok())?
+                })
+                .unwrap_or(0);
+            while buf.len() < header_end + content_length {
+                match stream.read(&mut tmp) {
+                    Ok(0) => break,
+                    Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                    Err(_) => break,
+                }
+            }
+            let body = String::from_utf8_lossy(&buf[header_end..]).to_string();
+            use std::io::Write as _;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&record_path)
+            {
+                let _ = writeln!(f, "{body}\n---8<---");
+            }
+
+            if headers.contains("POST") && headers.contains("/chat/completions") {
+                let sse_body = [
+                    r#"data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"}}]}"#,
+                    "",
+                    r#"data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello "}}]}"#,
+                    "",
+                    r#"data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"from mock!"}}]}"#,
+                    "",
+                    r#"data: {"id":"c1","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}"#,
+                    "",
+                    "data: [DONE]",
+                    "",
+                    "",
+                ]
+                .join("\n");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                     Cache-Control: no-cache\r\nConnection: close\r\n\r\n{sse_body}"
+                );
+                let _ = stream.write_all(response.as_bytes());
+            } else {
+                let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            }
+        }
+    });
+
+    (url, handle)
+}
+
 fn write_shared_config(home: &tempfile::TempDir, base_url: &str) {
     let alva_dir = home.path().join(".alva");
     std::fs::create_dir_all(&alva_dir).unwrap();
@@ -259,4 +348,125 @@ fn print_mode_json_output_carries_result_usage_and_session() {
         "session_id is the --resume handle, must be present: {v}"
     );
     assert!(v["duration_ms"].is_number());
+}
+
+/// --resume: the second invocation must carry the FIRST run's history to
+/// the model (the whole point of a resumable worker) and keep the same
+/// session id.
+#[test]
+fn print_mode_resume_carries_history_and_keeps_session_id() {
+    let (home, ws) = dirs();
+    let record = ws.path().join("requests.log");
+    let (url, _server) = start_recording_mock_openai_server(record.clone());
+    write_shared_config(&home, &format!("{url}/v1"));
+
+    let first = alva(&home, &ws)
+        .args(["-p", "--output-format", "json", "first question"])
+        .assert()
+        .success();
+    let v1: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&first.get_output().stdout).trim()).unwrap();
+    let sid = v1["session_id"].as_str().unwrap().to_string();
+
+    let second = alva(&home, &ws)
+        .args([
+            "-p",
+            "--output-format",
+            "json",
+            "--resume",
+            &sid,
+            "second question",
+        ])
+        .assert()
+        .success();
+    let v2: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&second.get_output().stdout).trim()).unwrap();
+    assert_eq!(
+        v2["session_id"],
+        sid.as_str(),
+        "resume keeps the session id"
+    );
+
+    let log = std::fs::read_to_string(&record).unwrap();
+    let requests: Vec<&str> = log.split("---8<---").collect();
+    assert!(requests.len() >= 2, "two model calls recorded");
+    let second_req = requests[1];
+    assert!(
+        second_req.contains("Hello from mock!"),
+        "resumed run must send the prior assistant turn as history"
+    );
+    assert!(
+        second_req.contains("first question"),
+        "resumed run must send the prior user turn as history"
+    );
+}
+
+/// --resume with an unknown id fails loudly instead of silently starting a
+/// fresh session (the orchestrator would lose the thread without noticing).
+#[test]
+fn print_mode_resume_unknown_session_fails_loudly() {
+    let (home, ws) = dirs();
+    write_shared_config(&home, "http://127.0.0.1:9");
+    alva(&home, &ws)
+        .args(["-p", "--resume", "no-such-session", "hi"])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("session not found"));
+}
+
+/// --system-prompt replaces the default persona in what's actually SENT.
+#[test]
+fn print_mode_system_prompt_reaches_the_model() {
+    let (home, ws) = dirs();
+    let record = ws.path().join("requests.log");
+    let (url, _server) = start_recording_mock_openai_server(record.clone());
+    write_shared_config(&home, &format!("{url}/v1"));
+
+    alva(&home, &ws)
+        .args([
+            "-p",
+            "--system-prompt",
+            "You are WORKER-42, a terse executor.",
+            "hi",
+        ])
+        .assert()
+        .success();
+
+    let log = std::fs::read_to_string(&record).unwrap();
+    assert!(
+        log.contains("WORKER-42"),
+        "overridden system prompt must appear in the request"
+    );
+    assert!(
+        !log.contains("helpful coding assistant"),
+        "the default persona must be REPLACED, not appended to"
+    );
+}
+
+/// --allowed-tools filters what the model is offered; unknown names fail
+/// loudly with a pointer to `alva tools list`.
+#[test]
+fn print_mode_allowed_tools_filters_the_offer_and_rejects_typos() {
+    let (home, ws) = dirs();
+    let record = ws.path().join("requests.log");
+    let (url, _server) = start_recording_mock_openai_server(record.clone());
+    write_shared_config(&home, &format!("{url}/v1"));
+
+    alva(&home, &ws)
+        .args(["-p", "--allowed-tools", "read_file", "hi"])
+        .assert()
+        .success();
+    let log = std::fs::read_to_string(&record).unwrap();
+    assert!(log.contains("read_file"), "allowed tool offered");
+    assert!(
+        !log.contains("execute_shell"),
+        "tools outside the allowlist must not be offered to the model"
+    );
+
+    // Typo → loud failure, not a silent no-op.
+    alva(&home, &ws)
+        .args(["-p", "--allowed-tools", "read_fiel", "hi"])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("unknown tool"));
 }

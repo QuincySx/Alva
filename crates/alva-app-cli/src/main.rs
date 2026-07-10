@@ -93,6 +93,14 @@ async fn run() -> i32 {
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let paths = AlvaPaths::new(&workspace);
 
+    // --system-prompt must be known BEFORE the agent is built (the prompt
+    // is a builder-time input); parsed here, consumed by build_agent, and
+    // skipped again by the -p prompt collector below.
+    let system_prompt_override: Option<String> = argv
+        .iter()
+        .position(|a| a == "--system-prompt")
+        .and_then(|i| argv.get(i + 1).cloned());
+
     // 1. Config — resolution order:
     //    a. env vars (ALVA_*) — `ProviderConfig::load` will pick these up
     //    b. project / global flat-format files (legacy CLI paths)
@@ -184,7 +192,13 @@ async fn run() -> i32 {
         agent,
         mut approval_rx,
         checkpoint_mgr: _checkpoint_mgr,
-    } = agent_setup::build_agent(&config, &workspace, &paths).await;
+    } = agent_setup::build_agent(
+        &config,
+        &workspace,
+        &paths,
+        system_prompt_override.as_deref(),
+    )
+    .await;
 
     // 2b. Apply --permission-mode (headless permission control; mirrors
     //     Claude Code / Codex). Applies to all run modes. Default is left
@@ -246,6 +260,8 @@ async fn run() -> i32 {
         // they don't leak into the prompt text.
         let mut prompt_args: Vec<String> = Vec::new();
         let mut output_json = false;
+        let mut resume_id: Option<String> = None;
+        let mut allowed_tools: Option<Vec<String>> = None;
         let mut i = 1; // skip binary name
         while i < args.len() {
             let a = &args[i];
@@ -253,8 +269,33 @@ async fn run() -> i32 {
                 i += 1;
                 continue;
             }
-            if a == "--permission-mode" {
-                i += 2; // skip the flag and its value
+            if a == "--permission-mode" || a == "--system-prompt" {
+                i += 2; // skip the flag and its value (system-prompt was consumed pre-build)
+                continue;
+            }
+            if a == "--resume" {
+                match args.get(i + 1) {
+                    Some(id) if !id.is_empty() => resume_id = Some(id.clone()),
+                    _ => {
+                        eprintln!("Error: --resume expects a session id (from a prior --output-format json run)");
+                        return 1;
+                    }
+                }
+                i += 2;
+                continue;
+            }
+            if a == "--allowed-tools" {
+                match args.get(i + 1) {
+                    Some(list) if !list.is_empty() => {
+                        allowed_tools =
+                            Some(list.split(',').map(|s| s.trim().to_string()).collect());
+                    }
+                    _ => {
+                        eprintln!("Error: --allowed-tools expects a comma-separated tool list (see `alva tools list`)");
+                        return 1;
+                    }
+                }
+                i += 2;
                 continue;
             }
             if a == "--output-format" {
@@ -295,10 +336,36 @@ async fn run() -> i32 {
             return 1;
         }
 
+        // Per-invocation tool allowlist. Unknown names fail LOUDLY (exit 1,
+        // list what exists) — a typo that silently allows nothing is the
+        // component-toggle lesson all over again.
+        if let Some(allowed) = &allowed_tools {
+            let known = agent.tool_names();
+            let unknown: Vec<&String> = allowed.iter().filter(|a| !known.contains(a)).collect();
+            if !unknown.is_empty() {
+                eprintln!(
+                    "Error: --allowed-tools names unknown tool(s): {:?}\nKnown tools: run `alva tools list`",
+                    unknown
+                );
+                return 1;
+            }
+            agent.retain_tools(allowed).await;
+        }
+
         // Persist the run like every other mode: a real session on disk is
         // what makes the returned session_id a usable --resume handle, and
-        // gives external tooling the same RunRecord projection.
-        let print_session = session_manager.create(&prompt).await;
+        // gives external tooling the same RunRecord projection. --resume
+        // loads that prior session so the worker continues with full history.
+        let print_session = match &resume_id {
+            Some(id) => match session_manager.load(id).await {
+                Some(sess) => sess,
+                None => {
+                    eprintln!("Error: --resume {id}: session not found in this workspace");
+                    return 1;
+                }
+            },
+            None => session_manager.create(&prompt).await,
+        };
         agent.swap_session(print_session.clone()).await;
         session_manager
             .append_config_snapshot_if_needed(&print_session, &agent, &config.model)
@@ -466,6 +533,12 @@ FLAGS:
     -p, --print                   Non-interactive single-prompt mode (no REPL/TUI).
                                   Tools that need approval are denied (fail-closed)
                                   unless --permission-mode allows them.
+    --resume <SESSION_ID>         -p: continue a prior session (id from a
+                                  previous --output-format json run).
+    --system-prompt <TEXT>        Replace the default persona (project context
+                                  is still appended). For orchestrated workers.
+    --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
+                                  tools (discover names via `alva tools list`).
     --output-format <text|json>   -p output: `text` streams the reply (default);
                                   `json` emits one object {result, is_error, error,
                                   session_id, usage, duration_ms} for orchestrators.

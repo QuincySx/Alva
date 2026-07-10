@@ -180,6 +180,23 @@ impl BaseAgent {
             .collect()
     }
 
+    /// Restrict the live tool set to `allowed` (per-invocation allowlist,
+    /// `--allowed-tools`). Returns the names that were removed. Unknown
+    /// names in `allowed` are the CALLER's job to reject up front (compare
+    /// against `tool_names()` first) — a typo silently allowing nothing is
+    /// the component-toggle lesson all over again.
+    pub async fn retain_tools(&self, allowed: &[String]) -> Vec<String> {
+        let mut st = self.inner.state().lock().await;
+        let removed: Vec<String> = st
+            .tools
+            .iter()
+            .map(|t| t.name().to_string())
+            .filter(|n| !allowed.contains(n))
+            .collect();
+        st.tools.retain(|t| allowed.iter().any(|a| a == t.name()));
+        removed
+    }
+
     /// `(name, description)` for every registered tool — the discovery
     /// surface for orchestrators deciding a per-invocation allowlist
     /// (`alva tools list`).
