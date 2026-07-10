@@ -119,3 +119,6 @@ jobs:
         with:
           name: lcov
           path: lcov.info
+          # Push CI runs constantly; keeping coverage blobs the default 90
+          # days just piles up storage. One day is plenty to peek at a run.
+          retention-days: 1
