@@ -1,16 +1,24 @@
-# CI — the guardrails that used to be manual-only.
+# CI pipeline for the Alva workspace.
 #
-# Design notes:
-# - alva-app-tauri is excluded everywhere: it needs system webkit/gtk packages
-#   and belongs in its own (future) job with an OS matrix.
-# - alva-app-debug is INCLUDED: its integration tests bind port 0 and read
-#   the real port back via DebugServer::local_port(), no fixed sleeps.
+# Shape — three stages, fail fast, no wasted runners:
+#
+#   format ─┬─→ test ──→ coverage
+#           ├─→ clippy
+#           └─→ deps
+#
+#   1. format   — rustfmt, seconds-level. A formatting slip fails the whole
+#                 pipeline here instead of burning runners on the heavy jobs.
+#   2. test / clippy / deps — run in parallel, only once formatting is clean.
+#   3. coverage — after tests pass; visibility only, never gates.
+#
+# Scope notes:
+# - alva-app-tauri is excluded from the Rust jobs: it needs system webkit/gtk
+#   and belongs in its own OS-matrix job (future work).
 # - clippy is report-only (continue-on-error) until the pre-existing warning
-#   backlog is cleared; then flip to `-D warnings`. fmt DOES gate — the tree
-#   was formatted clean when this pipeline landed.
-# - Real-model eval tests are `#[ignore]` + env-gated and never run here;
-#   the mock capability suite runs as part of the workspace tests.
-# - Coverage is visibility-only (no threshold yet — ratchet later).
+#   backlog is cleared; then flip to `-D warnings` and drop continue-on-error.
+# - Real-model eval tests are `#[ignore]` + env-gated and never run here; the
+#   mock capability suite runs as part of `test`.
+# - Coverage has no threshold yet (ratchet later); it uploads an lcov artifact.
 
 name: CI
 
@@ -19,39 +27,66 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push on the same ref makes in-flight runs obsolete — cancel them.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the pipeline only reads the repository.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
 
 jobs:
-  lint:
-    name: fmt + clippy
+  # ── Stage 1 — fast gate ───────────────────────────────────────────────
+  format:
+    name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: rustfmt (gating)
+          components: rustfmt
+      - name: cargo fmt --check
         run: cargo fmt --all -- --check
-      - name: clippy (report-only until the warning backlog is cleared)
-        run: cargo clippy --workspace --exclude alva-app-tauri --all-targets
-        continue-on-error: true
 
+  # ── Stage 2 — parallel checks (gated on a clean format) ───────────────
   test:
-    name: workspace tests
+    name: Test
+    needs: format
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: cargo test (workspace minus tauri)
+      - name: cargo test (workspace, minus tauri)
         run: cargo test --workspace --exclude alva-app-tauri
 
-  deps-firewall:
-    name: dependency firewall + wasm32
+  clippy:
+    name: Lint
+    needs: format
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy (report-only)
+        run: cargo clippy --workspace --exclude alva-app-tauri --all-targets
+        continue-on-error: true
+
+  deps:
+    name: Dependency firewall + wasm32
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -61,9 +96,12 @@ jobs:
       - name: ci-check-deps (layering rules + bus lint + wasm32 set)
         run: ./scripts/ci-check-deps.sh
 
+  # ── Stage 3 — coverage (visibility only, after tests pass) ────────────
   coverage:
-    name: coverage baseline (no threshold)
+    name: Coverage
+    needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +110,7 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
-      - name: llvm-cov summary + lcov artifact
+      - name: cargo llvm-cov (summary + lcov)
         run: |
           cargo llvm-cov --workspace --exclude alva-app-tauri \
             --lcov --output-path lcov.info
