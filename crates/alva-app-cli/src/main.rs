@@ -558,7 +558,8 @@ USAGE:
     echo \"PROMPT\" | alva -p        Non-interactive: read the prompt from stdin
     alva tools list [--output-format json]  List registered tools (no API key needed)
     alva providers list [--output-format json]  List configured provider profiles
-                                  (names for --provider; keys never printed)
+                                  (name/model/active only — endpoints and keys
+                                  never enter the machine channel)
     alva jobs <submit|wait|status|result|list>  Async worker jobs: submit returns a
                                   job id immediately; wait blocks until done.
     alva <plugins|context|settings> ...   Subcommands (each has its own --help)

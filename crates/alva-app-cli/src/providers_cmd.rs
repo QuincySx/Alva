@@ -1,11 +1,11 @@
 // INPUT:  alva_app_core::config, settings_cmd (kind default tables)
 // OUTPUT: pub async fn run — `alva providers list [--output-format json]`
 // POS:    The orchestrator-facing provider discovery surface, sibling of
-//         `alva tools list`. `settings list` is the HUMAN view (stderr,
-//         masked keys); this is the MACHINE view: stdout, JSON, effective
-//         values (defaults resolved), and no key material at all — only a
-//         `has_key` boolean, which is what an allowlist/dispatch decision
-//         actually needs.
+//         `alva tools list`. `settings list`/`get` are the HUMAN views
+//         (config detail, masked keys); this is the MACHINE view and its
+//         fields are a strict whitelist: name + model + active. Endpoints
+//         and anything key-shaped stay out of the machine channel entirely
+//         (user ruling) — picking a name is all a dispatch decision needs.
 
 use alva_app_core::config;
 
@@ -37,8 +37,8 @@ fn list(args: &[String]) -> i32 {
     let mut names: Vec<&String> = cfg.providers.keys().collect();
     names.sort();
 
-    // Effective values throughout: an orchestrator wants to know what a
-    // dispatch WILL use, not which fields happen to be unset.
+    // The effective model (entry value or kind default) — what a dispatch
+    // WILL use. Nothing else crosses into the machine channel.
     let rows: Vec<serde_json::Value> = names
         .iter()
         .map(|name| {
@@ -46,16 +46,10 @@ fn list(args: &[String]) -> i32 {
             let kind = entry.effective_kind(name);
             serde_json::json!({
                 "name": name,
-                "kind": kind,
                 "model": entry
                     .model
                     .clone()
                     .unwrap_or_else(|| crate::settings_cmd::default_model_for_kind(kind).to_string()),
-                "base_url": entry
-                    .base_url
-                    .clone()
-                    .unwrap_or_else(|| crate::settings_cmd::default_base_url_for_kind(kind).to_string()),
-                "has_key": !entry.api_key.is_empty(),
                 "active": active == Some(name.as_str()),
             })
         })
@@ -75,21 +69,14 @@ fn list(args: &[String]) -> i32 {
     }
     for row in &rows {
         println!(
-            "{star} {name:<20}  kind={kind:<16}  model={model:<24}  key={key}  {base}",
+            "{star} {name:<20}  {model}",
             star = if row["active"].as_bool() == Some(true) {
                 "*"
             } else {
                 " "
             },
             name = row["name"].as_str().unwrap_or(""),
-            kind = row["kind"].as_str().unwrap_or(""),
             model = row["model"].as_str().unwrap_or(""),
-            key = if row["has_key"].as_bool() == Some(true) {
-                "yes"
-            } else {
-                "NO"
-            },
-            base = row["base_url"].as_str().unwrap_or(""),
         );
     }
     0

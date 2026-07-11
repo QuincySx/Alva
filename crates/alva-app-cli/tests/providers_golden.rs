@@ -124,11 +124,12 @@ fn providers_list_json_zero_config_prints_empty_array() {
     assert_eq!(v, serde_json::json!([]));
 }
 
-/// The discovery contract: name + effective kind + model + base_url +
-/// has_key + active, for BOTH named profiles and legacy kind-keyed entries.
-/// Raw API keys must never appear anywhere in the output.
+/// The discovery contract is a strict field WHITELIST: name + model +
+/// active, nothing else. Endpoints and anything key-shaped (even a has_key
+/// boolean) stay out of the machine channel by design — the orchestrator
+/// only needs "which names exist, what model, which is on".
 #[test]
-fn providers_list_json_names_kinds_and_never_leaks_keys() {
+fn providers_list_json_is_name_model_active_only() {
     let (home, ws) = dirs();
     write_named_profiles_config(&home, "http://127.0.0.1:1/v1", "http://127.0.0.1:2/v1");
 
@@ -141,32 +142,41 @@ fn providers_list_json_names_kinds_and_never_leaks_keys() {
     let arr = v.as_array().expect("top-level array");
     assert_eq!(arr.len(), 3, "all three profiles listed: {arr:?}");
 
+    // Exactly the whitelisted keys on every row — a new field sneaking in
+    // must consciously amend this test.
+    for row in arr {
+        let mut keys: Vec<&str> = row
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["active", "model", "name"], "row: {row}");
+    }
+
     let by_name = |name: &str| -> &serde_json::Value {
         arr.iter()
             .find(|p| p["name"] == name)
             .unwrap_or_else(|| panic!("profile `{name}` missing from {arr:?}"))
     };
-
-    // Named profile: kind comes from the explicit `kind` field.
-    let deepseek = by_name("deepseek");
-    assert_eq!(deepseek["kind"], "openai-chat");
-    assert_eq!(deepseek["model"], "deepseek-chat");
-    assert_eq!(deepseek["base_url"], "http://127.0.0.1:1/v1");
-    assert_eq!(deepseek["has_key"], true);
-    assert_eq!(deepseek["active"], false);
-
-    // Legacy entry: kind falls back to the map key.
-    let anthropic = by_name("anthropic");
-    assert_eq!(anthropic["kind"], "anthropic");
-    assert_eq!(anthropic["has_key"], true);
-
+    assert_eq!(by_name("deepseek")["model"], "deepseek-chat");
+    assert_eq!(by_name("deepseek")["active"], false);
     assert_eq!(by_name("local")["active"], true);
+    // Legacy kind-keyed entry listed under the same whitelist.
+    assert_eq!(by_name("anthropic")["model"], "claude-opus-4-7");
 
-    // The security floor: no raw secret anywhere on stdout.
-    for secret in ["sk-deepseek-secret", "sk-ant-legacy-secret"] {
+    // The security floor: no secret, no endpoint, anywhere on stdout.
+    for leaked in [
+        "sk-deepseek-secret",
+        "sk-ant-legacy-secret",
+        "127.0.0.1:1",
+        "127.0.0.1:2",
+        "http",
+    ] {
         assert!(
-            !stdout.contains(secret),
-            "providers list leaked a raw api key: {secret}"
+            !stdout.contains(leaked),
+            "providers list must not print `{leaked}`: {stdout}"
         );
     }
 }
@@ -261,21 +271,30 @@ fn settings_set_custom_name_requires_kind_then_roundtrips() {
         .assert()
         .success();
 
+    // Discovery lists it (whitelist fields only)…
     let assert = alva(&home, &ws)
         .args(["providers", "list", "--output-format", "json"])
         .assert()
         .success();
     let v: serde_json::Value =
         serde_json::from_str(String::from_utf8_lossy(&assert.get_output().stdout).trim()).unwrap();
-    let profile = v
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|p| p["name"] == "myprofile")
-        .expect("myprofile listed")
-        .clone();
-    assert_eq!(profile["kind"], "openai-chat");
-    assert_eq!(profile["base_url"], "http://127.0.0.1:9/v1");
+    assert!(
+        v.as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "myprofile"),
+        "myprofile listed: {v}"
+    );
+    // …while the full round-trip (kind + endpoint) is checked on the HUMAN
+    // surface, `settings get`, which is allowed to show config detail.
+    let assert = alva(&home, &ws)
+        .args(["settings", "get", "myprofile"])
+        .assert()
+        .success();
+    let g: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&assert.get_output().stdout).trim()).unwrap();
+    assert_eq!(g["kind"], "openai-chat");
+    assert_eq!(g["base_url"], "http://127.0.0.1:9/v1");
 
     // A bogus kind is rejected up front — it would produce a profile that
     // can never speak any wire protocol.
