@@ -221,17 +221,32 @@ async fn run() -> i32 {
             // explicit confirmation interactively rather than silently running
             // unsandboxed commands with elevated permissions.
             if mode.assumes_sandbox() && !alva_app_core::SandboxConfig::is_enforced() {
-                if print_mode {
+                // Explicit escape hatch (headless orchestration on Linux
+                // servers / CI where the environment itself is the
+                // isolation): the DEFAULT stays refuse; only a flag scary
+                // enough that nobody types it by accident opens the gate —
+                // same philosophy as docker --privileged.
+                let dangerously_allowed =
+                    args.iter().any(|a| a == "--dangerously-allow-unsandboxed");
+                if print_mode && dangerously_allowed {
+                    eprintln!(
+                        "WARNING: --dangerously-allow-unsandboxed — running --permission-mode {} \
+                         with NO OS sandbox. Tools execute with this process's full privileges; \
+                         only do this inside an isolated environment (container/VM/CI runner).",
+                        permission_mode_label(mode),
+                    );
+                } else if print_mode {
                     output::print_error(&format!(
                         "--permission-mode {} assumes an OS sandbox, but none is enforced on \
                          this platform.\nRefusing to auto-run commands unsandboxed in headless \
-                         (-p) mode. Use `--permission-mode ask` (or run on a platform with \
-                         sandbox support).",
+                         (-p) mode. Use `--permission-mode ask`, run on a platform with sandbox \
+                         support, or — if this environment is ITSELF the isolation (container/\
+                         CI) — pass --dangerously-allow-unsandboxed.",
                         permission_mode_label(mode),
                     ));
                     return 1;
                 }
-                if !confirm_unsandboxed_mode(permission_mode_label(mode)) {
+                if !print_mode && !confirm_unsandboxed_mode(permission_mode_label(mode)) {
                     output::print_error("Aborted: unsandboxed elevated permission mode declined.");
                     return 1;
                 }
@@ -267,7 +282,7 @@ async fn run() -> i32 {
         let mut i = 1; // skip binary name
         while i < args.len() {
             let a = &args[i];
-            if a == "-p" || a == "--print" {
+            if a == "-p" || a == "--print" || a == "--dangerously-allow-unsandboxed" {
                 i += 1;
                 continue;
             }
@@ -543,6 +558,9 @@ FLAGS:
                                   is still appended). For orchestrated workers.
     --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
                                   tools (discover names via `alva tools list`).
+    --dangerously-allow-unsandboxed  -p: allow accept-shell/bypass on platforms
+                                  with NO OS sandbox. Only inside an isolated
+                                  environment (container/VM/CI).
     --output-format <text|json>   -p output: `text` streams the reply (default);
                                   `json` emits one object {result, is_error, error,
                                   session_id, usage, duration_ms} for orchestrators.

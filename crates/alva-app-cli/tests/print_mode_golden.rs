@@ -470,3 +470,45 @@ fn print_mode_allowed_tools_filters_the_offer_and_rejects_typos() {
         .code(1)
         .stderr(predicates::str::contains("unknown tool"));
 }
+
+/// The explicit escape hatch: on platforms with no OS sandbox, headless
+/// accept-shell is allowed ONLY with --dangerously-allow-unsandboxed, and
+/// a loud warning lands on stderr. (macOS treats the sandbox as enforced,
+/// so this contract is exercised on Linux CI.)
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn dangerously_allow_unsandboxed_opens_the_headless_gate_with_a_warning() {
+    let (home, ws) = dirs();
+    let (url, _server) = start_mock_openai_server();
+    write_shared_config(&home, &format!("{url}/v1"));
+
+    let assert = alva(&home, &ws)
+        .args([
+            "-p",
+            "--permission-mode",
+            "accept-shell",
+            "--dangerously-allow-unsandboxed",
+            "hi",
+        ])
+        .assert()
+        .success()
+        .stdout("Hello from mock!\n");
+    let err = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+    assert!(
+        err.contains("WARNING") && err.contains("dangerously-allow-unsandboxed"),
+        "the escape hatch must be LOUD on stderr: {err}"
+    );
+}
+
+/// Without the hatch the refusal must now point at it.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn unsandboxed_refusal_mentions_the_escape_hatch() {
+    let (home, ws) = dirs();
+    write_shared_config(&home, "http://127.0.0.1:9");
+    alva(&home, &ws)
+        .args(["-p", "--permission-mode", "accept-shell", "hi"])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("--dangerously-allow-unsandboxed"));
+}
