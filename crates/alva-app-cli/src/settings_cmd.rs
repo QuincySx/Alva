@@ -99,11 +99,12 @@ fn print_help() {
     eprintln!("alva settings — manage ~/.alva/config.json (shared with the Tauri app)\n");
     eprintln!("Usage:");
     eprintln!("  alva settings                         List all providers");
-    eprintln!("  alva settings get <kind>              Show one provider");
-    eprintln!("  alva settings set <kind> [flags]      Upsert a provider");
-    eprintln!("    flags: --api-key K  --model M  --base-url U");
-    eprintln!("  alva settings active <kind>           Set the active provider");
-    eprintln!("  alva settings remove <kind>           Drop a provider");
+    eprintln!("  alva settings get <name>              Show one provider profile");
+    eprintln!("  alva settings set <name> [flags]      Upsert a provider profile");
+    eprintln!("    flags: --kind KIND  --api-key K  --model M  --base-url U");
+    eprintln!("    (--kind required when <name> is a custom profile name)");
+    eprintln!("  alva settings active <name>           Set the active profile");
+    eprintln!("  alva settings remove <name>           Drop a profile");
     eprintln!("  alva settings component list          List component toggles");
     eprintln!("  alva settings component enable <id>   Force-enable a component");
     eprintln!("  alva settings component disable <id>  Force-disable a component");
@@ -142,16 +143,17 @@ async fn run_list() -> i32 {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "<no home>".into())
     );
-    for kind in kinds {
-        let entry = &cfg.providers[kind];
-        let star = if Some(kind.as_str()) == active {
+    for name in kinds {
+        let entry = &cfg.providers[name];
+        let star = if Some(name.as_str()) == active {
             "*"
         } else {
             " "
         };
         eprintln!(
-            "  {star} {kind:<20}  key={key}  model={model}  base_url={base}",
-            kind = kind,
+            "  {star} {name:<20}  kind={kind:<16}  key={key}  model={model}  base_url={base}",
+            name = name,
+            kind = entry.effective_kind(name),
             key = mask(&entry.api_key),
             model = entry.model.as_deref().unwrap_or("(unset)"),
             base = entry.base_url.as_deref().unwrap_or("(default)"),
@@ -174,7 +176,8 @@ async fn run_get(args: &[String]) -> i32 {
         return 1;
     };
     let json = serde_json::to_string_pretty(&serde_json::json!({
-        "kind": kind,
+        "name": kind,
+        "kind": entry.effective_kind(kind),
         "api_key": mask(&entry.api_key),
         "model": entry.model,
         "base_url": entry.base_url,
@@ -186,13 +189,16 @@ async fn run_get(args: &[String]) -> i32 {
 }
 
 async fn run_set(args: &[String]) -> i32 {
-    let Some(kind) = args.first() else {
-        eprintln!("usage: alva settings set <kind> [--api-key K] [--model M] [--base-url U]");
+    let Some(name) = args.first() else {
+        eprintln!(
+            "usage: alva settings set <name> [--kind KIND] [--api-key K] [--model M] [--base-url U]"
+        );
         return 2;
     };
     let mut api_key: Option<String> = None;
     let mut model: Option<String> = None;
     let mut base_url: Option<String> = None;
+    let mut kind_flag: Option<String> = None;
     let mut i = 1;
     while i < args.len() {
         let key = &args[i];
@@ -201,6 +207,7 @@ async fn run_set(args: &[String]) -> i32 {
             "--api-key" => api_key = val,
             "--model" => model = val,
             "--base-url" => base_url = val,
+            "--kind" => kind_flag = val,
             other => {
                 eprintln!("unknown flag: {other}");
                 return 2;
@@ -209,11 +216,39 @@ async fn run_set(args: &[String]) -> i32 {
         i += 2;
     }
 
+    if let Some(k) = &kind_flag {
+        if !KNOWN_KINDS.contains(&k.as_str()) {
+            eprintln!(
+                "unknown provider kind: {k}\nKnown kinds: {}",
+                KNOWN_KINDS.join(", ")
+            );
+            return 2;
+        }
+    }
+
     let mut cfg = config::load().unwrap_or_default();
+    // A custom profile name ("deepseek", "local", …) must say which wire
+    // protocol it speaks — refusing here beats a silent openai fallback at
+    // request time. Legacy kind-as-name entries stay flag-free.
+    let name_is_kind = KNOWN_KINDS.contains(&name.as_str());
+    let existing_kind = cfg.providers.get(name).and_then(|e| e.kind.clone());
+    if !name_is_kind && kind_flag.is_none() && existing_kind.is_none() {
+        eprintln!(
+            "`{name}` is not a provider kind, so a named profile needs --kind.\n\
+             Example: alva settings set {name} --kind openai-chat --api-key ... --base-url ...\n\
+             Known kinds: {}",
+            KNOWN_KINDS.join(", ")
+        );
+        return 2;
+    }
+
     let entry = cfg
         .providers
-        .entry(kind.clone())
+        .entry(name.clone())
         .or_insert_with(ProviderEntry::default);
+    if let Some(k) = kind_flag {
+        entry.kind = Some(k);
+    }
     if let Some(k) = api_key {
         entry.api_key = k;
     }
@@ -225,11 +260,11 @@ async fn run_set(args: &[String]) -> i32 {
     }
     // First-set: also become active if no active set yet.
     if cfg.active.is_none() {
-        cfg.active = Some(kind.clone());
+        cfg.active = Some(name.clone());
     }
     match config::save(&cfg) {
         Ok(p) => {
-            eprintln!("Saved {kind} to {}", p.display());
+            eprintln!("Saved {name} to {}", p.display());
             0
         }
         Err(e) => {
@@ -422,7 +457,7 @@ async fn run_component_reset(args: &[String]) -> i32 {
 /// between env vars and the legacy CLI-only config paths.
 pub fn try_load_provider_from_shared() -> Option<alva_llm_provider::ProviderConfig> {
     let cfg = config::load()?;
-    let (kind, entry) = cfg.active_provider()?;
+    let (name, entry) = cfg.active_provider()?;
     if entry.api_key.is_empty()
         && std::env::var("ALVA_API_KEY")
             .ok()
@@ -431,6 +466,49 @@ pub fn try_load_provider_from_shared() -> Option<alva_llm_provider::ProviderConf
     {
         return None;
     }
+    Some(provider_config_from_entry(name, entry))
+}
+
+/// Load a NAMED profile from the shared config — the `--provider <name>`
+/// path. Unlike [`try_load_provider_from_shared`] this is an explicit user
+/// request, so every failure is a loud error (listing what IS configured)
+/// rather than a silent fall-through to the next config layer.
+pub fn load_provider_named(name: &str) -> Result<alva_llm_provider::ProviderConfig, String> {
+    let cfg = config::load().ok_or_else(|| {
+        format!(
+            "--provider {name}: no shared config found.\n\
+             Create profiles first: alva settings set {name} --kind openai-chat --api-key ..."
+        )
+    })?;
+    let Some(entry) = cfg.providers.get(name) else {
+        let mut names: Vec<&String> = cfg.providers.keys().collect();
+        names.sort();
+        return Err(format!(
+            "--provider {name}: unknown provider profile.\n\
+             Configured profiles: {}\n\
+             (discover with `alva providers list`)",
+            if names.is_empty() {
+                "(none)".to_string()
+            } else {
+                names
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        ));
+    };
+    Ok(provider_config_from_entry(name, entry))
+}
+
+/// Resolve a (name, entry) pair into a ready `ProviderConfig`: effective
+/// kind (explicit `kind` field, else the map key) drives the model and
+/// base-url defaults.
+fn provider_config_from_entry(
+    name: &str,
+    entry: &config::ProviderEntry,
+) -> alva_llm_provider::ProviderConfig {
+    let kind = entry.effective_kind(name);
     let model = entry
         .model
         .clone()
@@ -439,20 +517,20 @@ pub fn try_load_provider_from_shared() -> Option<alva_llm_provider::ProviderConf
         .base_url
         .clone()
         .unwrap_or_else(|| default_base_url_for_kind(kind).to_string());
-    Some(alva_llm_provider::ProviderConfig {
+    alva_llm_provider::ProviderConfig {
         api_key: entry.api_key.clone(),
         model,
         base_url,
         max_tokens: 32_000,
         custom_headers: std::collections::HashMap::new(),
         kind: Some(kind.to_string()),
-    })
+    }
 }
 
 /// Default model name to use when a provider entry has no `model` set.
 /// Unknown kinds fall back to a sensible OpenAI default rather than
 /// erroring — the user sees a working config and can override later.
-fn default_model_for_kind(kind: &str) -> &'static str {
+pub(crate) fn default_model_for_kind(kind: &str) -> &'static str {
     match kind {
         "anthropic" => "claude-opus-4-7",
         "openai-chat" | "openai-responses" => "gpt-4o",
@@ -464,7 +542,7 @@ fn default_model_for_kind(kind: &str) -> &'static str {
 /// Default base URL to use when a provider entry has no `base_url` set.
 /// openai-chat / openai-responses / unknown all fall through to the
 /// official OpenAI endpoint.
-fn default_base_url_for_kind(kind: &str) -> &'static str {
+pub(crate) fn default_base_url_for_kind(kind: &str) -> &'static str {
     // Canonical table lives in alva-llm-provider. The old local copy sent
     // openai-responses to the /v1 base — the provider appends /v1/responses
     // itself, so requests hit /v1/v1/responses and 404'd.

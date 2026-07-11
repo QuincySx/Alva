@@ -13,12 +13,19 @@
 //!   "providers": {
 //!     "anthropic":        { "api_key": "sk-ant-...", "model": "claude-opus-4-7", "base_url": null },
 //!     "openai-chat":      { "api_key": "sk-...",     "model": "gpt-5.4",         "base_url": null },
-//!     "openai-responses": { "api_key": "sk-...",     "model": "gpt-5.4",         "base_url": null },
-//!     "gemini":           { "api_key": "...",        "model": "gemini-2.5-pro"                    }
+//!     "deepseek":         { "api_key": "sk-...",     "model": "deepseek-chat",
+//!                           "base_url": "https://api.deepseek.com/v1", "kind": "openai-chat" },
+//!     "local":            { "api_key": "ollama",     "model": "qwen3",
+//!                           "base_url": "http://localhost:11434/v1",   "kind": "openai-chat" }
 //!   },
 //!   "active": "anthropic"
 //! }
 //! ```
+//!
+//! Entries are keyed by profile NAME. Legacy entries (no `kind` field) use
+//! the kind as the name; named profiles carry an explicit `kind`, which is
+//! how several profiles of the same wire protocol coexist (deepseek + local
+//! above are both `openai-chat`).
 //!
 //! Both alva-app-cli (`alva settings ...` + as a fallback in
 //! `ProviderConfig::load`) and alva-app-tauri (Rust-side IPC `lookup_provider`
@@ -35,8 +42,10 @@ use serde::{Deserialize, Serialize};
 /// Top-level config structure persisted at `~/.alva/config.json`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AlvaConfig {
-    /// Provider configurations keyed by kind: `"anthropic"`, `"openai-chat"`,
-    /// `"openai-responses"`, `"gemini"`.
+    /// Provider configurations keyed by profile NAME. Legacy entries use the
+    /// kind as the name (`"anthropic"`, `"openai-chat"`, …) with no `kind`
+    /// field; named profiles (`"deepseek"`, `"local"`) carry an explicit
+    /// `kind` field. See [`ProviderEntry::effective_kind`].
     #[serde(default)]
     pub providers: HashMap<String, ProviderEntry>,
     /// Which provider kind is "active" — what `alva` (no flags) uses, and
@@ -74,6 +83,20 @@ pub struct ProviderEntry {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// Wire-protocol kind (`"anthropic"` / `"openai-chat"` / …). Absent in
+    /// the legacy schema where the map KEY is the kind; present when the
+    /// entry is a named profile (`"deepseek"` → `openai-chat`), which is
+    /// what lets several profiles of the same kind coexist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+impl ProviderEntry {
+    /// The wire-protocol kind this entry speaks: the explicit `kind` field
+    /// when present, else the map key `name` (legacy kind-keyed schema).
+    pub fn effective_kind<'a>(&'a self, name: &'a str) -> &'a str {
+        self.kind.as_deref().unwrap_or(name)
+    }
 }
 
 /// Root of the shared alva home — `~/.alva` by default, overridable via the
@@ -226,6 +249,38 @@ mod tests {
         assert!(cfg.providers.is_empty());
         assert!(cfg.active.is_none());
         assert!(cfg.active_provider().is_none());
+    }
+
+    #[test]
+    fn named_profile_kind_field_wins_over_map_key() {
+        // Two same-kind profiles coexisting is the whole point of named
+        // profiles; the legacy kind-keyed entry keeps working beside them.
+        let json = r#"{
+            "providers": {
+                "deepseek": { "api_key": "k1", "kind": "openai-chat" },
+                "local":    { "api_key": "k2", "kind": "openai-chat" },
+                "anthropic": { "api_key": "k3" }
+            }
+        }"#;
+        let cfg: AlvaConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            cfg.providers["deepseek"].effective_kind("deepseek"),
+            "openai-chat"
+        );
+        assert_eq!(
+            cfg.providers["anthropic"].effective_kind("anthropic"),
+            "anthropic",
+            "legacy entry: map key IS the kind"
+        );
+        // Round-trip: the kind field survives save/load; legacy entries
+        // stay kind-less (no schema churn for existing configs).
+        let out = serde_json::to_string(&cfg).unwrap();
+        let back: AlvaConfig = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            back.providers["deepseek"].kind.as_deref(),
+            Some("openai-chat")
+        );
+        assert_eq!(back.providers["anthropic"].kind, None);
     }
 
     #[test]

@@ -25,6 +25,7 @@ mod event_handler;
 mod jobs_cmd;
 mod output;
 mod plugins;
+mod providers_cmd;
 mod repl;
 mod repl_completer;
 pub mod services;
@@ -86,6 +87,7 @@ async fn run() -> i32 {
         }
         Some("plugins") => return plugins::run(&argv[2..]).await,
         Some("tools") => return tools_cmd::run(&argv[2..]).await,
+        Some("providers") => return providers_cmd::run(&argv[2..]).await,
         Some("jobs") => return jobs_cmd::run(&argv[2..]).await,
         Some("context") => return context::run(&argv[2..]).await,
         Some("settings") => return settings_cmd::run(&argv[2..]).await,
@@ -103,7 +105,25 @@ async fn run() -> i32 {
         .position(|a| a == "--system-prompt")
         .and_then(|i| argv.get(i + 1).cloned());
 
+    // `--provider <name>` — pick a NAMED profile from the shared config for
+    // this invocation. Parsed here (config resolution is pre-agent), skipped
+    // again by the -p prompt collector below.
+    let provider_flag: Option<String> = match argv.iter().position(|a| a == "--provider") {
+        Some(i) => match argv.get(i + 1) {
+            Some(name) if !name.is_empty() && !name.starts_with('-') => Some(name.clone()),
+            _ => {
+                output::print_error(
+                    "--provider expects a profile name (see `alva providers list`)",
+                );
+                return 1;
+            }
+        },
+        None => None,
+    };
+
     // 1. Config — resolution order:
+    //    0. `--provider <name>` — explicit per-invocation profile pick; only
+    //       env vars still override its individual fields
     //    a. env vars (ALVA_*) — `ProviderConfig::load` will pick these up
     //    b. project / global flat-format files (legacy CLI paths)
     //    c. shared `~/.alva/config.json` active provider — same file Tauri reads
@@ -111,62 +131,55 @@ async fn run() -> i32 {
     //
     // The shared config is checked AFTER env vars + legacy files so old setups
     // keep working unchanged. New users go through the wizard or `alva settings set`.
-    let config = match ProviderConfig::load(&workspace) {
-        Ok(c) if !c.api_key.is_empty() => c,
-        _ => {
-            match settings_cmd::try_load_provider_from_shared() {
-                Some(mut shared) => {
-                    // Env vars still override individual fields when present.
-                    if let Ok(k) = std::env::var("ALVA_API_KEY") {
-                        if !k.is_empty() {
-                            shared.api_key = k;
-                        }
+    let config = if let Some(name) = &provider_flag {
+        match settings_cmd::load_provider_named(name) {
+            Ok(mut c) => {
+                apply_env_overrides(&mut c);
+                c
+            }
+            Err(e) => {
+                output::print_error(&e);
+                return 1;
+            }
+        }
+    } else {
+        match ProviderConfig::load(&workspace) {
+            Ok(c) if !c.api_key.is_empty() => c,
+            _ => {
+                match settings_cmd::try_load_provider_from_shared() {
+                    Some(mut shared) => {
+                        apply_env_overrides(&mut shared);
+                        shared
                     }
-                    if let Ok(m) = std::env::var("ALVA_MODEL") {
-                        if !m.is_empty() {
-                            shared.model = m;
-                        }
-                    }
-                    if let Ok(b) = std::env::var("ALVA_BASE_URL") {
-                        if !b.is_empty() {
-                            shared.base_url = b;
-                        }
-                    }
-                    if let Ok(k) = std::env::var("ALVA_PROVIDER_KIND") {
-                        if !k.is_empty() {
-                            shared.kind = Some(k);
-                        }
-                    }
-                    shared
-                }
-                None => {
-                    // The interactive setup wizard reads from stdin. In a
-                    // non-interactive run (CI / `echo ... | alva -p`) stdin
-                    // carries the *prompt*, not menu answers — entering the
-                    // wizard would consume that piped input and garble the
-                    // run. Fail fast with config instructions instead.
-                    if !std::io::stdin().is_terminal() {
-                        output::print_error(
-                            "No API key configured and stdin is not a terminal, so the \
-                             interactive setup wizard can't run.",
-                        );
-                        eprintln!("Configure a provider first, e.g.:");
-                        eprintln!("  export ALVA_API_KEY=sk-...");
-                        eprintln!("  export ALVA_MODEL=gpt-4o");
-                        eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
-                        return 1;
-                    }
-                    match setup::run_setup_wizard(&workspace) {
-                        Some(c) => c,
-                        None => {
-                            eprintln!();
+                    None => {
+                        // The interactive setup wizard reads from stdin. In a
+                        // non-interactive run (CI / `echo ... | alva -p`) stdin
+                        // carries the *prompt*, not menu answers — entering the
+                        // wizard would consume that piped input and garble the
+                        // run. Fail fast with config instructions instead.
+                        if !std::io::stdin().is_terminal() {
                             output::print_error(
-                                "Setup incomplete. You can also configure manually:",
+                                "No API key configured and stdin is not a terminal, so the \
+                             interactive setup wizard can't run.",
                             );
+                            eprintln!("Configure a provider first, e.g.:");
                             eprintln!("  export ALVA_API_KEY=sk-...");
                             eprintln!("  export ALVA_MODEL=gpt-4o");
                             eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
                             return 1;
+                        }
+                        match setup::run_setup_wizard(&workspace) {
+                            Some(c) => c,
+                            None => {
+                                eprintln!();
+                                output::print_error(
+                                    "Setup incomplete. You can also configure manually:",
+                                );
+                                eprintln!("  export ALVA_API_KEY=sk-...");
+                                eprintln!("  export ALVA_MODEL=gpt-4o");
+                                eprintln!("  alva settings set anthropic --api-key sk-... --model claude-opus-4-7");
+                                return 1;
+                            }
                         }
                     }
                 }
@@ -286,8 +299,8 @@ async fn run() -> i32 {
                 i += 1;
                 continue;
             }
-            if a == "--permission-mode" || a == "--system-prompt" {
-                i += 2; // skip the flag and its value (system-prompt was consumed pre-build)
+            if a == "--permission-mode" || a == "--system-prompt" || a == "--provider" {
+                i += 2; // skip the flag and its value (both were consumed pre-build)
                 continue;
             }
             if a == "--resume" {
@@ -544,6 +557,8 @@ USAGE:
     alva -p [FLAGS] \"PROMPT\"       Non-interactive: run one prompt, stream to stdout, exit
     echo \"PROMPT\" | alva -p        Non-interactive: read the prompt from stdin
     alva tools list [--output-format json]  List registered tools (no API key needed)
+    alva providers list [--output-format json]  List configured provider profiles
+                                  (names for --provider; keys never printed)
     alva jobs <submit|wait|status|result|list>  Async worker jobs: submit returns a
                                   job id immediately; wait blocks until done.
     alva <plugins|context|settings> ...   Subcommands (each has its own --help)
@@ -556,6 +571,11 @@ FLAGS:
                                   previous --output-format json run).
     --system-prompt <TEXT>        Replace the default persona (project context
                                   is still appended). For orchestrated workers.
+    --provider <NAME>             Use a named provider profile from
+                                  ~/.alva/config.json for this invocation
+                                  (see `alva providers list`); overrides the
+                                  active profile. ALVA_* env vars still override
+                                  individual fields on top.
     --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
                                   tools (discover names via `alva tools list`).
     --dangerously-allow-unsandboxed  -p: allow accept-shell/bypass on platforms
@@ -585,6 +605,33 @@ EXAMPLES:
     alva -p --permission-mode bypass \"format the repo\"        # CI / sandbox only
 "
     .to_string()
+}
+
+/// Overlay `ALVA_API_KEY` / `ALVA_MODEL` / `ALVA_BASE_URL` /
+/// `ALVA_PROVIDER_KIND` onto an already-resolved provider config. Env vars
+/// are the finest-grained override layer: they beat both the active profile
+/// and an explicit `--provider` pick, field by field.
+fn apply_env_overrides(config: &mut ProviderConfig) {
+    if let Ok(k) = std::env::var("ALVA_API_KEY") {
+        if !k.is_empty() {
+            config.api_key = k;
+        }
+    }
+    if let Ok(m) = std::env::var("ALVA_MODEL") {
+        if !m.is_empty() {
+            config.model = m;
+        }
+    }
+    if let Ok(b) = std::env::var("ALVA_BASE_URL") {
+        if !b.is_empty() {
+            config.base_url = b;
+        }
+    }
+    if let Ok(k) = std::env::var("ALVA_PROVIDER_KIND") {
+        if !k.is_empty() {
+            config.kind = Some(k);
+        }
+    }
 }
 
 /// Parse `--permission-mode <value>` from argv.
