@@ -22,6 +22,7 @@ mod checkpoint;
 mod commands;
 mod context;
 mod event_handler;
+mod jobs_cmd;
 mod output;
 mod plugins;
 mod repl;
@@ -85,6 +86,7 @@ async fn run() -> i32 {
         }
         Some("plugins") => return plugins::run(&argv[2..]).await,
         Some("tools") => return tools_cmd::run(&argv[2..]).await,
+        Some("jobs") => return jobs_cmd::run(&argv[2..]).await,
         Some("context") => return context::run(&argv[2..]).await,
         Some("settings") => return settings_cmd::run(&argv[2..]).await,
         _ => {}
@@ -527,6 +529,8 @@ USAGE:
     alva -p [FLAGS] \"PROMPT\"       Non-interactive: run one prompt, stream to stdout, exit
     echo \"PROMPT\" | alva -p        Non-interactive: read the prompt from stdin
     alva tools list [--output-format json]  List registered tools (no API key needed)
+    alva jobs <submit|wait|status|result|list>  Async worker jobs: submit returns a
+                                  job id immediately; wait blocks until done.
     alva <plugins|context|settings> ...   Subcommands (each has its own --help)
 
 FLAGS:

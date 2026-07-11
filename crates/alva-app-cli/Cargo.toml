@@ -20,6 +20,8 @@ alva-llm-provider = { path = "../alva-llm-provider" }
 tokio = { version = "1", features = ["full"] }
 # Discovery stub model (tools_cmd) needs an empty StreamEvent stream.
 futures = "0.3"
+# jobs_cmd: pid liveness probe (kill(pid, 0)) for daemonless job state.
+libc = "0.2"
 async-trait = "0.1"
 base64 = "0.22"
 crossterm = "0.28"
