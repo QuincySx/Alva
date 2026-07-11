@@ -64,6 +64,12 @@ pub struct AlvaConfig {
     /// `"fullscreen"`. Default 20 if unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_inline_rows: Option<u16>,
+    /// Max agent nesting depth — ONE knob for BOTH recursion forms: the
+    /// in-process `agent` tool's spawn depth AND the cross-process gate
+    /// (`ALVA_AGENT_DEPTH`, workers shelling out `alva -p`). Absent →
+    /// `components::DEFAULT_SUBAGENT_DEPTH` (3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_depth: Option<u32>,
     /// Per-component on/off overrides, keyed by `ComponentMeta::id` (see
     /// `crate::components`). Maps directly to `ComponentToggles`. A missing
     /// id falls back to the component's `default_on`. Shared by CLI + Tauri
@@ -241,6 +247,17 @@ mod tests {
         assert_eq!(cfg.active.as_deref(), Some("openai-chat"));
         let (k, _) = cfg.active_provider().unwrap();
         assert_eq!(k, "openai-chat");
+    }
+
+    #[test]
+    fn subagent_depth_parses_and_defaults_to_none() {
+        let cfg: AlvaConfig = serde_json::from_str(r#"{"subagent_depth": 5}"#).unwrap();
+        assert_eq!(cfg.subagent_depth, Some(5));
+        let cfg: AlvaConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            cfg.subagent_depth, None,
+            "absent -> caller uses DEFAULT_SUBAGENT_DEPTH"
+        );
     }
 
     #[test]

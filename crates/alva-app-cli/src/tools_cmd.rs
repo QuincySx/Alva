@@ -77,8 +77,10 @@ async fn list(args: &[String]) -> i32 {
     // Same assembly switchboard as the real agent (agent_setup::build_agent),
     // honoring the user's component toggles — minus anything that needs
     // credentials (no provider registry; sub-agents degrade gracefully).
-    let toggles: alva_app_core::components::ComponentToggles = alva_app_core::config::load()
-        .map(|c| c.components)
+    let shared_cfg = alva_app_core::config::load();
+    let toggles: alva_app_core::components::ComponentToggles = shared_cfg
+        .as_ref()
+        .map(|c| c.components.clone())
         .unwrap_or_default();
     let ctx = alva_app_core::components::ComponentContext {
         workspace: workspace.clone(),
@@ -88,7 +90,10 @@ async fn list(args: &[String]) -> i32 {
             crate::agent_setup::bundled_skill_dir(),
         )),
         mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
-        subagent_depth: 3,
+        subagent_depth: shared_cfg
+            .as_ref()
+            .and_then(|c| c.subagent_depth)
+            .unwrap_or(alva_app_core::components::DEFAULT_SUBAGENT_DEPTH),
         subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
         subagent_tool_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
         agent_templates: alva_app_core::extension::agent_templates::resolve_agent_templates(&[

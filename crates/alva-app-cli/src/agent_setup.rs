@@ -60,6 +60,9 @@ pub(crate) async fn build_agent(
     // orchestrator fully owns the worker's role. Project context (AGENTS.md
     // etc.) is still appended — the worker runs in this workspace either way.
     system_prompt_override: Option<&str>,
+    // `--max-turns` (recursion-gate wave): per-invocation turn budget so an
+    // orchestrator can bound a cheap-model worker. None -> the default 20.
+    max_turns: Option<u32>,
 ) -> AgentBundle {
     let project_context = load_project_context(workspace);
     let base_prompt = system_prompt_override.unwrap_or(
@@ -86,15 +89,22 @@ pub(crate) async fn build_agent(
     // The flat catalog + `apply_components` is now the single assembly truth
     // (shared with Tauri in Stage C). Toggles come from `~/.alva/config.json`'s
     // `components` map (absent id → that component's `default_on`).
-    let toggles: alva_app_core::components::ComponentToggles = alva_app_core::config::load()
-        .map(|c| c.components)
+    let shared_cfg = alva_app_core::config::load();
+    let toggles: alva_app_core::components::ComponentToggles = shared_cfg
+        .as_ref()
+        .map(|c| c.components.clone())
         .unwrap_or_default();
     let ctx = alva_app_core::components::ComponentContext {
         workspace: workspace.to_path_buf(),
         provider_registry: Some(provider_registry),
         skills: Some((paths.project_skills_dir(), bundled_skill_dir())),
         mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
-        subagent_depth: 3,
+        // ONE knob for both recursion forms — the same config value also
+        // drives main.rs's cross-process ALVA_AGENT_DEPTH gate.
+        subagent_depth: shared_cfg
+            .as_ref()
+            .and_then(|c| c.subagent_depth)
+            .unwrap_or(alva_app_core::components::DEFAULT_SUBAGENT_DEPTH),
         subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
         subagent_tool_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
         // Built-in templates (e.g. `video`) + any user/project agents.toml.
@@ -112,7 +122,7 @@ pub(crate) async fn build_agent(
         BaseAgentBuilder::new()
             .workspace(workspace)
             .system_prompt(&system_prompt)
-            .max_iterations(20)
+            .max_iterations(max_turns.unwrap_or(20))
             .plugin(Box::new(approval_ext)), // substrate: added manually before components
         &toggles,
         &ctx,

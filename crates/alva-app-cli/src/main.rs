@@ -94,6 +94,29 @@ async fn run() -> i32 {
         _ => {}
     }
 
+    // Cross-process recursion gate — the sibling of the in-process
+    // `agent`-tool depth limit, governed by the SAME `subagent_depth` config
+    // knob. Workers with shell access can run `alva -p ...` themselves;
+    // every agent run therefore carries its nesting depth in
+    // ALVA_AGENT_DEPTH: refuse at the limit, export depth+1 so any alva a
+    // tool shells out inherits it. Placed BEFORE provider/key resolution so
+    // runaway recursion is stopped without spending a token. Non-agent
+    // subcommands (tools/providers/jobs/settings/…) returned above and are
+    // usable at any depth.
+    let depth_limit = alva_app_core::config::load()
+        .and_then(|c| c.subagent_depth)
+        .unwrap_or(alva_app_core::components::DEFAULT_SUBAGENT_DEPTH);
+    match recursion_gate(
+        std::env::var("ALVA_AGENT_DEPTH").ok().as_deref(),
+        depth_limit,
+    ) {
+        Ok(next_depth) => std::env::set_var("ALVA_AGENT_DEPTH", next_depth.to_string()),
+        Err(e) => {
+            output::print_error(&e);
+            return 1;
+        }
+    }
+
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
     let paths = AlvaPaths::new(&workspace);
 
@@ -104,6 +127,22 @@ async fn run() -> i32 {
         .iter()
         .position(|a| a == "--system-prompt")
         .and_then(|i| argv.get(i + 1).cloned());
+
+    // `--max-turns <N>` — per-invocation turn budget (a builder-time input,
+    // like --system-prompt). Garbage fails loudly: silently keeping the
+    // default would hand a mis-typed budget to an expensive run.
+    let max_turns: Option<u32> = match argv.iter().position(|a| a == "--max-turns") {
+        Some(i) => match argv.get(i + 1).map(|v| v.parse::<u32>()) {
+            Some(Ok(n)) if n >= 1 => Some(n),
+            _ => {
+                output::print_error(
+                    "--max-turns expects a positive integer (the turn budget for this run)",
+                );
+                return 1;
+            }
+        },
+        None => None,
+    };
 
     // `--provider <name>` — pick a NAMED profile from the shared config for
     // this invocation. Parsed here (config resolution is pre-agent), skipped
@@ -212,6 +251,7 @@ async fn run() -> i32 {
         &workspace,
         &paths,
         system_prompt_override.as_deref(),
+        max_turns,
     )
     .await;
 
@@ -299,8 +339,12 @@ async fn run() -> i32 {
                 i += 1;
                 continue;
             }
-            if a == "--permission-mode" || a == "--system-prompt" || a == "--provider" {
-                i += 2; // skip the flag and its value (both were consumed pre-build)
+            if a == "--permission-mode"
+                || a == "--system-prompt"
+                || a == "--provider"
+                || a == "--max-turns"
+            {
+                i += 2; // skip the flag and its value (all consumed pre-build)
                 continue;
             }
             if a == "--resume" {
@@ -579,6 +623,8 @@ FLAGS:
                                   individual fields on top.
     --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
                                   tools (discover names via `alva tools list`).
+    --max-turns <N>               Turn budget for this run (default 20). Lets an
+                                  orchestrator bound a cheap-model worker.
     --dangerously-allow-unsandboxed  -p: allow accept-shell/bypass on platforms
                                   with NO OS sandbox. Only inside an isolated
                                   environment (container/VM/CI).
@@ -600,12 +646,75 @@ FLAGS:
     --ui-mode <inline|fullscreen> TUI viewport mode.
     -h, --help                    Show this help.
 
+RECURSION:
+    Agent nesting (the `agent` tool, or workers running `alva` again via shell)
+    is bounded by `subagent_depth` in ~/.alva/config.json (default 3), tracked
+    across processes via ALVA_AGENT_DEPTH. At the limit, runs refuse to start.
+
 EXAMPLES:
     alva -p \"summarize README.md\"
     alva -p --permission-mode accept-shell \"run the test suite and report failures\"
     alva -p --permission-mode bypass \"format the repo\"        # CI / sandbox only
 "
     .to_string()
+}
+
+/// Decide the cross-process recursion gate. `env_depth` is the raw
+/// `ALVA_AGENT_DEPTH` value (`None`/empty = top-level run, depth 0).
+/// Returns the depth to export for child processes, or the refusal message.
+/// Garbage input fails loudly — silently reading it as 0 would disarm the
+/// gate exactly when something upstream is broken.
+fn recursion_gate(env_depth: Option<&str>, limit: u32) -> Result<u32, String> {
+    let depth: u32 = match env_depth {
+        None | Some("") => 0,
+        Some(raw) => raw.trim().parse().map_err(|_| {
+            format!(
+                "ALVA_AGENT_DEPTH is set to {raw:?}, which is not a number.\n\
+                 Unset it for a top-level run, or fix whatever set it."
+            )
+        })?,
+    };
+    if depth >= limit {
+        return Err(format!(
+            "agent nesting depth {depth} reached the limit of {limit} (ALVA_AGENT_DEPTH).\n\
+             Refusing to start another agent layer — this looks like runaway recursion.\n\
+             If deeper nesting is intentional, raise `subagent_depth` in ~/.alva/config.json."
+        ));
+    }
+    Ok(depth + 1)
+}
+
+#[cfg(test)]
+mod recursion_gate_tests {
+    use super::recursion_gate;
+
+    #[test]
+    fn top_level_run_exports_depth_one() {
+        assert_eq!(recursion_gate(None, 3), Ok(1));
+        assert_eq!(recursion_gate(Some(""), 3), Ok(1), "empty = unset");
+    }
+
+    #[test]
+    fn below_limit_increments() {
+        assert_eq!(recursion_gate(Some("2"), 3), Ok(3));
+    }
+
+    #[test]
+    fn at_and_above_limit_refuse_naming_the_config_knob() {
+        for depth in ["3", "7"] {
+            let err = recursion_gate(Some(depth), 3).unwrap_err();
+            assert!(err.contains("ALVA_AGENT_DEPTH"), "{err}");
+            assert!(err.contains("subagent_depth"), "{err}");
+        }
+    }
+
+    #[test]
+    fn garbage_is_a_loud_error_not_depth_zero() {
+        let err = recursion_gate(Some("banana"), 3).unwrap_err();
+        assert!(err.contains("ALVA_AGENT_DEPTH"), "{err}");
+        // -1 must not wrap into a huge in-range u32 either.
+        assert!(recursion_gate(Some("-1"), 3).is_err());
+    }
 }
 
 /// Overlay `ALVA_API_KEY` / `ALVA_MODEL` / `ALVA_BASE_URL` /

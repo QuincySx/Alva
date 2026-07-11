@@ -284,6 +284,12 @@ pub const DEFAULT_SUBAGENT_TIMEOUT: std::time::Duration = std::time::Duration::f
 /// `ToolTimeoutMiddleware` default (120s).
 pub const DEFAULT_SUBAGENT_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// Default max agent nesting depth (see [`ComponentContext::subagent_depth`]).
+/// ONE knob for both recursion forms: the in-process `agent` tool AND the
+/// cross-process `ALVA_AGENT_DEPTH` gate. Overridden by `subagent_depth` in
+/// `~/.alva/config.json`.
+pub const DEFAULT_SUBAGENT_DEPTH: u32 = 3;
+
 pub struct ComponentContext {
     /// Agent workspace root (informational / for callers building paths).
     pub workspace: PathBuf,
@@ -324,7 +330,7 @@ impl ComponentContext {
             provider_registry: None,
             skills: None,
             mcp_config_paths: Vec::new(),
-            subagent_depth: 3,
+            subagent_depth: DEFAULT_SUBAGENT_DEPTH,
             subagent_timeout: DEFAULT_SUBAGENT_TIMEOUT,
             subagent_tool_timeout: DEFAULT_SUBAGENT_TOOL_TIMEOUT,
             agent_templates: Vec::new(),
