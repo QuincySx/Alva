@@ -1,6 +1,6 @@
-// INPUT:  std::{fs, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_sandbox_wasm, alva_test, tempfile, tokio, wasmtime
+// INPUT:  std::{fs, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_sandbox_wasm, alva_test, async_trait, futures, serde, serde_json, tempfile, tokio, wasmtime
 // OUTPUT: Integration coverage for the public WASIp1 runner seam
-// POS:    Builds the fixture on demand and verifies only guest-visible output plus host filesystem effects.
+// POS:    Builds WASIp1 guests on demand and verifies sandboxed files plus the structured blocking LLM proxy boundary.
 
 use std::ffi::OsString;
 use std::fs;
@@ -8,10 +8,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use alva_kernel_abi::{LanguageModel, Message, ModelConfig};
+use alva_kernel_abi::{
+    AgentError, LanguageModel, Message, ModelConfig, StreamEvent, Tool, ToolExecutionContext,
+    ToolOutput,
+};
 use alva_sandbox_wasm::{run_module, Grant, RunRequest, SandboxRunner};
-use alva_test::fixtures::make_assistant_message;
+use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
+use async_trait::async_trait;
+use futures::StreamExt;
+use serde::Deserialize;
+use serde_json::json;
 use wasmtime::{Caller, Extern, Linker};
 use wasmtime_wasi::p1::WasiP1Ctx;
 
@@ -19,19 +26,30 @@ static FIXTURE_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 static WORKER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 
 const HOST_MARKER: &str = "SECRET-KEY-abc";
-const MOCK_RESPONSE: &str = "mock completion from host";
+const FINAL_RESPONSE: &str = "sandboxed agent finished";
 
 #[test]
-fn blocking_llm_proxy_round_trips_ptr_len_without_leaking_host_marker() {
+fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
     let work = tempfile::tempdir().expect("create granted work directory");
-    let task = "Summarize the granted task";
+    let task = "Create out.txt in the granted workspace, then report completion";
     fs::write(work.path().join("task.txt"), task).expect("seed guest task");
 
-    let mock = MockLanguageModel::new().with_response(make_assistant_message(MOCK_RESPONSE));
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "create_file",
+            json!({"path": "out.txt", "content": "created inside WASI"}),
+        ))
+        .with_response(make_assistant_message(FINAL_RESPONSE));
     let recorded_mock = mock.clone();
     let model: Arc<dyn LanguageModel> = Arc::new(mock);
     let authorization_headers = Arc::new(Mutex::new(Vec::<String>::new()));
     let recorded_headers = Arc::clone(&authorization_headers);
+    let proxied_tool_names = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+    let recorded_tool_names = Arc::clone(&proxied_tool_names);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("build one host proxy runtime");
+    let runtime_handle = runtime.handle().clone();
 
     let outcome = SandboxRunner::new()
         .run_with_imports(
@@ -40,25 +58,52 @@ fn blocking_llm_proxy_round_trips_ptr_len_without_leaking_host_marker() {
                 grants: vec![Grant::read_write(work.path(), "/work")],
                 args: Vec::new(),
             },
-            move |linker| register_llm_proxy(linker, model, authorization_headers),
+            move |linker| {
+                register_llm_proxy(
+                    linker,
+                    model,
+                    authorization_headers,
+                    proxied_tool_names,
+                    runtime_handle,
+                )
+            },
         )
-        .expect("run worker through blocking LLM host proxy");
+        .expect("run real agent loop through blocking LLM host proxy");
 
     assert_eq!(outcome.exit_code, 0);
     assert!(outcome.stdout.is_empty(), "stdout: {}", outcome.stdout);
     assert!(outcome.stderr.is_empty(), "stderr: {}", outcome.stderr);
     assert_eq!(
         fs::read_to_string(work.path().join("result.txt")).expect("read guest result"),
-        MOCK_RESPONSE
+        FINAL_RESPONSE
+    );
+    assert_eq!(
+        fs::read_to_string(work.path().join("out.txt")).expect("read guest-created file"),
+        "created inside WASI",
+        "the create_file tool must execute inside the guest's preopen"
     );
 
     let calls = recorded_mock.calls();
-    assert_eq!(calls.len(), 1, "host mock must receive exactly one request");
-    assert_eq!(calls[0].len(), 1);
-    assert_eq!(calls[0][0].text_content(), task);
+    assert_eq!(calls.len(), 2, "the agent must make two model turns");
+    assert!(calls[0]
+        .iter()
+        .any(|message| message.text_content() == task));
+    assert!(calls[1]
+        .iter()
+        .any(|message| message.content.iter().any(|block| block
+            .as_tool_result()
+            .is_some_and(|(_, _, is_error)| !is_error))));
+    let tool_names = recorded_tool_names.lock().expect("tool-name lock");
+    assert_eq!(tool_names.len(), 2);
+    assert!(tool_names
+        .iter()
+        .all(|names| names.iter().any(|name| name == "create_file")));
     assert_eq!(
         recorded_headers.lock().expect("header lock").as_slice(),
-        [format!("Authorization: Bearer {HOST_MARKER}")]
+        [
+            format!("Authorization: Bearer {HOST_MARKER}"),
+            format!("Authorization: Bearer {HOST_MARKER}")
+        ]
     );
 
     for entry in fs::read_dir(work.path()).expect("list guest-visible work directory") {
@@ -84,9 +129,19 @@ fn empty_completion_round_trips_without_trapping() {
     let work = tempfile::tempdir().expect("create granted work directory");
     fs::write(work.path().join("task.txt"), "task").expect("seed guest task");
 
-    let model: Arc<dyn LanguageModel> =
-        Arc::new(MockLanguageModel::new().with_response(make_assistant_message("")));
+    // An empty stream triggers the kernel's documented complete() fallback,
+    // so queue one response for stream() and one for complete().
+    let model: Arc<dyn LanguageModel> = Arc::new(
+        MockLanguageModel::new()
+            .with_response(make_assistant_message(""))
+            .with_response(make_assistant_message("")),
+    );
     let headers = Arc::new(Mutex::new(Vec::<String>::new()));
+    let tool_names = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("build one host proxy runtime");
+    let runtime_handle = runtime.handle().clone();
 
     let outcome = SandboxRunner::new()
         .run_with_imports(
@@ -95,7 +150,7 @@ fn empty_completion_round_trips_without_trapping() {
                 grants: vec![Grant::read_write(work.path(), "/work")],
                 args: Vec::new(),
             },
-            move |linker| register_llm_proxy(linker, model, headers),
+            move |linker| register_llm_proxy(linker, model, headers, tool_names, runtime_handle),
         )
         .expect("an empty completion is an outcome, not a runner failure");
 
@@ -106,10 +161,54 @@ fn empty_completion_round_trips_without_trapping() {
     );
 }
 
+#[derive(Deserialize)]
+struct LlmProxyRequest {
+    messages: Vec<Message>,
+    tools: Vec<ProxyToolDefinition>,
+    config: ModelConfig,
+}
+
+#[derive(Deserialize)]
+struct ProxyToolDefinition {
+    name: String,
+    description: String,
+    parameters_schema: serde_json::Value,
+}
+
+struct DefinitionOnlyTool(ProxyToolDefinition);
+
+#[async_trait]
+impl Tool for DefinitionOnlyTool {
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+
+    fn description(&self) -> &str {
+        &self.0.description
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        self.0.parameters_schema.clone()
+    }
+
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
+        Err(AgentError::ToolError {
+            tool_name: self.name().to_string(),
+            message: "definition-only host proxy tool cannot execute".to_string(),
+        })
+    }
+}
+
 fn register_llm_proxy(
     linker: &mut Linker<WasiP1Ctx>,
     model: Arc<dyn LanguageModel>,
     authorization_headers: Arc<Mutex<Vec<String>>>,
+    proxied_tool_names: Arc<Mutex<Vec<Vec<String>>>>,
+    runtime_handle: tokio::runtime::Handle,
 ) -> Result<(), wasmtime::Error> {
     linker.func_wrap(
         "alva:host/llm",
@@ -126,13 +225,12 @@ fn register_llm_proxy(
                 .get_export("memory")
                 .and_then(Extern::into_memory)
                 .ok_or_else(|| wasmtime::Error::msg("guest did not export memory"))?;
-            let prompt = memory
+            let request = memory
                 .data(&caller)
                 .get(req_start..req_end)
                 .ok_or_else(|| wasmtime::Error::msg("request range is outside guest memory"))?;
-            let prompt = std::str::from_utf8(prompt)
-                .map_err(|error| wasmtime::Error::msg(error.to_string()))?
-                .to_owned();
+            let request: LlmProxyRequest = serde_json::from_slice(request)
+                .map_err(|error| wasmtime::Error::msg(error.to_string()))?;
 
             // This is the host-only credential seam: the marker is consumed
             // while preparing the provider call but never enters response
@@ -141,17 +239,30 @@ fn register_llm_proxy(
                 .lock()
                 .expect("header lock")
                 .push(format!("Authorization: Bearer {HOST_MARKER}"));
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
+            let tools: Vec<Box<dyn Tool>> = request
+                .tools
+                .into_iter()
+                .map(|definition| Box::new(DefinitionOnlyTool(definition)) as Box<dyn Tool>)
+                .collect();
+            let tool_refs: Vec<&dyn Tool> = tools.iter().map(Box::as_ref).collect();
+            proxied_tool_names.lock().expect("tool-name lock").push(
+                tool_refs
+                    .iter()
+                    .map(|tool| tool.name().to_string())
+                    .collect(),
+            );
+            let events: Vec<StreamEvent> = runtime_handle.block_on(async {
+                model
+                    .stream(&request.messages, &tool_refs, &request.config)
+                    .collect()
+                    .await
+            });
+            let response = serde_json::to_vec(&events)
                 .map_err(|error| wasmtime::Error::msg(error.to_string()))?;
-            let completion = runtime
-                .block_on(model.complete(&[Message::user(prompt)], &[], &ModelConfig::default()))
-                .map_err(|error| wasmtime::Error::msg(error.to_string()))?;
-            let response = completion.message.text_content().into_bytes();
             let resp_len = i32::try_from(response.len())
                 .map_err(|_| wasmtime::Error::msg("response exceeds ptr/len ABI limit"))?;
-            // An empty completion needs no guest allocation: (0, 0) is the
-            // agreed encoding and the guest writes an empty result.
+            // A malformed empty payload needs no guest allocation. Valid
+            // `Vec<StreamEvent>` JSON is always non-empty, even for `[]`.
             if resp_len == 0 {
                 return Ok(0);
             }

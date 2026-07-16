@@ -4,7 +4,7 @@
 
 ## 地位
 
-`alva-sandbox-wasm` 位于宿主边界，不属于 wasm-clean guest 集，也不是 `alva-host-wasm`。本 crate 在 Ticket 04 阶段不接 agent loop，只提供无全局状态的模块执行边界。
+`alva-sandbox-wasm` 位于宿主边界，不属于 wasm-clean guest 集，也不是 `alva-host-wasm`。本 crate 不接 agent loop，只提供无全局状态的模块执行边界；调用方可通过 per-run import 把 guest worker 接到宿主模型。
 
 ## 逻辑
 
@@ -42,5 +42,5 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
 | runner 公共边界 | `src/lib.rs` | 配置 WASIp1、preopen 授权、per-run host imports、执行 `_start` 并捕获结果。 |
-| 缝 2 集成测试 | `tests/runner.rs` | 用真 wasmtime + 临时目录断言 CRUD/越狱边界及 LLM ptr/len 代理。 |
+| 缝 2 集成测试 | `tests/runner.rs` | 用真 wasmtime + 临时目录断言 CRUD/越狱边界，以及结构化 LLM stream 代理驱动的 guest agent 工具循环。 |
 | fixture guest | `tests/fixtures/fs-guest/` | 独立 wasip1 二进制 crate，执行文件操作和两类越狱尝试。 |

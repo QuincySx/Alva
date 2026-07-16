@@ -4,7 +4,7 @@
 //         alva-llm-wire can own them later without pulling LanguageModel/bus_cap.
 
 /// Per-request configuration passed to every `LanguageModel::complete` / `stream` call.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ModelConfig {
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
@@ -145,6 +145,27 @@ mod tests {
         assert!(c.reasoning_effort.is_none());
         assert!(c.extra_body.is_none());
         assert!(!c.disable_tools, "Default disable_tools must be false");
+    }
+
+    #[test]
+    fn model_config_json_roundtrip_preserves_proxy_request_fields() {
+        let mut extra_body = serde_json::Map::new();
+        extra_body.insert("provider_flag".into(), json!(true));
+        let config = ModelConfig {
+            temperature: Some(0.25),
+            max_tokens: Some(4096),
+            stop_sequences: vec!["done".into()],
+            top_p: Some(0.9),
+            reasoning_effort: Some(ReasoningEffort::High),
+            extra_body: Some(extra_body),
+            disable_tools: true,
+        };
+
+        let encoded = serde_json::to_vec(&config).expect("serialize model config");
+        let decoded: ModelConfig =
+            serde_json::from_slice(&encoded).expect("deserialize model config");
+
+        assert_eq!(decoded, config);
     }
 
     // -- ReasoningEffort::parse / as_str -----------------------------------
