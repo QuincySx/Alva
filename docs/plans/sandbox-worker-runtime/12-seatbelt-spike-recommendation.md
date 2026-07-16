@@ -301,6 +301,66 @@ cargo test --offline -p alva-agent-security
 这里必须保留完整 stdout、stderr 和退出码，不能只写“pass”。建议把原始输出保存到
 `docs/plans/sandbox-worker-runtime/evidence/`，建议书只引用摘要。
 
+#### 补测（委托方在无限制环境实测，2026-07-17）—— PENDING 已解除
+
+Codex 的沙箱拒绝 `sandbox_apply`，所以 2.3 原为 [PENDING]。委托方在无限制的
+macOS 26.5.1 上补跑，结论如下（全部 **[V]** 已验证）：
+
+**结论一：deny-default + 手写 allow-list 起不来 cargo。**
+allow-list 覆盖 /usr /bin /System /Library /private/var/db /private/etc
+/dev/null /dev/urandom ~/.rustup ~/.cargo + 项目目录 + TMPDIR：
+
+```
+$ sandbox-exec -f p.sb cargo test --offline
+exit=134            # SIGABRT，零输出，进程未能启动
+```
+
+与 `/bin/cat` 在 deny-default 下的表现一致。**建议书 2.5 推荐的
+deny-default+allow-list，在"读"这一侧目前没有可运行的最小集**；若 13 坚持该方向，
+必须先解决"哪些读是 cargo/rustc/dyld 启动所必需"这个问题，代价可能很高。
+
+**结论二：deny-default + `(allow file-read*)` + 写白名单，cargo 可用。**
+
+```
+$ sandbox-exec -f p3.sb cargo test --offline
+exit=0
+test result: ok. 1 passed; 0 failed
+```
+
+写圈禁真实有效（内核拒绝，非工具层）：
+
+```
+$ sandbox-exec -f p3.sb /bin/sh -c 'echo pwned > /private/tmp/.../outside/hacked.txt'
+/bin/sh: ...: Operation not permitted        # 文件确实未被创建
+```
+
+**结论三：TMPDIR 必须用真实值，不能用 `/private/tmp`。**
+cargo 需要 TMPDIR 写权限。macOS 的真实 TMPDIR 是每用户目录：
+
+```
+$TMPDIR -> /private/var/folders/ct/<hash>/T
+```
+
+放开整个 `/private/tmp` 既非必要、又把一个全局共享可写区交给了 worker
+（我第一版 profile 正是这样写的，于是授权外写"看起来没被拦住"——实为 profile 过宽，
+不是 Seatbelt 失效）。**13 必须注入真实 `$TMPDIR`，且同样要 canonicalize。**
+
+**结论四（安全代价，必须让用户知情）：`(allow file-read*)` 意味着 worker 能读走机器上的一切。**
+
+```
+$ sandbox-exec -f p3.sb /bin/sh -c 'ls ~/.ssh'
+agent
+config
+```
+
+即 os 档 worker 可读 `~/.ssh`、`~/.aws/credentials`、任何磁盘上的 API key。
+这与 wasm 档"授权外路径根本不存在"的保证是**两个量级**的隔离强度。
+
+**给 13 的取舍结论**：目前可行的唯一形态是"**写受圈禁、读不受圈禁**"。
+它对"防止 worker 改坏授权外文件"有效，对"防止 worker 读走密钥"无效。
+**13 若采用它，必须在文档与 CLI 措辞里如实说明这个边界，不得宣称"强隔离"**；
+若要求读也圈禁，则需先攻克结论一，属未解难题。
+
 ### 2.4 已知逃逸面与限制
 
 | 面 | 当前证据 | Ticket 13 要求 |
