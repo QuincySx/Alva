@@ -67,6 +67,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 > - **`alva-app-extension-*`** —— 重依赖外挂（浏览器 / SQLite memory）。
 > - **`alva-app-*`** —— Harness + 应用层（我们自己的"deer-flow"）。
 > - **`alva-host-*`** —— 平台装配（native / wasm）。
+> - **`alva-sandbox-*`** —— Native-only 沙箱宿主后端，按 job 显式授予能力。
 > - **`alva-protocol-*`** —— Skill / MCP / ACP 等对外协议。
 > - **`alva-engine-*`** —— 引擎桥接层。
 
@@ -105,6 +106,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-app-core` | **预设 harness 层（"我们的 deer-flow"）**。核心：`BaseAgent`（**4 字段**：`inner: Arc<Agent>` / `current_cancel` / `pending_messages` / `bus_writer`）+ `BaseAgentBuilder`（薄薄一层包装，`build()` 内部委托给 `alva_agent_core::AgentBuilder`，自动塞入默认 `MemoryPlugin` + `SecurityPlugin` 除非用户已注册同名 plugin）。`extension/` 子目录持有协议 + middleware plugins：`SkillsPlugin` / `McpPlugin` / `HooksPlugin` / `EvaluationPlugin` / `SubAgentPlugin`（folder-based）+ `PermissionPlugin`（注册 `PlanModeMiddleware` + 提供 `PlanModeControl` / `PermissionModeService`）/ `AnalyticsPlugin` / `LspPlugin` / `ApprovalPlugin` / `PendingPlugin` / `BlackboardCommPlugin` / `ProviderRegistryPlugin` / `SpawnCommRegistryPlugin` / `ToolLockRegistryPlugin`（flat）。纯中间件壳（旧 `LoopDetection` / `DanglingToolCall` / `ToolTimeout` / `Compaction` / `Checkpoint` 包装）已删，单点 middleware 直接 `.middleware()` 注册。`PermissionModeService` + `PermissionMode` 现位于 bus 上，由 `PermissionPlugin::register()` 注册。`base_agent/` 模块。 |
 | `alva-host-native` | Native 平台能力层。主职责是 `init::model("provider/id")` 初始化 `LanguageModel`、`TokioSleeper`、native-only middleware（`CheckpointMiddleware` 以及从 box 转发的 `SecurityMiddleware` / `PlanModeMiddleware` / `CompactionMiddleware`）和 graph re-export。`AgentRuntimeBuilder` / `with_standard_agent_stack(SandboxMode)` 仍保留但已 deprecated，只作为 legacy/parallel 路径维护；新 app 入口走 `BaseAgentBuilder`，SDK 入口走 `alva-agent-core::AgentBuilder`。 |
 | `alva-host-wasm` | wasm32 装配。`WasmAgent` facade + `WasmSleeper`（spawn_local + oneshot 桥接 non-Send `gloo_timers` future）+ `smoke::_wasm_smoke_probe` 编译期探针，强制 `cargo check --target wasm32-unknown-unknown` 穿透整条 kernel API 表面。**共享同一份 `alva-kernel-core`，kernel 一行不用动**。 |
+| `alva-sandbox-wasm` | Native-only WASIp1 模块宿主 runner。每次调用新建 wasmtime `Engine` / `Store` / `WasiCtx`，把 job 授权目录作为 preopen 映射进 guest，并捕获退出码与 stdout/stderr；当前不依赖任何 Alva crate。 |
 
 ### L4.5：引擎桥接（给 app 层用的统一引擎接口）
 
@@ -182,7 +184,7 @@ let agent = BaseAgent::builder()
 | `scripts/ci-check-deps.sh` | CI 强制 crate 边界规则。Rule 17 = SDK 不得依赖 app/host。wasm-clean crate 集合必须通过 `wasm32-unknown-unknown`；native host 由 `alva-host-native` 承担，不要求 wasm-clean。 |
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object）。 |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app。 |
-| `Cargo.toml` | Rust workspace，管理 32 个 crate。 |
+| `Cargo.toml` | Rust workspace，管理 33 个 crate。 |
 | `alva-bus-lint` | CI lint binary：扫 `#[bus_cap]` trait 的跨 crate 类型表面，配合 `docs/BUS-RULES.md` 防止 bus 退化为 God Object。 |
 | `sdk/python/` | Python 插件 SDK（`alva_sdk` 包）。供第三方用 Python 写 `alva-app-extension-loader` 的子进程插件，不在 Cargo workspace 里。 |
 
