@@ -37,7 +37,7 @@ pub use local_fs::LocalToolFs;
 pub mod wasi_fs;
 
 #[cfg(all(target_family = "wasm", target_os = "wasi"))]
-pub use wasi_fs::WasiFs;
+pub use wasi_fs::{WasiFs, WasiFsMetadata};
 
 // Canonical native-or-WASI gate for built-in file tools:
 // `any(not(target_family = "wasm"), all(target_family = "wasm", target_os = "wasi"))`.

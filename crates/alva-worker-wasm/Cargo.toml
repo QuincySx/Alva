@@ -13,3 +13,8 @@ async-trait = "0.1"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# QuickJS for the run_script tool (ticket 06). default-features=false keeps the
+# module loader out: run_script has no import/require by contract.
+[target.'cfg(all(target_family = "wasm", target_os = "wasi"))'.dependencies]
+rquickjs = { version = "0.12", default-features = false }

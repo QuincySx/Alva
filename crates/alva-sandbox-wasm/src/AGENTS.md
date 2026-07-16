@@ -7,13 +7,14 @@
 
 ## 逻辑
 
-`lib.rs` 创建 engine/store/linker/WASI preopens 并捕获 outcome；`llm_proxy.rs` 在同一 linker 上注册安全的 request/response memory bridge。
+`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`llm_proxy.rs` 在同一 linker 上注册安全的 request/response memory bridge。
 
 ## 约束
 
 - 每次 run 必须使用 fresh Store/WasiCtx。
 - 所有 guest memory range、ABI version 与 byte size 必须先验证再读写。
 - callback 不得在本层绑定具体 LanguageModel/provider/key。
+- 每个 store 必须挂 `RunLimits` 对应的 epoch deadline 与线性内存 limiter。
 
 ## 业务域清单
 

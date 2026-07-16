@@ -24,8 +24,8 @@ core file tools through a synchronous filesystem adapter.
 - `register_builtin_tools` — registers all enabled tools with a `ToolRegistry`.
 - `wrappers::{Core, Shell, Interaction, Task, Team, Planning, Utility, Web, Browser}Plugin` — nine Plugin wrappers.
 - `LocalToolFs` — native `ToolFs` adapter (cfg-gated off for wasm).
-- `WasiFs` — WASI `ToolFs` adapter backed by synchronous `std::fs`; subprocess
-  execution returns a clear unsupported error.
+- `WasiFs` / `WasiFsMetadata` — WASI `ToolFs` adapter plus synchronous facade
+  for capability-confined guest embeddings; subprocess execution is unsupported.
 
 ## Dependency Policy
 - Depends on `alva-kernel-abi`, `alva-agent-core`, plus native crates
@@ -41,7 +41,7 @@ core file tools through a synchronous filesystem adapter.
 | Tool impls | `src/` | One file per tool (e.g. `read_file.rs`, `execute_shell.rs`) |
 | `wrappers/` | `src/wrappers/` | Nine Plugin wrappers grouping tools into bundles |
 | `local_fs.rs` | `src/local_fs.rs` | Native `ToolFs` adapter (cfg `not(wasm)`) |
-| `wasi_fs.rs` | `src/wasi_fs.rs` | WASI `ToolFs` adapter (cfg `wasm + wasi`) |
+| `wasi_fs.rs` | `src/wasi_fs.rs` | WASI `ToolFs` adapter and synchronous script-binding facade (cfg `wasm + wasi`) |
 | `walkdir.rs` | `src/walkdir.rs` | `walk_dir` / `walk_dir_filtered` helpers over `ToolFs` / `ignore` (native + WASI) |
 | `truncate.rs` | `src/truncate.rs` | Byte- and line-level output truncation helpers |
 | `lib.rs` | `src/lib.rs` | Feature gates, module wiring, `register_builtin_tools` |

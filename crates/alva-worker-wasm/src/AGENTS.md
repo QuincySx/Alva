@@ -4,11 +4,11 @@
 
 ## 地位
 
-本目录承载 Ticket 05(a) 的 WASIp1 worker：真 agent loop 与本地文件工具在 guest 内运行，宿主只代理模型 stream。
+本目录承载 WASIp1 worker：真 agent loop、本地文件工具与有界 QuickJS 脚本在 guest 内运行，宿主只代理模型 stream 并执行最终资源兜底。
 
 ## 逻辑
 
-`main.rs` 在 WASI 下解析 host 注入的 workspace/task/result/grant args，用 `AgentBuilder` 装配 `ProxyModel` 与 `CorePlugin`；模型请求以版本化 JSON 通过阻塞式 import 往返 stream events，agent 最终文本写入指定文件或 stdout。在其他 target 下只输出平台提示以保持 workspace native 构建可用。
+`main.rs` 在 WASI 下解析 host 注入的 workspace/task/result/grant args，用 `AgentBuilder` 装配 `ProxyModel`、`CorePlugin` 与 `RunScriptTool`；`run_script.rs` 为每次调用新建 QuickJS runtime，以同步 `WasiFs` 绑定完成批量文件操作并把脚本错误返回模型。模型请求以版本化 JSON 通过阻塞式 import 往返 stream events，agent 最终文本写入指定文件或 stdout。
 
 ## 约束
 
@@ -17,9 +17,11 @@
 - 从宿主返回的 buffer 必须由 guest 重新接管并释放。
 - 文件工具必须以 `--workspace` 值为根，由 WASI preopen 而不是 guest 自行路径过滤来执行圈禁。
 - async loop 由 `futures::executor::block_on` 驱动，不得引入 tokio runtime 或 tokio time sleeper。
+- QuickJS 必须保持无 loader/module/CommonJS 能力，文件 binding 只能调用 `WasiFs` adapter。
 
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
 | WASIp1 command | `main.rs` | SDK agent loop、WASI 文件工具、args/result 协议、ProxyModel、`alloc` export 与 `llm_complete` import。 |
+| QuickJS tool | `run_script.rs` | `run_script` Tool、interrupt/heap 限制、同步 WasiFs bindings 与结果格式。 |

@@ -1,6 +1,6 @@
 // INPUT:  std::{fs, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_llm_wire, alva_sandbox_wasm, alva_test, async_trait, futures, serde_json, tempfile, tokio, wasmtime
-// OUTPUT: Integration coverage for the public WASIp1 runner seam
-// POS:    Builds WASIp1 guests on demand and verifies sandboxed files plus the structured blocking LLM proxy boundary.
+// OUTPUT: Integration coverage for runner limits, preopens, LLM proxy, and run_script
+// POS:    Builds WASIp1 guests on demand and verifies host isolation plus guest QuickJS tool behavior.
 
 use std::ffi::OsString;
 use std::fs;
@@ -12,17 +12,19 @@ use alva_kernel_abi::{
     AgentError, LanguageModel, StreamEvent, Tool, ToolExecutionContext, ToolOutput,
 };
 use alva_llm_wire::{LlmProxyRequest, LlmProxyResponse, ToolDefinition};
-use alva_sandbox_wasm::{run_module, Grant, RunRequest, SandboxRunner};
+use alva_sandbox_wasm::{
+    run_module, Grant, RunLimits, RunRequest, SandboxRunner, SandboxStoreData,
+};
 use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde_json::json;
 use wasmtime::Linker;
-use wasmtime_wasi::p1::WasiP1Ctx;
 
 static FIXTURE_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 static WORKER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
+static WORKER_RUNNER: OnceLock<SandboxRunner> = OnceLock::new();
 
 const HOST_MARKER: &str = "SECRET-KEY-abc";
 const FINAL_RESPONSE: &str = "sandboxed agent finished";
@@ -55,6 +57,7 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
                 module: worker_wasm().to_vec(),
                 grants: vec![Grant::read_write(work.path(), "/work")],
                 args: worker_args(task, "/work/result.txt"),
+                limits: RunLimits::default(),
             },
             move |linker| {
                 register_llm_proxy(
@@ -146,6 +149,7 @@ fn empty_completion_round_trips_without_trapping() {
                 module: worker_wasm().to_vec(),
                 grants: vec![Grant::read_write(work.path(), "/work")],
                 args: worker_args("task", "/work/result.txt"),
+                limits: RunLimits::default(),
             },
             move |linker| register_llm_proxy(linker, model, headers, tool_names, runtime_handle),
         )
@@ -184,6 +188,7 @@ fn denied_path_error_reaches_model_and_final_reason_reaches_caller() {
                     "Read /outside/secret.txt and report why the task cannot be completed",
                     "/work/result.txt",
                 ),
+                limits: RunLimits::default(),
             },
             move |linker| {
                 register_llm_proxy(
@@ -223,6 +228,215 @@ fn denied_path_error_reaches_model_and_final_reason_reaches_caller() {
     );
 }
 
+#[test]
+fn run_script_batches_file_mutations_in_one_tool_call() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": r#"
+                mkdir("nested");
+                writeFile("one.txt", "one");
+                writeJson("nested/two.json", { value: 2 });
+                appendFile("one.txt", "+more");
+                copyFile("one.txt", "nested/copied.txt");
+                "batch-ok";
+            "#}),
+        ))
+        .with_response(make_assistant_message("batch complete"));
+    let (outcome, recorded) = run_mock_worker(&work, mock, "batch files with JavaScript");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    assert_eq!(
+        fs::read_to_string(work.path().join("one.txt")).unwrap(),
+        "one+more"
+    );
+    assert_eq!(
+        fs::read_to_string(work.path().join("nested/copied.txt")).unwrap(),
+        "one+more"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            &fs::read_to_string(work.path().join("nested/two.json")).unwrap()
+        )
+        .unwrap(),
+        json!({"value": 2})
+    );
+    let calls = recorded.calls();
+    assert_eq!(calls.len(), 2, "one script call plus final turn");
+    let (text, is_error) = first_tool_result(&calls[1]);
+    assert!(!is_error, "{text}");
+    assert!(text.contains("batch-ok"), "{text}");
+}
+
+#[test]
+fn run_script_file_bindings_cannot_escape_preopens() {
+    let root = tempfile::tempdir().expect("create test root");
+    let work = root.path().join("work");
+    let outside = root.path().join("outside");
+    fs::create_dir_all(&work).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let outside_file = outside.join("escaped.txt");
+    fs::write(&outside_file, "unchanged").unwrap();
+
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": r#"writeFile("/outside/escaped.txt", "escaped")"#}),
+        ))
+        .with_response(make_assistant_message("escape was blocked"));
+    let (outcome, recorded) = run_mock_worker_path(&work, mock, "try denied script write");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    assert_eq!(fs::read_to_string(&outside_file).unwrap(), "unchanged");
+    let calls = recorded.calls();
+    let (text, is_error) = first_tool_result(&calls[1]);
+    assert!(is_error, "denied binding unexpectedly succeeded: {text}");
+    assert!(
+        text.contains("outside/escaped.txt") || text.contains("failed to find"),
+        "{text}"
+    );
+}
+
+#[test]
+fn run_script_timeout_is_readable_and_agent_continues() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": "while (true) {}"}),
+        ))
+        .with_response(make_assistant_message("agent recovered after timeout"));
+    let (outcome, recorded) = run_mock_worker(&work, mock, "run a bounded script");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    assert_eq!(
+        fs::read_to_string(work.path().join("result.txt")).unwrap(),
+        "agent recovered after timeout"
+    );
+    let calls = recorded.calls();
+    assert_eq!(calls.len(), 2, "agent must make a post-timeout model turn");
+    let (text, is_error) = first_tool_result(&calls[1]);
+    assert!(is_error, "{text}");
+    assert!(text.contains("timed out"), "{text}");
+}
+
+#[test]
+fn run_script_memory_limit_is_readable_and_agent_continues() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": r#"
+                const chunks = [];
+                while (true) chunks.push(new ArrayBuffer(1024 * 1024));
+            "#}),
+        ))
+        .with_response(make_assistant_message("agent recovered after memory limit"));
+    let (outcome, recorded) = run_mock_worker(&work, mock, "run a memory bounded script");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    assert_eq!(
+        fs::read_to_string(work.path().join("result.txt")).unwrap(),
+        "agent recovered after memory limit"
+    );
+    let calls = recorded.calls();
+    assert_eq!(calls.len(), 2, "agent must make a post-OOM model turn");
+    let (text, is_error) = first_tool_result(&calls[1]);
+    assert!(is_error, "{text}");
+    assert!(text.to_ascii_lowercase().contains("memory limit"), "{text}");
+}
+
+#[test]
+fn run_script_has_neither_require_nor_import() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": r#"require("missing")"#}),
+        ))
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": r#"import value from "missing";"#}),
+        ))
+        .with_response(make_assistant_message("modules unavailable"));
+    let (outcome, recorded) = run_mock_worker(&work, mock, "try unavailable modules");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    let calls = recorded.calls();
+    assert_eq!(calls.len(), 3);
+    let (require_error, require_is_error) = first_tool_result(&calls[1]);
+    let (import_error, import_is_error) = first_tool_result(&calls[2]);
+    assert!(require_is_error, "{require_error}");
+    assert!(require_error.contains("require"), "{require_error}");
+    assert!(import_is_error, "{import_error}");
+    assert!(
+        import_error.contains("Unexpected identifier")
+            || import_error.contains("SyntaxError")
+            || import_error.contains("import"),
+        "static import must be rejected as script syntax: {import_error}"
+    );
+}
+
+fn run_mock_worker(
+    work: &tempfile::TempDir,
+    mock: MockLanguageModel,
+    task: &str,
+) -> (alva_sandbox_wasm::RunOutcome, MockLanguageModel) {
+    run_mock_worker_path(work.path(), mock, task)
+}
+
+fn run_mock_worker_path(
+    work: &Path,
+    mock: MockLanguageModel,
+    task: &str,
+) -> (alva_sandbox_wasm::RunOutcome, MockLanguageModel) {
+    let recorded = mock.clone();
+    let model: Arc<dyn LanguageModel> = Arc::new(mock);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("build one host proxy runtime");
+    let runtime_handle = runtime.handle().clone();
+    let outcome = worker_runner()
+        .run_with_imports(
+            RunRequest {
+                module: worker_wasm().to_vec(),
+                grants: vec![Grant::read_write(work, "/work")],
+                args: worker_args(task, "/work/result.txt"),
+                limits: RunLimits::default(),
+            },
+            move |linker| {
+                register_llm_proxy(
+                    linker,
+                    model,
+                    Arc::new(Mutex::new(Vec::new())),
+                    Arc::new(Mutex::new(Vec::new())),
+                    runtime_handle,
+                )
+            },
+        )
+        .expect("run worker with mocked host model");
+    (outcome, recorded)
+}
+
+fn first_tool_result(messages: &[alva_kernel_abi::Message]) -> (String, bool) {
+    messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter_map(|block| block.as_tool_result())
+        .next_back()
+        .map(|(_, content, is_error)| {
+            (
+                content
+                    .iter()
+                    .filter_map(|item| item.as_text())
+                    .collect::<String>(),
+                is_error,
+            )
+        })
+        .expect("model turn contains a tool result")
+}
+
 struct DefinitionOnlyTool(ToolDefinition);
 
 #[async_trait]
@@ -252,7 +466,7 @@ impl Tool for DefinitionOnlyTool {
 }
 
 fn register_llm_proxy(
-    linker: &mut Linker<WasiP1Ctx>,
+    linker: &mut Linker<SandboxStoreData>,
     model: Arc<dyn LanguageModel>,
     authorization_headers: Arc<Mutex<Vec<String>>>,
     proxied_tool_names: Arc<Mutex<Vec<Vec<String>>>>,
@@ -321,6 +535,7 @@ fn granted_directory_supports_crud_and_blocks_escape() {
             outside_secret.to_string_lossy().into_owned(),
             "job-arg".into(),
         ],
+        limits: RunLimits::default(),
     })
     .expect("run fixture module");
 
@@ -370,6 +585,7 @@ fn wasi_exit_and_stderr_are_returned_as_an_outcome() {
             outside_secret.to_string_lossy().into_owned(),
             "exit-7".into(),
         ],
+        limits: RunLimits::default(),
     })
     .expect("WASI proc_exit is a process outcome, not a runner failure");
 
@@ -393,6 +609,7 @@ fn read_only_grant_blocks_mutation() {
         module: fixture_wasm().to_vec(),
         grants: vec![Grant::read_only(granted.clone(), "/work")],
         args: vec![outside_secret.to_string_lossy().into_owned(), "job".into()],
+        limits: RunLimits::default(),
     });
 
     assert!(
@@ -410,12 +627,56 @@ fn read_only_grant_blocks_mutation() {
     );
 }
 
+#[test]
+fn host_epoch_deadline_traps_non_yielding_guest() {
+    let root = tempfile::tempdir().expect("create test root");
+    let granted = root.path().join("granted");
+    fs::create_dir_all(&granted).unwrap();
+
+    let error = run_module(RunRequest {
+        module: fixture_wasm().to_vec(),
+        grants: vec![Grant::read_write(granted, "/work")],
+        args: vec!["fixture".into(), "spin".into()],
+        limits: RunLimits {
+            wall_clock: std::time::Duration::from_millis(50),
+            max_memory_bytes: 64 * 1024 * 1024,
+        },
+    })
+    .expect_err("epoch deadline must interrupt a busy guest");
+
+    assert!(error.to_string().contains("wall-clock limit"), "{error}");
+}
+
+#[test]
+fn host_store_limiter_traps_linear_memory_growth() {
+    let root = tempfile::tempdir().expect("create test root");
+    let granted = root.path().join("granted");
+    fs::create_dir_all(&granted).unwrap();
+
+    let error = run_module(RunRequest {
+        module: fixture_wasm().to_vec(),
+        grants: vec![Grant::read_write(granted, "/work")],
+        args: vec!["fixture".into(), "grow-memory".into()],
+        limits: RunLimits {
+            wall_clock: std::time::Duration::from_secs(5),
+            max_memory_bytes: 8 * 1024 * 1024,
+        },
+    })
+    .expect_err("store limiter must interrupt memory growth");
+
+    assert!(error.to_string().contains("memory limit"), "{error}");
+}
+
 fn fixture_wasm() -> &'static [u8] {
     FIXTURE_WASM.get_or_init(build_fixture).as_slice()
 }
 
 fn worker_wasm() -> &'static [u8] {
     WORKER_WASM.get_or_init(build_worker).as_slice()
+}
+
+fn worker_runner() -> &'static SandboxRunner {
+    WORKER_RUNNER.get_or_init(SandboxRunner::new)
 }
 
 /// Compiles a wasip1 guest on demand and returns its bytes.
@@ -428,8 +689,13 @@ fn build_guest(manifest: &Path, package: &str) -> Vec<u8> {
     let target_dir = tempfile::tempdir().expect("create guest target directory");
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
 
-    let output = Command::new(cargo)
+    let mut command = Command::new(cargo);
+    if package == "alva-worker-wasm" {
+        command.env("WASI_SDK", cached_wasi_sdk());
+    }
+    let output = command
         .arg("build")
+        .arg("--offline")
         .arg("--locked")
         .arg("--release")
         .arg("--target")
@@ -468,6 +734,23 @@ fn workspace_manifest() -> PathBuf {
 
 fn build_worker() -> Vec<u8> {
     build_guest(&workspace_manifest(), "alva-worker-wasm")
+}
+
+fn cached_wasi_sdk() -> PathBuf {
+    let build_root = workspace_manifest()
+        .parent()
+        .expect("workspace manifest has a parent")
+        .join("target/wasm32-wasip1/debug/build");
+    fs::read_dir(&build_root)
+        .unwrap_or_else(|error| panic!("read cached WASI build directory {build_root:?}: {error}"))
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("out/wasi-sdk"))
+        .find(|path| path.join("bin/clang").is_file())
+        .unwrap_or_else(|| {
+            panic!(
+                "cached rquickjs WASI SDK not found under {build_root:?}; run `cargo build --offline -p alva-worker-wasm --target wasm32-wasip1` first"
+            )
+        })
 }
 
 fn build_fixture() -> Vec<u8> {

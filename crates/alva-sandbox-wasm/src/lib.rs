@@ -1,6 +1,6 @@
-// INPUT:  std::{path, string}, alva_llm_wire, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
-// OUTPUT: Access, Grant, RunRequest, RunOutcome, SandboxError, SandboxRunner::{run, run_with_imports}, register_llm_proxy, run_module
-// POS:    Native WASIp1 runner boundary that mounts per-call preopens and captures guest process results.
+// INPUT:  std::{path, string, sync, thread, time}, alva_llm_wire, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
+// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, register_llm_proxy, run_module
+// POS:    Native WASIp1 runner boundary enforcing per-call preopens, wall-clock deadlines, memory limits, and captured results.
 
 //! Host-side runner for WASIp1 command modules.
 //!
@@ -19,14 +19,18 @@ pub use llm_proxy::register_llm_proxy;
 
 use std::path::PathBuf;
 use std::string::FromUtf8Error;
+use std::time::Duration;
 
 use thiserror::Error;
-use wasmtime::{Engine, Linker, Module, Store};
+use wasmtime::{Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 
 const OUTPUT_CAPACITY: usize = 1024 * 1024;
+const EPOCH_TICK: Duration = Duration::from_millis(10);
+const DEFAULT_WALL_CLOCK: Duration = Duration::from_secs(30);
+const DEFAULT_MAX_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
 /// Filesystem access a [`Grant`] confers on its mounted directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -86,6 +90,25 @@ impl Grant {
     }
 }
 
+/// Resource ceilings for one WASIp1 module invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunLimits {
+    /// Maximum elapsed wall-clock time before the host advances the engine
+    /// epoch and traps the guest.
+    pub wall_clock: Duration,
+    /// Maximum bytes for each WebAssembly linear memory in the store.
+    pub max_memory_bytes: usize,
+}
+
+impl Default for RunLimits {
+    fn default() -> Self {
+        Self {
+            wall_clock: DEFAULT_WALL_CLOCK,
+            max_memory_bytes: DEFAULT_MAX_MEMORY_BYTES,
+        }
+    }
+}
+
 /// All inputs required for one isolated module invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunRequest {
@@ -95,6 +118,30 @@ pub struct RunRequest {
     pub grants: Vec<Grant>,
     /// Exact WASI argument vector exposed to the guest.
     pub args: Vec<String>,
+    /// Per-run wall-clock and linear-memory ceilings. Callers such as the CLI
+    /// may override these without rebuilding the runner.
+    pub limits: RunLimits,
+}
+
+/// Store data shared by WASI and caller-registered host imports.
+///
+/// Fields stay private so host imports cannot bypass the runner's limiter.
+pub struct SandboxStoreData {
+    wasi: WasiP1Ctx,
+    limits: StoreLimits,
+}
+
+impl SandboxStoreData {
+    /// Read the WASIp1 context from a caller-provided host import.
+    pub fn wasi(&self) -> &WasiP1Ctx {
+        &self.wasi
+    }
+
+    /// Mutably access the WASIp1 context from a caller-provided host import.
+    /// The resource limiter remains private and cannot be replaced.
+    pub fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
+        &mut self.wasi
+    }
 }
 
 /// Observable process result from a completed guest invocation.
@@ -167,9 +214,31 @@ pub enum SandboxError {
 /// context and `Store`, so no state leaks between runs.
 ///
 /// [`run`]: SandboxRunner::run
-#[derive(Clone)]
 pub struct SandboxRunner {
+    inner: std::sync::Arc<RunnerInner>,
+}
+
+struct RunnerInner {
     engine: Engine,
+    epoch_cancel: std::sync::mpsc::Sender<()>,
+    epoch_thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+impl Drop for RunnerInner {
+    fn drop(&mut self) {
+        let _ = self.epoch_cancel.send(());
+        if let Some(thread) = self.epoch_thread.lock().expect("epoch thread lock").take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Clone for SandboxRunner {
+    fn clone(&self) -> Self {
+        Self {
+            inner: std::sync::Arc::clone(&self.inner),
+        }
+    }
 }
 
 impl Default for SandboxRunner {
@@ -181,8 +250,25 @@ impl Default for SandboxRunner {
 impl SandboxRunner {
     /// Build a runner with a fresh shared engine.
     pub fn new() -> Self {
+        let mut config = Config::new();
+        config.epoch_interruption(true);
+        let engine = Engine::new(&config)
+            .expect("epoch interruption is a valid Wasmtime engine configuration");
+        let deadline_engine = engine.clone();
+        let (epoch_cancel, epoch_wait) = std::sync::mpsc::channel();
+        let epoch_thread = std::thread::spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                epoch_wait.recv_timeout(EPOCH_TICK)
+            {
+                deadline_engine.increment_epoch();
+            }
+        });
         Self {
-            engine: Engine::default(),
+            inner: std::sync::Arc::new(RunnerInner {
+                engine,
+                epoch_cancel,
+                epoch_thread: std::sync::Mutex::new(Some(epoch_thread)),
+            }),
         }
     }
 
@@ -207,9 +293,10 @@ impl SandboxRunner {
         register: F,
     ) -> Result<RunOutcome, SandboxError>
     where
-        F: FnOnce(&mut Linker<WasiP1Ctx>) -> Result<(), wasmtime::Error>,
+        F: FnOnce(&mut Linker<SandboxStoreData>) -> Result<(), wasmtime::Error>,
     {
-        let module = Module::new(&self.engine, &req.module).map_err(SandboxError::Module)?;
+        let limits = req.limits;
+        let module = Module::new(&self.inner.engine, &req.module).map_err(SandboxError::Module)?;
 
         let stdout = MemoryOutputPipe::new(OUTPUT_CAPACITY);
         let stderr = MemoryOutputPipe::new(OUTPUT_CAPACITY);
@@ -237,11 +324,25 @@ impl SandboxRunner {
         }
 
         let wasi: WasiP1Ctx = wasi.build_p1();
-        let mut linker: Linker<WasiP1Ctx> = Linker::new(&self.engine);
-        p1::add_to_linker_sync(&mut linker, |ctx| ctx).map_err(SandboxError::WasiLinker)?;
+        let store_limits = StoreLimitsBuilder::new()
+            .memory_size(limits.max_memory_bytes)
+            .trap_on_grow_failure(true)
+            .build();
+        let mut linker: Linker<SandboxStoreData> = Linker::new(&self.inner.engine);
+        p1::add_to_linker_sync(&mut linker, |data| &mut data.wasi)
+            .map_err(SandboxError::WasiLinker)?;
         register(&mut linker).map_err(SandboxError::HostImports)?;
 
-        let mut store = Store::new(&self.engine, wasi);
+        let mut store = Store::new(
+            &self.inner.engine,
+            SandboxStoreData {
+                wasi,
+                limits: store_limits,
+            },
+        );
+        store.limiter(|data| &mut data.limits);
+        store.set_epoch_deadline(epoch_ticks(limits.wall_clock));
+        store.epoch_deadline_trap();
         let instance = linker
             .instantiate(&mut store, &module)
             .map_err(SandboxError::Instantiate)?;
@@ -249,10 +350,24 @@ impl SandboxRunner {
             .get_typed_func::<(), ()>(&mut store, "_start")
             .map_err(SandboxError::StartFunction)?;
 
-        let exit_code = match start.call(&mut store, ()) {
+        let call_result = start.call(&mut store, ());
+
+        let exit_code = match call_result {
             Ok(()) => 0,
             Err(error) => match error.downcast_ref::<I32Exit>() {
                 Some(exit) => exit.0,
+                None if error.downcast_ref::<Trap>() == Some(&Trap::Interrupt) => {
+                    return Err(SandboxError::Execution(wasmtime::Error::msg(format!(
+                        "wall-clock limit of {} ms exceeded",
+                        limits.wall_clock.as_millis()
+                    ))));
+                }
+                None if format!("{error:#}").contains("growing memory") => {
+                    return Err(SandboxError::Execution(wasmtime::Error::msg(format!(
+                        "linear-memory limit of {} bytes exceeded: {error}",
+                        limits.max_memory_bytes
+                    ))));
+                }
                 None => return Err(SandboxError::Execution(error)),
             },
         };
@@ -268,6 +383,11 @@ impl SandboxRunner {
             stderr,
         })
     }
+}
+
+fn epoch_ticks(wall_clock: Duration) -> u64 {
+    let ticks = wall_clock.as_nanos().div_ceil(EPOCH_TICK.as_nanos());
+    u64::try_from(ticks.max(1)).unwrap_or(u64::MAX)
 }
 
 /// Runs one WASIp1 command module with only the requested filesystem grants.

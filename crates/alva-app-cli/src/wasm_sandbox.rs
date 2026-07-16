@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use alva_kernel_abi::{AgentError, LanguageModel, Tool, ToolExecutionContext, ToolOutput};
 use alva_llm_wire::{LlmProxyRequest, LlmProxyResponse, ToolDefinition};
-use alva_sandbox_wasm::{register_llm_proxy, Grant, RunRequest, SandboxRunner};
+use alva_sandbox_wasm::{register_llm_proxy, Grant, RunLimits, RunRequest, SandboxRunner};
 use async_trait::async_trait;
 use futures::StreamExt;
 
@@ -90,6 +90,7 @@ pub(crate) async fn run(
                     module,
                     grants,
                     args,
+                    limits: RunLimits::default(),
                 },
                 move |linker| {
                     register_llm_proxy(linker, move |request: LlmProxyRequest| {

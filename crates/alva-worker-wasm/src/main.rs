@@ -1,6 +1,9 @@
-// INPUT:  WASI args, alva_agent_core, CorePlugin, alva_kernel_{abi,core}, alva_llm_wire proxy ABI, futures, serde_json, std::{alloc, fs, io, slice, sync::Arc}, host import alva:host/llm::llm_complete
-// OUTPUT: alloc(len) wasm export plus a configurable file/stdout result channel
+// INPUT:  WASI args, alva_agent_core, CorePlugin, RunScriptTool, alva_kernel_{abi,core}, alva_llm_wire proxy ABI, futures, serde_json, std, host LLM import
+// OUTPUT: alloc(len) wasm export plus run_script-enabled agent and configurable file/stdout result channel
 // POS:    WASIp1 worker running an SDK agent loop in a host-selected workspace with a versioned blocking LLM proxy.
+
+#[cfg(target_os = "wasi")]
+mod run_script;
 
 #[cfg(target_os = "wasi")]
 use std::alloc::{self, Layout};
@@ -240,6 +243,7 @@ async fn run_worker(
     task: String,
     workspace: String,
     grants: Vec<String>,
+    script_limits: run_script::ScriptLimits,
 ) -> Result<String, AgentError> {
     // No tool timeout is installed on purpose. `ToolTimeoutMiddleware` needs a
     // `Sleeper`, and the only one available to a WASIp1 guest today is
@@ -263,6 +267,9 @@ async fn run_worker(
         .workspace(&workspace)
         .system_prompt(&system_prompt)
         .plugin(Box::new(CorePlugin))
+        .tool(Box::new(
+            run_script::RunScriptTool::new(&workspace).with_limits(script_limits),
+        ))
         .build()
         .await?;
 
@@ -296,6 +303,9 @@ struct WorkerArgs {
     task: String,
     result: String,
     grants: Vec<String>,
+    /// Per-script ceilings. Absent flags keep `ScriptLimits::default()`.
+    script_timeout_ms: Option<u64>,
+    script_memory_bytes: Option<usize>,
 }
 
 #[cfg(target_os = "wasi")]
@@ -309,6 +319,8 @@ fn parse_worker_args() -> Result<WorkerArgs, String> {
     let mut task = None;
     let mut result = None;
     let mut grants = Vec::new();
+    let mut script_timeout_ms = None;
+    let mut script_memory_bytes = None;
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -322,6 +334,20 @@ fn parse_worker_args() -> Result<WorkerArgs, String> {
             "--task" => task = Some(value),
             "--result" => result = Some(value),
             "--grant" => grants.push(value),
+            "--script-timeout-ms" => {
+                script_timeout_ms = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|error| format!("--script-timeout-ms {value:?}: {error}"))?,
+                )
+            }
+            "--script-memory-bytes" => {
+                script_memory_bytes = Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|error| format!("--script-memory-bytes {value:?}: {error}"))?,
+                )
+            }
             unknown => return Err(format!("unknown worker argument {unknown:?}")),
         }
         index += 2;
@@ -337,14 +363,28 @@ fn parse_worker_args() -> Result<WorkerArgs, String> {
         task,
         result,
         grants,
+        script_timeout_ms,
+        script_memory_bytes,
     })
 }
 
 #[cfg(target_os = "wasi")]
 fn main() {
     let outcome = parse_worker_args().and_then(|args| {
-        let response = block_on(run_worker(args.task, args.workspace, args.grants))
-            .map_err(|error| format!("sandboxed agent loop failed: {error}"))?;
+        let mut script_limits = run_script::ScriptLimits::default();
+        if let Some(ms) = args.script_timeout_ms {
+            script_limits.timeout = std::time::Duration::from_millis(ms);
+        }
+        if let Some(bytes) = args.script_memory_bytes {
+            script_limits.memory_bytes = bytes;
+        }
+        let response = block_on(run_worker(
+            args.task,
+            args.workspace,
+            args.grants,
+            script_limits,
+        ))
+        .map_err(|error| format!("sandboxed agent loop failed: {error}"))?;
         if args.result == "-" {
             print!("{response}");
             Ok(())

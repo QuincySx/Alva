@@ -1,14 +1,14 @@
-// INPUT:  alva_llm_wire proxy DTOs/limits, serde_json, std::io, wasmtime::{Caller, Extern, Linker}, WasiP1Ctx
+// INPUT:  alva_llm_wire proxy DTOs/limits, serde_json, std::io, wasmtime::{Caller, Extern, Linker}, SandboxStoreData
 // OUTPUT: register_llm_proxy
 // POS:    Production ptr/len memory bridge for a caller-supplied synchronous LLM completion policy.
 
+use crate::SandboxStoreData;
 use alva_llm_wire::{
     LlmProxyRequest, LlmProxyResponse, LLM_PROXY_ABI_VERSION, MAX_LLM_PROXY_REQUEST_BYTES,
     MAX_LLM_PROXY_RESPONSE_BYTES,
 };
 use std::io;
 use wasmtime::{Caller, Extern, Linker};
-use wasmtime_wasi::p1::WasiP1Ctx;
 
 struct BoundedJsonBuffer {
     bytes: Vec<u8>,
@@ -51,7 +51,7 @@ impl io::Write for BoundedJsonBuffer {
 /// limits. The callback owns policy (which model/provider to call and which
 /// host-only credentials it uses), keeping the generic runner provider-free.
 pub fn register_llm_proxy<F>(
-    linker: &mut Linker<WasiP1Ctx>,
+    linker: &mut Linker<SandboxStoreData>,
     complete: F,
 ) -> Result<(), wasmtime::Error>
 where
@@ -60,7 +60,7 @@ where
     linker.func_wrap(
         "alva:host/llm",
         "llm_complete",
-        move |mut caller: Caller<'_, WasiP1Ctx>, req_ptr: i32, req_len: i32| {
+        move |mut caller: Caller<'_, SandboxStoreData>, req_ptr: i32, req_len: i32| {
             let req_start = usize::try_from(req_ptr)
                 .map_err(|_| wasmtime::Error::msg("negative LLM proxy request pointer"))?;
             let req_len = usize::try_from(req_len)

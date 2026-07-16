@@ -1,6 +1,6 @@
-// INPUT:  std::{env, fs, process}
+// INPUT:  std::{env, fs, hint::black_box, process}
 // OUTPUT: WASIp1 command fixture stdout/stderr plus granted-directory filesystem effects
-// POS:    Exercises CRUD, listing, subdirectories, rename, arguments, and two filesystem escape attempts.
+// POS:    Exercises filesystem confinement, process exit, and host-enforced time/memory limits.
 
 use std::env;
 use std::fs;
@@ -9,6 +9,19 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let outside_absolute_path = args.first().expect("runner passes outside path");
     let command = args.get(1).map(String::as_str).unwrap_or_default();
+
+    if command == "spin" {
+        loop {
+            std::hint::black_box(1_u64.wrapping_add(1));
+        }
+    }
+    if command == "grow-memory" {
+        let mut chunks = Vec::new();
+        loop {
+            chunks.push(vec![0xA5_u8; 1024 * 1024]);
+            std::hint::black_box(&chunks);
+        }
+    }
 
     fs::write("/work/new.txt", "created-in-sandbox").expect("create file");
 
