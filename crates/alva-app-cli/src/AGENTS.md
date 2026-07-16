@@ -11,7 +11,7 @@
 
 ## 约束
 
-- `--sandbox` / `--grant` 非法值必须在 provider setup 前失败。
+- `--sandbox` / `--grant` / `--allow-domain` 非法值必须在 provider setup 前失败。
 - wasm 路径不得构造 native BaseAgent 或让 key 进入 guest surface。
 - 新增/修改旗标必须同步 `usage_text()` 与 golden 测试。
 
@@ -21,6 +21,6 @@
 |------|-------------|------|
 | 顶层入口 | `main.rs` | 模式/flag/config 分流与最终输出。 |
 | Native agent | `agent_setup.rs` | BaseAgent/plugin/provider 装配。 |
-| WASIp1 host | `wasm_sandbox.rs` | sidecar 发现、spawn_blocking runner、真 provider proxy。 |
+| WASIp1 host | `wasm_sandbox.rs` | sidecar 发现、spawn_blocking runner、job 域名授权与真 provider proxy。 |
 | 终端交互 | `ui/`, `repl.rs` | TUI 与 legacy REPL。 |
 | 子命令/服务 | `commands/`, `*_cmd.rs`, `services/` | 命令解析及后台能力。 |

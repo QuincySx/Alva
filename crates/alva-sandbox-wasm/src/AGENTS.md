@@ -1,5 +1,5 @@
 # alva-sandbox-wasm/src
-> Native WASIp1 process runner与版本化 blocking LLM guest-memory bridge。
+> Native WASIp1 process runner与版本化 blocking LLM/fetch guest-memory bridge。
 
 ## 地位
 
@@ -7,13 +7,14 @@
 
 ## 逻辑
 
-`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`llm_proxy.rs` 在同一 linker 上注册安全的 request/response memory bridge。
+`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`llm_proxy.rs` 注册 callback 驱动的模型桥；`http_proxy.rs` 注册宿主策略驱动的 fetch 桥。
 
 ## 约束
 
 - 每次 run 必须使用 fresh Store/WasiCtx。
 - 所有 guest memory range、ABI version 与 byte size 必须先验证再读写。
 - callback 不得在本层绑定具体 LanguageModel/provider/key。
+- fetch 必须在每次发包前校验当前 URL，HTTP client 不得自动跟随重定向。
 - 每个 store 必须挂 `RunLimits` 对应的 epoch deadline 与线性内存 limiter。
 
 ## 业务域清单
@@ -22,3 +23,4 @@
 |------|-------------|------|
 | Runner | `lib.rs` | preopen、WASI command 执行与 stdout/stderr outcome。 |
 | LLM proxy | `llm_proxy.rs` | versioned ptr/len request/response memory bridge。 |
+| HTTP proxy | `http_proxy.rs` | versioned fetch bridge、域名白名单与逐跳重定向策略。 |

@@ -9,6 +9,7 @@ alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin", defau
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-llm-wire = { path = "../alva-llm-wire" }
+alva-sandbox-abi = { path = "../alva-sandbox-abi" }
 async-trait = "0.1"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }

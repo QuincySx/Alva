@@ -8,8 +8,8 @@
 ## 逻辑
 
 1. `main.rs` 解析 subcommand/flag，装配 provider 与普通 BaseAgent 路径。
-2. `-p --sandbox wasm` 提前验证授权目录，只构造宿主 provider，不构造 native agent。
-3. wasm host policy 在 blocking 线程执行 runner，import callback 回到原 Tokio handle 调模型。
+2. `-p --sandbox wasm` 提前验证授权目录与 `--allow-domain`，只构造宿主 provider，不构造 native agent。
+3. wasm host policy 在 blocking 线程执行 runner，域名白名单进入每次 `RunRequest`，LLM import callback 回到原 Tokio handle 调模型。
 4. TUI/REPL、session、jobs/providers/tools 子命令保持原路径。
 
 ## 约束

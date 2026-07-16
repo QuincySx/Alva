@@ -99,15 +99,15 @@ async fn run() -> i32 {
         _ => {}
     }
 
-    let wasm_grants = match parse_wasm_sandbox_args(&argv) {
-        Ok(grants) => grants,
+    let wasm_config = match parse_wasm_sandbox_args(&argv) {
+        Ok(config) => config,
         Err(error) => {
             eprintln!("Error: {error}");
             return 1;
         }
     };
     let print_mode = argv.iter().any(|a| a == "-p" || a == "--print");
-    if wasm_grants.is_some() && !print_mode {
+    if wasm_config.is_some() && !print_mode {
         eprintln!("Error: --sandbox wasm is currently supported only with -p/--print");
         return 1;
     }
@@ -257,7 +257,7 @@ async fn run() -> i32 {
         std::env::remove_var(var);
     }
 
-    if let Some(grants) = wasm_grants {
+    if let Some(wasm_config) = wasm_config {
         let invocation = match parse_wasm_print_invocation(&argv) {
             Ok(invocation) => invocation,
             Err(error) => {
@@ -267,7 +267,13 @@ async fn run() -> i32 {
         };
         let model = alva_llm_provider::build_language_model(config.kind.as_deref(), config.clone());
         let started = std::time::Instant::now();
-        let result = wasm_sandbox::run(model, grants, invocation.prompt).await;
+        let result = wasm_sandbox::run(
+            model,
+            wasm_config.grants,
+            wasm_config.allowed_domains,
+            invocation.prompt,
+        )
+        .await;
         let duration_ms = started.elapsed().as_millis() as u64;
         return match result {
             Ok(text) => {
@@ -661,9 +667,16 @@ async fn run() -> i32 {
 
 /// Parse and validate the wasm tier before provider setup so malformed
 /// isolation flags fail loudly even on an unconfigured machine.
-fn parse_wasm_sandbox_args(args: &[String]) -> Result<Option<Vec<std::path::PathBuf>>, String> {
+#[derive(Debug, PartialEq, Eq)]
+struct WasmSandboxConfig {
+    grants: Vec<std::path::PathBuf>,
+    allowed_domains: Vec<String>,
+}
+
+fn parse_wasm_sandbox_args(args: &[String]) -> Result<Option<WasmSandboxConfig>, String> {
     let mut sandbox = None;
     let mut grants = Vec::new();
+    let mut allowed_domains = Vec::new();
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
@@ -706,15 +719,30 @@ fn parse_wasm_sandbox_args(args: &[String]) -> Result<Option<Vec<std::path::Path
                 })?);
                 index += 2;
             }
+            "--allow-domain" => {
+                let domain = args
+                    .get(index + 1)
+                    .ok_or_else(|| "--allow-domain expects a host or *.host".to_string())?;
+                alva_sandbox_wasm::validate_allowed_domain_pattern(domain)
+                    .map_err(|error| format!("invalid --allow-domain {domain:?}: {error}"))?;
+                allowed_domains.push(domain.to_ascii_lowercase());
+                index += 2;
+            }
             _ => index += 1,
         }
     }
 
-    match (sandbox, grants.is_empty()) {
-        (Some(()), true) => Err("--sandbox wasm requires at least one --grant <dir>".to_string()),
-        (Some(()), false) => Ok(Some(grants)),
-        (None, false) => Err("--grant requires --sandbox wasm".to_string()),
-        (None, true) => Ok(None),
+    match (sandbox, grants.is_empty(), allowed_domains.is_empty()) {
+        (Some(()), true, _) => {
+            Err("--sandbox wasm requires at least one --grant <dir>".to_string())
+        }
+        (Some(()), false, _) => Ok(Some(WasmSandboxConfig {
+            grants,
+            allowed_domains,
+        })),
+        (None, false, _) => Err("--grant requires --sandbox wasm".to_string()),
+        (None, true, false) => Err("--allow-domain requires --sandbox wasm".to_string()),
+        (None, true, true) => Ok(None),
     }
 }
 
@@ -733,7 +761,7 @@ fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, S
     while index < args.len() {
         match args[index].as_str() {
             "-p" | "--print" => index += 1,
-            "--sandbox" | "--grant" | "--provider" => index += 2,
+            "--sandbox" | "--grant" | "--allow-domain" | "--provider" => index += 2,
             "--output-format" => {
                 match args.get(index + 1).map(String::as_str) {
                     Some("json") => output_json = true,
@@ -822,6 +850,9 @@ FLAGS:
                                   read/write access. Repeat for additional dirs;
                                   at least one grant is required. Wasm runs are
                                   one-shot (`session_id: null`; no --resume).
+    --allow-domain <HOST>         -p --sandbox wasm: allow synchronous script
+                                  fetch to one exact host or `*.host`; repeatable.
+                                  Ports are ignored; empty list denies all fetch.
     --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
                                   tools (discover names via `alva tools list`).
     --max-turns <N>               Turn budget for this run (default 20). Lets an
@@ -1032,6 +1063,53 @@ mod tests {
         assert!(u.contains("--permission-mode"), "mentions the flag: {u}");
         assert!(u.contains("accept-shell"), "lists the modes: {u}");
         assert!(u.contains("bypass"), "lists bypass: {u}");
+        assert!(u.contains("--allow-domain"), "lists wasm fetch grant: {u}");
+    }
+
+    #[test]
+    fn wasm_domain_flags_are_repeatable_and_default_to_deny_all() {
+        let grant = tempfile::tempdir().unwrap();
+        let grant = grant.path().to_str().unwrap();
+        let config = parse_wasm_sandbox_args(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            grant,
+        ]))
+        .unwrap()
+        .unwrap();
+        assert!(config.allowed_domains.is_empty());
+
+        let config = parse_wasm_sandbox_args(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            grant,
+            "--allow-domain",
+            "Example.COM",
+            "--allow-domain",
+            "*.api.example.com",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(config.allowed_domains, ["example.com", "*.api.example.com"]);
+    }
+
+    #[test]
+    fn wasm_domain_flag_rejects_invalid_patterns_and_requires_wasm() {
+        assert!(
+            parse_wasm_sandbox_args(&argv(&["alva", "--allow-domain", "example.com:443"]))
+                .unwrap_err()
+                .contains("invalid --allow-domain")
+        );
+        assert_eq!(
+            parse_wasm_sandbox_args(&argv(&["alva", "--allow-domain", "example.com"])).unwrap_err(),
+            "--allow-domain requires --sandbox wasm"
+        );
     }
 
     #[test]

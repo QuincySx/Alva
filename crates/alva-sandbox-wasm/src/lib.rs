@@ -1,6 +1,6 @@
-// INPUT:  std::{path, string, sync, thread, time}, alva_llm_wire, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
-// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, register_llm_proxy, run_module
-// POS:    Native WASIp1 runner boundary enforcing per-call preopens, wall-clock deadlines, memory limits, and captured results.
+// INPUT:  std::{path, string, sync, thread, time}, alva_llm_wire, alva_sandbox_abi, reqwest, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
+// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, register_llm_proxy, validate_allowed_domain_pattern, run_module
+// POS:    Native WASIp1 runner boundary enforcing per-call filesystem/network grants, resource limits, and captured results.
 
 //! Host-side runner for WASIp1 command modules.
 //!
@@ -13,8 +13,10 @@
 //! fresh `Store` + WASI context, so isolation is per-run. [`run_module`] is a
 //! one-shot convenience that builds a throwaway runner.
 
+mod http_proxy;
 mod llm_proxy;
 
+pub use http_proxy::validate_allowed_domain_pattern;
 pub use llm_proxy::register_llm_proxy;
 
 use std::path::PathBuf;
@@ -118,6 +120,10 @@ pub struct RunRequest {
     pub grants: Vec<Grant>,
     /// Exact WASI argument vector exposed to the guest.
     pub args: Vec<String>,
+    /// Hostnames the untrusted guest may reach through the fetch import.
+    /// Empty is fail-closed. Patterns use exact host matching unless prefixed
+    /// by `*.`; ports are intentionally not part of matching.
+    pub allowed_domains: Vec<String>,
     /// Per-run wall-clock and linear-memory ceilings. Callers such as the CLI
     /// may override these without rebuilding the runner.
     pub limits: RunLimits,
@@ -296,6 +302,7 @@ impl SandboxRunner {
         F: FnOnce(&mut Linker<SandboxStoreData>) -> Result<(), wasmtime::Error>,
     {
         let limits = req.limits;
+        let allowed_domains = req.allowed_domains;
         let module = Module::new(&self.inner.engine, &req.module).map_err(SandboxError::Module)?;
 
         let stdout = MemoryOutputPipe::new(OUTPUT_CAPACITY);
@@ -331,6 +338,8 @@ impl SandboxRunner {
         let mut linker: Linker<SandboxStoreData> = Linker::new(&self.inner.engine);
         p1::add_to_linker_sync(&mut linker, |data| &mut data.wasi)
             .map_err(SandboxError::WasiLinker)?;
+        http_proxy::register_http_proxy(&mut linker, allowed_domains)
+            .map_err(SandboxError::HostImports)?;
         register(&mut linker).map_err(SandboxError::HostImports)?;
 
         let mut store = Store::new(

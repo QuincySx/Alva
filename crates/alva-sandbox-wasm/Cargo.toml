@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 alva-llm-wire = { path = "../alva-llm-wire" }
+alva-sandbox-abi = { path = "../alva-sandbox-abi" }
+reqwest = { version = "0.12", features = ["blocking"] }
 serde_json = "1"
 thiserror = "2"
 wasmtime = { version = "46.0.1", default-features = false, features = ["cranelift", "runtime"] }

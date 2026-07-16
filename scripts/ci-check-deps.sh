@@ -39,6 +39,9 @@ check_no_workspace_deps() {
 # Rule 0a: alva-llm-wire has ZERO workspace deps
 check_no_workspace_deps "alva-llm-wire"
 
+# Rule 0b: alva-sandbox-abi has ZERO workspace deps
+check_no_workspace_deps "alva-sandbox-abi"
+
 # Rule 0: alva-kernel-bus has ZERO workspace deps
 check_no_workspace_deps "alva-kernel-bus"
 
@@ -120,6 +123,7 @@ echo "Checking hard SDK → app/host boundary (transitive)..."
 
 SDK_CRATES=(
     alva-llm-wire
+    alva-sandbox-abi
     alva-kernel-abi
     alva-kernel-bus
     alva-kernel-core
@@ -175,6 +179,7 @@ cargo run --quiet -p alva-bus-lint
 
 WASM_CLEAN_CRATES=(
     alva-llm-wire
+    alva-sandbox-abi
     alva-kernel-bus
     alva-kernel-abi
     alva-kernel-core

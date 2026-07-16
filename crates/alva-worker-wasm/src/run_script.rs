@@ -1,6 +1,6 @@
-// INPUT:  rquickjs, WasiFs, alva_kernel_abi Tool contracts, async_trait, serde, serde_json, std::{path, sync, time}
+// INPUT:  rquickjs, WasiFs, crate::http_proxy, alva_{kernel_abi,sandbox_abi} contracts, async_trait, serde, serde_json, std::{path, sync, time}
 // OUTPUT: RunScriptTool
-// POS:    Guest-only QuickJS tool with bounded execution and capability-confined file bindings.
+// POS:    Guest-only QuickJS tool with bounded execution, capability-confined files, and synchronous host-policy fetch.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use alva_agent_extension_builtin::WasiFs;
 use alva_kernel_abi::{AgentError, ExecutionMode, Tool, ToolExecutionContext, ToolOutput};
+use alva_sandbox_abi::{FetchHeader, FetchRequest};
 use async_trait::async_trait;
 use rquickjs::{
     allocator::RustAllocator, CatchResultExt, Coerced, Context, Ctx, Exception, Function, Runtime,
@@ -58,6 +59,24 @@ const BINDING_BOOTSTRAP: &str = r#"
   const globRaw = globalThis.__alvaGlob;
   const copyFileRaw = globalThis.__alvaCopyFile;
   const printRaw = globalThis.__alvaPrint;
+  const fetchRaw = globalThis.__alvaFetch;
+
+  const normalizeHeaders = (headers = {}) => {
+    if (Array.isArray(headers)) {
+      return headers.map((entry) => {
+        if (!Array.isArray(entry) || entry.length !== 2) {
+          throw new TypeError("fetch headers array entries must be [name, value]");
+        }
+        return { name: String(entry[0]), value: String(entry[1]) };
+      });
+    }
+    if (headers === null || typeof headers !== "object") {
+      throw new TypeError("fetch headers must be an object or [name, value][]");
+    }
+    return Object.entries(headers).map(([name, value]) => ({
+      name: String(name), value: String(value)
+    }));
+  };
 
   Object.assign(globalThis, {
     readFile: (path) => readFileRaw(String(path)),
@@ -77,12 +96,30 @@ const BINDING_BOOTSTRAP: &str = r#"
     print: (...values) => printRaw(values.map((value) =>
       typeof value === "string" ? value : JSON.stringify(value)
     ).join(" ")),
+    fetch: (url, init = {}) => {
+      if (init === null || typeof init !== "object") {
+        throw new TypeError("fetch init must be an object");
+      }
+      const raw = fetchRaw(
+        String(init.method === undefined ? "GET" : init.method),
+        String(url),
+        JSON.stringify(normalizeHeaders(init.headers)),
+        String(init.body === undefined || init.body === null ? "" : init.body)
+      );
+      const response = JSON.parse(raw);
+      return Object.freeze({
+        status: response.status,
+        ok: response.status >= 200 && response.status < 300,
+        headers: Object.freeze(response.headers),
+        body: response.body,
+      });
+    },
   });
 
   for (const name of [
     "__alvaReadFile", "__alvaWriteFile", "__alvaAppendFile", "__alvaExists",
     "__alvaRemove", "__alvaRename", "__alvaMkdir", "__alvaReadDir",
-    "__alvaStat", "__alvaGlob", "__alvaCopyFile", "__alvaPrint"
+    "__alvaStat", "__alvaGlob", "__alvaCopyFile", "__alvaPrint", "__alvaFetch"
   ]) delete globalThis[name];
 })();
 "#;
@@ -349,6 +386,42 @@ fn install_bindings<'js>(
         })?,
     )?;
 
+    globals.set(
+        "__alvaFetch",
+        Function::new(
+            ctx.clone(),
+            move |ctx: Ctx<'js>,
+                  method: String,
+                  url: String,
+                  headers_json: String,
+                  body: String| {
+                let headers: Vec<FetchHeader> =
+                    serde_json::from_str(&headers_json).map_err(|error| {
+                        Exception::throw_message(&ctx, &format!("invalid fetch headers: {error}"))
+                    })?;
+                let response = crate::http_proxy::fetch(FetchRequest::new(
+                    method,
+                    url,
+                    headers,
+                    body.into_bytes(),
+                ))
+                .map_err(|error| Exception::throw_message(&ctx, &error))?;
+                let body = String::from_utf8(response.body).map_err(|error| {
+                    Exception::throw_message(
+                        &ctx,
+                        &format!("fetch response body is not valid UTF-8: {error}"),
+                    )
+                })?;
+                serde_json::to_string(&json!({
+                    "status": response.status,
+                    "headers": response.headers,
+                    "body": body,
+                }))
+                .map_err(|error| Exception::throw_message(&ctx, &error.to_string()))
+            },
+        )?,
+    )?;
+
     Ok(())
 }
 
@@ -359,7 +432,7 @@ impl Tool for RunScriptTool {
     }
 
     fn description(&self) -> &str {
-        "Run JavaScript in a bounded QuickJS runtime. No modules, npm, Node APIs, require, or ambient filesystem are available; use the documented file bindings."
+        "Run JavaScript in a bounded QuickJS runtime. No modules, npm, Node APIs, require, or ambient filesystem are available; use the documented file bindings and synchronous host-allowlisted fetch. Fetch failures are catchable JavaScript exceptions."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

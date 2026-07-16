@@ -27,6 +27,7 @@ members = [
     "crates/alva-environment",
     "crates/alva-llm-provider",
     "crates/alva-llm-wire",
+    "crates/alva-sandbox-abi",
     "crates/alva-host-wasm",
     "crates/alva-sandbox-wasm",
     "crates/alva-worker-wasm",

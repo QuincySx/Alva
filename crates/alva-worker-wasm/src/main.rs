@@ -1,6 +1,9 @@
-// INPUT:  WASI args, alva_agent_core, CorePlugin, RunScriptTool, alva_kernel_{abi,core}, alva_llm_wire proxy ABI, futures, serde_json, std, host LLM import
-// OUTPUT: alloc(len) wasm export plus run_script-enabled agent and configurable file/stdout result channel
-// POS:    WASIp1 worker running an SDK agent loop in a host-selected workspace with a versioned blocking LLM proxy.
+// INPUT:  WASI args, alva_agent_core, CorePlugin, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
+// OUTPUT: alloc(len) wasm export plus fetch/run_script-enabled agent and configurable file/stdout result channel
+// POS:    WASIp1 worker running an SDK agent loop with versioned blocking LLM and host-policy HTTP proxies.
+
+#[cfg(target_os = "wasi")]
+mod http_proxy;
 
 #[cfg(target_os = "wasi")]
 mod run_script;
@@ -30,6 +33,8 @@ use alva_llm_wire::{
     message_from_events, LlmProxyRequest, LlmProxyResponse, LLM_PROXY_ABI_VERSION,
     MAX_LLM_PROXY_REQUEST_BYTES, MAX_LLM_PROXY_RESPONSE_BYTES,
 };
+#[cfg(target_os = "wasi")]
+use alva_sandbox_abi::MAX_FETCH_PROXY_RESPONSE_BYTES;
 #[cfg(target_os = "wasi")]
 use async_trait::async_trait;
 #[cfg(target_os = "wasi")]
@@ -61,9 +66,10 @@ fn response_layout(len: usize) -> Layout {
 #[no_mangle]
 pub extern "C" fn alloc(len: i32) -> i32 {
     let len = usize::try_from(len).expect("host requested a negative allocation");
+    let max_response_bytes = MAX_LLM_PROXY_RESPONSE_BYTES.max(MAX_FETCH_PROXY_RESPONSE_BYTES);
     assert!(
-        len <= MAX_LLM_PROXY_RESPONSE_BYTES,
-        "host response exceeds the LLM proxy response size limit"
+        len <= max_response_bytes,
+        "host response exceeds the proxy response size limit"
     );
     if len == 0 {
         return 0;
@@ -142,7 +148,7 @@ impl ProxyModel {
         let req_len = i32::try_from(request.len())
             .map_err(|_| AgentError::Other("LLM proxy request exceeds ptr/len ABI limit".into()))?;
         let packed = unsafe { llm_complete(request.as_ptr() as i32, req_len) } as u64;
-        let response = take_host_response(packed)?;
+        let response = take_host_response(packed, "LLM proxy", MAX_LLM_PROXY_RESPONSE_BYTES)?;
         let response: LlmProxyResponse = serde_json::from_slice(&response)
             .map_err(|error| AgentError::Other(format!("decode LLM proxy response: {error}")))?;
         if !response.has_supported_version() {
@@ -195,23 +201,27 @@ impl LanguageModel for ProxyModel {
 }
 
 #[cfg(target_os = "wasi")]
-fn take_host_response(packed: u64) -> Result<Vec<u8>, AgentError> {
+fn take_host_response(
+    packed: u64,
+    channel: &str,
+    max_response_bytes: usize,
+) -> Result<Vec<u8>, AgentError> {
     let resp_ptr = (packed >> 32) as u32 as usize;
     let resp_len = (packed & u32::MAX as u64) as u32 as usize;
 
     if resp_len == 0 {
-        return Err(AgentError::Other(
-            "host returned an empty LLM proxy response".into(),
-        ));
+        return Err(AgentError::Other(format!(
+            "host returned an empty {channel} response"
+        )));
     }
     if resp_ptr == 0 {
-        return Err(AgentError::Other(
-            "host returned a null pointer for a non-empty response".into(),
-        ));
-    }
-    if resp_len > MAX_LLM_PROXY_RESPONSE_BYTES {
         return Err(AgentError::Other(format!(
-            "LLM proxy response is {resp_len} bytes; limit is {MAX_LLM_PROXY_RESPONSE_BYTES} bytes"
+            "host returned a null pointer for a non-empty {channel} response"
+        )));
+    }
+    if resp_len > max_response_bytes {
+        return Err(AgentError::Other(format!(
+            "{channel} response is {resp_len} bytes; limit is {max_response_bytes} bytes"
         )));
     }
     // SAFETY: the host obtained this allocation from `alloc(resp_len)` and

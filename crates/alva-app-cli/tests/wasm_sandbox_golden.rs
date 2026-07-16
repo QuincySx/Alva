@@ -1,5 +1,5 @@
 // INPUT:  real alva binary, built alva-worker-wasm.wasm sidecar, local recording OpenAI SSE server, tempfile
-// OUTPUT: CLI wasm-tier golden coverage for flags, host-only auth, file-tool loop, JSON output, and optional real provider
+// OUTPUT: CLI wasm-tier golden coverage for file/domain flags, host-only auth, file-tool loop, JSON output, and optional real provider
 // POS:    End-to-end contract proving provider HTTP stays native while the agent/file tools execute in WASIp1.
 
 use assert_cmd::Command;
@@ -262,6 +262,37 @@ fn wasm_tier_without_grant_fails_before_provider_setup() {
         .stderr(predicates::str::contains("requires at least one --grant"));
 }
 
+#[test]
+fn invalid_allow_domain_fails_before_provider_setup() {
+    let (home, workspace) = dirs();
+    alva(&home, &workspace)
+        .args([
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            workspace.path().to_str().unwrap(),
+            "--allow-domain",
+            "https://example.com",
+            "task",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("invalid --allow-domain"));
+}
+
+#[test]
+fn allow_domain_without_wasm_tier_fails_before_provider_setup() {
+    let (home, workspace) = dirs();
+    alva(&home, &workspace)
+        .args(["-p", "--allow-domain", "example.com", "task"])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains(
+            "--allow-domain requires --sandbox wasm",
+        ));
+}
+
 /// Manual-only real provider smoke:
 /// ALVA_TEST_API_KEY=... ALVA_TEST_MODEL=... [ALVA_TEST_BASE_URL=...]
 /// [ALVA_TEST_PROVIDER_KIND=openai-chat] cargo test -p alva-app-cli
@@ -320,6 +351,7 @@ fn worker_wasm() -> &'static Path {
                 .current_dir(workspace)
                 .args([
                     "build",
+                    "--offline",
                     "-p",
                     "alva-worker-wasm",
                     "--target",

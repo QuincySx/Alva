@@ -1,5 +1,5 @@
-// INPUT:  configured LanguageModel, canonical host grant paths, alva_sandbox_wasm runner/proxy, alva_llm_wire DTOs, tokio runtime handle
-// OUTPUT: run(model, grants, task) and resolve_worker_wasm() production sidecar discovery
+// INPUT:  configured LanguageModel, canonical host grants, allowed domains, alva_sandbox_wasm runner/proxy, alva_llm_wire DTOs, tokio runtime handle
+// OUTPUT: run(model, grants, allowed_domains, task) and resolve_worker_wasm() production sidecar discovery
 // POS:    CLI-owned wasm-tier host policy: artifact discovery, guest mounts/args, and true provider streaming behind spawn_blocking.
 
 use std::path::{Path, PathBuf};
@@ -47,6 +47,7 @@ impl Tool for DefinitionOnlyTool {
 pub(crate) async fn run(
     model: Arc<dyn LanguageModel>,
     host_grants: Vec<PathBuf>,
+    allowed_domains: Vec<String>,
     task: String,
 ) -> Result<String, String> {
     let runtime_handle = tokio::runtime::Handle::current();
@@ -90,6 +91,7 @@ pub(crate) async fn run(
                     module,
                     grants,
                     args,
+                    allowed_domains,
                     limits: RunLimits::default(),
                 },
                 move |linker| {
@@ -228,6 +230,7 @@ mod tests {
         let result = run(
             Arc::new(mock),
             vec![workspace.path().canonicalize().unwrap()],
+            Vec::new(),
             "Read a.txt and write its uppercase content to b.txt".into(),
         )
         .await

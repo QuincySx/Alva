@@ -1,9 +1,11 @@
-// INPUT:  std::{fs, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_llm_wire, alva_sandbox_wasm, alva_test, async_trait, futures, serde_json, tempfile, tokio, wasmtime
-// OUTPUT: Integration coverage for runner limits, preopens, LLM proxy, and run_script
-// POS:    Builds WASIp1 guests on demand and verifies host isolation plus guest QuickJS tool behavior.
+// INPUT:  std::{fs, io, net, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_llm_wire, alva_sandbox_wasm, alva_test, async_trait, futures, serde_json, tempfile, tokio, wasmtime
+// OUTPUT: Integration coverage for runner limits, preopens, independent LLM/fetch proxies, domain policy, and run_script
+// POS:    Builds WASIp1 guests on demand and verifies host filesystem/network isolation plus guest QuickJS behavior.
 
 use std::ffi::OsString;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -57,6 +59,7 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
                 module: worker_wasm().to_vec(),
                 grants: vec![Grant::read_write(work.path(), "/work")],
                 args: worker_args(task, "/work/result.txt"),
+                allowed_domains: Vec::new(),
                 limits: RunLimits::default(),
             },
             move |linker| {
@@ -149,6 +152,7 @@ fn empty_completion_round_trips_without_trapping() {
                 module: worker_wasm().to_vec(),
                 grants: vec![Grant::read_write(work.path(), "/work")],
                 args: worker_args("task", "/work/result.txt"),
+                allowed_domains: Vec::new(),
                 limits: RunLimits::default(),
             },
             move |linker| register_llm_proxy(linker, model, headers, tool_names, runtime_handle),
@@ -188,6 +192,7 @@ fn denied_path_error_reaches_model_and_final_reason_reaches_caller() {
                     "Read /outside/secret.txt and report why the task cannot be completed",
                     "/work/result.txt",
                 ),
+                allowed_domains: Vec::new(),
                 limits: RunLimits::default(),
             },
             move |linker| {
@@ -378,6 +383,195 @@ fn run_script_has_neither_require_nor_import() {
     );
 }
 
+#[test]
+fn empty_domain_allowlist_is_catchable_while_llm_proxy_still_works() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": r#"
+                try {
+                  fetch("http://blocked.invalid/data");
+                  "unexpected fetch success";
+                } catch (error) {
+                  `caught: ${String(error)}`;
+                }
+            "#}),
+        ))
+        .with_response(make_assistant_message("LLM channel remained available"));
+    let (outcome, recorded) = run_mock_worker(&work, mock, "test independent channels");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    assert_eq!(
+        recorded.calls().len(),
+        2,
+        "LLM proxy must complete both turns"
+    );
+    let (text, is_error) = first_tool_result(&recorded.calls()[1]);
+    assert!(
+        !is_error,
+        "the script should catch the fetch denial: {text}"
+    );
+    assert!(text.contains("caught:"), "{text}");
+    assert!(text.contains("not in the job domain allowlist"), "{text}");
+}
+
+#[test]
+fn allowed_loopback_domain_fetches_from_local_server() {
+    // See the note in the redirect test: warm the guest build first.
+    let _ = worker_wasm();
+    let Some((url, server)) = start_one_response_server(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nallowed-body",
+    ) else {
+        return;
+    };
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let script =
+        format!(r#"const response = fetch({url:?}); `${{response.status}}:${{response.body}}`;"#);
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": script}),
+        ))
+        .with_response(make_assistant_message("fetch complete"));
+    let (outcome, recorded) = run_mock_worker_with_domains(
+        work.path(),
+        mock,
+        "fetch allowed local URL",
+        vec!["127.0.0.1".to_string()],
+    );
+    server.join().expect("local fetch server completed");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    let (text, is_error) = first_tool_result(&recorded.calls()[1]);
+    assert!(!is_error, "{text}");
+    assert!(text.contains("200:allowed-body"), "{text}");
+}
+
+#[test]
+fn explicit_allowlist_still_rejects_other_domains() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": r#"
+                try { fetch("http://blocked.invalid/data"); "unexpected"; }
+                catch (error) { String(error); }
+            "#}),
+        ))
+        .with_response(make_assistant_message("outside domain rejected"));
+    let (outcome, recorded) = run_mock_worker_with_domains(
+        work.path(),
+        mock,
+        "reject outside domain",
+        vec!["example.com".to_string()],
+    );
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    let (text, is_error) = first_tool_result(&recorded.calls()[1]);
+    assert!(!is_error, "the script should catch the denial: {text}");
+    assert!(text.contains("blocked.invalid"), "{text}");
+    assert!(text.contains("not in the job domain allowlist"), "{text}");
+}
+
+#[test]
+fn redirect_to_unlisted_domain_is_blocked_before_second_hop() {
+    // Build the guest before the server starts: the module carries QuickJS and
+    // takes tens of seconds to compile cold, which would otherwise burn the
+    // server's accept deadline before the guest ever reaches its fetch.
+    let _ = worker_wasm();
+    let Some((url, server)) = start_one_response_server(
+        "HTTP/1.1 302 Found\r\nLocation: http://blocked.invalid/escaped\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    ) else {
+        return;
+    };
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let script =
+        format!(r#"try {{ fetch({url:?}); "unexpected"; }} catch (error) {{ String(error); }}"#);
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "run_script",
+            json!({"script": script}),
+        ))
+        .with_response(make_assistant_message("redirect blocked"));
+    let (outcome, recorded) = run_mock_worker_with_domains(
+        work.path(),
+        mock,
+        "reject redirect allowlist escape",
+        vec!["127.0.0.1".to_string()],
+    );
+    server.join().expect("redirect server completed");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    let (text, is_error) = first_tool_result(&recorded.calls()[1]);
+    assert!(
+        !is_error,
+        "the script should catch the redirect denial: {text}"
+    );
+    assert!(text.contains("blocked.invalid"), "{text}");
+    assert!(text.contains("not in the job domain allowlist"), "{text}");
+}
+
+/// Serves exactly one response on a loopback port, for tests that need the
+/// guest's fetch to reach a real socket.
+///
+/// The deadline has to cover everything between this call and the guest's
+/// fetch: compiling a QuickJS-carrying guest module is tens of seconds on a
+/// cold build. If the server gives up first it drops the listener, and the
+/// guest's fetch then fails with a bare "Connection refused" that looks like a
+/// policy bug rather than an expired harness. Callers should also force the
+/// guest build before starting the server; the generous deadline is the
+/// backstop, not the plan.
+fn start_one_response_server(
+    response: &'static str,
+) -> Option<(String, std::thread::JoinHandle<()>)> {
+    let listener = match TcpListener::bind("127.0.0.1:0") {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!("SKIP: sandbox forbids binding a loopback mock HTTP server: {error}");
+            return None;
+        }
+        Err(error) => panic!("bind local fetch server: {error}"),
+    };
+    listener
+        .set_nonblocking(true)
+        .expect("make local fetch server nonblocking");
+    let url = format!("http://{}/data", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "timed out waiting for guest fetch request"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept guest fetch request: {error}"),
+            }
+        };
+        // The listener is non-blocking so the accept loop can honour the
+        // deadline, and on macOS the accepted stream inherits that flag — a
+        // plain read would then return WouldBlock before the request bytes
+        // arrive. Reads are back to blocking, bounded by a socket timeout.
+        stream
+            .set_nonblocking(false)
+            .expect("make accepted fetch stream blocking");
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .expect("bound the fetch request read");
+        let mut request = [0_u8; 4096];
+        let read = stream.read(&mut request).expect("read guest fetch request");
+        assert!(read > 0, "fetch request must contain headers");
+        stream
+            .write_all(response.as_bytes())
+            .expect("write local fetch response");
+    });
+    Some((url, server))
+}
+
 fn run_mock_worker(
     work: &tempfile::TempDir,
     mock: MockLanguageModel,
@@ -391,6 +585,15 @@ fn run_mock_worker_path(
     mock: MockLanguageModel,
     task: &str,
 ) -> (alva_sandbox_wasm::RunOutcome, MockLanguageModel) {
+    run_mock_worker_with_domains(work, mock, task, Vec::new())
+}
+
+fn run_mock_worker_with_domains(
+    work: &Path,
+    mock: MockLanguageModel,
+    task: &str,
+    allowed_domains: Vec<String>,
+) -> (alva_sandbox_wasm::RunOutcome, MockLanguageModel) {
     let recorded = mock.clone();
     let model: Arc<dyn LanguageModel> = Arc::new(mock);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -403,6 +606,7 @@ fn run_mock_worker_path(
                 module: worker_wasm().to_vec(),
                 grants: vec![Grant::read_write(work, "/work")],
                 args: worker_args(task, "/work/result.txt"),
+                allowed_domains,
                 limits: RunLimits::default(),
             },
             move |linker| {
@@ -535,6 +739,7 @@ fn granted_directory_supports_crud_and_blocks_escape() {
             outside_secret.to_string_lossy().into_owned(),
             "job-arg".into(),
         ],
+        allowed_domains: Vec::new(),
         limits: RunLimits::default(),
     })
     .expect("run fixture module");
@@ -585,6 +790,7 @@ fn wasi_exit_and_stderr_are_returned_as_an_outcome() {
             outside_secret.to_string_lossy().into_owned(),
             "exit-7".into(),
         ],
+        allowed_domains: Vec::new(),
         limits: RunLimits::default(),
     })
     .expect("WASI proc_exit is a process outcome, not a runner failure");
@@ -609,6 +815,7 @@ fn read_only_grant_blocks_mutation() {
         module: fixture_wasm().to_vec(),
         grants: vec![Grant::read_only(granted.clone(), "/work")],
         args: vec![outside_secret.to_string_lossy().into_owned(), "job".into()],
+        allowed_domains: Vec::new(),
         limits: RunLimits::default(),
     });
 
@@ -637,6 +844,7 @@ fn host_epoch_deadline_traps_non_yielding_guest() {
         module: fixture_wasm().to_vec(),
         grants: vec![Grant::read_write(granted, "/work")],
         args: vec!["fixture".into(), "spin".into()],
+        allowed_domains: Vec::new(),
         limits: RunLimits {
             wall_clock: std::time::Duration::from_millis(50),
             max_memory_bytes: 64 * 1024 * 1024,
@@ -657,6 +865,7 @@ fn host_store_limiter_traps_linear_memory_growth() {
         module: fixture_wasm().to_vec(),
         grants: vec![Grant::read_write(granted, "/work")],
         args: vec!["fixture".into(), "grow-memory".into()],
+        allowed_domains: Vec::new(),
         limits: RunLimits {
             wall_clock: std::time::Duration::from_secs(5),
             max_memory_bytes: 8 * 1024 * 1024,

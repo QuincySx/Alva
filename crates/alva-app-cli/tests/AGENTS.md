@@ -20,5 +20,5 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
 | Print golden | `print_mode_golden.rs` | 普通 `-p` contract。 |
-| WASI golden | `wasm_sandbox_golden.rs` | wasm flags、recording HTTP、JSON/file E2E、真 provider smoke。 |
+| WASI golden | `wasm_sandbox_golden.rs` | wasm 文件/域名 flags、recording HTTP、JSON/file E2E、真 provider smoke。 |
 | 其他 golden | `*_golden.rs` | jobs/providers/tools/recursion contract。 |
