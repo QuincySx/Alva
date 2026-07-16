@@ -1,6 +1,6 @@
 // INPUT:  std::{path, string, sync, thread, time}, alva_llm_wire, alva_sandbox_abi, reqwest, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
-// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, AuditEvent, register_llm_proxy, register_job_log_proxy, validate_allowed_domain_pattern, run_module
-// POS:    Native WASIp1 runner boundary enforcing per-call filesystem/network grants, resource limits, and captured results.
+// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, AuditEvent, proxy registrars, translate_guest_cwd, validate_allowed_domain_pattern, run_module
+// POS:    Native WASIp1 runner boundary enforcing per-call filesystem/network grants, escalation mapping, resource limits, and captured results.
 
 //! Host-side runner for WASIp1 command modules.
 //!
@@ -13,11 +13,15 @@
 //! fresh `Store` + WASI context, so isolation is per-run. [`run_module`] is a
 //! one-shot convenience that builds a throwaway runner.
 
+mod escalation_proxy;
 mod http_proxy;
 mod llm_proxy;
 mod log_proxy;
 
-pub use alva_sandbox_abi::AuditEvent;
+pub use alva_sandbox_abi::{
+    AuditEvent, EscalationProxyRequest, EscalationProxyResult, EscalationResponse,
+};
+pub use escalation_proxy::{register_escalation_proxy, translate_guest_cwd};
 pub use http_proxy::validate_allowed_domain_pattern;
 pub use llm_proxy::register_llm_proxy;
 pub use log_proxy::register_job_log_proxy;
@@ -352,6 +356,12 @@ impl SandboxRunner {
             .map_err(SandboxError::HostImports)?;
         log_proxy::register_job_log_proxy(&mut linker, |_event| Ok(()))
             .map_err(SandboxError::HostImports)?;
+        escalation_proxy::register_escalation_proxy(&mut linker, |_request| {
+            Ok(alva_sandbox_abi::EscalationProxyResult::failure(
+                "host escalation is not configured for this run",
+            ))
+        })
+        .map_err(SandboxError::HostImports)?;
         register(&mut linker).map_err(SandboxError::HostImports)?;
 
         let mut store = Store::new(

@@ -1,5 +1,5 @@
 // INPUT:  base64, serde
-// OUTPUT: fetch/log ABI versions and limits, FetchHeader, FetchRequest, FetchResponse, FetchProxyResult, AuditEvent
+// OUTPUT: fetch/escalation/log ABI versions and limits, their request/result DTOs, AuditEvent
 // POS:    Dependency-free versioned JSON contracts shared by untrusted WASIp1 guests and the native sandbox host.
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,96 @@ pub const MAX_FETCH_PROXY_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const LOG_PROXY_ABI_VERSION: u32 = 1;
 /// Maximum serialized audit event crossing from guest to host.
 pub const MAX_LOG_PROXY_REQUEST_BYTES: usize = 64 * 1024;
+/// Version of `alva:host/escalation::execute(req_ptr, req_len)` JSON messages.
+pub const ESCALATION_PROXY_ABI_VERSION: u32 = 1;
+/// Maximum serialized escalation request crossing from guest to host.
+pub const MAX_ESCALATION_PROXY_REQUEST_BYTES: usize = 64 * 1024;
+/// Maximum serialized escalation result allocated in guest linear memory.
+pub const MAX_ESCALATION_PROXY_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// Shell-compatible exit code used when host policy rejects an escalation.
+pub const ESCALATION_REJECTED_EXIT_CODE: i32 = 126;
+
+/// Guest-to-host request for execution outside the WASIp1 worker.
+///
+/// `cwd` is always in the guest namespace. The host must translate it through
+/// the current job's grant table before policy checks or process execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EscalationProxyRequest {
+    pub version: u32,
+    pub command: String,
+    pub cwd: String,
+    pub timeout_ms: u64,
+}
+
+impl EscalationProxyRequest {
+    pub fn new(command: impl Into<String>, cwd: impl Into<String>, timeout_ms: u64) -> Self {
+        Self {
+            version: ESCALATION_PROXY_ABI_VERSION,
+            command: command.into(),
+            cwd: cwd.into(),
+            timeout_ms,
+        }
+    }
+
+    pub fn has_supported_version(&self) -> bool {
+        self.version == ESCALATION_PROXY_ABI_VERSION
+    }
+}
+
+/// Successful host execution result, including non-zero command exits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EscalationResponse {
+    pub version: u32,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+impl EscalationResponse {
+    pub fn new(stdout: impl Into<String>, stderr: impl Into<String>, exit_code: i32) -> Self {
+        Self {
+            version: ESCALATION_PROXY_ABI_VERSION,
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            exit_code,
+        }
+    }
+
+    pub fn has_supported_version(&self) -> bool {
+        self.version == ESCALATION_PROXY_ABI_VERSION
+    }
+}
+
+/// Versioned escalation result envelope. Policy rejection is data rather than
+/// a host trap so the worker can receive the reason and finish gracefully.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EscalationProxyResult {
+    pub version: u32,
+    pub response: Option<EscalationResponse>,
+    pub error: Option<String>,
+}
+
+impl EscalationProxyResult {
+    pub fn success(response: EscalationResponse) -> Self {
+        Self {
+            version: ESCALATION_PROXY_ABI_VERSION,
+            response: Some(response),
+            error: None,
+        }
+    }
+
+    pub fn failure(error: impl Into<String>) -> Self {
+        Self {
+            version: ESCALATION_PROXY_ABI_VERSION,
+            response: None,
+            error: Some(error.into()),
+        }
+    }
+
+    pub fn has_supported_version(&self) -> bool {
+        self.version == ESCALATION_PROXY_ABI_VERSION
+    }
+}
 
 /// Guest-reported audit event. The host owns timestamps and persistence; the
 /// open `kind` string reserves the same envelope for future elevation events.
@@ -184,6 +274,40 @@ mod tests {
         assert!(result.has_supported_version());
         assert_eq!(result.response, Some(response));
         assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn escalation_messages_carry_version_and_unambiguous_envelopes() {
+        let request = EscalationProxyRequest::new("cargo test --offline", "/workspace", 120_000);
+        let response = EscalationResponse::new("ok", "", 0);
+        let success = EscalationProxyResult::success(response.clone());
+        let rejected = EscalationProxyResult::failure("headless Ask rejected once");
+
+        assert!(request.has_supported_version());
+        assert!(response.has_supported_version());
+        assert!(success.has_supported_version());
+        assert_eq!(success.response, Some(response));
+        assert!(success.error.is_none());
+        assert!(rejected.response.is_none());
+        assert_eq!(
+            rejected.error.as_deref(),
+            Some("headless Ask rejected once")
+        );
+    }
+
+    #[test]
+    fn escalation_wire_contains_guest_cwd_but_no_host_policy() {
+        let value = serde_json::to_value(EscalationProxyRequest::new(
+            "cargo test",
+            "/workspace",
+            120_000,
+        ))
+        .unwrap();
+        assert_eq!(value.as_object().unwrap().len(), 4);
+        assert_eq!(value["cwd"], "/workspace");
+        assert!(value.get("host_cwd").is_none());
+        assert!(value.get("permission_mode").is_none());
+        assert!(value.get("approved").is_none());
     }
 
     #[test]

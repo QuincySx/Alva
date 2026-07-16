@@ -11,18 +11,19 @@
 1. 调用者把 wasm 模块字节、guest 参数、宿主目录授权映射和 `RunLimits` 交给 `run_module` / `SandboxRunner`。
 2. runner 为本次调用新建 WASIp1 context、store 与 linker，以读写权限 preopen 每个授权目录；调用方可在实例化前为该 linker 注册同步 host imports。
 3. `register_llm_proxy` 统一处理 guest memory、ABI version、4 MiB request / 16 MiB response 限额和 packed ptr/len；调用方只提供同步 DTO callback。
-4. `register_job_log_proxy` 校验 guest audit event 的 memory range、ABI version 与 64 KiB 上限；调用方持有落盘路径和持久化策略。
-5. runner 自动注册 `alva:host/http::fetch`，从本次 `RunRequest` 取得域名白名单；reqwest 自动重定向关闭，每一跳在发包前重新授权。
-6. runner 用 epoch interruption 执行墙钟截止，并用 Store limiter 限制线性内存；两者都是每次调用独立配置。
-7. guest 的 stdout/stderr 写入内存管道；正常返回与 WASI `proc_exit` 都转换为 `RunOutcome`，其余 trap 返回 `SandboxError`。
-8. 集成测试按需把独立 fixture crate 编译到 `wasm32-wasip1`，只从公共 runner 边界观察输出及宿主文件/网络策略效果。
+4. `register_escalation_proxy` 校验版本/限额并桥接可恢复结果；`translate_guest_cwd` 仅接受绝对 guest path，按最长 guest mount 匹配 `RunRequest.grants`，canonicalize host root/cwd 后再次验证 containment，阻断 `..` 与 symlink 越狱。
+5. `register_job_log_proxy` 校验 guest audit event 的 memory range、ABI version 与 64 KiB 上限；调用方持有落盘路径和持久化策略。
+6. runner 自动注册 `alva:host/http::fetch`，从本次 `RunRequest` 取得域名白名单；reqwest 自动重定向关闭，每一跳在发包前重新授权。
+7. runner 用 epoch interruption 执行墙钟截止，并用 Store limiter 限制线性内存；两者都是每次调用独立配置。
+8. guest 的 stdout/stderr 写入内存管道；正常返回与 WASI `proc_exit` 都转换为 `RunOutcome`，其余 trap 返回 `SandboxError`。
+9. 集成测试按需把独立 fixture crate 编译到 `wasm32-wasip1`，只从公共 runner 边界观察输出及宿主文件/网络/升级策略效果。
 
 ## 约束
 
 - production runner 不使用 static、进程级缓存或跨调用共享状态；授权随 `RunRequest` 生灭。
 - 不继承宿主 stdio、环境、网络或文件系统；只有显式文件 `Grant`、域名白名单和 caller import 形成能力。
 - 本 crate 是 native-only wasmtime 宿主，不得加入 `scripts/ci-check-deps.sh` 的 `WASM_CLEAN_CRATES`。
-- runner 不依赖 kernel、agent、app 或 host crate；仅依赖 L0 `alva-llm-wire` / `alva-sandbox-abi` 共享 ABI，LLM provider/credential 由调用方 callback 接线，fetch 网络策略由 runner 强制执行。
+- runner 不依赖 kernel、agent、app 或 host crate；仅依赖 L0 `alva-llm-wire` / `alva-sandbox-abi` 共享 ABI，LLM provider/credential、升级审批/执行由调用方 callback 接线，fetch 网络策略由 runner 强制执行。
 
 ## Public Surface
 
@@ -37,6 +38,8 @@
 - `SandboxRunner::run_with_imports`：在 fresh linker 上注册 per-run 同步 host imports 后执行模块。
 - `register_llm_proxy`：版本化、限额化的 blocking LLM ptr/len import；接受 provider-free 同步 DTO callback。
 - `register_job_log_proxy`：版本化、限额化的单向 audit event import；接受 persistence-free 同步 callback。
+- `register_escalation_proxy`：版本化、限额化的升级请求/结果 memory bridge；接受 policy-free 同步 callback。
+- `translate_guest_cwd`：按本次 grants 把绝对 guest cwd 安全翻译成 canonical host directory，拒绝未授权路径与 symlink escape。
 - `run_module`：一次性同步 WASIp1 模块 runner（内部新建一次性 `SandboxRunner`）。
 
 ## Dependency Policy
@@ -51,6 +54,7 @@
 |------|-------------|------|
 | runner 公共边界 | `src/lib.rs` | 配置 WASIp1、preopen 授权、per-run host imports、执行 `_start` 并捕获结果。 |
 | LLM proxy 内存桥 | `src/llm_proxy.rs` | 校验共享 ABI/限额，安全读取 guest request 并分配/写回 response。 |
+| Escalation proxy/路径桥 | `src/escalation_proxy.rs` | 校验双向升级 ABI/限额并安全翻译 guest cwd 到 host grant。 |
 | Log proxy 内存桥 | `src/log_proxy.rs` | 校验单向 audit event ABI/限额并交给 caller callback。 |
 | HTTP proxy/策略 | `src/http_proxy.rs` | fetch 内存桥、域名规则、手动逐跳重定向与有界 reqwest 执行。 |
 | 缝 2 集成测试 | `tests/runner.rs` | 用真 wasmtime 断言 CRUD/越狱、limits、LLM/fetch 双通道与 QuickJS agent 循环。 |

@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 alva-app-core = { path = "../alva-app-core" }
+alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin" }
 alva-app-extension-loader = { path = "../alva-app-extension-loader" }
 alva-protocol-skill = { path = "../alva-protocol-skill" }
 include_dir = "0.7"

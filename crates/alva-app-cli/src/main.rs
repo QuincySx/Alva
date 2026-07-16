@@ -259,6 +259,13 @@ async fn run() -> i32 {
     }
 
     if let Some(wasm_config) = wasm_config {
+        let permission_mode = match parse_permission_mode(&argv) {
+            Ok(mode) => mode.unwrap_or_default(),
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return 1;
+            }
+        };
         let invocation = match parse_wasm_print_invocation(&argv) {
             Ok(invocation) => invocation,
             Err(error) => {
@@ -272,6 +279,7 @@ async fn run() -> i32 {
             model,
             wasm_config.grants,
             wasm_config.allowed_domains,
+            permission_mode,
             invocation.prompt,
         )
         .await;
@@ -776,9 +784,9 @@ fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, S
                 }
                 index += 2;
             }
+            "--permission-mode" => index += 2,
             "--resume"
             | "--allowed-tools"
-            | "--permission-mode"
             | "--system-prompt"
             | "--max-turns"
             | "--dangerously-allow-unsandboxed" => {
@@ -846,7 +854,8 @@ FLAGS:
                                   active profile. ALVA_* env vars still override
                                   individual fields on top.
     --sandbox <wasm>              -p: run the agent loop inside the WASIp1 worker.
-                                  Currently `wasm` is the only legal tier.
+                                  Currently `wasm` is the only legal tier. Host
+                                  escalation obeys --permission-mode.
     --grant <DIR>                 -p --sandbox wasm: grant one existing directory
                                   read/write access. Repeat for additional dirs;
                                   at least one grant is required. Wasm runs are
@@ -887,6 +896,7 @@ RECURSION:
 EXAMPLES:
     alva -p \"summarize README.md\"
     alva -p --permission-mode accept-shell \"run the test suite and report failures\"
+    alva -p --sandbox wasm --grant . --permission-mode accept-shell \"fix and test\"
     alva -p --permission-mode bypass \"format the repo\"        # CI / sandbox only
 "
     .to_string()
@@ -1147,5 +1157,23 @@ mod tests {
     #[test]
     fn permission_mode_missing_value_is_error() {
         assert!(parse_permission_mode(&argv(&["alva", "--permission-mode"])).is_err());
+    }
+
+    #[test]
+    fn wasm_prompt_parser_consumes_permission_mode_for_host_escalation() {
+        let grant = tempfile::tempdir().unwrap();
+        let invocation = parse_wasm_print_invocation(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            grant.path().to_str().unwrap(),
+            "--permission-mode",
+            "accept-shell",
+            "run tests",
+        ]))
+        .unwrap();
+        assert_eq!(invocation.prompt, "run tests");
     }
 }

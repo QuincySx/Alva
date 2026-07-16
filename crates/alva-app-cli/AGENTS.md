@@ -10,13 +10,16 @@
 1. `main.rs` 解析 subcommand/flag，装配 provider 与普通 BaseAgent 路径。
 2. `-p --sandbox wasm` 提前验证授权目录与 `--allow-domain`，只构造宿主 provider，不构造 native agent。
 3. wasm host policy 在 blocking 线程执行 runner，域名白名单进入每次 `RunRequest`，LLM import callback 回到原 Tokio handle 调模型。
-4. jobs 子进程由宿主持有 `tools.jsonl` 路径：native middleware 与 wasm 的有界 log import 实时追加同一格式；job 目录不进入 guest args/env/preopen。
-5. TUI/REPL、session、jobs/providers/tools 子命令保持原路径。
+4. wasm escalation handler 持有 PermissionMode + SecurityGuard：先按 grants 把 guest cwd 翻译成 canonical host cwd，再走 BashClassifier/HITL 决策；批准后复用 `NativeEscalationExecutor`，拒绝作为结果返回 guest。
+5. wasm 仅支持 headless `-p`，因此 Ask/AcceptEdits 产生的 HITL 请求固定 `RejectOnce` 并给 worker 明确原因；AcceptShell 自动放行 ReadOnly/Unknown、拒绝 Destructive，Bypass 跳过分类器但不跳过 cwd grant 翻译。
+6. jobs 子进程由宿主持有 `tools.jsonl` 路径：native middleware、wasm log import 与 host `escalation_request`/`escalation_result` 实时追加同一格式；job 目录不进入 guest args/env/preopen。
+7. TUI/REPL、session、jobs/providers/tools 子命令保持原路径。
 
 ## 约束
 
 - API key 只保留在宿主 provider，不得写入 module bytes、WASI args/env/preopen 或结果。
 - wasm runner 同步调用必须放入 `spawn_blocking`。
+- host escalation 的路径授权必须先于 PermissionMode 检查，且只能使用当前 `RunRequest.grants`；即使 Bypass 也不能接受 guest 提供的 host path。
 - worker 生产物按 sidecar 交付；开发期允许 target fallback 或 `ALVA_WORKER_WASM`。
 
 ## 业务域清单
@@ -24,4 +27,4 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
 | CLI 源码 | `src/` | 主入口、agent 装配、UI/subcommand 与 wasm host policy。 |
-| golden 测试 | `tests/` | 真实二进制 argv/config/stdout/stderr 与 wasm E2E 契约。 |
+| golden 测试 | `tests/` | 真实二进制 argv/config/stdout/stderr 与 wasm E2E 契约；核心升级测试在 `src/wasm_sandbox.rs` 内以 mock model + 真 Wasmtime、无网络运行。 |

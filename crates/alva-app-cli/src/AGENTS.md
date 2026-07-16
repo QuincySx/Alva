@@ -7,12 +7,13 @@
 
 ## 逻辑
 
-`main.rs` 是参数和模式总路由；`agent_setup.rs` 负责普通 native agent；`wasm_sandbox.rs` 负责 worker sidecar、preopen 映射与 host proxy callbacks；`job_log.rs` 让 native middleware 与 wasm log import 共用宿主 JSONL 审计格式；其余模块承载 UI、session 与子命令。
+`main.rs` 是参数和模式总路由；`agent_setup.rs` 负责普通 native agent；`wasm_sandbox.rs` 负责 worker sidecar、preopen 映射、host proxy callbacks 及 escalation 的 cwd 翻译/审批/执行；`job_log.rs` 让 native middleware、wasm log import 与 host escalation 共用宿主 JSONL 审计格式；其余模块承载 UI、session 与子命令。
 
 ## 约束
 
 - `--sandbox` / `--grant` / `--allow-domain` 非法值必须在 provider setup 前失败。
 - wasm 路径不得构造 native BaseAgent 或让 key 进入 guest surface。
+- wasm escalation 必须在宿主用当前 grants 翻译 guest cwd 后再审批；Ask 在 headless 下 RejectOnce，不能伪造交互等待通道。
 - 新增/修改旗标必须同步 `usage_text()` 与 golden 测试。
 
 ## 业务域清单
@@ -21,7 +22,7 @@
 |------|-------------|------|
 | 顶层入口 | `main.rs` | 模式/flag/config 分流与最终输出。 |
 | Native agent | `agent_setup.rs` | BaseAgent/plugin/provider 装配。 |
-| WASIp1 host | `wasm_sandbox.rs` | sidecar 发现、spawn_blocking runner、job 域名授权与真 provider proxy。 |
-| Job 工具日志 | `job_log.rs` | 宿主追加 `tools.jsonl`；native middleware 与 wasm log import 共用格式并按 call id 去重。 |
+| WASIp1 host | `wasm_sandbox.rs` | sidecar 发现、spawn_blocking runner、job 域名授权、真 provider proxy 与 host escalation policy/execution。 |
+| Job 工具日志 | `job_log.rs` | 宿主追加 `tools.jsonl`；native/wasm tool call 与成对 escalation request/result 共用格式并按 kind+call id 去重。 |
 | 终端交互 | `ui/`, `repl.rs` | TUI 与 legacy REPL。 |
 | 子命令/服务 | `commands/`, `*_cmd.rs`, `services/` | 命令解析及后台能力。 |

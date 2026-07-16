@@ -1,6 +1,9 @@
-// INPUT:  WASI args, alva_agent_core, CorePlugin, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
-// OUTPUT: alloc(len) wasm export plus fetch/run_script/log-enabled agent and configurable file/stdout result channel
-// POS:    WASIp1 worker running an SDK agent loop with versioned blocking LLM/HTTP proxies and guest-to-host audit events.
+// INPUT:  WASI args, alva_agent_core, CorePlugin, RequestEscalationTool, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
+// OUTPUT: alloc(len) wasm export plus fetch/escalation/run_script/log-enabled agent and configurable file/stdout result channel
+// POS:    WASIp1 worker running an SDK agent loop with versioned blocking LLM/HTTP/escalation proxies and guest-to-host audit events.
+
+#[cfg(target_os = "wasi")]
+mod escalation_proxy;
 
 #[cfg(target_os = "wasi")]
 mod http_proxy;
@@ -23,6 +26,8 @@ use std::{env, fs, io, process, slice};
 #[cfg(target_os = "wasi")]
 use alva_agent_core::Agent;
 #[cfg(target_os = "wasi")]
+use alva_agent_extension_builtin::request_escalation::RequestEscalationTool;
+#[cfg(target_os = "wasi")]
 use alva_agent_extension_builtin::wrappers::CorePlugin;
 #[cfg(target_os = "wasi")]
 use alva_kernel_abi::{
@@ -37,7 +42,7 @@ use alva_llm_wire::{
     MAX_LLM_PROXY_REQUEST_BYTES, MAX_LLM_PROXY_RESPONSE_BYTES,
 };
 #[cfg(target_os = "wasi")]
-use alva_sandbox_abi::MAX_FETCH_PROXY_RESPONSE_BYTES;
+use alva_sandbox_abi::{MAX_ESCALATION_PROXY_RESPONSE_BYTES, MAX_FETCH_PROXY_RESPONSE_BYTES};
 #[cfg(target_os = "wasi")]
 use async_trait::async_trait;
 #[cfg(target_os = "wasi")]
@@ -69,7 +74,9 @@ fn response_layout(len: usize) -> Layout {
 #[no_mangle]
 pub extern "C" fn alloc(len: i32) -> i32 {
     let len = usize::try_from(len).expect("host requested a negative allocation");
-    let max_response_bytes = MAX_LLM_PROXY_RESPONSE_BYTES.max(MAX_FETCH_PROXY_RESPONSE_BYTES);
+    let max_response_bytes = MAX_LLM_PROXY_RESPONSE_BYTES
+        .max(MAX_FETCH_PROXY_RESPONSE_BYTES)
+        .max(MAX_ESCALATION_PROXY_RESPONSE_BYTES);
     assert!(
         len <= max_response_bytes,
         "host response exceeds the proxy response size limit"
@@ -273,7 +280,7 @@ async fn run_worker(
         .collect::<Vec<_>>()
         .join(", ");
     let system_prompt = format!(
-        "Complete the user's task using the available file tools. Relative paths are rooted in {workspace}. The only host directories available through WASI are: {grant_description}. If access is denied, report the concrete failure instead of claiming success."
+        "Complete the user's task using the available file tools. Relative paths are rooted in {workspace}. The only host directories available through WASI are: {grant_description}. Use request_escalation when a test, build, or other command must run on the host; its cwd is a guest path rooted in {workspace}. Host policy may reject it, in which case use the exact reason to recover or report the limitation. If access is denied, report the concrete failure instead of claiming success."
     );
     let agent = Agent::builder()
         .model(Arc::new(ProxyModel))
@@ -281,6 +288,9 @@ async fn run_worker(
         .system_prompt(&system_prompt)
         .plugin(Box::new(CorePlugin))
         .middleware(Arc::new(job_log::AuditLogMiddleware))
+        .tool(Box::new(RequestEscalationTool::new(Arc::new(
+            escalation_proxy::HostImportEscalationExecutor,
+        ))))
         .tool(Box::new(
             run_script::RunScriptTool::new(&workspace).with_limits(script_limits),
         ))

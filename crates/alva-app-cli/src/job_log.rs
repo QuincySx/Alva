@@ -1,4 +1,4 @@
-// INPUT:  job-owned host path, guest AuditEvent, kernel middleware tool hooks, chrono, serde_json
+// INPUT:  job-owned host path, guest AuditEvent, escalation results, kernel middleware tool hooks, chrono, serde_json
 // OUTPUT: JobToolLogger, JobToolLogMiddleware, JOB_TOOLS_LOG_ENV, JOB_TOOLS_LOG_FILE
 // POS:    CLI host-side JSONL audit sink shared by native middleware and versioned WASIp1 guest events.
 
@@ -6,11 +6,12 @@ use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use alva_kernel_abi::{ToolCall, ToolContent, ToolOutput};
 use alva_kernel_core::{AgentState, Middleware, MiddlewareError, MiddlewarePriority};
-use alva_sandbox_wasm::AuditEvent;
+use alva_sandbox_wasm::{AuditEvent, EscalationProxyResult};
 use async_trait::async_trait;
 use serde::Serialize;
 
@@ -28,12 +29,12 @@ struct ToolLogEntry<'a> {
     result_summary: String,
 }
 
-/// Host-owned append-only logger. The `kind` discriminator deliberately
-/// leaves room for future elevation-request/elevation-decision entries once
-/// that channel exists; Ticket 11 records only completed tool calls.
+/// Host-owned append-only logger. The open `kind` discriminator records both
+/// completed tool calls and correlated escalation request/result entries.
 pub(crate) struct JobToolLogger {
     path: PathBuf,
     seen_tool_calls: Mutex<HashSet<String>>,
+    next_escalation_id: AtomicU64,
 }
 
 impl JobToolLogger {
@@ -42,15 +43,17 @@ impl JobToolLogger {
             Arc::new(Self {
                 path: PathBuf::from(path),
                 seen_tool_calls: Mutex::new(HashSet::new()),
+                next_escalation_id: AtomicU64::new(0),
             })
         })
     }
 
     #[cfg(test)]
-    fn new(path: PathBuf) -> Arc<Self> {
+    pub(crate) fn new(path: PathBuf) -> Arc<Self> {
         Arc::new(Self {
             path,
             seen_tool_calls: Mutex::new(HashSet::new()),
+            next_escalation_id: AtomicU64::new(0),
         })
     }
 
@@ -70,6 +73,54 @@ impl JobToolLogger {
             &event.tool_name,
             event.is_error,
             event.result_summary,
+        )
+    }
+
+    pub(crate) fn next_escalation_id(&self) -> String {
+        format!(
+            "escalation-{}",
+            self.next_escalation_id.fetch_add(1, Ordering::Relaxed)
+        )
+    }
+
+    pub(crate) fn record_escalation_request(
+        &self,
+        escalation_id: &str,
+        command: &str,
+        guest_cwd: &str,
+        timeout_ms: u64,
+    ) -> std::io::Result<()> {
+        self.record_summary(
+            "escalation_request",
+            escalation_id,
+            "request_escalation",
+            false,
+            format!("command={command:?} guest_cwd={guest_cwd:?} timeout_ms={timeout_ms}"),
+        )
+    }
+
+    pub(crate) fn record_escalation_result(
+        &self,
+        escalation_id: &str,
+        result: &EscalationProxyResult,
+    ) -> std::io::Result<()> {
+        let (is_error, summary) = match (&result.response, &result.error) {
+            (Some(response), None) => (
+                response.exit_code != 0,
+                format!(
+                    "exit_code={} stdout={:?} stderr={:?}",
+                    response.exit_code, response.stdout, response.stderr
+                ),
+            ),
+            (None, Some(error)) => (true, format!("rejected_or_failed={error:?}")),
+            _ => (true, "invalid escalation result envelope".to_string()),
+        };
+        self.record_summary(
+            "escalation_result",
+            escalation_id,
+            "request_escalation",
+            is_error,
+            summary,
         )
     }
 
@@ -111,7 +162,7 @@ impl JobToolLogger {
             tool_call_id,
             tool_name,
             is_error,
-            result_summary,
+            result_summary: summarize_text(&result_summary),
         };
         let write_result = (|| {
             let mut file = OpenOptions::new()
@@ -135,6 +186,10 @@ fn summarize(content: &[ToolContent]) -> String {
         .map(ToolContent::to_model_string)
         .collect::<Vec<_>>()
         .join("\n");
+    summarize_text(&raw)
+}
+
+fn summarize_text(raw: &str) -> String {
     let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut chars = collapsed.chars();
     let summary = chars
@@ -228,5 +283,44 @@ mod tests {
         let entry: serde_json::Value = serde_json::from_str(entries[0]).unwrap();
         assert_eq!(entry["tool_name"], "create_file");
         assert_eq!(entry["result_summary"], "created b.txt");
+    }
+
+    #[test]
+    fn escalation_request_and_output_use_correlated_extensible_kinds() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(JOB_TOOLS_LOG_FILE);
+        let logger = JobToolLogger::new(path.clone());
+        let id = logger.next_escalation_id();
+        logger
+            .record_escalation_request(&id, "cargo test --offline", "/workspace", 120_000)
+            .unwrap();
+        logger
+            .record_escalation_result(
+                &id,
+                &EscalationProxyResult::success(alva_sandbox_wasm::EscalationResponse::new(
+                    "2 passed",
+                    "warning: example",
+                    0,
+                )),
+            )
+            .unwrap();
+
+        let entries = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["kind"], "escalation_request");
+        assert_eq!(entries[1]["kind"], "escalation_result");
+        assert_eq!(entries[0]["tool_call_id"], entries[1]["tool_call_id"]);
+        assert!(entries[0]["result_summary"]
+            .as_str()
+            .unwrap()
+            .contains("cargo test --offline"));
+        assert!(entries[1]["result_summary"]
+            .as_str()
+            .unwrap()
+            .contains("2 passed"));
     }
 }
