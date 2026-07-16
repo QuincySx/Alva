@@ -15,7 +15,7 @@ use alva_kernel_abi::{
 };
 use alva_llm_wire::{LlmProxyRequest, LlmProxyResponse, ToolDefinition};
 use alva_sandbox_wasm::{
-    run_module, Grant, RunLimits, RunRequest, SandboxRunner, SandboxStoreData,
+    run_module, AuditEvent, Grant, RunLimits, RunRequest, SandboxRunner, SandboxStoreData,
 };
 use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
@@ -30,6 +30,59 @@ static WORKER_RUNNER: OnceLock<SandboxRunner> = OnceLock::new();
 
 const HOST_MARKER: &str = "SECRET-KEY-abc";
 const FINAL_RESPONSE: &str = "sandboxed agent finished";
+
+/// A host that registers only the LLM proxy must still be able to instantiate
+/// the guest. The guest declares its host imports unconditionally, so anything
+/// it needs but the caller does not care about — audit logging today — has to
+/// have a default in the runner; otherwise forgetting one is an "unknown
+/// import" trap that only fires at run time.
+#[test]
+fn guest_instantiates_without_the_caller_registering_the_audit_log() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let model: Arc<dyn LanguageModel> =
+        Arc::new(MockLanguageModel::new().with_response(make_assistant_message(FINAL_RESPONSE)));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("build one host proxy runtime");
+    let runtime_handle = runtime.handle().clone();
+
+    let outcome = SandboxRunner::new()
+        .run_with_imports(
+            RunRequest {
+                module: worker_wasm().to_vec(),
+                grants: vec![Grant::read_write(work.path(), "/work")],
+                args: worker_args("no audit log wired", "/work/result.txt"),
+                allowed_domains: Vec::new(),
+                limits: RunLimits::default(),
+            },
+            // Deliberately only the LLM proxy: no audit log, no shadowing.
+            move |linker| {
+                alva_sandbox_wasm::register_llm_proxy(linker, move |request: LlmProxyRequest| {
+                    let handle = runtime_handle.clone();
+                    let model = Arc::clone(&model);
+                    let events = handle.block_on(async move {
+                        let tools: Vec<ToolDefinition> = request.tools.clone();
+                        let tool_refs: Vec<Box<dyn Tool>> = tools
+                            .into_iter()
+                            .map(|definition| {
+                                Box::new(DefinitionOnlyTool(definition)) as Box<dyn Tool>
+                            })
+                            .collect();
+                        let borrowed: Vec<&dyn Tool> =
+                            tool_refs.iter().map(|tool| tool.as_ref()).collect();
+                        model
+                            .stream(&request.messages, &borrowed, &request.config)
+                            .collect::<Vec<_>>()
+                            .await
+                    });
+                    Ok(LlmProxyResponse::new(events))
+                })
+            },
+        )
+        .expect("the runner defaults the audit-log import the guest always declares");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+}
 
 #[test]
 fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
@@ -48,6 +101,8 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
     let recorded_headers = Arc::clone(&authorization_headers);
     let proxied_tool_names = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
     let recorded_tool_names = Arc::clone(&proxied_tool_names);
+    let audit_events = Arc::new(Mutex::new(Vec::<AuditEvent>::new()));
+    let recorded_audit_events = Arc::clone(&audit_events);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build one host proxy runtime");
@@ -68,6 +123,7 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
                     model,
                     authorization_headers,
                     proxied_tool_names,
+                    audit_events,
                     runtime_handle,
                 )
             },
@@ -86,6 +142,11 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
         "created inside WASI",
         "the create_file tool must execute inside the guest's preopen"
     );
+    let audit_events = recorded_audit_events.lock().expect("audit event lock");
+    assert_eq!(audit_events.len(), 1);
+    assert_eq!(audit_events[0].kind, "tool_call");
+    assert_eq!(audit_events[0].tool_name, "create_file");
+    assert!(!audit_events[0].is_error);
 
     let calls = recorded_mock.calls();
     assert_eq!(calls.len(), 2, "the agent must make two model turns");
@@ -155,7 +216,16 @@ fn empty_completion_round_trips_without_trapping() {
                 allowed_domains: Vec::new(),
                 limits: RunLimits::default(),
             },
-            move |linker| register_llm_proxy(linker, model, headers, tool_names, runtime_handle),
+            move |linker| {
+                register_llm_proxy(
+                    linker,
+                    model,
+                    headers,
+                    tool_names,
+                    Arc::new(Mutex::new(Vec::new())),
+                    runtime_handle,
+                )
+            },
         )
         .expect("an empty completion is an outcome, not a runner failure");
 
@@ -199,6 +269,7 @@ fn denied_path_error_reaches_model_and_final_reason_reaches_caller() {
                 register_llm_proxy(
                     linker,
                     model,
+                    Arc::new(Mutex::new(Vec::new())),
                     Arc::new(Mutex::new(Vec::new())),
                     Arc::new(Mutex::new(Vec::new())),
                     runtime_handle,
@@ -434,7 +505,7 @@ fn allowed_loopback_domain_fetches_from_local_server() {
             json!({"script": script}),
         ))
         .with_response(make_assistant_message("fetch complete"));
-    let (outcome, recorded) = run_mock_worker_with_domains(
+    let (outcome, recorded, audit_events) = run_mock_worker_with_domains_and_audit(
         work.path(),
         mock,
         "fetch allowed local URL",
@@ -446,6 +517,15 @@ fn allowed_loopback_domain_fetches_from_local_server() {
     let (text, is_error) = first_tool_result(&recorded.calls()[1]);
     assert!(!is_error, "{text}");
     assert!(text.contains("200:allowed-body"), "{text}");
+    let audit_events = audit_events.lock().expect("audit event lock");
+    assert_eq!(
+        audit_events
+            .iter()
+            .map(|event| event.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        ["fetch", "run_script"]
+    );
+    assert!(audit_events[0].result_summary.contains("HTTP 200"));
 }
 
 #[test]
@@ -460,7 +540,7 @@ fn explicit_allowlist_still_rejects_other_domains() {
             "#}),
         ))
         .with_response(make_assistant_message("outside domain rejected"));
-    let (outcome, recorded) = run_mock_worker_with_domains(
+    let (outcome, recorded, audit_events) = run_mock_worker_with_domains_and_audit(
         work.path(),
         mock,
         "reject outside domain",
@@ -472,6 +552,18 @@ fn explicit_allowlist_still_rejects_other_domains() {
     assert!(!is_error, "the script should catch the denial: {text}");
     assert!(text.contains("blocked.invalid"), "{text}");
     assert!(text.contains("not in the job domain allowlist"), "{text}");
+    let audit_events = audit_events.lock().expect("audit event lock");
+    assert_eq!(
+        audit_events
+            .iter()
+            .map(|event| event.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        ["fetch", "run_script"]
+    );
+    assert!(audit_events[0].is_error);
+    assert!(audit_events[0]
+        .result_summary
+        .contains("not in the job domain allowlist"));
 }
 
 #[test]
@@ -594,7 +686,24 @@ fn run_mock_worker_with_domains(
     task: &str,
     allowed_domains: Vec<String>,
 ) -> (alva_sandbox_wasm::RunOutcome, MockLanguageModel) {
+    let (outcome, recorded, _) =
+        run_mock_worker_with_domains_and_audit(work, mock, task, allowed_domains);
+    (outcome, recorded)
+}
+
+fn run_mock_worker_with_domains_and_audit(
+    work: &Path,
+    mock: MockLanguageModel,
+    task: &str,
+    allowed_domains: Vec<String>,
+) -> (
+    alva_sandbox_wasm::RunOutcome,
+    MockLanguageModel,
+    Arc<Mutex<Vec<AuditEvent>>>,
+) {
     let recorded = mock.clone();
+    let audit_events = Arc::new(Mutex::new(Vec::new()));
+    let proxy_audit_events = Arc::clone(&audit_events);
     let model: Arc<dyn LanguageModel> = Arc::new(mock);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -615,12 +724,13 @@ fn run_mock_worker_with_domains(
                     model,
                     Arc::new(Mutex::new(Vec::new())),
                     Arc::new(Mutex::new(Vec::new())),
+                    proxy_audit_events,
                     runtime_handle,
                 )
             },
         )
         .expect("run worker with mocked host model");
-    (outcome, recorded)
+    (outcome, recorded, audit_events)
 }
 
 fn first_tool_result(messages: &[alva_kernel_abi::Message]) -> (String, bool) {
@@ -674,8 +784,13 @@ fn register_llm_proxy(
     model: Arc<dyn LanguageModel>,
     authorization_headers: Arc<Mutex<Vec<String>>>,
     proxied_tool_names: Arc<Mutex<Vec<Vec<String>>>>,
+    audit_events: Arc<Mutex<Vec<AuditEvent>>>,
     runtime_handle: tokio::runtime::Handle,
 ) -> Result<(), wasmtime::Error> {
+    alva_sandbox_wasm::register_job_log_proxy(linker, move |event| {
+        audit_events.lock().expect("audit event lock").push(event);
+        Ok(())
+    })?;
     alva_sandbox_wasm::register_llm_proxy(linker, move |request: LlmProxyRequest| {
         // This is the host-only credential seam: the marker is consumed
         // while preparing the provider call but never enters response

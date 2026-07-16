@@ -21,4 +21,5 @@
 |------|-------------|------|
 | Print golden | `print_mode_golden.rs` | 普通 `-p` contract。 |
 | WASI golden | `wasm_sandbox_golden.rs` | wasm 文件/域名 flags、recording HTTP、JSON/file E2E、真 provider smoke。 |
-| 其他 golden | `*_golden.rs` | jobs/providers/tools/recursion contract。 |
+| Jobs golden | `jobs_golden.rs` | daemonless lifecycle、wasm 旗标透传、timeout/crash 与宿主 `tools.jsonl` contract。 |
+| 其他 golden | `*_golden.rs` | providers/tools/recursion contract。 |

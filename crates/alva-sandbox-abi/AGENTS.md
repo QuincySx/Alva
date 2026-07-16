@@ -9,7 +9,8 @@
 
 1. guest 构造版本化 fetch 请求并经 ptr/len import 发送给宿主。
 2. 宿主返回版本化结果信封；HTTP 成功携带状态、头和有界 body，策略/传输失败携带可恢复错误文本。
-3. body 在 wire 上用 base64 避免 JSON 数字数组放大；两侧共享请求、响应和 JSON/body 大小上限，避免协议漂移与 guest 内存失控。
+3. guest 以独立、有界 log import 上报无时间戳/路径的审计事件，宿主决定是否及如何持久化。
+4. body 在 wire 上用 base64 避免 JSON 数字数组放大；两侧共享请求、响应和 JSON/body 大小上限，避免协议漂移与 guest 内存失控。
 
 ## 约束
 
@@ -22,4 +23,4 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
 | crate 配置 | `Cargo.toml` | 声明 serde-only 依赖。 |
-| fetch ABI | `src/lib.rs` | 版本、限额、请求/响应 DTO 与可恢复结果信封。 |
+| fetch/log ABI | `src/lib.rs` | fetch 请求/响应与 guest→host 审计事件的版本化、有界 DTO。 |

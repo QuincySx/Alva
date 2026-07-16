@@ -1,9 +1,12 @@
 // INPUT:  WASI args, alva_agent_core, CorePlugin, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
-// OUTPUT: alloc(len) wasm export plus fetch/run_script-enabled agent and configurable file/stdout result channel
-// POS:    WASIp1 worker running an SDK agent loop with versioned blocking LLM and host-policy HTTP proxies.
+// OUTPUT: alloc(len) wasm export plus fetch/run_script/log-enabled agent and configurable file/stdout result channel
+// POS:    WASIp1 worker running an SDK agent loop with versioned blocking LLM/HTTP proxies and guest-to-host audit events.
 
 #[cfg(target_os = "wasi")]
 mod http_proxy;
+
+#[cfg(target_os = "wasi")]
+mod job_log;
 
 #[cfg(target_os = "wasi")]
 mod run_script;
@@ -277,6 +280,7 @@ async fn run_worker(
         .workspace(&workspace)
         .system_prompt(&system_prompt)
         .plugin(Box::new(CorePlugin))
+        .middleware(Arc::new(job_log::AuditLogMiddleware))
         .tool(Box::new(
             run_script::RunScriptTool::new(&workspace).with_limits(script_limits),
         ))

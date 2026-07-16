@@ -1,5 +1,5 @@
 // INPUT:  std::{path, string, sync, thread, time}, alva_llm_wire, alva_sandbox_abi, reqwest, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
-// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, register_llm_proxy, validate_allowed_domain_pattern, run_module
+// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, AuditEvent, register_llm_proxy, register_job_log_proxy, validate_allowed_domain_pattern, run_module
 // POS:    Native WASIp1 runner boundary enforcing per-call filesystem/network grants, resource limits, and captured results.
 
 //! Host-side runner for WASIp1 command modules.
@@ -15,9 +15,12 @@
 
 mod http_proxy;
 mod llm_proxy;
+mod log_proxy;
 
+pub use alva_sandbox_abi::AuditEvent;
 pub use http_proxy::validate_allowed_domain_pattern;
 pub use llm_proxy::register_llm_proxy;
+pub use log_proxy::register_job_log_proxy;
 
 use std::path::PathBuf;
 use std::string::FromUtf8Error;
@@ -336,9 +339,18 @@ impl SandboxRunner {
             .trap_on_grow_failure(true)
             .build();
         let mut linker: Linker<SandboxStoreData> = Linker::new(&self.inner.engine);
+        // The guest declares its host imports unconditionally, so every one of
+        // them must resolve or instantiation fails with "unknown import" at
+        // runtime. Defaults are installed here and `register` may shadow them,
+        // which means a caller can only *change* behaviour, never forget an
+        // import into a runtime error. Audit logging is off unless asked for;
+        // the LLM proxy has no sensible default and stays the caller's job.
+        linker.allow_shadowing(true);
         p1::add_to_linker_sync(&mut linker, |data| &mut data.wasi)
             .map_err(SandboxError::WasiLinker)?;
         http_proxy::register_http_proxy(&mut linker, allowed_domains)
+            .map_err(SandboxError::HostImports)?;
+        log_proxy::register_job_log_proxy(&mut linker, |_event| Ok(()))
             .map_err(SandboxError::HostImports)?;
         register(&mut linker).map_err(SandboxError::HostImports)?;
 

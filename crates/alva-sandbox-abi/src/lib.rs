@@ -1,6 +1,6 @@
 // INPUT:  base64, serde
-// OUTPUT: FETCH_PROXY_ABI_VERSION, fetch size limits, FetchHeader, FetchRequest, FetchResponse, FetchProxyResult
-// POS:    Dependency-free versioned JSON contract shared by untrusted WASIp1 guests and the native sandbox host.
+// OUTPUT: fetch/log ABI versions and limits, FetchHeader, FetchRequest, FetchResponse, FetchProxyResult, AuditEvent
+// POS:    Dependency-free versioned JSON contracts shared by untrusted WASIp1 guests and the native sandbox host.
 
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +14,44 @@ pub const MAX_FETCH_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 pub const MAX_FETCH_RESPONSE_BODY_BYTES: usize = 4 * 1024 * 1024;
 /// Maximum serialized result allocated in guest linear memory.
 pub const MAX_FETCH_PROXY_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// Version of `alva:host/log::append(req_ptr, req_len)` JSON messages.
+pub const LOG_PROXY_ABI_VERSION: u32 = 1;
+/// Maximum serialized audit event crossing from guest to host.
+pub const MAX_LOG_PROXY_REQUEST_BYTES: usize = 64 * 1024;
+
+/// Guest-reported audit event. The host owns timestamps and persistence; the
+/// open `kind` string reserves the same envelope for future elevation events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub version: u32,
+    pub kind: String,
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub is_error: bool,
+    pub result_summary: String,
+}
+
+impl AuditEvent {
+    pub fn tool_call(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        is_error: bool,
+        result_summary: impl Into<String>,
+    ) -> Self {
+        Self {
+            version: LOG_PROXY_ABI_VERSION,
+            kind: "tool_call".into(),
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+            is_error,
+            result_summary: result_summary.into(),
+        }
+    }
+
+    pub fn has_supported_version(&self) -> bool {
+        self.version == LOG_PROXY_ABI_VERSION
+    }
+}
 
 /// One HTTP header. A vector preserves duplicates such as `set-cookie`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +184,15 @@ mod tests {
         assert!(result.has_supported_version());
         assert_eq!(result.response, Some(response));
         assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn audit_event_carries_extensible_kind_and_current_version() {
+        let event = AuditEvent::tool_call("call-1", "read_file", false, "read 12 bytes");
+        assert!(event.has_supported_version());
+        assert_eq!(event.kind, "tool_call");
+        assert_eq!(event.tool_name, "read_file");
+        assert_eq!(event.result_summary, "read 12 bytes");
     }
 
     #[test]

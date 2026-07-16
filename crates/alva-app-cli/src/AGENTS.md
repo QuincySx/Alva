@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`main.rs` 是参数和模式总路由；`agent_setup.rs` 负责普通 native agent；`wasm_sandbox.rs` 负责 worker sidecar、preopen 映射与 LLM proxy callback；其余模块承载 UI、session 与子命令。
+`main.rs` 是参数和模式总路由；`agent_setup.rs` 负责普通 native agent；`wasm_sandbox.rs` 负责 worker sidecar、preopen 映射与 host proxy callbacks；`job_log.rs` 让 native middleware 与 wasm log import 共用宿主 JSONL 审计格式；其余模块承载 UI、session 与子命令。
 
 ## 约束
 
@@ -22,5 +22,6 @@
 | 顶层入口 | `main.rs` | 模式/flag/config 分流与最终输出。 |
 | Native agent | `agent_setup.rs` | BaseAgent/plugin/provider 装配。 |
 | WASIp1 host | `wasm_sandbox.rs` | sidecar 发现、spawn_blocking runner、job 域名授权与真 provider proxy。 |
+| Job 工具日志 | `job_log.rs` | 宿主追加 `tools.jsonl`；native middleware 与 wasm log import 共用格式并按 call id 去重。 |
 | 终端交互 | `ui/`, `repl.rs` | TUI 与 legacy REPL。 |
 | 子命令/服务 | `commands/`, `*_cmd.rs`, `services/` | 命令解析及后台能力。 |

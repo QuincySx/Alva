@@ -26,6 +26,7 @@ mod checkpoint;
 mod commands;
 mod context;
 mod event_handler;
+mod job_log;
 mod jobs_cmd;
 mod output;
 mod plugins;

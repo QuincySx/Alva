@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`lib.rs` 定义 fetch 请求、成功响应、错误结果信封、body base64 wire 编码及两侧共用的版本/大小上限。
+`lib.rs` 定义 fetch 请求/响应、审计事件、body base64 wire 编码及两侧共用的版本/大小上限。
 
 ## 约束
 
@@ -18,4 +18,4 @@
 
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
-| fetch wire | `lib.rs` | fetch ptr/len JSON ABI。 |
+| capability wire | `lib.rs` | fetch 双向与 log 单向 ptr/len JSON ABI。 |

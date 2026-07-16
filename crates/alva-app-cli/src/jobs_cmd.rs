@@ -1,21 +1,11 @@
-// INPUT:  alva_app_core::config::alva_home_dir, std::process (detached spawn)
+// INPUT:  alva_app_core::config::alva_home_dir, job_log host sink constants, std::process (detached spawn)
 // OUTPUT: pub async fn run — `alva jobs <submit|wait|status|result|list>`
-// POS:    Async job mode for orchestrators' LONG-RUNNING worker tasks.
-//         `submit` detaches a `alva -p --output-format json` child (stdout →
-//         result.json) and returns the job id immediately; `wait` BLOCKS
-//         until completion (callers never write polling loops); state is
-//         derived from the filesystem + pid liveness — no daemon:
-//
-//           $ALVA_CONFIG_DIR/jobs/<id>/
-//             meta.json    { job_id, pid, prompt, workspace, created_at_ms }
-//             result.json  the -p json object (written by the child's stdout)
-//             stderr.log   diagnostics
-//
-//         State inference: pid alive → running; pid dead + result parses →
-//         completed/failed (is_error); pid dead + no parse → crashed.
+// POS:    Daemonless async jobs: detached print-mode workers plus filesystem/PID state and host-owned tool JSONL audit logs.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use crate::job_log::{JOB_TOOLS_LOG_ENV, JOB_TOOLS_LOG_FILE};
 
 fn jobs_root() -> Result<PathBuf, String> {
     alva_app_core::config::alva_home_dir()
@@ -116,6 +106,8 @@ fn submit(rest: &[String]) -> Result<i32, String> {
         .map_err(|e| format!("create result file: {e}"))?;
     let stderr_file = std::fs::File::create(dir.join("stderr.log"))
         .map_err(|e| format!("create stderr log: {e}"))?;
+    let tools_log_path = dir.join(JOB_TOOLS_LOG_FILE);
+    std::fs::File::create(&tools_log_path).map_err(|e| format!("create tool log: {e}"))?;
 
     let exe = std::env::current_exe().map_err(|e| format!("resolve alva binary: {e}"))?;
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
@@ -125,6 +117,9 @@ fn submit(rest: &[String]) -> Result<i32, String> {
         .args(["--output-format", "json"])
         .args(rest) // caller's flags + prompt, verbatim — same surface as -p
         .current_dir(&workspace)
+        // The child is the host in both native and wasm tiers. WASI args,
+        // env, and preopens never receive this path.
+        .env(JOB_TOOLS_LOG_ENV, &tools_log_path)
         .stdin(std::process::Stdio::null())
         .stdout(result_file)
         .stderr(stderr_file);

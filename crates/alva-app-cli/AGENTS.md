@@ -10,7 +10,8 @@
 1. `main.rs` 解析 subcommand/flag，装配 provider 与普通 BaseAgent 路径。
 2. `-p --sandbox wasm` 提前验证授权目录与 `--allow-domain`，只构造宿主 provider，不构造 native agent。
 3. wasm host policy 在 blocking 线程执行 runner，域名白名单进入每次 `RunRequest`，LLM import callback 回到原 Tokio handle 调模型。
-4. TUI/REPL、session、jobs/providers/tools 子命令保持原路径。
+4. jobs 子进程由宿主持有 `tools.jsonl` 路径：native middleware 与 wasm 的有界 log import 实时追加同一格式；job 目录不进入 guest args/env/preopen。
+5. TUI/REPL、session、jobs/providers/tools 子命令保持原路径。
 
 ## 约束
 

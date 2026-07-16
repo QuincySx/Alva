@@ -1,4 +1,4 @@
-// INPUT:  alva_app_core, alva_host_native, alva_llm_provider, alva_app_extension_loader, checkpoint
+// INPUT:  alva_app_core, alva_host_native, alva_llm_provider, alva_app_extension_loader, checkpoint, optional job_log middleware
 // OUTPUT: CliCheckpointCallback, load_project_context, build_agent
 // POS:    Agent construction — config loading, provider wiring, checkpoint callback, project context discovery, subprocess plugin loader wiring
 
@@ -12,6 +12,7 @@ use alva_llm_provider::ProviderConfig;
 use tokio::sync::mpsc;
 
 use crate::checkpoint;
+use crate::job_log::{JobToolLogMiddleware, JobToolLogger};
 
 /// Resolve where the App-bundled skills tree was extracted to. Returns
 /// `None` (with a logged warning) on extraction failure so the agent
@@ -118,7 +119,7 @@ pub(crate) async fn build_agent(
             paths.global_extensions_dir(),
         ],
     };
-    let builder = alva_app_core::components::apply_components(
+    let mut builder = alva_app_core::components::apply_components(
         BaseAgentBuilder::new()
             .workspace(workspace)
             .system_prompt(&system_prompt)
@@ -127,6 +128,9 @@ pub(crate) async fn build_agent(
         &toggles,
         &ctx,
     );
+    if let Some(logger) = JobToolLogger::from_env() {
+        builder = builder.middleware(Arc::new(JobToolLogMiddleware::new(logger)));
+    }
     let agent = builder.build(model).await.expect("failed to build agent");
 
     // Register checkpoint callback

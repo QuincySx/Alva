@@ -1,4 +1,4 @@
-// INPUT:  configured LanguageModel, canonical host grants, allowed domains, alva_sandbox_wasm runner/proxy, alva_llm_wire DTOs, tokio runtime handle
+// INPUT:  configured LanguageModel, canonical host grants, allowed domains, alva_sandbox_wasm runner/proxy, alva_llm_wire DTOs, optional host job logger, tokio runtime handle
 // OUTPUT: run(model, grants, allowed_domains, task) and resolve_worker_wasm() production sidecar discovery
 // POS:    CLI-owned wasm-tier host policy: artifact discovery, guest mounts/args, and true provider streaming behind spawn_blocking.
 
@@ -7,9 +7,13 @@ use std::sync::Arc;
 
 use alva_kernel_abi::{AgentError, LanguageModel, Tool, ToolExecutionContext, ToolOutput};
 use alva_llm_wire::{LlmProxyRequest, LlmProxyResponse, ToolDefinition};
-use alva_sandbox_wasm::{register_llm_proxy, Grant, RunLimits, RunRequest, SandboxRunner};
+use alva_sandbox_wasm::{
+    register_job_log_proxy, register_llm_proxy, Grant, RunLimits, RunRequest, SandboxRunner,
+};
 use async_trait::async_trait;
 use futures::StreamExt;
+
+use crate::job_log::JobToolLogger;
 
 const PRIMARY_GUEST_PATH: &str = "/workspace";
 
@@ -51,6 +55,7 @@ pub(crate) async fn run(
     task: String,
 ) -> Result<String, String> {
     let runtime_handle = tokio::runtime::Handle::current();
+    let job_logger = JobToolLogger::from_env();
     tokio::task::spawn_blocking(move || {
         let module = std::fs::read(resolve_worker_wasm()?)
             .map_err(|error| format!("read alva-worker-wasm.wasm: {error}"))?;
@@ -95,6 +100,15 @@ pub(crate) async fn run(
                     limits: RunLimits::default(),
                 },
                 move |linker| {
+                    let job_logger = job_logger.clone();
+                    register_job_log_proxy(linker, move |event| {
+                        if let Some(logger) = &job_logger {
+                            if let Err(error) = logger.record_event(event) {
+                                tracing::warn!(error = %error, "failed to append wasm job tool log");
+                            }
+                        }
+                        Ok(())
+                    })?;
                     register_llm_proxy(linker, move |request: LlmProxyRequest| {
                         let tools: Vec<Box<dyn Tool>> = request
                             .tools

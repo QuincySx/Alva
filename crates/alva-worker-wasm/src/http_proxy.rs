@@ -1,4 +1,4 @@
-// INPUT:  alva_sandbox_abi fetch DTOs/limits, crate::take_host_response, serde_json, host alva:host/http import
+// INPUT:  alva_sandbox_abi fetch DTOs/limits, crate::{take_host_response,job_log}, serde_json, host alva:host/http import
 // OUTPUT: fetch(FetchRequest) -> Result<FetchResponse, String>
 // POS:    WASIp1 guest half of the blocking fetch ptr/len ABI; host owns all network policy and execution.
 
@@ -14,6 +14,30 @@ extern "C" {
 }
 
 pub(crate) fn fetch(request: FetchRequest) -> Result<FetchResponse, String> {
+    let method = request.method.clone();
+    let url = request.url.clone();
+    let result = fetch_inner(request);
+    let (is_error, summary) = match &result {
+        Ok(response) => (
+            false,
+            format!(
+                "{method} {url} -> HTTP {} ({} response bytes)",
+                response.status,
+                response.body.len()
+            ),
+        ),
+        Err(error) => (true, format!("{method} {url} -> error: {error}")),
+    };
+    let _ = crate::job_log::append_tool_call(
+        crate::job_log::next_tool_call_id("fetch"),
+        "fetch",
+        is_error,
+        summary,
+    );
+    result
+}
+
+fn fetch_inner(request: FetchRequest) -> Result<FetchResponse, String> {
     if request.body.len() > MAX_FETCH_REQUEST_BODY_BYTES {
         return Err(format!(
             "fetch request body is {} bytes; limit is {MAX_FETCH_REQUEST_BODY_BYTES} bytes",

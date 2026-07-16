@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`llm_proxy.rs` 注册 callback 驱动的模型桥；`http_proxy.rs` 注册宿主策略驱动的 fetch 桥。
+`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`llm_proxy.rs` 注册 callback 驱动的模型桥；`log_proxy.rs` 注册 callback 驱动的 audit event 桥；`http_proxy.rs` 注册宿主策略驱动的 fetch 桥。
 
 ## 约束
 
@@ -23,4 +23,5 @@
 |------|-------------|------|
 | Runner | `lib.rs` | preopen、WASI command 执行与 stdout/stderr outcome。 |
 | LLM proxy | `llm_proxy.rs` | versioned ptr/len request/response memory bridge。 |
+| Log proxy | `log_proxy.rs` | versioned、bounded、单向 audit event memory bridge。 |
 | HTTP proxy | `http_proxy.rs` | versioned fetch bridge、域名白名单与逐跳重定向策略。 |
