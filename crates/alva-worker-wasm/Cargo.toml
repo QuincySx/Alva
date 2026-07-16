@@ -1,0 +1,7 @@
+[package]
+name = "alva-worker-wasm"
+version = "0.1.0"
+edition = "2021"
+
+# This spike guest deliberately has no dependencies: the only host extension
+# is the blocking core-wasm import declared in `src/main.rs`.

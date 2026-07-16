@@ -107,6 +107,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-host-native` | Native 平台能力层。主职责是 `init::model("provider/id")` 初始化 `LanguageModel`、`TokioSleeper`、native-only middleware（`CheckpointMiddleware` 以及从 box 转发的 `SecurityMiddleware` / `PlanModeMiddleware` / `CompactionMiddleware`）和 graph re-export。`AgentRuntimeBuilder` / `with_standard_agent_stack(SandboxMode)` 仍保留但已 deprecated，只作为 legacy/parallel 路径维护；新 app 入口走 `BaseAgentBuilder`，SDK 入口走 `alva-agent-core::AgentBuilder`。 |
 | `alva-host-wasm` | wasm32 装配。`WasmAgent` facade + `WasmSleeper`（spawn_local + oneshot 桥接 non-Send `gloo_timers` future）+ `smoke::_wasm_smoke_probe` 编译期探针，强制 `cargo check --target wasm32-unknown-unknown` 穿透整条 kernel API 表面。**共享同一份 `alva-kernel-core`，kernel 一行不用动**。 |
 | `alva-sandbox-wasm` | Native-only WASIp1 模块宿主 runner。每次调用新建 wasmtime `Engine` / `Store` / `WasiCtx`，把 job 授权目录作为 preopen 映射进 guest，并捕获退出码与 stdout/stderr；当前不依赖任何 Alva crate。 |
+| `alva-worker-wasm` | Ticket 05 spike 用的最小 WASIp1 command guest：读取 `/work/task.txt`，经阻塞式 ptr/len import 请求宿主 LLM 代理，再写入 `/work/result.txt`。 |
 
 ### L4.5：引擎桥接（给 app 层用的统一引擎接口）
 

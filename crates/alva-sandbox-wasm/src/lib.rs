@@ -1,5 +1,5 @@
 // INPUT:  std::{path, string}, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
-// OUTPUT: Access, Grant, RunRequest, RunOutcome, SandboxError, SandboxRunner, run_module
+// OUTPUT: Access, Grant, RunRequest, RunOutcome, SandboxError, SandboxRunner::{run, run_with_imports}, run_module
 // POS:    Native WASIp1 runner boundary that mounts per-call preopens and captures guest process results.
 
 //! Host-side runner for WASIp1 command modules.
@@ -128,6 +128,10 @@ pub enum SandboxError {
     #[error("failed to register WASIp1 imports: {0}")]
     WasiLinker(#[source] wasmtime::Error),
 
+    /// Caller-provided host imports could not be registered with the linker.
+    #[error("failed to register host imports: {0}")]
+    HostImports(#[source] wasmtime::Error),
+
     /// The module could not be instantiated with the configured WASI imports.
     #[error("failed to instantiate WASIp1 module: {0}")]
     Instantiate(#[source] wasmtime::Error),
@@ -184,6 +188,23 @@ impl SandboxRunner {
     /// A fresh linker, WASI context and store are created on every call. Host
     /// stdio, environment variables and filesystem paths are not inherited.
     pub fn run(&self, req: RunRequest) -> Result<RunOutcome, SandboxError> {
+        self.run_with_imports(req, |_| Ok(()))
+    }
+
+    /// Runs one WASIp1 command module after registering per-run host imports.
+    ///
+    /// The callback receives the fresh linker after WASI imports have been
+    /// installed and before the module is instantiated. It is intentionally
+    /// synchronous: imported functions execute on the guest's calling thread,
+    /// matching the blocking LLM-proxy ABI selected for the spike.
+    pub fn run_with_imports<F>(
+        &self,
+        req: RunRequest,
+        register: F,
+    ) -> Result<RunOutcome, SandboxError>
+    where
+        F: FnOnce(&mut Linker<WasiP1Ctx>) -> Result<(), wasmtime::Error>,
+    {
         let module = Module::new(&self.engine, &req.module).map_err(SandboxError::Module)?;
 
         let stdout = MemoryOutputPipe::new(OUTPUT_CAPACITY);
@@ -214,6 +235,7 @@ impl SandboxRunner {
         let wasi: WasiP1Ctx = wasi.build_p1();
         let mut linker: Linker<WasiP1Ctx> = Linker::new(&self.engine);
         p1::add_to_linker_sync(&mut linker, |ctx| ctx).map_err(SandboxError::WasiLinker)?;
+        register(&mut linker).map_err(SandboxError::HostImports)?;
 
         let mut store = Store::new(&self.engine, wasi);
         let instance = linker

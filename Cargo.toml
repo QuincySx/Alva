@@ -29,6 +29,7 @@ members = [
     "crates/alva-llm-wire",
     "crates/alva-host-wasm",
     "crates/alva-sandbox-wasm",
+    "crates/alva-worker-wasm",
     "crates/alva-app-extension-browser",
     "crates/alva-app-extension-memory",
     "crates/alva-app-extension-loader",
