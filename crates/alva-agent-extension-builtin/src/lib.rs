@@ -1,5 +1,5 @@
 // INPUT:  alva_agent_core, alva_kernel_abi, feature-gated built-in tool modules
-// OUTPUT: tool_presets, register_builtin_tools, LocalToolFs (native), WasiFs (WASI), Plugin wrappers
+// OUTPUT: tool_presets, register_builtin_tools, request-escalation contracts, LocalToolFs (native), WasiFs (WASI), Plugin wrappers
 // POS:    Crate root wiring built-in tools and platform-specific ToolFs fallbacks.
 //! Built-in agent extensions.
 //!
@@ -105,6 +105,8 @@ pub mod list_files;
     )
 ))]
 pub mod read_file;
+#[cfg(feature = "core")]
+pub mod request_escalation;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod todo_write;
 
@@ -221,6 +223,9 @@ pub mod tool_presets {
         #[cfg(all(feature = "core", not(target_family = "wasm")))]
         {
             tools.push(Box::new(crate::execute_shell::ExecuteShellTool));
+            tools.push(Box::new(
+                crate::request_escalation::RequestEscalationTool::default(),
+            ));
         }
         tools
     }
@@ -470,9 +475,9 @@ mod tool_preset_tests {
 
     #[cfg(all(feature = "core", not(target_family = "wasm")))]
     #[test]
-    fn shell_preset_includes_execute_shell() {
+    fn shell_preset_includes_shell_and_escalation_tools() {
         let got = names(tool_presets::shell());
-        contains_all(&got, &["execute_shell"]);
+        contains_all(&got, &["execute_shell", "request_escalation"]);
     }
 
     #[cfg(all(feature = "core", not(target_family = "wasm")))]

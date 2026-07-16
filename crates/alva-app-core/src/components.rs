@@ -67,7 +67,7 @@ pub static COMPONENTS: &[ComponentMeta] = &[
     ComponentMeta {
         id: "shell",
         label: "Shell",
-        description: "execute_shell — run shell commands (build / test / scripts).",
+        description: "execute_shell + request_escalation — local and permission-gated host commands.",
         category: "tools",
         default_on: true,
         kind: ComponentKind::Plugin,
@@ -535,6 +535,10 @@ mod tests {
             names.contains(&"execute_shell".to_string()),
             "shell on: {names:?}"
         );
+        assert!(
+            names.contains(&"request_escalation".to_string()),
+            "host escalation on with shell: {names:?}"
+        );
         assert!(names.contains(&"read_url".to_string()), "web on: {names:?}");
         assert!(
             names.contains(&"task_create".to_string()),
@@ -560,6 +564,10 @@ mod tests {
         assert!(
             !names.contains(&"execute_shell".to_string()),
             "shell explicitly off: {names:?}"
+        );
+        assert!(
+            !names.contains(&"request_escalation".to_string()),
+            "host escalation explicitly off with shell: {names:?}"
         );
         // Sibling default-on tool still present.
         assert!(

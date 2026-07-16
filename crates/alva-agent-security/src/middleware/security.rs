@@ -12,7 +12,9 @@ use crate::pending_actions::{
     ResolveStatus, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED,
 };
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
-use alva_kernel_abi::{bus_cap, BusHandle, CancellationToken, MinimalExecutionContext, ToolCall};
+use alva_kernel_abi::{
+    bus_cap, BusHandle, CancellationToken, MinimalExecutionContext, ToolCall, ToolPermissionResult,
+};
 use alva_kernel_core::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
 use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
 use alva_kernel_core::shared::MiddlewarePriority;
@@ -164,12 +166,25 @@ impl Middleware for SecurityMiddleware {
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         let tool_context = MinimalExecutionContext::new();
+        let tool_permission = state
+            .tools
+            .iter()
+            .find(|tool| tool.name() == tool_call.name)
+            .map(|tool| tool.check_permissions(&tool_call.arguments, &tool_context))
+            .unwrap_or(ToolPermissionResult::Allow);
 
-        // Phase 1: existing dangerous-tool / sensitive-path check
+        // Phase 1: tool declaration + existing dangerous-tool / path check.
+        // ToolPermissionResult::Ask joins the exact same PermissionMode,
+        // BashClassifier, HITL notifier, and pending-action path as a tool in
+        // SecurityGuard's configured dangerous set.
         let (decision, pending_rx) = {
             let mut guard = self.guard.lock().await;
-            let decision =
-                guard.check_tool_call(&tool_call.name, &tool_call.arguments, &tool_context);
+            let decision = guard.check_tool_call_with_permission(
+                &tool_call.name,
+                &tool_call.arguments,
+                &tool_context,
+                tool_permission,
+            );
             let rx = if let SecurityDecision::NeedHumanApproval { ref request_id } = decision {
                 guard.take_pending_receiver(request_id)
             } else {

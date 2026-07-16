@@ -1,5 +1,5 @@
 // INPUT:  alva_app_core, alva_test, alva_agent_security, alva_kernel_abi, tokio, tempfile, serde_json
-// OUTPUT: sub-agent HITL gate integration tests
+// OUTPUT: sub-agent HITL gate integration tests for shell and host-escalation calls
 // POS:    Pins the child-middleware security invariant — a sub-agent's dangerous
 //         tool calls must traverse the parent's approval gate (SecurityGuard on
 //         the bus, wrapped into the child stack by agent_spawn).
@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use alva_agent_security::PermissionDecision;
+use alva_agent_security::{PermissionDecision, SecurityGuard};
 use alva_app_core::extension::{PermissionPlugin, ShellPlugin, SubAgentPlugin};
 use alva_app_core::{BaseAgent, PermissionMode};
 use alva_test::assertions::collect_events;
@@ -121,4 +121,80 @@ async fn child_shell_call_executes_after_approval() {
         tmp.path().join("child-side-effect.txt").exists(),
         "approved child shell command did not run"
     );
+}
+
+/// The newly-added host escalation surface is declared dangerous by the
+/// Tool::check_permissions contract rather than SecurityGuard's legacy name
+/// list. A child must still inherit the parent's middleware and surface the
+/// request through the same HITL channel before any host command can run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn child_escalation_call_is_gated_and_reject_blocks_it() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let workspace = tmp.path().canonicalize().expect("canonical workspace");
+    let marker = workspace.join("child-escalation-side-effect.txt");
+    let model = Arc::new(
+        MockLanguageModel::new()
+            .with_response(make_tool_call_message(
+                "agent",
+                serde_json::json!({
+                    "task": "request host execution",
+                    "role": "worker",
+                    "tools": ["request_escalation"],
+                }),
+            ))
+            .with_response(make_tool_call_message(
+                "request_escalation",
+                serde_json::json!({
+                    "command": format!("touch {}", marker.display()),
+                    "cwd": workspace,
+                }),
+            ))
+            .with_response(make_assistant_message("child observed rejection"))
+            .with_response(make_assistant_message("parent done")),
+    );
+    let (approval_plugin, mut approval_rx) =
+        alva_app_core::extension::ApprovalPlugin::with_channel();
+    let agent = BaseAgent::builder()
+        .workspace(&workspace)
+        .system_prompt("test harness")
+        .plugin(Box::new(
+            PermissionPlugin::new().with_initial(PermissionMode::Ask),
+        ))
+        .plugin(Box::new(approval_plugin))
+        .plugin(Box::new(ShellPlugin))
+        .plugin(Box::new(SubAgentPlugin::new(
+            3,
+            std::time::Duration::from_secs(60),
+        )))
+        .max_iterations(6)
+        .build(model)
+        .await
+        .expect("agent build");
+
+    let bus = agent.bus().clone();
+    let approvals = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = approvals.clone();
+    tokio::spawn(async move {
+        while let Some(request) = approval_rx.recv().await {
+            if request.tool_name == "request_escalation" {
+                seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            if let Some(guard) = bus.get::<tokio::sync::Mutex<SecurityGuard>>() {
+                guard.lock().await.resolve_permission(
+                    &request.request_id,
+                    &request.tool_name,
+                    PermissionDecision::RejectOnce,
+                );
+            }
+        }
+    });
+
+    let _events = collect_events(agent.prompt_text("spawn the worker")).await;
+
+    assert_eq!(
+        approvals.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "child request_escalation must traverse the shared approval gate"
+    );
+    assert!(!marker.exists(), "rejected child escalation still executed");
 }

@@ -1,4 +1,4 @@
-//! Shell execution tool.
+//! Shell execution and host-escalation request tools.
 
 use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;
@@ -11,7 +11,7 @@ impl Plugin for ShellPlugin {
         "shell"
     }
     fn description(&self) -> &str {
-        "Shell execution"
+        "Shell execution and permission-gated host escalation"
     }
     async fn register(&self, r: &Registrar) {
         r.tools(crate::tool_presets::shell());

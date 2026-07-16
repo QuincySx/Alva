@@ -20,7 +20,7 @@ core file tools through a synchronous filesystem adapter.
 - `browser` — re-exports `BrowserExtension` from `alva-app-extension-browser`.
 
 ## Public Surface
-- `tool_presets::*` — curated tool bundles used by host-native assembly.
+- `tool_presets::*` — curated tool bundles used by host-native assembly; the shell preset includes local shell and permission-gated host escalation.
 - `register_builtin_tools` — registers all enabled tools with a `ToolRegistry`.
 - `wrappers::{Core, Shell, Interaction, Task, Team, Planning, Utility, Web, Browser}Plugin` — nine Plugin wrappers.
 - `LocalToolFs` — native `ToolFs` adapter (cfg-gated off for wasm).
@@ -38,7 +38,7 @@ core file tools through a synchronous filesystem adapter.
 ## Module Map
 | Name | Path | Role |
 |------|------|------|
-| Tool impls | `src/` | One file per tool (e.g. `read_file.rs`, `execute_shell.rs`) |
+| Tool impls | `src/` | One file per tool; `request_escalation.rs` separates the stable request/permission contract from its replaceable native-or-host-import executor. |
 | `wrappers/` | `src/wrappers/` | Nine Plugin wrappers grouping tools into bundles |
 | `local_fs.rs` | `src/local_fs.rs` | Native `ToolFs` adapter (cfg `not(wasm)`) |
 | `wasi_fs.rs` | `src/wasi_fs.rs` | WASI `ToolFs` adapter and synchronous script-binding facade (cfg `wasm + wasi`) |
