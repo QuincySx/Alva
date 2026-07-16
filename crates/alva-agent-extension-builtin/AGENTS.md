@@ -4,9 +4,9 @@
 ## Role
 Houses every first-party tool (file I/O, shell, web, notebook, worktree, team,
 task, utility, planning) plus the `Plugin` wrappers that group them into
-cohesive bundles. Consumers opt into subsets via Cargo features; on wasm32 the
-native-only modules are fully cfg-gated off so the crate builds as an
-essentially-empty shell.
+cohesive bundles. Consumers opt into subsets via Cargo features. Browser-style
+wasm keeps host-only modules cfg-gated off, while WASI builds expose the six
+core file tools through a synchronous filesystem adapter.
 
 ## Cargo Features
 - `core` (default) — file I/O, shell, interaction, plan-mode primitives.
@@ -24,11 +24,13 @@ essentially-empty shell.
 - `register_builtin_tools` — registers all enabled tools with a `ToolRegistry`.
 - `wrappers::{Core, Shell, Interaction, Task, Team, Planning, Utility, Web, Browser}Plugin` — nine Plugin wrappers.
 - `LocalToolFs` — native `ToolFs` adapter (cfg-gated off for wasm).
+- `WasiFs` — WASI `ToolFs` adapter backed by synchronous `std::fs`; subprocess
+  execution returns a clear unsupported error.
 
 ## Dependency Policy
 - Depends on `alva-kernel-abi`, `alva-agent-core`, plus native crates
-  (`tokio` sync/process/fs/io/time, `ignore`, optional `reqwest`, optional
-  `alva-app-extension-browser`).
+  (`tokio` sync/process/fs/io/time, `ignore`, optional `reqwest`). WASI enables
+  only `ignore` for synchronous file search; it does not enable Tokio fs/process.
 - The `Plugin` trait itself lives in `alva-agent-core` — do not redefine it here.
 - Heavy app-level domain plugins (browser CDP, SQLite-backed memory) belong
   in `alva-app-extension-*` crates, not here.
@@ -39,6 +41,7 @@ essentially-empty shell.
 | Tool impls | `src/` | One file per tool (e.g. `read_file.rs`, `execute_shell.rs`) |
 | `wrappers/` | `src/wrappers/` | Nine Plugin wrappers grouping tools into bundles |
 | `local_fs.rs` | `src/local_fs.rs` | Native `ToolFs` adapter (cfg `not(wasm)`) |
-| `walkdir.rs` | `src/walkdir.rs` | `walk_dir` / `walk_dir_filtered` helpers over `ignore` |
+| `wasi_fs.rs` | `src/wasi_fs.rs` | WASI `ToolFs` adapter (cfg `wasm + wasi`) |
+| `walkdir.rs` | `src/walkdir.rs` | `walk_dir` / `walk_dir_filtered` helpers over `ToolFs` / `ignore` (native + WASI) |
 | `truncate.rs` | `src/truncate.rs` | Byte- and line-level output truncation helpers |
 | `lib.rs` | `src/lib.rs` | Feature gates, module wiring, `register_builtin_tools` |

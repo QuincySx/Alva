@@ -233,3 +233,51 @@ else
     echo -e "${GREEN}SKIPPED: wasm32-unknown-unknown target not installed${NC}"
     echo "         install with: rustup target add wasm32-unknown-unknown"
 fi
+
+# ---------------------------------------------------------------------------
+# WASI runway invariant: the wasm-clean crate set must also compile for the
+# component-model target used by sandbox workers.
+# ---------------------------------------------------------------------------
+echo ""
+echo "Checking kernel wasm32-wasip2 compilability..."
+
+WASIP2_OK=true
+check_wasip2() {
+    local crate=$1
+    if cargo check --target wasm32-wasip2 -p "$crate" >/dev/null 2>&1; then
+        echo -e "${GREEN}OK: $crate compiles for wasm32-wasip2${NC}"
+    else
+        echo -e "${RED}VIOLATION: $crate does NOT compile for wasm32-wasip2${NC}"
+        WASIP2_OK=false
+    fi
+}
+
+if rustup target list --installed 2>/dev/null | grep -q '^wasm32-wasip2$'; then
+    check_wasip2 "alva-llm-wire"
+    check_wasip2 "alva-kernel-bus"
+    check_wasip2 "alva-kernel-abi"
+    check_wasip2 "alva-kernel-core"
+    check_wasip2 "alva-agent-context"
+    check_wasip2 "alva-agent-core"
+    check_wasip2 "alva-agent-extension-builtin"
+    check_wasip2 "alva-agent-graph"
+    check_wasip2 "alva-agent-security"
+    check_wasip2 "alva-agent-memory"
+    check_wasip2 "alva-host-wasm"
+    check_wasip2 "alva-llm-provider"
+    check_wasip2 "alva-protocol-mcp"
+    check_wasip2 "alva-protocol-acp"
+    check_wasip2 "alva-protocol-skill"
+    check_wasip2 "alva-engine-runtime"
+    check_wasip2 "alva-environment"
+    check_wasip2 "alva-test"
+    check_wasip2 "alva-macros"
+    if [ "$WASIP2_OK" != "true" ]; then
+        echo -e "${RED}FAILED: wasm32-wasip2 invariant broken${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}PASSED: wasm32-wasip2-clean crate set${NC}"
+else
+    echo -e "${GREEN}SKIPPED: wasm32-wasip2 target not installed${NC}"
+    echo "         install with: rustup target add wasm32-wasip2"
+fi

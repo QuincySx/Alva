@@ -28,6 +28,10 @@ ignore = "0.4"
 reqwest = { version = "0.12", features = ["json", "stream", "multipart"], optional = true }
 alva-agent-context = { path = "../alva-agent-context" }
 
+# WASI file search uses the existing synchronous, gitignore-aware walker.
+[target.'cfg(all(target_family = "wasm", target_os = "wasi"))'.dependencies]
+ignore = "0.4"
+
 [dev-dependencies]
 tempfile = "3"
 # Loop 16 added `#[tokio::test(flavor = "multi_thread", worker_threads = 4)]`

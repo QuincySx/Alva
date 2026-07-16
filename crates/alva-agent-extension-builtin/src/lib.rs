@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_core, alva_kernel_abi, feature-gated built-in tool modules
+// OUTPUT: tool_presets, register_builtin_tools, LocalToolFs (native), WasiFs (WASI), Plugin wrappers
+// POS:    Crate root wiring built-in tools and platform-specific ToolFs fallbacks.
 //! Built-in agent extensions.
 //!
 //! This crate consolidates every reference tool implementation (formerly
@@ -14,7 +17,7 @@ pub mod services;
 pub mod truncate;
 pub mod wrappers;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub mod walkdir;
 
 /// Local-OS `ToolFs` adapter. Native-only (`tokio::process` + `tokio::fs`).
@@ -26,6 +29,18 @@ pub mod local_fs;
 #[cfg(not(target_family = "wasm"))]
 pub use local_fs::LocalToolFs;
 
+/// WASI `ToolFs` adapter backed by synchronous `std::fs` operations.
+#[cfg(all(target_family = "wasm", target_os = "wasi"))]
+pub mod wasi_fs;
+
+#[cfg(all(target_family = "wasm", target_os = "wasi"))]
+pub use wasi_fs::WasiFs;
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) use local_fs::LocalToolFs as PlatformToolFs;
+#[cfg(all(target_family = "wasm", target_os = "wasi"))]
+pub(crate) use wasi_fs::WasiFs as PlatformToolFs;
+
 // MockToolFs re-exported for test modules inside migrated tools.
 pub use alva_agent_core::MockToolFs;
 
@@ -33,19 +48,37 @@ pub use alva_agent_core::MockToolFs;
 
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod ask_human;
-#[cfg(all(feature = "core", not(target_family = "wasm")))]
+#[cfg(all(
+    feature = "core",
+    not(all(target_family = "wasm", target_os = "unknown"))
+))]
 pub mod create_file;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod execute_shell;
-#[cfg(all(feature = "core", not(target_family = "wasm")))]
+#[cfg(all(
+    feature = "core",
+    not(all(target_family = "wasm", target_os = "unknown"))
+))]
 pub mod file_edit;
-#[cfg(all(feature = "core", not(target_family = "wasm")))]
+#[cfg(all(
+    feature = "core",
+    not(all(target_family = "wasm", target_os = "unknown"))
+))]
 pub mod find_files;
-#[cfg(all(feature = "core", not(target_family = "wasm")))]
+#[cfg(all(
+    feature = "core",
+    not(all(target_family = "wasm", target_os = "unknown"))
+))]
 pub mod grep_search;
-#[cfg(all(feature = "core", not(target_family = "wasm")))]
+#[cfg(all(
+    feature = "core",
+    not(all(target_family = "wasm", target_os = "unknown"))
+))]
 pub mod list_files;
-#[cfg(all(feature = "core", not(target_family = "wasm")))]
+#[cfg(all(
+    feature = "core",
+    not(all(target_family = "wasm", target_os = "unknown"))
+))]
 pub mod read_file;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod todo_write;
@@ -138,7 +171,10 @@ pub mod tool_presets {
     pub fn file_io() -> Vec<Box<dyn Tool>> {
         #[allow(unused_mut)]
         let mut tools: Vec<Box<dyn Tool>> = Vec::new();
-        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        #[cfg(all(
+            feature = "core",
+            not(all(target_family = "wasm", target_os = "unknown"))
+        ))]
         {
             tools.push(Box::new(crate::read_file::ReadFileTool));
             tools.push(Box::new(crate::create_file::CreateFileTool));
@@ -349,7 +385,10 @@ mod tool_preset_tests {
 
     // -- Individual presets ------------------------------------------------
 
-    #[cfg(all(feature = "core", not(target_family = "wasm")))]
+    #[cfg(all(
+        feature = "core",
+        not(all(target_family = "wasm", target_os = "unknown"))
+    ))]
     #[test]
     fn file_io_preset_includes_all_six_core_file_tools() {
         let got = names(tool_presets::file_io());
@@ -369,6 +408,30 @@ mod tool_preset_tests {
             6,
             "file_io must have exactly 6 tools, got {got:?}"
         );
+    }
+
+    #[cfg(all(
+        feature = "core",
+        not(all(target_family = "wasm", target_os = "unknown"))
+    ))]
+    #[test]
+    fn legacy_registration_includes_all_six_core_file_tools() {
+        let mut registry = alva_kernel_abi::ToolRegistry::new();
+        super::register_builtin_tools(&mut registry);
+
+        for name in [
+            "read_file",
+            "create_file",
+            "file_edit",
+            "list_files",
+            "find_files",
+            "grep_search",
+        ] {
+            assert!(
+                registry.get(name).is_some(),
+                "expected {name:?} to be registered"
+            );
+        }
     }
 
     #[cfg(all(feature = "core", not(target_family = "wasm")))]
@@ -479,9 +542,15 @@ mod tool_preset_tests {
         // preset survives the all_standard() composition. Catches
         // a refactor that dropped, say, `.extend(web())`.
         let got = names(tool_presets::all_standard());
-        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        #[cfg(all(
+            feature = "core",
+            not(all(target_family = "wasm", target_os = "unknown"))
+        ))]
         {
             assert!(got.contains(&"read_file".to_string()));
+        }
+        #[cfg(all(feature = "core", not(target_family = "wasm")))]
+        {
             assert!(got.contains(&"execute_shell".to_string()));
             assert!(got.contains(&"ask_human".to_string()));
         }

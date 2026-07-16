@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::PlatformToolFs
 // OUTPUT: CreateFileTool
 // POS:    Creates or overwrites a file with auto-creation of parent directories,
 //         line ending preservation, and staleness detection.
@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::local_fs::LocalToolFs;
+use crate::PlatformToolFs;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
@@ -66,7 +66,7 @@ impl CreateFileTool {
             message: "local filesystem context required".into(),
         })?;
         let file_path = workspace.join(&params.path);
-        let fallback = LocalToolFs::new(workspace);
+        let fallback = PlatformToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         let path_str = file_path.to_str().unwrap_or_default();

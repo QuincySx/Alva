@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi, async_trait, base64, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, base64, schemars, serde, serde_json, crate::PlatformToolFs
 // OUTPUT: ReadFileTool
 // POS:    Read file contents with offset/limit pagination, image detection (magic bytes + extension fallback for SVG/ICO), encoding detection, PDF page support, and smart truncation.
 //! read_file — read text or image files with pagination and truncation
@@ -9,8 +9,8 @@ use serde::Deserialize;
 use serde_json::json;
 use std::path::Path;
 
-use crate::local_fs::LocalToolFs;
 use crate::truncate::{truncate_head, MAX_BYTES, MAX_LINES};
+use crate::PlatformToolFs;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
@@ -179,7 +179,7 @@ impl ReadFileTool {
             workspace.join(&params.path)
         };
 
-        let fallback = LocalToolFs::new(workspace);
+        let fallback = PlatformToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
         let path_str = file_path.to_str().unwrap_or_default();
 

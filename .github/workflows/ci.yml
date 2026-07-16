@@ -91,9 +91,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown,wasm32-wasip2
       - uses: Swatinem/rust-cache@v2
-      - name: ci-check-deps (layering rules + bus lint + wasm32 set)
+      - name: ci-check-deps (layering rules + bus lint + wasm32 sets)
         run: ./scripts/ci-check-deps.sh
 
   # ── Stage 3 — coverage (visibility only, after tests pass) ────────────

@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::PlatformToolFs
 // OUTPUT: FileEditTool
 // POS:    Performs string-replace-based file editing with unique match enforcement,
 //         replace_all mode, quote normalization, and staleness detection.
@@ -11,8 +11,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::local_fs::LocalToolFs;
 use crate::truncate::safe_truncate;
+use crate::PlatformToolFs;
 
 fn truncated_preview(text: &str) -> &str {
     safe_truncate(text, 50)
@@ -164,7 +164,7 @@ impl FileEditTool {
             message: "local filesystem context required".into(),
         })?;
         let file_path = workspace.join(&params.path);
-        let fallback = LocalToolFs::new(workspace);
+        let fallback = PlatformToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         let raw = fs

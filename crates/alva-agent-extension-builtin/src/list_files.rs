@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::local_fs::LocalToolFs
+// INPUT:  alva_kernel_abi, async_trait, schemars, serde, serde_json, crate::PlatformToolFs
 // OUTPUT: ListFilesTool
 // POS:    Lists directory contents with recursive traversal and hidden file filtering via ToolFs.
 //! list_files — list directory contents
@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::local_fs::LocalToolFs;
+use crate::PlatformToolFs;
 
 /// Maximum entries returned to prevent context overflow.
 const MAX_ENTRIES: usize = 500;
@@ -103,7 +103,7 @@ impl ListFilesTool {
         };
         let show_hidden = params.show_hidden.unwrap_or(false);
 
-        let fallback = LocalToolFs::new(workspace);
+        let fallback = PlatformToolFs::new(workspace);
         let fs = ctx.tool_fs().unwrap_or(&fallback);
 
         let target_str = target.to_str().unwrap_or_default();
