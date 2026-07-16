@@ -54,14 +54,28 @@ impl SandboxConfig {
         self.mode
     }
 
-    /// Whether this platform can actually *enforce* the sandbox at the OS
-    /// level. Today only macOS (Seatbelt / `sandbox-exec`) is enforced; on
-    /// every other platform [`wrap_command`](Self::wrap_command) runs the
-    /// command unchanged. Callers that gate dangerous permission modes
-    /// (`Bypass`, `AcceptShell`) on "a sandbox is in effect" MUST consult
-    /// this rather than assuming the sandbox is real.
+    /// Whether a sandbox is actually *applied* to this process's commands.
+    ///
+    /// **Currently false everywhere, including macOS.** This used to report
+    /// `cfg!(target_os = "macos")`, on the theory that Seatbelt is available
+    /// there — but availability is not application. [`wrap_command`] is the
+    /// only thing that would put a command under `sandbox-exec`, and it has no
+    /// production callers: nothing in the binary ever wraps anything.
+    ///
+    /// The distinction is the whole point. Its one caller gates `Bypass` and
+    /// `AcceptShell` — modes that auto-run commands *because* something is
+    /// supposed to contain them — and reporting `true` here made that gate
+    /// wave those modes through on macOS with no sandbox, no warning, and none
+    /// of the explicit acknowledgement Linux requires. Answering honestly costs
+    /// macOS users an explicit `--dangerously-allow-unsandboxed`, which is
+    /// exactly what their situation warrants.
+    ///
+    /// Ticket 13 flips this back to a real check when `--sandbox os` actually
+    /// confines the worker. Until then it must not claim otherwise.
+    ///
+    /// [`wrap_command`]: Self::wrap_command
     pub const fn is_enforced() -> bool {
-        cfg!(target_os = "macos")
+        false
     }
 
     /// Whether the configured mode is one that promises isolation
@@ -178,6 +192,25 @@ impl Default for SandboxConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `is_enforced` gates Bypass and AcceptShell — modes that auto-run
+    /// commands on the promise that something contains them. It may only say
+    /// "yes" when a command actually gets wrapped, and `wrap_command` still has
+    /// no production callers, so the honest answer is no. It reported
+    /// `cfg!(target_os = "macos")` once, which let macOS auto-run unsandboxed
+    /// commands while Linux demanded --dangerously-allow-unsandboxed for the
+    /// identical situation.
+    ///
+    /// Ticket 13 may flip this — but only together with real confinement. If
+    /// this test is failing because someone wants `--sandbox os` to work, wire
+    /// the sandbox first; do not delete the test.
+    #[test]
+    fn is_enforced_stays_false_until_a_sandbox_actually_wraps_commands() {
+        assert!(
+            !SandboxConfig::is_enforced(),
+            "nothing calls wrap_command in production, so no platform confines anything yet"
+        );
+    }
 
     #[test]
     fn default_mode_is_restrictive_open() {
