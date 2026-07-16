@@ -1,4 +1,4 @@
-// INPUT:  std::{fs, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_sandbox_wasm, alva_test, async_trait, futures, serde, serde_json, tempfile, tokio, wasmtime
+// INPUT:  std::{fs, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_llm_wire, alva_sandbox_wasm, alva_test, async_trait, futures, serde_json, tempfile, tokio, wasmtime
 // OUTPUT: Integration coverage for the public WASIp1 runner seam
 // POS:    Builds WASIp1 guests on demand and verifies sandboxed files plus the structured blocking LLM proxy boundary.
 
@@ -9,17 +9,16 @@ use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use alva_kernel_abi::{
-    AgentError, LanguageModel, Message, ModelConfig, StreamEvent, Tool, ToolExecutionContext,
-    ToolOutput,
+    AgentError, LanguageModel, StreamEvent, Tool, ToolExecutionContext, ToolOutput,
 };
+use alva_llm_wire::{LlmProxyRequest, LlmProxyResponse, ToolDefinition};
 use alva_sandbox_wasm::{run_module, Grant, RunRequest, SandboxRunner};
 use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
 use async_trait::async_trait;
 use futures::StreamExt;
-use serde::Deserialize;
 use serde_json::json;
-use wasmtime::{Caller, Extern, Linker};
+use wasmtime::Linker;
 use wasmtime_wasi::p1::WasiP1Ctx;
 
 static FIXTURE_WASM: OnceLock<Vec<u8>> = OnceLock::new();
@@ -32,7 +31,6 @@ const FINAL_RESPONSE: &str = "sandboxed agent finished";
 fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
     let work = tempfile::tempdir().expect("create granted work directory");
     let task = "Create out.txt in the granted workspace, then report completion";
-    fs::write(work.path().join("task.txt"), task).expect("seed guest task");
 
     let mock = MockLanguageModel::new()
         .with_response(make_tool_call_message(
@@ -56,7 +54,7 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
             RunRequest {
                 module: worker_wasm().to_vec(),
                 grants: vec![Grant::read_write(work.path(), "/work")],
-                args: Vec::new(),
+                args: worker_args(task, "/work/result.txt"),
             },
             move |linker| {
                 register_llm_proxy(
@@ -127,7 +125,6 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
 #[test]
 fn empty_completion_round_trips_without_trapping() {
     let work = tempfile::tempdir().expect("create granted work directory");
-    fs::write(work.path().join("task.txt"), "task").expect("seed guest task");
 
     // An empty stream triggers the kernel's documented complete() fallback,
     // so queue one response for stream() and one for complete().
@@ -148,7 +145,7 @@ fn empty_completion_round_trips_without_trapping() {
             RunRequest {
                 module: worker_wasm().to_vec(),
                 grants: vec![Grant::read_write(work.path(), "/work")],
-                args: Vec::new(),
+                args: worker_args("task", "/work/result.txt"),
             },
             move |linker| register_llm_proxy(linker, model, headers, tool_names, runtime_handle),
         )
@@ -161,21 +158,72 @@ fn empty_completion_round_trips_without_trapping() {
     );
 }
 
-#[derive(Deserialize)]
-struct LlmProxyRequest {
-    messages: Vec<Message>,
-    tools: Vec<ProxyToolDefinition>,
-    config: ModelConfig,
+#[test]
+fn denied_path_error_reaches_model_and_final_reason_reaches_caller() {
+    let work = tempfile::tempdir().expect("create granted work directory");
+    let final_reason = "Task failed: /outside/secret.txt is outside the granted workspace";
+    let mock = MockLanguageModel::new()
+        .with_response(make_tool_call_message(
+            "read_file",
+            json!({"path": "/outside/secret.txt"}),
+        ))
+        .with_response(make_assistant_message(final_reason));
+    let recorded_mock = mock.clone();
+    let model: Arc<dyn LanguageModel> = Arc::new(mock);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("build one host proxy runtime");
+    let runtime_handle = runtime.handle().clone();
+
+    let outcome = SandboxRunner::new()
+        .run_with_imports(
+            RunRequest {
+                module: worker_wasm().to_vec(),
+                grants: vec![Grant::read_write(work.path(), "/work")],
+                args: worker_args(
+                    "Read /outside/secret.txt and report why the task cannot be completed",
+                    "/work/result.txt",
+                ),
+            },
+            move |linker| {
+                register_llm_proxy(
+                    linker,
+                    model,
+                    Arc::new(Mutex::new(Vec::new())),
+                    Arc::new(Mutex::new(Vec::new())),
+                    runtime_handle,
+                )
+            },
+        )
+        .expect("worker returns the model's explicit failure reason");
+
+    assert_eq!(outcome.exit_code, 0, "stderr: {}", outcome.stderr);
+    assert_eq!(
+        fs::read_to_string(work.path().join("result.txt")).expect("read worker result"),
+        final_reason
+    );
+    let calls = recorded_mock.calls();
+    assert_eq!(calls.len(), 2);
+    let error_text = calls[1]
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter_map(|block| block.as_tool_result())
+        .find_map(|(_, content, is_error)| {
+            is_error.then(|| {
+                content
+                    .iter()
+                    .filter_map(|item| item.as_text())
+                    .collect::<String>()
+            })
+        })
+        .expect("the second model turn sees an error tool result");
+    assert!(
+        error_text.contains("outside/secret.txt") || error_text.contains("failed to find"),
+        "tool error should identify the denied path: {error_text}"
+    );
 }
 
-#[derive(Deserialize)]
-struct ProxyToolDefinition {
-    name: String,
-    description: String,
-    parameters_schema: serde_json::Value,
-}
-
-struct DefinitionOnlyTool(ProxyToolDefinition);
+struct DefinitionOnlyTool(ToolDefinition);
 
 #[async_trait]
 impl Tool for DefinitionOnlyTool {
@@ -188,7 +236,7 @@ impl Tool for DefinitionOnlyTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        self.0.parameters_schema.clone()
+        self.0.parameters.clone()
     }
 
     async fn execute(
@@ -210,77 +258,49 @@ fn register_llm_proxy(
     proxied_tool_names: Arc<Mutex<Vec<Vec<String>>>>,
     runtime_handle: tokio::runtime::Handle,
 ) -> Result<(), wasmtime::Error> {
-    linker.func_wrap(
-        "alva:host/llm",
-        "llm_complete",
-        move |mut caller: Caller<'_, WasiP1Ctx>, req_ptr: i32, req_len: i32| {
-            let req_start = usize::try_from(req_ptr)
-                .map_err(|_| wasmtime::Error::msg("negative request pointer"))?;
-            let req_len = usize::try_from(req_len)
-                .map_err(|_| wasmtime::Error::msg("negative request length"))?;
-            let req_end = req_start
-                .checked_add(req_len)
-                .ok_or_else(|| wasmtime::Error::msg("request range overflow"))?;
-            let memory = caller
-                .get_export("memory")
-                .and_then(Extern::into_memory)
-                .ok_or_else(|| wasmtime::Error::msg("guest did not export memory"))?;
-            let request = memory
-                .data(&caller)
-                .get(req_start..req_end)
-                .ok_or_else(|| wasmtime::Error::msg("request range is outside guest memory"))?;
-            let request: LlmProxyRequest = serde_json::from_slice(request)
-                .map_err(|error| wasmtime::Error::msg(error.to_string()))?;
+    alva_sandbox_wasm::register_llm_proxy(linker, move |request: LlmProxyRequest| {
+        // This is the host-only credential seam: the marker is consumed
+        // while preparing the provider call but never enters response
+        // bytes, guest memory, WASI args, or a preopen.
+        authorization_headers
+            .lock()
+            .expect("header lock")
+            .push(format!("Authorization: Bearer {HOST_MARKER}"));
+        let tools: Vec<Box<dyn Tool>> = request
+            .tools
+            .into_iter()
+            .map(|definition| Box::new(DefinitionOnlyTool(definition)) as Box<dyn Tool>)
+            .collect();
+        let tool_refs: Vec<&dyn Tool> = tools.iter().map(Box::as_ref).collect();
+        proxied_tool_names.lock().expect("tool-name lock").push(
+            tool_refs
+                .iter()
+                .map(|tool| tool.name().to_string())
+                .collect(),
+        );
+        let events: Vec<StreamEvent> = runtime_handle.block_on(async {
+            model
+                .stream(&request.messages, &tool_refs, &request.config)
+                .collect()
+                .await
+        });
+        Ok(LlmProxyResponse::new(events))
+    })
+}
 
-            // This is the host-only credential seam: the marker is consumed
-            // while preparing the provider call but never enters response
-            // bytes, guest memory, WASI args, or a preopen.
-            authorization_headers
-                .lock()
-                .expect("header lock")
-                .push(format!("Authorization: Bearer {HOST_MARKER}"));
-            let tools: Vec<Box<dyn Tool>> = request
-                .tools
-                .into_iter()
-                .map(|definition| Box::new(DefinitionOnlyTool(definition)) as Box<dyn Tool>)
-                .collect();
-            let tool_refs: Vec<&dyn Tool> = tools.iter().map(Box::as_ref).collect();
-            proxied_tool_names.lock().expect("tool-name lock").push(
-                tool_refs
-                    .iter()
-                    .map(|tool| tool.name().to_string())
-                    .collect(),
-            );
-            let events: Vec<StreamEvent> = runtime_handle.block_on(async {
-                model
-                    .stream(&request.messages, &tool_refs, &request.config)
-                    .collect()
-                    .await
-            });
-            let response = serde_json::to_vec(&events)
-                .map_err(|error| wasmtime::Error::msg(error.to_string()))?;
-            let resp_len = i32::try_from(response.len())
-                .map_err(|_| wasmtime::Error::msg("response exceeds ptr/len ABI limit"))?;
-            // A malformed empty payload needs no guest allocation. Valid
-            // `Vec<StreamEvent>` JSON is always non-empty, even for `[]`.
-            if resp_len == 0 {
-                return Ok(0);
-            }
-            let alloc = caller
-                .get_export("alloc")
-                .and_then(Extern::into_func)
-                .ok_or_else(|| wasmtime::Error::msg("guest did not export alloc"))?
-                .typed::<i32, i32>(&caller)?;
-            let resp_ptr = alloc.call(&mut caller, resp_len)?;
-            let resp_start = usize::try_from(resp_ptr)
-                .map_err(|_| wasmtime::Error::msg("guest alloc returned negative pointer"))?;
-            memory.write(&mut caller, resp_start, &response)?;
-
-            let packed = (u64::from(resp_ptr as u32) << 32) | u64::from(resp_len as u32);
-            Ok(packed as i64)
-        },
-    )?;
-    Ok(())
+fn worker_args(task: &str, result: &str) -> Vec<String> {
+    vec![
+        // argv[0] is the program name per WASI convention; the guest skips it.
+        "alva-worker-wasm".into(),
+        "--workspace".into(),
+        "/work".into(),
+        "--task".into(),
+        task.into(),
+        "--result".into(),
+        result.into(),
+        "--grant".into(),
+        "/work".into(),
+    ]
 }
 
 #[test]

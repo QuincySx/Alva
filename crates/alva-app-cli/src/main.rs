@@ -1,3 +1,7 @@
+// INPUT:  process argv/env/stdin, provider config, app-core agent assembly, wasm_sandbox, CLI subcommands/UI
+// OUTPUT: alva binary entry point and headless/interactive exit codes/stdout/stderr contracts
+// POS:    Top-level CLI dispatcher, including early wasm-tier validation and host-provider execution.
+
 //! alva-cli — Minimal CLI agent with session management.
 //!
 //! Usage:
@@ -34,6 +38,7 @@ mod settings_cmd;
 mod setup;
 mod tools_cmd;
 pub mod ui;
+mod wasm_sandbox;
 
 use std::io::{self, IsTerminal as _, Read as _};
 
@@ -92,6 +97,19 @@ async fn run() -> i32 {
         Some("context") => return context::run(&argv[2..]).await,
         Some("settings") => return settings_cmd::run(&argv[2..]).await,
         _ => {}
+    }
+
+    let wasm_grants = match parse_wasm_sandbox_args(&argv) {
+        Ok(grants) => grants,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return 1;
+        }
+    };
+    let print_mode = argv.iter().any(|a| a == "-p" || a == "--print");
+    if wasm_grants.is_some() && !print_mode {
+        eprintln!("Error: --sandbox wasm is currently supported only with -p/--print");
+        return 1;
     }
 
     // Cross-process recursion gate — the sibling of the in-process
@@ -239,6 +257,60 @@ async fn run() -> i32 {
         std::env::remove_var(var);
     }
 
+    if let Some(grants) = wasm_grants {
+        let invocation = match parse_wasm_print_invocation(&argv) {
+            Ok(invocation) => invocation,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return 1;
+            }
+        };
+        let model = alva_llm_provider::build_language_model(config.kind.as_deref(), config.clone());
+        let started = std::time::Instant::now();
+        let result = wasm_sandbox::run(model, grants, invocation.prompt).await;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        return match result {
+            Ok(text) => {
+                if invocation.output_json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "type": "result",
+                            "result": text,
+                            "is_error": false,
+                            "error": null,
+                            "session_id": null,
+                            "usage": null,
+                            "duration_ms": duration_ms,
+                        })
+                    );
+                } else {
+                    println!("{text}");
+                }
+                0
+            }
+            Err(error) => {
+                if invocation.output_json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "type": "result",
+                            "result": "",
+                            "is_error": true,
+                            "error": error,
+                            "session_id": null,
+                            "usage": null,
+                            "duration_ms": duration_ms,
+                        })
+                    );
+                } else {
+                    eprintln!("Error: {error}");
+                }
+                1
+            }
+        };
+    }
+
     let session_manager = JsonFileSessionManager::for_workspace(&workspace);
 
     // 2. Build agent (provider, skills, approval channel, checkpoint callback)
@@ -263,8 +335,6 @@ async fn run() -> i32 {
     // 3. Check for -p/--print mode (non-interactive, single prompt, stdout-only).
     //    Computed before applying --permission-mode because the sandbox gate
     //    below behaves differently in headless vs interactive runs.
-    let print_mode = args.iter().any(|a| a == "-p" || a == "--print");
-
     match parse_permission_mode(&args) {
         Ok(Some(mode)) => {
             // CLI#7: `accept-shell` / `bypass` auto-run commands on the
@@ -589,6 +659,131 @@ async fn run() -> i32 {
     0
 }
 
+/// Parse and validate the wasm tier before provider setup so malformed
+/// isolation flags fail loudly even on an unconfigured machine.
+fn parse_wasm_sandbox_args(args: &[String]) -> Result<Option<Vec<std::path::PathBuf>>, String> {
+    let mut sandbox = None;
+    let mut grants = Vec::new();
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--sandbox" => {
+                let tier = args
+                    .get(index + 1)
+                    .ok_or_else(|| "--sandbox expects a tier; legal values: wasm".to_string())?;
+                match tier.as_str() {
+                    "wasm" => sandbox = Some(()),
+                    other => {
+                        return Err(format!(
+                            "unknown --sandbox tier {other:?}; legal values: wasm"
+                        ))
+                    }
+                }
+                index += 2;
+            }
+            "--grant" => {
+                let raw = args
+                    .get(index + 1)
+                    .ok_or_else(|| "--grant expects an existing directory".to_string())?;
+                let path = std::path::Path::new(raw);
+                if !path.exists() {
+                    return Err(format!(
+                        "--grant directory does not exist: {}",
+                        path.display()
+                    ));
+                }
+                if !path.is_dir() {
+                    return Err(format!(
+                        "--grant path is not a directory: {}",
+                        path.display()
+                    ));
+                }
+                grants.push(path.canonicalize().map_err(|error| {
+                    format!(
+                        "cannot resolve --grant directory {}: {error}",
+                        path.display()
+                    )
+                })?);
+                index += 2;
+            }
+            _ => index += 1,
+        }
+    }
+
+    match (sandbox, grants.is_empty()) {
+        (Some(()), true) => Err("--sandbox wasm requires at least one --grant <dir>".to_string()),
+        (Some(()), false) => Ok(Some(grants)),
+        (None, false) => Err("--grant requires --sandbox wasm".to_string()),
+        (None, true) => Ok(None),
+    }
+}
+
+struct WasmPrintInvocation {
+    prompt: String,
+    output_json: bool,
+}
+
+/// Collect the headless prompt while removing wasm/provider/output flag pairs.
+/// Flags whose semantics the one-shot guest cannot preserve are rejected
+/// rather than silently ignored.
+fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, String> {
+    let mut prompt_args = Vec::new();
+    let mut output_json = false;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "-p" | "--print" => index += 1,
+            "--sandbox" | "--grant" | "--provider" => index += 2,
+            "--output-format" => {
+                match args.get(index + 1).map(String::as_str) {
+                    Some("json") => output_json = true,
+                    Some("text") => output_json = false,
+                    other => {
+                        return Err(format!(
+                            "--output-format expects `text` or `json`, got {:?}",
+                            other.unwrap_or("<missing>")
+                        ))
+                    }
+                }
+                index += 2;
+            }
+            "--resume"
+            | "--allowed-tools"
+            | "--permission-mode"
+            | "--system-prompt"
+            | "--max-turns"
+            | "--dangerously-allow-unsandboxed" => {
+                return Err(format!(
+                    "{} is not supported with --sandbox wasm",
+                    args[index]
+                ))
+            }
+            value => {
+                prompt_args.push(value.to_string());
+                index += 1;
+            }
+        }
+    }
+
+    let prompt = if prompt_args.is_empty() {
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf).ok();
+        buf.trim().to_string()
+    } else {
+        prompt_args.join(" ")
+    };
+    if prompt.is_empty() {
+        return Err(
+            "no prompt provided in -p mode; pass it as an argument or pipe it via stdin"
+                .to_string(),
+        );
+    }
+    Ok(WasmPrintInvocation {
+        prompt,
+        output_json,
+    })
+}
+
 /// Top-level CLI usage text. Kept as a function so the documented flag
 /// inventory is unit-tested — a flag that exists but isn't advertised here is
 /// a discoverability bug, especially for an AI driving the CLI headlessly.
@@ -621,6 +816,12 @@ FLAGS:
                                   (see `alva providers list`); overrides the
                                   active profile. ALVA_* env vars still override
                                   individual fields on top.
+    --sandbox <wasm>              -p: run the agent loop inside the WASIp1 worker.
+                                  Currently `wasm` is the only legal tier.
+    --grant <DIR>                 -p --sandbox wasm: grant one existing directory
+                                  read/write access. Repeat for additional dirs;
+                                  at least one grant is required. Wasm runs are
+                                  one-shot (`session_id: null`; no --resume).
     --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
                                   tools (discover names via `alva tools list`).
     --max-turns <N>               Turn budget for this run (default 20). Lets an

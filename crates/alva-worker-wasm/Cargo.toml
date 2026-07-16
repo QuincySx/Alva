@@ -8,6 +8,7 @@ alva-agent-core = { path = "../alva-agent-core" }
 alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin", default-features = false, features = ["core"] }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
+alva-llm-wire = { path = "../alva-llm-wire" }
 async-trait = "0.1"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }

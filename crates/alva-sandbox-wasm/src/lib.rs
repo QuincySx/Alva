@@ -1,5 +1,5 @@
-// INPUT:  std::{path, string}, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
-// OUTPUT: Access, Grant, RunRequest, RunOutcome, SandboxError, SandboxRunner::{run, run_with_imports}, run_module
+// INPUT:  std::{path, string}, alva_llm_wire, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
+// OUTPUT: Access, Grant, RunRequest, RunOutcome, SandboxError, SandboxRunner::{run, run_with_imports}, register_llm_proxy, run_module
 // POS:    Native WASIp1 runner boundary that mounts per-call preopens and captures guest process results.
 
 //! Host-side runner for WASIp1 command modules.
@@ -12,6 +12,10 @@
 //! [`Engine`] (its code cache survives across runs); every run still gets a
 //! fresh `Store` + WASI context, so isolation is per-run. [`run_module`] is a
 //! one-shot convenience that builds a throwaway runner.
+
+mod llm_proxy;
+
+pub use llm_proxy::register_llm_proxy;
 
 use std::path::PathBuf;
 use std::string::FromUtf8Error;

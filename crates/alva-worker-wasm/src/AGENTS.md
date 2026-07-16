@@ -8,18 +8,18 @@
 
 ## 逻辑
 
-`main.rs` 在 WASI 下读取任务，用 `AgentBuilder` 装配 `ProxyModel`、`CorePlugin` 和注入 `NoopSleeper` 的工具超时 middleware；模型请求以 JSON 通过阻塞式 import 往返 `Vec<StreamEvent>`，agent 最终文本落盘。在其他 target 下只输出平台提示以保持 workspace native 构建可用。
+`main.rs` 在 WASI 下解析 host 注入的 workspace/task/result/grant args，用 `AgentBuilder` 装配 `ProxyModel` 与 `CorePlugin`；模型请求以版本化 JSON 通过阻塞式 import 往返 stream events，agent 最终文本写入指定文件或 stdout。在其他 target 下只输出平台提示以保持 workspace native 构建可用。
 
 ## 约束
 
 - `alloc` 必须保持 C ABI 和未改名导出，供宿主从实例中查找。
-- import 模块名与函数名必须和宿主测试接线完全一致。
+- import 模块名与函数名必须和 `alva-sandbox-wasm::register_llm_proxy` 完全一致。
 - 从宿主返回的 buffer 必须由 guest 重新接管并释放。
-- 文件工具必须以 `/work` 为 workspace，由 WASI preopen 而不是 guest 自行路径过滤来执行圈禁。
+- 文件工具必须以 `--workspace` 值为根，由 WASI preopen 而不是 guest 自行路径过滤来执行圈禁。
 - async loop 由 `futures::executor::block_on` 驱动，不得引入 tokio runtime 或 tokio time sleeper。
 
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
-| WASIp1 command | `main.rs` | SDK agent loop、WASI 文件工具、ProxyModel、文件输入输出、`alloc` export 与 `llm_complete` import。 |
+| WASIp1 command | `main.rs` | SDK agent loop、WASI 文件工具、args/result 协议、ProxyModel、`alloc` export 与 `llm_complete` import。 |

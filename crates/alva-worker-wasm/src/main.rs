@@ -1,17 +1,15 @@
-// INPUT:  alva_agent_core, alva_agent_extension_builtin::CorePlugin, alva_kernel_abi, alva_kernel_core, futures, serde, serde_json, std::{alloc, fs, slice, sync::Arc}, host import alva:host/llm::llm_complete
-// OUTPUT: alloc(len) wasm export, ProxyModel, /work/result.txt containing the sandboxed agent's final answer
-// POS:    WASIp1 worker running the SDK agent loop with local WASI file tools and a blocking host-proxied model.
+// INPUT:  WASI args, alva_agent_core, CorePlugin, alva_kernel_{abi,core}, alva_llm_wire proxy ABI, futures, serde_json, std::{alloc, fs, io, slice, sync::Arc}, host import alva:host/llm::llm_complete
+// OUTPUT: alloc(len) wasm export plus a configurable file/stdout result channel
+// POS:    WASIp1 worker running an SDK agent loop in a host-selected workspace with a versioned blocking LLM proxy.
 
 #[cfg(target_os = "wasi")]
 use std::alloc::{self, Layout};
-#[cfg(target_os = "wasi")]
-use std::collections::HashMap;
 #[cfg(target_os = "wasi")]
 use std::pin::Pin;
 #[cfg(target_os = "wasi")]
 use std::sync::Arc;
 #[cfg(target_os = "wasi")]
-use std::{fs, slice};
+use std::{env, fs, io, process, slice};
 
 #[cfg(target_os = "wasi")]
 use alva_agent_core::Agent;
@@ -19,18 +17,20 @@ use alva_agent_core::Agent;
 use alva_agent_extension_builtin::wrappers::CorePlugin;
 #[cfg(target_os = "wasi")]
 use alva_kernel_abi::{
-    AgentError, AgentMessage, CancellationToken, CompletionResponse, ContentBlock, LanguageModel,
-    Message, MessageRole, ModelConfig, StreamEvent, Tool,
+    AgentError, AgentMessage, CancellationToken, CompletionResponse, LanguageModel, Message,
+    ModelConfig, StreamEvent, Tool, ToolDefinition,
 };
 #[cfg(target_os = "wasi")]
 use alva_kernel_core::AgentEvent;
 #[cfg(target_os = "wasi")]
+use alva_llm_wire::{
+    message_from_events, LlmProxyRequest, LlmProxyResponse, LLM_PROXY_ABI_VERSION,
+    MAX_LLM_PROXY_REQUEST_BYTES, MAX_LLM_PROXY_RESPONSE_BYTES,
+};
+#[cfg(target_os = "wasi")]
 use async_trait::async_trait;
 #[cfg(target_os = "wasi")]
 use futures::{executor::block_on, stream, Stream};
-#[cfg(target_os = "wasi")]
-use serde::Serialize;
-
 #[cfg(target_os = "wasi")]
 #[link(wasm_import_module = "alva:host/llm")]
 extern "C" {
@@ -58,6 +58,10 @@ fn response_layout(len: usize) -> Layout {
 #[no_mangle]
 pub extern "C" fn alloc(len: i32) -> i32 {
     let len = usize::try_from(len).expect("host requested a negative allocation");
+    assert!(
+        len <= MAX_LLM_PROXY_RESPONSE_BYTES,
+        "host response exceeds the LLM proxy response size limit"
+    );
     if len == 0 {
         return 0;
     }
@@ -67,23 +71,44 @@ pub extern "C" fn alloc(len: i32) -> i32 {
 }
 
 #[cfg(target_os = "wasi")]
-#[derive(Serialize)]
-struct LlmProxyRequest<'a> {
-    messages: &'a [Message],
-    tools: Vec<ProxyToolDefinition>,
-    config: &'a ModelConfig,
-}
-
-#[cfg(target_os = "wasi")]
-#[derive(Serialize)]
-struct ProxyToolDefinition {
-    name: String,
-    description: String,
-    parameters_schema: serde_json::Value,
-}
-
-#[cfg(target_os = "wasi")]
 struct ProxyModel;
+
+#[cfg(target_os = "wasi")]
+struct BoundedJsonBuffer {
+    bytes: Vec<u8>,
+    limit: usize,
+    exceeded: bool,
+}
+
+#[cfg(target_os = "wasi")]
+impl BoundedJsonBuffer {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            limit,
+            exceeded: false,
+        }
+    }
+}
+
+#[cfg(target_os = "wasi")]
+impl io::Write for BoundedJsonBuffer {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.bytes.len().saturating_add(bytes.len()) > self.limit {
+            self.exceeded = true;
+            return Err(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "LLM proxy JSON exceeds byte limit",
+            ));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 #[cfg(target_os = "wasi")]
 impl ProxyModel {
@@ -93,26 +118,37 @@ impl ProxyModel {
         tools: &[&dyn Tool],
         config: &ModelConfig,
     ) -> Result<Vec<StreamEvent>, AgentError> {
-        let request = LlmProxyRequest {
-            messages,
-            tools: tools
-                .iter()
-                .map(|tool| ProxyToolDefinition {
-                    name: tool.name().to_string(),
-                    description: tool.description().to_string(),
-                    parameters_schema: tool.parameters_schema(),
-                })
-                .collect(),
-            config,
-        };
-        let request = serde_json::to_vec(&request)
-            .map_err(|error| AgentError::Other(format!("serialize LLM proxy request: {error}")))?;
+        let proxy_tools = tools
+            .iter()
+            .map(|tool| ToolDefinition {
+                name: tool.name().to_string(),
+                description: tool.description().to_string(),
+                parameters: tool.parameters_schema(),
+            })
+            .collect();
+        let request = LlmProxyRequest::new(messages.to_vec(), proxy_tools, config.clone());
+        let mut encoded = BoundedJsonBuffer::new(MAX_LLM_PROXY_REQUEST_BYTES);
+        if let Err(error) = serde_json::to_writer(&mut encoded, &request) {
+            return Err(AgentError::Other(if encoded.exceeded {
+                format!("LLM proxy request exceeds the {MAX_LLM_PROXY_REQUEST_BYTES}-byte limit")
+            } else {
+                format!("serialize LLM proxy request: {error}")
+            }));
+        }
+        let request = encoded.bytes;
         let req_len = i32::try_from(request.len())
             .map_err(|_| AgentError::Other("LLM proxy request exceeds ptr/len ABI limit".into()))?;
         let packed = unsafe { llm_complete(request.as_ptr() as i32, req_len) } as u64;
         let response = take_host_response(packed)?;
-        serde_json::from_slice(&response)
-            .map_err(|error| AgentError::Other(format!("decode LLM proxy response: {error}")))
+        let response: LlmProxyResponse = serde_json::from_slice(&response)
+            .map_err(|error| AgentError::Other(format!("decode LLM proxy response: {error}")))?;
+        if !response.has_supported_version() {
+            return Err(AgentError::Other(format!(
+                "unsupported LLM proxy response version {}; guest supports {}",
+                response.version, LLM_PROXY_ABI_VERSION
+            )));
+        }
+        Ok(response.events)
     }
 }
 
@@ -126,9 +162,9 @@ impl LanguageModel for ProxyModel {
         config: &ModelConfig,
     ) -> Result<CompletionResponse, AgentError> {
         let events = self.request_events(messages, tools, config)?;
-        Ok(CompletionResponse::from_message(message_from_events(
-            events,
-        )?))
+        let message = message_from_events(events, next_response_id(), 0)
+            .map_err(|error| AgentError::LlmError(error.to_string()))?;
+        Ok(CompletionResponse::from_message(message))
     }
 
     fn stream(
@@ -170,91 +206,17 @@ fn take_host_response(packed: u64) -> Result<Vec<u8>, AgentError> {
             "host returned a null pointer for a non-empty response".into(),
         ));
     }
+    if resp_len > MAX_LLM_PROXY_RESPONSE_BYTES {
+        return Err(AgentError::Other(format!(
+            "LLM proxy response is {resp_len} bytes; limit is {MAX_LLM_PROXY_RESPONSE_BYTES} bytes"
+        )));
+    }
     // SAFETY: the host obtained this allocation from `alloc(resp_len)` and
     // initialized exactly `resp_len` bytes before returning. The guest copies
     // them out and frees with the same layout `alloc` used.
     let bytes = unsafe { slice::from_raw_parts(resp_ptr as *const u8, resp_len) }.to_vec();
     unsafe { alloc::dealloc(resp_ptr as *mut u8, response_layout(resp_len)) };
     Ok(bytes)
-}
-
-#[cfg(target_os = "wasi")]
-fn message_from_events(events: Vec<StreamEvent>) -> Result<Message, AgentError> {
-    let mut text = String::new();
-    let mut reasoning = Vec::new();
-    let mut usage = None;
-    let mut calls: Vec<(String, String, String)> = Vec::new();
-    let mut call_indices = HashMap::<String, usize>::new();
-    let mut last_call = None;
-
-    for event in events {
-        match event {
-            StreamEvent::TextDelta { text: delta } => text.push_str(&delta),
-            StreamEvent::ReasoningBlock { text, signature } => {
-                reasoning.push(ContentBlock::Reasoning { text, signature });
-            }
-            StreamEvent::ToolCallStart { id, name } => {
-                let index = *call_indices.entry(id.clone()).or_insert_with(|| {
-                    calls.push((id, String::new(), String::new()));
-                    calls.len() - 1
-                });
-                calls[index].1 = name;
-                last_call = Some(index);
-            }
-            StreamEvent::ToolCallDelta {
-                id,
-                name,
-                arguments_delta,
-            } => {
-                let index = if id.is_empty() {
-                    last_call.ok_or_else(|| {
-                        AgentError::LlmError("tool-call delta has no id or preceding call".into())
-                    })?
-                } else if let Some(index) = call_indices.get(&id).copied() {
-                    index
-                } else {
-                    calls.push((id.clone(), String::new(), String::new()));
-                    let index = calls.len() - 1;
-                    call_indices.insert(id, index);
-                    index
-                };
-                if let Some(name) = name.filter(|name| !name.is_empty()) {
-                    calls[index].1 = name;
-                }
-                calls[index].2.push_str(&arguments_delta);
-                last_call = Some(index);
-            }
-            StreamEvent::Usage(value) => usage = Some(value),
-            StreamEvent::Error(error) => return Err(AgentError::LlmError(error)),
-            StreamEvent::Start
-            | StreamEvent::Done
-            | StreamEvent::ReasoningDelta { .. }
-            | StreamEvent::ToolCallEnd { .. }
-            | StreamEvent::Stop { .. } => {}
-        }
-    }
-
-    let mut content = reasoning;
-    if !text.is_empty() {
-        content.push(ContentBlock::Text { text });
-    }
-    for (id, name, arguments) in calls {
-        let input = serde_json::from_str(&arguments).map_err(|error| {
-            AgentError::LlmError(format!(
-                "invalid tool arguments for '{name}' ({id}): {error}"
-            ))
-        })?;
-        content.push(ContentBlock::ToolUse { id, name, input });
-    }
-
-    Ok(Message {
-        id: next_response_id(),
-        role: MessageRole::Assistant,
-        content,
-        tool_call_id: None,
-        usage,
-        timestamp: 0,
-    })
 }
 
 /// Message ids must be unique per response: a multi-turn run produces several
@@ -274,7 +236,11 @@ fn next_response_id() -> String {
 }
 
 #[cfg(target_os = "wasi")]
-async fn run_worker(task: String) -> Result<String, AgentError> {
+async fn run_worker(
+    task: String,
+    workspace: String,
+    grants: Vec<String>,
+) -> Result<String, AgentError> {
     // No tool timeout is installed on purpose. `ToolTimeoutMiddleware` needs a
     // `Sleeper`, and the only one available to a WASIp1 guest today is
     // `NoopSleeper`, whose `sleep` is `future::pending()` — it never resolves,
@@ -283,12 +249,19 @@ async fn run_worker(task: String) -> Result<String, AgentError> {
     // still hang the worker forever, just less visibly. Ticket 06 (run_script
     // wants a real execution timeout) needs a WASI-clock-backed `Sleeper`
     // first; installing the middleware without one buys nothing.
+    let grant_description = grants
+        .iter()
+        .enumerate()
+        .map(|(index, path)| format!("grant {index}: {path}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let system_prompt = format!(
+        "Complete the user's task using the available file tools. Relative paths are rooted in {workspace}. The only host directories available through WASI are: {grant_description}. If access is denied, report the concrete failure instead of claiming success."
+    );
     let agent = Agent::builder()
         .model(Arc::new(ProxyModel))
-        .workspace("/work")
-        .system_prompt(
-            "Complete the user's task using the available file tools. All relative paths are rooted in /work.",
-        )
+        .workspace(&workspace)
+        .system_prompt(&system_prompt)
         .plugin(Box::new(CorePlugin))
         .build()
         .await?;
@@ -318,11 +291,73 @@ async fn run_worker(task: String) -> Result<String, AgentError> {
 }
 
 #[cfg(target_os = "wasi")]
-fn main() {
-    let task = fs::read_to_string("/work/task.txt").expect("read /work/task.txt");
-    let response = block_on(run_worker(task)).expect("run sandboxed agent loop");
+struct WorkerArgs {
+    workspace: String,
+    task: String,
+    result: String,
+    grants: Vec<String>,
+}
 
-    fs::write("/work/result.txt", response).expect("write /work/result.txt");
+#[cfg(target_os = "wasi")]
+fn parse_worker_args() -> Result<WorkerArgs, String> {
+    // Skip argv[0]: WASI follows the convention that the first argument is the
+    // program name, so treating it as a flag would make `wasmtime run
+    // alva-worker-wasm.wasm --workspace ...` — the natural way to drive the
+    // guest by hand — fail with "unknown worker argument".
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    let mut workspace = None;
+    let mut task = None;
+    let mut result = None;
+    let mut grants = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        let value = args
+            .get(index + 1)
+            .filter(|next| !next.starts_with("--"))
+            .cloned()
+            .ok_or_else(|| format!("{flag} expects a value"))?;
+        match flag {
+            "--workspace" => workspace = Some(value),
+            "--task" => task = Some(value),
+            "--result" => result = Some(value),
+            "--grant" => grants.push(value),
+            unknown => return Err(format!("unknown worker argument {unknown:?}")),
+        }
+        index += 2;
+    }
+    let workspace = workspace.ok_or_else(|| "--workspace is required".to_string())?;
+    let task = task.ok_or_else(|| "--task is required".to_string())?;
+    let result = result.ok_or_else(|| "--result is required (`-` for stdout)".to_string())?;
+    if grants.is_empty() {
+        return Err("at least one --grant guest path is required".to_string());
+    }
+    Ok(WorkerArgs {
+        workspace,
+        task,
+        result,
+        grants,
+    })
+}
+
+#[cfg(target_os = "wasi")]
+fn main() {
+    let outcome = parse_worker_args().and_then(|args| {
+        let response = block_on(run_worker(args.task, args.workspace, args.grants))
+            .map_err(|error| format!("sandboxed agent loop failed: {error}"))?;
+        if args.result == "-" {
+            print!("{response}");
+            Ok(())
+        } else {
+            fs::write(&args.result, response)
+                .map_err(|error| format!("write result to {}: {error}", args.result))
+        }
+    });
+
+    if let Err(error) = outcome {
+        eprintln!("worker failed: {error}");
+        process::exit(1);
+    }
 }
 
 #[cfg(not(target_os = "wasi"))]

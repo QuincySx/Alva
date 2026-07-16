@@ -17,6 +17,8 @@ alva-kernel-core = { path = "../alva-kernel-core" }
 alva-host-native = { path = "../alva-host-native" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
+alva-llm-wire = { path = "../alva-llm-wire" }
+alva-sandbox-wasm = { path = "../alva-sandbox-wasm" }
 tokio = { version = "1", features = ["full"] }
 # Discovery stub model (tools_cmd) needs an empty StreamEvent stream.
 futures = "0.3"

@@ -16,10 +16,9 @@ use alva_kernel_abi::tool::schema::ToolSchemaContext;
 use alva_kernel_abi::tool::{SearchReadInfo, Tool, ToolDefinition, ToolPermissionResult};
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
-    ModelConfig, StreamEvent, ToolCall,
+    ModelConfig, StreamEvent, StreamMessageAccumulator, ToolCall,
 };
 use async_trait::async_trait;
-use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -213,22 +212,8 @@ impl LlmCallFn for ActualLlmCall {
         let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
         let mut stream = self.model.stream(&messages, &tool_refs, &self.model_config);
 
-        let mut text_content = String::new();
-        let mut usage = None;
-        let mut last_tool_call_index = None;
+        let mut accumulator = StreamMessageAccumulator::new();
         let mut event_count: u32 = 0;
-
-        // Track in-progress tool calls in appearance order while allowing
-        // providers to repeat the same tool-call id across multiple deltas.
-        let mut tool_call_builders: Vec<(String, String, String)> = Vec::new();
-        let mut tool_call_indices: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-
-        // Reasoning / thinking blocks captured from the stream. Anthropic
-        // emits one on `content_block_stop` with an attestation signature
-        // that MUST be echoed back on the next turn (otherwise 400 errors).
-        // We capture them here and splice into the final assistant message.
-        let mut reasoning_blocks: Vec<(String, Option<String>)> = Vec::new();
 
         while let Some(event) = stream.next().await {
             event_count += 1;
@@ -246,101 +231,15 @@ impl LlmCallFn for ActualLlmCall {
                 delta: event.clone(),
             });
 
-            match event {
-                StreamEvent::TextDelta { text } => {
-                    text_content.push_str(&text);
-                }
-                StreamEvent::ToolCallDelta {
-                    id,
-                    name,
-                    arguments_delta,
-                } => {
-                    let target_index = if !id.is_empty() {
-                        if let Some(existing_index) = tool_call_indices.get(&id).copied() {
-                            existing_index
-                        } else {
-                            let next_index = tool_call_builders.len();
-                            tool_call_builders.push((id.clone(), String::new(), String::new()));
-                            tool_call_indices.insert(id, next_index);
-                            next_index
-                        }
-                    } else if let Some(last_index) = last_tool_call_index {
-                        last_index
-                    } else {
-                        continue;
-                    };
-
-                    last_tool_call_index = Some(target_index);
-
-                    if let Some((_, existing_name, existing_arguments)) =
-                        tool_call_builders.get_mut(target_index)
-                    {
-                        if let Some(name) = name {
-                            if !name.is_empty() {
-                                *existing_name = name;
-                            }
-                        }
-                        existing_arguments.push_str(&arguments_delta);
-                    }
-                }
-                StreamEvent::Usage(u) => {
-                    usage = Some(u);
-                }
-                StreamEvent::Error(e) => {
-                    return Err(AgentError::LlmError(e));
-                }
-                StreamEvent::ToolCallStart { id, name } => {
-                    // Anthropic emits the tool name ONLY on `content_block_start`
-                    // (→ our ToolCallStart). Subsequent ToolCallDelta carries
-                    // the arguments stream but name: None. If we ignored
-                    // ToolCallStart, the builder's name stayed "" and the
-                    // tool dispatch later reported "Tool not found: ".
-                    if !id.is_empty() {
-                        let target_index =
-                            if let Some(existing) = tool_call_indices.get(&id).copied() {
-                                existing
-                            } else {
-                                let next = tool_call_builders.len();
-                                tool_call_builders.push((
-                                    id.clone(),
-                                    String::new(),
-                                    String::new(),
-                                ));
-                                tool_call_indices.insert(id, next);
-                                next
-                            };
-                        last_tool_call_index = Some(target_index);
-                        if !name.is_empty() {
-                            if let Some((_, existing_name, _)) =
-                                tool_call_builders.get_mut(target_index)
-                            {
-                                *existing_name = name;
-                            }
-                        }
-                    }
-                }
-                StreamEvent::ReasoningBlock { text, signature } => {
-                    // Authoritative capture of a completed thinking block.
-                    // Anthropic's extended thinking requires round-tripping
-                    // the full text + signature verbatim on the next turn.
-                    reasoning_blocks.push((text, signature));
-                }
-                StreamEvent::Start
-                | StreamEvent::Done
-                | StreamEvent::ReasoningDelta { .. }
-                | StreamEvent::ToolCallEnd { .. }
-                // agent loop doesn't consume stop reason (Message has no stop_reason field; Stop serves the gateway path)
-                | StreamEvent::Stop { .. } => {
-                    // Boundary signals / UI progress — no builder state to update.
-                }
-            }
+            accumulator
+                .push(event)
+                .map_err(|error| AgentError::LlmError(error.to_string()))?;
         }
 
         // Check if streaming produced anything useful
-        let text_len = text_content.len();
-        let tool_call_count = tool_call_builders.len();
+        let text_len = accumulator.text_len();
 
-        if text_len == 0 && tool_call_count == 0 {
+        if accumulator.is_empty() {
             // Stream returned nothing — fallback to non-streaming complete()
             tracing::warn!(
                 model = %self.model.model_id(),
@@ -400,7 +299,7 @@ impl LlmCallFn for ActualLlmCall {
             }
         }
 
-        if usage.is_none() {
+        if !accumulator.has_usage() {
             tracing::debug!(
                 model = %self.model.model_id(),
                 stream_events = event_count,
@@ -409,34 +308,12 @@ impl LlmCallFn for ActualLlmCall {
             );
         }
 
-        // Assemble the final Message from accumulated stream chunks.
-        // Order matters for Anthropic: extended thinking requires thinking
-        // blocks to precede text / tool_use in the echoed assistant message.
-        let mut content_blocks = Vec::new();
-        for (text, signature) in reasoning_blocks {
-            content_blocks.push(ContentBlock::Reasoning { text, signature });
-        }
-        if !text_content.is_empty() {
-            content_blocks.push(ContentBlock::Text { text: text_content });
-        }
-
-        for (id, name, args_str) in tool_call_builders {
-            let input: Value = serde_json::from_str(&args_str).map_err(|error| {
-                AgentError::LlmError(format!(
-                    "invalid tool arguments for tool call '{id}' ({name}): {error}"
-                ))
-            })?;
-            content_blocks.push(ContentBlock::ToolUse { id, name, input });
-        }
-
-        Ok(Message {
-            id: self.message_id.clone(),
-            role: MessageRole::Assistant,
-            content: content_blocks,
-            tool_call_id: None,
-            usage,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-        })
+        accumulator
+            .finish(
+                self.message_id.clone(),
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .map_err(|error| AgentError::LlmError(error.to_string()))
     }
 }
 
