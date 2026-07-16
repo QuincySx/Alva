@@ -173,51 +173,65 @@ echo ""
 echo "Checking bus cap surface (crates/alva-bus-lint)..."
 cargo run --quiet -p alva-bus-lint
 
+WASM_CLEAN_CRATES=(
+    alva-llm-wire
+    alva-kernel-bus
+    alva-kernel-abi
+    alva-kernel-core
+    alva-agent-context
+    alva-agent-core
+    alva-agent-extension-builtin
+    alva-agent-graph
+    alva-agent-security
+    alva-agent-memory
+    alva-host-wasm
+    alva-llm-provider
+    alva-protocol-mcp
+    alva-protocol-acp
+    alva-protocol-skill
+    alva-engine-runtime
+    alva-environment
+    alva-test
+    alva-macros
+)
+
+check_target_set() {
+    local target=$1
+
+    echo ""
+    echo "Checking kernel $target compilability..."
+
+    if ! rustup target list --installed 2>/dev/null | grep -q "^${target}$"; then
+        echo -e "${GREEN}SKIPPED: $target target not installed${NC}"
+        echo "         install with: rustup target add $target"
+        return
+    fi
+
+    local target_ok=true
+    local crate
+    for crate in "${WASM_CLEAN_CRATES[@]}"; do
+        if cargo check --target "$target" -p "$crate" >/dev/null 2>&1; then
+            echo -e "${GREEN}OK: $crate compiles for $target${NC}"
+        else
+            echo -e "${RED}VIOLATION: $crate does NOT compile for $target${NC}"
+            target_ok=false
+        fi
+    done
+
+    if [ "$target_ok" != "true" ]; then
+        echo -e "${RED}FAILED: $target invariant broken${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}PASSED: $target-clean crate set${NC}"
+}
+
 # ---------------------------------------------------------------------------
 # Phase 5 invariant: kernel layers must compile for wasm32-unknown-unknown
 # without any host-specific deps.
 # ---------------------------------------------------------------------------
-echo ""
-echo "Checking kernel wasm32 compilability..."
+check_target_set "wasm32-unknown-unknown"
 
-WASM_OK=true
-check_wasm() {
-    local crate=$1
-    if cargo check --target wasm32-unknown-unknown -p "$crate" >/dev/null 2>&1; then
-        echo -e "${GREEN}OK: $crate compiles for wasm32${NC}"
-    else
-        echo -e "${RED}VIOLATION: $crate does NOT compile for wasm32${NC}"
-        WASM_OK=false
-    fi
-}
-
-# Skip if wasm32 target is not installed — the dep check still runs.
 if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
-    check_wasm "alva-llm-wire"
-    check_wasm "alva-kernel-bus"
-    check_wasm "alva-kernel-abi"
-    check_wasm "alva-kernel-core"
-    check_wasm "alva-agent-context"
-    check_wasm "alva-agent-core"
-    check_wasm "alva-agent-extension-builtin"
-    check_wasm "alva-agent-graph"
-    check_wasm "alva-agent-security"
-    check_wasm "alva-agent-memory"
-    check_wasm "alva-host-wasm"
-    check_wasm "alva-llm-provider"
-    check_wasm "alva-protocol-mcp"
-    check_wasm "alva-protocol-acp"
-    check_wasm "alva-protocol-skill"
-    check_wasm "alva-engine-runtime"
-    check_wasm "alva-environment"
-    check_wasm "alva-test"
-    check_wasm "alva-macros"
-    if [ "$WASM_OK" != "true" ]; then
-        echo -e "${RED}FAILED: wasm32 invariant broken${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}PASSED: wasm32-clean crate set${NC}"
-
     # Stronger check: actually BUILD (link) alva-host-wasm for wasm32 at
     # least once, to catch issues cargo check misses (missing symbols,
     # feature unification with unrelated workspace crates, etc.).
@@ -229,55 +243,10 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
         echo -e "${RED}VIOLATION: alva-host-wasm fails to build for wasm32${NC}"
         exit 1
     fi
-else
-    echo -e "${GREEN}SKIPPED: wasm32-unknown-unknown target not installed${NC}"
-    echo "         install with: rustup target add wasm32-unknown-unknown"
 fi
 
 # ---------------------------------------------------------------------------
 # WASI runway invariant: the wasm-clean crate set must also compile for the
 # component-model target used by sandbox workers.
 # ---------------------------------------------------------------------------
-echo ""
-echo "Checking kernel wasm32-wasip2 compilability..."
-
-WASIP2_OK=true
-check_wasip2() {
-    local crate=$1
-    if cargo check --target wasm32-wasip2 -p "$crate" >/dev/null 2>&1; then
-        echo -e "${GREEN}OK: $crate compiles for wasm32-wasip2${NC}"
-    else
-        echo -e "${RED}VIOLATION: $crate does NOT compile for wasm32-wasip2${NC}"
-        WASIP2_OK=false
-    fi
-}
-
-if rustup target list --installed 2>/dev/null | grep -q '^wasm32-wasip2$'; then
-    check_wasip2 "alva-llm-wire"
-    check_wasip2 "alva-kernel-bus"
-    check_wasip2 "alva-kernel-abi"
-    check_wasip2 "alva-kernel-core"
-    check_wasip2 "alva-agent-context"
-    check_wasip2 "alva-agent-core"
-    check_wasip2 "alva-agent-extension-builtin"
-    check_wasip2 "alva-agent-graph"
-    check_wasip2 "alva-agent-security"
-    check_wasip2 "alva-agent-memory"
-    check_wasip2 "alva-host-wasm"
-    check_wasip2 "alva-llm-provider"
-    check_wasip2 "alva-protocol-mcp"
-    check_wasip2 "alva-protocol-acp"
-    check_wasip2 "alva-protocol-skill"
-    check_wasip2 "alva-engine-runtime"
-    check_wasip2 "alva-environment"
-    check_wasip2 "alva-test"
-    check_wasip2 "alva-macros"
-    if [ "$WASIP2_OK" != "true" ]; then
-        echo -e "${RED}FAILED: wasm32-wasip2 invariant broken${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}PASSED: wasm32-wasip2-clean crate set${NC}"
-else
-    echo -e "${GREEN}SKIPPED: wasm32-wasip2 target not installed${NC}"
-    echo "         install with: rustup target add wasm32-wasip2"
-fi
+check_target_set "wasm32-wasip2"

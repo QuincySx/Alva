@@ -17,7 +17,10 @@ pub mod services;
 pub mod truncate;
 pub mod wrappers;
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", target_os = "wasi")
+))]
 pub mod walkdir;
 
 /// Local-OS `ToolFs` adapter. Native-only (`tokio::process` + `tokio::fs`).
@@ -36,6 +39,10 @@ pub mod wasi_fs;
 #[cfg(all(target_family = "wasm", target_os = "wasi"))]
 pub use wasi_fs::WasiFs;
 
+// Canonical native-or-WASI gate for built-in file tools:
+// `any(not(target_family = "wasm"), all(target_family = "wasm", target_os = "wasi"))`.
+// New file tools must copy this positive predicate so their module, preset,
+// tests, dependencies, and PlatformToolFs fallback share one target domain.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) use local_fs::LocalToolFs as PlatformToolFs;
 #[cfg(all(target_family = "wasm", target_os = "wasi"))]
@@ -50,34 +57,52 @@ pub use alva_agent_core::MockToolFs;
 pub mod ask_human;
 #[cfg(all(
     feature = "core",
-    not(all(target_family = "wasm", target_os = "unknown"))
+    any(
+        not(target_family = "wasm"),
+        all(target_family = "wasm", target_os = "wasi")
+    )
 ))]
 pub mod create_file;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
 pub mod execute_shell;
 #[cfg(all(
     feature = "core",
-    not(all(target_family = "wasm", target_os = "unknown"))
+    any(
+        not(target_family = "wasm"),
+        all(target_family = "wasm", target_os = "wasi")
+    )
 ))]
 pub mod file_edit;
 #[cfg(all(
     feature = "core",
-    not(all(target_family = "wasm", target_os = "unknown"))
+    any(
+        not(target_family = "wasm"),
+        all(target_family = "wasm", target_os = "wasi")
+    )
 ))]
 pub mod find_files;
 #[cfg(all(
     feature = "core",
-    not(all(target_family = "wasm", target_os = "unknown"))
+    any(
+        not(target_family = "wasm"),
+        all(target_family = "wasm", target_os = "wasi")
+    )
 ))]
 pub mod grep_search;
 #[cfg(all(
     feature = "core",
-    not(all(target_family = "wasm", target_os = "unknown"))
+    any(
+        not(target_family = "wasm"),
+        all(target_family = "wasm", target_os = "wasi")
+    )
 ))]
 pub mod list_files;
 #[cfg(all(
     feature = "core",
-    not(all(target_family = "wasm", target_os = "unknown"))
+    any(
+        not(target_family = "wasm"),
+        all(target_family = "wasm", target_os = "wasi")
+    )
 ))]
 pub mod read_file;
 #[cfg(all(feature = "core", not(target_family = "wasm")))]
@@ -173,7 +198,10 @@ pub mod tool_presets {
         let mut tools: Vec<Box<dyn Tool>> = Vec::new();
         #[cfg(all(
             feature = "core",
-            not(all(target_family = "wasm", target_os = "unknown"))
+            any(
+                not(target_family = "wasm"),
+                all(target_family = "wasm", target_os = "wasi")
+            )
         ))]
         {
             tools.push(Box::new(crate::read_file::ReadFileTool));
@@ -387,7 +415,10 @@ mod tool_preset_tests {
 
     #[cfg(all(
         feature = "core",
-        not(all(target_family = "wasm", target_os = "unknown"))
+        any(
+            not(target_family = "wasm"),
+            all(target_family = "wasm", target_os = "wasi")
+        )
     ))]
     #[test]
     fn file_io_preset_includes_all_six_core_file_tools() {
@@ -412,7 +443,10 @@ mod tool_preset_tests {
 
     #[cfg(all(
         feature = "core",
-        not(all(target_family = "wasm", target_os = "unknown"))
+        any(
+            not(target_family = "wasm"),
+            all(target_family = "wasm", target_os = "wasi")
+        )
     ))]
     #[test]
     fn legacy_registration_includes_all_six_core_file_tools() {
@@ -544,7 +578,10 @@ mod tool_preset_tests {
         let got = names(tool_presets::all_standard());
         #[cfg(all(
             feature = "core",
-            not(all(target_family = "wasm", target_os = "unknown"))
+            any(
+                not(target_family = "wasm"),
+                all(target_family = "wasm", target_os = "wasi")
+            )
         ))]
         {
             assert!(got.contains(&"read_file".to_string()));

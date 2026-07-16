@@ -24,12 +24,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "wasm
 # Native-only: process + fs + walkdir
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", features = ["process", "fs", "io-util", "rt"] }
-ignore = "0.4"
 reqwest = { version = "0.12", features = ["json", "stream", "multipart"], optional = true }
 alva-agent-context = { path = "../alva-agent-context" }
 
-# WASI file search uses the existing synchronous, gitignore-aware walker.
-[target.'cfg(all(target_family = "wasm", target_os = "wasi"))'.dependencies]
+# Native and WASI file search use the synchronous, gitignore-aware walker.
+[target.'cfg(any(not(target_family = "wasm"), all(target_family = "wasm", target_os = "wasi")))'.dependencies]
 ignore = "0.4"
 
 [dev-dependencies]
