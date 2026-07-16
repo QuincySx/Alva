@@ -1,25 +1,28 @@
+// INPUT:  std::{path, sync}, alva_agent_core, alva_agent_extension_builtin::skill_tool, alva_kernel_abi, crate::extension::skills
+// OUTPUT: SkillsPlugin
+// POS:    Scans skills, publishes the real registry, registers the unified `skill` tool, and contributes the auto directory to stable context.
 //! SkillsPlugin — skill discovery, loading, and context injection.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_kernel_abi::tool::Tool;
+use alva_agent_extension_builtin::skill_tool::{SkillRegistry, SkillTool};
+use alva_kernel_abi::scope::context::ContextLayer;
 use async_trait::async_trait;
 
 use crate::extension::mcp::runtime::McpManager;
 use crate::extension::skills::agent_template_service::AgentTemplateService;
 use crate::extension::skills::injector::SkillInjector;
 use crate::extension::skills::loader::SkillLoader;
-use crate::extension::skills::middleware::SkillInjectionMiddleware;
 use crate::extension::skills::skill_domain::agent_template::GlobalSkillConfig;
+use crate::extension::skills::skill_domain::skill::SkillInvocation;
 use crate::extension::skills::skill_fs::FsSkillRepository;
 use crate::extension::skills::skill_ports::skill_repository::SkillRepository;
 use crate::extension::skills::store::SkillStore;
-use crate::extension::skills::tools::{SearchSkillsTool, UseSkillTool};
+use crate::extension::skills::tools::SkillService;
 use crate::extension::{Plugin, Registrar};
 
-/// Skill system: discovery, loading, and context injection.
-/// Provides SearchSkillsTool + UseSkillTool and SkillInjectionMiddleware.
+/// Skill system: discovery, always-present directory, and named invocation.
 pub struct SkillsPlugin {
     store: Arc<SkillStore>,
     loader: Arc<SkillLoader>,
@@ -80,23 +83,37 @@ impl Plugin for SkillsPlugin {
     }
 
     async fn register(&self, r: &Registrar) {
-        // Tools (was `tools()`).
-        let tools: Vec<Box<dyn Tool>> = vec![
-            Box::new(SearchSkillsTool {
-                store: self.store.clone(),
-            }),
-            Box::new(UseSkillTool {
-                store: self.store.clone(),
-                loader: self.loader.clone(),
-            }),
-        ];
-        r.tools(tools);
+        if let Err(e) = self.store.scan().await {
+            tracing::warn!(error = %e, "skills: initial scan failed; skills may be unavailable");
+        }
 
-        // Middleware (was `activate()`).
-        r.middleware(Arc::new(SkillInjectionMiddleware::with_defaults(
-            self.store.clone(),
-            self.injector.clone(),
-        )));
+        // Invocation is one path everywhere: the builtin `skill` tool reads
+        // this registry capability from the runtime bus, while the REPL uses
+        // the same service directly and bypasses model-side tool selection.
+        let service = Arc::new(SkillService::new(self.store.clone(), self.injector.clone()));
+        r.provide::<SkillService>(service.clone());
+        r.provide::<dyn SkillRegistry>(service);
+        r.tool(SkillTool);
+
+        // Level 1 directory: enabled auto skills only, stable for the lifetime
+        // of this assembled agent. Exact-name explicit invocation remains
+        // available through SkillService without advertising it here.
+        let auto_skills = self
+            .store
+            .list()
+            .await
+            .into_iter()
+            .filter(|skill| skill.enabled && skill.meta.invocation == SkillInvocation::Auto)
+            .collect::<Vec<_>>();
+        match self.loader.build_meta_summary(&auto_skills).await {
+            Ok(directory) if !directory.is_empty() => {
+                r.system_prompt(ContextLayer::AlwaysPresent, directory);
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "skills: failed to build always-present directory");
+            }
+        }
 
         // Publish AgentTemplateService on the bus so the spawn tool can
         // instantiate sub-agent templates (skill injection into the child's
@@ -110,10 +127,5 @@ impl Plugin for SkillsPlugin {
             GlobalSkillConfig::default(),
         ));
         r.provide::<AgentTemplateService>(template_service);
-
-        // Async init (was `configure()`).
-        if let Err(e) = self.store.scan().await {
-            tracing::warn!(error = %e, "skills: initial scan failed; skills may be unavailable");
-        }
     }
 }

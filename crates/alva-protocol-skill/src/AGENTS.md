@@ -19,7 +19,8 @@ FsSkillRepository (磁盘) ──→ SkillLoader (渐进式加载)
 ```
 - `SkillRepository` trait 定义技能仓库接口（list / get / install / uninstall）
 - `SkillLoader` 支持渐进式加载，按需加载技能详情
-- `SkillInjector` 将激活的技能转换为 prompt 片段注入到 system prompt
+- `SkillMeta::invocation` 控制目录可见性：`auto` 常驻目录、`explicit` 仅精确点名
+- `SkillInjector` 将已选中的技能按 Auto / Explicit / Strict 策略转换为 prompt 片段
 - `SkillStore` 提供线程安全的内存缓存
 
 ## 约束
@@ -30,7 +31,7 @@ FsSkillRepository (磁盘) ──→ SkillLoader (渐进式加载)
 ## 业务域清单
 | 名称 | 文件 | 职责 |
 |------|------|------|
-| 类型定义 | `types.rs` | Skill、SkillMeta、SkillBody、SkillKind 等核心类型 |
+| 类型定义 | `types.rs` | Skill、SkillMeta、SkillInvocation、SkillBody、SkillKind 等核心类型 |
 | 仓库接口 | `repository.rs` | SkillRepository trait（list / get / install / uninstall） |
 | 加载器 | `loader.rs` | SkillLoader 渐进式加载逻辑 |
 | 注入器 | `injector.rs` | SkillInjector 将技能转换为 prompt 片段 |

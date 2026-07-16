@@ -299,14 +299,17 @@ pub mod tool_presets {
         tools
     }
 
-    /// Utility tools: config, skill, tool_search, sleep.
+    /// Utility tools: config, tool_search, sleep.
+    ///
+    /// The `skill` tool is registered by `SkillsPlugin`, which also publishes
+    /// the registry capability it requires; keeping it here would expose a
+    /// guaranteed-to-fail tool whenever the skill subsystem is disabled.
     pub fn utility() -> Vec<Box<dyn Tool>> {
         #[allow(unused_mut)]
         let mut tools: Vec<Box<dyn Tool>> = Vec::new();
         #[cfg(feature = "utility")]
         {
             tools.push(Box::new(crate::config_tool::ConfigTool));
-            tools.push(Box::new(crate::skill_tool::SkillTool));
             tools.push(Box::new(crate::tool_search::ToolSearchTool));
         }
         #[cfg(all(feature = "utility", not(target_family = "wasm")))]
@@ -531,9 +534,10 @@ mod tool_preset_tests {
 
     #[cfg(feature = "utility")]
     #[test]
-    fn utility_preset_includes_config_skill_tool_search() {
+    fn utility_preset_includes_config_and_tool_search() {
         let got = names(tool_presets::utility());
-        contains_all(&got, &["config", "skill", "tool_search"]);
+        contains_all(&got, &["config", "tool_search"]);
+        assert!(!got.iter().any(|name| name == "skill"));
     }
 
     #[cfg(all(feature = "web", not(target_family = "wasm")))]

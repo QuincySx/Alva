@@ -19,7 +19,7 @@
 | A. Agent 引擎 | 7/10 (70%) | 核心循环完整，缺 enable_thinking/parallel_tool_calls/prompt_cache |
 | B. 内置工具 | 13/22 (59%) | 代码操作 + 浏览器基本齐全，缺 AI 生成/搜索/MCP 元工具 |
 | C. ACP 协议 | 11/12 (92%) | 协议层最完整的模块，全链路贯通 |
-| D. Skill 系统 | 6/7 (86%) | 三级加载 + 注入策略齐全，缺 search_skills/use_skill 元工具 |
+| D. Skill 系统 | 7/7 (100%) | 三级加载 + invocation 可见性 + auto 常驻目录 + 统一 `skill` 工具齐全 |
 | E. MCP 协议 | 4/5 (80%) | 管理/调用/适配齐全，缺 mcpServerConfig.json 读写和内置 Server |
 | F. 安全层 | 5/5 (100%) | 最完整的模块，sandbox-exec + 敏感路径 + HITL + 授权根 + SecurityGuard |
 | G. 运行时管理 | 5/6 (83%) | manifest/versions/installer/resolver 齐全，缺 HTTP 下载 |
@@ -103,7 +103,7 @@
 | Skill 类型 | Bundled/MBB/User | `SkillKind` 枚举：Bundled / Mbb{domains} / UserInstalled | ✅ | 1:1 对齐，含 MBB 域名绑定 |
 | MBB 域名路由 | manifest.json → domain 匹配 | `SkillStore::find_mbb_by_domain()` 按域名后缀匹配 | ✅ | 完整实现 |
 | Skill 注入策略 | Auto/Explicit/Strict | `InjectionPolicy` 3 种 + `SkillInjector::build_injection()` 分策略处理 | ✅ | Auto=仅 metadata，Explicit=展开 body，Strict=额外声明 tool 限制 |
-| search_skills / use_skill 元工具 | Agent 运行时可调用 search_skills 搜索、use_skill 加载 | `SkillStore::search()` 方法存在，但未包装为 Tool trait 注册到 ToolRegistry | ⚠️ | 后端能力齐全，缺 Tool 封装让 Agent 自主调用 |
+| 统一 `skill` 元工具 | auto skill 由常驻目录发现，模型按精确名称调用 `skill` 加载；explicit skill 可由用户/其他 skill 点名 | `SkillsPlugin` 发布真实 registry 并注册 `skill`；正文按 Explicit/Strict 注入 | ✅ | 旧 search/use 双工具已收编，避免重复发现入口 |
 | 安装/启用/禁用/删除 | SkillStore 完整生命周期 | `SkillStore` install/remove/set_enabled 完整实现，含 "Bundled 不可删除" 保护 | ✅ | 完整实现 |
 
 ### E. MCP 协议（对标 Wukong src/mcp/）
@@ -173,7 +173,7 @@
 
 1. **SQLite 持久化** — 当前所有数据（Session/Message/ACP Message）使用内存存储，重启全部丢失。需要引入 `tokio-rusqlite` 实现 `SessionStorage` 和 `AcpMessageStorage` 的 SQLite 后端。
 2. **记忆系统** — `agent/memory/mod.rs` 完全空白。Wukong 有 SQLite + Embedding + FTS 混合搜索 + MEMORY.md 同步，这是长对话场景的核心能力。
-3. **search_skills / use_skill 元工具** — 后端 `SkillStore::search()` 已实现，但未包装为 Tool trait 注册到 ToolRegistry，Agent 无法自主搜索和加载 Skill。
+3. **Skill 运行时调用** — 已由统一 `skill` 工具、auto 常驻目录和 explicit 精确点名实现。
 
 ### 应该补齐（影响体验）
 

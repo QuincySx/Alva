@@ -21,6 +21,7 @@ pub use alva_kernel_core::run_agent;
 pub use alva_kernel_core::{AgentConfig, AgentEvent, AgentMessage, AgentState};
 pub use alva_kernel_core::{Extensions, MiddlewareStack};
 
+pub use alva_agent_extension_builtin::skill_tool::SkillRegistryError;
 pub use alva_agent_extension_builtin::tool_presets;
 
 pub use alva_agent_security::{

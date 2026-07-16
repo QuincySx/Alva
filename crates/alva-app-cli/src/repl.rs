@@ -5,7 +5,7 @@
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use alva_app_core::{AlvaPaths, BaseAgent, PermissionMode};
+use alva_app_core::{AlvaPaths, BaseAgent, PermissionMode, SkillRegistryError};
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::agent_session::EventQuery;
 use alva_kernel_abi::AgentSession;
@@ -575,7 +575,38 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
                     };
                 }
                 CommandResult::Error(e) => {
-                    output::print_error(&e);
+                    if e.starts_with("Unknown command:") {
+                        let invocation = trimmed
+                            .strip_prefix('/')
+                            .unwrap_or(trimmed)
+                            .split_once(char::is_whitespace)
+                            .map(|(name, args)| (name, Some(args.trim())))
+                            .unwrap_or_else(|| {
+                                (trimmed.strip_prefix('/').unwrap_or(trimmed), None)
+                            });
+
+                        match agent.invoke_skill(invocation.0, invocation.1).await {
+                            Some(Ok(content)) => {
+                                return ReplAction::Prompt {
+                                    content,
+                                    snapshot: false,
+                                };
+                            }
+                            Some(Err(SkillRegistryError::Load(error))) => {
+                                output::print_error(&format!(
+                                    "Failed to load skill '{}': {error}",
+                                    invocation.0
+                                ));
+                            }
+                            Some(Err(SkillRegistryError::NotFound(_))) | None => {
+                                // Preserve the registry's established unknown-command error
+                                // when no skill with the exact slash name exists.
+                                output::print_error(&e);
+                            }
+                        }
+                    } else {
+                        output::print_error(&e);
+                    }
                 }
             }
         }
@@ -842,10 +873,21 @@ mod tests {
     ) {
         let tmp = tempfile::tempdir().unwrap();
         let ws = tmp.path();
+        let skills = ws.join("skills");
+        let repl_skill = skills.join("bundled").join("repl-fallback-skill");
+        std::fs::create_dir_all(&repl_skill).unwrap();
+        std::fs::write(
+            repl_skill.join("SKILL.md"),
+            "---\nname: repl-fallback-skill\ndescription: REPL fallback fixture\ninvocation: explicit\n---\n\nREPL_FALLBACK_BODY\n",
+        )
+        .unwrap();
         let agent = BaseAgent::builder()
             .workspace(ws)
             .system_prompt("t")
             .plugin(Box::new(alva_app_core::extension::PermissionPlugin::new()))
+            .plugin(Box::new(
+                alva_app_core::extension::SkillsPlugin::with_bundled(skills, None),
+            ))
             .build(Arc::new(
                 MockLanguageModel::new().with_response(make_assistant_message("x")),
             ))
@@ -1034,5 +1076,38 @@ mod tests {
             dispatch("/definitely-not-a-command", &mut c).await,
             ReplAction::Continue
         ));
+    }
+
+    #[tokio::test]
+    async fn unknown_slash_matching_skill_injects_body_without_model_tool_selection() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        let mut c = ctx!(
+            agent,
+            config,
+            tmp.path(),
+            registry,
+            mgr,
+            ckpt,
+            sid,
+            sess,
+            tok
+        );
+
+        match dispatch("/repl-fallback-skill focus here", &mut c).await {
+            ReplAction::Prompt { content, snapshot } => {
+                assert!(
+                    content.contains("## Skill: repl-fallback-skill"),
+                    "{content}"
+                );
+                assert!(content.contains("REPL_FALLBACK_BODY"), "{content}");
+                assert!(content.contains("focus here"), "{content}");
+                assert!(
+                    !snapshot,
+                    "slash skill fallback is already harness-expanded"
+                );
+            }
+            _ => panic!("matching slash skill should become a direct injected prompt"),
+        }
     }
 }

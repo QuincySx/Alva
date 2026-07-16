@@ -13,7 +13,7 @@
 4. wasm escalation handler 持有 PermissionMode + SecurityGuard：先按 grants 把 guest cwd 翻译成 canonical host cwd，再走 BashClassifier/HITL 决策；批准后复用 `NativeEscalationExecutor`，拒绝作为结果返回 guest。
 5. wasm 仅支持 headless `-p`，因此 Ask/AcceptEdits 产生的 HITL 请求固定 `RejectOnce` 并给 worker 明确原因；AcceptShell 自动放行 ReadOnly/Unknown、拒绝 Destructive，Bypass 跳过分类器但不跳过 cwd grant 翻译。
 6. jobs 子进程由宿主持有 `tools.jsonl` 路径：native middleware、wasm log import 与 host `escalation_request`/`escalation_result` 实时追加同一格式；job 目录不进入 guest args/env/preopen。
-7. TUI/REPL、session、jobs/providers/tools 子命令保持原路径。
+7. REPL 未知斜杠命令先查 skill registry：精确命中由 harness 加载正文，未命中保留原 unknown-command 错误；其余 TUI/session/jobs/providers/tools 子命令保持原路径。
 
 ## 约束
 

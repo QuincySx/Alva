@@ -1,4 +1,4 @@
-//! Utility tools: sleep, config, notebook, skill, tool_search, schedule, remote.
+//! Utility tools: sleep, config, notebook, tool_search, schedule, remote.
 
 use alva_agent_core::extension::{Plugin, Registrar};
 use async_trait::async_trait;

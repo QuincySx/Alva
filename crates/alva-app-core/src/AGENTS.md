@@ -45,7 +45,7 @@
 | 持久化 | `agent/persistence/` | SqliteStorage — session & message 的 SQLite 存储 |
 | 会话管理 | `agent/session/` | SessionManager 会话生命周期管理 |
 | MCP 集成 | `mcp/` | McpManager 运行时管理 + McpRuntimeTool + config + tool_adapter |
-| 技能系统 | `skills/` | SkillLoader / SkillStore / SkillInjector / FsSkillRepository / AgentTemplateService / skill_domain / skill_ports |
+| 技能系统 | `extension/skills/` | SkillsPlugin：auto 目录常驻注入、统一 `skill` registry/tool、REPL 直接调用服务；底层复用 SkillLoader / SkillStore / SkillInjector / FsSkillRepository |
 | 环境管理 | `environment/` | EnvironmentManager — 嵌入式运行时安装、版本解析、manifest 管理 |
 | 领域模型 | `domain/` | Agent / Session / Tool 等纯实体定义 |
 | 端口接口 | `ports/` | Tool trait / ToolRegistry / SessionStorage / provider traits（embedding / image / speech / video 等） |

@@ -65,6 +65,9 @@ async fn build_agent_with_responses(
         .plugin(Box::new(alva_app_core::extension::TaskPlugin::default()))
         .plugin(Box::new(alva_app_core::extension::TeamPlugin::default()))
         .plugin(Box::new(alva_app_core::extension::UtilityPlugin))
+        .plugin(Box::new(alva_app_core::extension::SkillsPlugin::new(vec![
+            workspace.join(".alva/skills"),
+        ])))
         .plugin(Box::new(alva_app_core::extension::WebPlugin))
         .middleware(Arc::new(
             alva_kernel_core::builtins::LoopDetectionMiddleware::new(),
@@ -274,15 +277,15 @@ async fn stage1_execute_shell_runs_command_in_accept_shell_mode() {
 }
 
 #[tokio::test]
-async fn stage1_skill_tool_invokes_stub_and_echoes_name() {
-    // STUB CONTRACT: SkillTool is wired into the registry but its impl is
-    // a stub — see crate::skill_tool source (`Skill execution is not yet
-    // wired to the skill registry`). This test pins what the stub
-    // CURRENTLY guarantees end-to-end: tool resolves through registry,
-    // input is echoed back, and the stub's "not yet wired" marker is in
-    // the output. When the real SkillRegistry lands, drop the `not yet
-    // wired` assert and add a real skill-invocation assert in lockstep.
+async fn stage1_skill_tool_invokes_real_registry() {
     let tmp = tempfile::tempdir().unwrap();
+    let skill_dir = tmp.path().join(".alva/skills/bundled/commit");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: commit\ndescription: Create a careful commit\n---\n\nREAL_COMMIT_SKILL_BODY\n",
+    )
+    .unwrap();
 
     let agent = build_agent_with_responses(
         tmp.path(),
@@ -306,9 +309,8 @@ async fn stage1_skill_tool_invokes_stub_and_echoes_name() {
     assert!(text.contains("commit"), "skill name should appear: {text}");
     assert!(text.contains("--amend"), "args should appear: {text}");
     assert!(
-        text.contains("not yet wired"),
-        "skill is a stub — output should declare it (when this fails, the \
-         real registry has landed and the test needs to be rewritten): {text}"
+        text.contains("REAL_COMMIT_SKILL_BODY"),
+        "skill should load the real registry body: {text}"
     );
 }
 

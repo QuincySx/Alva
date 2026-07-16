@@ -526,6 +526,33 @@ Do beta things.
         std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();
     }
 
+    /// Every SKILL.md written before ticket 09 omits `invocation`, and the
+    /// field decides whether a skill is advertised in the always-present
+    /// directory at all. If the default ever drifts to `explicit` — or the
+    /// serde default is dropped — every pre-existing skill silently vanishes
+    /// from the directory and simply stops being triggered. Nothing else fails
+    /// loudly when that happens, so pin it against a real legacy manifest.
+    #[tokio::test]
+    async fn legacy_manifest_without_invocation_loads_as_auto() {
+        let (dir, repo) = setup_repo();
+        write_skill(
+            &dir.path().join("user"),
+            "legacy",
+            "---\nname: legacy\ndescription: A skill written before invocation existed\n---\n\nBody.\n",
+        );
+
+        let skills = repo.list_skills().await.expect("scan repository");
+        let legacy = skills
+            .iter()
+            .find(|skill| skill.meta.name == "legacy")
+            .expect("legacy skill loads without an invocation field");
+        assert_eq!(
+            legacy.meta.invocation,
+            crate::types::SkillInvocation::Auto,
+            "a manifest predating `invocation` must stay auto-advertised"
+        );
+    }
+
     /// One broken SKILL.md must not take down the scan (the sibling still
     /// loads), and must not vanish without a trace — the scan warns with
     /// the path + parse error (the silent `if let Ok` swallow is exactly

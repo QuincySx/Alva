@@ -13,7 +13,7 @@ use crate::{
 ///
 /// Level 1 (metadata): always read from memory / index, no disk I/O
 /// Level 2 (instructions): read SKILL.md body on demand after user prompt triggers Skill
-/// Level 3 (resources): Agent loads via use_skill(level="full") or reads references/ files
+/// Level 3 (resources): Agent loads referenced files on demand after `skill` invocation
 pub struct SkillLoader {
     repo: Arc<dyn SkillRepository>,
 }
@@ -34,7 +34,7 @@ impl SkillLoader {
         let mut lines = vec![
             "## Available Skills".to_string(),
             String::new(),
-            "The following skills are available. Use `use_skill` to load full instructions."
+            "The following skills are available. Use `skill` to load full instructions by name."
                 .to_string(),
             String::new(),
         ];
@@ -66,7 +66,7 @@ impl SkillLoader {
     }
 
     /// Load resource file (Level 3)
-    /// Triggered by use_skill(level="full") tool or Agent's direct read_file call
+    /// Triggered after `skill` invocation or by the Agent's direct read_file call
     pub async fn load_resource(
         &self,
         skill_name: &str,
@@ -95,6 +95,7 @@ mod tests {
                 description: format!("{name} skill description"),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,
@@ -111,6 +112,7 @@ mod tests {
                 description: format!("{name} disabled skill"),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,
@@ -127,6 +129,7 @@ mod tests {
                 description: format!("{name} skill description"),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,
@@ -142,6 +145,7 @@ mod tests {
                 description: format!("{name} disabled skill"),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,

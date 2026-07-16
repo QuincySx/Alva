@@ -28,7 +28,7 @@
 //! for multi-step planning, error recovery, search→edit verification, and path
 //! handling. Cases split two ways:
 //!   - Deterministic cases run in BOTH suites (file ops, shell, task_create/
-//!     task_list, team_create/team_delete, send_message, search_skills/use_skill).
+//!     task_list, team_create/team_delete, send_message, skill).
 //!   - `real_only` cases run ONLY in the real suite, because they can't be
 //!     scripted up front: tools keyed by a runtime-minted id (task_get/update/
 //!     output/stop need the id task_create returns), live-network tools
@@ -723,8 +723,7 @@ async fn mini_agent_registers_p3_p4_tools() {
     for expected in [
         "internet_search",
         "read_url",
-        "search_skills",
-        "use_skill",
+        "skill",
         "task_create",
         "task_list",
         "task_get",
@@ -1228,62 +1227,31 @@ fn cases() -> Vec<Cap> {
                 Ok(())
             }),
         },
-        // ── search_skills (seed a skill tree → search) ─────────────────
+        // ── skill (seed an enabled skill → invoke) ─────────────────────
         Cap {
-            name: "search_skills",
-            group: "skills",
-            tags: &["skills", "search"],
-            real_only: false,
-            task: "Search the available skills for one matching the keyword \"regress\".",
-            assertion: "Asserts the `search_skills` tool ran successfully AND its output includes \
-                        the seeded skill id \"regress-skill\".",
-            setup: Box::new(|ws| seed_skill(ws)),
-            mock_script: Box::new(|_ws| {
-                vec![tool_use_message(
-                    "1",
-                    "search_skills",
-                    serde_json::json!({ "query": "regress" }),
-                )]
-            }),
-            check: Box::new(|_ws, events| {
-                let out = result_for(events, "search_skills").ok_or("search_skills did not run")?;
-                if out.is_error {
-                    return Err(format!("search_skills errored: {}", out.model_text()));
-                }
-                if !out.model_text().contains("regress-skill") {
-                    return Err(format!(
-                        "search_skills did not surface the seeded skill: {}",
-                        out.model_text()
-                    ));
-                }
-                Ok(())
-            }),
-        },
-        // ── use_skill (seed an enabled skill → activate) ───────────────
-        Cap {
-            name: "use_skill",
+            name: "skill",
             group: "skills",
             tags: &["skills", "activate"],
             real_only: false,
             task: "Activate the skill named \"regress-skill\" and report its instructions.",
-            assertion: "Asserts the `use_skill` tool ran successfully AND its output contains the \
+            assertion: "Asserts the unified `skill` tool ran successfully AND its output contains the \
                         seeded skill's body marker (\"REGRESS_SKILL_BODY\").",
-            setup: Box::new(|ws| seed_skill(ws)),
+            setup: Box::new(seed_skill),
             mock_script: Box::new(|_ws| {
                 vec![tool_use_message(
                     "1",
-                    "use_skill",
-                    serde_json::json!({ "skill_name": "regress-skill" }),
+                    "skill",
+                    serde_json::json!({ "skill": "regress-skill" }),
                 )]
             }),
             check: Box::new(|_ws, events| {
-                let out = result_for(events, "use_skill").ok_or("use_skill did not run")?;
+                let out = result_for(events, "skill").ok_or("skill did not run")?;
                 if out.is_error {
-                    return Err(format!("use_skill errored: {}", out.model_text()));
+                    return Err(format!("skill errored: {}", out.model_text()));
                 }
                 if !out.model_text().contains("REGRESS_SKILL_BODY") {
                     return Err(format!(
-                        "use_skill did not return the skill body: {}",
+                        "skill did not return the skill body: {}",
                         out.model_text()
                     ));
                 }
@@ -1682,10 +1650,10 @@ fn cases() -> Vec<Cap> {
     ]
 }
 
-/// Seed an *enabled* skill under `<ws>/.alva/skills` so `search_skills` /
-/// `use_skill` have something real to find. Layout mirrors
+/// Seed an *enabled* skill under `<ws>/.alva/skills` so the unified `skill`
+/// tool has something real to invoke. Layout mirrors
 /// `FsSkillRepository`: a `user/<name>/SKILL.md` (YAML frontmatter + body) plus
-/// a `state.json` listing the skill as enabled (use_skill only activates
+/// a `state.json` listing the skill as enabled (named invocation only activates
 /// enabled skills). Runs in `setup`, i.e. BEFORE `build_mini_agent` (whose
 /// SkillsPlugin scans this tree at build), so the skill is present at scan time.
 fn seed_skill(ws: &Path) {
@@ -1694,7 +1662,7 @@ fn seed_skill(ws: &Path) {
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
         skill_dir.join("SKILL.md"),
-        "---\nname: regress-skill\ndescription: A regression test skill for capability coverage.\n---\n\nREGRESS_SKILL_BODY: this skill exists solely to exercise search_skills/use_skill.\n",
+        "---\nname: regress-skill\ndescription: A regression test skill for capability coverage.\n---\n\nREGRESS_SKILL_BODY: this skill exists solely to exercise unified skill invocation.\n",
     )
     .unwrap();
     std::fs::write(

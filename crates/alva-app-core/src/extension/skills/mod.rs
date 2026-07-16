@@ -1,10 +1,9 @@
 // INPUT:  (none)
-// OUTPUT: SkillsPlugin (+ submodules: skill_domain, skill_ports, loader, store, injector, skill_fs, agent_template_service, middleware, tools)
-// POS:    Skill system plugin — discovery, loading, injection + Extension impl.
+// OUTPUT: SkillsPlugin (+ submodules: skill_domain, skill_ports, loader, store, injector, skill_fs, agent_template_service, tools)
+// POS:    Skill system plugin — stable directory discovery and unified named invocation.
 pub mod agent_template_service;
 pub mod injector;
 pub mod loader;
-pub mod middleware;
 pub mod skill_domain;
 pub mod skill_fs;
 pub mod skill_ports;

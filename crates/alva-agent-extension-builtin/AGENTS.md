@@ -10,7 +10,7 @@ core file tools through a synchronous filesystem adapter.
 
 ## Cargo Features
 - `core` (default) — file I/O, shell, interaction, plan-mode primitives.
-- `utility` (default) — `sleep`, `config`, `skill`, `tool_search`, `view_image`.
+- `utility` (default) — `sleep`, `config`, `tool_search`, `view_image`; `skill` 由 SkillsPlugin 注册并通过 bus registry 接线。
 - `web` — `internet_search`, `read_url` (pulls in `reqwest`, native only).
 - `notebook` — `notebook_edit`.
 - `worktree` — `enter_worktree`, `exit_worktree`.
@@ -39,6 +39,7 @@ core file tools through a synchronous filesystem adapter.
 | Name | Path | Role |
 |------|------|------|
 | Tool impls | `src/` | One file per tool; `request_escalation.rs` separates the stable request/permission contract from its replaceable native-or-host-import executor. |
+| Skill invocation | `src/skill_tool.rs` | 统一 `skill` tool + bus `SkillRegistry` capability contract；真实 registry 由 app SkillsPlugin 发布。 |
 | `wrappers/` | `src/wrappers/` | Nine Plugin wrappers grouping tools into bundles |
 | `local_fs.rs` | `src/local_fs.rs` | Native `ToolFs` adapter (cfg `not(wasm)`) |
 | `wasi_fs.rs` | `src/wasi_fs.rs` | WASI `ToolFs` adapter and synchronous script-binding facade (cfg `wasm + wasi`) |

@@ -1,6 +1,7 @@
-// Provider / skills / MCP discovery and the built-in capability catalog
-// (tools & plugins), plus the standalone Inspector window opener. Split from
-// `agent.rs` (PR-13a); command names are unchanged (= function names).
+// INPUT:  alva_app_core component catalog, built-in tool presets, serde, tauri, crate::{mcp, skills, AppState}
+// OUTPUT: provider/skill/MCP discovery commands, plugin capability catalog, open_inspector_window
+// POS:    Tauri discovery and capability-catalog command surface for settings and Inspector UI.
+// Split from `agent.rs` (PR-13a); command names are unchanged (= function names).
 
 use std::collections::HashMap;
 
@@ -161,16 +162,10 @@ fn tools_for_component(id: &str) -> Vec<PluginToolInfo> {
         "team" => tools_from_preset(tool_presets::team()),
         "browser" => tools_from_preset(alva_app_extension_browser::browser_tools()),
         // Components whose tools aren't exposed as a static preset.
-        "skills" => vec![
-            PluginToolInfo {
-                name: "search_skills".into(),
-                description: "搜索可用技能".into(),
-            },
-            PluginToolInfo {
-                name: "use_skill".into(),
-                description: "按名称激活技能".into(),
-            },
-        ],
+        "skills" => vec![PluginToolInfo {
+            name: "skill".into(),
+            description: "按精确名称加载技能指令".into(),
+        }],
         "mcp" => vec![PluginToolInfo {
             name: "mcp_runtime".into(),
             description: "MCP 操作:list_servers / list_tools / call_tool".into(),

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use alva_agent_core::Agent;
+use alva_agent_extension_builtin::skill_tool::{SkillRegistry, SkillRegistryError};
 use alva_kernel_abi::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
@@ -283,6 +284,18 @@ impl BaseAgent {
     /// ahead of time.
     pub fn bus_writer(&self) -> &BusWriter {
         &self.bus_writer
+    }
+
+    /// Invoke a named skill directly through the same registry used by the
+    /// model-facing `skill` tool. `None` means the skills plugin is not
+    /// installed; registry lookup/load failures are returned separately.
+    pub async fn invoke_skill(
+        &self,
+        name: &str,
+        args: Option<&str>,
+    ) -> Option<Result<String, SkillRegistryError>> {
+        let registry = self.inner.bus().get::<dyn SkillRegistry>()?;
+        Some(registry.invoke(name, args).await)
     }
 
     /// Access the runtime plugin host (middleware and command registry).

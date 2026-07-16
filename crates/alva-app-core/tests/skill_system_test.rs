@@ -1,6 +1,6 @@
-// INPUT:  alva_app_core::{FsSkillRepository, SkillInjector, SkillLoader, SkillStore, Skill, SkillKind, SkillMeta, InjectionPolicy, SkillRef, SkillRepository}, std::path, tempfile
+// INPUT:  alva_app_core skill protocol/plugin APIs, alva_test recording mocks, std::{path, sync}, tempfile
 // OUTPUT: (test functions, no library exports)
-// POS:    Integration tests for the Skill system: frontmatter parsing, meta summary, FS repository scan, MBB routing, and injection policies.
+// POS:    Integration tests for skill parsing/loading plus invocation visibility, stable directory injection, and unified runtime invocation.
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,6 +13,11 @@ use alva_app_core::extension::skills::skill_ports::skill_repository::SkillReposi
 use alva_app_core::extension::skills::{
     injector::SkillInjector, loader::SkillLoader, store::SkillStore,
 };
+use alva_app_core::extension::SkillsPlugin;
+use alva_app_core::BaseAgent;
+use alva_test::assertions::{collect_events, tool_result_for};
+use alva_test::fixtures::{make_assistant_message, tool_use_message};
+use alva_test::mock_provider::MockLanguageModel;
 
 /// Test: parse SKILL.md frontmatter
 #[test]
@@ -46,11 +51,175 @@ Use this skill when you need to read or write Word documents.
         meta.allowed_tools,
         Some(vec!["execute_shell".to_string(), "read_file".to_string()])
     );
+    assert_eq!(meta.invocation, Default::default());
     let metadata = meta.metadata.unwrap();
     assert_eq!(
         metadata.get("version").unwrap(),
         &serde_yaml::Value::String("1.0.0".to_string())
     );
+}
+
+fn write_bundled_skill(
+    primary: &std::path::Path,
+    name: &str,
+    invocation: &str,
+    allowed_tools: Option<&[&str]>,
+    body: &str,
+) {
+    let dir = primary.join("bundled").join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let allowed = allowed_tools
+        .map(|tools| {
+            let lines = tools
+                .iter()
+                .map(|tool| format!("  - {tool}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("allowed_tools:\n{lines}\n")
+        })
+        .unwrap_or_default();
+    std::fs::write(
+        dir.join("SKILL.md"),
+        format!(
+            "---\nname: {name}\ndescription: Description for {name}\ninvocation: {invocation}\n{allowed}---\n\n{body}\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn auto_directory_is_always_in_system_prompt_for_chinese_input() {
+    let tmp = tempfile::tempdir().unwrap();
+    let primary = tmp.path().join("skills");
+    write_bundled_skill(
+        &primary,
+        "auto-catalog-skill",
+        "auto",
+        None,
+        "AUTO_BODY_MUST_NOT_BE_PRELOADED",
+    );
+    write_bundled_skill(
+        &primary,
+        "explicit-hidden-skill",
+        "explicit",
+        None,
+        "EXPLICIT_BODY_MUST_NOT_BE_PRELOADED",
+    );
+
+    let model = MockLanguageModel::new().with_response(make_assistant_message("done"));
+    let recorded = model.clone();
+    let agent = BaseAgent::builder()
+        .workspace(tmp.path())
+        .plugin(Box::new(SkillsPlugin::with_bundled(primary, None)))
+        .build(Arc::new(model))
+        .await
+        .unwrap();
+
+    let events = collect_events(agent.prompt_text("請幫我整理這份資料，不含任何英文關鍵詞")).await;
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, alva_app_core::AgentEvent::AgentEnd { .. })));
+
+    let request = recorded.calls().into_iter().next().unwrap();
+    let system_prompt = request
+        .iter()
+        .filter(|message| message.role == alva_app_core::alva_kernel_abi::MessageRole::System)
+        .map(|message| message.text_content())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        system_prompt.contains("auto-catalog-skill"),
+        "{system_prompt}"
+    );
+    assert!(
+        system_prompt.contains("Description for auto-catalog-skill"),
+        "{system_prompt}"
+    );
+    assert!(!system_prompt.contains("AUTO_BODY_MUST_NOT_BE_PRELOADED"));
+    assert!(
+        !system_prompt.contains("explicit-hidden-skill"),
+        "{system_prompt}"
+    );
+    assert!(!system_prompt.contains("EXPLICIT_BODY_MUST_NOT_BE_PRELOADED"));
+    assert!(
+        !agent
+            .middleware_names()
+            .iter()
+            .any(|name| name == "skill_injection"),
+        "the lexical skill middleware must be retired"
+    );
+}
+
+#[tokio::test]
+async fn unified_skill_tool_loads_explicit_body_and_applies_strict_allowlist() {
+    let tmp = tempfile::tempdir().unwrap();
+    let primary = tmp.path().join("skills");
+    write_bundled_skill(
+        &primary,
+        "explicit-hidden-skill",
+        "explicit",
+        Some(&["read_file"]),
+        "EXPLICIT_RUNTIME_BODY",
+    );
+
+    let model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "skill-call",
+            "skill",
+            serde_json::json!({"skill": "explicit-hidden-skill", "args": "focus on tests"}),
+        ))
+        .with_response(make_assistant_message("done"));
+    let agent = BaseAgent::builder()
+        .workspace(tmp.path())
+        .plugin(Box::new(SkillsPlugin::with_bundled(primary, None)))
+        .build(Arc::new(model))
+        .await
+        .unwrap();
+
+    let events = collect_events(agent.prompt_text("invoke it by exact name")).await;
+    let result = tool_result_for(&events, "skill");
+    assert!(!result.is_error, "{}", result.model_text());
+    assert!(result.model_text().contains("EXPLICIT_RUNTIME_BODY"));
+    assert!(result
+        .model_text()
+        .contains("Strict mode: only use tools: read_file"));
+    assert!(result.model_text().contains("focus on tests"));
+}
+
+#[tokio::test]
+async fn unified_skill_tool_unknown_name_lists_auto_and_explicit_enabled_skills() {
+    let tmp = tempfile::tempdir().unwrap();
+    let primary = tmp.path().join("skills");
+    write_bundled_skill(&primary, "visible-auto", "auto", None, "AUTO_BODY");
+    write_bundled_skill(
+        &primary,
+        "explicit-by-name",
+        "explicit",
+        None,
+        "EXPLICIT_BODY",
+    );
+
+    let model = MockLanguageModel::new()
+        .with_response(tool_use_message(
+            "missing-skill",
+            "skill",
+            serde_json::json!({"skill": "does-not-exist"}),
+        ))
+        .with_response(make_assistant_message("done"));
+    let agent = BaseAgent::builder()
+        .workspace(tmp.path())
+        .plugin(Box::new(SkillsPlugin::with_bundled(primary, None)))
+        .build(Arc::new(model))
+        .await
+        .unwrap();
+
+    let events = collect_events(agent.prompt_text("invoke missing skill")).await;
+    let result = tool_result_for(&events, "skill");
+    assert!(result.is_error, "unknown skill must be a loud tool error");
+    let text = result.model_text();
+    assert!(text.contains("Unknown skill 'does-not-exist'"), "{text}");
+    assert!(text.contains("visible-auto"), "{text}");
+    assert!(text.contains("explicit-by-name"), "{text}");
 }
 
 /// Test: parse SKILL.md body (content after frontmatter)
@@ -107,6 +276,7 @@ async fn test_build_meta_summary() {
                 description: "Parse and generate .docx Word documents".to_string(),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,
@@ -119,6 +289,7 @@ async fn test_build_meta_summary() {
                 description: "Extract text and images from PDF files".to_string(),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,
@@ -131,6 +302,7 @@ async fn test_build_meta_summary() {
                 description: "This skill is disabled and should not appear".to_string(),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,

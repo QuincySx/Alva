@@ -102,8 +102,20 @@ pub struct SkillMeta {
     pub license: Option<String>,
     /// Skill 允许使用的工具白名单（None = 不限制）
     pub allowed_tools: Option<Vec<String>>,
+    /// auto（默认）进入常驻目录；explicit 仅允许精确点名
+    #[serde(default)]
+    pub invocation: SkillInvocation,
     /// 扩展元数据（版本、作者、兼容性等）
     pub metadata: Option<HashMap<String, serde_yaml::Value>>,
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillInvocation {
+    #[default]
+    Auto,
+    Explicit,
 }
 
 /// Skill 指令层（Level 2 — 触发后加载）
@@ -187,7 +199,7 @@ pub enum InjectionPolicy {
     /// 适用于核心技能，确保 Agent 始终感知该技能
     Explicit,
     /// 自动注入：仅注入 description（元数据层），
-    /// Agent 通过 use_skill 工具按需拉取完整内容
+    /// Agent 通过统一 `skill` 工具按需拉取完整内容
     Auto,
     /// 严格注入：与 explicit 相同，但同时限制 Agent
     /// 只能使用该 Skill 的 allowed_tools
@@ -458,7 +470,7 @@ use crate::{
 ///
 /// Level 1（元数据）: 始终从内存 / 索引读取，不触及磁盘
 /// Level 2（指令层）: 用户 prompt 触发 Skill 后按需读取 SKILL.md body
-/// Level 3（资源层）: Agent 通过 use_skill(level="full") 或直接读取 references/ 文件
+/// Level 3（资源层）: Agent 在 `skill` 调用后按需读取 references/ 文件
 pub struct SkillLoader {
     repo: Arc<dyn SkillRepository>,
 }
@@ -482,7 +494,7 @@ impl SkillLoader {
         let mut lines = vec![
             "## Available Skills".to_string(),
             String::new(),
-            "The following skills are available. Use `use_skill` to load full instructions."
+            "The following skills are available. Use `skill` to load full instructions by name."
                 .to_string(),
             String::new(),
         ];
@@ -517,7 +529,7 @@ impl SkillLoader {
     }
 
     /// 加载资源文件（Level 3）
-    /// 由 use_skill(level="full") 工具或 Agent 直接的 read_file 调用触发
+    /// 由 `skill` 调用后的引用或 Agent 直接的 read_file 调用触发
     pub async fn load_resource(
         &self,
         skill_name: &str,
@@ -1574,65 +1586,18 @@ pub fn build_mcp_tools(
 
 ---
 
-## 7. 内置元工具（Skill 发现与加载工具）
+## 7. 内置元工具（统一 Skill 调用）
 
-Sub-4 向 AgentEngine 注入两个专用工具，使 Agent 具备运行时 Skill 发现和按需加载能力。这两个工具都实现 `srow_engine::ports::tool::Tool`。
-
-### 7.1 search_skills 工具
+Sub-4 只向 Agent 注入一个 `skill` 工具。enabled + auto 的名称和描述已经常驻 system prompt，因而不再需要搜索工具；explicit 技能由用户或其他 skill 精确点名。调用后正文按 Explicit 注入，声明 `allowed_tools` 时使用 Strict。
 
 ```rust
-/// 工具名: search_skills
-/// 功能: Agent 通过关键词搜索可用 Skill，获取元数据摘要
-/// 对应 Wukong 的 Level 1 → Level 2 触发机制
-
-// 输入 schema
+/// 工具名: skill
+/// 功能: 按精确名称加载 SKILL.md body；可附带本次调用参数
 #[derive(Debug, Deserialize)]
-pub struct SearchSkillsInput {
-    /// 搜索关键词（可选，空则列出所有启用的 Skill）
-    pub query: Option<String>,
-}
-
-// 输出（JSON）
-// [{ "name": "docx", "description": "...", "kind": "bundled" }, ...]
-```
-
-JSON Schema:
-```json
-{
-  "type": "object",
-  "properties": {
-    "query": {
-      "type": "string",
-      "description": "Search query to filter skills by name or description. Empty returns all enabled skills."
-    }
-  }
-}
-```
-
-### 7.2 use_skill 工具
-
-```rust
-/// 工具名: use_skill
-/// 功能: 加载指定 Skill 的指令层（SKILL.md body）或完整资源列表
-/// 对应 Wukong 的 use_skill(level="preview"|"full") 机制
-
-// 输入 schema
-#[derive(Debug, Deserialize)]
-pub struct UseSkillInput {
-    /// Skill name（kebab-case）
-    pub name: String,
-    /// "preview": 返回 SKILL.md body（Level 2）
-    /// "full": 返回 SKILL.md body + 资源路径列表（Level 3 入口）
-    pub level: UseSkillLevel,
-    /// 指定要加载的资源路径（level="full" 时可选填，直接返回文件内容）
-    pub resource_path: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UseSkillLevel {
-    Preview,
-    Full,
+pub struct SkillInput {
+    pub skill: String,
+    #[serde(default)]
+    pub args: Option<String>,
 }
 ```
 
@@ -1640,20 +1605,15 @@ JSON Schema:
 ```json
 {
   "type": "object",
-  "required": ["name", "level"],
+  "required": ["skill"],
   "properties": {
-    "name": {
+    "skill": {
       "type": "string",
-      "description": "Skill name in kebab-case, e.g. 'docx'"
+      "description": "Exact skill name in kebab-case, e.g. 'docx'"
     },
-    "level": {
+    "args": {
       "type": "string",
-      "enum": ["preview", "full"],
-      "description": "preview: load SKILL.md body. full: load body + resource index"
-    },
-    "resource_path": {
-      "type": "string",
-      "description": "Optional: relative path within skill (e.g. 'references/api.md') to load specific resource content"
+      "description": "Optional invocation arguments appended to the injected instructions"
     }
   }
 }
@@ -1848,7 +1808,7 @@ pub trait SkillEngineExt: Sized {
     /// 从 AgentTemplate 实例化结果注入 Skill/MCP
     /// 1. 将 system_prompt 追加到 AgentConfig::system_prompt
     /// 2. 将 MCP Tools 通过 with_tool() 注册到 ToolRegistry
-    /// 3. 将 use_skill / search_skills 元工具注册到 ToolRegistry
+    /// 3. 发布 SkillRegistry 并将统一 `skill` 元工具注册到 ToolRegistry
     fn with_skill_instance(
         self,
         instance: AgentTemplateInstance,
@@ -1886,8 +1846,7 @@ impl SkillEngineExt for EngineBuilder {
             self = self.with_tool(tool);
         }
 
-        // 3. 注册元工具（search_skills + use_skill）
-        // 这两个工具需要 SkillStore 引用，由调用者提前构造并传入
+        // 3. 注册统一 `skill` 元工具；真实 SkillRegistry 由 SkillsPlugin 发布
         self
     }
 }
@@ -2277,8 +2236,7 @@ pub trait McpTransport: Send + Sync {
     │                                          │
     │   config.system_prompt = merged          │
     │   registry += McpToolAdapter × N        │
-    │   registry += search_skills             │
-    │   registry += use_skill                 │
+    │   registry += skill                     │
     └──────────────────────┬──────────────────┘
                            │
                            ▼
@@ -2286,7 +2244,7 @@ pub trait McpTransport: Send + Sync {
     │              AgentEngine                 │
     │    LLM 调用时携带完整 system prompt       │
     │    工具调用时可调用 MCP Tool              │
-    │    Agent 可通过 use_skill 按需加载 Skill  │
+    │    Agent 可通过 skill 按精确名称加载 Skill│
     └─────────────────────────────────────────┘
 ```
 
@@ -2304,7 +2262,7 @@ pub trait McpTransport: Send + Sync {
 | M6 | McpManager 生命周期 | connect_auto / disconnect / reconnect 状态机正确 |
 | M7 | McpToolAdapter 注入引擎 | MCP 工具通过 AgentEngine 工具调用机制正常执行 |
 | M8 | AgentTemplateService 端到端 | 从 TOML 配置文件到 AgentEngine 实例的完整流程 |
-| M9 | search_skills + use_skill 元工具 | Agent 可在对话中动态发现并加载 Skill |
+| M9 | auto 常驻目录 + 统一 `skill` 元工具 | Agent 可自主发现 auto skill，并按精确名称加载 auto/explicit skill |
 | M10 | MBB 域名路由接口 | find_mbb_by_domain 正确，为 Sub-6 提供路由查询接口 |
 | M11 | Skill 安装（本地 zip + URL） | install / remove / set_enabled 完整功能 |
 | M12 | MCP SSE 传输层 | 连接 SSE 型 MCP Server，行为与 stdio 一致 |

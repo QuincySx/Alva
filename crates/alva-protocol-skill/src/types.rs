@@ -1,6 +1,6 @@
 // INPUT:  serde, serde_yaml, std::collections::HashMap, std::path::PathBuf
-// OUTPUT: pub struct SkillMeta, pub struct SkillBody, pub struct SkillResource, pub enum ResourceContentType, pub struct Skill, pub enum SkillKind, pub struct SkillRef, pub enum InjectionPolicy
-// POS:    Defines core Skill entity types across three loading levels (metadata, instructions, resources) plus reference and injection strategy for system prompt composition.
+// OUTPUT: pub struct SkillMeta, pub enum SkillInvocation, pub struct SkillBody, pub struct SkillResource, pub enum ResourceContentType, pub struct Skill, pub enum SkillKind, pub struct SkillRef, pub enum InjectionPolicy
+// POS:    Defines core Skill entity types across three loading levels, invocation visibility, references, and system-prompt injection strategy.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -17,8 +17,27 @@ pub struct SkillMeta {
     pub license: Option<String>,
     /// Tool whitelist for this Skill (None = unrestricted)
     pub allowed_tools: Option<Vec<String>>,
+    /// Discovery/invocation mode (omitted in legacy manifests = auto).
+    #[serde(default)]
+    pub invocation: SkillInvocation,
     /// Extension metadata (version, author, compatibility, etc.)
     pub metadata: Option<HashMap<String, serde_yaml::Value>>,
+}
+
+/// Controls whether a skill is advertised in the always-present directory.
+///
+/// This is intentionally separate from [`InjectionPolicy`]: invocation controls
+/// discovery, while injection controls how an already-selected skill is placed
+/// into model context.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillInvocation {
+    /// Advertise name + description in the always-present skill directory.
+    #[default]
+    Auto,
+    /// Do not advertise; an exact name may still be invoked directly.
+    Explicit,
 }
 
 /// Skill instruction layer (Level 2 -- loaded after trigger)
@@ -94,7 +113,7 @@ pub enum InjectionPolicy {
     /// For core skills, ensures Agent always perceives this skill
     Explicit,
     /// Auto injection: inject only description (metadata layer),
-    /// Agent uses `use_skill` tool to pull full content on demand
+    /// Agent uses the `skill` tool to pull full content on demand
     Auto,
     /// Strict injection: same as explicit, but also restricts Agent
     /// to only use this Skill's allowed_tools
@@ -120,6 +139,7 @@ mod tests {
             description: "A test skill".into(),
             license: None,
             allowed_tools: None,
+            invocation: SkillInvocation::Auto,
             metadata: None,
         };
         assert_eq!(meta.name, "test-skill");
@@ -136,6 +156,7 @@ mod tests {
             description: "An advanced skill".into(),
             license: Some("MIT".into()),
             allowed_tools: Some(vec!["read_file".into(), "write_file".into()]),
+            invocation: SkillInvocation::Explicit,
             metadata: Some(HashMap::from([(
                 "version".into(),
                 serde_yaml::Value::String("1.0.0".into()),
@@ -143,6 +164,7 @@ mod tests {
         };
         assert_eq!(meta.license.as_deref(), Some("MIT"));
         assert_eq!(meta.allowed_tools.as_ref().unwrap().len(), 2);
+        assert_eq!(meta.invocation, SkillInvocation::Explicit);
         assert!(meta.metadata.is_some());
     }
 
@@ -153,12 +175,35 @@ mod tests {
             description: "Test serde".into(),
             license: Some("Apache-2.0".into()),
             allowed_tools: Some(vec!["bash".into()]),
+            invocation: SkillInvocation::Auto,
             metadata: None,
         };
         let yaml = serde_yaml::to_string(&meta).unwrap();
         let parsed: SkillMeta = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(parsed.name, "serde-test");
         assert_eq!(parsed.license, Some("Apache-2.0".into()));
+    }
+
+    #[test]
+    fn legacy_skill_meta_without_invocation_defaults_to_auto() {
+        let parsed: SkillMeta = serde_yaml::from_str(
+            "name: legacy-skill\ndescription: Old manifest\nlicense: null\nallowed_tools: null\nmetadata: null\n",
+        )
+        .unwrap();
+
+        assert_eq!(parsed.invocation, SkillInvocation::Auto);
+    }
+
+    #[test]
+    fn skill_invocation_serde_uses_two_named_modes() {
+        assert_eq!(
+            serde_yaml::from_str::<SkillInvocation>("auto").unwrap(),
+            SkillInvocation::Auto
+        );
+        assert_eq!(
+            serde_yaml::from_str::<SkillInvocation>("explicit").unwrap(),
+            SkillInvocation::Explicit
+        );
     }
 
     // ── SkillBody ───────────────────────────────────────────────────────
@@ -283,6 +328,7 @@ mod tests {
                 description: "Automates browser".into(),
                 license: None,
                 allowed_tools: Some(vec!["navigate".into()]),
+                invocation: SkillInvocation::Auto,
                 metadata: None,
             },
             kind: SkillKind::Mbb {

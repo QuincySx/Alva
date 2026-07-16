@@ -191,6 +191,7 @@ mod tests {
                 description: format!("{name} skill"),
                 license: None,
                 allowed_tools: None,
+                invocation: Default::default(),
                 metadata: None,
             },
             kind: SkillKind::Bundled,
