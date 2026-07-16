@@ -76,7 +76,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | crate | 层 | 职责 |
 |------|------|------|
 | `alva-llm-wire` | L0 | LLM 线格式类型：`Message` / `ContentBlock` / `UsageMetadata` / `AgentMessage` 等纯 serde 值类型；同时提供 kernel/guest 共用的 `StreamMessageAccumulator` 与版本化、限额化 WASIp1 LLM proxy DTO。零 workspace 依赖，wasm-clean，被 kernel-abi re-export。 |
-| `alva-sandbox-abi` | L0 | Sandbox guest/host 共享的纯 serde 能力 ABI；当前定义版本化、限额化 fetch 与 host escalation 请求/响应/错误信封及单向 audit event。零 workspace 依赖、wasm-clean，不拥有网络、授权、执行或日志持久化策略。 |
+| `alva-sandbox-abi` | L0 | Sandbox guest/host 共享的纯 serde 能力 ABI；当前定义版本化、限额化 host→guest environment context、fetch 与 host escalation 请求/响应/错误信封及单向 audit event。零 workspace 依赖、wasm-clean，不拥有网络、授权、执行或日志持久化策略。 |
 | `alva-kernel-bus` | L0 | `Bus` / `Caps`（typed 能力注册）/ `EventBus`（typed pub/sub）/ `StateCell` / `BusPlugin`（两阶段：register + start）/ `BusWriter` vs `BusHandle` 编译期读写分离。零依赖。 |
 | `alva-kernel-abi` | L1 纯契约 | 全部核心 trait + 值类型：`Tool` / `ToolRegistry` / `ToolFs` / `LanguageModel` / `Provider` / `AgentSession` + `InMemorySession` / `scope::context::{ContextHooks, ContextHandle, ContextSystem}` 7 钩子生命周期（+ `name()` 标识方法） / `Message` / `AgentMessage` / `ContentBlock` / `ModelConfig` / `TokenCounter` + `HeuristicTokenCounter` / `CancellationToken` / `AgentError`。 |
 | `alva-kernel-core` | L2 agent loop | `run_agent` 双层循环（inner = LLM stream + tool batch 执行；outer = 透传外壳，follow-up/steering 已迁至 `alva-app-core::PendingPlugin`）/ `AgentState`（mut: model / tools / session / extensions）+ `AgentConfig`（immut: middleware / system_prompt / max_iter / model_config / context_window / workspace / bus）读写分离 / `ContextRuntime`（pending injection / assemble / budget compression 的 prepare-LLM 阶段协调器）/ `ToolBatchCoordinator`（按模型声明顺序提交 `tool_use`/`tool_result`，中途取消也补齐 cancelled result，未来并发调度入口）/ 洋葱式 `MiddlewareStack`（on_agent_start/on_agent_end、input_committed、before/after/wrap_llm_call、before/after/wrap_tool_call）/ `RuntimeExecutionContext`（tool progress → `AgentEvent`）/ kernel 卫生 builtins：`DanglingToolCallMiddleware` / `LoopDetectionMiddleware` / `ToolTimeoutMiddleware`。 |
@@ -108,7 +108,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-host-native` | Native 平台能力层。主职责是 `init::model("provider/id")` 初始化 `LanguageModel`、`TokioSleeper`、native-only middleware（`CheckpointMiddleware` 以及从 box 转发的 `SecurityMiddleware` / `PlanModeMiddleware` / `CompactionMiddleware`）和 graph re-export。`AgentRuntimeBuilder` / `with_standard_agent_stack(SandboxMode)` 仍保留但已 deprecated，只作为 legacy/parallel 路径维护；新 app 入口走 `BaseAgentBuilder`，SDK 入口走 `alva-agent-core::AgentBuilder`。 |
 | `alva-host-wasm` | wasm32 装配。`WasmAgent` facade + `WasmSleeper`（spawn_local + oneshot 桥接 non-Send `gloo_timers` future）+ `smoke::_wasm_smoke_probe` 编译期探针，强制 `cargo check --target wasm32-unknown-unknown` 穿透整条 kernel API 表面。**共享同一份 `alva-kernel-core`，kernel 一行不用动**。 |
 | `alva-sandbox-wasm` | Native-only WASIp1 模块宿主 runner。每次调用新建 wasmtime `Engine` / `Store` / `WasiCtx`，把 job 授权目录作为 preopen 映射进 guest，并捕获退出码与 stdout/stderr；提供 L0 DTO 驱动的 ptr/len LLM / host escalation import 桥、guest cwd→`RunRequest.grants` host path 安全翻译、宿主强制域名白名单/逐跳重定向校验的 fetch import，以及不持有落盘策略的有界 audit event import。 |
-| `alva-worker-wasm` | WASIp1 agent worker：用 SDK `AgentBuilder` + WASI 文件工具在 guest 内运行真 agent loop，经版本化、限额化 ptr/len import 代理宿主 LLM stream、同步 fetch、`request_escalation` 与单向 audit event；workspace、任务、授权 guest path 与结果通道全部由 WASI args 注入，审批模式/宿主路径/job 日志路径不进入 guest。 |
+| `alva-worker-wasm` | WASIp1 agent worker：用 SDK `AgentBuilder` + WASI 文件工具在 guest 内运行真 agent loop，经版本化、限额化 ptr/len import 接收宿主解析的 `wasm-env`、代理宿主 LLM stream、同步 fetch、`request_escalation` 与单向 audit event；workspace、任务、授权 guest path 与结果通道全部由 WASI args 注入，environment 正文不进 argv，审批模式/宿主路径/job 日志路径不进入 guest。 |
 
 ### L4.5：引擎桥接（给 app 层用的统一引擎接口）
 
@@ -136,7 +136,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 
 | crate | 职责 |
 |------|------|
-| `alva-app-cli` | CLI 入口（`pi` 风格的交互式终端 + REPL）；`-p --sandbox wasm --grant <dir>` 生产路径在宿主保留 provider/key/PermissionMode，用 sidecar worker 跑 WASIp1 agent loop，并在 host escalation 时审批、翻译 cwd、执行；jobs 由宿主以 native middleware / wasm audit import 及 `escalation_request`/`escalation_result` 实时追加统一 `tools.jsonl`。 |
+| `alva-app-cli` | CLI 入口（`pi` 风格的交互式终端 + REPL）；`-p --sandbox wasm --grant <dir>` 生产路径在宿主保留 provider/key/PermissionMode，解析 bundled `wasm-env` 后经有界 context ABI 下发，用 sidecar worker 跑 WASIp1 agent loop，并在 host escalation 时审批、翻译 cwd、执行；jobs 由宿主以 native middleware / wasm audit import 及 `escalation_request`/`escalation_result` 实时追加统一 `tools.jsonl`。 |
 | `alva-app-debug` | AI 调试系统：HTTP API / 日志捕获 / 视图树检查 / `traced!` 宏。 |
 | `alva-app-devtools-mcp` | MCP 服务器：包装 `alva-app-debug` HTTP API，供外部 IDE 调试。 |
 | `alva-app-tauri` | Tauri 2 桌面壳 + React/Vite 前端：新一代 GUI，内置 Inspector、持久化 session（SQLite）、多窗口。 |

@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`llm_proxy.rs` 注册 callback 驱动的模型桥；`escalation_proxy.rs` 注册升级桥并按 grants 翻译 guest cwd；`log_proxy.rs` 注册 callback 驱动的 audit event 桥；`http_proxy.rs` 注册宿主策略驱动的 fetch 桥。
+`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`context_proxy.rs` 下发 host-parsed environment prompt；`llm_proxy.rs` 注册 callback 驱动的模型桥；`escalation_proxy.rs` 注册升级桥并按 grants 翻译 guest cwd；`log_proxy.rs` 注册 callback 驱动的 audit event 桥；`http_proxy.rs` 注册宿主策略驱动的 fetch 桥。
 
 ## 约束
 
@@ -23,6 +23,7 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
 | Runner | `lib.rs` | preopen、WASI command 执行与 stdout/stderr outcome。 |
+| Environment context proxy | `context_proxy.rs` | 版本化、有界 host→guest prompt memory bridge。 |
 | LLM proxy | `llm_proxy.rs` | versioned ptr/len request/response memory bridge。 |
 | Escalation proxy | `escalation_proxy.rs` | versioned ptr/len bridge 与 grant-scoped guest cwd 翻译。 |
 | Log proxy | `log_proxy.rs` | versioned、bounded、单向 audit event memory bridge。 |

@@ -8,11 +8,11 @@
 
 ## 逻辑
 
-1. guest 从 WASI args 读取 workspace、任务、授权 guest path 与结果通道，并以 `futures::executor::block_on` 驱动 SDK `Agent`。
+1. guest 从 WASI args 读取 workspace、任务、授权 guest path 与结果通道，并从独立 context import 读取宿主已解析的 `wasm-env` 全文，以 `futures::executor::block_on` 驱动 SDK `Agent`。
 2. `CorePlugin` 的文件工具在 WASI 下使用 `WasiFs`，相对路径以注入的 workspace 为根并受宿主 preopen 圈禁。
 3. `RunScriptTool` 在 fresh QuickJS runtime 执行无模块脚本；同步文件绑定复用 `WasiFs`，同步 `fetch` 经宿主 import 执行且策略错误可被 JS 捕获，QuickJS interrupt/heap limit 只终止当前脚本。
 4. `RequestEscalationTool` 注入 `HostImportEscalationExecutor`；相对 cwd 先以 guest workspace 为根转成 guest absolute path，再调用 `alva:host/escalation::execute`，guest 不持有 SecurityMiddleware/PermissionMode/宿主路径或进程能力。
-5. `ProxyModel::stream()` 用 `alva-llm-wire` 的版本化 DTO 序列化 messages、工具定义和 `ModelConfig`，再调用 `alva:host/llm::llm_complete(req_ptr, req_len)`。
+5. environment context 使用版本化 256 KiB host→guest ABI，不进入 argv/preopen；`ProxyModel::stream()` 用 `alva-llm-wire` 的版本化 DTO 序列化 messages、工具定义和 `ModelConfig`，再调用 `alva:host/llm::llm_complete(req_ptr, req_len)`。
 6. 宿主收集真实模型的 `Vec<StreamEvent>`，调用 guest 导出的 `alloc` 写回线性内存；guest 校验版本/大小后原样重放事件。
 7. fetch 请求用独立 `alva-sandbox-abi` DTO 调 `alva:host/http::fetch`；白名单永不进入 guest，和 LLM / escalation 授权互相独立。
 8. observation middleware 对每个顶层 Tool 完成事件调用 `alva:host/log::append`，fetch proxy 也逐次上报；事件不含宿主时间戳或落盘路径。
@@ -30,6 +30,7 @@
 - log import 只上报有界能力事件，不得接收或推导宿主 job 路径。
 - escalation import 只发送 command、guest cwd、timeout；拒绝以 exit 126 的错误 tool result 回给模型，不得把策略拒绝变成 guest trap。
 - workspace、任务与结果路径不得回退为 guest 内写死路径。
+- environment skill 必须由宿主解析后通过 context import 下发，不得 preopen 宿主 skill 仓库或把正文塞进 argv。
 
 ## 业务域清单
 

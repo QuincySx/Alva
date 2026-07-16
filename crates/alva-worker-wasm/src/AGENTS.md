@@ -8,7 +8,7 @@
 
 ## 逻辑
 
-`main.rs` 在 WASI 下解析 host 注入的 workspace/task/result/grant args，用 `AgentBuilder` 装配 `ProxyModel`、`CorePlugin`、`RequestEscalationTool`、audit middleware 与 `RunScriptTool`；`escalation_proxy.rs` 把 guest cwd + command 送到宿主并将执行/拒绝结果还原为 tool result；`run_script.rs` 为每次调用新建 QuickJS runtime。模型、HTTP、升级与 audit event 分别走独立版本化 JSON import，agent 最终文本写入指定文件或 stdout。
+`main.rs` 在 WASI 下解析 host 注入的 workspace/task/result/grant args，并通过 `context_proxy.rs` 拉取宿主已解析的 `wasm-env` prompt，再用 `AgentBuilder` 装配 `ProxyModel`、`CorePlugin`、`RequestEscalationTool`、audit middleware 与 `RunScriptTool`；`escalation_proxy.rs` 把 guest cwd + command 送到宿主并将执行/拒绝结果还原为 tool result；`run_script.rs` 为每次调用新建 QuickJS runtime。环境、模型、HTTP、升级与 audit event 分别走独立版本化 JSON import，agent 最终文本写入指定文件或 stdout。
 
 ## 约束
 
@@ -20,12 +20,14 @@
 - 文件工具必须以 `--workspace` 值为根，由 WASI preopen 而不是 guest 自行路径过滤来执行圈禁。
 - async loop 由 `futures::executor::block_on` 驱动，不得引入 tokio runtime 或 tokio time sleeper。
 - QuickJS 必须保持无 loader/module/CommonJS 能力，文件 binding 只能调用 `WasiFs` adapter。
+- environment prompt 只能来自有界 context import；不得在 argv 携带正文或增加 skill 仓库 preopen。
 
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
 | WASIp1 command | `main.rs` | SDK agent loop、WASI 文件工具、args/result 协议、ProxyModel、`alloc` export 与 `llm_complete` import。 |
+| Environment context guest proxy | `context_proxy.rs` | 校验版本/大小并读取宿主下发的 wasm-env prompt。 |
 | Host escalation guest proxy | `escalation_proxy.rs` | `EscalationExecutor` 的 ptr/len host-import 实现与可恢复拒绝映射。 |
 | HTTP guest proxy | `http_proxy.rs` | fetch DTO 编解码、host import 调用与可恢复错误信封。 |
 | Audit guest proxy | `job_log.rs` | Tool middleware 与 fetch 事件的有界 guest→host import。 |

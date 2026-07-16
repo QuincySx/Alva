@@ -1,6 +1,9 @@
-// INPUT:  WASI args, alva_agent_core, CorePlugin, RequestEscalationTool, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
-// OUTPUT: alloc(len) wasm export plus fetch/escalation/run_script/log-enabled agent and configurable file/stdout result channel
-// POS:    WASIp1 worker running an SDK agent loop with versioned blocking LLM/HTTP/escalation proxies and guest-to-host audit events.
+// INPUT:  WASI args, host environment context, alva_agent_core, CorePlugin, RequestEscalationTool, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
+// OUTPUT: alloc(len) wasm export plus context/fetch/escalation/run_script/log-enabled agent and configurable file/stdout result channel
+// POS:    WASIp1 worker running an SDK agent loop with a host-injected environment skill and versioned capability proxies.
+
+#[cfg(target_os = "wasi")]
+mod context_proxy;
 
 #[cfg(target_os = "wasi")]
 mod escalation_proxy;
@@ -42,7 +45,10 @@ use alva_llm_wire::{
     MAX_LLM_PROXY_REQUEST_BYTES, MAX_LLM_PROXY_RESPONSE_BYTES,
 };
 #[cfg(target_os = "wasi")]
-use alva_sandbox_abi::{MAX_ESCALATION_PROXY_RESPONSE_BYTES, MAX_FETCH_PROXY_RESPONSE_BYTES};
+use alva_sandbox_abi::{
+    MAX_ESCALATION_PROXY_RESPONSE_BYTES, MAX_FETCH_PROXY_RESPONSE_BYTES,
+    MAX_WASM_ENV_CONTEXT_RESPONSE_BYTES,
+};
 #[cfg(target_os = "wasi")]
 use async_trait::async_trait;
 #[cfg(target_os = "wasi")]
@@ -76,7 +82,8 @@ pub extern "C" fn alloc(len: i32) -> i32 {
     let len = usize::try_from(len).expect("host requested a negative allocation");
     let max_response_bytes = MAX_LLM_PROXY_RESPONSE_BYTES
         .max(MAX_FETCH_PROXY_RESPONSE_BYTES)
-        .max(MAX_ESCALATION_PROXY_RESPONSE_BYTES);
+        .max(MAX_ESCALATION_PROXY_RESPONSE_BYTES)
+        .max(MAX_WASM_ENV_CONTEXT_RESPONSE_BYTES);
     assert!(
         len <= max_response_bytes,
         "host response exceeds the proxy response size limit"
@@ -279,8 +286,9 @@ async fn run_worker(
         .map(|(index, path)| format!("grant {index}: {path}"))
         .collect::<Vec<_>>()
         .join(", ");
+    let environment_skill = context_proxy::load_wasm_environment_skill()?;
     let system_prompt = format!(
-        "Complete the user's task using the available file tools. Relative paths are rooted in {workspace}. The only host directories available through WASI are: {grant_description}. Use request_escalation when a test, build, or other command must run on the host; its cwd is a guest path rooted in {workspace}. Host policy may reject it, in which case use the exact reason to recover or report the limitation. If access is denied, report the concrete failure instead of claiming success."
+        "## Runtime mount map\n\nRelative paths are rooted in {workspace}. The only host directories available through WASI are: {grant_description}.\n\n{environment_skill}"
     );
     let agent = Agent::builder()
         .model(Arc::new(ProxyModel))

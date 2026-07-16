@@ -1,5 +1,5 @@
 // INPUT:  base64, serde
-// OUTPUT: fetch/escalation/log ABI versions and limits, their request/result DTOs, AuditEvent
+// OUTPUT: fetch/escalation/log/context ABI versions and limits, their request/result DTOs, AuditEvent, WasmEnvironmentContext
 // POS:    Dependency-free versioned JSON contracts shared by untrusted WASIp1 guests and the native sandbox host.
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,34 @@ pub const MAX_ESCALATION_PROXY_REQUEST_BYTES: usize = 64 * 1024;
 pub const MAX_ESCALATION_PROXY_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 /// Shell-compatible exit code used when host policy rejects an escalation.
 pub const ESCALATION_REJECTED_EXIT_CODE: i32 = 126;
+/// Version of `alva:host/context::wasm_environment()` JSON messages.
+pub const WASM_ENV_CONTEXT_ABI_VERSION: u32 = 1;
+/// Maximum serialized environment context allocated in guest linear memory.
+pub const MAX_WASM_ENV_CONTEXT_RESPONSE_BYTES: usize = 256 * 1024;
+
+/// Host-parsed, fully expanded wasm environment skill delivered to the guest.
+///
+/// This DTO deliberately contains no host filesystem path: mount locations in
+/// the body are guest-visible paths, while the live mount map stays in WASI
+/// args and the guest's dynamic prompt preface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WasmEnvironmentContext {
+    pub version: u32,
+    pub system_prompt: String,
+}
+
+impl WasmEnvironmentContext {
+    pub fn new(system_prompt: impl Into<String>) -> Self {
+        Self {
+            version: WASM_ENV_CONTEXT_ABI_VERSION,
+            system_prompt: system_prompt.into(),
+        }
+    }
+
+    pub fn has_supported_version(&self) -> bool {
+        self.version == WASM_ENV_CONTEXT_ABI_VERSION
+    }
+}
 
 /// Guest-to-host request for execution outside the WASIp1 worker.
 ///
@@ -274,6 +302,17 @@ mod tests {
         assert!(result.has_supported_version());
         assert_eq!(result.response, Some(response));
         assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn wasm_environment_context_carries_only_versioned_prompt_text() {
+        let context = WasmEnvironmentContext::new("## Skill: wasm-env");
+        assert!(context.has_supported_version());
+        let value = serde_json::to_value(context).unwrap();
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        assert_eq!(value["system_prompt"], "## Skill: wasm-env");
+        assert!(value.get("skill_dir").is_none());
+        assert!(value.get("host_path").is_none());
     }
 
     #[test]

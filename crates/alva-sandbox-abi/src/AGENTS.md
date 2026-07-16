@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`lib.rs` 定义 fetch / host escalation 请求响应、审计事件、body base64 wire 编码及两侧共用的版本/大小上限；升级 `cwd` 只表达 guest 路径。
+`lib.rs` 定义 host→guest environment context、fetch / host escalation 请求响应、审计事件、body base64 wire 编码及两侧共用的版本/大小上限；context 不携带 skill 目录，升级 `cwd` 只表达 guest 路径。
 
 ## 约束
 
@@ -18,4 +18,4 @@
 
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
-| capability wire | `lib.rs` | fetch / escalation 双向与 log 单向 ptr/len JSON ABI。 |
+| capability wire | `lib.rs` | environment context 单向下发、fetch / escalation 双向与 log 单向 ptr/len JSON ABI。 |

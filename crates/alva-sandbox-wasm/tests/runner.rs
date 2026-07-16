@@ -1,7 +1,8 @@
-// INPUT:  std::{fs, io, net, process::Command, sync::{Arc, Mutex, OnceLock}}, alva_kernel_abi, alva_llm_wire, alva_sandbox_wasm, alva_test, async_trait, futures, serde_json, tempfile, tokio, wasmtime
-// OUTPUT: Integration coverage for runner limits, preopens, independent LLM/fetch proxies, domain policy, and run_script
-// POS:    Builds WASIp1 guests on demand and verifies host filesystem/network isolation plus guest QuickJS behavior.
+// INPUT:  std::{collections, fs, io, net, process, sync}, bundled wasm-env, alva_kernel_abi, alva_llm_wire, alva_sandbox_wasm, alva_test, async_trait, futures, serde_json, tempfile, tokio, wasmtime
+// OUTPUT: Integration coverage for runner limits, preopens, context/LLM/fetch proxies, domain policy, escalation, and run_script
+// POS:    Builds WASIp1 guests on demand and verifies isolation, environment injection, real tool alignment, and guest behavior.
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
@@ -16,6 +17,7 @@ use alva_kernel_abi::{
 use alva_llm_wire::{LlmProxyRequest, LlmProxyResponse, ToolDefinition};
 use alva_sandbox_wasm::{
     run_module, AuditEvent, Grant, RunLimits, RunRequest, SandboxRunner, SandboxStoreData,
+    WasmEnvironmentContext,
 };
 use alva_test::fixtures::{make_assistant_message, make_tool_call_message};
 use alva_test::mock_provider::MockLanguageModel;
@@ -30,6 +32,31 @@ static WORKER_RUNNER: OnceLock<SandboxRunner> = OnceLock::new();
 
 const HOST_MARKER: &str = "SECRET-KEY-abc";
 const FINAL_RESPONSE: &str = "sandboxed agent finished";
+
+fn wasm_environment_injection() -> String {
+    let skill_md = include_str!("../../../assets/skills/wasm-env/SKILL.md");
+    let (_, body) = skill_md
+        .split_once("\n---\n")
+        .expect("wasm-env skill has YAML frontmatter");
+    format!("## Skill: wasm-env\n\n{}\n", body.trim())
+}
+
+fn declared_top_level_tools(injection: &str) -> BTreeSet<String> {
+    let (_, tail) = injection
+        .split_once("```tool-names\n")
+        .expect("wasm-env injection has a tool-names block");
+    let (tool_names, _) = tail
+        .split_once("\n```")
+        .expect("tool-names block is closed");
+    let lines = tool_names.lines().map(str::to_owned).collect::<Vec<_>>();
+    let names = lines.iter().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(
+        lines.len(),
+        names.len(),
+        "tool-names block must not contain duplicates"
+    );
+    names
+}
 
 /// A host that registers only the LLM proxy must still be able to instantiate
 /// the guest. The guest declares its host imports unconditionally, so anything
@@ -55,8 +82,13 @@ fn guest_instantiates_without_the_caller_registering_the_audit_log() {
                 allowed_domains: Vec::new(),
                 limits: RunLimits::default(),
             },
-            // Deliberately only the LLM proxy: no audit log, no shadowing.
+            // Register the required environment context and LLM proxy, but
+            // deliberately omit audit logging to exercise the runner default.
             move |linker| {
+                let injection = wasm_environment_injection();
+                alva_sandbox_wasm::register_wasm_environment_context_proxy(linker, move || {
+                    Ok(WasmEnvironmentContext::new(injection.clone()))
+                })?;
                 alva_sandbox_wasm::register_llm_proxy(linker, move |request: LlmProxyRequest| {
                     let handle = runtime_handle.clone();
                     let model = Arc::clone(&model);
@@ -150,6 +182,16 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
 
     let calls = recorded_mock.calls();
     assert_eq!(calls.len(), 2, "the agent must make two model turns");
+    let first_prompt = calls[0]
+        .iter()
+        .map(|message| message.text_content())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let environment_injection = wasm_environment_injection();
+    assert!(
+        first_prompt.contains(&environment_injection),
+        "recorded wasm model request must contain the full environment skill: {first_prompt}"
+    );
     assert!(calls[0]
         .iter()
         .any(|message| message.text_content() == task));
@@ -163,6 +205,12 @@ fn agent_loop_executes_file_tool_in_guest_without_leaking_host_marker() {
     assert!(tool_names
         .iter()
         .all(|names| names.iter().any(|name| name == "create_file")));
+    let actual_tools = tool_names[0].iter().cloned().collect::<BTreeSet<_>>();
+    let declared_tools = declared_top_level_tools(&environment_injection);
+    assert_eq!(
+        declared_tools, actual_tools,
+        "wasm-env's machine-readable list must equal the real guest tool definitions"
+    );
     assert_eq!(
         recorded_headers.lock().expect("header lock").as_slice(),
         [
@@ -787,6 +835,10 @@ fn register_llm_proxy(
     audit_events: Arc<Mutex<Vec<AuditEvent>>>,
     runtime_handle: tokio::runtime::Handle,
 ) -> Result<(), wasmtime::Error> {
+    let injection = wasm_environment_injection();
+    alva_sandbox_wasm::register_wasm_environment_context_proxy(linker, move || {
+        Ok(WasmEnvironmentContext::new(injection.clone()))
+    })?;
     alva_sandbox_wasm::register_job_log_proxy(linker, move |event| {
         audit_events.lock().expect("audit event lock").push(event);
         Ok(())

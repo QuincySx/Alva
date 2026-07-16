@@ -1,9 +1,6 @@
-// INPUT:  std::{fs, path}, include_dir, dirs
-// OUTPUT: ensure_extracted, BUNDLED_SKILLS_VERSION
-// POS:    Bundles the workspace-root skills tree (`assets/skills/`) into the
-//         binary at compile time and extracts it on first run to a versioned
-//         cache directory. The path is fed into SkillsPlugin so agents see
-//         the bundled skills alongside user/project ones.
+// INPUT:  std::{fs, path, sync}, include_dir, dirs, alva_protocol_skill
+// OUTPUT: ensure_extracted, wasm_environment_skill_injection, BUNDLED_SKILLS_VERSION
+// POS:    Host-side bundled skill extraction plus explicit wasm-env parsing/injection.
 
 //! Built-in skill bundling.
 //!
@@ -21,11 +18,21 @@
 //! Why a versioned cache dir: cleanly invalidates on upgrade — old
 //! bundled skills don't shadow new ones — without needing extraction
 //! logic to know about every file individually.
+//!
+//! The wasm worker's environment skill is the one exception to extraction:
+//! the host parses its embedded bytes directly because it has no resources,
+//! then sends the expanded prompt over the bounded context ABI. This keeps a
+//! cache directory out of the sandbox contract and still uses the same asset.
 
 use std::fs;
 use std::path::PathBuf;
 
 use include_dir::{include_dir, Dir};
+
+use alva_protocol_skill::injector::SkillInjector;
+use alva_protocol_skill::loader::SkillLoader;
+use alva_protocol_skill::memory::{InMemorySkill, InMemorySkillRepository};
+use alva_protocol_skill::types::{InjectionPolicy, Skill, SkillInvocation, SkillKind, SkillRef};
 
 // Workspace layout: `crates/alva-app-cli/Cargo.toml` → `../../assets/skills`.
 const BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../assets/skills");
@@ -33,6 +40,58 @@ const BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../assets/s
 /// Cache-key version. Bumping forces re-extraction. Tied to the crate
 /// version so each release gets a fresh bundled-skills directory.
 pub const BUNDLED_SKILLS_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const WASM_ENV_SKILL_NAME: &str = "wasm-env";
+
+/// Parse the host-bundled wasm environment skill and build its full explicit
+/// system-prompt injection. The guest never reads or mounts the skill store.
+pub(crate) async fn wasm_environment_skill_injection() -> Result<String, String> {
+    let relative_path = format!("{WASM_ENV_SKILL_NAME}/SKILL.md");
+    let embedded = BUNDLED_SKILLS
+        .get_file(&relative_path)
+        .ok_or_else(|| format!("bundled skill asset {relative_path:?} is missing"))?;
+    let content = embedded
+        .contents_utf8()
+        .ok_or_else(|| format!("bundled skill asset {relative_path:?} is not UTF-8"))?;
+    let meta = alva_protocol_skill::fs::FsSkillRepository::parse_frontmatter(content)
+        .map_err(|error| format!("parse bundled {relative_path}: {error}"))?;
+    if meta.name != WASM_ENV_SKILL_NAME {
+        return Err(format!(
+            "{} declares skill name {:?}; expected {WASM_ENV_SKILL_NAME:?}",
+            relative_path, meta.name
+        ));
+    }
+    if meta.invocation != SkillInvocation::Explicit {
+        return Err(format!(
+            "bundled {WASM_ENV_SKILL_NAME} must use invocation: explicit so native skill directories do not advertise it"
+        ));
+    }
+
+    let body = alva_protocol_skill::fs::FsSkillRepository::parse_body(content);
+    let skill = Skill {
+        meta: meta.clone(),
+        kind: SkillKind::Bundled,
+        root_path: PathBuf::from("<bundled>").join(WASM_ENV_SKILL_NAME),
+        enabled: true,
+    };
+    let repo = std::sync::Arc::new(InMemorySkillRepository::new(vec![InMemorySkill {
+        meta,
+        kind: SkillKind::Bundled,
+        body: body.markdown,
+        resources: Vec::new(),
+        enabled: true,
+    }]));
+    SkillInjector::new(SkillLoader::new(repo))
+        .build_injection(
+            &[SkillRef {
+                name: WASM_ENV_SKILL_NAME.into(),
+                injection: Some(InjectionPolicy::Explicit),
+            }],
+            &[skill],
+        )
+        .await
+        .map_err(|error| format!("inject bundled {WASM_ENV_SKILL_NAME}: {error}"))
+}
 
 /// Extract the bundled skills tree to a versioned cache directory and
 /// return the path. Idempotent: if the cache directory already exists
@@ -145,11 +204,60 @@ mod tests {
             "project-tooling",
             "autonomous-ui-test",
             "autonomous-ui-repair",
+            WASM_ENV_SKILL_NAME,
         ] {
             assert!(
                 names.contains(&required),
                 "bundled skill {required:?} must be discoverable; got: {names:?}"
             );
         }
+
+        let wasm_env = skills
+            .iter()
+            .find(|skill| skill.meta.name == WASM_ENV_SKILL_NAME)
+            .expect("wasm-env bundled skill");
+        assert_eq!(wasm_env.meta.invocation, SkillInvocation::Explicit);
+
+        let injection = wasm_environment_skill_injection().await.unwrap();
+        for required in [
+            "# WASIp1 Worker Environment",
+            "`/workspace`",
+            "`/grants/<index>`",
+            "```tool-names",
+            "synchronous `fetch` binding",
+            "There is no shell",
+            "`request_escalation`",
+            "bulk file work",
+            "final assistant response",
+            "result channel",
+        ] {
+            assert!(
+                injection.contains(required),
+                "wasm environment injection must cover {required:?}: {injection}"
+            );
+        }
+
+        // A normal/native agent sees only auto-invoked skills in its stable
+        // directory. The worker-only explicit skill must not leak into it.
+        let primary = tmp.path().join("native-primary");
+        let model = alva_test::mock_provider::MockLanguageModel::new();
+        let agent = alva_app_core::BaseAgent::builder()
+            .workspace(tmp.path())
+            .system_prompt("native agent")
+            .plugin(Box::new(
+                alva_app_core::extension::SkillsPlugin::with_bundled(primary, Some(first)),
+            ))
+            .build(std::sync::Arc::new(model))
+            .await
+            .unwrap();
+        let native_prompt = agent.system_prompt_segments().await.join("\n");
+        assert!(
+            !native_prompt.contains("## Skill: wasm-env"),
+            "{native_prompt}"
+        );
+        assert!(
+            !native_prompt.contains("# WASIp1 Worker Environment"),
+            "{native_prompt}"
+        );
     }
 }

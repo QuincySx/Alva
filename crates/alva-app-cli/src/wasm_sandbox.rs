@@ -1,6 +1,6 @@
-// INPUT:  configured LanguageModel, PermissionMode/SecurityGuard, canonical host grants, allowed domains, escalation executor, alva_sandbox_wasm proxies, optional host job logger, tokio runtime handle
+// INPUT:  configured LanguageModel, bundled wasm-env injection, PermissionMode/SecurityGuard, canonical host grants, allowed domains, escalation executor, alva_sandbox_wasm proxies, optional host job logger, tokio runtime handle
 // OUTPUT: run(model, grants, allowed_domains, task) and resolve_worker_wasm() production sidecar discovery
-// POS:    CLI-owned wasm-tier host policy: guest mounts, provider streaming, escalation approval/execution, and audit behind spawn_blocking.
+// POS:    CLI-owned wasm-tier host policy: skill context delivery, guest mounts, provider streaming, escalation approval/execution, and audit behind spawn_blocking.
 
 use std::any::Any;
 use std::path::{Path, PathBuf};
@@ -18,9 +18,10 @@ use alva_kernel_abi::{
 };
 use alva_llm_wire::{LlmProxyRequest, LlmProxyResponse, ToolDefinition};
 use alva_sandbox_wasm::{
-    register_escalation_proxy, register_job_log_proxy, register_llm_proxy, translate_guest_cwd,
-    EscalationProxyRequest, EscalationProxyResult, EscalationResponse, Grant, RunLimits,
-    RunRequest, SandboxRunner,
+    register_escalation_proxy, register_job_log_proxy, register_llm_proxy,
+    register_wasm_environment_context_proxy, translate_guest_cwd, EscalationProxyRequest,
+    EscalationProxyResult, EscalationResponse, Grant, RunLimits, RunRequest, SandboxRunner,
+    WasmEnvironmentContext,
 };
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -236,6 +237,7 @@ pub(crate) async fn run(
 ) -> Result<String, String> {
     let runtime_handle = tokio::runtime::Handle::current();
     let job_logger = JobToolLogger::from_env();
+    let environment_skill = crate::bundled_skills::wasm_environment_skill_injection().await?;
     tokio::task::spawn_blocking(move || {
         let module = std::fs::read(resolve_worker_wasm()?)
             .map_err(|error| format!("read alva-worker-wasm.wasm: {error}"))?;
@@ -286,6 +288,10 @@ pub(crate) async fn run(
                     limits: RunLimits::default(),
                 },
                 move |linker| {
+                    let environment_skill = environment_skill.clone();
+                    register_wasm_environment_context_proxy(linker, move || {
+                        Ok(WasmEnvironmentContext::new(environment_skill.clone()))
+                    })?;
                     let job_logger = job_logger.clone();
                     register_job_log_proxy(linker, move |event| {
                         if let Some(logger) = &job_logger {
@@ -479,6 +485,18 @@ mod tests {
         );
         let calls = recorded.calls();
         assert_eq!(calls.len(), 3);
+        let full_prompt = calls[0]
+            .iter()
+            .map(|message| message.text_content())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let environment_skill = crate::bundled_skills::wasm_environment_skill_injection()
+            .await
+            .unwrap();
+        assert!(
+            full_prompt.contains(&environment_skill),
+            "production wasm bridge must deliver the full bundled environment skill: {full_prompt}"
+        );
         assert!(calls[1]
             .iter()
             .flat_map(|message| &message.content)

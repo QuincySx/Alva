@@ -9,7 +9,7 @@
 
 1. `main.rs` 解析 subcommand/flag，装配 provider 与普通 BaseAgent 路径。
 2. `-p --sandbox wasm` 提前验证授权目录与 `--allow-domain`，只构造宿主 provider，不构造 native agent。
-3. wasm host policy 在 blocking 线程执行 runner，域名白名单进入每次 `RunRequest`，LLM import callback 回到原 Tokio handle 调模型。
+3. wasm host policy 先解析 bundled `wasm-env` 并以 Explicit 策略展开全文，再通过有界 context import 下发；blocking 线程执行 runner，域名白名单进入每次 `RunRequest`，LLM import callback 回到原 Tokio handle 调模型。
 4. wasm escalation handler 持有 PermissionMode + SecurityGuard：先按 grants 把 guest cwd 翻译成 canonical host cwd，再走 BashClassifier/HITL 决策；批准后复用 `NativeEscalationExecutor`，拒绝作为结果返回 guest。
 5. wasm 仅支持 headless `-p`，因此 Ask/AcceptEdits 产生的 HITL 请求固定 `RejectOnce` 并给 worker 明确原因；AcceptShell 自动放行 ReadOnly/Unknown、拒绝 Destructive，Bypass 跳过分类器但不跳过 cwd grant 翻译。
 6. jobs 子进程由宿主持有 `tools.jsonl` 路径：native middleware、wasm log import 与 host `escalation_request`/`escalation_result` 实时追加同一格式；job 目录不进入 guest args/env/preopen。
@@ -21,6 +21,7 @@
 - wasm runner 同步调用必须放入 `spawn_blocking`。
 - host escalation 的路径授权必须先于 PermissionMode 检查，且只能使用当前 `RunRequest.grants`；即使 Bypass 也不能接受 guest 提供的 host path。
 - worker 生产物按 sidecar 交付；开发期允许 target fallback 或 `ALVA_WORKER_WASM`。
+- bundled skill 仓库只在宿主解析，不得作为 grant/preopen 或宿主路径暴露给 worker。
 
 ## 业务域清单
 
