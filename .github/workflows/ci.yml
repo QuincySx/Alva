@@ -116,8 +116,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
+          targets: wasm32-wasip1
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
+      # Same sidecar dependency as the Test job: the CLI's wasm-tier tests
+      # discover the guest instead of building it. llvm-cov relocates the target
+      # dir, but the workspace-relative candidate it falls back to is absolute,
+      # so an ordinary build here is enough.
+      - name: build the wasm worker guest (sidecar the CLI tests discover)
+        run: cargo build -p alva-worker-wasm --target wasm32-wasip1
       - name: cargo llvm-cov (summary + lcov)
         run: |
           cargo llvm-cov --workspace --exclude alva-app-tauri \
