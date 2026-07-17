@@ -1,1 +1,7 @@
 /target
+
+# The repo root ignores Cargo.lock everywhere, which would also drop this one.
+# It has to be tracked: the test builds this fixture with --locked, so a cold
+# checkout without the lock fails outright ("cannot create the lock file ...
+# because --locked was passed"). It is force-added; see the sibling Cargo.lock.
+!Cargo.lock
