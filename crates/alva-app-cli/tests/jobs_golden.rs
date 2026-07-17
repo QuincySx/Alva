@@ -2,6 +2,13 @@
 // OUTPUT: (none — golden binary tests)
 // POS:    Golden coverage for daemonless job lifecycle, wasm flag passthrough, timeout/crash semantics, and host-owned tool audit logs.
 
+/// Watchdog for the harness, not a behavioural assertion: it only exists so a
+/// hung job fails the test instead of hanging CI. A wasm-tier job runs a whole
+/// agent loop through wasmtime and takes ~35s on a dev machine; a 2-core runner
+/// is roughly twice that, so 60s left almost no margin and CI timed out at
+/// exactly the limit. Generous here costs nothing — a healthy run never waits.
+const WATCHDOG_SECS: u64 = 180;
+
 use assert_cmd::Command;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -82,7 +89,7 @@ fn start_gated_wasm_tool_server() -> (String, mpsc::Sender<()>, std::thread::Joi
             drain_http_request(&mut stream);
             if turn == 0 {
                 release_rx
-                    .recv_timeout(std::time::Duration::from_secs(60))
+                    .recv_timeout(std::time::Duration::from_secs(WATCHDOG_SECS))
                     .expect("test releases gated wasm job");
             }
             let frames = if turn == 0 {
@@ -181,7 +188,7 @@ fn jobs_submit_wait_status_result_lifecycle() {
     // wait → blocks until done, then prints the -p json result object
     let wait = alva(&home, &ws)
         .args(["jobs", "wait", &job_id])
-        .timeout(std::time::Duration::from_secs(60))
+        .timeout(std::time::Duration::from_secs(WATCHDOG_SECS))
         .assert()
         .success();
     let wv: serde_json::Value =
@@ -248,7 +255,7 @@ fn jobs_wasm_flags_lifecycle_and_tool_jsonl() {
     release.send(()).unwrap();
     let wait = alva(&home, &ws)
         .args(["jobs", "wait", &job_id])
-        .timeout(std::time::Duration::from_secs(60))
+        .timeout(std::time::Duration::from_secs(WATCHDOG_SECS))
         .assert()
         .success();
     server.join().expect("wasm job provider completed");
@@ -325,7 +332,7 @@ fn jobs_os_flags_complete_with_exact_support_files() {
 
     let wait = alva(&home, &ws)
         .args(["jobs", "wait", job_id])
-        .timeout(std::time::Duration::from_secs(60))
+        .timeout(std::time::Duration::from_secs(WATCHDOG_SECS))
         .assert()
         .success();
     let result: serde_json::Value = serde_json::from_slice(&wait.get_output().stdout).unwrap();
