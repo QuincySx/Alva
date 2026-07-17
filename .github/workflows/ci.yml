@@ -66,6 +66,25 @@ jobs:
         with:
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
+      # rquickjs-sys curls a 113MB wasi-sdk in its build script on every cold
+      # build, and cargo --offline does not stop it. Cache it once (keyed on the
+      # version rquickjs-sys 0.12.1 pins) and point WASI_SDK at it, so the build
+      # script and the guest-building tests reuse the install instead of
+      # re-downloading. Bump the key when rquickjs's WASI_SDK_VERSION changes.
+      - name: cache the WASI SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/wasi-sdk
+          key: wasi-sdk-24.0-x86_64-linux
+      - name: install the WASI SDK on a cache miss and export WASI_SDK
+        run: |
+          root="$HOME/.cache/wasi-sdk/wasi-sdk-24.0-x86_64-linux"
+          if [ ! -x "$root/bin/clang" ]; then
+            mkdir -p "$HOME/.cache/wasi-sdk"
+            curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz \
+              | tar -xz -C "$HOME/.cache/wasi-sdk"
+          fi
+          echo "WASI_SDK=$root" >> "$GITHUB_ENV"
       # The CLI's wasm-tier tests locate the guest the way a user's install
       # does — via the sidecar search path — rather than building it. A dev
       # machine always has the artifact lying around from earlier work, so the
@@ -119,6 +138,21 @@ jobs:
           targets: wasm32-wasip1
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
+      # Same shared wasi-sdk cache as the Test job — see the note there.
+      - name: cache the WASI SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/wasi-sdk
+          key: wasi-sdk-24.0-x86_64-linux
+      - name: install the WASI SDK on a cache miss and export WASI_SDK
+        run: |
+          root="$HOME/.cache/wasi-sdk/wasi-sdk-24.0-x86_64-linux"
+          if [ ! -x "$root/bin/clang" ]; then
+            mkdir -p "$HOME/.cache/wasi-sdk"
+            curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz \
+              | tar -xz -C "$HOME/.cache/wasi-sdk"
+          fi
+          echo "WASI_SDK=$root" >> "$GITHUB_ENV"
       # Same sidecar dependency as the Test job: the CLI's wasm-tier tests
       # discover the guest instead of building it. llvm-cov relocates the target
       # dir, but the workspace-relative candidate it falls back to is absolute,

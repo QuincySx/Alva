@@ -1149,6 +1149,17 @@ fn build_worker() -> Vec<u8> {
 }
 
 fn cached_wasi_sdk() -> PathBuf {
+    // Prefer an explicitly installed SDK. CI sets WASI_SDK to a cached install
+    // so rquickjs-sys's 113MB download happens once (on a cache miss), not on
+    // every cold build; this build then reuses it too. Without the env we fall
+    // back to scanning whatever a prior rquickjs-sys download left in OUT_DIR,
+    // which is the local-dev path and keeps behavior unchanged there.
+    if let Some(explicit) = std::env::var_os("WASI_SDK") {
+        let path = PathBuf::from(explicit);
+        if path.join("bin/clang").is_file() {
+            return path;
+        }
+    }
     let build_root = workspace_manifest()
         .parent()
         .expect("workspace manifest has a parent")
