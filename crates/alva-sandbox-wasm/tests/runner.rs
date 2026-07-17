@@ -1078,6 +1078,30 @@ fn build_guest(manifest: &Path, package: &str) -> Vec<u8> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
 
     let mut command = Command::new(cargo);
+    // The guest is test *data* — a wasm artifact handed to wasmtime — not code
+    // whose coverage we measure. `cargo llvm-cov` does not use RUSTFLAGS; it
+    // installs itself as RUSTC_WRAPPER and instruments the crates named in
+    // __CARGO_LLVM_COV_RUSTC_WRAPPER_CRATE_NAMES, which includes
+    // alva_worker_wasm. A nested cargo inherits that wrapper and tries to
+    // instrument the guest, but wasm32-wasip1 ships no profiler runtime, so the
+    // build dies with "can't find crate for `profiler_builtins`". Strip the
+    // whole mechanism so this build does not depend on how the test binary
+    // itself was compiled.
+    for instrumented in [
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "__CARGO_LLVM_COV_RUSTC_WRAPPER",
+        "__CARGO_LLVM_COV_RUSTC_WRAPPER_RUSTFLAGS",
+        "__CARGO_LLVM_COV_RUSTC_WRAPPER_CRATE_NAMES",
+        "CARGO_LLVM_COV",
+        "CARGO_LLVM_COV_TARGET_DIR",
+        "CARGO_LLVM_COV_BUILD_DIR",
+        "LLVM_PROFILE_FILE",
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+    ] {
+        command.env_remove(instrumented);
+    }
     if package == "alva-worker-wasm" {
         command.env("WASI_SDK", cached_wasi_sdk());
     }
