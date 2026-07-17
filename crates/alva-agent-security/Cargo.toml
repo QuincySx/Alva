@@ -27,7 +27,11 @@ native = ["dirs"]
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", default-features = false, features = ["net"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 futures-core = "0.3"
+tempfile = "3"
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
 tokio-stream = "0.1"

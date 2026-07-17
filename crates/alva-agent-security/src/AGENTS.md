@@ -12,11 +12,11 @@
 2. `sensitive_paths.rs` 基于目录黑名单、文件扩展名、文件名、正则模式四级过滤敏感路径。
 3. `authorized_roots.rs` 管理 Agent 可访问的目录集合，workspace 为主根，可追加额外根。
 4. `permission.rs` 实现会话级 HITL 权限管理，支持 AllowOnce / AllowAlways / RejectOnce / RejectAlways 缓存决策，通过 oneshot channel 异步等待人工审批。
-5. `sandbox.rs` 配置 macOS Seatbelt 沙箱 profile，提供四级沙箱模式（RestrictiveOpen / RestrictiveClosed / RestrictiveProxied / Permissive）。
+5. `sandbox.rs` 区分平台可用性与本次运行是否实际受限；os worker 的既存目录/文件全部 canonicalize 后通过 `-D` 注入固定 Seatbelt profile，授权外写受限但读不受限。
 
 ## 约束
 - SecurityGuard 的检查顺序不可调整：敏感路径 -> 授权根 -> HITL 权限，前置检查失败直接拒绝。
-- SandboxMode 目前仅支持 macOS Seatbelt，跨平台需另行实现。
+- SandboxMode 目前仅支持 macOS Seatbelt，跨平台需另行实现；`is_enforced()` 是实例状态，普通 macOS 配置不得仅凭平台返回 true。
 - PermissionManager 的 `AllowAlways` / `RejectAlways` 缓存以 tool name 为 key，整个会话生命周期内生效。
 - AuthorizedRoots 的 workspace 路径在构造后不可变更。
 
@@ -29,4 +29,4 @@
 | PermissionManager | permission.rs | 会话级 HITL 权限管理器，缓存 allow/deny 决策，异步审批流 |
 | SensitivePathFilter | sensitive_paths.rs | 敏感路径过滤：目录黑名单、扩展名、文件名、正则模式四级匹配 |
 | AuthorizedRoots | authorized_roots.rs | 管理 Agent 可访问的授权目录集合，默认为 workspace 根 |
-| SandboxConfig | sandbox.rs | macOS Seatbelt 沙箱配置，四级沙箱模式控制 shell 命令执行限制 |
+| SandboxConfig | sandbox.rs | macOS Seatbelt 完整 worker 命令、canonical 参数路径与每次运行 enforcement 状态（写圈禁、读不圈禁） |

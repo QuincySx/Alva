@@ -297,6 +297,47 @@ fn jobs_wasm_flags_lifecycle_and_tool_jsonl() {
     assert!(!entries[0]["result_summary"].as_str().unwrap().is_empty());
 }
 
+/// `jobs submit` forwards OS-tier flags verbatim; the child must still be able
+/// to write its predeclared result/stderr/tools support files outside grants.
+/// Requires an unrestricted macOS host because nested sandbox_apply is denied
+/// in Codex's managed environment.
+#[cfg(target_os = "macos")]
+#[test]
+fn jobs_os_flags_complete_with_exact_support_files() {
+    let (home, ws) = dirs();
+    let (url, _server) = start_mock_openai_server();
+    write_shared_config(&home, &format!("{url}/v1"));
+
+    let submit = alva(&home, &ws)
+        .args([
+            "jobs",
+            "submit",
+            "--sandbox",
+            "os-write",
+            "--grant",
+            ws.path().to_str().unwrap(),
+            "report completion",
+        ])
+        .assert()
+        .success();
+    let submitted: serde_json::Value = serde_json::from_slice(&submit.get_output().stdout).unwrap();
+    let job_id = submitted["job_id"].as_str().unwrap();
+
+    let wait = alva(&home, &ws)
+        .args(["jobs", "wait", job_id])
+        .timeout(std::time::Duration::from_secs(60))
+        .assert()
+        .success();
+    let result: serde_json::Value = serde_json::from_slice(&wait.get_output().stdout).unwrap();
+    assert_eq!(result["result"], "job done");
+    assert_eq!(result["is_error"], false);
+
+    let job_dir = home.path().join(".alva/jobs").join(job_id);
+    let stderr = std::fs::read_to_string(job_dir.join("stderr.log")).unwrap();
+    assert!(stderr.contains("does NOT restrict file reads"), "{stderr}");
+    assert!(job_dir.join("tools.jsonl").is_file());
+}
+
 #[test]
 fn dead_worker_without_result_remains_crashed() {
     let (home, ws) = dirs();

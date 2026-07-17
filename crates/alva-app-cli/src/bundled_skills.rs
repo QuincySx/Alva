@@ -98,11 +98,11 @@ pub(crate) async fn wasm_environment_skill_injection() -> Result<String, String>
 /// AND contains every bundled file, returns the path without rewriting.
 pub fn ensure_extracted() -> std::io::Result<PathBuf> {
     let dest = bundled_skills_cache_dir();
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)?;
-    }
     if dest.exists() && is_complete(&dest) {
         return Ok(dest);
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
     }
     fs::create_dir_all(&dest)?;
     BUNDLED_SKILLS.extract(&dest)?;

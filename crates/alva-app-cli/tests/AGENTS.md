@@ -1,5 +1,5 @@
 # alva-app-cli/tests
-> 真实 `alva` binary 的 headless/subcommand/wasm-tier golden 契约。
+> 真实 `alva` binary 的 headless/subcommand/wasm-tier/macOS os-tier golden 契约。
 
 ## 地位
 
@@ -7,13 +7,14 @@
 
 ## 逻辑
 
-各 golden 文件按用户入口分组；wasm suite 另启动 recording provider 并检查宿主 HTTP 与 guest 文件结果。
+各 golden 文件按用户入口分组；wasm suite 另启动 recording provider 并检查宿主 HTTP 与 guest 文件结果；macOS os suite 在无限制宿主验证完整 worker 改文件并由 Seatbelt 子进程运行 cargo。
 
 ## 约束
 
 - secret 断言必须覆盖 stdout、stderr、preopen 文件与 worker module bytes。
 - 真 provider 测试必须 ignore/env-gated，不得进入默认 CI。
 - worker artifact 名必须保留 `alva-worker-wasm.wasm` 连字符。
+- os suite 不得 ignore；托管嵌套沙箱不能运行时应报告 `sandbox_apply` 阻断，由无限制 macOS 环境补跑。
 
 ## 业务域清单
 
@@ -21,5 +22,6 @@
 |------|-------------|------|
 | Print golden | `print_mode_golden.rs` | 普通 `-p` contract。 |
 | WASI golden | `wasm_sandbox_golden.rs` | wasm 文件/域名 flags、recording HTTP、JSON/file E2E、真 provider smoke。 |
+| macOS OS golden | `os_sandbox_golden.rs` | `--sandbox os` 完整 native worker 修改文件并运行 `cargo test --offline`。 |
 | Jobs golden | `jobs_golden.rs` | daemonless lifecycle、wasm 旗标透传、timeout/crash 与宿主 `tools.jsonl` contract。 |
 | 其他 golden | `*_golden.rs` | providers/tools/recursion contract。 |

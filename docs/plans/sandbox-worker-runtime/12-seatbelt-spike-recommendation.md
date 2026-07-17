@@ -506,8 +506,8 @@ rg -n 'SandboxLevel::|sandbox_level' crates/alva-protocol-acp crates --glob '*.r
 用户面应与 wasm 对齐：
 
 ```text
-alva -p --sandbox os --grant <DIR> [--grant <DIR> ...] ...
-alva jobs submit --sandbox os --grant <DIR> ... "PROMPT"
+alva -p --sandbox os-write --grant <DIR> [--grant <DIR> ...] ...
+alva jobs submit --sandbox os-write --grant <DIR> ... "PROMPT"
 ```
 
 具体建议：

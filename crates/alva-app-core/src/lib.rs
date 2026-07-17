@@ -1,3 +1,6 @@
+// INPUT:  kernel/agent capability crates, host-native, protocol crates, app-core modules
+// OUTPUT: BaseAgent facade plus re-exported kernel, security (including per-run sandbox enforcement), memory, and protocol APIs
+// POS:    App-layer crate root and public facade for the preset native harness.
 //! Alva App Core — BaseAgent + Plugin system.
 //!
 //! This crate provides the thin orchestration layer that composes extracted
@@ -25,8 +28,8 @@ pub use alva_agent_extension_builtin::skill_tool::SkillRegistryError;
 pub use alva_agent_extension_builtin::tool_presets;
 
 pub use alva_agent_security::{
-    AuthorizedRoots, PermissionDecision, PermissionManager, SandboxConfig, SandboxMode,
-    SecurityDecision, SecurityGuard, SensitivePathFilter,
+    AuthorizedRoots, PermissionDecision, PermissionManager, SandboxConfig, SandboxEnforcement,
+    SandboxMode, SecurityDecision, SecurityGuard, SensitivePathFilter,
 };
 
 pub use alva_agent_memory::{EmbeddingProvider, NoopEmbeddingProvider};

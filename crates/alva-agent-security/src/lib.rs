@@ -1,6 +1,6 @@
 // INPUT:  guard, permission, sensitive_paths, authorized_roots, sandbox, rules, cache, modes, classifier, middleware, pending_actions
 // OUTPUT: SecurityGuard, SecurityDecision, PermissionManager, PermissionDecision, SensitivePathFilter,
-//         AuthorizedRoots, SandboxConfig, SandboxMode, PermissionRules, RuleDecision, PermissionRule,
+//         AuthorizedRoots, SandboxConfig, SandboxEnforcement, SandboxMode, PermissionRules, RuleDecision, PermissionRule,
 //         PermissionCache, CachedDecision, PermissionMode, BashClassifier, CommandClassification,
 //         SecurityMiddleware, ApprovalNotifier, ApprovalRequest, PlanModeMiddleware, PlanModeControl,
 //         PendingAction, ResolveStatus, pending_actions, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED
@@ -36,5 +36,5 @@ pub use pending_actions::{
 };
 pub use permission::{PermissionDecision, PermissionManager};
 pub use rules::{PermissionRule, PermissionRules, RuleDecision};
-pub use sandbox::{SandboxConfig, SandboxMode};
+pub use sandbox::{SandboxConfig, SandboxEnforcement, SandboxMode};
 pub use sensitive_paths::SensitivePathFilter;

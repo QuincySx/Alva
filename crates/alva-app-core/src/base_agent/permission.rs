@@ -34,8 +34,9 @@ impl PermissionMode {
     /// skip permissions; assumes a sandbox") both auto-run commands that would
     /// otherwise need approval, and only do so safely *because* a sandbox is
     /// supposed to contain them. Callers should refuse / re-confirm these modes
-    /// when [`SandboxConfig::is_enforced`](alva_agent_security::SandboxConfig::is_enforced)
-    /// reports no enforcement on the current platform.
+    /// when the current invocation's
+    /// [`SandboxConfig::is_enforced`](alva_agent_security::SandboxConfig::is_enforced)
+    /// reports no enforcement.
     pub fn assumes_sandbox(self) -> bool {
         matches!(self, PermissionMode::AcceptShell | PermissionMode::Bypass)
     }

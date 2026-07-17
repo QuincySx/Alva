@@ -231,7 +231,7 @@ fn unknown_sandbox_tier_fails_before_provider_setup() {
         ])
         .assert()
         .code(1)
-        .stderr(predicates::str::contains("legal values: wasm"));
+        .stderr(predicates::str::contains("legal values: wasm|os"));
 }
 
 #[test]

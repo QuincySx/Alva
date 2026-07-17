@@ -1,4 +1,4 @@
-// INPUT:  alva_app_core::config::alva_home_dir, job_log host sink constants, std::process (detached spawn)
+// INPUT:  alva_app_core::config::alva_home_dir, job_log/os_sandbox support-path constants, std::process (detached spawn)
 // OUTPUT: pub async fn run — `alva jobs <submit|wait|status|result|list>`
 // POS:    Daemonless async jobs: detached print-mode workers plus filesystem/PID state and host-owned tool JSONL audit logs.
 
@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::job_log::{JOB_TOOLS_LOG_ENV, JOB_TOOLS_LOG_FILE};
+use crate::os_sandbox::OS_SANDBOX_WRITE_FILES_ENV;
 
 fn jobs_root() -> Result<PathBuf, String> {
     alva_app_core::config::alva_home_dir()
@@ -102,10 +103,12 @@ fn submit(rest: &[String]) -> Result<i32, String> {
     let dir = jobs_root()?.join(&job_id);
     std::fs::create_dir_all(&dir).map_err(|e| format!("create job dir: {e}"))?;
 
-    let result_file = std::fs::File::create(dir.join("result.json"))
-        .map_err(|e| format!("create result file: {e}"))?;
-    let stderr_file = std::fs::File::create(dir.join("stderr.log"))
-        .map_err(|e| format!("create stderr log: {e}"))?;
+    let result_path = dir.join("result.json");
+    let stderr_path = dir.join("stderr.log");
+    let result_file =
+        std::fs::File::create(&result_path).map_err(|e| format!("create result file: {e}"))?;
+    let stderr_file =
+        std::fs::File::create(&stderr_path).map_err(|e| format!("create stderr log: {e}"))?;
     let tools_log_path = dir.join(JOB_TOOLS_LOG_FILE);
     std::fs::File::create(&tools_log_path).map_err(|e| format!("create tool log: {e}"))?;
 
@@ -120,6 +123,11 @@ fn submit(rest: &[String]) -> Result<i32, String> {
         // The child is the host in both native and wasm tiers. WASI args,
         // env, and preopens never receive this path.
         .env(JOB_TOOLS_LOG_ENV, &tools_log_path)
+        .env(
+            OS_SANDBOX_WRITE_FILES_ENV,
+            serde_json::to_string(&[&result_path, &stderr_path, &tools_log_path])
+                .expect("job support paths serialize"),
+        )
         .stdin(std::process::Stdio::null())
         .stdout(result_file)
         .stderr(stderr_file);

@@ -1,6 +1,6 @@
-// INPUT:  process argv/env/stdin, provider config, app-core agent assembly, wasm_sandbox, CLI subcommands/UI
+// INPUT:  process argv/env/stdin, provider config, app-core agent assembly, os_sandbox, wasm_sandbox, CLI subcommands/UI
 // OUTPUT: alva binary entry point and headless/interactive exit codes/stdout/stderr contracts
-// POS:    Top-level CLI dispatcher, including early wasm-tier validation and host-provider execution.
+// POS:    Top-level CLI dispatcher, including early OS/WASIp1 sandbox validation and worker execution.
 
 //! alva-cli — Minimal CLI agent with session management.
 //!
@@ -28,6 +28,7 @@ mod context;
 mod event_handler;
 mod job_log;
 mod jobs_cmd;
+mod os_sandbox;
 mod output;
 mod plugins;
 mod providers_cmd;
@@ -100,7 +101,7 @@ async fn run() -> i32 {
         _ => {}
     }
 
-    let wasm_config = match parse_wasm_sandbox_args(&argv) {
+    let sandbox_config = match parse_sandbox_args(&argv) {
         Ok(config) => config,
         Err(error) => {
             eprintln!("Error: {error}");
@@ -108,9 +109,28 @@ async fn run() -> i32 {
         }
     };
     let print_mode = argv.iter().any(|a| a == "-p" || a == "--print");
-    if wasm_config.is_some() && !print_mode {
-        eprintln!("Error: --sandbox wasm is currently supported only with -p/--print");
+    if sandbox_config.is_some() && !print_mode {
+        eprintln!("Error: --sandbox is currently supported only with -p/--print");
         return 1;
+    }
+
+    let mut invocation_sandbox = alva_app_core::SandboxConfig::default();
+    if let Some(SandboxTierConfig::Os { grants }) = &sandbox_config {
+        match os_sandbox::enter_or_continue(&argv, grants) {
+            Ok(os_sandbox::EnterOutcome::ChildExited(code)) => return code,
+            Ok(os_sandbox::EnterOutcome::Continue(config)) => {
+                invocation_sandbox = config;
+                eprintln!(
+                    "WARNING: --sandbox os-write confines file writes to grants and required support \
+                     paths, but does NOT restrict file reads; the worker can read secrets \
+                     outside grants."
+                );
+            }
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return 1;
+            }
+        }
     }
 
     // Cross-process recursion gate — the sibling of the in-process
@@ -258,7 +278,11 @@ async fn run() -> i32 {
         std::env::remove_var(var);
     }
 
-    if let Some(wasm_config) = wasm_config {
+    if let Some(SandboxTierConfig::Wasm {
+        grants,
+        allowed_domains,
+    }) = sandbox_config
+    {
         let permission_mode = match parse_permission_mode(&argv) {
             Ok(mode) => mode.unwrap_or_default(),
             Err(error) => {
@@ -277,8 +301,8 @@ async fn run() -> i32 {
         let started = std::time::Instant::now();
         let result = wasm_sandbox::run(
             model,
-            wasm_config.grants,
-            wasm_config.allowed_domains,
+            grants,
+            allowed_domains,
             permission_mode,
             invocation.prompt,
         )
@@ -342,6 +366,18 @@ async fn run() -> i32 {
     )
     .await;
 
+    // An OS-tier worker has no unsandboxed host executor: its normal shell
+    // already runs inside Seatbelt. Keeping request_escalation would falsely
+    // promise an escape boundary, so that tool is absent in this tier.
+    if invocation_sandbox.is_enforced() {
+        let retained = agent
+            .tool_names()
+            .into_iter()
+            .filter(|name| name != "request_escalation")
+            .collect::<Vec<_>>();
+        agent.retain_tools(&retained).await;
+    }
+
     // 2b. Apply --permission-mode (headless permission control; mirrors
     //     Claude Code / Codex). Applies to all run modes. Default is left
     //     untouched (Ask) when the flag is absent.
@@ -358,7 +394,7 @@ async fn run() -> i32 {
             // assumption is false, so refuse in headless mode and require an
             // explicit confirmation interactively rather than silently running
             // unsandboxed commands with elevated permissions.
-            if mode.assumes_sandbox() && !alva_app_core::SandboxConfig::is_enforced() {
+            if mode.assumes_sandbox() && !invocation_sandbox.is_enforced() {
                 // Explicit escape hatch (headless orchestration on Linux
                 // servers / CI where the environment itself is the
                 // isolation): the DEFAULT stays refuse; only a flag scary
@@ -428,6 +464,8 @@ async fn run() -> i32 {
                 || a == "--system-prompt"
                 || a == "--provider"
                 || a == "--max-turns"
+                || a == "--sandbox"
+                || a == "--grant"
             {
                 i += 2; // skip the flag and its value (all consumed pre-build)
                 continue;
@@ -674,15 +712,20 @@ async fn run() -> i32 {
     0
 }
 
-/// Parse and validate the wasm tier before provider setup so malformed
+/// Parse and validate sandbox tiers before provider setup so malformed
 /// isolation flags fail loudly even on an unconfigured machine.
 #[derive(Debug, PartialEq, Eq)]
-struct WasmSandboxConfig {
-    grants: Vec<std::path::PathBuf>,
-    allowed_domains: Vec<String>,
+enum SandboxTierConfig {
+    Wasm {
+        grants: Vec<std::path::PathBuf>,
+        allowed_domains: Vec<String>,
+    },
+    Os {
+        grants: Vec<std::path::PathBuf>,
+    },
 }
 
-fn parse_wasm_sandbox_args(args: &[String]) -> Result<Option<WasmSandboxConfig>, String> {
+fn parse_sandbox_args(args: &[String]) -> Result<Option<SandboxTierConfig>, String> {
     let mut sandbox = None;
     let mut grants = Vec::new();
     let mut allowed_domains = Vec::new();
@@ -690,14 +733,14 @@ fn parse_wasm_sandbox_args(args: &[String]) -> Result<Option<WasmSandboxConfig>,
     while index < args.len() {
         match args[index].as_str() {
             "--sandbox" => {
-                let tier = args
-                    .get(index + 1)
-                    .ok_or_else(|| "--sandbox expects a tier; legal values: wasm".to_string())?;
+                let tier = args.get(index + 1).ok_or_else(|| {
+                    "--sandbox expects a tier; legal values: wasm|os-write".to_string()
+                })?;
                 match tier.as_str() {
-                    "wasm" => sandbox = Some(()),
+                    "wasm" | "os-write" => sandbox = Some(tier.clone()),
                     other => {
                         return Err(format!(
-                            "unknown --sandbox tier {other:?}; legal values: wasm"
+                            "unknown --sandbox tier {other:?}; legal values: wasm|os-write"
                         ))
                     }
                 }
@@ -741,15 +784,25 @@ fn parse_wasm_sandbox_args(args: &[String]) -> Result<Option<WasmSandboxConfig>,
         }
     }
 
-    match (sandbox, grants.is_empty(), allowed_domains.is_empty()) {
-        (Some(()), true, _) => {
-            Err("--sandbox wasm requires at least one --grant <dir>".to_string())
-        }
-        (Some(()), false, _) => Ok(Some(WasmSandboxConfig {
+    match (
+        sandbox.as_deref(),
+        grants.is_empty(),
+        allowed_domains.is_empty(),
+    ) {
+        (Some(tier), true, _) => Err(format!(
+            "--sandbox {tier} requires at least one --grant <dir>"
+        )),
+        (Some("wasm"), false, _) => Ok(Some(SandboxTierConfig::Wasm {
             grants,
             allowed_domains,
         })),
-        (None, false, _) => Err("--grant requires --sandbox wasm".to_string()),
+        (Some("os-write"), false, true) => Ok(Some(SandboxTierConfig::Os { grants })),
+        (Some("os-write"), false, false) => Err(
+            "--allow-domain is not supported with --sandbox os-write; OS-tier networking is unrestricted"
+                .to_string(),
+        ),
+        (Some(_), _, _) => unreachable!("sandbox tier validated above"),
+        (None, false, _) => Err("--grant requires --sandbox wasm|os".to_string()),
         (None, true, false) => Err("--allow-domain requires --sandbox wasm".to_string()),
         (None, true, true) => Ok(None),
     }
@@ -853,10 +906,12 @@ FLAGS:
                                   (see `alva providers list`); overrides the
                                   active profile. ALVA_* env vars still override
                                   individual fields on top.
-    --sandbox <wasm>              -p: run the agent loop inside the WASIp1 worker.
-                                  Currently `wasm` is the only legal tier. Host
-                                  escalation obeys --permission-mode.
-    --grant <DIR>                 -p --sandbox wasm: grant one existing directory
+    --sandbox <wasm|os>           -p: select the worker sandbox. `wasm` exposes
+                                  only granted paths and proxies escalation to
+                                  the host. macOS `os` confines WRITES to grants
+                                  but DOES NOT confine reads; it can read host
+                                  secrets, and networking is unrestricted.
+    --grant <DIR>                 -p --sandbox wasm|os: grant one existing directory
                                   read/write access. Repeat for additional dirs;
                                   at least one grant is required. Wasm runs are
                                   one-shot (`session_id: null`; no --resume).
@@ -897,6 +952,7 @@ EXAMPLES:
     alva -p \"summarize README.md\"
     alva -p --permission-mode accept-shell \"run the test suite and report failures\"
     alva -p --sandbox wasm --grant . --permission-mode accept-shell \"fix and test\"
+    alva -p --sandbox os-write --grant . --permission-mode accept-shell \"fix and test\"
     alva -p --permission-mode bypass \"format the repo\"        # CI / sandbox only
 "
     .to_string()
@@ -1075,13 +1131,18 @@ mod tests {
         assert!(u.contains("accept-shell"), "lists the modes: {u}");
         assert!(u.contains("bypass"), "lists bypass: {u}");
         assert!(u.contains("--allow-domain"), "lists wasm fetch grant: {u}");
+        assert!(u.contains("wasm|os"), "lists both sandbox tiers: {u}");
+        assert!(
+            u.contains("DOES NOT confine reads"),
+            "states OS read boundary: {u}"
+        );
     }
 
     #[test]
     fn wasm_domain_flags_are_repeatable_and_default_to_deny_all() {
         let grant = tempfile::tempdir().unwrap();
         let grant = grant.path().to_str().unwrap();
-        let config = parse_wasm_sandbox_args(&argv(&[
+        let config = parse_sandbox_args(&argv(&[
             "alva",
             "-p",
             "--sandbox",
@@ -1091,9 +1152,15 @@ mod tests {
         ]))
         .unwrap()
         .unwrap();
-        assert!(config.allowed_domains.is_empty());
+        let SandboxTierConfig::Wasm {
+            allowed_domains, ..
+        } = config
+        else {
+            panic!("expected wasm config")
+        };
+        assert!(allowed_domains.is_empty());
 
-        let config = parse_wasm_sandbox_args(&argv(&[
+        let config = parse_sandbox_args(&argv(&[
             "alva",
             "-p",
             "--sandbox",
@@ -1107,19 +1174,60 @@ mod tests {
         ]))
         .unwrap()
         .unwrap();
-        assert_eq!(config.allowed_domains, ["example.com", "*.api.example.com"]);
+        let SandboxTierConfig::Wasm {
+            allowed_domains, ..
+        } = config
+        else {
+            panic!("expected wasm config")
+        };
+        assert_eq!(allowed_domains, ["example.com", "*.api.example.com"]);
     }
 
     #[test]
     fn wasm_domain_flag_rejects_invalid_patterns_and_requires_wasm() {
         assert!(
-            parse_wasm_sandbox_args(&argv(&["alva", "--allow-domain", "example.com:443"]))
+            parse_sandbox_args(&argv(&["alva", "--allow-domain", "example.com:443"]))
                 .unwrap_err()
                 .contains("invalid --allow-domain")
         );
         assert_eq!(
-            parse_wasm_sandbox_args(&argv(&["alva", "--allow-domain", "example.com"])).unwrap_err(),
+            parse_sandbox_args(&argv(&["alva", "--allow-domain", "example.com"])).unwrap_err(),
             "--allow-domain requires --sandbox wasm"
+        );
+    }
+
+    #[test]
+    fn os_tier_canonicalizes_grants_and_rejects_domain_allowlists() {
+        let grant = tempfile::tempdir().unwrap();
+        let config = parse_sandbox_args(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "os-write",
+            "--grant",
+            grant.path().to_str().unwrap(),
+        ]))
+        .unwrap()
+        .unwrap();
+        let SandboxTierConfig::Os { grants } = config else {
+            panic!("expected OS config")
+        };
+        assert_eq!(grants, [grant.path().canonicalize().unwrap()]);
+
+        let error = parse_sandbox_args(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "os-write",
+            "--grant",
+            grant.path().to_str().unwrap(),
+            "--allow-domain",
+            "example.com",
+        ]))
+        .unwrap_err();
+        assert!(
+            error.contains("OS-tier networking is unrestricted"),
+            "{error}"
         );
     }
 
