@@ -66,6 +66,12 @@ jobs:
         with:
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
+      # The CLI's wasm-tier tests locate the guest the way a user's install
+      # does — via the sidecar search path — rather than building it. A dev
+      # machine always has the artifact lying around from earlier work, so the
+      # gap only shows up on a cold checkout. Build it first.
+      - name: build the wasm worker guest (sidecar the CLI tests discover)
+        run: cargo build -p alva-worker-wasm --target wasm32-wasip1
       - name: cargo test (workspace, minus tauri)
         run: cargo test --workspace --exclude alva-app-tauri
 
