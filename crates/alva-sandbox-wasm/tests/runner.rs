@@ -652,6 +652,18 @@ fn redirect_to_unlisted_domain_is_blocked_before_second_hop() {
     assert!(text.contains("not in the job domain allowlist"), "{text}");
 }
 
+/// How long the one-shot fetch server waits for the guest to connect.
+///
+/// This is a watchdog, not a latency assertion. Everything between starting the
+/// server and the guest's fetch sits inside it: wasmtime compiling a
+/// QuickJS-carrying 22MB module, then two agent turns, then QuickJS booting.
+/// That is ~55s on this dev machine and roughly 5x that on a 2-core CI runner —
+/// the suite takes 105s locally against 525s there — so the previous 120s
+/// expired mid-compile and surfaced as "timed out waiting for guest fetch
+/// request", which reads like a policy bug rather than an impatient harness.
+/// Sized off that measured ratio with room to spare; a healthy run never waits.
+const FETCH_SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Serves exactly one response on a loopback port, for tests that need the
 /// guest's fetch to reach a real socket.
 ///
@@ -678,7 +690,7 @@ fn start_one_response_server(
         .expect("make local fetch server nonblocking");
     let url = format!("http://{}/data", listener.local_addr().unwrap());
     let server = std::thread::spawn(move || {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let deadline = std::time::Instant::now() + FETCH_SERVER_DEADLINE;
         let mut stream = loop {
             match listener.accept() {
                 Ok((stream, _)) => break stream,
