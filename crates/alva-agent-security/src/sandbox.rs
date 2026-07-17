@@ -1,6 +1,6 @@
-// INPUT:  std::{ffi, fs, io, path}
+// INPUT:  std::{ffi, fs, io, path}, macOS Seatbelt, Linux Landlock
 // OUTPUT: SandboxMode, SandboxEnforcement, SandboxConfig
-// POS:    Models per-invocation sandbox enforcement and builds canonical-path macOS Seatbelt worker commands.
+// POS:    Models per-invocation enforcement for macOS Seatbelt and Linux Landlock OS workers.
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,6 +29,9 @@ pub enum SandboxEnforcement {
     /// remain unrestricted because the only cargo-compatible profile found by
     /// Ticket 12 requires `(allow file-read*)`.
     MacOsSeatbeltWriteConfinement,
+    /// Linux Landlock denies filesystem reads and writes except for explicit
+    /// grants and the runtime support paths required to execute the worker.
+    LinuxLandlockConfinement,
 }
 
 /// Per-invocation sandbox configuration.
@@ -74,12 +77,14 @@ impl SandboxConfig {
     /// Whether confinement is active for this invocation.
     ///
     /// This is an instance property, not a platform constant: ordinary macOS
-    /// runs return false, while the child reached through `--sandbox os-write`
-    /// carries `MacOsSeatbeltWriteConfinement` and returns true.
+    /// runs return false, while a child that successfully entered Seatbelt or
+    /// Landlock through `--sandbox os-write` carries a concrete enforcement
+    /// variant and returns true.
     pub const fn is_enforced(&self) -> bool {
         matches!(
             self.enforcement,
             SandboxEnforcement::MacOsSeatbeltWriteConfinement
+                | SandboxEnforcement::LinuxLandlockConfinement
         )
     }
 
@@ -232,11 +237,160 @@ impl SandboxConfig {
         argv
     }
 
+    /// Apply a Linux Landlock ABI v1 filesystem ruleset to the current thread.
+    ///
+    /// This must run before any worker threads are created: Landlock is
+    /// inherited by future threads and child processes, but it does not
+    /// retroactively restrict sibling threads. The returned configuration is
+    /// marked enforced only after the kernel reports `FullyEnforced` and
+    /// `PR_SET_NO_NEW_PRIVS` succeeded.
+    #[cfg(target_os = "linux")]
+    pub fn enter_linux_landlock_worker(
+        read_write_dirs: impl IntoIterator<Item = PathBuf>,
+        read_only_dirs: impl IntoIterator<Item = PathBuf>,
+        read_write_files: impl IntoIterator<Item = PathBuf>,
+        read_only_files: impl IntoIterator<Item = PathBuf>,
+    ) -> io::Result<Self> {
+        use landlock::{
+            Access as _, AccessFs, CompatLevel, Compatible as _, PathBeneath, PathFd, Ruleset,
+            RulesetAttr as _, RulesetCreatedAttr as _, ABI,
+        };
+
+        let read_write_dirs = canonical_paths(read_write_dirs, PathKind::Directory)?;
+        let read_only_dirs = canonical_paths(read_only_dirs, PathKind::Directory)?;
+        let read_write_files = canonical_paths(read_write_files, PathKind::File)?;
+        let read_only_files = canonical_paths(read_only_files, PathKind::File)?;
+
+        let abi = ABI::V1;
+        let all_access = AccessFs::from_all(abi);
+        let read_access = AccessFs::from_read(abi);
+        let file_access = AccessFs::from_file(abi);
+        let read_file_access = read_access & file_access;
+
+        let mut ruleset = Ruleset::default()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .handle_access(all_access)
+            .map_err(landlock_error(
+                "negotiate Landlock ABI v1 filesystem access",
+            ))?
+            .create()
+            .map_err(landlock_error("create Landlock ruleset"))?;
+
+        for path in read_write_dirs {
+            ruleset = ruleset
+                .add_rule(PathBeneath::new(
+                    PathFd::new(&path).map_err(landlock_error("open Landlock read-write root"))?,
+                    all_access,
+                ))
+                .map_err(landlock_error("add Landlock read-write root"))?;
+        }
+        for path in read_only_dirs {
+            ruleset = ruleset
+                .add_rule(PathBeneath::new(
+                    PathFd::new(&path).map_err(landlock_error("open Landlock read-only root"))?,
+                    read_access,
+                ))
+                .map_err(landlock_error("add Landlock read-only root"))?;
+        }
+        for path in read_write_files {
+            ruleset = ruleset
+                .add_rule(PathBeneath::new(
+                    PathFd::new(&path).map_err(landlock_error("open Landlock writable file"))?,
+                    file_access,
+                ))
+                .map_err(landlock_error("add Landlock writable file"))?;
+        }
+        for path in read_only_files {
+            ruleset = ruleset
+                .add_rule(PathBeneath::new(
+                    PathFd::new(&path).map_err(landlock_error("open Landlock readable file"))?,
+                    read_file_access,
+                ))
+                .map_err(landlock_error("add Landlock readable file"))?;
+        }
+
+        let status = ruleset
+            .restrict_self()
+            .map_err(landlock_error("restrict Linux worker with Landlock"))?;
+        ensure_linux_landlock_enforced(status.ruleset, status.no_new_privs)?;
+
+        Ok(Self {
+            mode: SandboxMode::RestrictiveOpen,
+            enforcement: SandboxEnforcement::LinuxLandlockConfinement,
+            writable_dirs: Vec::new(),
+            writable_files: Vec::new(),
+            // Ticket 14 only negotiates filesystem ABI v1. Network access is
+            // intentionally unrestricted, matching the shared OS-tier CLI.
+            allow_network: true,
+        })
+    }
+
     /// Legacy guard constructor. It does not launch a process and therefore
     /// must remain unenforced on every platform.
     pub fn for_workspace(_workspace: &Path, mode: SandboxMode) -> Self {
         Self::new(mode)
     }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+enum PathKind {
+    Directory,
+    File,
+}
+
+#[cfg(target_os = "linux")]
+fn canonical_paths(
+    paths: impl IntoIterator<Item = PathBuf>,
+    kind: PathKind,
+) -> io::Result<Vec<PathBuf>> {
+    let mut canonical = paths
+        .into_iter()
+        .map(|path| {
+            let resolved = std::fs::canonicalize(&path)?;
+            let valid = match kind {
+                PathKind::Directory => resolved.is_dir(),
+                PathKind::File => !resolved.is_dir(),
+            };
+            if valid {
+                Ok(resolved)
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("invalid Landlock support path: {}", path.display()),
+                ))
+            }
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    canonical.sort();
+    canonical.dedup();
+    Ok(canonical)
+}
+
+#[cfg(target_os = "linux")]
+fn landlock_error<E>(context: &'static str) -> impl FnOnce(E) -> io::Error
+where
+    E: std::fmt::Display,
+{
+    move |error| {
+        io::Error::other(format!(
+        "{context}: {error}. --sandbox os-write requires Linux 5.13+ with Landlock ABI v1 enabled"
+    ))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_linux_landlock_enforced(
+    ruleset: landlock::RulesetStatus,
+    no_new_privs: bool,
+) -> io::Result<()> {
+    if ruleset != landlock::RulesetStatus::FullyEnforced || !no_new_privs {
+        return Err(io::Error::other(format!(
+            "Landlock did not fully enforce the worker (ruleset={ruleset:?}, no_new_privs={no_new_privs}); \
+             --sandbox os-write requires Linux 5.13+ with Landlock ABI v1 enabled"
+        )));
+    }
+    Ok(())
 }
 
 impl Default for SandboxConfig {
@@ -318,6 +472,103 @@ mod tests {
     #[test]
     fn restrictive_closed_denies_network() {
         assert!(!SandboxConfig::new(SandboxMode::RestrictiveClosed).allow_network);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_landlock_status_must_be_fully_enforced_with_no_new_privs() {
+        assert!(
+            ensure_linux_landlock_enforced(landlock::RulesetStatus::FullyEnforced, true).is_ok()
+        );
+        for (status, no_new_privs) in [
+            (landlock::RulesetStatus::PartiallyEnforced, true),
+            (landlock::RulesetStatus::NotEnforced, true),
+            (landlock::RulesetStatus::FullyEnforced, false),
+        ] {
+            let error = ensure_linux_landlock_enforced(status, no_new_privs).unwrap_err();
+            assert!(error.to_string().contains("requires Linux 5.13+"));
+        }
+    }
+
+    /// The child process is necessary because Landlock restriction is
+    /// irreversible. The parent test below invokes only this exact test in a
+    /// fresh process and supplies paths through environment variables.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_landlock_child_probe() {
+        let Some(grant) = std::env::var_os("ALVA_TEST_LANDLOCK_GRANT") else {
+            return;
+        };
+        let outside = PathBuf::from(std::env::var_os("ALVA_TEST_LANDLOCK_OUTSIDE").unwrap());
+        let grant = PathBuf::from(grant);
+        let executable = std::env::current_exe().unwrap();
+        let read_roots = ["/bin", "/usr", "/lib", "/lib64"]
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+
+        let config = SandboxConfig::enter_linux_landlock_worker(
+            [grant.clone()],
+            read_roots,
+            [],
+            [executable],
+        )
+        .expect("Linux CI must provide Landlock ABI v1");
+        assert!(config.is_enforced());
+        assert_eq!(
+            config.enforcement(),
+            SandboxEnforcement::LinuxLandlockConfinement
+        );
+
+        let inside = grant.join("inside.txt");
+        std::fs::write(&inside, "allowed").expect("write inside grant");
+        assert_eq!(std::fs::read_to_string(&inside).unwrap(), "allowed");
+
+        let read_error = std::fs::read_to_string(&outside).unwrap_err();
+        assert_eq!(read_error.kind(), io::ErrorKind::PermissionDenied);
+        let outside_write = outside.with_file_name("outside-write.txt");
+        let write_error = std::fs::write(&outside_write, "blocked").unwrap_err();
+        assert_eq!(write_error.kind(), io::ErrorKind::PermissionDenied);
+
+        let child_target = outside.with_file_name("child-write.txt");
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-c", "printf blocked > \"$ALVA_TEST_CHILD_TARGET\""])
+            .env("ALVA_TEST_CHILD_TARGET", &child_target)
+            .status()
+            .expect("spawn shell inside Landlock");
+        assert!(!status.success(), "child shell escaped Landlock");
+        assert!(!child_target.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_landlock_confines_reads_writes_and_child_processes() {
+        let root = tempfile::Builder::new()
+            .prefix("alva-landlock-")
+            .tempdir_in(std::env::current_dir().unwrap())
+            .unwrap();
+        let grant = root.path().join("grant");
+        let outside = root.path().join("outside.txt");
+        std::fs::create_dir(&grant).unwrap();
+        std::fs::write(&outside, "secret").unwrap();
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "sandbox::tests::linux_landlock_child_probe",
+                "--nocapture",
+            ])
+            .env("ALVA_TEST_LANDLOCK_GRANT", &grant)
+            .env("ALVA_TEST_LANDLOCK_OUTSIDE", &outside)
+            .output()
+            .expect("spawn isolated Landlock test child");
+        assert!(
+            output.status.success(),
+            "Landlock child failed:\nstdout={}\nstderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[cfg(target_os = "macos")]

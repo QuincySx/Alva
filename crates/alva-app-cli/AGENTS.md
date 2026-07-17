@@ -1,5 +1,5 @@
 # alva-app-cli
-> Native CLI harness：provider 配置、headless/interactive UX，以及可选 WASIp1 或 macOS Seatbelt 写圈禁派活入口。
+> Native CLI harness：provider 配置、headless/interactive UX，以及可选 WASIp1、macOS Seatbelt 或 Linux Landlock 派活入口。
 
 ## 地位
 
@@ -8,12 +8,12 @@
 ## 逻辑
 
 1. `main.rs` 解析 subcommand/flag，装配 provider 与普通 BaseAgent 路径。
-2. `-p --sandbox wasm|os` 在 provider 前验证并 canonicalize grant；wasm 只构造宿主 provider，os 则用参数化 Seatbelt profile 重启完整 native worker。
+2. `-p --sandbox wasm|os-write` 在 provider 前验证并 canonicalize grant；wasm 只构造宿主 provider，os 则重启完整 native worker，并由 macOS host 用参数化 Seatbelt 包裹或由 Linux child 在创建 runtime 前进入 Landlock。
 3. wasm host policy 先解析 bundled `wasm-env` 并以 Explicit 策略展开全文，再通过有界 context import 下发；blocking 线程执行 runner，域名白名单进入每次 `RunRequest`，LLM import callback 回到原 Tokio handle 调模型。
 4. wasm escalation handler 持有 PermissionMode + SecurityGuard：先按 grants 把 guest cwd 翻译成 canonical host cwd，再走 BashClassifier/HITL 决策；批准后复用 `NativeEscalationExecutor`，拒绝作为结果返回 guest。
 5. wasm 仅支持 headless `-p`，因此 Ask/AcceptEdits 产生的 HITL 请求固定 `RejectOnce` 并给 worker 明确原因；AcceptShell 自动放行 ReadOnly/Unknown、拒绝 Destructive，Bypass 跳过分类器但不跳过 cwd grant 翻译。
 6. jobs 子进程由宿主持有 `tools.jsonl` 路径：native middleware、wasm log import 与 host `escalation_request`/`escalation_result` 实时追加同一格式；job 目录不进入 guest args/env/preopen。
-7. os 档只圈禁写、不圈禁读且允许全网络；子进程继承 Seatbelt，运行时写拒绝探针成功后才开放依赖沙箱的权限模式，`request_escalation` 因不存在外部 host 边界而移除。
+7. os 档允许全网络；macOS 只圈禁写、不圈禁读，Linux 则把读写限制到 grant 与显式 runtime support paths。子进程继承 Seatbelt/Landlock，真实内核 enforcement 成功后才开放依赖沙箱的权限模式，`request_escalation` 因不存在外部 host 边界而移除。
 8. REPL 未知斜杠命令先查 skill registry：精确命中由 harness 加载正文，未命中保留原 unknown-command 错误；其余 TUI/session/jobs/providers/tools 子命令保持原路径。
 
 ## 约束
@@ -23,11 +23,11 @@
 - host escalation 的路径授权必须先于 PermissionMode 检查，且只能使用当前 `RunRequest.grants`；即使 Bypass 也不能接受 guest 提供的 host path。
 - worker 生产物按 sidecar 交付；开发期允许 target fallback 或 `ALVA_WORKER_WASM`。
 - bundled skill 仓库只在宿主解析，不得作为 grant/preopen 或宿主路径暴露给 worker。
-- os 档不得宣称限制读取；grant、真实 TMPDIR 与 job support file 必须 canonicalize，且不能仅凭 macOS/旗标把 invocation 标为 enforced。
+- macOS os 档不得宣称限制读取；Linux os 档必须如实列明额外只读 runtime roots。grant、真实 TMPDIR 与 job support file 必须 canonicalize，且不能仅凭平台/旗标把 invocation 标为 enforced。
 
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |
 |------|-------------|------|
-| CLI 源码 | `src/` | 主入口、agent 装配、UI/subcommand、wasm host policy 与 macOS os worker 重启。 |
-| golden 测试 | `tests/` | 真实二进制 argv/config/stdout/stderr、wasm E2E 与 macOS os 档完整 worker 契约；核心 wasm 升级测试在 `src/wasm_sandbox.rs` 内运行。 |
+| CLI 源码 | `src/` | 主入口、agent 装配、UI/subcommand、wasm host policy 与 macOS/Linux os worker 重启。 |
+| golden 测试 | `tests/` | 真实二进制 argv/config/stdout/stderr、wasm E2E 与 macOS/Linux os 档完整 worker 契约；核心 wasm 升级测试在 `src/wasm_sandbox.rs` 内运行。 |

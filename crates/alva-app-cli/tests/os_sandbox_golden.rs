@@ -1,7 +1,7 @@
 // INPUT:  real alva binary, local OpenAI-compatible SSE server, cargo/rustc, /private/tmp test workspace
-// OUTPUT: macOS OS-tier end-to-end coverage for file mutation plus sandbox-inherited cargo execution
-// POS:    Unrestricted-host golden proving `--sandbox os-write` runs the complete native worker under write confinement.
-#![cfg(target_os = "macos")]
+// OUTPUT: macOS/Linux OS-tier end-to-end coverage for file mutation plus sandbox-inherited cargo execution
+// POS:    OS-host golden proving `--sandbox os-write` runs the complete native worker under kernel confinement.
+#![cfg(any(target_os = "macos", target_os = "linux"))]
 
 use assert_cmd::Command;
 use std::io::{Read, Write};
@@ -76,9 +76,15 @@ fn drain_request(stream: &mut std::net::TcpStream) {
 /// not ignored: unrestricted macOS CI/maintainers must exercise it.
 #[test]
 fn os_tier_worker_edits_file_and_runs_cargo_test() {
+    #[cfg(target_os = "macos")]
     let workspace = tempfile::Builder::new()
         .prefix("alva-os-e2e-")
         .tempdir_in("/private/tmp")
+        .unwrap();
+    #[cfg(target_os = "linux")]
+    let workspace = tempfile::Builder::new()
+        .prefix("alva-os-e2e-")
+        .tempdir()
         .unwrap();
     std::fs::write(
         workspace.path().join("Cargo.toml"),
@@ -112,8 +118,19 @@ fn os_tier_worker_edits_file_and_runs_cargo_test() {
         .success()
         .stdout(predicates::str::contains(
             "OS sandbox edit and cargo test completed",
-        ))
-        .stderr(predicates::str::contains("does NOT restrict file reads"));
+        ));
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    #[cfg(target_os = "macos")]
+    assert!(stderr.contains("does NOT restrict file reads"), "{stderr}");
+    #[cfg(target_os = "linux")]
+    assert!(
+        stderr.contains("Landlock to confine reads and writes"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("--dangerously-allow-unsandboxed"),
+        "an enforced OS worker must pass the elevated permission gate: {stderr}"
+    );
     server.join().expect("provider completed");
 
     let source = std::fs::read_to_string(workspace.path().join("src/lib.rs")).unwrap();

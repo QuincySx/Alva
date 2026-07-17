@@ -1,6 +1,6 @@
 # alva-agent-security
 
-> Security subsystem: path filtering, authorized roots, HITL permission management, and canonical-path macOS Seatbelt write-confinement profiles.
+> Security subsystem: path filtering, authorized roots, HITL permission management, macOS Seatbelt profiles, and Linux Landlock entry.
 
 ---
 
@@ -13,4 +13,4 @@
 | PermissionManager | src/permission.rs | Session-level HITL permission manager with cached always-allow/deny decisions and async approval flow |
 | SensitivePathFilter | src/sensitive_paths.rs | Filters access to sensitive paths (secrets, certificates, private config) using dirs, extensions, filenames, and regex patterns |
 | AuthorizedRoots | src/authorized_roots.rs | Manages the set of authorized directories the agent can access, defaulting to workspace root |
-| SandboxConfig | src/sandbox.rs | Models per-invocation enforcement and builds parameterized macOS Seatbelt commands for complete workers; writes are confined while reads remain unrestricted |
+| SandboxConfig | src/sandbox.rs | Models per-invocation enforcement, builds macOS Seatbelt commands, and applies fail-closed Linux Landlock ABI v1 rules before worker threads exist |

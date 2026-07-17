@@ -52,6 +52,33 @@ use alva_llm_provider::ProviderConfig;
 use session::JsonFileSessionManager;
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    let early_linux_sandbox = if os_sandbox::linux_worker_is_active() {
+        let argv: Vec<String> = std::env::args().collect();
+        let grants = match parse_sandbox_args(&argv) {
+            Ok(Some(SandboxTierConfig::Os { grants })) => grants,
+            Ok(_) => {
+                eprintln!("Error: internal Linux OS sandbox worker is missing --sandbox os-write");
+                return;
+            }
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return;
+            }
+        };
+        match os_sandbox::enter_linux_worker_before_threads(&grants) {
+            Ok(config) => Some(config),
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "linux"))]
+    let early_linux_sandbox = None;
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -71,7 +98,7 @@ fn main() {
     // `std::process::exit()` inside run(), which bypassed all Drop
     // impls and caused loaded subprocess plugins to be reparented
     // instead of cleanly shut down.
-    let exit_code = rt.block_on(run());
+    let exit_code = rt.block_on(run(early_linux_sandbox));
 
     // Give in-flight tokio tasks a bounded window to finish (reader /
     // writer loops on subprocess stdio shutting down cleanly, etc.).
@@ -82,7 +109,7 @@ fn main() {
     }
 }
 
-async fn run() -> i32 {
+async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i32 {
     // Early dispatch: `alva plugins ...` and `alva context ...`
     // short-circuit before any agent setup — pure debugging commands
     // that need no LLM config or session init.
@@ -116,14 +143,24 @@ async fn run() -> i32 {
 
     let mut invocation_sandbox = alva_app_core::SandboxConfig::default();
     if let Some(SandboxTierConfig::Os { grants }) = &sandbox_config {
-        match os_sandbox::enter_or_continue(&argv, grants) {
+        let outcome = match early_linux_sandbox.take() {
+            Some(config) => Ok(os_sandbox::EnterOutcome::Continue(config)),
+            None => os_sandbox::enter_or_continue(&argv, grants),
+        };
+        match outcome {
             Ok(os_sandbox::EnterOutcome::ChildExited(code)) => return code,
             Ok(os_sandbox::EnterOutcome::Continue(config)) => {
                 invocation_sandbox = config;
+                #[cfg(target_os = "macos")]
                 eprintln!(
                     "WARNING: --sandbox os-write confines file writes to grants and required support \
                      paths, but does NOT restrict file reads; the worker can read secrets \
                      outside grants."
+                );
+                #[cfg(target_os = "linux")]
+                eprintln!(
+                    "INFO: --sandbox os-write uses Landlock to confine reads and writes to grants \
+                     plus explicit runtime support paths; networking remains unrestricted."
                 );
             }
             Err(error) => {
@@ -367,7 +404,7 @@ async fn run() -> i32 {
     .await;
 
     // An OS-tier worker has no unsandboxed host executor: its normal shell
-    // already runs inside Seatbelt. Keeping request_escalation would falsely
+    // already runs inside Seatbelt/Landlock. Keeping request_escalation would falsely
     // promise an escape boundary, so that tool is absent in this tier.
     if invocation_sandbox.is_enforced() {
         let retained = agent
@@ -390,7 +427,7 @@ async fn run() -> i32 {
         Ok(Some(mode)) => {
             // CLI#7: `accept-shell` / `bypass` auto-run commands on the
             // assumption that an OS sandbox will contain them. When no sandbox
-            // is actually enforced (today: any non-macOS platform) that
+            // is actually enforced (including ordinary Linux/macOS runs) that
             // assumption is false, so refuse in headless mode and require an
             // explicit confirmation interactively rather than silently running
             // unsandboxed commands with elevated permissions.
@@ -802,7 +839,7 @@ fn parse_sandbox_args(args: &[String]) -> Result<Option<SandboxTierConfig>, Stri
                 .to_string(),
         ),
         (Some(_), _, _) => unreachable!("sandbox tier validated above"),
-        (None, false, _) => Err("--grant requires --sandbox wasm|os".to_string()),
+        (None, false, _) => Err("--grant requires --sandbox wasm|os-write".to_string()),
         (None, true, false) => Err("--allow-domain requires --sandbox wasm".to_string()),
         (None, true, true) => Ok(None),
     }
@@ -906,12 +943,14 @@ FLAGS:
                                   (see `alva providers list`); overrides the
                                   active profile. ALVA_* env vars still override
                                   individual fields on top.
-    --sandbox <wasm|os>           -p: select the worker sandbox. `wasm` exposes
+    --sandbox <wasm|os-write>     -p: select the worker sandbox. `wasm` exposes
                                   only granted paths and proxies escalation to
-                                  the host. macOS `os` confines WRITES to grants
+                                  the host. macOS `os-write` confines WRITES to grants
                                   but DOES NOT confine reads; it can read host
-                                  secrets, and networking is unrestricted.
-    --grant <DIR>                 -p --sandbox wasm|os: grant one existing directory
+                                  secrets. Linux `os-write` confines both reads
+                                  and writes to grants plus runtime support paths.
+                                  OS-tier networking is unrestricted on both.
+    --grant <DIR>                 -p --sandbox wasm|os-write: grant one existing directory
                                   read/write access. Repeat for additional dirs;
                                   at least one grant is required. Wasm runs are
                                   one-shot (`session_id: null`; no --resume).
@@ -1131,10 +1170,14 @@ mod tests {
         assert!(u.contains("accept-shell"), "lists the modes: {u}");
         assert!(u.contains("bypass"), "lists bypass: {u}");
         assert!(u.contains("--allow-domain"), "lists wasm fetch grant: {u}");
-        assert!(u.contains("wasm|os"), "lists both sandbox tiers: {u}");
+        assert!(u.contains("wasm|os-write"), "lists both sandbox tiers: {u}");
         assert!(
             u.contains("DOES NOT confine reads"),
             "states OS read boundary: {u}"
+        );
+        assert!(
+            u.contains("Linux `os-write` confines both reads"),
+            "states stronger Linux read boundary: {u}"
         );
     }
 
