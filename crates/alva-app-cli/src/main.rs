@@ -58,7 +58,7 @@ fn main() {
         let grants = match parse_sandbox_args(&argv) {
             Ok(Some(SandboxTierConfig::Os { grants })) => grants,
             Ok(_) => {
-                eprintln!("Error: internal Linux OS sandbox worker is missing --sandbox os-write");
+                eprintln!("Error: internal Linux OS sandbox worker is missing --sandbox os-full");
                 return;
             }
             Err(error) => {
@@ -159,7 +159,7 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
                 );
                 #[cfg(target_os = "linux")]
                 eprintln!(
-                    "INFO: --sandbox os-write uses Landlock to confine reads and writes to grants \
+                    "INFO: --sandbox os-full uses Landlock to confine reads and writes to grants \
                      plus explicit runtime support paths; networking remains unrestricted."
                 );
             }
@@ -762,6 +762,26 @@ enum SandboxTierConfig {
     },
 }
 
+/// The OS tier's flag name is platform-specific because its strength is:
+/// macOS Seatbelt confines writes only (reads stay open), while Linux Landlock
+/// confines reads and writes. Naming them the same would tell a cross-platform
+/// user the isolation is the same when it is not, so each platform accepts only
+/// its own name and rejects the other's with a pointer to the right one.
+#[cfg(target_os = "macos")]
+const OS_TIER: &str = "os-write";
+#[cfg(target_os = "linux")]
+const OS_TIER: &str = "os-full";
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const OS_TIER: &str = "os-write";
+
+/// The OS-tier name that belongs to the *other* desktop platform, so a user who
+/// typed it gets told which flag this platform actually uses instead of a bare
+/// "unknown tier".
+#[cfg(target_os = "macos")]
+const OS_TIER_OTHER: &str = "os-full";
+#[cfg(not(target_os = "macos"))]
+const OS_TIER_OTHER: &str = "os-write";
+
 fn parse_sandbox_args(args: &[String]) -> Result<Option<SandboxTierConfig>, String> {
     let mut sandbox = None;
     let mut grants = Vec::new();
@@ -771,13 +791,20 @@ fn parse_sandbox_args(args: &[String]) -> Result<Option<SandboxTierConfig>, Stri
         match args[index].as_str() {
             "--sandbox" => {
                 let tier = args.get(index + 1).ok_or_else(|| {
-                    "--sandbox expects a tier; legal values: wasm|os-write".to_string()
+                    format!("--sandbox expects a tier; legal values: wasm|{OS_TIER}")
                 })?;
                 match tier.as_str() {
-                    "wasm" | "os-write" => sandbox = Some(tier.clone()),
+                    "wasm" => sandbox = Some(tier.clone()),
+                    t if t == OS_TIER => sandbox = Some(OS_TIER.to_string()),
+                    t if t == OS_TIER_OTHER => {
+                        return Err(format!(
+                            "--sandbox {OS_TIER_OTHER} is the name on the other platform; \
+                             this one uses --sandbox {OS_TIER}"
+                        ))
+                    }
                     other => {
                         return Err(format!(
-                            "unknown --sandbox tier {other:?}; legal values: wasm|os-write"
+                            "unknown --sandbox tier {other:?}; legal values: wasm|{OS_TIER}"
                         ))
                     }
                 }
@@ -833,13 +860,13 @@ fn parse_sandbox_args(args: &[String]) -> Result<Option<SandboxTierConfig>, Stri
             grants,
             allowed_domains,
         })),
-        (Some("os-write"), false, true) => Ok(Some(SandboxTierConfig::Os { grants })),
-        (Some("os-write"), false, false) => Err(
-            "--allow-domain is not supported with --sandbox os-write; OS-tier networking is unrestricted"
-                .to_string(),
-        ),
+        (Some(tier), false, true) if tier == OS_TIER => Ok(Some(SandboxTierConfig::Os { grants })),
+        (Some(tier), false, false) if tier == OS_TIER => Err(format!(
+            "--allow-domain is not supported with --sandbox {OS_TIER}; \
+             OS-tier networking is unrestricted"
+        )),
         (Some(_), _, _) => unreachable!("sandbox tier validated above"),
-        (None, false, _) => Err("--grant requires --sandbox wasm|os-write".to_string()),
+        (None, false, _) => Err(format!("--grant requires --sandbox wasm|{OS_TIER}")),
         (None, true, false) => Err("--allow-domain requires --sandbox wasm".to_string()),
         (None, true, true) => Ok(None),
     }
@@ -943,14 +970,16 @@ FLAGS:
                                   (see `alva providers list`); overrides the
                                   active profile. ALVA_* env vars still override
                                   individual fields on top.
-    --sandbox <wasm|os-write>     -p: select the worker sandbox. `wasm` exposes
+    --sandbox <wasm|os-*>         -p: select the worker sandbox. `wasm` exposes
                                   only granted paths and proxies escalation to
-                                  the host. macOS `os-write` confines WRITES to grants
-                                  but DOES NOT confine reads; it can read host
-                                  secrets. Linux `os-write` confines both reads
-                                  and writes to grants plus runtime support paths.
-                                  OS-tier networking is unrestricted on both.
-    --grant <DIR>                 -p --sandbox wasm|os-write: grant one existing directory
+                                  the host. The OS tier's name reflects its
+                                  strength: macOS `os-write` confines WRITES to
+                                  grants but DOES NOT confine reads, so it can
+                                  read host secrets; Linux `os-full` confines
+                                  both reads and writes to grants plus runtime
+                                  support paths. Each platform accepts only its
+                                  own name. OS-tier networking is unrestricted.
+    --grant <DIR>                 -p --sandbox wasm|os-*: grant one existing directory
                                   read/write access. Repeat for additional dirs;
                                   at least one grant is required. Wasm runs are
                                   one-shot (`session_id: null`; no --resume).
@@ -1170,13 +1199,17 @@ mod tests {
         assert!(u.contains("accept-shell"), "lists the modes: {u}");
         assert!(u.contains("bypass"), "lists bypass: {u}");
         assert!(u.contains("--allow-domain"), "lists wasm fetch grant: {u}");
-        assert!(u.contains("wasm|os-write"), "lists both sandbox tiers: {u}");
+        assert!(u.contains("wasm"), "lists the wasm tier: {u}");
+        assert!(
+            u.contains("os-write") && u.contains("os-full"),
+            "documents both OS-tier names and their differing strength: {u}"
+        );
         assert!(
             u.contains("DOES NOT confine reads"),
             "states OS read boundary: {u}"
         );
         assert!(
-            u.contains("Linux `os-write` confines both reads"),
+            u.contains("Linux `os-full` confines"),
             "states stronger Linux read boundary: {u}"
         );
     }
@@ -1246,7 +1279,7 @@ mod tests {
             "alva",
             "-p",
             "--sandbox",
-            "os-write",
+            super::OS_TIER,
             "--grant",
             grant.path().to_str().unwrap(),
         ]))
@@ -1261,7 +1294,7 @@ mod tests {
             "alva",
             "-p",
             "--sandbox",
-            "os-write",
+            super::OS_TIER,
             "--grant",
             grant.path().to_str().unwrap(),
             "--allow-domain",

@@ -1,7 +1,15 @@
 // INPUT:  real alva binary, local OpenAI-compatible SSE server, cargo/rustc, /private/tmp test workspace
 // OUTPUT: macOS/Linux OS-tier end-to-end coverage for file mutation plus sandbox-inherited cargo execution
-// POS:    OS-host golden proving `--sandbox os-write` runs the complete native worker under kernel confinement.
+// POS:    OS-host golden proving the OS tier runs the complete native worker under kernel confinement.
 #![cfg(any(target_os = "macos", target_os = "linux"))]
+
+// The OS tier's flag name encodes its strength and so differs per platform:
+// macOS confines writes only (os-write), Linux confines reads and writes
+// (os-full). See OS_TIER in the CLI.
+#[cfg(target_os = "macos")]
+const OS_TIER: &str = "os-write";
+#[cfg(target_os = "linux")]
+const OS_TIER: &str = "os-full";
 
 use assert_cmd::Command;
 use std::io::{Read, Write};
@@ -107,7 +115,7 @@ fn os_tier_worker_edits_file_and_runs_cargo_test() {
         .args([
             "-p",
             "--sandbox",
-            "os-write",
+            OS_TIER,
             "--grant",
             workspace.path().to_str().unwrap(),
             "--permission-mode",
