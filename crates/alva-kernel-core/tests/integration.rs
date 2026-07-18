@@ -1531,3 +1531,90 @@ async fn allowed_tools_hides_unselected_tools_from_the_model() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Cancellation interrupts a blocked LLM stream mid-flight
+// ---------------------------------------------------------------------------
+
+/// Streams one event so streaming is genuinely "in flight", then blocks
+/// forever on the next chunk — the hung/slow-provider case. `complete`
+/// also blocks, so the ONLY way `run_agent` can return promptly is the
+/// in-stream cancellation path; anything else means it hung.
+struct BlockingStreamModel;
+
+#[async_trait]
+impl LanguageModel for BlockingStreamModel {
+    async fn complete(
+        &self,
+        _: &[Message],
+        _: &[&dyn Tool],
+        _: &ModelConfig,
+    ) -> Result<CompletionResponse, AgentError> {
+        futures::future::pending::<()>().await;
+        unreachable!("blocking complete must never resolve")
+    }
+
+    fn stream(
+        &self,
+        _: &[Message],
+        _: &[&dyn Tool],
+        _: &ModelConfig,
+    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+        use futures::stream::StreamExt as _;
+        Box::pin(
+            futures::stream::once(async { StreamEvent::Start }).chain(futures::stream::pending()),
+        )
+    }
+
+    fn model_id(&self) -> &str {
+        "blocking"
+    }
+}
+
+#[tokio::test]
+async fn cancel_during_blocked_stream_aborts_mid_flight() {
+    let mut state = make_state_with_model(Arc::new(BlockingStreamModel));
+    let config = AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: vec![],
+        max_iterations: 100,
+        model_config: ModelConfig::default(),
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: None,
+        context_token_budget: None,
+    };
+    let cancel = CancellationToken::new();
+    let trigger = cancel.clone();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let run = tokio::spawn(async move {
+        run_agent(
+            &mut state,
+            &config,
+            cancel,
+            vec![AgentMessage::Standard(Message::user("hi"))],
+            tx,
+        )
+        .await
+    });
+
+    // Let the run reach the stream and block on the (never-arriving) 2nd chunk.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    trigger.cancel();
+
+    // With the mid-stream cancel check, run_agent unwinds in ~ms. Without it
+    // (old `while let Some(event) = stream.next().await`) the blocked stream
+    // hangs forever and this 5s guard is the only thing that trips — the
+    // mutation signal.
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), run)
+        .await
+        .expect("run_agent must return promptly after cancel, not hang on the blocked stream")
+        .expect("run task panicked");
+
+    assert!(
+        matches!(result, Err(AgentError::Cancelled)),
+        "expected AgentError::Cancelled, got: {result:?}"
+    );
+}

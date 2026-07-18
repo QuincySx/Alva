@@ -200,6 +200,12 @@ struct ActualLlmCall {
     model_config: ModelConfig,
     event_tx: mpsc::UnboundedSender<AgentEvent>,
     message_id: String,
+    /// Peer handle on the run's cancellation token. Consumed inside the
+    /// streaming loop so a cancel that arrives while we're blocked on the
+    /// next chunk tears the connection down mid-flight, instead of the
+    /// caller having to wait for the whole LLM response to finish before
+    /// the between-iterations check in `run_loop` can react.
+    cancel: CancellationToken,
 }
 
 #[async_trait]
@@ -215,7 +221,33 @@ impl LlmCallFn for ActualLlmCall {
         let mut accumulator = StreamMessageAccumulator::new();
         let mut event_count: u32 = 0;
 
-        while let Some(event) = stream.next().await {
+        // Peer handle for cancellation; `cancelled()` needs `&mut`.
+        let mut cancel = self.cancel.clone();
+        loop {
+            // Race the next chunk against cancellation so a cancel that lands
+            // while we're blocked on a slow/hung stream aborts the connection
+            // immediately, rather than being seen only after the stream ends.
+            // `select` is biased toward the stream, so a stream that is
+            // actively producing still drains normally; cancellation wins
+            // precisely when the stream is blocked waiting. On cancel we
+            // return, dropping `stream` and severing the underlying request.
+            let next_fut = stream.next();
+            let cancelled_fut = cancel.cancelled();
+            let event =
+                match futures_util::future::select(Box::pin(next_fut), Box::pin(cancelled_fut))
+                    .await
+                {
+                    futures_util::future::Either::Left((Some(event), _)) => event,
+                    futures_util::future::Either::Left((None, _)) => break,
+                    futures_util::future::Either::Right(((), _)) => {
+                        tracing::info!(
+                            model = %self.model.model_id(),
+                            stream_events = event_count,
+                            "LLM stream cancelled mid-flight; abandoning the connection"
+                        );
+                        return Err(AgentError::Cancelled);
+                    }
+                };
             event_count += 1;
             // Build a placeholder message for the MessageUpdate envelope.
             let agent_msg = AgentMessage::Standard(Message {
@@ -652,6 +684,7 @@ async fn run_loop(
             model_config: config.model_config.clone(),
             event_tx: event_tx.clone(),
             message_id,
+            cancel: cancel.clone(),
         };
         let mut response = match config
             .middleware

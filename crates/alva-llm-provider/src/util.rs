@@ -1,7 +1,39 @@
-// INPUT:  std::str
-// OUTPUT: pub(crate) fn truncate_for_log
-// POS:    Small UTF-8-safe slice helper used by every provider's
-//         tracing previews (request body / response body / SSE chunks).
+// INPUT:  std::str, std::time::Duration, reqwest
+// OUTPUT: pub(crate) fn truncate_for_log, pub(crate) fn http_client
+// POS:    Small shared helpers every provider uses: a UTF-8-safe slice for
+//         tracing previews, and the timeout-bearing HTTP client builder.
+
+use std::time::Duration;
+
+/// Time allowed to establish the TCP + TLS connection to a provider. A
+/// host we cannot reach at all fails here instead of hanging the turn.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Idle timeout *between* reads. reqwest resets this after every successful
+/// read, so it bounds silence on the socket, not total duration — a long,
+/// healthy streaming completion that keeps emitting tokens (or the
+/// provider's periodic SSE keep-alives) is never cut off, but a socket that
+/// goes quiet after the headers, or stalls mid-stream, is torn down instead
+/// of blocking the agent loop forever. Deliberately NOT a total request
+/// timeout, which would kill a legitimate slow-but-progressing stream.
+const READ_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Shared HTTP client for every provider. `Client::new()` installs NO
+/// timeouts of any kind, so a stalled connection or a hung SSE stream
+/// blocks the agent turn with no way out — the DoS/hang this guards
+/// against. Falls back to a bare client only if the TLS backend fails to
+/// initialize (not expected in practice).
+pub(crate) fn http_client() -> reqwest::Client {
+    client_with_timeouts(CONNECT_TIMEOUT, READ_TIMEOUT)
+}
+
+fn client_with_timeouts(connect: Duration, read: Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(connect)
+        .read_timeout(read)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
 
 /// UTF-8 safe slice for use in `tracing` macros' body/data/chunk
 /// preview fields. Naive `&s[..s.len().min(N)]` panics if byte N
@@ -100,5 +132,51 @@ mod tests {
     #[test]
     fn zero_max_bytes_returns_empty() {
         assert_eq!(truncate_for_log("anything", 0), "");
+    }
+}
+
+#[cfg(test)]
+mod http_client_tests {
+    use super::client_with_timeouts;
+    use std::time::Duration;
+    use tokio::io::AsyncReadExt;
+    use tokio::net::TcpListener;
+
+    /// Pins the reason `http_client()` sets a read timeout: a provider that
+    /// completes the TCP handshake, swallows the request, and then goes
+    /// silent forever must NOT hang the agent turn. A client built with
+    /// `Client::new()` (no timeouts) waits on such a socket indefinitely;
+    /// our client tears it down on the read timeout.
+    #[tokio::test]
+    async fn read_timeout_fires_on_a_server_that_accepts_then_stalls() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Accept the connection, read the request, then stall — holding the
+        // socket open (no close, no bytes) well past the client's timeout so
+        // the client cannot observe an EOF either.
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = sock.read(&mut buf).await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            drop(sock);
+        });
+
+        let client = client_with_timeouts(Duration::from_secs(5), Duration::from_millis(200));
+
+        // Outer guard: with the read timeout the client aborts itself in
+        // ~200ms. A client with no read timeout hangs here until this 5s
+        // guard trips — exactly the regression this test locks down, so the
+        // `.expect` below is the mutation signal.
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.get(format!("http://{addr}/")).send(),
+        )
+        .await
+        .expect("client must abort on its own read timeout, not hang past the 5s guard");
+
+        let err = result.expect_err("a stalled server must not yield a successful response");
+        assert!(err.is_timeout(), "expected a timeout error, got: {err:?}");
     }
 }

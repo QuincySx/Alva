@@ -50,7 +50,7 @@ impl OpenAIChatProvider {
             base_url: config.base_url,
             max_tokens: config.max_tokens,
             auth_headers,
-            client: Client::new(),
+            client: crate::util::http_client(),
         }
     }
 }
