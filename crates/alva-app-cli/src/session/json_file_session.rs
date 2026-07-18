@@ -162,6 +162,13 @@ impl AgentSession for JsonFileAgentSession {
         self.persist().await;
     }
 
+    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
+        // Non-destructive: keep the event log intact, then persist the
+        // rewritten projection + preserved log to the JSON file.
+        self.inner.compact_messages(replacement).await;
+        self.persist().await;
+    }
+
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.inner.query(filter).await
     }

@@ -422,6 +422,32 @@ pub trait AgentSession: Send + Sync {
     async fn close(&self) -> Result<(), SessionError>;
 
     async fn clear(&self) -> Result<(), SessionError>;
+
+    /// Replace the live conversation projection with `replacement` while
+    /// PRESERVING the append-only event log.
+    ///
+    /// This is what compaction uses instead of `clear()`. `clear()` wipes the
+    /// entire log — skeleton/causal events (run_start, llm_call_*, tool_use)
+    /// included — which destroys the Inspector view, eval replay, and audit
+    /// trail. `compact_messages` rewrites only the message projection the
+    /// agent loop re-reads each turn; the historical events stay.
+    ///
+    /// The caller appends a `compaction` marker event immediately BEFORE
+    /// calling this. That marker is the reconstruction reset point: a backend
+    /// that rebuilds its projection from the log (see
+    /// `InMemoryAgentSession::restore_events`) starts the message projection
+    /// fresh at the last `compaction` marker, so a reload reproduces exactly
+    /// `replacement` rather than the full pre-compaction history.
+    ///
+    /// The default implementation is the older destructive path (clear +
+    /// re-append) for backends that cannot separate projection from log; the
+    /// in-memory backends override it to keep the log intact.
+    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
+        let _ = self.clear().await;
+        for msg in replacement {
+            self.append_message(msg, None).await;
+        }
+    }
 }
 
 // ===========================================================================

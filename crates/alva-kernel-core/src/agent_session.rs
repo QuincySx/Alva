@@ -105,6 +105,16 @@ impl InMemoryAgentSession {
             if event.seq > max_seq {
                 max_seq = event.seq;
             }
+            // A `compaction` marker resets the message projection: everything
+            // accumulated before it was summarized and superseded by the
+            // messages that follow. The pre-marker events remain in the log
+            // (audit/causal history is preserved) but drop out of the live
+            // conversation view, so a reload reproduces the compacted set
+            // rather than the full pre-compaction history.
+            if event.event_type == "compaction" {
+                rebuilt_messages.clear();
+                continue;
+            }
             // Events originally written via `append_message` carry the
             // full AgentMessage in `data`. That's the authoritative source
             // for rebuilding the messages cache.
@@ -345,6 +355,17 @@ impl AgentSession for InMemoryAgentSession {
         self.seq_counter.store(1, Ordering::SeqCst);
         Ok(())
     }
+
+    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
+        // Reset ONLY the live message projection; the event log (skeleton +
+        // causal history) is left untouched. The `compaction` marker the
+        // caller appended just before this call delimits the projection on
+        // reload — see `restore_events`.
+        self.messages.write().await.clear();
+        for msg in replacement {
+            self.append_message(msg, None).await;
+        }
+    }
 }
 
 // ===========================================================================
@@ -504,6 +525,16 @@ impl AgentSession for ListenableInMemorySession {
 
     async fn clear(&self) -> Result<(), SessionError> {
         self.inner.clear().await
+    }
+
+    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
+        // Reset the inner projection, then re-append through `self` so the
+        // rebuilt messages are broadcast to listeners (inner.append_message
+        // would skip the broadcast). The event log is preserved.
+        self.inner.messages.write().await.clear();
+        for msg in replacement {
+            self.append_message(msg, None).await;
+        }
     }
 
     /// Override: return a stream that yields historical events with
@@ -955,6 +986,62 @@ mod tests {
         let new_event = log.last().unwrap();
         let max_restored = captured_events.iter().map(|e| e.seq).max().unwrap();
         assert!(new_event.seq > max_restored);
+    }
+
+    #[tokio::test]
+    async fn compact_messages_preserves_event_log_and_reload_reproduces_projection() {
+        let s = InMemoryAgentSession::new();
+
+        // A realistic run: skeleton events interleaved with conversation.
+        s.append(SessionEvent::new_runtime("run_start")).await;
+        s.append_message(user_msg("msg1"), None).await;
+        s.append_message(user_msg("reply1"), None).await;
+        s.append(SessionEvent::new_runtime("tool_use")).await;
+        s.append_message(user_msg("msg2"), None).await;
+
+        // Compact exactly as the middleware does: marker first, then rewrite
+        // ONLY the message projection.
+        s.append(SessionEvent::new_runtime("compaction")).await;
+        s.compact_messages(vec![user_msg("[summary]"), user_msg("msg2")])
+            .await;
+
+        // 1. The live projection shrank to the compacted set.
+        assert_eq!(
+            s.messages().await.len(),
+            2,
+            "compaction must shrink the live message projection"
+        );
+
+        // 2. The append-only event log still holds the pre-compaction skeleton
+        //    events — audit/causal history survived (this is the whole point;
+        //    `clear()` would have wiped them).
+        let all = s
+            .query(&EventQuery {
+                limit: 1000,
+                ..Default::default()
+            })
+            .await;
+        let types: Vec<&str> = all.iter().map(|em| em.event.event_type.as_str()).collect();
+        assert!(
+            types.contains(&"run_start"),
+            "run_start must survive compaction; got {types:?}"
+        );
+        assert!(
+            types.contains(&"tool_use"),
+            "tool_use must survive compaction; got {types:?}"
+        );
+
+        // 3. Reloading from the full event log reproduces the COMPACTED
+        //    projection, not the full pre-compaction history — the compaction
+        //    marker is the reconstruction reset point.
+        let events: Vec<SessionEvent> = all.iter().map(|em| em.event.clone()).collect();
+        let reloaded = InMemoryAgentSession::new();
+        reloaded.restore_events(events).await;
+        assert_eq!(
+            reloaded.messages().await.len(),
+            2,
+            "reload must reproduce the compacted projection, not the full history"
+        );
     }
 
     #[tokio::test]

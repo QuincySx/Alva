@@ -303,17 +303,14 @@ impl Middleware for CompactionMiddleware {
         *messages = compacted.clone();
         self.compaction_count.fetch_add(1, Ordering::Relaxed);
 
-        // Write compacted messages back to the session so the history
-        // actually shrinks. Without this, every subsequent turn would
-        // re-read the full uncompacted history and repeat summarization.
-        //
-        // NOTE: `clear()` wipes the entire event log, not just messages —
-        // skeleton events (run_start, llm_call_*, tool_use) are lost too.
-        // A compaction marker is emitted as the first event of the rebuilt
-        // log below so consumers can at least see that a rewrite happened.
-        // A less destructive rewrite is tracked as future work.
-        let _ = state.session.clear().await;
-
+        // Shrink the session's live history so subsequent turns don't re-read
+        // the full uncompacted conversation and re-summarize it. We do NOT
+        // `clear()` — that wiped the entire append-only event log (run_start,
+        // llm_call_*, tool_use, causal parents), breaking the Inspector, eval
+        // replay, and audit trail. Instead we append a `compaction` marker and
+        // then rewrite ONLY the message projection via `compact_messages`; the
+        // marker is the reconstruction reset point so a reload reproduces the
+        // compacted view while every historical event survives.
         let mut compaction_event = alva_kernel_abi::SessionEvent::new_runtime("compaction");
         compaction_event.data = Some(serde_json::json!({
             "strategy": "llm_summarization",
@@ -326,12 +323,11 @@ impl Middleware for CompactionMiddleware {
         }));
         state.session.append(compaction_event).await;
 
-        for msg in &compacted {
-            state
-                .session
-                .append_message(alva_kernel_abi::AgentMessage::Standard(msg.clone()), None)
-                .await;
-        }
+        let compacted_messages: Vec<alva_kernel_abi::AgentMessage> = compacted
+            .iter()
+            .map(|m| alva_kernel_abi::AgentMessage::Standard(m.clone()))
+            .collect();
+        state.session.compact_messages(compacted_messages).await;
 
         // Emit ContextCompacted event for observability.
         if let Some(bus) = self.bus.get() {

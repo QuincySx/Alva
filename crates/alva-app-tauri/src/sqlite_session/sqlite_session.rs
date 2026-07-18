@@ -259,6 +259,11 @@ impl AgentSession for SqliteEvalSession {
         self.inner.append_message(msg, parent_uuid).await;
     }
 
+    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
+        // Non-destructive: keep the event log (flushed to SQLite) intact.
+        self.inner.compact_messages(replacement).await;
+    }
+
     // ----- Read (delegate to inner) -----
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
