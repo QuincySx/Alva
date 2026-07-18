@@ -128,17 +128,27 @@ impl MemoryService {
         // Step 1: FTS search
         let fts_results = self.store.fts_search(query, max_results * 2).await?;
 
-        // Step 2: Vector search (if embedder is available)
+        // Step 2: Vector search — ONLY when we actually have a query
+        // embedding. A no-op or failed embedder returns an empty vector;
+        // vector_search would then score every chunk 0 (cosine against an
+        // empty vector), and normalize_scores turns that all-equal set into a
+        // full-weight 1.0 for EVERY chunk. With the default vec_weight (0.6 >
+        // fts's 0.4) that fabricated relevance outranks genuine FTS matches
+        // and drags in unrelated chunks. When there is no real embedding,
+        // fall back to FTS-only rather than inventing scores.
         let embeddings = self
             .embedder
             .embed(&[query.to_string()])
             .await
             .unwrap_or_else(|_| vec![Vec::new()]);
         let query_emb = embeddings.into_iter().next().unwrap_or_default();
-        let vec_results = self
-            .store
-            .vector_search(&query_emb, max_results * 2)
-            .await?;
+        let vec_results = if query_emb.is_empty() {
+            Vec::new()
+        } else {
+            self.store
+                .vector_search(&query_emb, max_results * 2)
+                .await?
+        };
 
         // Step 3: Merge results with weighted fusion
         let merged = merge_results(
@@ -274,6 +284,42 @@ mod tests {
     // store_entry_overwrite, sync_workspace) moved to
     // alva-app-extension-memory's test suite alongside MemorySqlite.
     // alva-agent-memory keeps only the pure-logic tests below.
+
+    #[tokio::test]
+    async fn noop_embedder_does_not_fabricate_vector_relevance() {
+        use crate::embedding::NoopEmbeddingProvider;
+        use crate::in_memory::InMemoryBackend;
+
+        let service = MemoryService::with_backend(
+            Arc::new(InMemoryBackend::new()),
+            Box::new(NoopEmbeddingProvider::new()),
+        );
+        service
+            .store_entry("a", "the quick brown fox jumps", "note")
+            .await
+            .unwrap();
+        service
+            .store_entry("b", "totally different subject matter", "note")
+            .await
+            .unwrap();
+
+        let results = service.search("fox", 10).await.unwrap();
+
+        // The genuine FTS match is present...
+        assert!(
+            results.iter().any(|r| r.text.contains("fox")),
+            "the FTS match must appear in results"
+        );
+        // ...and the unrelated chunk must NOT be dragged in. With the noop
+        // embedder the query embedding is empty; the old code scored every
+        // chunk 0, normalized that to a full-weight 1.0, and pulled "b" in on
+        // fabricated relevance.
+        assert!(
+            !results.iter().any(|r| r.text.contains("different")),
+            "an unrelated chunk must not be fabricated into results by the noop embedder; got {:?}",
+            results.iter().map(|r| r.text.clone()).collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn test_normalize_scores() {
