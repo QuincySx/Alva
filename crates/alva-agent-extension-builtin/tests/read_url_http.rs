@@ -231,3 +231,60 @@ async fn second_fetch_of_same_url_hits_cache() {
     );
     // server.drop() will verify expect(1) is satisfied (wiremock 0.6 verifies on Drop)
 }
+
+// ─── SSRF: a public page must not 302 the fetch onto loopback ─────────
+//
+// The whole server is on loopback, but that is not the point — the initial
+// URL is the one the SecurityMiddleware/HITL already vetted. The attack is a
+// *redirect* to an internal address that was never approved. The wiremock
+// server plays a page that 302s to its own /secret; the fix classifies the
+// redirect target (127.0.0.1 → Loopback, not Public) and refuses to follow,
+// so the secret is never fetched. Reverting to reqwest auto-redirect
+// (Policy::limited) makes reqwest follow the hop and leak SECRET below —
+// that is what gives this test teeth.
+#[tokio::test]
+async fn redirect_to_loopback_is_refused_and_secret_never_fetched() {
+    const SECRET: &str = "TOP-SECRET-INSTANCE-METADATA";
+    let server = MockServer::start().await;
+
+    let secret_url = format!("{}/secret", server.uri());
+    Mock::given(method("GET"))
+        .and(wm_path("/redirect"))
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", secret_url.as_str()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(wm_path("/secret"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/plain")
+                .set_body_string(SECRET),
+        )
+        .mount(&server)
+        .await;
+
+    let out = ReadUrlTool
+        .execute(
+            json!({ "url": format!("{}/redirect", server.uri()) }),
+            &ctx(),
+        )
+        .await;
+
+    match out {
+        Err(error) => {
+            let message = error.to_string();
+            assert!(
+                message.contains("refusing redirect to non-public host"),
+                "expected an SSRF refusal, got: {message}"
+            );
+            assert!(
+                !message.contains(SECRET),
+                "the secret body leaked into the error: {message}"
+            );
+        }
+        Ok(output) => {
+            let text = output.model_text();
+            panic!("redirect to loopback was followed instead of refused: {text}");
+        }
+    }
+}

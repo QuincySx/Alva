@@ -4,6 +4,7 @@
 //         LRU cache with TTL, rate limiting per domain, and content size limiting.
 //! read_url — fetch a web page and return its content (HTML converted to markdown-like text)
 
+use alva_agent_security::url_info::{inspect_url, IpClass};
 use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -20,6 +21,121 @@ const CACHE_TTL_SECS: u64 = 900;
 const RATE_LIMIT_PER_DOMAIN: usize = 10;
 /// Rate limit window in seconds.
 const RATE_LIMIT_WINDOW_SECS: u64 = 60;
+
+/// Redirects followed before giving up.
+const MAX_REDIRECTS: usize = 5;
+
+/// Hard ceiling on bytes read from a response, independent of the caller's
+/// character `max_length`. `resp.text()` buffers the whole body first, so a
+/// hostile server could otherwise stream gigabytes into memory before the
+/// character truncation ran.
+const MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+
+/// Whether a status is a redirect that carries a `Location` we should follow.
+fn is_followable_redirect(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308)
+}
+
+/// One completed response after any redirects, with its body already read
+/// under [`MAX_RESPONSE_BYTES`].
+struct FetchedBody {
+    content_type: String,
+    body: String,
+}
+
+/// Fetch `initial_url`, following redirects by hand so each hop is validated.
+///
+/// This is the SSRF fix. reqwest's auto-redirect is off (`Policy::none`), so a
+/// 3xx cannot move the socket to an unvalidated host behind our back. Every
+/// redirect *target* is resolved and classified, and only a public IP is
+/// followed — a public page can no longer 302 the fetch onto loopback,
+/// link-local (cloud instance metadata at 169.254.169.254), or a private
+/// range. The initial URL keeps the caller's existing SecurityMiddleware/HITL
+/// treatment: it may have been an approved localhost fetch, whereas a redirect
+/// was never approved and so gets the strict public-only rule.
+///
+/// Residual: like `inspect_url`, this resolves-then-connects, so a sub-second
+/// DNS rebind between the classification and reqwest's own resolution is not
+/// closed here. Fully closing it needs connection-level IP pinning; documented
+/// rather than silently implied.
+async fn fetch_following_validated_redirects(
+    client: &reqwest::Client,
+    initial_url: &str,
+) -> Result<FetchedBody, AgentError> {
+    let err = |message: String| AgentError::ToolError {
+        tool_name: "read_url".into(),
+        message,
+    };
+
+    let mut url = initial_url.to_string();
+    for hop in 0..=MAX_REDIRECTS {
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| err(format!("HTTP request failed: {e}")))?;
+        let status = resp.status();
+
+        if is_followable_redirect(status) {
+            if hop == MAX_REDIRECTS {
+                return Err(err(format!("too many redirects (>{MAX_REDIRECTS})")));
+            }
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .ok_or_else(|| err(format!("HTTP {status} redirect without a Location header")))?
+                .to_str()
+                .map_err(|e| err(format!("redirect Location is not valid text: {e}")))?;
+            let next = reqwest::Url::parse(&url)
+                .map_err(|e| err(format!("cannot parse current URL {url:?}: {e}")))?
+                .join(location)
+                .map_err(|e| err(format!("invalid redirect target {location:?}: {e}")))?;
+
+            // Strict, hard block: a redirect is only followed to a public host.
+            let info = inspect_url(next.as_str()).await;
+            if info.ip_class != Some(IpClass::Public) {
+                return Err(err(format!(
+                    "refusing redirect to non-public host: {}",
+                    info.risk_summary()
+                )));
+            }
+            url = next.into();
+            continue;
+        }
+
+        if !status.is_success() {
+            return Err(err(format!("HTTP {status} for URL: {url}")));
+        }
+
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        // Read the body with a hard byte cap rather than resp.text().
+        let mut resp = resp;
+        let mut bytes: Vec<u8> = Vec::new();
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| err(format!("Failed to read response body: {e}")))?
+        {
+            if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+                let remaining = MAX_RESPONSE_BYTES.saturating_sub(bytes.len());
+                bytes.extend_from_slice(&chunk[..remaining]);
+                break;
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        return Ok(FetchedBody {
+            content_type,
+            body: String::from_utf8_lossy(&bytes).into_owned(),
+        });
+    }
+    unreachable!("redirect loop returns at its configured bound")
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct Input {
@@ -223,41 +339,15 @@ impl ReadUrlTool {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("SrowAgent/0.1 (compatible; bot)")
-            .redirect(reqwest::redirect::Policy::limited(5))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| AgentError::ToolError {
                 tool_name: "read_url".into(),
                 message: format!("HTTP client error: {e}"),
             })?;
 
-        let resp = client
-            .get(&params.url)
-            .send()
-            .await
-            .map_err(|e| AgentError::ToolError {
-                tool_name: "read_url".into(),
-                message: format!("HTTP request failed: {e}"),
-            })?;
-
-        let status = resp.status();
-        let content_type = resp
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-
-        if !status.is_success() {
-            return Err(AgentError::ToolError {
-                tool_name: "read_url".into(),
-                message: format!("HTTP {} for URL: {}", status, params.url),
-            });
-        }
-
-        let body = resp.text().await.map_err(|e| AgentError::ToolError {
-            tool_name: "read_url".into(),
-            message: format!("Failed to read response body: {e}"),
-        })?;
+        let FetchedBody { content_type, body } =
+            fetch_following_validated_redirects(&client, &params.url).await?;
 
         // Convert HTML to markdown-like text
         let plain_text =
