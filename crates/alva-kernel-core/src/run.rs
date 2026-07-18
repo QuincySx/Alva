@@ -28,6 +28,13 @@ use crate::middleware::{LlmCallFn, MiddlewareError};
 use crate::session_events::emit_runtime_event;
 use crate::state::{AgentConfig, AgentState};
 
+/// Periodic session-flush cadence (AgentSession lifecycle contract point b):
+/// flush every this-many loop iterations, or every [`FLUSH_INTERVAL`],
+/// whichever comes first.
+const FLUSH_EVERY_N_ITERATIONS: u32 = 10;
+/// Wall-clock cap between periodic session flushes.
+const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
     AgentMessage::Standard(Message {
         id: message_id.to_string(),
@@ -470,6 +477,14 @@ pub async fn run_agent(
     )
     .await;
 
+    // Durability flush at agent end (lifecycle contract point a): everything
+    // appended this run — including run_end above — is persisted before the
+    // caller observes completion. A flush failure is a durability signal, but
+    // the run's own result takes precedence, so log rather than overwrite it.
+    if let Err(e) = state.session.flush().await {
+        tracing::warn!(error = %e, "session flush at agent end failed");
+    }
+
     // 5. Emit AgentEnd
     let _ = event_tx.send(AgentEvent::AgentEnd {
         error: error.clone(),
@@ -494,6 +509,9 @@ async fn run_loop(
     let mut total_iterations: u32 = 0;
     let mut _session_input_tokens: u64 = 0;
     let mut _session_output_tokens: u64 = 0;
+    // Durability cadence promised by the AgentSession lifecycle contract:
+    // flush every N iterations or every INTERVAL, whichever comes first.
+    let mut last_flush = web_time::Instant::now();
 
     // The run loop: LLM call → tool execution, iterating until the model
     // stops requesting tools. Follow-up / steering moved to PendingPlugin,
@@ -511,6 +529,18 @@ async fn run_loop(
             return Err(AgentError::MaxIterations(config.max_iterations));
         }
         total_iterations += 1;
+
+        // Periodic durability flush (lifecycle contract point b): bound how
+        // long a permanent backend write failure can stay hidden. Checked at
+        // the iteration boundary so it never interrupts a turn mid-flight.
+        if total_iterations % FLUSH_EVERY_N_ITERATIONS == 0
+            || last_flush.elapsed() >= FLUSH_INTERVAL
+        {
+            if let Err(e) = state.session.flush().await {
+                tracing::warn!(error = %e, "periodic session flush failed");
+            }
+            last_flush = web_time::Instant::now();
+        }
 
         // Session skeleton: iteration boundary
         let iteration_start_uuid = emit_runtime_event(

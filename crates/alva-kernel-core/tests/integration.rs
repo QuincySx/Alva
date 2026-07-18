@@ -5,6 +5,9 @@ use std::sync::{
     Arc,
 };
 
+use alva_kernel_abi::agent_session::{
+    AgentSession, EventMatch, EventQuery, SessionError, SessionEvent,
+};
 use alva_kernel_abi::base::content::ContentBlock;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::{Message, MessageRole};
@@ -1718,5 +1721,199 @@ async fn startup_failure_still_emits_agent_end_and_runs_cleanup() {
         end_with_error.load(Ordering::SeqCst),
         1,
         "on_agent_end must observe the startup error"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// AgentSession durability contract: the runtime flushes at the documented
+// points (finding #11)
+// ---------------------------------------------------------------------------
+
+/// Wraps an InMemoryAgentSession and counts flush() calls; everything else
+/// delegates to the inner session.
+struct FlushCountingSession {
+    inner: InMemoryAgentSession,
+    flushes: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl AgentSession for FlushCountingSession {
+    fn session_id(&self) -> &str {
+        self.inner.session_id()
+    }
+    fn parent_session_id(&self) -> Option<&str> {
+        self.inner.parent_session_id()
+    }
+    async fn append(&self, event: SessionEvent) {
+        self.inner.append(event).await
+    }
+    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
+        self.inner.append_message(msg, parent_uuid).await
+    }
+    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
+        self.inner.query(filter).await
+    }
+    async fn count(&self, filter: &EventQuery) -> usize {
+        self.inner.count(filter).await
+    }
+    async fn messages(&self) -> Vec<AgentMessage> {
+        self.inner.messages().await
+    }
+    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
+        self.inner.recent_messages(n).await
+    }
+    async fn rollback_after(&self, uuid: &str) -> usize {
+        self.inner.rollback_after(uuid).await
+    }
+    async fn save_snapshot(&self, data: &[u8]) {
+        self.inner.save_snapshot(data).await
+    }
+    async fn load_snapshot(&self) -> Option<Vec<u8>> {
+        self.inner.load_snapshot().await
+    }
+    async fn restore(&self) -> Result<(), SessionError> {
+        self.inner.restore().await
+    }
+    async fn flush(&self) -> Result<(), SessionError> {
+        self.flushes.fetch_add(1, Ordering::SeqCst);
+        self.inner.flush().await
+    }
+    async fn close(&self) -> Result<(), SessionError> {
+        self.inner.close().await
+    }
+    async fn clear(&self) -> Result<(), SessionError> {
+        self.inner.clear().await
+    }
+}
+
+fn state_with_session(
+    model: Arc<dyn LanguageModel>,
+    session: Arc<dyn AgentSession>,
+    tools: Vec<Arc<dyn Tool>>,
+) -> AgentState {
+    AgentState {
+        model,
+        tools,
+        session,
+        extensions: alva_kernel_core::shared::Extensions::new(),
+    }
+}
+
+fn config_with_max_iterations(max: u32) -> AgentConfig {
+    AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: vec![],
+        max_iterations: max,
+        model_config: ModelConfig::default(),
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: None,
+        context_token_budget: None,
+    }
+}
+
+#[tokio::test]
+async fn session_is_flushed_at_agent_end() {
+    let flushes = Arc::new(AtomicUsize::new(0));
+    let session = Arc::new(FlushCountingSession {
+        inner: InMemoryAgentSession::new(),
+        flushes: flushes.clone(),
+    });
+    // EchoModel returns text with no tool calls → exactly one iteration, so no
+    // periodic flush fires; any flush observed is the agent-end flush.
+    let mut state = state_with_session(Arc::new(EchoModel), session, vec![]);
+    let config = config_with_max_iterations(100);
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+
+    run_agent(
+        &mut state,
+        &config,
+        CancellationToken::new(),
+        vec![AgentMessage::Standard(Message::user("hi"))],
+        tx,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        flushes.load(Ordering::SeqCst) >= 1,
+        "run_agent must flush the session at agent end (lifecycle contract point a)"
+    );
+}
+
+/// A model that always requests the `noop` tool, so the loop runs until
+/// max_iterations — exercising the periodic flush.
+struct AlwaysToolModel;
+
+#[async_trait]
+impl LanguageModel for AlwaysToolModel {
+    async fn complete(
+        &self,
+        _messages: &[Message],
+        _tools: &[&dyn Tool],
+        _config: &ModelConfig,
+    ) -> Result<CompletionResponse, AgentError> {
+        Ok(CompletionResponse::from_message(Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "call_1".to_string(),
+                name: "noop".to_string(),
+                input: serde_json::json!({}),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        }))
+    }
+
+    fn stream(
+        &self,
+        _messages: &[Message],
+        _tools: &[&dyn Tool],
+        _config: &ModelConfig,
+    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
+        // Empty stream → run_agent falls back to complete(), which returns the
+        // tool call above; the loop keeps going until max_iterations.
+        Box::pin(futures::stream::empty())
+    }
+
+    fn model_id(&self) -> &str {
+        "always-tool"
+    }
+}
+
+#[tokio::test]
+async fn session_is_flushed_periodically_during_a_long_run() {
+    let flushes = Arc::new(AtomicUsize::new(0));
+    let session = Arc::new(FlushCountingSession {
+        inner: InMemoryAgentSession::new(),
+        flushes: flushes.clone(),
+    });
+    let mut state = state_with_session(
+        Arc::new(AlwaysToolModel),
+        session,
+        vec![Arc::new(NamedNoopTool("noop"))],
+    );
+    // 25 iterations → periodic flush fires at iterations 10 and 20, plus the
+    // agent-end flush. Agent-end alone would be exactly 1, so >= 2 proves the
+    // periodic flush ran.
+    let config = config_with_max_iterations(25);
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let _ = run_agent(
+        &mut state,
+        &config,
+        CancellationToken::new(),
+        vec![AgentMessage::Standard(Message::user("go"))],
+        tx,
+    )
+    .await;
+
+    assert!(
+        flushes.load(Ordering::SeqCst) >= 2,
+        "a long run must flush periodically (lifecycle contract point b); got {}",
+        flushes.load(Ordering::SeqCst)
     );
 }
