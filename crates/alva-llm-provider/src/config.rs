@@ -99,6 +99,53 @@ impl PartialConfig {
     }
 }
 
+/// Write `contents` to `path` with owner-only permissions and an atomic
+/// replace. These config files hold API keys, so a plain `fs::write` is
+/// wrong twice: it leaves the file world-readable (default umask, typically
+/// 0644), and a crash mid-write can leave a torn/truncated config. We write
+/// a sibling temp file created 0600 from the start (no window where the key
+/// is briefly world-readable) and `rename` it over the target — rename is
+/// atomic within a filesystem, and the temp is in the same directory to
+/// guarantee that.
+fn write_secret_file(path: &Path, contents: &str) -> Result<(), String> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| format!("config path {} has no parent directory", path.display()))?;
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("config.json");
+    let tmp = dir.join(format!(".{}.{}.tmp", file_name, std::process::id()));
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .map_err(|e| format!("cannot create {}: {}", tmp.display(), e))?;
+        f.write_all(contents.as_bytes())
+            .map_err(|e| format!("cannot write {}: {}", tmp.display(), e))?;
+        let _ = f.sync_all();
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&tmp, contents)
+            .map_err(|e| format!("cannot write {}: {}", tmp.display(), e))?;
+    }
+
+    std::fs::rename(&tmp, path).map_err(|e| {
+        // Best-effort cleanup so a failed rename doesn't strand the temp.
+        let _ = std::fs::remove_file(&tmp);
+        format!("cannot replace {}: {}", path.display(), e)
+    })?;
+    Ok(())
+}
+
 impl ProviderConfig {
     /// Global config directory following XDG Base Directory spec.
     ///
@@ -157,8 +204,7 @@ impl ProviderConfig {
         let path = dir.join("config.json");
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialize config: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+        write_secret_file(&path, &json)?;
 
         Ok(path)
     }
@@ -171,8 +217,7 @@ impl ProviderConfig {
         let path = dir.join("config.json");
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("cannot serialize config: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+        write_secret_file(&path, &json)?;
 
         Ok(path)
     }
@@ -186,6 +231,44 @@ impl ProviderConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn write_secret_file_is_owner_only_and_atomic() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+
+        write_secret_file(&path, "{\"api_key\":\"sk-secret\"}").unwrap();
+
+        // Content is correct.
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "{\"api_key\":\"sk-secret\"}"
+        );
+
+        // Owner-only: a config holding an API key must not be world/group
+        // readable.
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "config must be 0600, got {mode:o}");
+
+        // Atomic write leaves no temp file behind.
+        let temp_left = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().contains(".tmp"));
+        assert!(!temp_left, "atomic write must not strand a temp file");
+
+        // Overwriting an existing config still ends up 0600.
+        write_secret_file(&path, "{\"api_key\":\"sk-rotated\"}").unwrap();
+        let mode2 = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode2, 0o600, "rewrite must stay 0600, got {mode2:o}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "{\"api_key\":\"sk-rotated\"}"
+        );
+    }
 
     #[test]
     fn partial_merge_precedence() {
