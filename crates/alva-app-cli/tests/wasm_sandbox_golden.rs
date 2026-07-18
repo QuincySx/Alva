@@ -2,11 +2,11 @@
 // OUTPUT: CLI wasm-tier golden coverage for file/domain flags, host-only auth, file-tool loop, JSON output, and optional real provider
 // POS:    End-to-end contract proving provider HTTP stays native while the agent/file tools execute in WASIp1.
 
-// The OS tier's flag name is platform-specific (macOS os-write / Linux os-full),
+// The OS tier's flag name is platform-specific (macOS os-write / Linux os),
 // so the "legal values" list the CLI prints differs per platform. This golden
 // is not cfg-gated, so it must expect the local name.
 #[cfg(target_os = "linux")]
-const OS_TIER: &str = "os-full";
+const OS_TIER: &str = "os";
 #[cfg(not(target_os = "linux"))]
 const OS_TIER: &str = "os-write";
 

@@ -5,11 +5,11 @@
 
 // The OS tier's flag name encodes its strength and so differs per platform:
 // macOS confines writes only (os-write), Linux confines reads and writes
-// (os-full). See OS_TIER in the CLI.
+// (os). See OS_TIER in the CLI.
 #[cfg(target_os = "macos")]
 const OS_TIER: &str = "os-write";
 #[cfg(target_os = "linux")]
-const OS_TIER: &str = "os-full";
+const OS_TIER: &str = "os";
 
 use assert_cmd::Command;
 use std::io::{Read, Write};

@@ -5,7 +5,7 @@ use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{CancellationToken, Message, ModelConfig, StreamEvent, ToolCall, ToolOutput};
 use alva_kernel_core::agent_session::{AgentSession, EventQuery, InMemoryAgentSession};
-use alva_kernel_core::middleware::MiddlewareStack;
+use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::tool_batch::ToolBatchCoordinator;
@@ -319,5 +319,109 @@ async fn lock_contention_times_out_as_tool_error_instead_of_hanging() {
     assert!(
         text.contains("timed out") || text.contains("Timeout"),
         "error must say the lock wait timed out, got: {text}"
+    );
+}
+
+/// Fails `after_tool_call` for the tool named "first" with a non-Blocked
+/// error — the fatal-middleware-error path. Pins finding #9.
+struct FailAfterFirstMiddleware;
+
+#[async_trait]
+impl Middleware for FailAfterFirstMiddleware {
+    async fn after_tool_call(
+        &self,
+        _state: &mut AgentState,
+        tool_call: &ToolCall,
+        _result: &mut ToolOutput,
+    ) -> Result<(), MiddlewareError> {
+        if tool_call.name == "first" {
+            Err(MiddlewareError::from(AgentError::ConfigError(
+                "boom in after_tool_call".into(),
+            )))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[tokio::test]
+async fn middleware_abort_still_pairs_every_tool_call_with_a_result() {
+    let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+    let mut state = AgentState {
+        model: Arc::new(UnusedModel),
+        tools: vec![
+            Arc::new(MockTool::new("first").with_result(ToolOutput::text("one"))),
+            Arc::new(MockTool::new("second").with_result(ToolOutput::text("two"))),
+        ],
+        session: session.clone(),
+        extensions: Extensions::new(),
+    };
+    let mut config = test_config();
+    let mut stack = MiddlewareStack::new();
+    stack.push(Arc::new(FailAfterFirstMiddleware));
+    config.middleware = stack;
+
+    let cancel = CancellationToken::new();
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let tool_calls = vec![
+        ToolCall {
+            id: "toolu_first".to_string(),
+            name: "first".to_string(),
+            arguments: serde_json::json!({}),
+        },
+        ToolCall {
+            id: "toolu_second".to_string(),
+            name: "second".to_string(),
+            arguments: serde_json::json!({}),
+        },
+    ];
+
+    let result = ToolBatchCoordinator::new()
+        .execute_batch(
+            &mut state,
+            &config,
+            cancel,
+            &tool_calls,
+            "llm_parent".to_string(),
+            event_tx,
+        )
+        .await;
+
+    // The fatal middleware error still aborts the batch...
+    assert!(
+        result.is_err(),
+        "a non-Blocked middleware error must still abort the batch"
+    );
+
+    // ...but every declared tool_use id now has a matching tool_result, so the
+    // next provider request cannot see a dangling tool call.
+    let events = session
+        .query(&EventQuery {
+            limit: 1000,
+            ..Default::default()
+        })
+        .await;
+    let tool_result_ids: Vec<String> = events
+        .iter()
+        .filter(|em| em.event.event_type == "tool_result")
+        .filter_map(|em| {
+            let content = &em.event.message.as_ref()?.content;
+            content
+                .as_array()?
+                .iter()
+                .find(|block| block.get("type").and_then(|ty| ty.as_str()) == Some("tool_result"))?
+                .get("id")?
+                .as_str()
+                .map(str::to_string)
+        })
+        .collect();
+
+    assert!(
+        tool_result_ids.contains(&"toolu_first".to_string()),
+        "the aborting tool call must still get a tool_result; got {tool_result_ids:?}"
+    );
+    assert!(
+        tool_result_ids.contains(&"toolu_second".to_string()),
+        "the un-started remaining tool call must be backfilled with a tool_result; got {tool_result_ids:?}"
     );
 }

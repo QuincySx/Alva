@@ -58,7 +58,7 @@ fn main() {
         let grants = match parse_sandbox_args(&argv) {
             Ok(Some(SandboxTierConfig::Os { grants })) => grants,
             Ok(_) => {
-                eprintln!("Error: internal Linux OS sandbox worker is missing --sandbox os-full");
+                eprintln!("Error: internal Linux OS sandbox worker is missing --sandbox os");
                 return;
             }
             Err(error) => {
@@ -159,7 +159,7 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
                 );
                 #[cfg(target_os = "linux")]
                 eprintln!(
-                    "INFO: --sandbox os-full uses Landlock to confine reads and writes to grants \
+                    "INFO: --sandbox os uses Landlock to confine reads and writes to grants \
                      plus explicit runtime support paths; networking remains unrestricted."
                 );
             }
@@ -770,7 +770,7 @@ enum SandboxTierConfig {
 #[cfg(target_os = "macos")]
 const OS_TIER: &str = "os-write";
 #[cfg(target_os = "linux")]
-const OS_TIER: &str = "os-full";
+const OS_TIER: &str = "os";
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 const OS_TIER: &str = "os-write";
 
@@ -778,7 +778,7 @@ const OS_TIER: &str = "os-write";
 /// typed it gets told which flag this platform actually uses instead of a bare
 /// "unknown tier".
 #[cfg(target_os = "macos")]
-const OS_TIER_OTHER: &str = "os-full";
+const OS_TIER_OTHER: &str = "os";
 #[cfg(not(target_os = "macos"))]
 const OS_TIER_OTHER: &str = "os-write";
 
@@ -970,16 +970,16 @@ FLAGS:
                                   (see `alva providers list`); overrides the
                                   active profile. ALVA_* env vars still override
                                   individual fields on top.
-    --sandbox <wasm|os-*>         -p: select the worker sandbox. `wasm` exposes
+    --sandbox <wasm|os-write|os>         -p: select the worker sandbox. `wasm` exposes
                                   only granted paths and proxies escalation to
                                   the host. The OS tier's name reflects its
                                   strength: macOS `os-write` confines WRITES to
                                   grants but DOES NOT confine reads, so it can
-                                  read host secrets; Linux `os-full` confines
+                                  read host secrets; Linux `os` confines
                                   both reads and writes to grants plus runtime
                                   support paths. Each platform accepts only its
                                   own name. OS-tier networking is unrestricted.
-    --grant <DIR>                 -p --sandbox wasm|os-*: grant one existing directory
+    --grant <DIR>                 -p --sandbox wasm|os-write|os: grant one existing directory
                                   read/write access. Repeat for additional dirs;
                                   at least one grant is required. Wasm runs are
                                   one-shot (`session_id: null`; no --resume).
@@ -1201,7 +1201,7 @@ mod tests {
         assert!(u.contains("--allow-domain"), "lists wasm fetch grant: {u}");
         assert!(u.contains("wasm"), "lists the wasm tier: {u}");
         assert!(
-            u.contains("os-write") && u.contains("os-full"),
+            u.contains("`os-write`") && u.contains("`os`"),
             "documents both OS-tier names and their differing strength: {u}"
         );
         assert!(
@@ -1209,7 +1209,7 @@ mod tests {
             "states OS read boundary: {u}"
         );
         assert!(
-            u.contains("Linux `os-full` confines"),
+            u.contains("Linux `os` confines"),
             "states stronger Linux read boundary: {u}"
         );
     }
