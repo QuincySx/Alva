@@ -37,6 +37,28 @@ pub struct FsSkillRepository {
     state_file: PathBuf,
 }
 
+/// Reject any skill name that is not a single, plain path segment.
+///
+/// `install`/`remove` build a target as `user_dir.join(name)` and then
+/// `remove_dir_all` it. A name like `../../victim` (attacker-controlled via
+/// SKILL.md frontmatter or a caller argument) would otherwise resolve OUTSIDE
+/// `user_dir` and delete unrelated data. Requiring exactly one `Normal`
+/// component blocks `..`, `.`, absolute paths, and embedded separators; the
+/// explicit backslash check also rejects Windows separators on Unix, where
+/// `\` is an ordinary character and would slip through the component check.
+fn validate_skill_name(name: &str) -> Result<(), SkillError> {
+    let mut components = Path::new(name).components();
+    let single_normal = matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    );
+    if single_normal && !name.contains('\\') && !name.contains('\0') {
+        Ok(())
+    } else {
+        Err(SkillError::PathTraversal(name.to_string()))
+    }
+}
+
 impl FsSkillRepository {
     pub fn new(
         bundled_dir: impl Into<PathBuf>,
@@ -337,13 +359,24 @@ impl SkillRepository for FsSkillRepository {
             .await?
             .ok_or_else(|| SkillError::SkillNotFound(name.to_string()))?;
 
-        // Security check: prevent path traversal
+        // Security check: prevent path traversal. A lexical `starts_with`
+        // is NOT enough — `root.join("../secret")` still lexically starts
+        // with `root` (component-wise), yet the filesystem resolves the `..`
+        // and escapes. Canonicalize both sides (which also resolves any
+        // symlink inside the skill dir that points out of it) and require
+        // real containment.
         let resource_path = skill.root_path.join(relative_path);
-        if !resource_path.starts_with(&skill.root_path) {
+        let canonical_root = tokio::fs::canonicalize(&skill.root_path)
+            .await
+            .map_err(|e| SkillError::Io(e.to_string()))?;
+        let canonical_resource = tokio::fs::canonicalize(&resource_path)
+            .await
+            .map_err(|e| SkillError::Io(e.to_string()))?;
+        if !canonical_resource.starts_with(&canonical_root) {
             return Err(SkillError::PathTraversal(relative_path.to_string()));
         }
 
-        let content = tokio::fs::read(&resource_path)
+        let content = tokio::fs::read(&canonical_resource)
             .await
             .map_err(|e| SkillError::Io(e.to_string()))?;
 
@@ -418,6 +451,10 @@ impl SkillRepository for FsSkillRepository {
                     .map_err(|e| SkillError::Io(e.to_string()))?;
                 let meta = Self::parse_frontmatter(&content)?;
 
+                // The frontmatter name becomes a directory under user_dir that
+                // we may `remove_dir_all` — reject anything that could escape.
+                validate_skill_name(&meta.name)?;
+
                 // Copy to user_dir/<skill_name>/
                 let dest = self.user_dir.join(&meta.name);
                 if dest.exists() {
@@ -446,6 +483,8 @@ impl SkillRepository for FsSkillRepository {
     }
 
     async fn remove(&self, name: &str) -> Result<(), SkillError> {
+        // `name` drives a `remove_dir_all` under user_dir — reject traversal.
+        validate_skill_name(name)?;
         let dest = self.user_dir.join(name);
         if dest.exists() {
             tokio::fs::remove_dir_all(&dest)
@@ -755,6 +794,78 @@ Do beta things.
         assert_eq!(resource.relative_path, "refs/api.md");
         assert_eq!(resource.content, b"# API Reference");
         assert_eq!(resource.content_type, ResourceContentType::Markdown);
+    }
+
+    #[tokio::test]
+    async fn load_resource_rejects_traversal_outside_skill_root() {
+        let (dir, repo) = setup_repo();
+        write_skill_with_resources(
+            &dir.path().join("user"),
+            "alpha",
+            SKILL_MD_ALPHA,
+            &[("refs/api.md", b"# API Reference")],
+        );
+        // A secret OUTSIDE the skill root (sibling of it, inside user_dir).
+        let secret = dir.path().join("user").join("secret.txt");
+        std::fs::write(&secret, b"TOP SECRET").unwrap();
+
+        // skill root is user/alpha; "../secret.txt" escapes to user/secret.txt.
+        // A lexical starts_with check passes for this; canonicalization must
+        // catch it.
+        let result = repo.load_resource("alpha", "../secret.txt").await;
+        assert!(
+            matches!(result, Err(SkillError::PathTraversal(_))),
+            "load_resource must reject traversal outside the skill root, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn remove_rejects_path_traversal_and_keeps_outside_dir() {
+        let (dir, repo) = setup_repo();
+        // A victim directory OUTSIDE user_dir (user_dir is dir/user).
+        let victim = dir.path().join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        std::fs::write(victim.join("data.txt"), b"precious").unwrap();
+
+        // "../victim" would resolve to dir/victim via user_dir.join.
+        let result = repo.remove("../victim").await;
+        assert!(
+            matches!(result, Err(SkillError::PathTraversal(_))),
+            "remove must reject a traversal name, got: {result:?}"
+        );
+        assert!(
+            victim.join("data.txt").exists(),
+            "the outside directory must NOT be deleted by a traversal remove"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_rejects_traversal_in_frontmatter_name() {
+        let (dir, repo) = setup_repo();
+        let victim = dir.path().join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        std::fs::write(victim.join("data.txt"), b"precious").unwrap();
+
+        // A source skill whose frontmatter name escapes user_dir.
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            src.join("SKILL.md"),
+            "---\nname: ../victim\ndescription: evil\n---\n\nBody.\n",
+        )
+        .unwrap();
+
+        let result = repo
+            .install(crate::repository::SkillInstallSource::LocalDir(src))
+            .await;
+        assert!(
+            matches!(result, Err(SkillError::PathTraversal(_))),
+            "install must reject a traversal frontmatter name, got: {result:?}"
+        );
+        assert!(
+            victim.join("data.txt").exists(),
+            "install must not delete an outside directory via meta.name"
+        );
     }
 
     #[tokio::test]
