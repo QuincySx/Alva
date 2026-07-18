@@ -23,6 +23,49 @@ pub struct Installer {
     config: EnvironmentConfig,
 }
 
+/// Reject a manifest-supplied name/filename that isn't a single, plain path
+/// segment. A component name drives `component_dir(name)` + `remove_dir_all`,
+/// and an archive filename drives `packages_dir.join(file)` — a value like
+/// `../../victim` would escape the install tree and delete or overwrite
+/// unrelated data. Requiring exactly one `Normal` component blocks `..`, `.`,
+/// absolute paths, and embedded separators; the backslash guard also rejects
+/// Windows separators on Unix, where `\` is an ordinary path character.
+fn validate_segment(kind: &str, value: &str) -> Result<(), InstallerError> {
+    let mut comps = Path::new(value).components();
+    let single_normal = matches!(
+        (comps.next(), comps.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    );
+    if single_normal && !value.contains('\\') && !value.contains('\0') {
+        Ok(())
+    } else {
+        Err(InstallerError::Extract(format!(
+            "unsafe {kind} '{value}': must be a single path segment"
+        )))
+    }
+}
+
+/// Join an archive entry path under `base`, refusing any entry that would
+/// escape `base` — the ZIP-Slip guard. Returns `None` for an absolute path or
+/// any `..` component; the caller skips such an entry rather than writing
+/// outside the target directory.
+fn safe_extract_path(base: &Path, relative: &str) -> Option<PathBuf> {
+    let rel = Path::new(relative);
+    if rel.is_absolute() {
+        return None;
+    }
+    let mut out = base.to_path_buf();
+    for comp in rel.components() {
+        match comp {
+            std::path::Component::Normal(c) => out.push(c),
+            std::path::Component::CurDir => {}
+            // ParentDir (`..`), RootDir, or a Windows Prefix would break out.
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
 impl Installer {
     pub fn new(config: EnvironmentConfig) -> Self {
         Self { config }
@@ -41,6 +84,10 @@ impl Installer {
         artifact: &ArtifactConfig,
         installed: &mut InstalledVersions,
     ) -> Result<(), InstallerError> {
+        // The component name becomes a directory we `remove_dir_all` and
+        // extract into — reject anything that could escape the install tree.
+        validate_segment("component name", name)?;
+
         let format = ArchiveFormat::from_str(&artifact.format)
             .ok_or_else(|| InstallerError::UnsupportedFormat(artifact.format.clone()))?;
 
@@ -88,6 +135,10 @@ impl Installer {
         name: &str,
         artifact: &ArtifactConfig,
     ) -> Result<PathBuf, InstallerError> {
+        // The archive filename comes from the manifest and is joined onto the
+        // packages dir (and written to, on download) — reject traversal.
+        validate_segment("archive filename", &artifact.file)?;
+
         let packages_dir = self.config.packages_dir();
         let bundled_path = packages_dir.join(&artifact.file);
 
@@ -216,7 +267,15 @@ impl Installer {
                 continue;
             }
 
-            let out_path = target_dir.join(&relative);
+            // ZIP-Slip guard: a crafted entry name like `../../payload` would
+            // otherwise resolve outside target_dir. Skip any escaping entry.
+            let out_path = match safe_extract_path(target_dir, &relative) {
+                Some(p) => p,
+                None => {
+                    debug!(entry = %raw_name, "skipping zip entry that escapes target dir");
+                    continue;
+                }
+            };
 
             if entry.is_dir() {
                 fs::create_dir_all(&out_path).map_err(|e| InstallerError::Io(out_path, e))?;
@@ -397,6 +456,102 @@ mod tests {
         assert!(comp_dir.join("hello.txt").exists());
         assert!(comp_dir.join("subdir/nested.txt").exists());
         assert_eq!(installed.components["test-comp"], "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn zip_slip_entry_cannot_escape_target_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = EnvironmentConfig::new(tmp.path());
+
+        // Two entries share the `app/` prefix (so it is stripped), and the
+        // second uses `..` to climb back out — a classic ZIP-Slip. After the
+        // strip its relative path is `../escaped.txt`, which without the guard
+        // would land in base_dir (the parent of the component dir).
+        create_test_zip(
+            tmp.path(),
+            "evil.zip",
+            &[("app/ok.txt", b"fine"), ("app/../escaped.txt", b"pwned")],
+        );
+
+        let installer = Installer::new(config.clone());
+        let artifact = ArtifactConfig {
+            file: "evil.zip".to_string(),
+            format: "zip-flat".to_string(),
+            url: None,
+        };
+        let mut installed = InstalledVersions::default();
+        installer
+            .install_component("victim-comp", "1.0.0", &artifact, &mut installed)
+            .await
+            .unwrap();
+
+        let comp_dir = config.component_dir("victim-comp");
+        assert!(
+            comp_dir.join("ok.txt").exists(),
+            "the safe entry must extract"
+        );
+        // base_dir is the parent of the component dir; the escaped file would
+        // land there without the ZIP-Slip guard.
+        assert!(
+            !tmp.path().join("escaped.txt").exists(),
+            "a `..` zip entry must NOT be written outside the component dir"
+        );
+    }
+
+    #[tokio::test]
+    async fn traversal_component_name_cannot_delete_outside_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Install base is a subdir so `../victim` climbs into tmp, not outside.
+        let config = EnvironmentConfig::new(tmp.path().join("env"));
+
+        let victim = tmp.path().join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        std::fs::write(victim.join("data.txt"), b"precious").unwrap();
+
+        // A valid archive so a guard-less run would reach remove_dir_all.
+        create_test_zip(&tmp.path().join("env"), "c.zip", &[("f.txt", b"x")]);
+
+        let installer = Installer::new(config.clone());
+        let artifact = ArtifactConfig {
+            file: "c.zip".to_string(),
+            format: "zip-flat".to_string(),
+            url: None,
+        };
+        let mut installed = InstalledVersions::default();
+
+        // component_dir("../victim") = env/../victim = tmp/victim.
+        let result = installer
+            .install_component("../victim", "1.0.0", &artifact, &mut installed)
+            .await;
+        assert!(
+            result.is_err(),
+            "a traversal component name must be rejected"
+        );
+        assert!(
+            victim.join("data.txt").exists(),
+            "install must NOT delete a directory outside the install tree"
+        );
+    }
+
+    #[tokio::test]
+    async fn traversal_archive_filename_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = EnvironmentConfig::new(tmp.path().join("env"));
+        let installer = Installer::new(config);
+
+        let artifact = ArtifactConfig {
+            file: "../evil.zip".to_string(),
+            format: "zip-flat".to_string(),
+            url: None,
+        };
+        let mut installed = InstalledVersions::default();
+        let result = installer
+            .install_component("safe", "1.0.0", &artifact, &mut installed)
+            .await;
+        assert!(
+            matches!(&result, Err(InstallerError::Extract(msg)) if msg.contains("archive filename")),
+            "a traversal archive filename must be rejected, got: {result:?}"
+        );
     }
 
     #[tokio::test]
