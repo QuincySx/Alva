@@ -113,6 +113,12 @@ impl BaseAgent {
         self.inner.set_disable_tools(disabled).await;
     }
 
+    /// Per-turn manual tool allow-list: `Some(names)` restricts the next run
+    /// to those tools without mutating the registered set; `None` clears it.
+    pub async fn set_allowed_tools(&self, allowed: Option<Vec<String>>) {
+        self.inner.set_allowed_tools(allowed).await;
+    }
+
     /// Snapshot of the layered system-prompt segments currently set on
     /// the agent's config. Stable→dynamic order. Used by the harness
     /// to record what was actually assembled (vs the raw user-typed

@@ -107,11 +107,17 @@ pub async fn send_message(
             tracing::info!(?skills, "selected skills for turn (wiring is TODO)");
         }
     }
+    // Manual tool allow-list for this turn. Enforced as a per-turn ModelConfig
+    // override so the shared (cached) agent's registered tool set is not
+    // mutated — the next turn can widen the selection again. `None` (no manual
+    // selection) clears any restriction left from a previous turn on this
+    // reused agent.
+    agent.set_allowed_tools(request.tool_names.clone()).await;
     if let Some(tools) = &request.tool_names {
         tracing::info!(
             manual_tools = ?tools,
             count = tools.len(),
-            "manual tool allow-list for turn (filtering is TODO)"
+            "manual tool allow-list enforced for turn"
         );
     }
 

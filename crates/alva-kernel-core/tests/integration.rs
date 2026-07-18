@@ -1447,3 +1447,87 @@ async fn context_hooks_disabled_by_default() {
     .await;
     assert!(result.is_ok());
 }
+
+// ---------------------------------------------------------------------------
+// Per-turn manual tool allow-list: the model must only be offered the
+// selected tools. A UI that lets the user pick which tools a turn may use
+// relies on this; before the fix it was a no-op log and every tool stayed
+// callable. `MockLanguageModel::tool_names_seen` records exactly what reached
+// the model.
+// ---------------------------------------------------------------------------
+
+struct NamedNoopTool(&'static str);
+
+#[async_trait]
+impl Tool for NamedNoopTool {
+    fn name(&self) -> &str {
+        self.0
+    }
+    fn description(&self) -> &str {
+        self.0
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({ "type": "object", "properties": {}, "additionalProperties": false })
+    }
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &dyn ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
+        Ok(ToolOutput::text("ok"))
+    }
+}
+
+#[tokio::test]
+async fn allowed_tools_hides_unselected_tools_from_the_model() {
+    use alva_test::fixtures::make_assistant_message;
+    use alva_test::mock_provider::MockLanguageModel;
+
+    let model = MockLanguageModel::new().with_response(make_assistant_message("done"));
+    let recorded = model.clone();
+
+    let mut state = make_state_with_model(Arc::new(model));
+    state.tools = vec![
+        Arc::new(NamedNoopTool("safe_tool")),
+        Arc::new(NamedNoopTool("dangerous_tool")),
+    ];
+
+    let mut model_config = ModelConfig::default();
+    model_config.allowed_tools = Some(vec!["safe_tool".to_string()]);
+
+    let config = AgentConfig {
+        middleware: MiddlewareStack::new(),
+        system_prompt: vec!["bot".to_string()],
+        max_iterations: 4,
+        model_config,
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: None,
+        context_token_budget: None,
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    run_agent(
+        &mut state,
+        &config,
+        CancellationToken::new(),
+        vec![AgentMessage::Standard(Message::user("hi"))],
+        tx,
+    )
+    .await
+    .unwrap();
+    while rx.try_recv().is_ok() {}
+
+    let seen = recorded.tool_names_seen();
+    assert!(!seen.is_empty(), "the model was called at least once");
+    for call in &seen {
+        assert!(
+            call.iter().any(|n| n == "safe_tool"),
+            "the selected tool must be offered: {call:?}"
+        );
+        assert!(
+            !call.iter().any(|n| n == "dangerous_tool"),
+            "an unselected tool leaked to the model: {call:?}"
+        );
+    }
+}

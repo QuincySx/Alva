@@ -29,6 +29,8 @@ struct MockState {
     calls: Vec<Vec<Message>>,
     /// Events emitted by `stream`.
     stream_events: Vec<StreamEvent>,
+    /// Tool names presented to the model on each call, in call order.
+    tool_names_seen: Vec<Vec<String>>,
 }
 
 /// A mock implementation of [`LanguageModel`] for use in tests.
@@ -54,6 +56,7 @@ impl MockLanguageModel {
                 call_index: 0,
                 calls: Vec::new(),
                 stream_events: Vec::new(),
+                tool_names_seen: Vec::new(),
             })),
         }
     }
@@ -87,6 +90,11 @@ impl MockLanguageModel {
     /// Return all recorded `complete` calls.
     ///
     /// Each element is the `messages` slice passed to one `complete` invocation.
+    /// Tool names presented to the model on each call, in call order.
+    pub fn tool_names_seen(&self) -> Vec<Vec<String>> {
+        self.state.lock().unwrap().tool_names_seen.clone()
+    }
+
     pub fn calls(&self) -> Vec<Vec<Message>> {
         self.state.lock().unwrap().calls.clone()
     }
@@ -103,13 +111,16 @@ impl LanguageModel for MockLanguageModel {
     async fn complete(
         &self,
         messages: &[Message],
-        _tools: &[&dyn Tool],
+        tools: &[&dyn Tool],
         _config: &ModelConfig,
     ) -> Result<CompletionResponse, AgentError> {
         let mut state = self.state.lock().unwrap();
 
         // Record this call.
         state.calls.push(messages.to_vec());
+        state
+            .tool_names_seen
+            .push(tools.iter().map(|t| t.name().to_string()).collect());
 
         let index = state.call_index;
         if index >= state.response_queue.len() {
@@ -129,9 +140,14 @@ impl LanguageModel for MockLanguageModel {
     fn stream(
         &self,
         messages: &[Message],
-        _tools: &[&dyn Tool],
+        tools: &[&dyn Tool],
         _config: &ModelConfig,
     ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
+        self.state
+            .lock()
+            .unwrap()
+            .tool_names_seen
+            .push(tools.iter().map(|t| t.name().to_string()).collect());
         let state_events = self.state.lock().unwrap().stream_events.clone();
         if !state_events.is_empty() {
             // Use explicitly configured stream events

@@ -514,10 +514,7 @@ async fn run_loop(
                 .unwrap_or_default();
             let tail_segment = system_prompt_buf
                 .last()
-                .map(|s| {
-                    let start = s.len().saturating_sub(200);
-                    s[start..].to_string()
-                })
+                .map(|s| tail_chars(s, 200))
                 .unwrap_or_default();
             tracing::debug!(
                 segments = total_segments,
@@ -634,6 +631,18 @@ async fn run_loop(
         let baked_tools = if config.model_config.disable_tools {
             tracing::debug!("model_config.disable_tools=true; skipping all tool injection");
             Vec::new()
+        } else if let Some(allowed) = &config.model_config.allowed_tools {
+            // Per-turn manual allow-list: present only the selected tools. The
+            // model never sees the others, so it cannot call them — the UI's
+            // "only these tools this turn" promise is enforced here rather than
+            // being a no-op log line.
+            let selected: Vec<Arc<dyn Tool>> = state
+                .tools
+                .iter()
+                .filter(|t| allowed.iter().any(|name| name == t.name()))
+                .cloned()
+                .collect();
+            bake_tool_schemas(&selected, config.bus.as_ref())
         } else {
             bake_tool_schemas(&state.tools, config.bus.as_ref())
         };
@@ -821,4 +830,47 @@ async fn run_loop(
     // with the next user input.
 
     Ok(())
+}
+
+/// Last `n` characters (not bytes) of `s`.
+///
+/// This exists because the previous inline `&s[s.len() - 200..]` sliced a
+/// `String` by byte offset: on a CJK or emoji system prompt the cut landed in
+/// the middle of a multibyte character and panicked the whole run. The head
+/// side was already char-based (`.chars().take(200)`); this restores the same
+/// safety on the tail. It feeds a debug log, so clarity matters more than the
+/// extra scan.
+fn tail_chars(s: &str, n: usize) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    let start = s.char_indices().nth_back(n - 1).map_or(0, |(i, _)| i);
+    s[start..].to_string()
+}
+
+#[cfg(test)]
+mod tail_chars_tests {
+    use super::tail_chars;
+
+    #[test]
+    fn multibyte_tail_does_not_panic_and_keeps_last_n_chars() {
+        // 300 CJK chars = 900 bytes; byte offset 900-200=700 lands mid-char,
+        // which is exactly what panicked the old byte slice.
+        let s: String = "中".repeat(300);
+        let tail = tail_chars(&s, 200);
+        assert_eq!(tail.chars().count(), 200);
+        assert!(tail.chars().all(|c| c == '中'));
+        assert!(s.ends_with(&tail));
+    }
+
+    #[test]
+    fn shorter_than_n_returns_whole_string() {
+        assert_eq!(tail_chars("héllo", 200), "héllo");
+        assert_eq!(tail_chars("", 200), "");
+    }
+
+    #[test]
+    fn ascii_tail_matches_byte_intuition() {
+        assert_eq!(tail_chars("abcdef", 3), "def");
+    }
 }

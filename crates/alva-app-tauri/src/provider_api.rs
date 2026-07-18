@@ -330,11 +330,7 @@ pub async fn test_connection(
     let model_config = ModelConfig {
         temperature: Some(0.0),
         max_tokens: Some(32),
-        stop_sequences: vec![],
-        top_p: None,
-        reasoning_effort: None,
-        extra_body: None,
-        disable_tools: false,
+        ..Default::default()
     };
 
     match lm.complete(&messages, &[], &model_config).await {

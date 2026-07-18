@@ -43,6 +43,18 @@ pub struct ModelConfig {
     /// `supports_tools=false` model override that flows from
     /// Settings → backend.
     pub disable_tools: bool,
+    /// Per-turn manual allow-list: when `Some`, only tools whose name is in
+    /// the list are presented to the model, even though `state.tools` still
+    /// holds the full set. `None` means no restriction (all tools).
+    ///
+    /// This is what a UI "select which tools this turn may use" control binds
+    /// to. It filters at the kernel's injection point without mutating the
+    /// shared agent's tool set, so the next turn can widen the selection again
+    /// — unlike a destructive `retain_tools`. Unknown names simply match
+    /// nothing; the caller validates against the live tool set if it wants a
+    /// loud error. Set per-turn via `Agent::set_allowed_tools`.
+    #[serde(default)]
+    pub allowed_tools: Option<Vec<String>>,
 }
 
 /// Cross-provider reasoning effort level.
@@ -145,6 +157,10 @@ mod tests {
         assert!(c.reasoning_effort.is_none());
         assert!(c.extra_body.is_none());
         assert!(!c.disable_tools, "Default disable_tools must be false");
+        assert!(
+            c.allowed_tools.is_none(),
+            "Default allowed_tools must be None (no restriction — all tools)"
+        );
     }
 
     #[test]
@@ -159,6 +175,7 @@ mod tests {
             reasoning_effort: Some(ReasoningEffort::High),
             extra_body: Some(extra_body),
             disable_tools: true,
+            allowed_tools: Some(vec!["read_file".into(), "grep_search".into()]),
         };
 
         let encoded = serde_json::to_vec(&config).expect("serialize model config");

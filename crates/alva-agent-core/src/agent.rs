@@ -125,6 +125,16 @@ impl Agent {
         config.model_config.disable_tools = disabled;
     }
 
+    /// Per-turn manual tool allow-list. `Some(names)` restricts the next
+    /// `run()` to exactly those tools; `None` clears the restriction. The
+    /// agent's registered tool set is untouched, so a later turn can widen the
+    /// selection again — this is the non-destructive counterpart to
+    /// `retain_tools`, meant for a UI control that changes per turn.
+    pub async fn set_allowed_tools(&self, allowed: Option<Vec<String>>) {
+        let mut config = self.config.write().await;
+        config.model_config.allowed_tools = allowed;
+    }
+
     /// Access the bus for out-of-band communication (e.g. injecting
     /// steering messages, reading capability registrations).
     pub fn bus(&self) -> &BusHandle {
