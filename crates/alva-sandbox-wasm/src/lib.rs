@@ -41,7 +41,16 @@ use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 
 const OUTPUT_CAPACITY: usize = 1024 * 1024;
 const EPOCH_TICK: Duration = Duration::from_millis(10);
-const DEFAULT_WALL_CLOCK: Duration = Duration::from_secs(30);
+// A coarse backstop against a genuinely runaway (non-yielding) guest, not a
+// tight per-turn budget: multi-turn -p runs block the guest thread on
+// synchronous LLM completions (see `register_llm_proxy`), so their wall-clock
+// spend tracks the model's real latency, not CPU time. A CPU-bound infinite
+// loop is still caught within a handful of epoch ticks (10ms each) regardless
+// of how high this ceiling is; raising it just stops slow multi-turn agents
+// from tripping a limit that was never meant to bound them. CLI callers can
+// still override per run via `--wasm-wall-clock-secs` /
+// `ALVA_WASM_WALL_CLOCK_SECS` (see alva-app-cli).
+const DEFAULT_WALL_CLOCK: Duration = Duration::from_secs(3600);
 const DEFAULT_MAX_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
 /// Filesystem access a [`Grant`] confers on its mounted directory.

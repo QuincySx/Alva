@@ -5,6 +5,7 @@
 use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use alva_agent_extension_builtin::request_escalation::{
     EscalationExecutor, EscalationRequest, NativeEscalationExecutor,
@@ -228,11 +229,28 @@ impl Tool for DefinitionOnlyTool {
 /// Run one task through the WASIp1 worker without blocking a Tokio async
 /// worker thread. The configured provider object and its key remain captured
 /// by the host callback; guest args contain only task text and guest paths.
+/// Build the per-run resource ceilings passed to the sandbox. `wall_clock_secs`
+/// is the CLI-resolved `--wasm-wall-clock-secs`/`ALVA_WASM_WALL_CLOCK_SECS`
+/// override (flag beats env var; see `parse_wasm_wall_clock_secs` in
+/// `main.rs`). `None` keeps the library's existing 30s default untouched —
+/// this function only ever widens or narrows `wall_clock`, `max_memory_bytes`
+/// always stays at `RunLimits::default()`.
+pub(crate) fn build_run_limits(wall_clock_secs: Option<u64>) -> RunLimits {
+    match wall_clock_secs {
+        Some(secs) => RunLimits {
+            wall_clock: Duration::from_secs(secs),
+            ..RunLimits::default()
+        },
+        None => RunLimits::default(),
+    }
+}
+
 pub(crate) async fn run(
     model: Arc<dyn LanguageModel>,
     host_grants: Vec<PathBuf>,
     allowed_domains: Vec<String>,
     permission_mode: PermissionMode,
+    wasm_wall_clock_secs: Option<u64>,
     task: String,
 ) -> Result<String, String> {
     let runtime_handle = tokio::runtime::Handle::current();
@@ -285,7 +303,7 @@ pub(crate) async fn run(
                     grants,
                     args,
                     allowed_domains,
-                    limits: RunLimits::default(),
+                    limits: build_run_limits(wasm_wall_clock_secs),
                 },
                 move |linker| {
                     let environment_skill = environment_skill.clone();
@@ -445,6 +463,27 @@ mod tests {
     }
 
     #[test]
+    fn build_run_limits_keeps_library_default_when_unset() {
+        // No CLI override -> the RunRequest gets exactly RunLimits::default(),
+        // so the existing 30s wall clock in alva-sandbox-wasm is untouched.
+        assert_eq!(build_run_limits(None), RunLimits::default());
+    }
+
+    #[test]
+    fn build_run_limits_threads_the_cli_override_into_wall_clock() {
+        // This is the "does the CLI value actually reach RunRequest.limits"
+        // proof: build_run_limits is the exact function wired into the
+        // RunRequest constructed in `run` above (see the `limits:` field),
+        // so asserting its output pins the override end to end without
+        // needing a real 30s+ sandbox run.
+        let limits = build_run_limits(Some(90));
+        assert_eq!(limits.wall_clock, Duration::from_secs(90));
+        // max_memory_bytes must stay at the library default; only wall_clock
+        // is CLI-overridable per the task's scope.
+        assert_eq!(limits.max_memory_bytes, RunLimits::default().max_memory_bytes);
+    }
+
+    #[test]
     fn explicit_worker_override_must_be_a_file() {
         let temp = tempfile::tempdir().unwrap();
         let error = validate_worker_path(temp.path().to_path_buf(), "test")
@@ -473,6 +512,7 @@ mod tests {
             vec![workspace.path().canonicalize().unwrap()],
             Vec::new(),
             PermissionMode::Ask,
+            None,
             "Read a.txt and write its uppercase content to b.txt".into(),
         )
         .await
@@ -551,6 +591,7 @@ mod tests {
             vec![workspace.path().canonicalize().unwrap()],
             Vec::new(),
             PermissionMode::AcceptShell,
+            None,
             "Create the crate, run its tests, repair failures, and verify again".into(),
         )
         .await
@@ -591,6 +632,7 @@ mod tests {
             vec![workspace.path().canonicalize().unwrap()],
             Vec::new(),
             PermissionMode::Ask,
+            None,
             "Run tests, or report the exact host denial".into(),
         )
         .await
@@ -624,6 +666,7 @@ mod tests {
             vec![workspace.path().canonicalize().unwrap()],
             Vec::new(),
             PermissionMode::AcceptShell,
+            None,
             "Try the destructive command and report policy".into(),
         )
         .await

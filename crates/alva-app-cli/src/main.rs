@@ -334,6 +334,13 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
                 return 1;
             }
         };
+        let wasm_wall_clock_secs = match parse_wasm_wall_clock_secs(&argv) {
+            Ok(secs) => secs,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return 1;
+            }
+        };
         let model = alva_llm_provider::build_language_model(config.kind.as_deref(), config.clone());
         let started = std::time::Instant::now();
         let result = wasm_sandbox::run(
@@ -341,6 +348,7 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
             grants,
             allowed_domains,
             permission_mode,
+            wasm_wall_clock_secs,
             invocation.prompt,
         )
         .await;
@@ -887,7 +895,8 @@ fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, S
     while index < args.len() {
         match args[index].as_str() {
             "-p" | "--print" => index += 1,
-            "--sandbox" | "--grant" | "--allow-domain" | "--provider" => index += 2,
+            "--sandbox" | "--grant" | "--allow-domain" | "--provider"
+            | "--wasm-wall-clock-secs" => index += 2,
             "--output-format" => {
                 match args.get(index + 1).map(String::as_str) {
                     Some("json") => output_json = true,
@@ -986,6 +995,14 @@ FLAGS:
     --allow-domain <HOST>         -p --sandbox wasm: allow synchronous script
                                   fetch to one exact host or `*.host`; repeatable.
                                   Ports are ignored; empty list denies all fetch.
+    --wasm-wall-clock-secs <N>    -p --sandbox wasm: override the guest's wall-clock
+                                  runaway backstop in seconds (default 3600s); also
+                                  settable via ALVA_WASM_WALL_CLOCK_SECS (flag wins).
+                                  This traps a non-yielding guest, not slow models —
+                                  a run blocks on synchronous LLM completions, so this
+                                  clock is spent waiting on the model too; model-call
+                                  latency itself is bounded separately (provider HTTP
+                                  read timeout, stream-aware).
     --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
                                   tools (discover names via `alva tools list`).
     --max-turns <N>               Turn budget for this run (default 20). Lets an
@@ -1146,6 +1163,55 @@ fn parse_permission_mode(args: &[String]) -> Result<Option<alva_app_core::Permis
     Ok(Some(mode))
 }
 
+/// Parse the wasm-tier wall-clock override: `--wasm-wall-clock-secs <N>` on
+/// argv, falling back to `ALVA_WASM_WALL_CLOCK_SECS` when the flag is absent
+/// (flag wins if both are set). `N` must be a positive integer number of
+/// seconds.
+///
+/// Thin env-reading wrapper around [`wasm_wall_clock_secs_from`], which does
+/// the actual parsing and is unit-tested directly (mirrors the
+/// `recursion_gate`/`env_depth` split above: passing the env value as a
+/// parameter keeps the parsing logic testable without mutating process env,
+/// which would race across parallel `#[test]` threads).
+fn parse_wasm_wall_clock_secs(args: &[String]) -> Result<Option<u64>, String> {
+    wasm_wall_clock_secs_from(args, std::env::var("ALVA_WASM_WALL_CLOCK_SECS").ok())
+}
+
+/// - `Ok(None)` — neither source set; caller keeps `alva-sandbox-wasm`'s
+///   built-in wall-clock default (`RunLimits::default()` is untouched).
+/// - `Ok(Some(secs))` — override to thread into `RunRequest.limits.wall_clock`.
+/// - `Err(msg)` — flag present but the value is missing/not a positive
+///   integer, or the env var is set but unparseable.
+fn wasm_wall_clock_secs_from(
+    args: &[String],
+    env_value: Option<String>,
+) -> Result<Option<u64>, String> {
+    if let Some(pos) = args.iter().position(|a| a == "--wasm-wall-clock-secs") {
+        let raw = args.get(pos + 1).ok_or_else(|| {
+            "--wasm-wall-clock-secs requires a positive integer number of seconds".to_string()
+        })?;
+        let secs: u64 = raw.parse().map_err(|_| {
+            format!("--wasm-wall-clock-secs expects a positive integer, got {raw:?}")
+        })?;
+        if secs == 0 {
+            return Err("--wasm-wall-clock-secs must be greater than 0".to_string());
+        }
+        return Ok(Some(secs));
+    }
+    match env_value {
+        Some(raw) if !raw.is_empty() => {
+            let secs: u64 = raw.trim().parse().map_err(|_| {
+                format!("ALVA_WASM_WALL_CLOCK_SECS expects a positive integer, got {raw:?}")
+            })?;
+            if secs == 0 {
+                return Err("ALVA_WASM_WALL_CLOCK_SECS must be greater than 0".to_string());
+            }
+            Ok(Some(secs))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Human-facing label for a permission mode (matches the `--permission-mode`
 /// flag spelling).
 fn permission_mode_label(mode: alva_app_core::PermissionMode) -> &'static str {
@@ -1211,6 +1277,14 @@ mod tests {
         assert!(
             u.contains("Linux `os` confines"),
             "states stronger Linux read boundary: {u}"
+        );
+        assert!(
+            u.contains("--wasm-wall-clock-secs"),
+            "lists the wasm wall-clock override flag: {u}"
+        );
+        assert!(
+            u.contains("ALVA_WASM_WALL_CLOCK_SECS"),
+            "documents the env var fallback: {u}"
         );
     }
 
@@ -1359,5 +1433,82 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(invocation.prompt, "run tests");
+    }
+
+    #[test]
+    fn wasm_prompt_parser_consumes_wall_clock_flag_without_leaking_into_prompt() {
+        let grant = tempfile::tempdir().unwrap();
+        let invocation = parse_wasm_print_invocation(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            grant.path().to_str().unwrap(),
+            "--wasm-wall-clock-secs",
+            "120",
+            "run tests",
+        ]))
+        .unwrap();
+        assert_eq!(invocation.prompt, "run tests");
+    }
+
+    #[test]
+    fn wasm_wall_clock_absent_flag_and_env_is_none() {
+        // Nothing set on either source -> caller keeps
+        // alva-sandbox-wasm's RunLimits::default() untouched.
+        assert_eq!(
+            wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), None),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn wasm_wall_clock_flag_parses_and_overrides_env() {
+        assert_eq!(
+            wasm_wall_clock_secs_from(
+                &argv(&["alva", "-p", "--wasm-wall-clock-secs", "90"]),
+                None
+            ),
+            Ok(Some(90))
+        );
+        // Flag wins over env when both are present.
+        assert_eq!(
+            wasm_wall_clock_secs_from(
+                &argv(&["alva", "-p", "--wasm-wall-clock-secs", "90"]),
+                Some("5".to_string())
+            ),
+            Ok(Some(90))
+        );
+    }
+
+    #[test]
+    fn wasm_wall_clock_falls_back_to_env_when_flag_absent() {
+        assert_eq!(
+            wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("7200".to_string())),
+            Ok(Some(7200))
+        );
+    }
+
+    #[test]
+    fn wasm_wall_clock_rejects_missing_zero_and_non_numeric_values() {
+        assert!(
+            wasm_wall_clock_secs_from(&argv(&["alva", "--wasm-wall-clock-secs"]), None).is_err()
+        );
+        assert!(wasm_wall_clock_secs_from(
+            &argv(&["alva", "--wasm-wall-clock-secs", "0"]),
+            None
+        )
+        .is_err());
+        assert!(wasm_wall_clock_secs_from(
+            &argv(&["alva", "--wasm-wall-clock-secs", "soon"]),
+            None
+        )
+        .is_err());
+        assert!(
+            wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("0".to_string())).is_err()
+        );
+        assert!(wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("nope".to_string()))
+            .is_err());
     }
 }
