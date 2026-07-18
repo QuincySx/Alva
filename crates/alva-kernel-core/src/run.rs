@@ -362,18 +362,15 @@ pub async fn run_agent(
 ) -> Result<(), AgentError> {
     state.extensions.insert(cancel.clone());
 
-    // 1. Lifecycle: on_agent_start
-    config
-        .middleware
-        .run_on_agent_start(state)
-        .await
-        .map_err(MiddlewareError::into_agent_error)?;
-
     let agent_id = state.session.session_id().to_string();
     let mut context_runtime = ContextRuntime::new(agent_id.clone());
-    context_runtime.bootstrap(config).await;
 
-    // Emit AgentStart
+    // Emit AgentStart + run_start up front, BEFORE any fallible startup step.
+    // This makes the terminal cleanup below unconditional: every run that
+    // reaches this point gets exactly one paired terminal (AgentEnd +
+    // run_end + on_agent_end + dispose), even if `on_agent_start` or
+    // `input_committed` fails. Previously those paths `?`-returned and the
+    // consumer just saw the event stream close with no AgentEnd.
     let _ = event_tx.send(AgentEvent::AgentStart);
 
     // --- Session skeleton: run_start ---
@@ -388,57 +385,68 @@ pub async fn run_agent(
     )
     .await;
 
-    // --- Session skeleton: component_registry ---
-    // Collect descriptors for every tool and middleware in this run.
-    let mut components: Vec<ComponentDescriptor> = Vec::new();
-    for tool in &state.tools {
-        components.push(ComponentDescriptor {
-            kind: EmitterKind::Tool,
-            id: tool.name().to_string(),
-            name: tool.name().to_string(),
-        });
-    }
-    for mw_name in config.middleware.names() {
-        components.push(ComponentDescriptor {
-            kind: EmitterKind::Middleware,
-            id: mw_name.clone(),
-            name: mw_name,
-        });
-    }
-    emit_runtime_event(
-        &state.session,
-        "component_registry",
-        Some(run_start_uuid.clone()),
-        Some(serde_json::json!({ "components": components })),
-    )
-    .await;
-
-    // 2. Store input messages in session + collect context injections.
-    for msg in input {
-        state.session.append_message(msg.clone(), None).await;
+    // Fallible body: on the first error we stop running it but still fall
+    // through to the finalizer. The `async` block scopes the borrows of
+    // `state` / `context_runtime` so they are free again for cleanup.
+    let result: Result<(), AgentError> = async {
+        // 1. Lifecycle: on_agent_start
         config
             .middleware
-            .run_input_committed(state, &msg)
+            .run_on_agent_start(state)
             .await
             .map_err(MiddlewareError::into_agent_error)?;
-        context_runtime.on_message(config, &msg).await;
-    }
+        context_runtime.bootstrap(config).await;
 
-    // 3. Main loop
-    let mut error: Option<String> = None;
-    let result = run_loop(
-        state,
-        config,
-        &cancel,
-        &event_tx,
-        &run_start_uuid,
-        &mut context_runtime,
-    )
+        // --- Session skeleton: component_registry ---
+        // Collect descriptors for every tool and middleware in this run.
+        let mut components: Vec<ComponentDescriptor> = Vec::new();
+        for tool in &state.tools {
+            components.push(ComponentDescriptor {
+                kind: EmitterKind::Tool,
+                id: tool.name().to_string(),
+                name: tool.name().to_string(),
+            });
+        }
+        for mw_name in config.middleware.names() {
+            components.push(ComponentDescriptor {
+                kind: EmitterKind::Middleware,
+                id: mw_name.clone(),
+                name: mw_name,
+            });
+        }
+        emit_runtime_event(
+            &state.session,
+            "component_registry",
+            Some(run_start_uuid.clone()),
+            Some(serde_json::json!({ "components": components })),
+        )
+        .await;
+
+        // 2. Store input messages in session + collect context injections.
+        for msg in input {
+            state.session.append_message(msg.clone(), None).await;
+            config
+                .middleware
+                .run_input_committed(state, &msg)
+                .await
+                .map_err(MiddlewareError::into_agent_error)?;
+            context_runtime.on_message(config, &msg).await;
+        }
+
+        // 3. Main loop
+        run_loop(
+            state,
+            config,
+            &cancel,
+            &event_tx,
+            &run_start_uuid,
+            &mut context_runtime,
+        )
+        .await
+    }
     .await;
 
-    if let Err(ref e) = result {
-        error = Some(e.to_string());
-    }
+    let error: Option<String> = result.as_ref().err().map(|e| e.to_string());
 
     // 4. Lifecycle: on_agent_end
     if let Err(e) = config

@@ -1618,3 +1618,105 @@ async fn cancel_during_blocked_stream_aborts_mid_flight() {
         "expected AgentError::Cancelled, got: {result:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A startup-path failure still produces exactly one terminal + cleanup
+// ---------------------------------------------------------------------------
+
+/// Fails `on_agent_start`, and records whether `on_agent_end` ran (and saw
+/// the error). Pins finding #5: a failure in the startup path must still
+/// drive the run to a single clean terminal (AgentEnd + on_agent_end),
+/// rather than `?`-returning and leaving the consumer's event stream to
+/// just close.
+struct FailStartLifecycleProbe {
+    end_calls: Arc<AtomicUsize>,
+    end_with_error: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Middleware for FailStartLifecycleProbe {
+    async fn on_agent_start(&self, _state: &mut AgentState) -> Result<(), MiddlewareError> {
+        Err(MiddlewareError::from(AgentError::ConfigError(
+            "boom in on_agent_start".into(),
+        )))
+    }
+
+    async fn on_agent_end(
+        &self,
+        _state: &mut AgentState,
+        error: Option<&str>,
+    ) -> Result<(), MiddlewareError> {
+        self.end_calls.fetch_add(1, Ordering::SeqCst);
+        if error.is_some() {
+            self.end_with_error.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn startup_failure_still_emits_agent_end_and_runs_cleanup() {
+    let end_calls = Arc::new(AtomicUsize::new(0));
+    let end_with_error = Arc::new(AtomicUsize::new(0));
+
+    let mut stack = MiddlewareStack::new();
+    stack.push(Arc::new(FailStartLifecycleProbe {
+        end_calls: end_calls.clone(),
+        end_with_error: end_with_error.clone(),
+    }));
+
+    let mut state = make_state();
+    let config = AgentConfig {
+        middleware: stack,
+        system_prompt: vec![],
+        max_iterations: 100,
+        model_config: ModelConfig::default(),
+        context_window: 0,
+        workspace: None,
+        bus: None,
+        context_system: None,
+        context_token_budget: None,
+    };
+    let cancel = CancellationToken::new();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let result = run_agent(
+        &mut state,
+        &config,
+        cancel,
+        vec![AgentMessage::Standard(Message::user("hi"))],
+        tx,
+    )
+    .await;
+
+    // The startup error still propagates as the run's Result...
+    assert!(
+        matches!(result, Err(AgentError::ConfigError(_))),
+        "startup error must surface as the run result, got: {result:?}"
+    );
+
+    // ...but the consumer gets a clean terminal event carrying it, not a
+    // silently-closed stream.
+    let mut events = vec![];
+    while let Ok(e) = rx.try_recv() {
+        events.push(e);
+    }
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::AgentEnd { error: Some(_) })),
+        "on_agent_start failure must still emit AgentEnd{{error}}; events: {events:?}"
+    );
+
+    // ...and on_agent_end still runs exactly once, observing the error.
+    assert_eq!(
+        end_calls.load(Ordering::SeqCst),
+        1,
+        "on_agent_end must run exactly once even when startup failed"
+    );
+    assert_eq!(
+        end_with_error.load(Ordering::SeqCst),
+        1,
+        "on_agent_end must observe the startup error"
+    );
+}
