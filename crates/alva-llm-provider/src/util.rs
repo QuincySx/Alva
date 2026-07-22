@@ -27,8 +27,23 @@ pub(crate) fn http_client() -> reqwest::Client {
     client_with_timeouts(CONNECT_TIMEOUT, READ_TIMEOUT)
 }
 
+/// Browser-like User-Agent for LLM provider requests. Some API endpoints sit
+/// behind Cloudflare, which blocks a default `reqwest/x.y` User-Agent as a bot
+/// (HTTP 403 "error code: 1010"); a browser UA passes. Overridable via the
+/// `ALVA_HTTP_USER_AGENT` env var (same var alva-bot's probes read); the
+/// default below is used when it is unset or empty. Applies to every model call.
+const DEFAULT_LLM_HTTP_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+fn llm_http_user_agent() -> String {
+    std::env::var("ALVA_HTTP_USER_AGENT")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_LLM_HTTP_USER_AGENT.to_string())
+}
+
 fn client_with_timeouts(connect: Duration, read: Duration) -> reqwest::Client {
     reqwest::Client::builder()
+        .user_agent(llm_http_user_agent())
         .connect_timeout(connect)
         .read_timeout(read)
         .build()
