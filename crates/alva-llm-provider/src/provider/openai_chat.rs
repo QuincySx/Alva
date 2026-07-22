@@ -367,6 +367,20 @@ impl LanguageModel for OpenAIChatProvider {
                             return;
                         }
 
+                        // Diagnostic: dump the raw frame whenever it carries a
+                        // tool call, so a provider that streams non-standard
+                        // tool_call framing (missing/duplicate `index`, empty
+                        // `id`, whole-arguments-in-one-delta) can be seen
+                        // verbatim instead of only through the mangled result.
+                        // Gated on the substring so normal content/reasoning
+                        // frames stay out of the log.
+                        if data.contains("tool_calls") {
+                            tracing::debug!(
+                                frame = crate::util::preview_body(data),
+                                "SSE tool_calls frame"
+                            );
+                        }
+
                         let event: Value = match serde_json::from_str(data) {
                             Ok(v) => v,
                             Err(e) => {
