@@ -214,9 +214,21 @@ impl GrepSearchTool {
                 .collect()
         });
 
-        // Walk directory with .gitignore support (synchronous)
+        // Walk directory with .gitignore support (synchronous). A missing
+        // search root is model-recoverable, not fatal: return an error tool
+        // result with a hint instead of propagating `?` (which the worker loop
+        // turns into a fatal run failure).
         let search_root_str = search_root.to_str().unwrap_or_default();
-        let file_paths = walk_dir_filtered(search_root_str, None, false)?;
+        let file_paths = match walk_dir_filtered(search_root_str, None, false) {
+            Ok(paths) => paths,
+            Err(error) => {
+                return Ok(ToolOutput::error(format!(
+                    "Cannot search '{search_root_str}': {error}. It may not exist \
+                     in this workspace. List the workspace root (list_files with \
+                     no path) to see what exists, then retry with a valid path."
+                )));
+            }
+        };
 
         let mut match_count = 0;
         let mut output_entries: Vec<String> = Vec::new();

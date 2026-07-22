@@ -78,8 +78,20 @@ impl FindFilesTool {
             message: format!("Invalid glob pattern '{}': {}", params.pattern, e),
         })?;
 
-        // Walk directory tree (hidden files excluded by default, .gitignore respected)
-        let all_paths = crate::walkdir::walk_dir_filtered(search_root_str, None, false)?;
+        // Walk directory tree (hidden files excluded by default, .gitignore
+        // respected). A missing search root is model-recoverable, not fatal:
+        // return an error tool result with a hint instead of propagating `?`
+        // (which the worker loop turns into a fatal run failure).
+        let all_paths = match crate::walkdir::walk_dir_filtered(search_root_str, None, false) {
+            Ok(paths) => paths,
+            Err(error) => {
+                return Ok(ToolOutput::error(format!(
+                    "Cannot search '{search_root_str}': {error}. It may not exist \
+                     in this workspace. List the workspace root (list_files with \
+                     no path) to see what exists, then retry with a valid path."
+                )));
+            }
+        };
 
         // Match glob against relative path and file name, collecting entries
         let workspace_str = workspace.to_str().unwrap_or_default();
