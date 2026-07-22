@@ -170,13 +170,26 @@ impl StreamMessageAccumulator {
             content.push(ContentBlock::Text { text: self.text });
         }
         for (id, name, arguments) in self.tool_calls {
-            let input = serde_json::from_str(&arguments).map_err(|source| {
-                StreamMessageError::InvalidToolArguments {
-                    id: id.clone(),
-                    name: name.clone(),
-                    source,
-                }
-            })?;
+            // Many models (and every no-argument tool call) emit an empty
+            // arguments string rather than "{}". `serde_json::from_str("")`
+            // then fails with "EOF while parsing a value", and as a
+            // StreamMessageError that is *fatal* to the whole run. Normalize
+            // empty/whitespace-only arguments to an empty object so the call
+            // still reaches tool dispatch: a no-arg tool runs fine, and a tool
+            // that requires fields fails its own `from_value` with a
+            // *recoverable* ToolError (surfaced to the model as an is_error
+            // tool_result to retry from) instead of crashing the agent loop.
+            let input = if arguments.trim().is_empty() {
+                serde_json::Value::Object(serde_json::Map::new())
+            } else {
+                serde_json::from_str(&arguments).map_err(|source| {
+                    StreamMessageError::InvalidToolArguments {
+                        id: id.clone(),
+                        name: name.clone(),
+                        source,
+                    }
+                })?
+            };
             content.push(ContentBlock::ToolUse { id, name, input });
         }
 
@@ -241,6 +254,33 @@ mod tests {
             &message.content[2],
             ContentBlock::ToolUse { id, name, input }
                 if id == "call-1" && name == "read_file" && input == &json!({"path": "a.txt"})
+        ));
+    }
+
+    /// A model (or any no-argument tool call) can emit an empty arguments
+    /// string instead of `"{}"`. `serde_json::from_str("")` fails with "EOF
+    /// while parsing a value", which as a StreamMessageError used to be *fatal*
+    /// to the whole run (observed as `wasm worker exited with code 1: ...
+    /// invalid tool arguments ... EOF while parsing`). It must instead
+    /// normalize to an empty object so the call still reaches tool dispatch —
+    /// a required-field tool then fails its own `from_value` with a
+    /// *recoverable* ToolError the model can retry from.
+    #[test]
+    fn empty_tool_arguments_normalize_to_empty_object() {
+        let message = message_from_events(
+            [StreamEvent::ToolCallStart {
+                id: "call-1".into(),
+                name: "read_file".into(),
+            }],
+            "response-1",
+            7,
+        )
+        .expect("empty tool arguments must not fail message assembly");
+
+        assert!(matches!(
+            &message.content[0],
+            ContentBlock::ToolUse { id, name, input }
+                if id == "call-1" && name == "read_file" && input == &json!({})
         ));
     }
 
