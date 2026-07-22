@@ -236,44 +236,74 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                 }
                 if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
                     for tc in tool_calls {
-                        let index = tc.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-                        // Track whether this is the first time we've seen this index
-                        // (→ emit ToolCallStart) vs a subsequent argument delta.
-                        let raw_id = tc.get("id").and_then(Value::as_str);
-                        let already_tracked = state.block_type.contains_key(&index);
-                        let id = match (raw_id, state.block_type.get(&index).cloned()) {
-                            (Some(r), _) => tool_id::to_normalized(r),
-                            (None, Some(cached)) => cached,
-                            _ => String::new(),
-                        };
-                        if !id.is_empty() && !already_tracked {
-                            state.block_type.insert(index, id.clone());
-                            state.tool_input_buf.entry(id.clone()).or_default();
-                        }
+                        // Demux streaming tool calls the way battle-tested
+                        // OpenAI-compatible clients do, tolerating third-party
+                        // endpoints that don't stream the canonical framing:
+                        //   * `index` is OPTIONAL (missing → None, never coerced
+                        //     to 0 — coercing collapses distinct calls together);
+                        //   * an empty-string `id` counts as absent;
+                        //   * a call seen with neither a known index nor an id is
+                        //     a fresh whole-in-one-delta call, given a synthetic
+                        //     id so its arguments never merge with another's.
+                        let raw_index =
+                            tc.get("index").and_then(Value::as_u64).map(|i| i as usize);
+                        let raw_id = tc
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .filter(|s| !s.is_empty());
                         let function = tc.get("function").unwrap_or(&Value::Null);
                         let name = function
                             .get("name")
                             .and_then(Value::as_str)
+                            .filter(|s| !s.is_empty())
                             .map(String::from);
-                        // First sighting of this index → emit ToolCallStart before deltas.
-                        if !already_tracked && !id.is_empty() {
+                        let args_delta = function
+                            .get("arguments")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+
+                        // Resolve the alva-internal id for this call, and whether
+                        // this is its first sighting (→ emit ToolCallStart).
+                        let (id, is_new) = if let Some(rid) = raw_id {
+                            let norm = tool_id::to_normalized(rid);
+                            let is_new = match raw_index {
+                                Some(idx) => {
+                                    let existed = state.block_type.contains_key(&idx);
+                                    state.block_type.insert(idx, norm.clone());
+                                    !existed
+                                }
+                                None => !state.tool_input_buf.contains_key(&norm),
+                            };
+                            (norm, is_new)
+                        } else if let Some(idx) = raw_index {
+                            match state.block_type.get(&idx).cloned() {
+                                Some(existing) => (existing, false),
+                                None => {
+                                    let synth = state.next_synthetic_tool_id();
+                                    state.block_type.insert(idx, synth.clone());
+                                    (synth, true)
+                                }
+                            }
+                        } else {
+                            // Neither index nor id: a fresh, un-indexed whole call.
+                            (state.next_synthetic_tool_id(), true)
+                        };
+
+                        if is_new {
+                            state.tool_input_buf.entry(id.clone()).or_default();
                             out.push(StreamEvent::ToolCallStart {
                                 id: id.clone(),
                                 name: name.clone().unwrap_or_default(),
                             });
                         }
-                        let args_delta = function
-                            .get("arguments")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        if !args_delta.is_empty() && !id.is_empty() {
+                        if !args_delta.is_empty() {
                             state
                                 .tool_input_buf
                                 .entry(id.clone())
                                 .or_default()
                                 .push_str(args_delta);
                             out.push(StreamEvent::ToolCallDelta {
-                                id: id.clone(),
+                                id,
                                 name,
                                 arguments_delta: args_delta.to_string(),
                             });
@@ -967,6 +997,82 @@ mod tests {
                 reason: StopReason::ToolUse
             }
         ));
+    }
+
+    /// Regression (observed with onekeytest's `deepseek-v4-pro`): a
+    /// third-party OpenAI-compatible endpoint streamed each tool call *whole*
+    /// in one delta with an empty `id` and no `index`. The old decoder coerced
+    /// the missing index to 0 and the empty id to a bare `toolu_`, so BOTH
+    /// calls landed in one buffer and their arguments concatenated into invalid
+    /// JSON (`{"path":"a"}{"path":"b"}` → "trailing characters at column 22",
+    /// which was fatal to the whole run). They must remain two distinct calls
+    /// with separate arguments.
+    #[test]
+    fn decode_stream_whole_tool_calls_without_index_or_id_stay_separate() {
+        let mut state = StreamDecodeState::new();
+        let mut events = Vec::new();
+        for path in ["a.md", "b.md"] {
+            let chunk = serde_json::json!({
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{
+                            "id": "",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": format!("{{\"path\":\"{path}\"}}"),
+                            }
+                        }]
+                    }
+                }]
+            });
+            events.extend(
+                OpenAIChatAdapter
+                    .decode_stream_event(&chunk, &mut state)
+                    .unwrap(),
+            );
+        }
+        let message = crate::accumulate::message_from_events(events, "resp", 0)
+            .expect("two whole tool calls must assemble, not fail on merged arguments");
+        let tool_uses: Vec<_> = message
+            .content
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::ToolUse { id, name, input } => {
+                    Some((id.clone(), name.clone(), input.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tool_uses.len(), 2, "the two calls must not collapse into one");
+        assert_ne!(tool_uses[0].0, tool_uses[1].0, "distinct calls need distinct ids");
+        assert!(tool_uses.iter().all(|(_, name, _)| name == "read_file"));
+        assert_eq!(tool_uses[0].2["path"], "a.md");
+        assert_eq!(tool_uses[1].2["path"], "b.md");
+    }
+
+    /// An explicit empty-string `id` must be treated as absent, never
+    /// normalized into a bare `toolu_` bucket that distinct calls would share.
+    #[test]
+    fn decode_stream_empty_string_id_is_treated_as_absent() {
+        let mut state = StreamDecodeState::new();
+        let chunk = serde_json::json!({
+            "choices": [{ "delta": { "tool_calls": [{
+                "index": 0,
+                "id": "",
+                "function": { "name": "list_files", "arguments": "{}" }
+            }]}}]
+        });
+        let out = OpenAIChatAdapter
+            .decode_stream_event(&chunk, &mut state)
+            .unwrap();
+        match &out[0] {
+            StreamEvent::ToolCallStart { id, name } => {
+                assert_ne!(id, "toolu_", "empty id must not become a bare toolu_ prefix");
+                assert!(id.starts_with("toolu_"));
+                assert_eq!(name, "list_files");
+            }
+            other => panic!("expected ToolCallStart, got {other:?}"),
+        }
     }
 
     #[test]

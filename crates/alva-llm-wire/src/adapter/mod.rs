@@ -221,6 +221,13 @@ pub struct StreamDecodeState {
     /// to dispatch the following `data:` payload to the right handler.
     /// Providers clear it after each event.
     pub event_type: Option<String>,
+    /// Monotonic counter for synthesizing a distinct tool-call id when a
+    /// provider streams a tool call with neither a usable `index` nor an
+    /// `id` (some OpenAI-compatible endpoints emit each whole tool call in
+    /// one delta with an empty id). Without a synthetic id such calls all
+    /// collapse onto one buffer and their arguments concatenate into
+    /// invalid JSON ("trailing characters"). Reset per stream.
+    pub tool_call_seq: usize,
 }
 
 impl StreamDecodeState {
@@ -235,6 +242,16 @@ impl StreamDecodeState {
         self.tool_input_buf.clear();
         self.block_type.clear();
         self.event_type = None;
+        self.tool_call_seq = 0;
+    }
+
+    /// Mint a fresh, normalized synthetic tool-call id for a call a provider
+    /// streamed without a usable `index` or `id`. Distinct per call within a
+    /// stream, so whole-in-one-delta calls stay separate instead of merging.
+    pub fn next_synthetic_tool_id(&mut self) -> String {
+        let id = common::tool_id::to_normalized(&format!("stream_{}", self.tool_call_seq));
+        self.tool_call_seq += 1;
+        id
     }
 }
 
