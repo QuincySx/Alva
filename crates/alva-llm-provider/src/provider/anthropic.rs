@@ -215,7 +215,7 @@ impl LanguageModel for AnthropicProvider {
         let body_str = serde_json::to_string(&body).unwrap_or_default();
         tracing::debug!(
             body_len = body_str.len(),
-            body_preview = truncate_for_log(&body_str, 500),
+            body_preview = crate::util::preview_body(&body_str),
             "LLM request body"
         );
 
@@ -258,7 +258,7 @@ impl LanguageModel for AnthropicProvider {
         tracing::debug!(
             status = %status,
             body_len = resp_text.len(),
-            body_preview = truncate_for_log(&resp_text, 500),
+            body_preview = crate::util::preview_body(&resp_text),
             "LLM response"
         );
 

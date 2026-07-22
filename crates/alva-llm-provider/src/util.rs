@@ -50,6 +50,27 @@ fn client_with_timeouts(connect: Duration, read: Duration) -> reqwest::Client {
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
+/// Byte budget for the request/response `body_preview` fields in provider
+/// debug logs. Defaults to 500 so console logs stay readable, but is
+/// overridable via `ALVA_LOG_BODY_PREVIEW_CHARS` — raise it (e.g. to 20000)
+/// when capturing full multi-turn requests to a debug log file to diagnose a
+/// provider-side 400 whose offending field sits past the first 500 bytes.
+/// Only affects the body previews; the small SSE-chunk previews keep their own
+/// fixed limits.
+fn body_preview_len() -> usize {
+    std::env::var("ALVA_LOG_BODY_PREVIEW_CHARS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(500)
+}
+
+/// Truncate an HTTP body for a `body_preview` log field, honoring
+/// `ALVA_LOG_BODY_PREVIEW_CHARS` (see [`body_preview_len`]).
+pub(crate) fn preview_body(s: &str) -> &str {
+    truncate_for_log(s, body_preview_len())
+}
+
 /// UTF-8 safe slice for use in `tracing` macros' body/data/chunk
 /// preview fields. Naive `&s[..s.len().min(N)]` panics if byte N
 /// lands inside a multi-byte char — realistic for HTTP response
