@@ -47,6 +47,8 @@ struct PartialConfig {
     pub base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_headers: Option<std::collections::HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
 }
@@ -59,6 +61,7 @@ impl PartialConfig {
             model: other.model.or(self.model),
             base_url: other.base_url.or(self.base_url),
             max_tokens: other.max_tokens.or(self.max_tokens),
+            custom_headers: other.custom_headers.or(self.custom_headers),
             kind: other.kind.or(self.kind),
         }
     }
@@ -78,6 +81,7 @@ impl PartialConfig {
             max_tokens: std::env::var("ALVA_MAX_TOKENS")
                 .ok()
                 .and_then(|s| s.parse().ok()),
+            custom_headers: None,
             kind: std::env::var("ALVA_PROVIDER_KIND")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -86,15 +90,16 @@ impl PartialConfig {
 
     fn into_config(self) -> Result<ProviderConfig, String> {
         let api_key = self.api_key.unwrap_or_default();
+        let kind = self.kind;
         Ok(ProviderConfig {
             api_key,
             model: self.model.unwrap_or_else(|| "gpt-4o".to_string()),
             base_url: self
                 .base_url
-                .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                .unwrap_or_else(|| crate::default_base_url(kind.as_deref()).to_string()),
             max_tokens: self.max_tokens.unwrap_or(8192),
-            custom_headers: std::collections::HashMap::new(),
-            kind: self.kind,
+            custom_headers: self.custom_headers.unwrap_or_default(),
+            kind,
         })
     }
 }
@@ -277,6 +282,7 @@ mod tests {
             model: Some("base-model".into()),
             base_url: None,
             max_tokens: Some(4096),
+            custom_headers: None,
             kind: None,
         };
         let overlay = PartialConfig {
@@ -284,6 +290,7 @@ mod tests {
             model: Some("overlay-model".into()),
             base_url: Some("https://custom.api".into()),
             max_tokens: None,
+            custom_headers: None,
             kind: None,
         };
         let merged = base.merge(overlay);
@@ -304,6 +311,25 @@ mod tests {
         assert_eq!(config.model, "gpt-4o");
         assert_eq!(config.base_url, "https://api.openai.com/v1");
         assert_eq!(config.max_tokens, 8192);
+    }
+
+    #[test]
+    fn into_config_uses_provider_specific_default_base_url() {
+        for (kind, expected) in [
+            ("anthropic", "https://api.anthropic.com"),
+            ("gemini", "https://generativelanguage.googleapis.com"),
+            ("openai-responses", "https://api.openai.com"),
+            ("openai-chat", "https://api.openai.com/v1"),
+        ] {
+            let config = PartialConfig {
+                kind: Some(kind.into()),
+                ..Default::default()
+            }
+            .into_config()
+            .unwrap();
+
+            assert_eq!(config.base_url, expected, "wrong default for {kind}");
+        }
     }
 
     #[test]
@@ -335,12 +361,14 @@ mod tests {
     #[test]
     fn save_and_load_project_config() {
         let tmp = tempfile::tempdir().unwrap();
+        let custom_headers =
+            std::collections::HashMap::from([("x-provider-key".into(), "secret".into())]);
         let config = ProviderConfig {
             api_key: "test-key".into(),
             model: "test-model".into(),
             base_url: "https://test.api/v1".into(),
             max_tokens: 4096,
-            custom_headers: std::collections::HashMap::new(),
+            custom_headers: custom_headers.clone(),
             kind: None,
         };
         let path = config.save_project(tmp.path()).unwrap();
@@ -349,5 +377,10 @@ mod tests {
         let loaded = PartialConfig::from_file(&path).unwrap();
         assert_eq!(loaded.api_key.as_deref(), Some("test-key"));
         assert_eq!(loaded.model.as_deref(), Some("test-model"));
+        assert_eq!(
+            loaded.into_config().unwrap().custom_headers,
+            custom_headers,
+            "custom headers must survive the save/load round trip"
+        );
     }
 }

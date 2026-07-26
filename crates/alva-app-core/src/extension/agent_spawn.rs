@@ -91,7 +91,7 @@ impl AgentTemplateRegistry for InMemoryAgentTemplateRegistry {
 /// Build a dedicated [`LanguageModel`] for a sub-agent from its template's
 /// [`AgentModelConfig`] (own model id, endpoint, provider kind, and key).
 /// The key is taken from `api_key`, else read from `api_key_env`, else empty.
-fn build_template_model(cfg: &AgentModelConfig) -> Arc<dyn LanguageModel> {
+fn template_provider_config(cfg: &AgentModelConfig) -> alva_llm_provider::ProviderConfig {
     use alva_llm_provider::ProviderConfig;
 
     let api_key = cfg
@@ -106,14 +106,20 @@ fn build_template_model(cfg: &AgentModelConfig) -> Arc<dyn LanguageModel> {
         })
         .unwrap_or_default();
 
-    let provider_config = ProviderConfig {
+    ProviderConfig {
         api_key,
         model: cfg.model.clone(),
-        base_url: cfg.base_url.clone().unwrap_or_default(),
+        base_url: cfg.base_url.clone().unwrap_or_else(|| {
+            alva_llm_provider::default_base_url(cfg.provider_kind.as_deref()).to_string()
+        }),
         max_tokens: cfg.max_tokens.unwrap_or(4096),
         custom_headers: std::collections::HashMap::new(),
         kind: cfg.provider_kind.clone(),
-    };
+    }
+}
+
+fn build_template_model(cfg: &AgentModelConfig) -> Arc<dyn LanguageModel> {
+    let provider_config = template_provider_config(cfg);
 
     // Single kind→provider switch lives in alva-llm-provider (PR-10).
     alva_llm_provider::build_language_model(cfg.provider_kind.as_deref(), provider_config)
@@ -1138,6 +1144,31 @@ mod tests {
         let model = build_template_model(&cfg);
         assert_eq!(model.model_id(), "qwen3.5");
         std::env::remove_var("ALVA_TEST_SUBAGENT_KEY");
+    }
+
+    #[test]
+    fn template_provider_config_uses_provider_default_when_base_url_is_omitted() {
+        for (kind, expected) in [
+            ("anthropic", "https://api.anthropic.com"),
+            ("gemini", "https://generativelanguage.googleapis.com"),
+            ("openai-responses", "https://api.openai.com"),
+            ("openai-chat", "https://api.openai.com/v1"),
+        ] {
+            let cfg = AgentModelConfig {
+                model: "test-model".into(),
+                base_url: None,
+                provider_kind: Some(kind.into()),
+                api_key: Some("test-key".into()),
+                api_key_env: None,
+                max_tokens: None,
+            };
+
+            assert_eq!(
+                template_provider_config(&cfg).base_url,
+                expected,
+                "wrong sub-agent default for {kind}"
+            );
+        }
     }
 
     #[test]
