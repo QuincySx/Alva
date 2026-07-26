@@ -57,12 +57,21 @@ impl GeminiProvider {
     }
 
     fn endpoint(&self, op: &str) -> String {
-        format!(
-            "{}/v1beta/models/{}:{}",
-            self.base_url.trim_end_matches('/'),
-            self.model,
-            op,
-        )
+        gemini_endpoint(&self.base_url, &self.model, op)
+    }
+}
+
+fn gemini_endpoint(base_url: &str, model: &str, op: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.contains("/publishers/google") {
+        let models_root = if base.ends_with("/models") {
+            base.to_string()
+        } else {
+            format!("{base}/models")
+        };
+        format!("{models_root}/{model}:{op}")
+    } else {
+        format!("{base}/v1beta/models/{model}:{op}")
     }
 }
 
@@ -371,6 +380,7 @@ mod tests {
     //! Provider-specific regression test. Helper-level coverage lives
     //! in `crate::util::tests`; here we keep the Japanese-locale
     //! regression for Gemini (common locale for this provider).
+    use super::gemini_endpoint;
     use crate::util::truncate_for_log;
 
     #[test]
@@ -382,5 +392,33 @@ mod tests {
         let out = truncate_for_log(&s, 500);
         assert!(out.len() <= 500);
         assert!(out.is_char_boundary(out.len()));
+    }
+
+    #[test]
+    fn endpoint_supports_gemini_developer_and_vertex_publisher_roots() {
+        assert_eq!(
+            gemini_endpoint(
+                "https://generativelanguage.googleapis.com",
+                "gemini-3.6-flash",
+                "generateContent"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+        );
+        assert_eq!(
+            gemini_endpoint(
+                "https://us-central1-aiplatform.googleapis.com/v1/projects/acme/locations/us-central1/publishers/google",
+                "gemini-3.6-flash",
+                "streamGenerateContent"
+            ),
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/acme/locations/us-central1/publishers/google/models/gemini-3.6-flash:streamGenerateContent"
+        );
+        assert_eq!(
+            gemini_endpoint(
+                "https://us-central1-aiplatform.googleapis.com/v1/projects/acme/locations/us-central1/publishers/google/models/",
+                "gemini-3.6-flash",
+                "generateContent"
+            ),
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/acme/locations/us-central1/publishers/google/models/gemini-3.6-flash:generateContent"
+        );
     }
 }
