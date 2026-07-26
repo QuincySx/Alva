@@ -195,26 +195,18 @@ async fn run_set(args: &[String]) -> i32 {
         );
         return 2;
     };
-    let mut api_key: Option<String> = None;
-    let mut model: Option<String> = None;
-    let mut base_url: Option<String> = None;
-    let mut kind_flag: Option<String> = None;
-    let mut i = 1;
-    while i < args.len() {
-        let key = &args[i];
-        let val = args.get(i + 1).cloned();
-        match key.as_str() {
-            "--api-key" => api_key = val,
-            "--model" => model = val,
-            "--base-url" => base_url = val,
-            "--kind" => kind_flag = val,
-            other => {
-                eprintln!("unknown flag: {other}");
-                return 2;
-            }
+    let SetFlags {
+        api_key,
+        model,
+        base_url,
+        kind: kind_flag,
+    } = match parse_set_flags(&args[1..]) {
+        Ok(flags) => flags,
+        Err(error) => {
+            eprintln!("{error}");
+            return 2;
         }
-        i += 2;
-    }
+    };
 
     if let Some(k) = &kind_flag {
         if !KNOWN_KINDS.contains(&k.as_str()) {
@@ -272,6 +264,46 @@ async fn run_set(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+#[derive(Default)]
+struct SetFlags {
+    api_key: Option<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+    kind: Option<String>,
+}
+
+fn parse_set_flags(args: &[String]) -> Result<SetFlags, String> {
+    let mut parsed = SetFlags::default();
+    let mut seen = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        if !matches!(flag, "--api-key" | "--model" | "--base-url" | "--kind") {
+            return Err(format!("unknown flag: {flag}"));
+        }
+        if seen.contains(&flag) {
+            return Err(format!("{flag} may only be specified once"));
+        }
+        seen.push(flag);
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| format!("{flag} requires a value"))?
+            .clone();
+        if value.starts_with('-') {
+            return Err(format!("{flag} requires a value, got flag {value:?}"));
+        }
+        match flag {
+            "--api-key" => parsed.api_key = Some(value),
+            "--model" => parsed.model = Some(value),
+            "--base-url" => parsed.base_url = Some(value),
+            "--kind" => parsed.kind = Some(value),
+            _ => unreachable!("validated settings flag"),
+        }
+        index += 2;
+    }
+    Ok(parsed)
 }
 
 async fn run_active(args: &[String]) -> i32 {
@@ -749,5 +781,19 @@ mod tests {
         let core = rows.iter().find(|row| row.id == "core").expect("core row");
         assert!(core.enabled);
         assert_eq!(core.source, "default");
+    }
+
+    #[test]
+    fn settings_set_flags_reject_missing_duplicate_and_unknown_values() {
+        let strings = |values: &[&str]| {
+            values
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect::<Vec<_>>()
+        };
+        assert!(parse_set_flags(&strings(&["--api-key"])).is_err());
+        assert!(parse_set_flags(&strings(&["--model", "one", "--model", "two"])).is_err());
+        assert!(parse_set_flags(&strings(&["--modle", "one"])).is_err());
+        assert!(parse_set_flags(&strings(&["--api-key", "--model", "one"])).is_err());
     }
 }

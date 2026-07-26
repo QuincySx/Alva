@@ -27,10 +27,13 @@ pub async fn run(args: &[String]) -> i32 {
 }
 
 fn list(args: &[String]) -> i32 {
-    let json_mode = matches!(
-        args.iter().position(|a| a == "--output-format"),
-        Some(i) if args.get(i + 1).map(String::as_str) == Some("json")
-    );
+    let json_mode = match parse_output_format(args) {
+        Ok(mode) => mode,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return 2;
+        }
+    };
 
     let cfg = config::load().unwrap_or_default();
     let active = cfg.active.as_deref();
@@ -80,4 +83,37 @@ fn list(args: &[String]) -> i32 {
         );
     }
     0
+}
+
+fn parse_output_format(args: &[String]) -> Result<bool, String> {
+    match args {
+        [] => Ok(false),
+        [flag, value] if flag == "--output-format" && value == "json" => Ok(true),
+        [flag, value] if flag == "--output-format" && value == "text" => Ok(false),
+        [flag, value] if flag == "--output-format" => Err(format!(
+            "--output-format expects `text` or `json`, got {value:?}"
+        )),
+        _ => Err("usage: alva providers list [--output-format <text|json>]".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn output_format_parser_is_strict() {
+        assert_eq!(parse_output_format(&[]), Ok(false));
+        assert_eq!(
+            parse_output_format(&args(&["--output-format", "json"])),
+            Ok(true)
+        );
+        assert!(parse_output_format(&args(&["--output-format"])).is_err());
+        assert!(parse_output_format(&args(&["--output-format", "yaml"])).is_err());
+        assert!(parse_output_format(&args(&["--typo"])).is_err());
+    }
 }

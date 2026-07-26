@@ -23,6 +23,7 @@
 mod agent_setup;
 mod bundled_skills;
 mod checkpoint;
+mod cli_args;
 mod commands;
 mod context;
 mod event_handler;
@@ -126,6 +127,10 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
         Some("context") => return context::run(&argv[2..]).await,
         Some("settings") => return settings_cmd::run(&argv[2..]).await,
         _ => {}
+    }
+    if let Err(error) = cli_args::validate_invocation_args(&argv) {
+        eprintln!("Error: {error}");
+        return 1;
     }
 
     let sandbox_config = match parse_sandbox_args(&argv) {
@@ -533,12 +538,17 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
                 i += 1;
                 continue;
             }
+            if a == "--" {
+                prompt_args.extend(args[i + 1..].iter().cloned());
+                break;
+            }
             if a == "--permission-mode"
                 || a == "--system-prompt"
                 || a == "--provider"
                 || a == "--max-turns"
                 || a == "--sandbox"
                 || a == "--grant"
+                || a == "--ui-mode"
             {
                 i += 2; // skip the flag and its value (all consumed pre-build)
                 continue;
@@ -741,6 +751,10 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
     let mut i = 1;
     while i < argv.len() {
         let a = &argv[i];
+        if a == "--" {
+            prompt_arg = argv.get(i + 1).cloned();
+            break;
+        }
         if a == "--ui-mode" || a == "--permission-mode" {
             i += 2; // flag + its value
             continue;
@@ -937,6 +951,10 @@ fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, S
     while index < args.len() {
         match args[index].as_str() {
             "-p" | "--print" => index += 1,
+            "--" => {
+                prompt_args.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--sandbox"
             | "--grant"
             | "--allow-domain"
@@ -1519,6 +1537,13 @@ mod tests {
         .unwrap();
         assert!(invocation.allow_unsandboxed_escalation);
         assert_eq!(invocation.prompt, "run host command");
+    }
+
+    #[test]
+    fn wasm_prompt_parser_accepts_dash_prefixed_prompt_after_delimiter() {
+        let invocation =
+            parse_wasm_print_invocation(&argv(&["alva", "-p", "--", "--literal-prompt"])).unwrap();
+        assert_eq!(invocation.prompt, "--literal-prompt");
     }
 
     #[test]

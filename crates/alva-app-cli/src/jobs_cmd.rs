@@ -76,7 +76,7 @@ pub async fn run(args: &[String]) -> i32 {
         Some("wait") => wait(&args[1..]).await,
         Some("status") => status(&args[1..]),
         Some("result") => result(&args[1..]),
-        Some("list") => list(),
+        Some("list") => list(&args[1..]),
         other => Err(format!(
             "alva jobs: unknown subcommand {:?}\n\
              Usage: alva jobs <submit|wait|status|result|list>",
@@ -96,24 +96,25 @@ pub async fn run(args: &[String]) -> i32 {
 /// Env (ALVA_* model selection) is inherited by the child, so model choice
 /// works exactly like a synchronous dispatch.
 fn submit(rest: &[String]) -> Result<i32, String> {
-    if rest.is_empty() {
-        return Err("jobs submit needs a prompt (and optional -p flags)".into());
-    }
+    let prompt = validate_submit_args(rest)?;
     let job_id = uuid::Uuid::new_v4().to_string();
     let dir = jobs_root()?.join(&job_id);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create job dir: {e}"))?;
+    create_private_dir(&dir).map_err(|e| format!("create job dir: {e}"))?;
 
     let result_path = dir.join("result.json");
     let stderr_path = dir.join("stderr.log");
     let result_file =
-        std::fs::File::create(&result_path).map_err(|e| format!("create result file: {e}"))?;
+        create_private_file(&result_path).map_err(|e| format!("create result file: {e}"))?;
     let stderr_file =
-        std::fs::File::create(&stderr_path).map_err(|e| format!("create stderr log: {e}"))?;
+        create_private_file(&stderr_path).map_err(|e| format!("create stderr log: {e}"))?;
     let tools_log_path = dir.join(JOB_TOOLS_LOG_FILE);
-    std::fs::File::create(&tools_log_path).map_err(|e| format!("create tool log: {e}"))?;
+    create_private_file(&tools_log_path).map_err(|e| format!("create tool log: {e}"))?;
 
     let exe = std::env::current_exe().map_err(|e| format!("resolve alva binary: {e}"))?;
-    let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
+    let workspace =
+        std::env::current_dir().map_err(|e| format!("resolve current workspace: {e}"))?;
+    let support_paths = serde_json::to_string(&[&result_path, &stderr_path, &tools_log_path])
+        .map_err(|e| format!("serialize job support paths: {e}"))?;
 
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("-p")
@@ -123,11 +124,7 @@ fn submit(rest: &[String]) -> Result<i32, String> {
         // The child is the host in both native and wasm tiers. WASI args,
         // env, and preopens never receive this path.
         .env(JOB_TOOLS_LOG_ENV, &tools_log_path)
-        .env(
-            OS_SANDBOX_WRITE_FILES_ENV,
-            serde_json::to_string(&[&result_path, &stderr_path, &tools_log_path])
-                .expect("job support paths serialize"),
-        )
+        .env(OS_SANDBOX_WRITE_FILES_ENV, support_paths)
         .stdin(std::process::Stdio::null())
         .stdout(result_file)
         .stderr(stderr_file);
@@ -138,20 +135,23 @@ fn submit(rest: &[String]) -> Result<i32, String> {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    let child = cmd.spawn().map_err(|e| format!("spawn worker: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("spawn worker: {e}"))?;
 
     let meta = JobMeta {
         job_id: job_id.clone(),
         pid: child.id(),
-        prompt: rest.join(" "),
+        prompt,
         workspace: workspace.display().to_string(),
         created_at_ms: chrono::Utc::now().timestamp_millis(),
     };
-    std::fs::write(
-        dir.join("meta.json"),
-        serde_json::to_string_pretty(&meta).unwrap(),
-    )
-    .map_err(|e| format!("write job meta: {e}"))?;
+    let meta_json =
+        serde_json::to_vec_pretty(&meta).map_err(|e| format!("serialize job meta: {e}"))?;
+    if let Err(error) = write_private_file(&dir.join("meta.json"), &meta_json) {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(format!("write job meta: {error}"));
+    }
     // Deliberately NOT waiting on the child: the whole point is to return
     // now. (The pid probe tolerates the zombie window on the rare path
     // where we outlive the child — kill(0) still succeeds on zombies, and
@@ -165,18 +165,105 @@ fn submit(rest: &[String]) -> Result<i32, String> {
     Ok(0)
 }
 
+fn validate_submit_args(rest: &[String]) -> Result<String, String> {
+    if rest.is_empty() {
+        return Err("jobs submit needs a prompt (and optional -p flags)".into());
+    }
+    let mut prompt = Vec::new();
+    let mut index = 0;
+    while index < rest.len() {
+        match rest[index].as_str() {
+            "-p" | "--print" | "--output-format" => {
+                return Err(format!(
+                    "jobs submit owns {}; remove it (job results are always JSON)",
+                    rest[index]
+                ))
+            }
+            "--sandbox"
+            | "--grant"
+            | "--allow-domain"
+            | "--provider"
+            | "--permission-mode"
+            | "--max-turns"
+            | "--wasm-wall-clock-secs"
+            | "--wasm-fuel"
+            | "--allowed-tools"
+            | "--system-prompt"
+            | "--resume"
+            | "--ui-mode" => {
+                let value = rest
+                    .get(index + 1)
+                    .ok_or_else(|| format!("{} requires a value", rest[index]))?;
+                if value.starts_with('-') {
+                    return Err(format!(
+                        "{} requires a value, got flag {value:?}",
+                        rest[index]
+                    ));
+                }
+                index += 2;
+            }
+            "--dangerously-allow-unsandboxed" => index += 1,
+            "--" => {
+                prompt.extend(rest[index + 1..].iter().cloned());
+                break;
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("jobs submit: unknown flag {value:?}"));
+            }
+            value => {
+                prompt.push(value.to_string());
+                index += 1;
+            }
+        }
+    }
+    if prompt.is_empty() {
+        return Err("jobs submit needs a positional prompt; stdin is not available to jobs".into());
+    }
+    Ok(prompt.join(" "))
+}
+
+fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    let mut file = create_private_file(path)?;
+    file.write_all(contents)?;
+    file.sync_all()
+}
+
 /// Block until the job completes, then print the result object (same shape
 /// as `-p --output-format json`) and exit by its is_error. The polling is
 /// an internal detail — callers get blocking semantics, not a poll loop.
 async fn wait(rest: &[String]) -> Result<i32, String> {
     let id = rest.first().ok_or("jobs wait needs a job id")?;
-    let timeout: Option<u64> = match rest.iter().position(|a| a == "--timeout-secs") {
-        Some(i) => Some(
-            rest.get(i + 1)
-                .and_then(|v| v.parse().ok())
-                .ok_or("--timeout-secs expects a number")?,
+    let timeout: Option<u64> = match &rest[1..] {
+        [] => None,
+        [flag, value] if flag == "--timeout-secs" => Some(
+            value
+                .parse()
+                .map_err(|_| "--timeout-secs expects a number")?,
         ),
-        None => None,
+        _ => return Err("usage: alva jobs wait <job-id> [--timeout-secs <seconds>]".to_string()),
     };
     let dir = job_dir(id)?;
     let meta = load_meta(&dir)?;
@@ -210,7 +297,9 @@ async fn wait(rest: &[String]) -> Result<i32, String> {
 }
 
 fn status(rest: &[String]) -> Result<i32, String> {
-    let id = rest.first().ok_or("jobs status needs a job id")?;
+    let [id] = rest else {
+        return Err("usage: alva jobs status <job-id>".to_string());
+    };
     let dir = job_dir(id)?;
     let meta = load_meta(&dir)?;
     let state = match read_state(&dir, &meta) {
@@ -233,7 +322,9 @@ fn status(rest: &[String]) -> Result<i32, String> {
 }
 
 fn result(rest: &[String]) -> Result<i32, String> {
-    let id = rest.first().ok_or("jobs result needs a job id")?;
+    let [id] = rest else {
+        return Err("usage: alva jobs result <job-id>".to_string());
+    };
     let dir = job_dir(id)?;
     let meta = load_meta(&dir)?;
     match read_state(&dir, &meta) {
@@ -246,7 +337,10 @@ fn result(rest: &[String]) -> Result<i32, String> {
     }
 }
 
-fn list() -> Result<i32, String> {
+fn list(rest: &[String]) -> Result<i32, String> {
+    if !rest.is_empty() {
+        return Err("usage: alva jobs list".to_string());
+    }
     let root = jobs_root()?;
     let mut rows = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&root) {
@@ -270,4 +364,50 @@ fn list() -> Result<i32, String> {
     rows.sort_by_key(|r| -r["created_at_ms"].as_i64().unwrap_or(0));
     println!("{}", serde_json::json!(rows));
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn submit_rejects_flags_owned_by_job_runner() {
+        for values in [
+            vec!["--output-format", "text", "prompt"],
+            vec!["-p", "prompt"],
+            vec!["--print", "prompt"],
+        ] {
+            let error = validate_submit_args(&args(&values)).unwrap_err();
+            assert!(error.contains("jobs submit owns"), "{error}");
+        }
+    }
+
+    #[test]
+    fn submit_requires_a_positional_prompt_and_valid_flag_values() {
+        assert!(validate_submit_args(&args(&["--max-turns", "3"])).is_err());
+        assert!(validate_submit_args(&args(&["--max-turns"])).is_err());
+        assert!(
+            validate_submit_args(&args(&["--max-turns", "--provider", "fast", "prompt"])).is_err()
+        );
+        assert!(validate_submit_args(&args(&["--typo", "prompt"])).is_err());
+    }
+
+    #[test]
+    fn submit_extracts_prompt_without_recording_flag_values() {
+        let prompt = validate_submit_args(&args(&[
+            "--provider",
+            "fast",
+            "--max-turns",
+            "3",
+            "fix",
+            "the",
+            "tests",
+        ]))
+        .unwrap();
+        assert_eq!(prompt, "fix the tests");
+    }
 }
