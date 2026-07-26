@@ -44,7 +44,7 @@ mod wasm_sandbox;
 
 use std::io::{self, IsTerminal as _, Read as _};
 
-use alva_app_core::AlvaPaths;
+use alva_app_core::{AlvaPaths, PermissionMode};
 use alva_kernel_abi::agent_session::EventQuery;
 use alva_kernel_abi::AgentSession;
 use alva_llm_provider::ProviderConfig;
@@ -334,6 +334,19 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
                 return 1;
             }
         };
+        if invocation.allow_unsandboxed_escalation && permission_mode != PermissionMode::Bypass {
+            eprintln!(
+                "Error: --dangerously-allow-unsandboxed host escalation requires \
+                 --permission-mode bypass under --sandbox wasm"
+            );
+            return 1;
+        }
+        if invocation.allow_unsandboxed_escalation {
+            eprintln!(
+                "WARNING: host escalation may execute outside the WASM sandbox because \
+                 --permission-mode bypass and --dangerously-allow-unsandboxed were both set"
+            );
+        }
         let wasm_wall_clock_secs = match parse_wasm_wall_clock_secs(&argv) {
             Ok(secs) => secs,
             Err(error) => {
@@ -348,6 +361,8 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
             grants,
             allowed_domains,
             permission_mode,
+            invocation.allow_unsandboxed_escalation,
+            max_turns.unwrap_or(20),
             wasm_wall_clock_secs,
             invocation.prompt,
         )
@@ -883,6 +898,7 @@ fn parse_sandbox_args(args: &[String]) -> Result<Option<SandboxTierConfig>, Stri
 struct WasmPrintInvocation {
     prompt: String,
     output_json: bool,
+    allow_unsandboxed_escalation: bool,
 }
 
 /// Collect the headless prompt while removing wasm/provider/output flag pairs.
@@ -891,11 +907,15 @@ struct WasmPrintInvocation {
 fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, String> {
     let mut prompt_args = Vec::new();
     let mut output_json = false;
+    let mut allow_unsandboxed_escalation = false;
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
             "-p" | "--print" => index += 1,
-            "--sandbox" | "--grant" | "--allow-domain" | "--provider"
+            "--sandbox"
+            | "--grant"
+            | "--allow-domain"
+            | "--provider"
             | "--wasm-wall-clock-secs" => index += 2,
             "--output-format" => {
                 match args.get(index + 1).map(String::as_str) {
@@ -911,11 +931,12 @@ fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, S
                 index += 2;
             }
             "--permission-mode" => index += 2,
-            "--resume"
-            | "--allowed-tools"
-            | "--system-prompt"
-            | "--max-turns"
-            | "--dangerously-allow-unsandboxed" => {
+            "--max-turns" => index += 2,
+            "--dangerously-allow-unsandboxed" => {
+                allow_unsandboxed_escalation = true;
+                index += 1;
+            }
+            "--resume" | "--allowed-tools" | "--system-prompt" => {
                 return Err(format!(
                     "{} is not supported with --sandbox wasm",
                     args[index]
@@ -944,6 +965,7 @@ fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, S
     Ok(WasmPrintInvocation {
         prompt,
         output_json,
+        allow_unsandboxed_escalation,
     })
 }
 
@@ -1008,8 +1030,10 @@ FLAGS:
     --max-turns <N>               Turn budget for this run (default 20). Lets an
                                   orchestrator bound a cheap-model worker.
     --dangerously-allow-unsandboxed  -p: allow accept-shell/bypass on platforms
-                                  with NO OS sandbox. Only inside an isolated
-                                  environment (container/VM/CI).
+                                  with NO OS sandbox. With --sandbox wasm, this
+                                  is additionally required before bypass may
+                                  execute host escalation outside the guest.
+                                  Only inside an isolated container/VM/CI.
     --output-format <text|json>   -p output: `text` streams the reply (default);
                                   `json` emits one object {result, is_error, error,
                                   session_id, usage, duration_ms} for orchestrators.
@@ -1021,6 +1045,8 @@ FLAGS:
                                     accept-shell  Auto-approve shell when the classifier deems it
                                                   safe/unknown; destructive commands blocked.
                                                   Best for headless/sandboxed runs.
+                                                  Under --sandbox wasm, host escalation remains
+                                                  blocked because it executes outside the guest.
                                     plan          Read-only: no file writes or commands.
                                     bypass        Allow everything, no prompts ('dangerously
                                                   skip permissions'); assumes a sandbox.
@@ -1036,7 +1062,7 @@ RECURSION:
 EXAMPLES:
     alva -p \"summarize README.md\"
     alva -p --permission-mode accept-shell \"run the test suite and report failures\"
-    alva -p --sandbox wasm --grant . --permission-mode accept-shell \"fix and test\"
+    alva -p --sandbox wasm --grant . --permission-mode accept-shell \"edit with in-guest tools\"
     alva -p --sandbox os-write --grant . --permission-mode accept-shell \"fix and test\"
     alva -p --permission-mode bypass \"format the repo\"        # CI / sandbox only
 "
@@ -1436,6 +1462,41 @@ mod tests {
     }
 
     #[test]
+    fn wasm_prompt_parser_consumes_max_turns_without_rejecting_it() {
+        let grant = tempfile::tempdir().unwrap();
+        let invocation = parse_wasm_print_invocation(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            grant.path().to_str().unwrap(),
+            "--max-turns",
+            "7",
+            "bounded task",
+        ]))
+        .unwrap();
+        assert_eq!(invocation.prompt, "bounded task");
+    }
+
+    #[test]
+    fn wasm_prompt_parser_consumes_explicit_host_escape_flag() {
+        let invocation = parse_wasm_print_invocation(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            ".",
+            "--dangerously-allow-unsandboxed",
+            "run host command",
+        ]))
+        .unwrap();
+        assert!(invocation.allow_unsandboxed_escalation);
+        assert_eq!(invocation.prompt, "run host command");
+    }
+
+    #[test]
     fn wasm_prompt_parser_consumes_wall_clock_flag_without_leaking_into_prompt() {
         let grant = tempfile::tempdir().unwrap();
         let invocation = parse_wasm_print_invocation(&argv(&[
@@ -1466,10 +1527,7 @@ mod tests {
     #[test]
     fn wasm_wall_clock_flag_parses_and_overrides_env() {
         assert_eq!(
-            wasm_wall_clock_secs_from(
-                &argv(&["alva", "-p", "--wasm-wall-clock-secs", "90"]),
-                None
-            ),
+            wasm_wall_clock_secs_from(&argv(&["alva", "-p", "--wasm-wall-clock-secs", "90"]), None),
             Ok(Some(90))
         );
         // Flag wins over env when both are present.
@@ -1495,20 +1553,18 @@ mod tests {
         assert!(
             wasm_wall_clock_secs_from(&argv(&["alva", "--wasm-wall-clock-secs"]), None).is_err()
         );
-        assert!(wasm_wall_clock_secs_from(
-            &argv(&["alva", "--wasm-wall-clock-secs", "0"]),
-            None
-        )
-        .is_err());
+        assert!(
+            wasm_wall_clock_secs_from(&argv(&["alva", "--wasm-wall-clock-secs", "0"]), None)
+                .is_err()
+        );
         assert!(wasm_wall_clock_secs_from(
             &argv(&["alva", "--wasm-wall-clock-secs", "soon"]),
             None
         )
         .is_err());
+        assert!(wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("0".to_string())).is_err());
         assert!(
-            wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("0".to_string())).is_err()
+            wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("nope".to_string())).is_err()
         );
-        assert!(wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("nope".to_string()))
-            .is_err());
     }
 }

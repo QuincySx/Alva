@@ -1,5 +1,5 @@
 // INPUT:  std::{path, string, sync, thread, time}, alva_llm_wire, alva_sandbox_abi, reqwest, thiserror, wasmtime, wasmtime_wasi::{p1, pipe, WasiCtxBuilder}
-// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, AuditEvent, proxy registrars, translate_guest_cwd, validate_allowed_domain_pattern, run_module
+// OUTPUT: Access, Grant, RunLimits, RunRequest, RunOutcome, SandboxError, SandboxRunner, SandboxStoreData, MAX_WASM_MODULE_BYTES, AuditEvent, proxy registrars, translate_guest_cwd, validate_allowed_domain_pattern, run_module
 // POS:    Native WASIp1 runner boundary enforcing per-call filesystem/network grants, context delivery, escalation mapping, resource limits, and captured results.
 
 //! Host-side runner for WASIp1 command modules.
@@ -8,9 +8,9 @@
 //! by Wasmtime and exposed as one WASI preopen for the lifetime of a single
 //! run.
 //!
-//! Hold a [`SandboxRunner`] to compile many jobs against one shared
-//! [`Engine`] (its code cache survives across runs); every run still gets a
-//! fresh `Store` + WASI context, so isolation is per-run. [`run_module`] is a
+//! Hold a [`SandboxRunner`] to execute many jobs against one shared [`Engine`]
+//! configuration; every run compiles its supplied module and gets a fresh
+//! `Store` + WASI context, so isolation is per-run. [`run_module`] is a
 //! one-shot convenience that builds a throwaway runner.
 
 mod context_proxy;
@@ -40,6 +40,11 @@ use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 
 const OUTPUT_CAPACITY: usize = 1024 * 1024;
+/// Maximum encoded module size accepted before Wasmtime validation/compilation.
+///
+/// Store memory and epoch limits begin only after compilation, so this
+/// host-side byte ceiling bounds the otherwise-unmetered compiler input.
+pub const MAX_WASM_MODULE_BYTES: usize = 64 * 1024 * 1024;
 const EPOCH_TICK: Duration = Duration::from_millis(10);
 // A coarse backstop against a genuinely runaway (non-yielding) guest, not a
 // tight per-turn budget: multi-turn -p runs block the guest thread on
@@ -114,8 +119,9 @@ impl Grant {
 /// Resource ceilings for one WASIp1 module invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunLimits {
-    /// Maximum elapsed wall-clock time before the host advances the engine
-    /// epoch and traps the guest.
+    /// Maximum elapsed wall-clock time before the engine epoch traps executing
+    /// guest instructions. Synchronous host imports must enforce their own
+    /// deadline because epoch interruption cannot preempt callback code.
     pub wall_clock: Duration,
     /// Maximum bytes for each WebAssembly linear memory in the store.
     pub max_memory_bytes: usize,
@@ -184,6 +190,10 @@ pub struct RunOutcome {
 /// Failure to configure or execute a guest module.
 #[derive(Debug, Error)]
 pub enum SandboxError {
+    /// The encoded module exceeds the pre-compilation host input ceiling.
+    #[error("WASIp1 module is {actual} bytes; limit is {limit} bytes")]
+    ModuleTooLarge { actual: usize, limit: usize },
+
     /// The supplied bytes are not a module accepted by Wasmtime.
     #[error("failed to compile WASIp1 module: {0}")]
     Module(#[source] wasmtime::Error),
@@ -233,10 +243,9 @@ pub enum SandboxError {
 /// A reusable host runner that owns one shared [`Engine`].
 ///
 /// Wasmtime is designed for one `Engine` shared across many `Store`s: the
-/// engine carries the compiled-code cache, while each `Store` is the
-/// isolation boundary. Constructing a runner once and calling [`run`] per job
-/// lets repeated jobs reuse that cache; every run still builds a fresh WASI
-/// context and `Store`, so no state leaks between runs.
+/// engine carries shared compilation configuration/resources, while each
+/// `Store` is the isolation boundary. Every run compiles its supplied bytes and
+/// builds a fresh WASI context and `Store`, so no state leaks between runs.
 ///
 /// [`run`]: SandboxRunner::run
 pub struct SandboxRunner {
@@ -322,6 +331,7 @@ impl SandboxRunner {
     {
         let limits = req.limits;
         let allowed_domains = req.allowed_domains;
+        enforce_module_size(req.module.len())?;
         let module = Module::new(&self.inner.engine, &req.module).map_err(SandboxError::Module)?;
 
         let stdout = MemoryOutputPipe::new(OUTPUT_CAPACITY);
@@ -437,11 +447,40 @@ fn epoch_ticks(wall_clock: Duration) -> u64 {
     u64::try_from(ticks.max(1)).unwrap_or(u64::MAX)
 }
 
+fn enforce_module_size(actual: usize) -> Result<(), SandboxError> {
+    if actual > MAX_WASM_MODULE_BYTES {
+        Err(SandboxError::ModuleTooLarge {
+            actual,
+            limit: MAX_WASM_MODULE_BYTES,
+        })
+    } else {
+        Ok(())
+    }
+}
+
 /// Runs one WASIp1 command module with only the requested filesystem grants.
 ///
 /// One-shot convenience over [`SandboxRunner`]: builds a throwaway runner
 /// with its own engine. Callers running many jobs should hold a
-/// [`SandboxRunner`] instead so the compiled-code cache is reused.
+/// [`SandboxRunner`] to reuse engine configuration/resources.
 pub fn run_module(req: RunRequest) -> Result<RunOutcome, SandboxError> {
     SandboxRunner::new().run(req)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_size_is_rejected_before_compilation() {
+        assert!(enforce_module_size(MAX_WASM_MODULE_BYTES).is_ok());
+        let error = enforce_module_size(MAX_WASM_MODULE_BYTES + 1).unwrap_err();
+        assert!(matches!(
+            error,
+            SandboxError::ModuleTooLarge {
+                actual,
+                limit: MAX_WASM_MODULE_BYTES
+            } if actual == MAX_WASM_MODULE_BYTES + 1
+        ));
+    }
 }

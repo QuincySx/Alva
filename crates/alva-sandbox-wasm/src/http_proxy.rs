@@ -1,6 +1,6 @@
-// INPUT:  crate::SandboxStoreData, alva_sandbox_abi DTOs/limits, reqwest::blocking, serde_json, std::{io, net, str, time}, wasmtime
+// INPUT:  crate::SandboxStoreData, alva_sandbox_abi DTOs/limits, reqwest::blocking, serde_json, std::{io, net, str, sync, time}, wasmtime
 // OUTPUT: register_http_proxy (crate), validate_allowed_domain_pattern
-// POS:    Host-enforced blocking HTTP fetch bridge with fail-closed domain grants and per-hop redirect validation.
+// POS:    Host-enforced blocking HTTP fetch bridge with call budget, fail-closed domain grants, and per-hop redirect validation.
 
 use crate::SandboxStoreData;
 use alva_sandbox_abi::{
@@ -14,10 +14,12 @@ use reqwest::{Method, StatusCode, Url};
 use std::io::{self, Read};
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 use wasmtime::{Caller, Extern, Linker};
 
 const MAX_REDIRECTS: usize = 10;
+const MAX_FETCH_CALLS_PER_RUN: u32 = 256;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -155,11 +157,20 @@ pub(crate) fn register_http_proxy(
         .connect_timeout(HTTP_CONNECT_TIMEOUT)
         .build()
         .map_err(|error| wasmtime::Error::msg(format!("build fetch HTTP client: {error}")))?;
+    let fetch_calls = AtomicU32::new(0);
 
     linker.func_wrap(
         "alva:host/http",
         "fetch",
         move |mut caller: Caller<'_, SandboxStoreData>, req_ptr: i32, req_len: i32| {
+            if !reserve_fetch_call(&fetch_calls) {
+                return write_result(
+                    &mut caller,
+                    &FetchProxyResult::failure(format!(
+                        "fetch call budget exhausted: {MAX_FETCH_CALLS_PER_RUN} calls allowed"
+                    )),
+                );
+            }
             let request = read_request(&mut caller, req_ptr, req_len)?;
             let result = match execute_fetch(&client, &allowlist, request) {
                 Ok(response) => FetchProxyResult::success(response),
@@ -169,6 +180,13 @@ pub(crate) fn register_http_proxy(
         },
     )?;
     Ok(())
+}
+
+fn reserve_fetch_call(fetch_calls: &AtomicU32) -> bool {
+    fetch_calls
+        .fetch_add(1, Ordering::Relaxed)
+        .saturating_add(1)
+        <= MAX_FETCH_CALLS_PER_RUN
 }
 
 fn read_request(
@@ -256,16 +274,32 @@ fn execute_fetch(
         .map_err(|error| format!("invalid fetch method {:?}: {error}", request.method))?;
     let mut headers = request_headers(request.headers)?;
     let mut body = request.body;
+    let deadline = Instant::now() + HTTP_TIMEOUT;
 
     for redirect_count in 0..=MAX_REDIRECTS {
         // This check is deliberately inside the loop and occurs before every
         // send. The reqwest client has redirects disabled, so a 3xx cannot
         // move the socket to an unvalidated host behind our back.
         allowlist.permits_url(&url)?;
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or_else(|| {
+                format!(
+                    "fetch exceeded the {} ms deadline",
+                    HTTP_TIMEOUT.as_millis()
+                )
+            })?;
+        if remaining.is_zero() {
+            return Err(format!(
+                "fetch exceeded the {} ms deadline",
+                HTTP_TIMEOUT.as_millis()
+            ));
+        }
         let response = client
             .request(method.clone(), url.clone())
             .headers(headers.clone())
             .body(body.clone())
+            .timeout(remaining)
             .send()
             .map_err(|error| format!("fetch {url}: {error}"))?;
 
@@ -309,6 +343,24 @@ fn request_headers(headers: Vec<FetchHeader>) -> Result<HeaderMap, String> {
     for header in headers {
         let name = HeaderName::from_bytes(header.name.as_bytes())
             .map_err(|error| format!("invalid request header name {:?}: {error}", header.name))?;
+        if matches!(
+            name.as_str(),
+            "host"
+                | "connection"
+                | "proxy-connection"
+                | "proxy-authorization"
+                | "keep-alive"
+                | "transfer-encoding"
+                | "upgrade"
+                | "trailer"
+                | "te"
+                | "content-length"
+        ) {
+            return Err(format!(
+                "fetch request header {:?} is controlled by the host",
+                header.name
+            ));
+        }
         let value = HeaderValue::from_str(&header.value).map_err(|error| {
             format!(
                 "invalid value for request header {:?}: {error}",
@@ -460,5 +512,35 @@ mod tests {
                 "{invalid:?} should be invalid"
             );
         }
+    }
+
+    #[test]
+    fn guest_cannot_override_request_authority_or_framing() {
+        for name in [
+            "Host",
+            "Connection",
+            "Proxy-Authorization",
+            "Transfer-Encoding",
+            "Content-Length",
+        ] {
+            let error = request_headers(vec![FetchHeader {
+                name: name.to_string(),
+                value: "attacker.invalid".to_string(),
+            }])
+            .unwrap_err();
+            assert!(error.contains("controlled by the host"), "{name}: {error}");
+        }
+        assert!(request_headers(vec![FetchHeader {
+            name: "x-job-id".to_string(),
+            value: "42".to_string(),
+        }])
+        .is_ok());
+    }
+
+    #[test]
+    fn fetch_call_budget_rejects_calls_after_the_per_run_limit() {
+        let calls = AtomicU32::new(MAX_FETCH_CALLS_PER_RUN - 1);
+        assert!(reserve_fetch_call(&calls));
+        assert!(!reserve_fetch_call(&calls));
     }
 }

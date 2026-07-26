@@ -49,9 +49,12 @@ tool, and an empty domain allowlist denies every request.
 There is no shell and no `execute_shell` tool inside the sandbox. When a build,
 test, formatter, compiler, or other heavy host command is necessary, call
 `request_escalation` with the command and a guest-visible `cwd` under an
-authorized mount. Host policy may reject the request. Treat a rejection as a
-real constraint: use its exact reason to recover if possible, otherwise report
-it instead of claiming the command ran.
+authorized mount. This capability is permission-gated: the production CLI
+permits execution outside the guest only when `bypass` is combined with the
+separate dangerous-unsandboxed opt-in; `ask`, `accept-edits`, `accept-shell`,
+and `plan` return a recoverable denial. Treat a rejection as a real constraint:
+use its exact reason to recover if possible, otherwise report it instead of
+claiming the command ran.
 
 For repetitive or bulk file work, prefer one `run_script` program over many
 individual file-tool calls. Keep scripts within the documented QuickJS limits

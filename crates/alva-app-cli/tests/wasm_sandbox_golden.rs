@@ -163,6 +163,8 @@ fn wasm_tier_runs_file_loop_through_host_provider_and_emits_json() {
             "wasm",
             "--grant",
             workspace.path().to_str().unwrap(),
+            "--permission-mode",
+            "accept-edits",
             "--output-format",
             "json",
             "Read a.txt, uppercase it, and write b.txt",
@@ -332,6 +334,8 @@ fn real_provider_wasm_file_roundtrip() {
             "wasm",
             "--grant",
             workspace.path().to_str().unwrap(),
+            "--permission-mode",
+            "accept-edits",
             "Read a.txt and write its uppercase content to b.txt. Finish only after verifying b.txt.",
         ])
         .assert()

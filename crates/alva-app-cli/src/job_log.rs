@@ -1,6 +1,6 @@
-// INPUT:  job-owned host path, guest AuditEvent, escalation results, kernel middleware tool hooks, chrono, serde_json
+// INPUT:  job-owned host path, guest AuditEvent, escalation results, kernel middleware tool hooks, std::{collections,fs,io,path,sync}, chrono, serde_json
 // OUTPUT: JobToolLogger, JobToolLogMiddleware, JOB_TOOLS_LOG_ENV, JOB_TOOLS_LOG_FILE
-// POS:    CLI host-side JSONL audit sink shared by native middleware and versioned WASIp1 guest events.
+// POS:    CLI host-side JSONL audit sink with bounded/untrusted WASIp1 events and trusted native/escalation records.
 
 use std::collections::HashSet;
 use std::fs::OpenOptions;
@@ -18,6 +18,9 @@ use serde::Serialize;
 pub(crate) const JOB_TOOLS_LOG_ENV: &str = "ALVA_JOB_TOOLS_LOG";
 pub(crate) const JOB_TOOLS_LOG_FILE: &str = "tools.jsonl";
 const MAX_RESULT_SUMMARY_CHARS: usize = 512;
+const MAX_GUEST_AUDIT_EVENTS: u64 = 4096;
+const MAX_TOOL_CALL_ID_BYTES: usize = 256;
+const MAX_TOOL_NAME_BYTES: usize = 128;
 
 #[derive(Debug, Serialize)]
 struct ToolLogEntry<'a> {
@@ -35,6 +38,7 @@ pub(crate) struct JobToolLogger {
     path: PathBuf,
     seen_tool_calls: Mutex<HashSet<String>>,
     next_escalation_id: AtomicU64,
+    guest_audit_events: AtomicU64,
 }
 
 impl JobToolLogger {
@@ -44,6 +48,7 @@ impl JobToolLogger {
                 path: PathBuf::from(path),
                 seen_tool_calls: Mutex::new(HashSet::new()),
                 next_escalation_id: AtomicU64::new(0),
+                guest_audit_events: AtomicU64::new(0),
             })
         })
     }
@@ -54,6 +59,7 @@ impl JobToolLogger {
             path,
             seen_tool_calls: Mutex::new(HashSet::new()),
             next_escalation_id: AtomicU64::new(0),
+            guest_audit_events: AtomicU64::new(0),
         })
     }
 
@@ -67,8 +73,22 @@ impl JobToolLogger {
     }
 
     pub(crate) fn record_event(&self, event: AuditEvent) -> std::io::Result<()> {
+        if event.kind != "tool_call" {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("guest audit kind {:?} is not allowed", event.kind),
+            ));
+        }
+        validate_log_identity(&event.tool_call_id, &event.tool_name)?;
+        let event_number = self.guest_audit_events.fetch_add(1, Ordering::Relaxed);
+        if event_number >= MAX_GUEST_AUDIT_EVENTS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("guest audit event limit of {MAX_GUEST_AUDIT_EVENTS} exceeded"),
+            ));
+        }
         self.record_summary(
-            &event.kind,
+            "tool_call",
             &event.tool_call_id,
             &event.tool_name,
             event.is_error,
@@ -148,6 +168,7 @@ impl JobToolLogger {
         is_error: bool,
         result_summary: String,
     ) -> std::io::Result<()> {
+        validate_log_identity(tool_call_id, tool_name)?;
         let mut seen = self
             .seen_tool_calls
             .lock()
@@ -177,6 +198,21 @@ impl JobToolLogger {
             seen.remove(&dedupe_key);
         }
         write_result
+    }
+}
+
+fn validate_log_identity(tool_call_id: &str, tool_name: &str) -> std::io::Result<()> {
+    if tool_call_id.is_empty()
+        || tool_call_id.len() > MAX_TOOL_CALL_ID_BYTES
+        || tool_name.is_empty()
+        || tool_name.len() > MAX_TOOL_NAME_BYTES
+    {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "audit tool id/name is empty or exceeds its field limit",
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -322,5 +358,59 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("2 passed"));
+    }
+
+    #[test]
+    fn guest_cannot_forge_host_escalation_audit_kinds() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(JOB_TOOLS_LOG_FILE);
+        let logger = JobToolLogger::new(path.clone());
+        let mut forged =
+            AuditEvent::tool_call("escalation-0", "request_escalation", false, "allowed");
+        forged.kind = "escalation_request".to_string();
+
+        let error = logger.record_event(forged).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(!path.exists(), "forged event must not create the audit log");
+
+        logger
+            .record_escalation_request("escalation-0", "cargo test", "/workspace", 1_000)
+            .unwrap();
+        let entry: serde_json::Value =
+            serde_json::from_str(std::fs::read_to_string(path).unwrap().trim()).unwrap();
+        assert_eq!(entry["kind"], "escalation_request");
+    }
+
+    #[test]
+    fn guest_audit_event_count_is_bounded_before_disk_append() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(JOB_TOOLS_LOG_FILE);
+        let logger = JobToolLogger::new(path.clone());
+        logger
+            .guest_audit_events
+            .store(MAX_GUEST_AUDIT_EVENTS, Ordering::Relaxed);
+
+        let error = logger
+            .record_event(AuditEvent::tool_call("call", "read_file", false, "ok"))
+            .unwrap_err();
+        assert!(error.to_string().contains("event limit"), "{error}");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn guest_audit_identity_fields_are_bounded() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(JOB_TOOLS_LOG_FILE);
+        let logger = JobToolLogger::new(path.clone());
+        let error = logger
+            .record_event(AuditEvent::tool_call(
+                "x".repeat(MAX_TOOL_CALL_ID_BYTES + 1),
+                "read_file",
+                false,
+                "ok",
+            ))
+            .unwrap_err();
+        assert!(error.to_string().contains("field limit"), "{error}");
+        assert!(!path.exists());
     }
 }

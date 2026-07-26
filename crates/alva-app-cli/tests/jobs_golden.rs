@@ -232,6 +232,8 @@ fn jobs_wasm_flags_lifecycle_and_tool_jsonl() {
             "wasm",
             "--grant",
             ws.path().to_str().unwrap(),
+            "--permission-mode",
+            "accept-edits",
             "create job-output.txt",
         ])
         .assert()

@@ -897,6 +897,10 @@ fn worker_args(task: &str, result: &str) -> Vec<String> {
         result.into(),
         "--grant".into(),
         "/work".into(),
+        "--permission-mode".into(),
+        "bypass".into(),
+        "--max-turns".into(),
+        "100".into(),
     ]
 }
 

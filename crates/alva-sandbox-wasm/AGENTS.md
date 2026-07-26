@@ -8,14 +8,14 @@
 
 ## 逻辑
 
-1. 调用者把 wasm 模块字节、guest 参数、宿主目录授权映射和 `RunLimits` 交给 `run_module` / `SandboxRunner`。
+1. 调用者把 wasm 模块字节、guest 参数、宿主目录授权映射和 `RunLimits` 交给 `run_module` / `SandboxRunner`；runner 在 Wasmtime 编译前先执行 64 MiB module input ceiling。
 2. runner 为本次调用新建 WASIp1 context、store 与 linker，以读写权限 preopen 每个授权目录；调用方可在实例化前为该 linker 注册同步 host imports。
 3. `register_wasm_environment_context_proxy` 用 256 KiB 上限把调用方提供的已解析 prompt 直接写入 guest memory，不经 argv，也不暴露 skill 仓库路径。
 4. `register_llm_proxy` 统一处理 guest memory、ABI version、4 MiB request / 16 MiB response 限额和 packed ptr/len；调用方只提供同步 DTO callback。
 5. `register_escalation_proxy` 校验版本/限额并桥接可恢复结果；`translate_guest_cwd` 仅接受绝对 guest path，按最长 guest mount 匹配 `RunRequest.grants`，canonicalize host root/cwd 后再次验证 containment，阻断 `..` 与 symlink 越狱。
 6. `register_job_log_proxy` 校验 guest audit event 的 memory range、ABI version 与 64 KiB 上限；调用方持有落盘路径和持久化策略。
-7. runner 自动注册 `alva:host/http::fetch`，从本次 `RunRequest` 取得域名白名单；reqwest 自动重定向关闭，每一跳在发包前重新授权。
-8. runner 用 epoch interruption 执行墙钟截止，并用 Store limiter 限制线性内存；两者都是每次调用独立配置。
+7. runner 自动注册 `alva:host/http::fetch`，每 run 最多 256 次并从本次 `RunRequest` 取得域名白名单；reqwest 自动重定向关闭，每一跳在发包前重新授权，guest 不得覆盖 Host/连接 framing，整个 redirect chain 共用一个 deadline。
+8. runner 用 epoch interruption 执行墙钟截止，并用 Store limiter 限制线性内存；同步 caller import 必须由 callback 自己施加 timeout/cancellation，因为 guest epoch 无法在 host callback 内抢占。
 9. guest 的 stdout/stderr 写入内存管道；正常返回与 WASI `proc_exit` 都转换为 `RunOutcome`，其余 trap 返回 `SandboxError`。
 10. 集成测试按需把独立 fixture crate 编译到 `wasm32-wasip1`，只从公共 runner 边界观察输出及宿主文件/网络/升级策略效果。
 
@@ -31,11 +31,11 @@
 - `Access`：授权目录的访问级别（`ReadOnly` / `ReadWrite`，默认 `ReadWrite`）；只读挂载禁止 guest 创建/删除/改写。
 - `Grant`：一个宿主目录到 guest 挂载点的授权映射（含 `access`）；构造器 `read_write` / `read_only`。
 - `RunRequest`：模块字节、文件授权、guest 参数、fetch 域名白名单与资源限额；域名默认空即全拒。
-- `RunLimits`：每次调用的墙钟与 WebAssembly 线性内存上限（默认 30 秒 / 256 MiB）。
+- `RunLimits`：每次调用的墙钟与 WebAssembly 线性内存上限（默认 3600 秒 / 256 MiB）。
 - `SandboxStoreData`：供 caller 注册 host import 的 store data 类型，内部 limiter 不可绕过。
 - `RunOutcome`：退出码及捕获的 stdout/stderr。
-- `SandboxError`：模块加载、WASI 接线、授权挂载、执行与输出解码错误。
-- `SandboxRunner`：持有共享 `Engine` 的可复用 runner；`run` 每次新建 Store（隔离），跨 job 复用编译缓存。
+- `SandboxError`：module input 超限/加载、WASI 接线、授权挂载、执行与输出解码错误。
+- `SandboxRunner`：持有共享 `Engine` 的可复用 runner；`run` 每次编译 module 并新建 Store（隔离）。
 - `SandboxRunner::run_with_imports`：在 fresh linker 上注册 per-run 同步 host imports 后执行模块。
 - `register_llm_proxy`：版本化、限额化的 blocking LLM ptr/len import；接受 provider-free 同步 DTO callback。
 - `register_wasm_environment_context_proxy`：版本化、限额化的 host→guest prompt import；不传宿主 skill 路径。

@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`lib.rs` 创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`context_proxy.rs` 下发 host-parsed environment prompt；`llm_proxy.rs` 注册 callback 驱动的模型桥；`escalation_proxy.rs` 注册升级桥并按 grants 翻译 guest cwd；`log_proxy.rs` 注册 callback 驱动的 audit event 桥；`http_proxy.rs` 注册宿主策略驱动的 fetch 桥。
+`lib.rs` 在 module 编译前限制输入大小，创建启用 epoch interruption 的 engine、带 memory limiter 的 store、linker/WASI preopens 并捕获 outcome；`context_proxy.rs` 下发 host-parsed environment prompt；`llm_proxy.rs` 注册 callback 驱动的模型桥；`escalation_proxy.rs` 注册升级桥并按 grants 翻译 guest cwd；`log_proxy.rs` 注册 callback 驱动的 audit event 桥；`http_proxy.rs` 注册带 per-run call budget、拒绝 authority/framing 覆盖且共享 redirect deadline 的 fetch 桥。
 
 ## 约束
 
@@ -16,7 +16,8 @@
 - callback 不得在本层绑定具体 LanguageModel/provider/key。
 - escalation callback 不得在本层绑定 PermissionMode、SecurityGuard 或进程执行；cwd 翻译必须 canonicalize 后验证仍位于 host grant。
 - fetch 必须在每次发包前校验当前 URL，HTTP client 不得自动跟随重定向。
-- 每个 store 必须挂 `RunLimits` 对应的 epoch deadline 与线性内存 limiter。
+- fetch 的 Host/connection/framing headers 必须由宿主管理，整个 redirect chain 共享绝对 deadline。
+- 每个 store 必须挂 `RunLimits` 对应的 epoch deadline 与线性内存 limiter；caller 注册的同步 import 必须自己提供可取消 deadline。
 
 ## 业务域清单
 

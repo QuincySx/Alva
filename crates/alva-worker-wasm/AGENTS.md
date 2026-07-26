@@ -8,10 +8,10 @@
 
 ## 逻辑
 
-1. guest 从 WASI args 读取 workspace、任务、授权 guest path 与结果通道，并从独立 context import 读取宿主已解析的 `wasm-env` 全文，以 `futures::executor::block_on` 驱动 SDK `Agent`。
-2. `CorePlugin` 的文件工具在 WASI 下使用 `WasiFs`，相对路径以注入的 workspace 为根并受宿主 preopen 圈禁。
+1. guest 从 WASI args 读取 workspace、任务、授权 guest path、PermissionMode、max-turns 与结果通道，并从独立 context import 读取宿主已解析的 `wasm-env` 全文，以 `futures::executor::block_on` 驱动 SDK `Agent`。
+2. builtin file tool preset 在 WASI 下使用 `WasiFs`；guest permission middleware 按模式阻止写入/脚本/escalation，Ask/Plan 同时由宿主只读 preopen 做第二道圈禁。
 3. `RunScriptTool` 在 fresh QuickJS runtime 执行无模块脚本；同步文件绑定复用 `WasiFs`，同步 `fetch` 经宿主 import 执行且策略错误可被 JS 捕获，QuickJS interrupt/heap limit 只终止当前脚本。
-4. `RequestEscalationTool` 注入 `HostImportEscalationExecutor`；相对 cwd 先以 guest workspace 为根转成 guest absolute path，再调用 `alva:host/escalation::execute`，guest 不持有 SecurityMiddleware/PermissionMode/宿主路径或进程能力。
+4. `RequestEscalationTool` 注入 `HostImportEscalationExecutor`；只有 Bypass 可越过 guest permission gate，相对 cwd 先以 guest workspace 为根转成 guest absolute path，再调用 `alva:host/escalation::execute`；宿主还要求独立 dangerous-unsandboxed opt-in，guest 不持有该授权、宿主路径或进程能力。
 5. environment context 使用版本化 256 KiB host→guest ABI，不进入 argv/preopen；`ProxyModel::stream()` 用 `alva-llm-wire` 的版本化 DTO 序列化 messages、工具定义和 `ModelConfig`，再调用 `alva:host/llm::llm_complete(req_ptr, req_len)`。
 6. 宿主收集真实模型的 `Vec<StreamEvent>`，调用 guest 导出的 `alloc` 写回线性内存；guest 校验版本/大小后原样重放事件。
 7. fetch 请求用独立 `alva-sandbox-abi` DTO 调 `alva:host/http::fetch`；白名单永不进入 guest，和 LLM / escalation 授权互相独立。
@@ -22,9 +22,9 @@
 
 - 本 crate 不包含 provider 或 CLI 参数接线；这些属于宿主 / app 层。
 - guest 不包含 API key、provider 配置或任何宿主 secret。
-- ABI version = 1，请求上限 4 MiB、响应上限 16 MiB；超限/版本不符会响亮失败。
+- LLM proxy ABI version = 2，其余 sandbox capability ABI 当前为 1；请求上限 4 MiB、响应上限 16 MiB，超限/版本不符会响亮失败。
 - `NoopSleeper` 明确关闭工具墙钟超时，避免在 `block_on` 下引入 tokio runtime/time 依赖。
-- `run_script` 自带 QuickJS interrupt/heap limit；宿主 `RunLimits` 是整个 worker 的兜底，不替代 tool 可读错误。
+- `run_script` 自带 QuickJS interrupt/heap limit；宿主 `RunLimits` 管 guest 指令，CLI 另对 blocking LLM/escalation import 施加剩余 deadline 与调用预算。
 - `run_script` 不得注册 loader、`require`、Node API 或绕开 `WasiFs` 的文件入口。
 - `fetch` 保持同步，不伪装 Promise；guest 只负责 wire 编解码，域名/重定向授权只能由宿主执行。
 - log import 只上报有界能力事件，不得接收或推导宿主 job 路径。

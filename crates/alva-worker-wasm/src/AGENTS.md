@@ -8,7 +8,7 @@
 
 ## 逻辑
 
-`main.rs` 在 WASI 下解析 host 注入的 workspace/task/result/grant args，并通过 `context_proxy.rs` 拉取宿主已解析的 `wasm-env` prompt，再用 `AgentBuilder` 装配 `ProxyModel`、`CorePlugin`、`RequestEscalationTool`、audit middleware 与 `RunScriptTool`；`escalation_proxy.rs` 把 guest cwd + command 送到宿主并将执行/拒绝结果还原为 tool result；`run_script.rs` 为每次调用新建 QuickJS runtime。环境、模型、HTTP、升级与 audit event 分别走独立版本化 JSON import，agent 最终文本写入指定文件或 stdout。
+`main.rs` 在 WASI 下解析 host 注入的 workspace/task/result/grant/permission/max-turns args，并通过 `context_proxy.rs` 拉取宿主已解析的 `wasm-env` prompt，再用 `AgentBuilder` 装配 `ProxyModel`、builtin file tools、permission gate、`RequestEscalationTool`、audit middleware 与 `RunScriptTool`；`escalation_proxy.rs` 只在 Bypass 通过 guest gate 后把 guest cwd + command 送到宿主，宿主另行校验 dangerous-unsandboxed opt-in，并将执行/拒绝结果还原为 tool result；`run_script.rs` 为每次调用新建 QuickJS runtime。环境、模型、HTTP、升级与 audit event 分别走独立版本化 JSON import，agent 最终文本写入指定文件或 stdout。
 
 ## 约束
 
@@ -18,6 +18,7 @@
 - escalation import 不得携带 PermissionMode 或 host path；相对 cwd 只能以 guest workspace 为根，最终授权由宿主 grants 翻译决定。
 - 从宿主返回的 buffer 必须由 guest 重新接管并释放。
 - 文件工具必须以 `--workspace` 值为根，由 WASI preopen 而不是 guest 自行路径过滤来执行圈禁。
+- permission gate 与 host preopen 必须共同 fail-closed：Ask/Plan 禁写和执行，AcceptEdits 仅开放文件编辑，AcceptShell 可运行 in-guest script 但不可 host escalation，只有 Bypass 可请求 host escalation。
 - async loop 由 `futures::executor::block_on` 驱动，不得引入 tokio runtime 或 tokio time sleeper。
 - QuickJS 必须保持无 loader/module/CommonJS 能力，文件 binding 只能调用 `WasiFs` adapter。
 - environment prompt 只能来自有界 context import；不得在 argv 携带正文或增加 skill 仓库 preopen。

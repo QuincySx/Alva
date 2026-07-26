@@ -1,6 +1,6 @@
-// INPUT:  WASI args, host environment context, alva_agent_core, CorePlugin, RequestEscalationTool, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
-// OUTPUT: alloc(len) wasm export plus context/fetch/escalation/run_script/log-enabled agent and configurable file/stdout result channel
-// POS:    WASIp1 worker running an SDK agent loop with a host-injected environment skill and versioned capability proxies.
+// INPUT:  WASI args including permission/turn budgets, host environment context, alva_agent_core, builtin file/escalation tools, RunScriptTool, alva_kernel_{abi,core}, alva_{llm_wire,sandbox_abi} proxy ABIs, futures, serde_json, std, host imports
+// OUTPUT: alloc(len) wasm export plus permission-gated context/fetch/escalation/run_script/log-enabled agent and configurable file/stdout result channel
+// POS:    WASIp1 worker running an SDK agent loop with host-supplied least-privilege policy, environment skill, and versioned capability proxies.
 
 #[cfg(target_os = "wasi")]
 mod context_proxy;
@@ -35,10 +35,10 @@ use alva_agent_extension_builtin::wrappers::CorePlugin;
 #[cfg(target_os = "wasi")]
 use alva_kernel_abi::{
     AgentError, AgentMessage, CancellationToken, CompletionResponse, LanguageModel, Message,
-    ModelConfig, StreamEvent, Tool, ToolDefinition,
+    ModelConfig, StreamEvent, Tool, ToolCall, ToolDefinition,
 };
 #[cfg(target_os = "wasi")]
-use alva_kernel_core::AgentEvent;
+use alva_kernel_core::{AgentEvent, AgentState, Middleware, MiddlewareError};
 #[cfg(target_os = "wasi")]
 use alva_llm_wire::{
     message_from_events, LlmProxyRequest, LlmProxyResponse, LLM_PROXY_ABI_VERSION,
@@ -93,7 +93,90 @@ pub extern "C" fn alloc(len: i32) -> i32 {
     }
     // SAFETY: `len` is non-zero, so the layout has non-zero size as
     // `alloc::alloc` requires.
-    unsafe { alloc::alloc(response_layout(len)) as i32 }
+    let layout = response_layout(len);
+    let pointer = unsafe { alloc::alloc(layout) };
+    if pointer.is_null() {
+        alloc::handle_alloc_error(layout);
+    }
+    pointer as i32
+}
+
+#[cfg(any(target_os = "wasi", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkerPermissionMode {
+    Ask,
+    AcceptEdits,
+    AcceptShell,
+    Plan,
+    Bypass,
+}
+
+#[cfg(any(target_os = "wasi", test))]
+impl WorkerPermissionMode {
+    #[cfg(target_os = "wasi")]
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "ask" => Ok(Self::Ask),
+            "accept-edits" => Ok(Self::AcceptEdits),
+            "accept-shell" => Ok(Self::AcceptShell),
+            "plan" => Ok(Self::Plan),
+            "bypass" => Ok(Self::Bypass),
+            other => Err(format!("unknown worker permission mode {other:?}")),
+        }
+    }
+
+    fn allows_tool(self, name: &str) -> bool {
+        match name {
+            "read_file" | "list_files" | "find_files" | "grep_search" => true,
+            "create_file" | "file_edit" => {
+                matches!(self, Self::AcceptEdits | Self::AcceptShell | Self::Bypass)
+            }
+            "run_script" => matches!(self, Self::AcceptShell | Self::Bypass),
+            // Host escalation exits the WASM confinement boundary. Only an
+            // explicit bypass opt-in may expose it to the guest.
+            "request_escalation" => self == Self::Bypass,
+            _ => false,
+        }
+    }
+
+    fn denial_reason(self, name: &str) -> String {
+        if name == "request_escalation" {
+            format!(
+                "host escalation executes outside the WASM sandbox and is not allowed in \
+                 permission mode {self:?}; only bypass may request it, and the host separately \
+                 requires --dangerously-allow-unsandboxed"
+            )
+        } else {
+            format!("tool {name} is not allowed in WASM permission mode {self:?}")
+        }
+    }
+}
+
+#[cfg(target_os = "wasi")]
+struct PermissionGateMiddleware {
+    mode: WorkerPermissionMode,
+}
+
+#[cfg(target_os = "wasi")]
+#[async_trait]
+impl Middleware for PermissionGateMiddleware {
+    async fn before_tool_call(
+        &self,
+        _state: &mut AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<(), MiddlewareError> {
+        if self.mode.allows_tool(&tool_call.name) {
+            Ok(())
+        } else {
+            Err(MiddlewareError::Blocked {
+                reason: self.mode.denial_reason(&tool_call.name),
+            })
+        }
+    }
+
+    fn name(&self) -> &str {
+        "wasm-permission-gate"
+    }
 }
 
 #[cfg(target_os = "wasi")]
@@ -270,6 +353,8 @@ async fn run_worker(
     task: String,
     workspace: String,
     grants: Vec<String>,
+    permission_mode: WorkerPermissionMode,
+    max_turns: u32,
     script_limits: run_script::ScriptLimits,
 ) -> Result<String, AgentError> {
     // No tool timeout is installed on purpose. `ToolTimeoutMiddleware` needs a
@@ -290,20 +375,26 @@ async fn run_worker(
     let system_prompt = format!(
         "## Runtime mount map\n\nRelative paths are rooted in {workspace}. The only host directories available through WASI are: {grant_description}.\n\n{environment_skill}"
     );
-    let agent = Agent::builder()
+    let mut builder = Agent::builder()
         .model(Arc::new(ProxyModel))
         .workspace(&workspace)
         .system_prompt(&system_prompt)
+        .max_iterations(max_turns)
         .plugin(Box::new(CorePlugin))
-        .middleware(Arc::new(job_log::AuditLogMiddleware))
-        .tool(Box::new(RequestEscalationTool::new(Arc::new(
-            escalation_proxy::HostImportEscalationExecutor,
-        ))))
-        .tool(Box::new(
-            run_script::RunScriptTool::new(&workspace).with_limits(script_limits),
-        ))
-        .build()
-        .await?;
+        .middleware(Arc::new(PermissionGateMiddleware {
+            mode: permission_mode,
+        }))
+        .middleware(Arc::new(job_log::AuditLogMiddleware));
+    // Keep the advertised tool surface stable across modes. PermissionGate
+    // turns disallowed calls into recoverable tool errors, matching the native
+    // agent's headless permission behavior instead of making tools disappear.
+    builder = builder.tool(Box::new(RequestEscalationTool::new(Arc::new(
+        escalation_proxy::HostImportEscalationExecutor,
+    ))));
+    builder = builder.tool(Box::new(
+        run_script::RunScriptTool::new(&workspace).with_limits(script_limits),
+    ));
+    let agent = builder.build().await?;
 
     let mut events = agent
         .run(
@@ -335,6 +426,8 @@ struct WorkerArgs {
     task: String,
     result: String,
     grants: Vec<String>,
+    permission_mode: WorkerPermissionMode,
+    max_turns: u32,
     /// Per-script ceilings. Absent flags keep `ScriptLimits::default()`.
     script_timeout_ms: Option<u64>,
     script_memory_bytes: Option<usize>,
@@ -351,6 +444,8 @@ fn parse_worker_args() -> Result<WorkerArgs, String> {
     let mut task = None;
     let mut result = None;
     let mut grants = Vec::new();
+    let mut permission_mode = None;
+    let mut max_turns = None;
     let mut script_timeout_ms = None;
     let mut script_memory_bytes = None;
     let mut index = 0;
@@ -358,14 +453,26 @@ fn parse_worker_args() -> Result<WorkerArgs, String> {
         let flag = args[index].as_str();
         let value = args
             .get(index + 1)
-            .filter(|next| !next.starts_with("--"))
             .cloned()
             .ok_or_else(|| format!("{flag} expects a value"))?;
+        if flag != "--task" && value.starts_with("--") {
+            return Err(format!("{flag} expects a value"));
+        }
         match flag {
             "--workspace" => workspace = Some(value),
             "--task" => task = Some(value),
             "--result" => result = Some(value),
             "--grant" => grants.push(value),
+            "--permission-mode" => permission_mode = Some(WorkerPermissionMode::parse(&value)?),
+            "--max-turns" => {
+                let parsed = value
+                    .parse::<u32>()
+                    .map_err(|error| format!("--max-turns {value:?}: {error}"))?;
+                if parsed == 0 {
+                    return Err("--max-turns must be greater than zero".to_string());
+                }
+                max_turns = Some(parsed);
+            }
             "--script-timeout-ms" => {
                 script_timeout_ms = Some(
                     value
@@ -387,6 +494,9 @@ fn parse_worker_args() -> Result<WorkerArgs, String> {
     let workspace = workspace.ok_or_else(|| "--workspace is required".to_string())?;
     let task = task.ok_or_else(|| "--task is required".to_string())?;
     let result = result.ok_or_else(|| "--result is required (`-` for stdout)".to_string())?;
+    let permission_mode =
+        permission_mode.ok_or_else(|| "--permission-mode is required".to_string())?;
+    let max_turns = max_turns.ok_or_else(|| "--max-turns is required".to_string())?;
     if grants.is_empty() {
         return Err("at least one --grant guest path is required".to_string());
     }
@@ -395,6 +505,8 @@ fn parse_worker_args() -> Result<WorkerArgs, String> {
         task,
         result,
         grants,
+        permission_mode,
+        max_turns,
         script_timeout_ms,
         script_memory_bytes,
     })
@@ -414,6 +526,8 @@ fn main() {
             args.task,
             args.workspace,
             args.grants,
+            args.permission_mode,
+            args.max_turns,
             script_limits,
         ))
         .map_err(|error| format!("sandboxed agent loop failed: {error}"))?;
@@ -435,4 +549,30 @@ fn main() {
 #[cfg(not(target_os = "wasi"))]
 fn main() {
     eprintln!("alva-worker-wasm is a wasm32-wasip1 guest binary");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WorkerPermissionMode as Mode;
+
+    #[test]
+    fn worker_permission_modes_expose_only_their_allowed_tools() {
+        for mode in [Mode::Ask, Mode::Plan] {
+            assert!(mode.allows_tool("read_file"));
+            assert!(!mode.allows_tool("create_file"));
+            assert!(!mode.allows_tool("run_script"));
+            assert!(!mode.allows_tool("request_escalation"));
+        }
+        assert!(Mode::AcceptEdits.allows_tool("create_file"));
+        assert!(!Mode::AcceptEdits.allows_tool("run_script"));
+        assert!(Mode::AcceptShell.allows_tool("create_file"));
+        assert!(Mode::AcceptShell.allows_tool("run_script"));
+        assert!(!Mode::AcceptShell.allows_tool("request_escalation"));
+        assert!(Mode::AcceptShell
+            .denial_reason("request_escalation")
+            .contains("outside the WASM sandbox"));
+        assert!(Mode::Bypass.allows_tool("create_file"));
+        assert!(Mode::Bypass.allows_tool("run_script"));
+        assert!(Mode::Bypass.allows_tool("request_escalation"));
+    }
 }
