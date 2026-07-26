@@ -94,7 +94,7 @@ impl Plugin for CustomMemoryPlugin {
         // Seed a sentinel BEFORE publishing so the assertion below can
         // distinguish our service from a freshly-built default.
         self.service
-            .store_entry("custom-sentinel", "from custom ext", "test")
+            .store_entry("custom-sentinel", "custom sentinel from custom ext", "test")
             .await
             .expect("seed sentinel");
         r.provide::<MemoryService>(self.service.clone());
