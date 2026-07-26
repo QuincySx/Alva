@@ -65,8 +65,8 @@ pub struct ModelConfig {
 /// - **Gemini** `thinkingConfig.thinkingBudget: N` (int) or `.thinkingLevel`
 ///
 /// Not all providers accept all levels. Adapters perform best-effort
-/// translation — e.g. `XHigh` only valid on `gpt-5.1-codex-max`, clamped to
-/// `High` on other OpenAI models; `Minimal` clamped to `Low` on gpt-5.1+.
+/// translation — e.g. unsupported `XHigh` / `Max` values are clamped to the
+/// strongest level accepted by the selected model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
@@ -83,9 +83,12 @@ pub enum ReasoningEffort {
     Medium,
     /// High reasoning.
     High,
-    /// Extra-high reasoning — only valid on `gpt-5.1-codex-max`. Other
-    /// providers clamp to `High`.
+    /// Extra-high reasoning. Available on selected current OpenAI and
+    /// Anthropic models; older models clamp to their strongest level.
     XHigh,
+    /// Maximum available reasoning. Supported by the newest OpenAI and
+    /// Anthropic model families; older models clamp to their strongest level.
+    Max,
 }
 
 impl ReasoningEffort {
@@ -99,6 +102,7 @@ impl ReasoningEffort {
             "medium" => Some(Self::Medium),
             "high" => Some(Self::High),
             "xhigh" => Some(Self::XHigh),
+            "max" => Some(Self::Max),
             _ => None,
         }
     }
@@ -113,6 +117,7 @@ impl ReasoningEffort {
             Self::Medium => "medium",
             Self::High => "high",
             Self::XHigh => "xhigh",
+            Self::Max => "max",
         }
     }
 
@@ -127,6 +132,7 @@ impl ReasoningEffort {
             Self::Medium => Some(8192),
             Self::High => Some(16384),
             Self::XHigh => Some(24576),
+            Self::Max => Some(32768),
         }
     }
 }
@@ -188,7 +194,7 @@ mod tests {
     // -- ReasoningEffort::parse / as_str -----------------------------------
 
     #[test]
-    fn parse_all_six_lowercase_variants() {
+    fn parse_all_seven_lowercase_variants() {
         assert_eq!(ReasoningEffort::parse("none"), Some(ReasoningEffort::None));
         assert_eq!(
             ReasoningEffort::parse("minimal"),
@@ -204,6 +210,7 @@ mod tests {
             ReasoningEffort::parse("xhigh"),
             Some(ReasoningEffort::XHigh)
         );
+        assert_eq!(ReasoningEffort::parse("max"), Some(ReasoningEffort::Max));
     }
 
     #[test]
@@ -251,6 +258,7 @@ mod tests {
             ReasoningEffort::Medium,
             ReasoningEffort::High,
             ReasoningEffort::XHigh,
+            ReasoningEffort::Max,
         ] {
             assert_eq!(
                 ReasoningEffort::parse(v.as_str()),
@@ -274,6 +282,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ReasoningEffort::XHigh).unwrap(),
             json!("xhigh")
+        );
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Max).unwrap(),
+            json!("max")
         );
     }
 
@@ -305,6 +317,7 @@ mod tests {
             ReasoningEffort::Medium,
             ReasoningEffort::High,
             ReasoningEffort::XHigh,
+            ReasoningEffort::Max,
         ];
         let budgets: Vec<u32> = order
             .iter()

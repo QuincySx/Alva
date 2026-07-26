@@ -132,11 +132,16 @@ fn build_body(
             body["system"] = Value::Array(blocks);
         }
     }
-    if let Some(t) = config.temperature {
-        body["temperature"] = serde_json::json!(t);
-    }
-    if let Some(p) = config.top_p {
-        body["top_p"] = serde_json::json!(p);
+    // Opus 4.7+ and the newer adaptive-only families reject non-default
+    // sampling controls. Omitting them is valid for every model and keeps
+    // connection-test defaults from turning otherwise valid requests into 400s.
+    if !anthropic_rejects_sampling_controls(model) {
+        if let Some(t) = config.temperature {
+            body["temperature"] = serde_json::json!(t);
+        }
+        if let Some(p) = config.top_p {
+            body["top_p"] = serde_json::json!(p);
+        }
     }
     if !config.stop_sequences.is_empty() {
         body["stop_sequences"] = serde_json::json!(config.stop_sequences);
@@ -491,19 +496,27 @@ fn apply_anthropic_thinking(
 ) {
     use alva_kernel_abi::ReasoningEffort as RE;
 
-    let is_opus_47_plus = model.contains("opus-4-7") || model.contains("opus-4.7");
-
     match effort {
         RE::None => {
-            if !is_opus_47_plus {
+            if anthropic_requires_adaptive_thinking(model) {
+                body["thinking"] = serde_json::json!({"type": "adaptive"});
+            } else {
                 body["thinking"] = serde_json::json!({"type": "disabled"});
             }
-            // Opus 4.7+ doesn't support disabled — leave field out, model
-            // uses adaptive-by-default.
         }
         _ => {
-            if is_opus_47_plus {
+            if anthropic_supports_adaptive_thinking(model) {
                 body["thinking"] = serde_json::json!({"type": "adaptive"});
+                let effort = match effort {
+                    RE::Minimal => "low",
+                    RE::Low => "low",
+                    RE::Medium => "medium",
+                    RE::High => "high",
+                    RE::XHigh => "xhigh",
+                    RE::Max => "max",
+                    RE::None => unreachable!("handled above"),
+                };
+                body["output_config"] = serde_json::json!({"effort": effort});
             } else {
                 let budget = effort
                     .suggested_token_budget()
@@ -518,13 +531,55 @@ fn apply_anthropic_thinking(
     }
 }
 
+fn anthropic_supports_adaptive_thinking(model: &str) -> bool {
+    anthropic_version_at_least(model, "opus", 4, 6)
+        || anthropic_version_at_least(model, "sonnet", 4, 6)
+        || model.to_ascii_lowercase().contains("fable")
+        || model.to_ascii_lowercase().contains("mythos")
+}
+
+fn anthropic_requires_adaptive_thinking(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    model.contains("fable") || model.contains("mythos")
+}
+
+fn anthropic_rejects_sampling_controls(model: &str) -> bool {
+    anthropic_version_at_least(model, "opus", 4, 7)
+        || anthropic_version_at_least(model, "sonnet", 5, 0)
+        || anthropic_requires_adaptive_thinking(model)
+}
+
+fn anthropic_version_at_least(
+    model: &str,
+    family: &str,
+    minimum_major: u32,
+    minimum_minor: u32,
+) -> bool {
+    let normalized = model.to_ascii_lowercase().replace('.', "-");
+    let Some((_, suffix)) = normalized.split_once(&format!("{family}-")) else {
+        return false;
+    };
+    let mut parts = suffix.split('-');
+    let Some(major) = parts.next().and_then(|part| part.parse::<u32>().ok()) else {
+        return false;
+    };
+    let minor = parts
+        .next()
+        .and_then(|part| part.parse::<u32>().ok())
+        .unwrap_or(0);
+    (major, minor) >= (minimum_major, minimum_minor)
+}
+
 #[cfg(test)]
 mod tests {
     //! Provider-specific regression tests. The helper-level coverage
     //! lives in `crate::util::tests` after L72's DRY consolidation;
     //! here we keep the Anthropic-locale realistic regression
     //! (Chinese error response).
+    use super::build_body;
     use crate::util::truncate_for_log;
+    use alva_kernel_abi::adapter::EncodedMessages;
+    use alva_kernel_abi::{ModelConfig, ReasoningEffort};
 
     #[test]
     fn anthropic_chinese_error_response_at_500_bytes_no_crash() {
@@ -537,5 +592,50 @@ mod tests {
         let out = truncate_for_log(&s, 500);
         assert!(out.len() <= 500);
         assert!(out.is_char_boundary(out.len()));
+    }
+
+    #[test]
+    fn opus_4_8_uses_adaptive_thinking_effort_without_sampling_controls() {
+        let config = ModelConfig {
+            temperature: Some(0.2),
+            top_p: Some(0.8),
+            reasoning_effort: Some(ReasoningEffort::Max),
+            ..Default::default()
+        };
+        let body = build_body(
+            "claude-opus-4-8",
+            65_536,
+            &EncodedMessages::default(),
+            &[],
+            &config,
+            false,
+        );
+
+        assert_eq!(body["thinking"], serde_json::json!({"type": "adaptive"}));
+        assert_eq!(body["output_config"], serde_json::json!({"effort": "max"}));
+        assert!(
+            body.get("temperature").is_none(),
+            "Opus 4.7+ rejects non-default sampling controls"
+        );
+        assert!(body.get("top_p").is_none());
+    }
+
+    #[test]
+    fn sonnet_5_never_uses_removed_manual_thinking() {
+        let config = ModelConfig {
+            reasoning_effort: Some(ReasoningEffort::High),
+            ..Default::default()
+        };
+        let body = build_body(
+            "claude-sonnet-5",
+            16_384,
+            &EncodedMessages::default(),
+            &[],
+            &config,
+            false,
+        );
+
+        assert_eq!(body["thinking"], serde_json::json!({"type": "adaptive"}));
+        assert_eq!(body["output_config"], serde_json::json!({"effort": "high"}));
     }
 }

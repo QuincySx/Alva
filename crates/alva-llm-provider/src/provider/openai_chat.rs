@@ -70,8 +70,13 @@ fn build_body(
     let mut body = serde_json::json!({
         "model": model,
         "messages": messages,
-        "max_tokens": max_tokens,
     });
+    let max_tokens_field = if is_openai_reasoning_model(model) {
+        "max_completion_tokens"
+    } else {
+        "max_tokens"
+    };
+    body[max_tokens_field] = serde_json::json!(max_tokens);
     if stream {
         body["stream"] = Value::Bool(true);
         body["stream_options"] = serde_json::json!({ "include_usage": true });
@@ -116,18 +121,18 @@ pub(crate) fn openai_effort_string(
     use alva_kernel_abi::ReasoningEffort as RE;
 
     // Sniff model family. Anything else → no reasoning_effort.
-    let is_reasoning = model.starts_with("gpt-5")
-        || model.starts_with("o1-")
-        || model == "o1"
-        || model.starts_with("o3")
-        || model.starts_with("o4");
-    if !is_reasoning {
+    if !is_openai_reasoning_model(model) {
         return None;
     }
     let is_gpt5_original =
         model == "gpt-5" || model.starts_with("gpt-5-") && !model.starts_with("gpt-5.");
     let is_gpt51_plus = model.starts_with("gpt-5.") || model == "gpt-5.1" || model == "gpt-5.2";
     let is_codex_max = model.contains("codex-max");
+    let supports_max = model.starts_with("gpt-5.6");
+    let supports_xhigh = supports_max
+        || is_codex_max
+        || model.starts_with("gpt-5.2-codex")
+        || model.starts_with("gpt-5.3-codex");
     // `o1-mini` has no reasoning_effort at all per docs.
     if model == "o1-mini" {
         return None;
@@ -155,13 +160,30 @@ pub(crate) fn openai_effort_string(
         RE::Medium => "medium",
         RE::High => "high",
         RE::XHigh => {
-            if is_codex_max {
+            if supports_xhigh {
+                "xhigh"
+            } else {
+                "high"
+            }
+        }
+        RE::Max => {
+            if supports_max {
+                "max"
+            } else if supports_xhigh {
                 "xhigh"
             } else {
                 "high"
             }
         }
     })
+}
+
+fn is_openai_reasoning_model(model: &str) -> bool {
+    model.starts_with("gpt-5")
+        || model.starts_with("o1-")
+        || model == "o1"
+        || model.starts_with("o3")
+        || model.starts_with("o4")
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +450,9 @@ mod tests {
     //! in `crate::util::tests`; here we keep the Chinese-locale
     //! regression for the Chat Completions API (most common locale
     //! for this provider in Asian deployments).
+    use super::{build_body, openai_effort_string};
     use crate::util::truncate_for_log;
+    use alva_kernel_abi::{ModelConfig, ReasoningEffort};
 
     #[test]
     fn openai_chat_chinese_response_at_500_bytes_no_crash() {
@@ -440,5 +464,39 @@ mod tests {
         let out = truncate_for_log(&s, 500);
         assert!(out.len() <= 500);
         assert!(out.is_char_boundary(out.len()));
+    }
+
+    #[test]
+    fn reasoning_models_use_max_completion_tokens() {
+        let body = build_body("o3", 8192, &[], &[], &ModelConfig::default(), false);
+
+        assert_eq!(body["max_completion_tokens"], 8192);
+        assert!(
+            body.get("max_tokens").is_none(),
+            "o-series rejects max_tokens"
+        );
+    }
+
+    #[test]
+    fn non_reasoning_compatible_models_keep_max_tokens() {
+        let body = build_body(
+            "deepseek-chat",
+            8192,
+            &[],
+            &[],
+            &ModelConfig::default(),
+            false,
+        );
+
+        assert_eq!(body["max_tokens"], 8192);
+        assert!(body.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn gpt_5_6_preserves_max_reasoning_effort() {
+        assert_eq!(
+            openai_effort_string("gpt-5.6", ReasoningEffort::Max),
+            Some("max")
+        );
     }
 }

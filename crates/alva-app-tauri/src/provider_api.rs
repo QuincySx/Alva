@@ -328,7 +328,6 @@ pub async fn test_connection(
         "Respond with the single word OK and nothing else.",
     )];
     let model_config = ModelConfig {
-        temperature: Some(0.0),
         max_tokens: Some(32),
         ..Default::default()
     };

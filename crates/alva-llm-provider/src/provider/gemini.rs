@@ -137,7 +137,7 @@ fn gemini_thinking_config(model: &str, effort: alva_kernel_abi::ReasoningEffort)
             RE::None => "low", // 3.x has no explicit "off"; use lowest
             RE::Minimal => "minimal",
             RE::Low => "low",
-            RE::Medium | RE::High | RE::XHigh => "high",
+            RE::Medium | RE::High | RE::XHigh | RE::Max => "high",
         };
         return Some(serde_json::json!({ "thinkingLevel": level }));
     }
@@ -156,6 +156,7 @@ fn gemini_thinking_config(model: &str, effort: alva_kernel_abi::ReasoningEffort)
         RE::Medium => 8192,
         RE::High => 16384,
         RE::XHigh => 24576,
+        RE::Max => 24576,
     };
     Some(serde_json::json!({ "thinkingBudget": budget }))
 }
