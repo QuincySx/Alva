@@ -59,7 +59,9 @@ pub use registry::{build_provider_registry, AliasRouter, ConfigProviderAdapter};
 /// this match existed as five drifting copies (CLI, Tauri ×2, app-core
 /// template spawn, registry) before PR-10 collapsed them.
 ///
-/// `None` / `"openai-chat"` / unknown → OpenAI Chat (broadest compat path).
+/// `None` / `"openai-chat"` → OpenAI Chat (broadest compat path).
+/// Unknown explicit kinds return a non-networking model that reports a
+/// configuration error on use instead of leaking a request to the wrong API.
 pub fn build_language_model(
     kind: Option<&str>,
     config: ProviderConfig,
@@ -69,7 +71,53 @@ pub fn build_language_model(
         Some("anthropic") => Arc::new(AnthropicProvider::new(config)),
         Some("openai-responses") => Arc::new(OpenAIResponsesProvider::new(config)),
         Some("gemini") => Arc::new(GeminiProvider::new(config)),
-        _ => Arc::new(OpenAIChatProvider::new(config)),
+        None | Some("openai-chat") => Arc::new(OpenAIChatProvider::new(config)),
+        Some(kind) => Arc::new(InvalidProviderModel {
+            kind: kind.to_string(),
+            model: config.model,
+        }),
+    }
+}
+
+struct InvalidProviderModel {
+    kind: String,
+    model: String,
+}
+
+#[async_trait::async_trait]
+impl alva_kernel_abi::LanguageModel for InvalidProviderModel {
+    async fn complete(
+        &self,
+        _messages: &[alva_kernel_abi::Message],
+        _tools: &[&dyn alva_kernel_abi::Tool],
+        _config: &alva_kernel_abi::ModelConfig,
+    ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::AgentError> {
+        Err(alva_kernel_abi::AgentError::ConfigError(format!(
+            "unsupported provider kind '{}'",
+            self.kind
+        )))
+    }
+
+    fn stream(
+        &self,
+        _messages: &[alva_kernel_abi::Message],
+        _tools: &[&dyn alva_kernel_abi::Tool],
+        _config: &alva_kernel_abi::ModelConfig,
+    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
+    {
+        let message = format!("unsupported provider kind '{}'", self.kind);
+        Box::pin(futures::stream::iter([
+            alva_kernel_abi::StreamEvent::Error(message),
+            alva_kernel_abi::StreamEvent::Done,
+        ]))
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model
+    }
+
+    fn provider_id(&self) -> &str {
+        "invalid"
     }
 }
 
@@ -116,7 +164,7 @@ mod factory_tests {
     }
 
     #[test]
-    fn build_language_model_dispatches_by_kind_with_chat_fallback() {
+    fn build_language_model_dispatches_known_kinds_and_rejects_unknown() {
         let cfg = || ProviderConfig {
             api_key: "k".into(),
             model: "m".into(),
@@ -134,5 +182,34 @@ mod factory_tests {
             build_language_model(Some("unknown-kind"), cfg()).model_id(),
             "m"
         );
+        assert_eq!(
+            build_language_model(Some("unknown-kind"), cfg()).provider_id(),
+            "invalid"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_provider_fails_before_any_network_request() {
+        let model = build_language_model(
+            Some("anthorpic"),
+            ProviderConfig {
+                api_key: "must-not-be-sent".into(),
+                model: "claude".into(),
+                base_url: "https://example.invalid".into(),
+                max_tokens: 16,
+                custom_headers: Default::default(),
+                kind: Some("anthorpic".into()),
+            },
+        );
+
+        let error = model
+            .complete(&[], &[], &alva_kernel_abi::ModelConfig::default())
+            .await
+            .expect_err("unknown provider must fail locally");
+        assert!(matches!(
+            error,
+            alva_kernel_abi::AgentError::ConfigError(message)
+                if message.contains("anthorpic")
+        ));
     }
 }

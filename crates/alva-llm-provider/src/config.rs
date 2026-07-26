@@ -30,8 +30,9 @@ pub struct ProviderConfig {
     pub custom_headers: std::collections::HashMap<String, String>,
     /// Which provider impl to use. Values:
     /// `"anthropic"` / `"openai-chat"` / `"openai-responses"` / `"gemini"`.
-    /// `None` (or unknown value) defaults to OpenAI Chat Completions, which
-    /// is the broadest OpenAI-compatible path (OpenAI / DeepSeek / Ollama / etc.).
+    /// `None` defaults to OpenAI Chat Completions, which is the broadest
+    /// OpenAI-compatible path (OpenAI / DeepSeek / Ollama / etc.). Unknown
+    /// explicit values fail locally instead of contacting the wrong API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
 }
