@@ -354,7 +354,7 @@ impl LanguageModel for AnthropicProvider {
             let adapter = AnthropicAdapter::new();
             let mut state = StreamDecodeState::new();
             let mut byte_stream = resp.bytes_stream();
-            let mut buffer = String::new();
+            let mut sse_lines = crate::util::SseLineBuffer::new();
 
             while let Some(chunk) = futures::StreamExt::next(&mut byte_stream).await {
                 let chunk = match chunk {
@@ -365,12 +365,16 @@ impl LanguageModel for AnthropicProvider {
                     }
                 };
 
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
+                let lines = match sse_lines.push(&chunk) {
+                    Ok(lines) => lines,
+                    Err(error) => {
+                        yield StreamEvent::Error(error);
+                        return;
+                    }
+                };
 
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
+                for line in lines {
+                    let line = line.trim();
                     if line.is_empty() || line.starts_with(':') {
                         continue;
                     }
@@ -518,10 +522,23 @@ fn apply_anthropic_thinking(
                 };
                 body["output_config"] = serde_json::json!({"effort": effort});
             } else {
+                // Manual thinking requires at least 1024 budget tokens and
+                // budget_tokens must remain strictly below max_tokens. With a
+                // smaller output ceiling there is no valid request shape, so
+                // preserve the caller's max_tokens and omit thinking.
+                if max_tokens <= 1024 {
+                    tracing::warn!(
+                        model,
+                        max_tokens,
+                        "omitting Anthropic manual thinking because max_tokens is too small"
+                    );
+                    return;
+                }
                 let budget = effort
                     .suggested_token_budget()
                     .unwrap_or(8192)
-                    .min(max_tokens.saturating_sub(1).max(1024));
+                    .min(max_tokens - 1)
+                    .max(1024);
                 body["thinking"] = serde_json::json!({
                     "type": "enabled",
                     "budget_tokens": budget,
@@ -637,5 +654,37 @@ mod tests {
 
         assert_eq!(body["thinking"], serde_json::json!({"type": "adaptive"}));
         assert_eq!(body["output_config"], serde_json::json!({"effort": "high"}));
+    }
+
+    #[test]
+    fn manual_thinking_never_exceeds_small_max_tokens() {
+        let config = ModelConfig {
+            reasoning_effort: Some(ReasoningEffort::High),
+            ..Default::default()
+        };
+        for max_tokens in [1, 1024] {
+            let body = build_body(
+                "claude-sonnet-4-5",
+                max_tokens,
+                &EncodedMessages::default(),
+                &[],
+                &config,
+                false,
+            );
+            assert!(
+                body.get("thinking").is_none(),
+                "max_tokens={max_tokens} cannot carry a valid manual thinking budget"
+            );
+        }
+
+        let body = build_body(
+            "claude-sonnet-4-5",
+            1025,
+            &EncodedMessages::default(),
+            &[],
+            &config,
+            false,
+        );
+        assert_eq!(body["thinking"]["budget_tokens"], 1024);
     }
 }

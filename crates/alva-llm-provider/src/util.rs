@@ -1,9 +1,60 @@
-// INPUT:  std::str, std::time::Duration, reqwest
-// OUTPUT: pub(crate) fn truncate_for_log, pub(crate) fn http_client
+// INPUT:  std::{str,time::Duration}, reqwest
+// OUTPUT: truncate_for_log, http_client, SseLineBuffer
 // POS:    Small shared helpers every provider uses: a UTF-8-safe slice for
-//         tracing previews, and the timeout-bearing HTTP client builder.
+//         tracing previews, bounded incremental SSE framing, and the timeout-bearing HTTP client builder.
 
+use std::str;
 use std::time::Duration;
+
+const MAX_SSE_LINE_BYTES: usize = 1024 * 1024;
+
+/// Incremental SSE line framer that preserves UTF-8 across arbitrary network
+/// chunk boundaries and rejects an unterminated/oversized provider frame.
+pub(crate) struct SseLineBuffer {
+    pending: Vec<u8>,
+}
+
+impl SseLineBuffer {
+    pub(crate) fn new() -> Self {
+        Self {
+            pending: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> Result<Vec<String>, String> {
+        self.pending.extend_from_slice(chunk);
+        let mut lines = Vec::new();
+        let mut start = 0;
+        for (index, byte) in self.pending.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            let mut line = &self.pending[start..index];
+            if line.last() == Some(&b'\r') {
+                line = &line[..line.len() - 1];
+            }
+            if line.len() > MAX_SSE_LINE_BYTES {
+                return Err(format!(
+                    "SSE line is {} bytes; limit is {MAX_SSE_LINE_BYTES} bytes",
+                    line.len()
+                ));
+            }
+            let line = str::from_utf8(line)
+                .map_err(|error| format!("SSE line is not valid UTF-8: {error}"))?;
+            lines.push(line.to_string());
+            start = index + 1;
+        }
+        if start > 0 {
+            self.pending.drain(..start);
+        }
+        if self.pending.len() > MAX_SSE_LINE_BYTES {
+            return Err(format!(
+                "unterminated SSE line exceeds the {MAX_SSE_LINE_BYTES}-byte limit"
+            ));
+        }
+        Ok(lines)
+    }
+}
 
 /// Time allowed to establish the TCP + TLS connection to a provider. A
 /// host we cannot reach at all fails here instead of hanging the turn.
@@ -168,6 +219,31 @@ mod tests {
     #[test]
     fn zero_max_bytes_returns_empty() {
         assert_eq!(truncate_for_log("anything", 0), "");
+    }
+
+    #[test]
+    fn sse_line_buffer_preserves_utf8_split_across_chunks() {
+        let payload = "data: {\"text\":\"中文\"}\n\n".as_bytes();
+        let split = payload
+            .windows(3)
+            .position(|window| window == "中".as_bytes())
+            .unwrap()
+            + 1;
+        let mut buffer = SseLineBuffer::new();
+        assert!(buffer.push(&payload[..split]).unwrap().is_empty());
+        assert_eq!(
+            buffer.push(&payload[split..]).unwrap(),
+            vec!["data: {\"text\":\"中文\"}", ""]
+        );
+    }
+
+    #[test]
+    fn sse_line_buffer_rejects_unbounded_unterminated_frame() {
+        let mut buffer = SseLineBuffer::new();
+        let error = buffer
+            .push(&vec![b'x'; MAX_SSE_LINE_BYTES + 1])
+            .unwrap_err();
+        assert!(error.contains("unterminated SSE line"), "{error}");
     }
 }
 

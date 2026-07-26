@@ -183,6 +183,15 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
     }
 
     fn decode_response(&self, response: &Value) -> Result<DecodedResponse, AdapterError> {
+        if response.get("status").and_then(Value::as_str) == Some("failed") {
+            let message = response
+                .pointer("/error/message")
+                .and_then(Value::as_str)
+                .unwrap_or("provider returned a failed response");
+            return Err(AdapterError::UnexpectedFormat(format!(
+                "OpenAI Responses API failed: {message}"
+            )));
+        }
         let output_arr = response
             .get("output")
             .and_then(Value::as_array)
@@ -688,10 +697,14 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                 out.push(StreamEvent::Done);
             }
             "response.failed" => {
-                out.push(StreamEvent::Stop {
-                    reason: StopReason::Other("failed".to_string()),
-                });
-                out.push(StreamEvent::Done);
+                let message = event
+                    .pointer("/response/error/message")
+                    .or_else(|| event.pointer("/error/message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("provider returned a failed response");
+                out.push(StreamEvent::Error(format!(
+                    "OpenAI Responses API failed: {message}"
+                )));
             }
             _ => {}
         }
@@ -1374,43 +1387,33 @@ mod tests {
     }
 
     #[test]
-    fn decode_stream_failed_emits_other_stop() {
+    fn decode_stream_failed_emits_model_error() {
         let mut state = StreamDecodeState::new();
         state.event_type = Some("response.failed".into());
-        let ev = serde_json::json!({});
+        let ev = serde_json::json!({
+            "response": {"error": {"message": "quota exhausted"}}
+        });
         let out = OpenAIResponsesAdapter
             .decode_stream_event(&ev, &mut state)
             .unwrap();
-        // Now emits [Stop{Other("failed")}, Done] — len 2.
-        assert_eq!(out.len(), 2, "expected Stop + Done, got: {out:?}");
-        match &out[0] {
-            StreamEvent::Stop {
-                reason: StopReason::Other(s),
-            } => assert_eq!(s, "failed"),
-            _ => panic!("expected Stop{{Other(\"failed\")}}"),
-        }
-        assert!(
-            matches!(out[1], StreamEvent::Done),
-            "second event must be Done"
-        );
+        assert_eq!(out.len(), 1, "expected one Error, got: {out:?}");
+        assert!(matches!(
+            &out[0],
+            StreamEvent::Error(message) if message.contains("quota exhausted")
+        ));
     }
 
     #[test]
-    fn decode_stream_failed_emits_stop_and_done() {
-        let mut state = StreamDecodeState::new();
-        state.event_type = Some("response.failed".into());
-        let ev = serde_json::json!({});
-        let out = OpenAIResponsesAdapter
-            .decode_stream_event(&ev, &mut state)
-            .unwrap();
-        assert!(
-            out.iter().any(|e| matches!(e, StreamEvent::Stop { .. })),
-            "response.failed must emit Stop: {out:?}"
-        );
-        assert!(
-            matches!(out.last(), Some(StreamEvent::Done)),
-            "response.failed must end with Done: {out:?}"
-        );
+    fn decode_non_stream_failed_response_is_rejected() {
+        let response = serde_json::json!({
+            "status": "failed",
+            "error": {"message": "invalid request"},
+            "output": []
+        });
+        let error = OpenAIResponsesAdapter
+            .decode_response(&response)
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid request"), "{error}");
     }
 
     #[test]

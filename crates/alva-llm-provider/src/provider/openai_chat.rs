@@ -350,7 +350,7 @@ impl LanguageModel for OpenAIChatProvider {
             let adapter = OpenAIChatAdapter::new();
             let mut state = StreamDecodeState::new();
             let mut byte_stream = resp.bytes_stream();
-            let mut buffer = String::new();
+            let mut sse_lines = crate::util::SseLineBuffer::new();
             let mut raw_bytes_total: usize = 0;
             let mut first_chunk_logged = false;
 
@@ -373,12 +373,16 @@ impl LanguageModel for OpenAIChatProvider {
                         "first SSE chunk received"
                     );
                 }
-                buffer.push_str(&chunk_str);
+                let lines = match sse_lines.push(&chunk) {
+                    Ok(lines) => lines,
+                    Err(error) => {
+                        yield StreamEvent::Error(error);
+                        return;
+                    }
+                };
 
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
+                for line in lines {
+                    let line = line.trim();
                     if line.is_empty() || line.starts_with(':') {
                         continue;
                     }

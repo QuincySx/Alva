@@ -315,7 +315,7 @@ impl LanguageModel for GeminiProvider {
             let adapter = GeminiAdapter::new();
             let mut state = StreamDecodeState::new();
             let mut byte_stream = resp.bytes_stream();
-            let mut buffer = String::new();
+            let mut sse_lines = crate::util::SseLineBuffer::new();
 
             while let Some(chunk) = futures::StreamExt::next(&mut byte_stream).await {
                 let chunk = match chunk {
@@ -326,12 +326,16 @@ impl LanguageModel for GeminiProvider {
                     }
                 };
 
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
+                let lines = match sse_lines.push(&chunk) {
+                    Ok(lines) => lines,
+                    Err(error) => {
+                        yield StreamEvent::Error(error);
+                        return;
+                    }
+                };
 
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
+                for line in lines {
+                    let line = line.trim();
                     if line.is_empty() || line.starts_with(':') {
                         continue;
                     }

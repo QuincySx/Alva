@@ -246,7 +246,7 @@ impl LanguageModel for OpenAIResponsesProvider {
             let adapter = OpenAIResponsesAdapter::new();
             let mut state = StreamDecodeState::new();
             let mut byte_stream = resp.bytes_stream();
-            let mut buffer = String::new();
+            let mut sse_lines = crate::util::SseLineBuffer::new();
 
             // Responses API SSE: `event: <name>` line precedes `data: <json>` line.
             // We track the current event name in state.event_type and let the
@@ -260,12 +260,16 @@ impl LanguageModel for OpenAIResponsesProvider {
                     }
                 };
 
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
+                let lines = match sse_lines.push(&chunk) {
+                    Ok(lines) => lines,
+                    Err(error) => {
+                        yield StreamEvent::Error(error);
+                        return;
+                    }
+                };
 
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
+                for line in lines {
+                    let line = line.trim();
                     if line.is_empty() || line.starts_with(':') {
                         continue;
                     }

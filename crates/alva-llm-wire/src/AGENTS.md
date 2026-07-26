@@ -13,6 +13,7 @@
 
 - 每个模块不得引入 runtime、网络或 workspace 高层依赖。
 - tool call 的 id/name/arguments 合并顺序必须保持 provider 兼容。
+- provider 的 failed terminal event 必须收敛为 `StreamEvent::Error`，不能用 `Stop`/`Done` 伪装成功并提交部分消息。
 - ABI 版本或限额变更必须同时覆盖 host 与 guest 测试。
 
 ## 业务域清单
