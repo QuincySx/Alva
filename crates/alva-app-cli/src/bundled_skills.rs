@@ -95,18 +95,37 @@ pub(crate) async fn wasm_environment_skill_injection() -> Result<String, String>
 
 /// Extract the bundled skills tree to a versioned cache directory and
 /// return the path. Idempotent: if the cache directory already exists
-/// AND contains every bundled file, returns the path without rewriting.
+/// AND every bundled file matches its embedded bytes, returns the path
+/// without rewriting.
 pub fn ensure_extracted() -> std::io::Result<PathBuf> {
     let dest = bundled_skills_cache_dir();
-    if dest.exists() && is_complete(&dest) {
+    if is_complete(&dest) {
         return Ok(dest);
     }
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)?;
     }
+    remove_cache_entry(&dest)?;
     fs::create_dir_all(&dest)?;
     BUNDLED_SKILLS.extract(&dest)?;
     Ok(dest)
+}
+
+/// Remove only the versioned cache entry before rebuilding it. Using
+/// `symlink_metadata` ensures a symlink at the cache root is unlinked rather
+/// than followed; `remove_dir_all` likewise removes child symlinks without
+/// traversing their targets.
+fn remove_cache_entry(dest: &std::path::Path) -> std::io::Result<()> {
+    let metadata = match fs::symlink_metadata(dest) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(dest)
+    } else {
+        fs::remove_file(dest)
+    }
 }
 
 /// Resolved cache directory:
@@ -128,21 +147,43 @@ pub fn bundled_skills_cache_dir() -> PathBuf {
 }
 
 /// Walk the embedded tree and confirm every entry exists on disk under
-/// `dest`. Cheap (no content compare) — we trust the version-stamped cache
-/// dir name to invalidate correctly across releases.
+/// `dest` with the exact embedded contents. The cache directory is writable
+/// by the current user, so existence alone would let stale or tampered skill
+/// prompts survive indefinitely until the next application version.
 fn is_complete(dest: &std::path::Path) -> bool {
     fn walk(dir: &Dir<'_>, dest: &std::path::Path) -> bool {
         for f in dir.files() {
-            if !dest.join(f.path()).is_file() {
+            let path = dest.join(f.path());
+            let Ok(metadata) = fs::symlink_metadata(&path) else {
+                return false;
+            };
+            if !metadata.file_type().is_file()
+                || fs::read(&path)
+                    .map(|contents| contents != f.contents())
+                    .unwrap_or(true)
+            {
                 return false;
             }
         }
         for d in dir.dirs() {
+            let path = dest.join(d.path());
+            let Ok(metadata) = fs::symlink_metadata(path) else {
+                return false;
+            };
+            if !metadata.file_type().is_dir() {
+                return false;
+            }
             if !walk(d, dest) {
                 return false;
             }
         }
         true
+    }
+    let Ok(metadata) = fs::symlink_metadata(dest) else {
+        return false;
+    };
+    if !metadata.file_type().is_dir() {
+        return false;
     }
     walk(&BUNDLED_SKILLS, dest)
 }
@@ -154,10 +195,12 @@ mod tests {
     /// Single test exercising:
     /// 1. `ensure_extracted` writes the bundled tree on first call
     /// 2. Second call is idempotent (no rewrite)
-    /// 3. `SkillsPlugin::with_bundled` actually finds the extracted skills
+    /// 3. Modified cache contents are repaired
+    /// 4. Symlinked entries do not escape the cache
+    /// 5. `SkillsPlugin::with_bundled` actually finds the extracted skills
     ///    end-to-end (proving the install→read pipeline works)
     ///
-    /// All three checks share a single `XDG_CACHE_HOME` env var because Rust
+    /// All five checks share a single `XDG_CACHE_HOME` env var because Rust
     /// runs unit tests in parallel by default and that env var is process-global.
     #[tokio::test(flavor = "multi_thread")]
     async fn extracts_idempotent_and_skill_is_discoverable() {
@@ -185,7 +228,40 @@ mod tests {
         let mtime_after = fs::metadata(&skill_md).unwrap().modified().unwrap();
         assert_eq!(mtime_before, mtime_after, "second call must not rewrite");
 
-        // 3) End-to-end: SkillsPlugin::with_bundled wires the extracted dir
+        // 3) A modified cache entry is not trusted just because it exists.
+        fs::write(&skill_md, "tampered prompt").unwrap();
+        ensure_extracted().expect("tampered cache is repaired");
+        let repaired = fs::read_to_string(&skill_md).unwrap();
+        assert!(
+            repaired.contains("name: project-tooling"),
+            "embedded skill contents must replace tampered cache"
+        );
+        assert!(!repaired.contains("tampered prompt"));
+
+        // 4) A symlink in the writable cache must be replaced, not followed.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            let outside = tmp.path().join("outside.txt");
+            fs::write(&outside, "outside stays unchanged").unwrap();
+            fs::remove_file(&skill_md).unwrap();
+            symlink(&outside, &skill_md).unwrap();
+            ensure_extracted().expect("symlinked cache entry is rebuilt safely");
+            assert_eq!(
+                fs::read_to_string(&outside).unwrap(),
+                "outside stays unchanged"
+            );
+            assert!(
+                !fs::symlink_metadata(&skill_md)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink(),
+                "cache entry must be restored as a regular file"
+            );
+        }
+
+        // 5) End-to-end: SkillsPlugin::with_bundled wires the extracted dir
         //    as the bundled source, the underlying FsSkillRepository scans it,
         //    and the project-tooling skill is in the listed skills.
         let primary = tmp.path().join("project-skills");
