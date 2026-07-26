@@ -69,14 +69,29 @@ impl ProtocolAdapter for OpenAIChatAdapter {
 
     fn encode_messages(&self, messages: &[Message]) -> EncodedMessages {
         let mut out: Vec<Value> = Vec::new();
+        let mut pending_tool_images: Vec<Value> = Vec::new();
         for m in messages {
+            if !matches!(m.role, MessageRole::Tool) {
+                flush_openai_tool_images(&mut out, &mut pending_tool_images);
+            }
             match m.role {
                 MessageRole::Tool => {
                     let mut parts: Vec<String> = Vec::new();
                     for b in &m.content {
                         if let ContentBlock::ToolResult { content, .. } = b {
                             for tc in content {
-                                parts.push(tc.to_model_string());
+                                match tc {
+                                    crate::tool_payload::ToolContent::Text { text } => {
+                                        parts.push(text.clone());
+                                    }
+                                    crate::tool_payload::ToolContent::Image {
+                                        data,
+                                        media_type,
+                                    } => {
+                                        pending_tool_images
+                                            .push(openai_image_part(data, media_type));
+                                    }
+                                }
                             }
                         } else if let Some(t) = b.as_text() {
                             parts.push(t.to_string());
@@ -130,6 +145,33 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                     }
                     out.push(msg);
                 }
+                MessageRole::User => {
+                    let has_images = m.content.iter().any(ContentBlock::is_image);
+                    if has_images {
+                        let content = m
+                            .content
+                            .iter()
+                            .filter_map(|block| match block {
+                                ContentBlock::Text { text } if !text.is_empty() => {
+                                    Some(serde_json::json!({"type": "text", "text": text}))
+                                }
+                                ContentBlock::Image { data, media_type } => {
+                                    Some(openai_image_part(data, media_type))
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+                        out.push(serde_json::json!({
+                            "role": "user",
+                            "content": content,
+                        }));
+                    } else {
+                        out.push(serde_json::json!({
+                            "role": "user",
+                            "content": m.text_content(),
+                        }));
+                    }
+                }
                 _ => {
                     let role = match m.role {
                         MessageRole::User => "user",
@@ -144,6 +186,7 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                 }
             }
         }
+        flush_openai_tool_images(&mut out, &mut pending_tool_images);
         EncodedMessages {
             system_segments: None, // inline in messages
             messages: out,
@@ -245,8 +288,7 @@ impl ProtocolAdapter for OpenAIChatAdapter {
                         //   * a call seen with neither a known index nor an id is
                         //     a fresh whole-in-one-delta call, given a synthetic
                         //     id so its arguments never merge with another's.
-                        let raw_index =
-                            tc.get("index").and_then(Value::as_u64).map(|i| i as usize);
+                        let raw_index = tc.get("index").and_then(Value::as_u64).map(|i| i as usize);
                         let raw_id = tc
                             .get("id")
                             .and_then(Value::as_str)
@@ -819,7 +861,9 @@ impl ProtocolAdapter for OpenAIChatAdapter {
             }
 
             // Reasoning events — not part of Chat Completions wire format; skip.
-            StreamEvent::ReasoningDelta { .. } | StreamEvent::ReasoningBlock { .. } => {}
+            StreamEvent::ReasoningDelta { .. }
+            | StreamEvent::ReasoningBlock { .. }
+            | StreamEvent::ProviderState { .. } => {}
         }
 
         Ok(out)
@@ -829,6 +873,25 @@ impl ProtocolAdapter for OpenAIChatAdapter {
 // ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
+
+fn openai_image_part(data: &str, media_type: &str) -> Value {
+    serde_json::json!({
+        "type": "image_url",
+        "image_url": {
+            "url": format!("data:{media_type};base64,{data}"),
+        }
+    })
+}
+
+fn flush_openai_tool_images(out: &mut Vec<Value>, images: &mut Vec<Value>) {
+    if images.is_empty() {
+        return;
+    }
+    out.push(serde_json::json!({
+        "role": "user",
+        "content": std::mem::take(images),
+    }));
+}
 
 #[cfg(test)]
 mod tests {
@@ -888,6 +951,55 @@ mod tests {
         let args_str = tc["function"]["arguments"].as_str().unwrap();
         let parsed: Value = serde_json::from_str(args_str).unwrap();
         assert_eq!(parsed["path"], "/a");
+    }
+
+    #[test]
+    fn encode_messages_preserves_user_and_tool_images() {
+        use crate::tool_payload::ToolContent;
+
+        let user = Message {
+            id: "u".into(),
+            role: MessageRole::User,
+            content: vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    data: "base64-user".into(),
+                    media_type: "image/png".into(),
+                },
+            ],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let tool = Message {
+            id: "t".into(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::ToolResult {
+                id: "toolu_call_image".into(),
+                content: vec![
+                    ToolContent::text("screenshot"),
+                    ToolContent::image("base64-tool", "image/jpeg"),
+                ],
+                is_error: false,
+            }],
+            tool_call_id: Some("toolu_call_image".into()),
+            usage: None,
+            timestamp: 0,
+        };
+        let out = OpenAIChatAdapter.encode_messages(&[user, tool]);
+
+        assert_eq!(
+            out.messages[0]["content"][1]["image_url"]["url"],
+            "data:image/png;base64,base64-user"
+        );
+        assert_eq!(out.messages[1]["role"], "tool");
+        assert_eq!(out.messages[2]["role"], "user");
+        assert_eq!(
+            out.messages[2]["content"][0]["image_url"]["url"],
+            "data:image/jpeg;base64,base64-tool"
+        );
     }
 
     #[test]
@@ -1043,8 +1155,15 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(tool_uses.len(), 2, "the two calls must not collapse into one");
-        assert_ne!(tool_uses[0].0, tool_uses[1].0, "distinct calls need distinct ids");
+        assert_eq!(
+            tool_uses.len(),
+            2,
+            "the two calls must not collapse into one"
+        );
+        assert_ne!(
+            tool_uses[0].0, tool_uses[1].0,
+            "distinct calls need distinct ids"
+        );
         assert!(tool_uses.iter().all(|(_, name, _)| name == "read_file"));
         assert_eq!(tool_uses[0].2["path"], "a.md");
         assert_eq!(tool_uses[1].2["path"], "b.md");
@@ -1067,7 +1186,10 @@ mod tests {
             .unwrap();
         match &out[0] {
             StreamEvent::ToolCallStart { id, name } => {
-                assert_ne!(id, "toolu_", "empty id must not become a bare toolu_ prefix");
+                assert_ne!(
+                    id, "toolu_",
+                    "empty id must not become a bare toolu_ prefix"
+                );
                 assert!(id.starts_with("toolu_"));
                 assert_eq!(name, "list_files");
             }

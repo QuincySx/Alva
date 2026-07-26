@@ -52,6 +52,7 @@ impl std::error::Error for StreamMessageError {
 pub struct StreamMessageAccumulator {
     text: String,
     reasoning: Vec<(String, Option<String>)>,
+    provider_states: Vec<(String, serde_json::Value)>,
     usage: Option<UsageMetadata>,
     tool_calls: Vec<(String, String, String)>,
     tool_call_indices: HashMap<String, usize>,
@@ -132,6 +133,9 @@ impl StreamMessageAccumulator {
                 // round-tripped verbatim on the next turn, or it 400s.
                 self.reasoning.push((text, signature));
             }
+            StreamEvent::ProviderState { provider, data } => {
+                self.provider_states.push((provider, data));
+            }
             StreamEvent::Start
             | StreamEvent::Done
             | StreamEvent::ReasoningDelta { .. }
@@ -162,10 +166,15 @@ impl StreamMessageAccumulator {
     /// Finish the assistant message with caller-owned identity and timestamp.
     pub fn finish(self, id: String, timestamp: i64) -> Result<Message, StreamMessageError> {
         let mut content = self
-            .reasoning
+            .provider_states
             .into_iter()
-            .map(|(text, signature)| ContentBlock::Reasoning { text, signature })
+            .map(|(provider, data)| ContentBlock::ProviderState { provider, data })
             .collect::<Vec<_>>();
+        content.extend(
+            self.reasoning
+                .into_iter()
+                .map(|(text, signature)| ContentBlock::Reasoning { text, signature }),
+        );
         if !self.text.is_empty() {
             content.push(ContentBlock::Text { text: self.text });
         }
@@ -254,6 +263,25 @@ mod tests {
             &message.content[2],
             ContentBlock::ToolUse { id, name, input }
                 if id == "call-1" && name == "read_file" && input == &json!({"path": "a.txt"})
+        ));
+    }
+
+    #[test]
+    fn preserves_provider_continuation_state() {
+        let message = message_from_events(
+            [StreamEvent::ProviderState {
+                provider: "openai-responses".into(),
+                data: json!({"type": "reasoning", "encrypted_content": "enc"}),
+            }],
+            "response-1",
+            42,
+        )
+        .expect("assemble provider state");
+
+        assert!(matches!(
+            &message.content[0],
+            ContentBlock::ProviderState { provider, data }
+                if provider == "openai-responses" && data["encrypted_content"] == "enc"
         ));
     }
 

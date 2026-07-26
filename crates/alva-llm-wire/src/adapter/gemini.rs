@@ -1,7 +1,7 @@
 // INPUT:  super::{ToolAdapter, EncodedMessages, DecodedResponse, StreamDecodeState, AdapterError}
 // OUTPUT: GeminiAdapter (Google Gemini / Vertex AI `generateContent` + `streamGenerateContent`)
 // POS:    Most complex adapter — functionDeclarations wrapper, type enum mapping, examples→example,
-//         id auto-generation (Gemini doesn't emit tool-use ids), non-streamed tool calls.
+//         function-call id preservation/fallback generation, non-streamed tool calls.
 
 //! Google Gemini / Vertex AI adapter (`generateContent` + `streamGenerateContent`).
 //!
@@ -13,13 +13,13 @@
 //! - Schema `type` maps from lowercase string to uppercase enum
 //!   (`"string"` → `"STRING"`, etc.)
 //! - JSON Schema `examples: [x, y]` → Gemini `example: x` (single value)
-//! - Message roles: `user` / `model` / `function` (not `assistant` / `tool`)
-//! - Tool calls: `parts: [{functionCall: {name, args}}]`
+//! - Message roles: `user` / `model` (not `assistant` / `tool`)
+//! - Tool calls: `parts: [{functionCall: {id, name, args}}]`
 //! - Tool results: `parts: [{functionResponse: {name, response}}]` — matched
 //!   by **name**, not id. The encoder walks back through `messages` to
 //!   find the matching `ToolUse.name` for each `ToolResult.id`.
-//! - Tool-use ids: Gemini doesn't emit any — the adapter generates a
-//!   normalized `toolu_*` id on decode using `common::tool_id::generate()`.
+//! - Tool-use ids: current Gemini responses preserve ids; older responses
+//!   without one get a generated normalized `toolu_*` id.
 //! - Streaming: Gemini does NOT stream tool-call arguments incrementally.
 //!   The entire `functionCall` arrives in one event. The adapter surfaces
 //!   it as a single `ToolCallDelta` with the complete JSON in
@@ -74,8 +74,41 @@ impl ProtocolAdapter for GeminiAdapter {
         // need explicit cache markers here.
         let mut system_segments: Vec<String> = Vec::new();
         let mut contents: Vec<Value> = Vec::new();
+        let mut pending_tool_result_parts: Vec<Value> = Vec::new();
+        let mut pending_tool_image_parts: Vec<Value> = Vec::new();
 
         for m in messages {
+            if matches!(m.role, MessageRole::Tool) {
+                for b in &m.content {
+                    if let ContentBlock::ToolResult { id, content, .. } = b {
+                        let name =
+                            find_name_for_id(messages, id).unwrap_or_else(|| "unknown".to_string());
+                        let mut text_parts = Vec::new();
+                        for part in content {
+                            match part {
+                                crate::tool_payload::ToolContent::Text { text } => {
+                                    text_parts.push(text.clone());
+                                }
+                                crate::tool_payload::ToolContent::Image { data, media_type } => {
+                                    pending_tool_image_parts
+                                        .push(gemini_image_part(data, media_type));
+                                }
+                            }
+                        }
+                        pending_tool_result_parts.push(serde_json::json!({
+                            "functionResponse": {
+                                "id": tool_id::to_provider(id),
+                                "name": name,
+                                "response": { "content": text_parts.join("\n") },
+                            }
+                        }));
+                    }
+                }
+                continue;
+            }
+
+            flush_function_responses(&mut contents, &mut pending_tool_result_parts);
+            flush_gemini_tool_images(&mut contents, &mut pending_tool_image_parts);
             match m.role {
                 MessageRole::System => {
                     let text = m.text_content();
@@ -84,22 +117,62 @@ impl ProtocolAdapter for GeminiAdapter {
                     }
                 }
                 MessageRole::User => {
+                    let parts = m
+                        .content
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text { text } if !text.is_empty() => {
+                                Some(serde_json::json!({"text": text}))
+                            }
+                            ContentBlock::Image { data, media_type } => {
+                                Some(gemini_image_part(data, media_type))
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
                     contents.push(serde_json::json!({
                         "role": "user",
-                        "parts": [{"text": m.text_content()}],
+                        "parts": parts,
                     }));
                 }
                 MessageRole::Assistant => {
                     let mut parts: Vec<Value> = Vec::new();
+                    let thought_signatures = m
+                        .content
+                        .iter()
+                        .filter_map(|block| {
+                            let ContentBlock::ProviderState { provider, data } = block else {
+                                return None;
+                            };
+                            if provider != "gemini" {
+                                return None;
+                            }
+                            Some((
+                                data.get("tool_call_id")?.as_str()?.to_string(),
+                                data.get("thought_signature")?.as_str()?.to_string(),
+                            ))
+                        })
+                        .collect::<std::collections::HashMap<_, _>>();
                     for b in &m.content {
                         match b {
                             ContentBlock::Text { text } if !text.is_empty() => {
                                 parts.push(serde_json::json!({"text": text}));
                             }
-                            ContentBlock::ToolUse { name, input, .. } => {
-                                parts.push(serde_json::json!({
-                                    "functionCall": { "name": name, "args": input }
-                                }));
+                            ContentBlock::Image { data, media_type } => {
+                                parts.push(gemini_image_part(data, media_type));
+                            }
+                            ContentBlock::ToolUse { id, name, input } => {
+                                let mut part = serde_json::json!({
+                                    "functionCall": {
+                                        "id": tool_id::to_provider(id),
+                                        "name": name,
+                                        "args": input
+                                    }
+                                });
+                                if let Some(signature) = thought_signatures.get(id) {
+                                    part["thoughtSignature"] = Value::String(signature.clone());
+                                }
+                                parts.push(part);
                             }
                             _ => {}
                         }
@@ -117,33 +190,11 @@ impl ProtocolAdapter for GeminiAdapter {
                         }));
                     }
                 }
-                MessageRole::Tool => {
-                    // Gemini matches tool results by NAME — find the name by
-                    // walking backward through the already-processed messages
-                    // for a matching tool_use id.
-                    for b in &m.content {
-                        if let ContentBlock::ToolResult { id, content, .. } = b {
-                            let name = find_name_for_id(messages, id)
-                                .unwrap_or_else(|| "unknown".to_string());
-                            let text: String = content
-                                .iter()
-                                .map(|tc| tc.to_model_string())
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            contents.push(serde_json::json!({
-                                "role": "function",
-                                "parts": [{
-                                    "functionResponse": {
-                                        "name": name,
-                                        "response": { "content": text },
-                                    }
-                                }],
-                            }));
-                        }
-                    }
-                }
+                MessageRole::Tool => unreachable!("handled before match"),
             }
         }
+        flush_function_responses(&mut contents, &mut pending_tool_result_parts);
+        flush_gemini_tool_images(&mut contents, &mut pending_tool_image_parts);
 
         EncodedMessages {
             system_segments: if system_segments.is_empty() {
@@ -183,12 +234,22 @@ impl ProtocolAdapter for GeminiAdapter {
                     .unwrap_or("")
                     .to_string();
                 let input = fc.get("args").cloned().unwrap_or(Value::Object(Map::new()));
-                // Gemini doesn't emit ids — generate a normalized one.
-                blocks.push(ContentBlock::ToolUse {
-                    id: tool_id::generate(),
-                    name,
-                    input,
-                });
+                let raw_id = fc.get("id").and_then(Value::as_str).unwrap_or("");
+                let id = if raw_id.is_empty() {
+                    tool_id::generate()
+                } else {
+                    tool_id::to_normalized(raw_id)
+                };
+                if let Some(signature) = part.get("thoughtSignature").and_then(Value::as_str) {
+                    blocks.push(ContentBlock::ProviderState {
+                        provider: "gemini".to_string(),
+                        data: serde_json::json!({
+                            "tool_call_id": &id,
+                            "thought_signature": signature,
+                        }),
+                    });
+                }
+                blocks.push(ContentBlock::ToolUse { id, name, input });
             }
         }
 
@@ -258,7 +319,23 @@ impl ProtocolAdapter for GeminiAdapter {
                                 .to_string();
                             let args = fc.get("args").cloned().unwrap_or(Value::Object(Map::new()));
                             let args_str = args.to_string();
-                            let id = tool_id::generate();
+                            let raw_id = fc.get("id").and_then(Value::as_str).unwrap_or("");
+                            let id = if raw_id.is_empty() {
+                                tool_id::generate()
+                            } else {
+                                tool_id::to_normalized(raw_id)
+                            };
+                            if let Some(signature) =
+                                part.get("thoughtSignature").and_then(Value::as_str)
+                            {
+                                out.push(StreamEvent::ProviderState {
+                                    provider: "gemini".to_string(),
+                                    data: serde_json::json!({
+                                        "tool_call_id": &id,
+                                        "thought_signature": signature,
+                                    }),
+                                });
+                            }
                             state.tool_input_buf.insert(id.clone(), args_str.clone());
                             // Gemini gives us the complete tool call in one event — emit the
                             // full start/delta/end triple so consumers match other providers.
@@ -396,6 +473,35 @@ fn convert_schema(s: &Value) -> Value {
     Value::Object(out)
 }
 
+fn flush_function_responses(contents: &mut Vec<Value>, parts: &mut Vec<Value>) {
+    if parts.is_empty() {
+        return;
+    }
+    contents.push(serde_json::json!({
+        "role": "user",
+        "parts": std::mem::take(parts),
+    }));
+}
+
+fn flush_gemini_tool_images(contents: &mut Vec<Value>, parts: &mut Vec<Value>) {
+    if parts.is_empty() {
+        return;
+    }
+    contents.push(serde_json::json!({
+        "role": "user",
+        "parts": std::mem::take(parts),
+    }));
+}
+
+fn gemini_image_part(data: &str, media_type: &str) -> Value {
+    serde_json::json!({
+        "inlineData": {
+            "mimeType": media_type,
+            "data": data,
+        }
+    })
+}
+
 /// Walk `messages` looking for a ToolUse whose id matches `target_id`, and
 /// return its `name`. Used by the Tool-role encoder to supply Gemini's
 /// required `functionResponse.name`.
@@ -469,6 +575,7 @@ mod tests {
         assert_eq!(out.messages[0]["role"], "user");
         assert_eq!(out.messages[1]["role"], "model");
         let fc = &out.messages[1]["parts"][0]["functionCall"];
+        assert_eq!(fc["id"], "1");
         assert_eq!(fc["name"], "read");
         assert_eq!(fc["args"]["path"], "/a");
     }
@@ -503,20 +610,136 @@ mod tests {
             },
         ];
         let out = GeminiAdapter.encode_messages(&msgs);
+        assert_eq!(
+            out.messages[1]["role"], "user",
+            "function responses belong to a user turn"
+        );
         let fr = &out.messages[1]["parts"][0]["functionResponse"];
         assert_eq!(fr["name"], "read");
         assert_eq!(fr["response"]["content"], "file body");
     }
 
     #[test]
-    fn decode_response_parses_functioncall_and_generates_id() {
+    fn encode_messages_groups_parallel_function_responses_in_one_user_turn() {
+        use crate::tool_payload::ToolContent;
+        let assistant = Message {
+            id: "a".into(),
+            role: MessageRole::Assistant,
+            content: vec![
+                ContentBlock::ToolUse {
+                    id: "toolu_1".into(),
+                    name: "read".into(),
+                    input: serde_json::json!({}),
+                },
+                ContentBlock::ToolUse {
+                    id: "toolu_2".into(),
+                    name: "write".into(),
+                    input: serde_json::json!({}),
+                },
+            ],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let tool_message = |id: &str, text: &str| Message {
+            id: format!("result-{id}"),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::ToolResult {
+                id: id.into(),
+                content: vec![ToolContent::text(text)],
+                is_error: false,
+            }],
+            tool_call_id: Some(id.into()),
+            usage: None,
+            timestamp: 0,
+        };
+        let out = GeminiAdapter.encode_messages(&[
+            assistant,
+            tool_message("toolu_1", "one"),
+            tool_message("toolu_2", "two"),
+        ]);
+
+        assert_eq!(out.messages.len(), 2);
+        assert_eq!(out.messages[1]["role"], "user");
+        assert_eq!(out.messages[1]["parts"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn encode_messages_preserves_user_and_tool_images() {
+        use crate::tool_payload::ToolContent;
+
+        let user = Message {
+            id: "u".into(),
+            role: MessageRole::User,
+            content: vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    data: "base64-user".into(),
+                    media_type: "image/png".into(),
+                },
+            ],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let assistant = Message {
+            id: "a".into(),
+            role: MessageRole::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "toolu_call_image".into(),
+                name: "screenshot".into(),
+                input: serde_json::json!({}),
+            }],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let tool = Message {
+            id: "t".into(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::ToolResult {
+                id: "toolu_call_image".into(),
+                content: vec![
+                    ToolContent::text("captured"),
+                    ToolContent::image("base64-tool", "image/jpeg"),
+                ],
+                is_error: false,
+            }],
+            tool_call_id: Some("toolu_call_image".into()),
+            usage: None,
+            timestamp: 0,
+        };
+        let out = GeminiAdapter.encode_messages(&[user, assistant, tool]);
+
+        assert_eq!(
+            out.messages[0]["parts"][1]["inlineData"]["data"],
+            "base64-user"
+        );
+        assert_eq!(
+            out.messages[2]["parts"][0]["functionResponse"]["name"],
+            "screenshot"
+        );
+        assert_eq!(
+            out.messages[3]["parts"][0]["inlineData"]["data"],
+            "base64-tool"
+        );
+    }
+
+    #[test]
+    fn decode_response_preserves_functioncall_id() {
         let resp = serde_json::json!({
             "candidates": [{
                 "content": {
                     "role": "model",
                     "parts": [
                         { "text": "ok" },
-                        { "functionCall": { "name": "read", "args": { "path": "/a" } } }
+                        { "functionCall": {
+                            "id": "call_read_1",
+                            "name": "read",
+                            "args": { "path": "/a" }
+                        } }
                     ]
                 }
             }],
@@ -526,7 +749,7 @@ mod tests {
         assert_eq!(decoded.message.content.len(), 2);
         match &decoded.message.content[1] {
             ContentBlock::ToolUse { id, name, input } => {
-                assert!(id.starts_with("toolu_"));
+                assert_eq!(id, "toolu_call_read_1");
                 assert_eq!(name, "read");
                 assert_eq!(input["path"], "/a");
             }
@@ -536,12 +759,81 @@ mod tests {
     }
 
     #[test]
+    fn thought_signature_survives_decode_and_reencode() {
+        let resp = serde_json::json!({
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [{
+                        "thoughtSignature": "sig-abc",
+                        "functionCall": {
+                            "id": "call_read_1",
+                            "name": "read",
+                            "args": {"path": "/a"}
+                        }
+                    }]
+                }
+            }]
+        });
+        let decoded = GeminiAdapter.decode_response(&resp).unwrap();
+        assert!(matches!(
+            &decoded.message.content[0],
+            ContentBlock::ProviderState { provider, data }
+                if provider == "gemini"
+                    && data["tool_call_id"] == "toolu_call_read_1"
+                    && data["thought_signature"] == "sig-abc"
+        ));
+
+        let reencoded = GeminiAdapter.encode_messages(&[decoded.message]);
+        assert_eq!(
+            reencoded.messages[0]["parts"][0]["thoughtSignature"],
+            "sig-abc"
+        );
+        assert_eq!(
+            reencoded.messages[0]["parts"][0]["functionCall"]["id"],
+            "call_read_1"
+        );
+    }
+
+    #[test]
+    fn stream_emits_thought_signature_state_before_tool_call() {
+        let mut state = StreamDecodeState::new();
+        let ev = serde_json::json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "thoughtSignature": "sig-stream",
+                        "functionCall": {
+                            "id": "call_stream",
+                            "name": "read",
+                            "args": {"path": "/a"}
+                        }
+                    }]
+                }
+            }]
+        });
+        let out = GeminiAdapter.decode_stream_event(&ev, &mut state).unwrap();
+
+        assert!(matches!(
+            &out[0],
+            StreamEvent::ProviderState { provider, data }
+                if provider == "gemini"
+                    && data["tool_call_id"] == "toolu_call_stream"
+                    && data["thought_signature"] == "sig-stream"
+        ));
+        assert!(matches!(
+            &out[1],
+            StreamEvent::ToolCallStart { id, .. } if id == "toolu_call_stream"
+        ));
+    }
+
+    #[test]
     fn decode_stream_emits_tool_call_triple_from_one_event() {
         let mut state = StreamDecodeState::new();
         let ev = serde_json::json!({
             "candidates": [{
                 "content": {
-                    "parts": [{ "functionCall": { "name": "read", "args": {"path": "/a"} } }]
+                        "parts": [{ "functionCall": { "name": "read", "args": {"path": "/a"} } }]
                 }
             }]
         });

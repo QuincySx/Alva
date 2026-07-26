@@ -216,6 +216,10 @@ pub struct StreamDecodeState {
     /// integer block indices; OpenAI uses tool_call indices). Used to
     /// dispatch delta events to the right handler.
     pub block_type: HashMap<usize, String>,
+    /// Provider output-item id → normalized tool-call id. The Responses API
+    /// identifies argument deltas by `item_id` / `output_index`, not `call_id`;
+    /// this map prevents interleaved parallel calls from sharing a buffer.
+    pub tool_call_id_by_item: HashMap<String, String>,
     /// Named SSE event type, set by providers that carry it in a
     /// separate `event:` line (OpenAI Responses API). Adapters read it
     /// to dispatch the following `data:` payload to the right handler.
@@ -241,6 +245,7 @@ impl StreamDecodeState {
     pub fn reset(&mut self) {
         self.tool_input_buf.clear();
         self.block_type.clear();
+        self.tool_call_id_by_item.clear();
         self.event_type = None;
         self.tool_call_seq = 0;
     }
@@ -368,6 +373,9 @@ pub struct StreamEncodeState {
     /// reads the complete string, emits it in `response.output_item.done`,
     /// then removes the entry.
     pub tool_args: std::collections::HashMap<String, String>,
+    /// Responses gateway stream metadata keyed by normalized tool-call id.
+    /// Tuple fields are `(output_index, provider item_id, function name)`.
+    pub tool_call_items: std::collections::HashMap<String, (usize, String, String)>,
     /// Whether a text/message output item is currently open (has received at
     /// least one `TextDelta`). Used to correctly advance `output_index` when
     /// a `ToolCallStart` arrives mid-stream.

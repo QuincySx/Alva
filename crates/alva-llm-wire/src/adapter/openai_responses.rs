@@ -75,13 +75,28 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                     }
                 }
                 MessageRole::User => {
+                    let has_images = m.content.iter().any(ContentBlock::is_image);
+                    let content = if has_images {
+                        Value::Array(responses_input_parts(&m.content))
+                    } else {
+                        Value::String(m.text_content())
+                    };
                     input.push(serde_json::json!({
                         "type": "message",
                         "role": "user",
-                        "content": m.text_content(),
+                        "content": content,
                     }));
                 }
                 MessageRole::Assistant => {
+                    for b in &m.content {
+                        if let ContentBlock::ProviderState { provider, data } = b {
+                            if provider == "openai-responses"
+                                && data.get("type").and_then(Value::as_str) == Some("reasoning")
+                            {
+                                input.push(data.clone());
+                            }
+                        }
+                    }
                     let text = m.text_content();
                     if !text.is_empty() {
                         input.push(serde_json::json!({
@@ -107,7 +122,9 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                     }
                 }
                 MessageRole::Tool => {
-                    let mut parts: Vec<String> = Vec::new();
+                    let mut text_parts: Vec<String> = Vec::new();
+                    let mut rich_parts: Vec<Value> = Vec::new();
+                    let mut has_images = false;
                     let mut call_id = m.tool_call_id.clone();
                     for b in &m.content {
                         if let ContentBlock::ToolResult { id, content, .. } = b {
@@ -115,13 +132,36 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                                 call_id = Some(id.clone());
                             }
                             for tc in content {
-                                parts.push(tc.to_model_string());
+                                match tc {
+                                    crate::tool_payload::ToolContent::Text { text } => {
+                                        text_parts.push(text.clone());
+                                        rich_parts.push(serde_json::json!({
+                                            "type": "input_text",
+                                            "text": text,
+                                        }));
+                                    }
+                                    crate::tool_payload::ToolContent::Image {
+                                        data,
+                                        media_type,
+                                    } => {
+                                        has_images = true;
+                                        rich_parts.push(responses_image_part(data, media_type));
+                                    }
+                                }
                             }
                         } else if let Some(t) = b.as_text() {
-                            parts.push(t.to_string());
+                            text_parts.push(t.to_string());
+                            rich_parts.push(serde_json::json!({
+                                "type": "input_text",
+                                "text": t,
+                            }));
                         }
                     }
-                    let output = parts.join("\n");
+                    let output = if has_images {
+                        Value::Array(rich_parts)
+                    } else {
+                        Value::String(text_parts.join("\n"))
+                    };
                     let call_id = call_id.unwrap_or_else(|| "unknown".to_string());
                     input.push(serde_json::json!({
                         "type": "function_call_output",
@@ -189,6 +229,12 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                     let input: Value =
                         serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
                     blocks.push(ContentBlock::ToolUse { id, name, input });
+                }
+                "reasoning" => {
+                    blocks.push(ContentBlock::ProviderState {
+                        provider: "openai-responses".to_string(),
+                        data: item.clone(),
+                    });
                 }
                 _ => {}
             }
@@ -440,8 +486,14 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                         "arguments": input.to_string(),
                     }));
                 }
-                // Reasoning: skip for v1 (no Responses API reasoning output_item yet).
-                // ToolResult / Image: not expected in an assistant response; skip.
+                ContentBlock::ProviderState { provider, data }
+                    if provider == "openai-responses"
+                        && data.get("type").and_then(Value::as_str) == Some("reasoning") =>
+                {
+                    output.push(data.clone());
+                }
+                // ToolResult / Image and cross-provider state are not expected
+                // in an assistant response.
                 _ => {}
             }
         }
@@ -502,14 +554,18 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                     }
                 }
             }
+            "response.reasoning_summary_text.delta" => {
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    if !delta.is_empty() {
+                        out.push(StreamEvent::ReasoningDelta {
+                            text: delta.to_string(),
+                        });
+                    }
+                }
+            }
             "response.function_call_arguments.delta" => {
                 let delta = event.get("delta").and_then(Value::as_str).unwrap_or("");
-                let raw_id = event.get("call_id").and_then(Value::as_str).unwrap_or("");
-                let id = if raw_id.is_empty() {
-                    String::new()
-                } else {
-                    tool_id::to_normalized(raw_id)
-                };
+                let id = response_stream_tool_id(event, state);
                 let name = event.get("name").and_then(Value::as_str).map(String::from);
                 if !id.is_empty() {
                     state
@@ -529,17 +585,31 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                     let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
                     if item_type == "function_call" {
                         let raw_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
-                        let id = tool_id::to_normalized(raw_id);
+                        let item_id = item.get("id").and_then(Value::as_str).unwrap_or("");
+                        let id = if !raw_id.is_empty() {
+                            tool_id::to_normalized(raw_id)
+                        } else if !item_id.is_empty() {
+                            tool_id::to_normalized(item_id)
+                        } else {
+                            state.next_synthetic_tool_id()
+                        };
                         let name = item
                             .get("name")
                             .and_then(Value::as_str)
                             .unwrap_or("")
                             .to_string();
-                        if !id.is_empty() {
-                            state.tool_input_buf.entry(id.clone()).or_default();
-                            state.block_type.insert(0, id.clone()); // track open
-                            out.push(StreamEvent::ToolCallStart { id, name });
+                        state.tool_input_buf.entry(id.clone()).or_default();
+                        if let Some(output_index) =
+                            event.get("output_index").and_then(Value::as_u64)
+                        {
+                            state.block_type.insert(output_index as usize, id.clone());
                         }
+                        if !item_id.is_empty() {
+                            state
+                                .tool_call_id_by_item
+                                .insert(item_id.to_string(), id.clone());
+                        }
+                        out.push(StreamEvent::ToolCallStart { id, name });
                     }
                 }
             }
@@ -547,11 +617,15 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                 if let Some(item) = event.get("item") {
                     let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
                     if item_type == "function_call" {
-                        let raw_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
-                        let id = tool_id::to_normalized(raw_id);
+                        let id = response_stream_tool_id(event, state);
                         if !id.is_empty() {
                             out.push(StreamEvent::ToolCallEnd { id });
                         }
+                    } else if item_type == "reasoning" {
+                        out.push(StreamEvent::ProviderState {
+                            provider: "openai-responses".to_string(),
+                            data: item.clone(),
+                        });
                     }
                 }
             }
@@ -703,6 +777,10 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                 // Completed reasoning block — no direct Responses API equivalent
                 // for a "done" reasoning event in streaming; skip silently.
             }
+            StreamEvent::ProviderState { .. } => {
+                // Provider continuation state is persisted for the next outbound
+                // request; it is not a model-visible gateway delta.
+            }
 
             StreamEvent::ToolCallStart { id, name } => {
                 let provider_id = tool_id::to_provider(id);
@@ -713,13 +791,18 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                     st.output_index += 1;
                 }
                 let tool_index = st.output_index;
+                let item_id = format!("fc_{}", uuid::Uuid::new_v4().simple());
+                st.tool_call_items
+                    .insert(id.clone(), (tool_index, item_id.clone(), name.clone()));
                 out.push(frame!(
                     "response.output_item.added",
                     serde_json::json!({
                         "type": "response.output_item.added",
                         "output_index": tool_index,
                         "item": {
+                            "id": &item_id,
                             "type": "function_call",
+                            "status": "in_progress",
                             "call_id": &provider_id,
                             "name": name,
                             "arguments": "",
@@ -732,21 +815,28 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
 
             StreamEvent::ToolCallDelta {
                 id,
-                name,
                 arguments_delta,
+                ..
             } => {
-                let provider_id = tool_id::to_provider(id);
                 // FIX 4: accumulate argument fragments for this tool call.
                 st.tool_args
                     .entry(id.clone())
                     .or_default()
                     .push_str(arguments_delta);
+                let (output_index, item_id, _) =
+                    st.tool_call_items.get(id).cloned().unwrap_or_else(|| {
+                        (
+                            st.output_index,
+                            format!("fc_{}", uuid::Uuid::new_v4().simple()),
+                            String::new(),
+                        )
+                    });
                 out.push(frame!(
                     "response.function_call_arguments.delta",
                     serde_json::json!({
                         "type": "response.function_call_arguments.delta",
-                        "call_id": &provider_id,
-                        "name": name,
+                        "item_id": item_id,
+                        "output_index": output_index,
                         "delta": arguments_delta,
                     })
                 ));
@@ -756,11 +846,20 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                 let provider_id = tool_id::to_provider(id);
                 // FIX 4: read the accumulated arguments and clear the buffer.
                 let accumulated_args = st.tool_args.remove(id).unwrap_or_default();
+                let (output_index, item_id, name) =
+                    st.tool_call_items.remove(id).unwrap_or_else(|| {
+                        (
+                            st.output_index,
+                            format!("fc_{}", uuid::Uuid::new_v4().simple()),
+                            String::new(),
+                        )
+                    });
                 out.push(frame!(
                     "response.function_call_arguments.done",
                     serde_json::json!({
                         "type": "response.function_call_arguments.done",
-                        "call_id": &provider_id,
+                        "item_id": &item_id,
+                        "output_index": output_index,
                         "arguments": &accumulated_args,
                     })
                 ));
@@ -768,9 +867,13 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
                     "response.output_item.done",
                     serde_json::json!({
                         "type": "response.output_item.done",
+                        "output_index": output_index,
                         "item": {
+                            "id": &item_id,
                             "type": "function_call",
+                            "status": "completed",
                             "call_id": &provider_id,
+                            "name": name,
                             "arguments": &accumulated_args,
                         }
                     })
@@ -870,6 +973,56 @@ impl ProtocolAdapter for OpenAIResponsesAdapter {
     }
 }
 
+fn responses_input_parts(blocks: &[ContentBlock]) -> Vec<Value> {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } if !text.is_empty() => {
+                Some(serde_json::json!({"type": "input_text", "text": text}))
+            }
+            ContentBlock::Image { data, media_type } => {
+                Some(responses_image_part(data, media_type))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn responses_image_part(data: &str, media_type: &str) -> Value {
+    serde_json::json!({
+        "type": "input_image",
+        "image_url": format!("data:{media_type};base64,{data}"),
+    })
+}
+
+fn response_stream_tool_id(event: &Value, state: &StreamDecodeState) -> String {
+    let raw_call_id = event
+        .get("call_id")
+        .and_then(Value::as_str)
+        .or_else(|| event.pointer("/item/call_id").and_then(Value::as_str))
+        .unwrap_or("");
+    if !raw_call_id.is_empty() {
+        return tool_id::to_normalized(raw_call_id);
+    }
+
+    if let Some(output_index) = event.get("output_index").and_then(Value::as_u64) {
+        if let Some(id) = state.block_type.get(&(output_index as usize)) {
+            return id.clone();
+        }
+    }
+
+    let item_id = event
+        .get("item_id")
+        .and_then(Value::as_str)
+        .or_else(|| event.pointer("/item/id").and_then(Value::as_str))
+        .unwrap_or("");
+    state
+        .tool_call_id_by_item
+        .get(item_id)
+        .cloned()
+        .unwrap_or_default()
+}
+
 // ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
@@ -962,6 +1115,54 @@ mod tests {
     }
 
     #[test]
+    fn encode_messages_preserves_user_and_tool_images() {
+        use crate::tool_payload::ToolContent;
+
+        let user = Message {
+            id: "u".into(),
+            role: MessageRole::User,
+            content: vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    data: "base64-user".into(),
+                    media_type: "image/png".into(),
+                },
+            ],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let tool = Message {
+            id: "t".into(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::ToolResult {
+                id: "toolu_call_image".into(),
+                content: vec![
+                    ToolContent::text("screenshot"),
+                    ToolContent::image("base64-tool", "image/jpeg"),
+                ],
+                is_error: false,
+            }],
+            tool_call_id: Some("toolu_call_image".into()),
+            usage: None,
+            timestamp: 0,
+        };
+        let out = OpenAIResponsesAdapter.encode_messages(&[user, tool]);
+
+        assert_eq!(
+            out.messages[0]["content"][1]["image_url"],
+            "data:image/png;base64,base64-user"
+        );
+        assert_eq!(out.messages[1]["type"], "function_call_output");
+        assert_eq!(
+            out.messages[1]["output"][1]["image_url"],
+            "data:image/jpeg;base64,base64-tool"
+        );
+    }
+
+    #[test]
     fn decode_response_handles_message_and_function_call() {
         let resp = serde_json::json!({
             "output": [
@@ -994,6 +1195,57 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_output_item_survives_decode_and_reencode() {
+        let reasoning = serde_json::json!({
+            "id": "rs_123",
+            "type": "reasoning",
+            "summary": [{"type": "summary_text", "text": "checked"}],
+            "encrypted_content": "encrypted-state"
+        });
+        let resp = serde_json::json!({
+            "output": [
+                reasoning.clone(),
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "done"}]
+                }
+            ]
+        });
+        let decoded = OpenAIResponsesAdapter.decode_response(&resp).unwrap();
+        assert!(matches!(
+            &decoded.message.content[0],
+            ContentBlock::ProviderState { provider, data }
+                if provider == "openai-responses" && data == &reasoning
+        ));
+
+        let reencoded = OpenAIResponsesAdapter.encode_messages(&[decoded.message]);
+        assert_eq!(reencoded.messages[0], reasoning);
+    }
+
+    #[test]
+    fn completed_reasoning_stream_item_becomes_provider_state() {
+        let mut state = StreamDecodeState::new();
+        state.event_type = Some("response.output_item.done".into());
+        let item = serde_json::json!({
+            "id": "rs_123",
+            "type": "reasoning",
+            "encrypted_content": "encrypted-state"
+        });
+        let out = OpenAIResponsesAdapter
+            .decode_stream_event(
+                &serde_json::json!({"output_index": 0, "item": item.clone()}),
+                &mut state,
+            )
+            .unwrap();
+
+        assert!(matches!(
+            &out[0],
+            StreamEvent::ProviderState { provider, data }
+                if provider == "openai-responses" && data == &item
+        ));
+    }
+
+    #[test]
     fn decode_stream_dispatches_via_event_type() {
         let mut state = StreamDecodeState::new();
         state.event_type = Some("response.output_text.delta".into());
@@ -1022,6 +1274,63 @@ mod tests {
             }
             _ => panic!("expected ToolCallDelta"),
         }
+    }
+
+    #[test]
+    fn decode_stream_demuxes_interleaved_tool_arguments_by_output_index() {
+        let mut state = StreamDecodeState::new();
+        for (output_index, item_id, call_id, name) in [
+            (0, "fc_item_a", "call_a", "read"),
+            (1, "fc_item_b", "call_b", "write"),
+        ] {
+            state.event_type = Some("response.output_item.added".into());
+            OpenAIResponsesAdapter
+                .decode_stream_event(
+                    &serde_json::json!({
+                        "output_index": output_index,
+                        "item": {
+                            "id": item_id,
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": ""
+                        }
+                    }),
+                    &mut state,
+                )
+                .unwrap();
+        }
+
+        state.event_type = Some("response.function_call_arguments.delta".into());
+        let second = OpenAIResponsesAdapter
+            .decode_stream_event(
+                &serde_json::json!({
+                    "item_id": "fc_item_b",
+                    "output_index": 1,
+                    "delta": "{\"path\":\"/b\"}"
+                }),
+                &mut state,
+            )
+            .unwrap();
+        let first = OpenAIResponsesAdapter
+            .decode_stream_event(
+                &serde_json::json!({
+                    "item_id": "fc_item_a",
+                    "output_index": 0,
+                    "delta": "{\"path\":\"/a\"}"
+                }),
+                &mut state,
+            )
+            .unwrap();
+
+        assert!(matches!(
+            &second[0],
+            StreamEvent::ToolCallDelta { id, .. } if id == "toolu_call_b"
+        ));
+        assert!(matches!(
+            &first[0],
+            StreamEvent::ToolCallDelta { id, .. } if id == "toolu_call_a"
+        ));
     }
 
     #[test]
@@ -1384,6 +1693,17 @@ mod tests {
         ] {
             all_frames.extend(a.encode_stream_event(&ev, &mut st).unwrap());
         }
+
+        let delta_frame = all_frames
+            .iter()
+            .find(|f| f.event.as_deref() == Some("response.function_call_arguments.delta"))
+            .expect("argument delta frame must be emitted");
+        assert!(delta_frame.data["item_id"].as_str().is_some());
+        assert_eq!(delta_frame.data["output_index"], 0);
+        assert!(
+            delta_frame.data.get("call_id").is_none(),
+            "the official delta event is keyed by item_id/output_index"
+        );
 
         let done_frame = all_frames
             .iter()

@@ -74,9 +74,10 @@ impl ProtocolAdapter for AnthropicAdapter {
                     }
                 }
                 MessageRole::User => {
+                    let content = anthropic_content_blocks(&m.content);
                     api_messages.push(serde_json::json!({
                         "role": "user",
-                        "content": m.text_content(),
+                        "content": content,
                     }));
                 }
                 MessageRole::Assistant => {
@@ -154,15 +155,11 @@ impl ProtocolAdapter for AnthropicAdapter {
                             is_error,
                         } = b
                         {
-                            let joined: String = content
-                                .iter()
-                                .map(|tc| tc.to_model_string())
-                                .collect::<Vec<_>>()
-                                .join("\n");
+                            let result_content = anthropic_tool_content_blocks(content);
                             blocks.push(serde_json::json!({
                                 "type": "tool_result",
                                 "tool_use_id": id,
-                                "content": joined,
+                                "content": result_content,
                                 "is_error": is_error,
                             }));
                         }
@@ -610,7 +607,7 @@ impl ProtocolAdapter for AnthropicAdapter {
                 ));
             }
 
-            StreamEvent::ReasoningBlock { .. } => {
+            StreamEvent::ReasoningBlock { .. } | StreamEvent::ProviderState { .. } => {
                 // Full accumulated thinking block — no additional frame needed
                 // in the stream encoding path (content_block_stop will close it).
             }
@@ -990,6 +987,47 @@ impl ProtocolAdapter for AnthropicAdapter {
 // helpers
 // ---------------------------------------------------------------------------
 
+fn anthropic_content_blocks(blocks: &[ContentBlock]) -> Vec<Value> {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } if !text.is_empty() => {
+                Some(serde_json::json!({"type": "text", "text": text}))
+            }
+            ContentBlock::Image { data, media_type } => Some(serde_json::json!({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": data,
+                }
+            })),
+            _ => None,
+        })
+        .collect()
+}
+
+fn anthropic_tool_content_blocks(content: &[crate::tool_payload::ToolContent]) -> Vec<Value> {
+    content
+        .iter()
+        .map(|part| match part {
+            crate::tool_payload::ToolContent::Text { text } => {
+                serde_json::json!({"type": "text", "text": text})
+            }
+            crate::tool_payload::ToolContent::Image { data, media_type } => {
+                serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data,
+                    }
+                })
+            }
+        })
+        .collect()
+}
+
 fn parse_usage(v: &Value) -> Option<UsageMetadata> {
     let get_u32 = |k: &str| v.get(k).and_then(Value::as_u64).map(|x| x as u32);
     let input_tokens = get_u32("input_tokens").unwrap_or(0);
@@ -1123,6 +1161,50 @@ mod tests {
         assert_eq!(out.system_flat().as_deref(), Some("you are alva"));
         assert_eq!(out.messages.len(), 1);
         assert_eq!(out.messages[0]["role"], "user");
+    }
+
+    #[test]
+    fn encode_messages_preserves_user_and_tool_images() {
+        use crate::tool_payload::ToolContent;
+
+        let user = Message {
+            id: "u".into(),
+            role: MessageRole::User,
+            content: vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    data: "base64-user".into(),
+                    media_type: "image/png".into(),
+                },
+            ],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let tool = Message {
+            id: "t".into(),
+            role: MessageRole::Tool,
+            content: vec![ContentBlock::ToolResult {
+                id: "toolu_image".into(),
+                content: vec![ToolContent::image("base64-tool", "image/jpeg")],
+                is_error: false,
+            }],
+            tool_call_id: Some("toolu_image".into()),
+            usage: None,
+            timestamp: 0,
+        };
+        let out = AnthropicAdapter.encode_messages(&[user, tool]);
+
+        assert_eq!(
+            out.messages[0]["content"][1]["source"]["data"],
+            "base64-user"
+        );
+        assert_eq!(
+            out.messages[1]["content"][0]["content"][0]["source"]["data"],
+            "base64-tool"
+        );
     }
 
     #[test]

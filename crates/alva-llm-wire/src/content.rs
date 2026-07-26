@@ -1,6 +1,6 @@
 // INPUT:  serde, serde_json
 // OUTPUT: pub enum ContentBlock
-// POS:    Tagged content block enum representing text, image, reasoning, tool-use, and tool-result payloads.
+// POS:    Tagged content blocks for model-visible data plus opaque provider continuation state.
 use serde::{Deserialize, Serialize};
 
 #[non_exhaustive]
@@ -21,6 +21,16 @@ pub enum ContentBlock {
         /// must be passed back"). Other providers leave this `None`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
+    },
+    /// Opaque provider-native state that must be replayed on a later request.
+    ///
+    /// Examples: OpenAI Responses reasoning output items (including encrypted
+    /// content) and Gemini thought signatures associated with function calls.
+    /// Other adapters ignore states whose `provider` does not match.
+    #[serde(rename = "provider_state")]
+    ProviderState {
+        provider: String,
+        data: serde_json::Value,
     },
     #[serde(rename = "tool_use")]
     ToolUse {
@@ -94,6 +104,14 @@ impl ContentBlock {
         matches!(self, ContentBlock::Reasoning { .. })
     }
 
+    /// Returns `(provider, data)` for opaque provider continuation state.
+    pub fn as_provider_state(&self) -> Option<(&str, &serde_json::Value)> {
+        match self {
+            ContentBlock::ProviderState { provider, data } => Some((provider, data)),
+            _ => None,
+        }
+    }
+
     /// Returns `(data, media_type)` if this is an Image block.
     pub fn as_image(&self) -> Option<(&str, &str)> {
         match self {
@@ -119,6 +137,7 @@ impl ContentBlock {
             }
             ContentBlock::ToolUse { input, .. } => input.to_string().len(),
             ContentBlock::Image { data, .. } => data.len(),
+            ContentBlock::ProviderState { data, .. } => data.to_string().len(),
         };
         // ~4 chars per token is a common rough estimate
         (char_len + 3) / 4
@@ -162,6 +181,13 @@ mod tests {
         ContentBlock::Image {
             data: "iVBOR...".into(),
             media_type: "image/png".into(),
+        }
+    }
+
+    fn provider_state_block() -> ContentBlock {
+        ContentBlock::ProviderState {
+            provider: "gemini".into(),
+            data: serde_json::json!({"thought_signature": "sig"}),
         }
     }
 
@@ -251,6 +277,14 @@ mod tests {
     fn is_reasoning_discriminates() {
         assert!(reasoning_block().is_reasoning());
         assert!(!text_block().is_reasoning());
+    }
+
+    #[test]
+    fn as_provider_state_returns_opaque_payload() {
+        let block = provider_state_block();
+        let (provider, data) = block.as_provider_state().unwrap();
+        assert_eq!(provider, "gemini");
+        assert_eq!(data["thought_signature"], "sig");
     }
 
     // ── as_image / is_image ─────────────────────────────────────────

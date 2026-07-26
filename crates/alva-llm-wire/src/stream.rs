@@ -44,6 +44,12 @@ pub enum StreamEvent {
         text: String,
         signature: Option<String>,
     },
+    /// Opaque provider-native continuation state to persist in the completed
+    /// assistant message and replay only through the matching adapter.
+    ProviderState {
+        provider: String,
+        data: serde_json::Value,
+    },
     /// A new tool call is about to stream. Fires once per tool call, before
     /// any `ToolCallDelta`. UI layers can use this to render a "tool X
     /// starting" indicator and to allocate per-tool state keyed by `id`.
@@ -161,6 +167,23 @@ mod tests {
         assert_eq!(
             v,
             json!({ "ReasoningBlock": { "text": "deep", "signature": null } })
+        );
+    }
+
+    #[test]
+    fn provider_state_roundtrips_opaque_json() {
+        let v = roundtrip(&StreamEvent::ProviderState {
+            provider: "openai-responses".into(),
+            data: json!({"type": "reasoning", "encrypted_content": "enc"}),
+        });
+        assert_eq!(
+            v,
+            json!({
+                "ProviderState": {
+                    "provider": "openai-responses",
+                    "data": {"type": "reasoning", "encrypted_content": "enc"}
+                }
+            })
         );
     }
 

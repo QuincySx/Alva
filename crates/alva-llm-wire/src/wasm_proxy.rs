@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use crate::{Message, ModelConfig, StreamEvent, ToolDefinition};
 
 /// Version of the blocking `alva:host/llm::llm_complete` JSON contract.
-pub const LLM_PROXY_ABI_VERSION: u32 = 1;
+///
+/// v2 adds `ReasoningEffort::Max`, provider continuation state, and the
+/// corresponding stream event used by current Gemini/Responses adapters.
+pub const LLM_PROXY_ABI_VERSION: u32 = 2;
 /// Maximum serialized request accepted across the guest-to-host boundary.
 pub const MAX_LLM_PROXY_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 /// Maximum serialized response accepted across the host-to-guest boundary.
@@ -64,6 +67,7 @@ mod tests {
 
     #[test]
     fn request_and_response_carry_the_current_version() {
+        assert_eq!(LLM_PROXY_ABI_VERSION, 2);
         let request = LlmProxyRequest::new(Vec::new(), Vec::new(), ModelConfig::default());
         let response = LlmProxyResponse::new(vec![StreamEvent::Done]);
         assert_eq!(request.version, LLM_PROXY_ABI_VERSION);
