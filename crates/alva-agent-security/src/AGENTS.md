@@ -12,7 +12,7 @@
 2. `sensitive_paths.rs` 基于目录黑名单、文件扩展名、文件名、正则模式四级过滤敏感路径。
 3. `authorized_roots.rs` 管理 Agent 可访问的目录集合，workspace 为主根，可追加额外根。
 4. `permission.rs` 实现会话级 HITL 权限管理，支持 AllowOnce / AllowAlways / RejectOnce / RejectAlways 缓存决策，通过 oneshot channel 异步等待人工审批。
-5. `sandbox.rs` 区分平台可用性与本次运行是否实际受限；macOS os worker 的 canonical 路径通过 `-D` 注入 Seatbelt，Linux os worker 则在 ABI v1 HardRequirement 下添加 canonical Landlock 读写/只读规则并仅接受 FullyEnforced。
+5. `sandbox.rs` 区分平台可用性与本次运行是否实际受限；macOS os worker 的 canonical 路径通过 `-D` 注入 Seatbelt，Linux os worker 则在 ABI v3 HardRequirement 下添加包含 `TRUNCATE` 的 canonical Landlock 读写/只读规则并仅接受 FullyEnforced。
 
 ## 约束
 - SecurityGuard 的检查顺序不可调整：敏感路径 -> 授权根 -> HITL 权限，前置检查失败直接拒绝。
@@ -29,4 +29,4 @@
 | PermissionManager | permission.rs | 会话级 HITL 权限管理器，缓存 allow/deny 决策，异步审批流 |
 | SensitivePathFilter | sensitive_paths.rs | 敏感路径过滤：目录黑名单、扩展名、文件名、正则模式四级匹配 |
 | AuthorizedRoots | authorized_roots.rs | 管理 Agent 可访问的授权目录集合，默认为 workspace 根 |
-| SandboxConfig | sandbox.rs | macOS Seatbelt worker 命令与写圈禁，以及 Linux Landlock ABI v1 读写圈禁和每次运行 enforcement 状态 |
+| SandboxConfig | sandbox.rs | macOS Seatbelt worker 命令与写圈禁，以及 Linux Landlock ABI v3（含 truncate）读写圈禁和每次运行 enforcement 状态 |

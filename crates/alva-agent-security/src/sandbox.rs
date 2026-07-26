@@ -261,7 +261,10 @@ impl SandboxConfig {
         let read_write_files = canonical_paths(read_write_files, PathKind::File)?;
         let read_only_files = canonical_paths(read_only_files, PathKind::File)?;
 
-        let abi = ABI::V1;
+        // ABI V3 is the first version that can handle TRUNCATE. Falling back
+        // to V1/V2 would let truncate(2), creat(O_TRUNC), and equivalent paths
+        // mutate files outside the granted roots while we report enforcement.
+        let abi = ABI::V3;
         let all_access = AccessFs::from_all(abi);
         let read_access = AccessFs::from_read(abi);
         let file_access = AccessFs::from_file(abi);
@@ -271,7 +274,7 @@ impl SandboxConfig {
             .set_compatibility(CompatLevel::HardRequirement)
             .handle_access(all_access)
             .map_err(landlock_error(
-                "negotiate Landlock ABI v1 filesystem access",
+                "negotiate Landlock ABI v3 filesystem access",
             ))?
             .create()
             .map_err(landlock_error("create Landlock ruleset"))?;
@@ -374,8 +377,8 @@ where
 {
     move |error| {
         io::Error::other(format!(
-        "{context}: {error}. --sandbox os-write requires Linux 5.13+ with Landlock ABI v1 enabled"
-    ))
+            "{context}: {error}. --sandbox os-write requires Landlock ABI v3 or newer"
+        ))
     }
 }
 
@@ -387,7 +390,7 @@ fn ensure_linux_landlock_enforced(
     if ruleset != landlock::RulesetStatus::FullyEnforced || !no_new_privs {
         return Err(io::Error::other(format!(
             "Landlock did not fully enforce the worker (ruleset={ruleset:?}, no_new_privs={no_new_privs}); \
-             --sandbox os-write requires Linux 5.13+ with Landlock ABI v1 enabled"
+             --sandbox os-write requires Landlock ABI v3 or newer"
         )));
     }
     Ok(())
@@ -486,7 +489,7 @@ mod tests {
             (landlock::RulesetStatus::FullyEnforced, false),
         ] {
             let error = ensure_linux_landlock_enforced(status, no_new_privs).unwrap_err();
-            assert!(error.to_string().contains("requires Linux 5.13+"));
+            assert!(error.to_string().contains("requires Landlock ABI v3"));
         }
     }
 
@@ -514,7 +517,7 @@ mod tests {
             [],
             [executable],
         )
-        .expect("Linux CI must provide Landlock ABI v1");
+        .expect("Linux CI must provide Landlock ABI v3");
         assert!(config.is_enforced());
         assert_eq!(
             config.enforcement(),
@@ -530,6 +533,13 @@ mod tests {
         let outside_write = outside.with_file_name("outside-write.txt");
         let write_error = std::fs::write(&outside_write, "blocked").unwrap_err();
         assert_eq!(write_error.kind(), io::ErrorKind::PermissionDenied);
+        let outside_c = std::ffi::CString::new(outside.as_os_str().as_encoded_bytes()).unwrap();
+        let truncate_result = unsafe { libc::truncate(outside_c.as_ptr(), 0) };
+        assert_eq!(truncate_result, -1, "truncate(2) escaped Landlock");
+        assert_eq!(
+            io::Error::last_os_error().kind(),
+            io::ErrorKind::PermissionDenied
+        );
 
         let child_target = outside.with_file_name("child-write.txt");
         let status = std::process::Command::new("/bin/sh")

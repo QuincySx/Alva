@@ -1,6 +1,6 @@
-// INPUT:  process argv/env, alva-agent-security OS sandbox entry, bundled skill cache, runtime support paths
+// INPUT:  process argv/internal env, alva-agent-security OS sandbox entry, bundled skill cache, scoped job support paths, uuid
 // OUTPUT: enter_or_continue, pre-runtime Linux worker entry, OS_SANDBOX_WRITE_FILES_ENV
-// POS:    OS-tier host/worker boundary: macOS Seatbelt wrapping and pre-runtime Linux Landlock entry.
+// POS:    OS-tier host/worker boundary: private temp capability, macOS Seatbelt wrapping, and pre-runtime Linux Landlock entry.
 use std::path::PathBuf;
 
 use alva_app_core::SandboxConfig;
@@ -8,6 +8,7 @@ use alva_app_core::SandboxConfig;
 const OS_SANDBOX_ACTIVE_ENV: &str = "ALVA_INTERNAL_OS_SANDBOX_ACTIVE";
 const OS_SANDBOX_PROBE_ENV: &str = "ALVA_INTERNAL_OS_SANDBOX_PROBE";
 const OS_SANDBOX_PROBE_NONCE_ENV: &str = "ALVA_INTERNAL_OS_SANDBOX_PROBE_NONCE";
+const OS_SANDBOX_TMPDIR_ENV: &str = "ALVA_INTERNAL_OS_SANDBOX_TMPDIR";
 pub(crate) const OS_SANDBOX_WRITE_FILES_ENV: &str = "ALVA_OS_SANDBOX_WRITE_FILES";
 
 pub(crate) enum EnterOutcome {
@@ -46,9 +47,12 @@ pub(crate) fn enter_or_continue(
             .skip(1)
             .map(std::ffi::OsString::from)
             .collect::<Vec<_>>();
+        let private_tmp = PrivateSandboxTemp::create()?;
         let status = std::process::Command::new(&executable)
             .args(child_args)
             .env(OS_SANDBOX_ACTIVE_ENV, "1")
+            .env(OS_SANDBOX_TMPDIR_ENV, private_tmp.path())
+            .env("TMPDIR", private_tmp.path())
             .status()
             .map_err(|error| format!("launch Linux Landlock worker: {error}"))?;
         Ok(EnterOutcome::ChildExited(status.code().unwrap_or(1)))
@@ -56,9 +60,20 @@ pub(crate) fn enter_or_continue(
 
     #[cfg(target_os = "macos")]
     {
-        let tmpdir = real_tmpdir()?;
-        let support_files = support_files_from_env()?;
         let active = std::env::var_os(OS_SANDBOX_ACTIVE_ENV).is_some();
+        let owned_tmpdir = if active {
+            None
+        } else {
+            Some(PrivateSandboxTemp::create()?)
+        };
+        let tmpdir = match &owned_tmpdir {
+            Some(temp) => temp.path().to_path_buf(),
+            None => sandbox_tmpdir_from_env()?,
+        };
+        let support_files = support_files_from_env()?;
+        if active {
+            std::env::remove_var(OS_SANDBOX_WRITE_FILES_ENV);
+        }
         let writable_dirs = grants
             .iter()
             .cloned()
@@ -109,6 +124,7 @@ pub(crate) fn enter_or_continue(
             .env(OS_SANDBOX_ACTIVE_ENV, "1")
             .env(OS_SANDBOX_PROBE_ENV, &probe.path)
             .env(OS_SANDBOX_PROBE_NONCE_ENV, &probe.nonce)
+            .env(OS_SANDBOX_TMPDIR_ENV, &tmpdir)
             .env("TMPDIR", &tmpdir)
             .status()
             .map_err(|error| format!("launch macOS sandbox worker: {error}"))?;
@@ -128,8 +144,9 @@ pub(crate) fn linux_worker_is_active() -> bool {
 pub(crate) fn enter_linux_worker_before_threads(
     grants: &[PathBuf],
 ) -> Result<SandboxConfig, String> {
-    let tmpdir = real_tmpdir()?;
+    let tmpdir = sandbox_tmpdir_from_env()?;
     let support_files = support_files_from_env()?;
+    std::env::remove_var(OS_SANDBOX_WRITE_FILES_ENV);
     let executable = std::env::current_exe()
         .and_then(std::fs::canonicalize)
         .map_err(|error| format!("resolve current alva executable: {error}"))?;
@@ -308,18 +325,64 @@ impl Drop for WriteDenialProbe {
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn real_tmpdir() -> Result<PathBuf, String> {
-    let candidate = std::env::var_os("TMPDIR")
+struct PrivateSandboxTemp {
+    path: PathBuf,
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl PrivateSandboxTemp {
+    fn create() -> Result<Self, String> {
+        use std::os::unix::fs::DirBuilderExt as _;
+
+        #[cfg(target_os = "macos")]
+        let base = PathBuf::from("/private/tmp");
+        #[cfg(target_os = "linux")]
+        let base = PathBuf::from("/tmp");
+        let base = std::fs::canonicalize(&base)
+            .map_err(|error| format!("resolve trusted sandbox temp base: {error}"))?;
+        let path = base.join(format!(
+            "alva-sandbox-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder
+            .create(&path)
+            .map_err(|error| format!("create private sandbox temp directory: {error}"))?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl Drop for PrivateSandboxTemp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn sandbox_tmpdir_from_env() -> Result<PathBuf, String> {
+    let candidate = std::env::var_os(OS_SANDBOX_TMPDIR_ENV)
         .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    let canonical = std::fs::canonicalize(&candidate)
-        .map_err(|error| format!("cannot resolve TMPDIR {}: {error}", candidate.display()))?;
+        .ok_or_else(|| "OS sandbox child is missing its private temp capability".to_string())?;
+    let canonical = std::fs::canonicalize(&candidate).map_err(|error| {
+        format!(
+            "cannot resolve private sandbox temp {}: {error}",
+            candidate.display()
+        )
+    })?;
     if !canonical.is_dir() {
         return Err(format!(
-            "TMPDIR is not a directory: {}",
+            "private sandbox temp is not a directory: {}",
             canonical.display()
         ));
     }
+    std::env::remove_var(OS_SANDBOX_TMPDIR_ENV);
     Ok(canonical)
 }
 
@@ -328,6 +391,79 @@ fn support_files_from_env() -> Result<Vec<PathBuf>, String> {
     let Some(raw) = std::env::var_os(OS_SANDBOX_WRITE_FILES_ENV) else {
         return Ok(Vec::new());
     };
-    serde_json::from_str::<Vec<PathBuf>>(&raw.to_string_lossy())
-        .map_err(|error| format!("invalid internal OS sandbox support-file list: {error}"))
+    let requested = serde_json::from_str::<Vec<PathBuf>>(&raw.to_string_lossy())
+        .map_err(|error| format!("invalid internal OS sandbox support-file list: {error}"))?;
+    let jobs_root = alva_app_core::config::alva_home_dir()
+        .map(|root| root.join("jobs"))
+        .ok_or_else(|| "cannot resolve jobs root for OS sandbox support files".to_string())?;
+    let jobs_root = std::fs::canonicalize(&jobs_root)
+        .map_err(|error| format!("resolve jobs root for OS sandbox support files: {error}"))?;
+    validate_support_files(requested, &jobs_root)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn validate_support_files(
+    requested: Vec<PathBuf>,
+    jobs_root: &std::path::Path,
+) -> Result<Vec<PathBuf>, String> {
+    requested
+        .into_iter()
+        .map(|path| {
+            let canonical = std::fs::canonicalize(&path)
+                .map_err(|error| format!("resolve OS sandbox support file: {error}"))?;
+            let allowed_name = canonical
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| matches!(name, "result.json" | "stderr.log" | "tools.jsonl"));
+            if !canonical.is_file() || !canonical.starts_with(&jobs_root) || !allowed_name {
+                return Err(format!(
+                    "OS sandbox support file is outside the scoped jobs directory: {}",
+                    canonical.display()
+                ));
+            }
+            Ok(canonical)
+        })
+        .collect()
+}
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_sandbox_temp_is_narrow_and_removed_on_drop() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = PrivateSandboxTemp::create().unwrap();
+        let path = temp.path().to_path_buf();
+        assert_ne!(path, PathBuf::from("/"));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        drop(temp);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn support_files_are_scoped_to_known_job_outputs() {
+        let root = tempfile::tempdir().unwrap();
+        let jobs = root.path().join("jobs");
+        let job = jobs.join("job-id");
+        std::fs::create_dir_all(&job).unwrap();
+        let allowed = job.join("tools.jsonl");
+        let forbidden_name = job.join("config.json");
+        let outside = root.path().join("result.json");
+        for path in [&allowed, &forbidden_name, &outside] {
+            std::fs::write(path, "").unwrap();
+        }
+        let jobs = jobs.canonicalize().unwrap();
+
+        assert_eq!(
+            validate_support_files(vec![allowed.clone()], &jobs).unwrap(),
+            vec![allowed.canonicalize().unwrap()]
+        );
+        assert!(validate_support_files(vec![forbidden_name], &jobs).is_err());
+        assert!(validate_support_files(vec![outside], &jobs).is_err());
+    }
 }
