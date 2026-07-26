@@ -1,14 +1,62 @@
-// INPUT:  tokio::fs, tokio::process, tokio::time, alva_kernel_abi::{ToolFs, ToolFsDirEntry, ToolFsExecResult, AgentError}
-// OUTPUT: LocalToolFs (ToolFs impl backed by local OS)
-// POS:    Concrete ToolFs implementation for the local filesystem and shell execution.
+// INPUT:  tokio::{fs,io,process,time}, OS process-group primitives, alva_kernel_abi::{ToolFs, ToolFsDirEntry, ToolFsExecResult, AgentError}
+// OUTPUT: LocalToolFs (ToolFs impl backed by local OS with bounded shell capture and process-tree cleanup)
+// POS:    Concrete native ToolFs implementation and the final resource boundary for host shell execution.
 
 use async_trait::async_trait;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::time::timeout;
 
 use alva_kernel_abi::{AgentError, ToolFs, ToolFsDirEntry, ToolFsExecResult};
+
+const MAX_EXEC_STREAM_BYTES: usize = 1024 * 1024;
+
+async fn read_capped<R>(mut reader: R) -> io::Result<(Vec<u8>, bool)>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut captured = Vec::new();
+    let mut exceeded = false;
+    let mut chunk = [0_u8; 16 * 1024];
+    loop {
+        let read = reader.read(&mut chunk).await?;
+        if read == 0 {
+            return Ok((captured, exceeded));
+        }
+        let remaining = MAX_EXEC_STREAM_BYTES.saturating_sub(captured.len());
+        let keep = remaining.min(read);
+        captured.extend_from_slice(&chunk[..keep]);
+        exceeded |= keep < read;
+        // Continue draining after the cap. Stopping here would fill the pipe
+        // and deadlock the child before its timeout can be observed.
+    }
+}
+
+#[cfg(unix)]
+fn configure_process_group(command: &mut Command) {
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn kill_process_group(pid: Option<u32>) {
+    if let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()) {
+        // SAFETY: a negative pid addresses the process group created with
+        // process_group(0). SIGKILL is used only during cleanup/timeout.
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_process_group(_pid: Option<u32>) {}
 
 // ---------------------------------------------------------------------------
 // Secret env scrubbing for spawned shells
@@ -101,6 +149,8 @@ impl ToolFs for LocalToolFs {
         let mut cmd = Command::new("sh");
         cmd.kill_on_drop(true);
         cmd.arg("-c").arg(command);
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        configure_process_group(&mut cmd);
         scrub_secret_env(&mut cmd);
 
         if let Some(dir) = cwd {
@@ -110,32 +160,112 @@ impl ToolFs for LocalToolFs {
         }
 
         let duration = Duration::from_millis(timeout_ms);
-        let result = timeout(duration, cmd.output()).await;
+        let started = std::time::Instant::now();
+        let mut child = cmd.spawn().map_err(|io_err| AgentError::ToolError {
+            tool_name: "local_fs::exec".to_string(),
+            message: format!("failed to spawn command: {}", io_err),
+        })?;
+        let pid = child.id();
+        let stdout = child
+            .stdout
+            .take()
+            .expect("stdout is piped before spawning the shell");
+        let stderr = child
+            .stderr
+            .take()
+            .expect("stderr is piped before spawning the shell");
+        let mut stdout_task = tokio::spawn(read_capped(stdout));
+        let mut stderr_task = tokio::spawn(read_capped(stderr));
 
-        match result {
-            Err(_elapsed) => Err(AgentError::ToolError {
-                tool_name: "local_fs::exec".to_string(),
-                message: format!("command timed out after {}ms: {}", timeout_ms, command),
-            }),
-            Ok(Err(io_err)) => Err(AgentError::ToolError {
-                tool_name: "local_fs::exec".to_string(),
-                message: format!("failed to spawn command: {}", io_err),
-            }),
-            Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout)
-                    .trim_end()
-                    .to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr)
-                    .trim_end()
-                    .to_string();
-                let exit_code = output.status.code().unwrap_or(-1);
-                Ok(ToolFsExecResult {
-                    stdout,
-                    stderr,
-                    exit_code,
-                })
+        let status = match timeout(duration, child.wait()).await {
+            Err(_elapsed) => {
+                kill_process_group(pid);
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                stdout_task.abort();
+                stderr_task.abort();
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+                return Err(AgentError::ToolError {
+                    tool_name: "local_fs::exec".to_string(),
+                    message: format!("command timed out after {}ms: {}", timeout_ms, command),
+                });
             }
+            Ok(Err(io_err)) => {
+                kill_process_group(pid);
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                stdout_task.abort();
+                stderr_task.abort();
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+                return Err(AgentError::ToolError {
+                    tool_name: "local_fs::exec".to_string(),
+                    message: format!("failed to wait for command: {}", io_err),
+                });
+            }
+            Ok(Ok(status)) => status,
+        };
+        // The direct shell may exit after launching background descendants.
+        // Terminate descendants that remain in its private group. The capture
+        // deadline below still prevents an explicitly re-parented/re-grouped
+        // process from holding these pipes and hanging the tool call forever.
+        kill_process_group(pid);
+
+        let remaining = duration.saturating_sub(started.elapsed());
+        let captures = match timeout(remaining, async {
+            tokio::join!(&mut stdout_task, &mut stderr_task)
+        })
+        .await
+        {
+            Ok(captures) => captures,
+            Err(_) => {
+                stdout_task.abort();
+                stderr_task.abort();
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+                return Err(AgentError::ToolError {
+                    tool_name: "local_fs::exec".to_string(),
+                    message: format!(
+                        "command process tree did not close output before the {}ms timeout: {}",
+                        timeout_ms, command
+                    ),
+                });
+            }
+        };
+        let (stdout_capture, stderr_capture) = captures;
+        let (stdout, stdout_exceeded) = stdout_capture
+            .map_err(|error| AgentError::ToolError {
+                tool_name: "local_fs::exec".to_string(),
+                message: format!("stdout capture task failed: {error}"),
+            })?
+            .map_err(|error| AgentError::ToolError {
+                tool_name: "local_fs::exec".to_string(),
+                message: format!("failed to capture stdout: {error}"),
+            })?;
+        let (stderr, stderr_exceeded) = stderr_capture
+            .map_err(|error| AgentError::ToolError {
+                tool_name: "local_fs::exec".to_string(),
+                message: format!("stderr capture task failed: {error}"),
+            })?
+            .map_err(|error| AgentError::ToolError {
+                tool_name: "local_fs::exec".to_string(),
+                message: format!("failed to capture stderr: {error}"),
+            })?;
+        if stdout_exceeded || stderr_exceeded {
+            return Err(AgentError::ToolError {
+                tool_name: "local_fs::exec".to_string(),
+                message: format!(
+                    "command output exceeded the {}-byte per-stream capture limit",
+                    MAX_EXEC_STREAM_BYTES
+                ),
+            });
         }
+        Ok(ToolFsExecResult {
+            stdout: String::from_utf8_lossy(&stdout).trim_end().to_string(),
+            stderr: String::from_utf8_lossy(&stderr).trim_end().to_string(),
+            exit_code: status.code().unwrap_or(-1),
+        })
     }
 
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, AgentError> {
@@ -316,6 +446,34 @@ mod tests {
             "timed out child process continued running and created {}",
             marker.display()
         );
+    }
+
+    #[tokio::test]
+    async fn test_exec_normal_exit_kills_background_descendants() {
+        let (fs, dir) = make_fs();
+        let marker = dir.path().join("background-marker.txt");
+        let command = format!("(sleep 1; touch '{}') &", marker.display());
+
+        fs.exec(&command, None, 5000)
+            .await
+            .expect("direct shell exits successfully");
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert!(
+            !marker.exists(),
+            "background descendant outlived the tool call and created {}",
+            marker.display()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_exec_rejects_output_above_capture_limit() {
+        let (fs, _dir) = make_fs();
+        let command = format!("head -c {} /dev/zero", MAX_EXEC_STREAM_BYTES + 1);
+        let error = fs
+            .exec(&command, None, 5000)
+            .await
+            .expect_err("oversized output must be rejected");
+        assert!(error.to_string().contains("capture limit"), "{error}");
     }
 
     #[tokio::test]

@@ -23,7 +23,7 @@ core file tools through a synchronous filesystem adapter.
 - `tool_presets::*` — curated tool bundles used by host-native assembly; the shell preset includes local shell and permission-gated host escalation.
 - `register_builtin_tools` — registers all enabled tools with a `ToolRegistry`.
 - `wrappers::{Core, Shell, Interaction, Task, Team, Planning, Utility, Web, Browser}Plugin` — nine Plugin wrappers.
-- `LocalToolFs` — native `ToolFs` adapter (cfg-gated off for wasm).
+- `LocalToolFs` — native `ToolFs` adapter (cfg-gated off for wasm)；shell 以私有进程组运行，stdout/stderr 有界捕获，同组后代会被清理且 capture 也受整次调用 deadline 约束。
 - `WasiFs` / `WasiFsMetadata` — WASI `ToolFs` adapter plus synchronous facade
   for capability-confined guest embeddings; subprocess execution is unsupported.
 
@@ -41,7 +41,7 @@ core file tools through a synchronous filesystem adapter.
 | Tool impls | `src/` | One file per tool; `request_escalation.rs` separates the stable request/permission contract from its replaceable native-or-host-import executor. |
 | Skill invocation | `src/skill_tool.rs` | 统一 `skill` tool + bus `SkillRegistry` capability contract；真实 registry 由 app SkillsPlugin 发布。 |
 | `wrappers/` | `src/wrappers/` | Nine Plugin wrappers grouping tools into bundles |
-| `local_fs.rs` | `src/local_fs.rs` | Native `ToolFs` adapter (cfg `not(wasm)`) |
+| `local_fs.rs` | `src/local_fs.rs` | Native `ToolFs` adapter；有界 shell capture、secret env scrub 与进程组生命周期 (cfg `not(wasm)`) |
 | `wasi_fs.rs` | `src/wasi_fs.rs` | WASI `ToolFs` adapter and synchronous script-binding facade (cfg `wasm + wasi`) |
 | `walkdir.rs` | `src/walkdir.rs` | `walk_dir` / `walk_dir_filtered` helpers over `ToolFs` / `ignore` (native + WASI) |
 | `truncate.rs` | `src/truncate.rs` | Byte- and line-level output truncation helpers |
