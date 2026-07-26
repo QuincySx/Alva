@@ -44,7 +44,7 @@ use ratatui::Terminal;
 use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, PermissionDecision};
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::agent_session::EventQuery;
-use alva_kernel_abi::AgentSession;
+use alva_kernel_abi::{AgentSession, MessageRole};
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;
 
@@ -277,6 +277,12 @@ impl TuiApp {
     pub(crate) fn push_system_message(&mut self, text: &str) {
         self.conversation
             .push(ConversationItem::Message(MessageBubble::system(text)));
+        self.conversation.stick_to_bottom();
+    }
+
+    pub(crate) fn push_assistant_message(&mut self, text: &str) {
+        self.conversation
+            .push(ConversationItem::Message(MessageBubble::assistant(text)));
         self.conversation.stick_to_bottom();
     }
 
@@ -1107,6 +1113,7 @@ pub async fn run_tui(
     checkpoint_mgr: &checkpoint::CheckpointManager,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
     viewport: UiViewport,
+    max_iterations: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // -- Session setup (same logic as run_repl) --
     let (mut session_id, mut active_session) = match session_manager.latest() {
@@ -1129,6 +1136,9 @@ pub async fn run_tui(
             (id, sess)
         }
     };
+    session_manager
+        .append_config_snapshot_if_needed(&active_session, agent, &config.model, max_iterations)
+        .await;
 
     // -- Initialize terminal --
     let mut terminal = setup_terminal(viewport)?;
@@ -1136,6 +1146,7 @@ pub async fn run_tui(
     // -- Build app state --
     let mut app = TuiApp::new(&config.model, &session_id);
     app.set_workspace(workspace.to_path_buf());
+    restore_conversation(&mut app, &agent.messages().await);
 
     // Welcome message
     app.push_system_message(&format!(
@@ -1187,13 +1198,23 @@ pub async fn run_tui(
                                     checkpoint_mgr,
                                     &mut session_id,
                                     &mut active_session,
+                                    max_iterations,
                                 )
                                 .await;
                             } else if text.starts_with('!') {
                                 // Shell command
                                 let shell_cmd = text[1..].trim();
                                 if !shell_cmd.is_empty() {
-                                    handle_shell_command(&mut app, shell_cmd, workspace);
+                                    if agent.permission_mode()
+                                        == alva_app_core::PermissionMode::Plan
+                                    {
+                                        app.push_error_message(
+                                            "Direct !shell commands are disabled in plan mode; \
+                                             leave /plan before executing.",
+                                        );
+                                    } else {
+                                        handle_shell_command(&mut app, shell_cmd, workspace);
+                                    }
                                 }
                             } else {
                                 // Regular prompt
@@ -1264,6 +1285,7 @@ pub async fn run_tui(
                         app.spinner_active = false;
                         let event_count = active_session.count(&EventQuery::default()).await;
                         session_manager.refresh_summary(&session_id, event_count, None);
+                        session_manager.write_run_record(&active_session).await;
                         agent_event_rx = None;
                         break;
                     }
@@ -1292,6 +1314,7 @@ pub async fn run_tui(
 
     // -- Final flush --
     let _ = active_session.flush().await;
+    session_manager.write_run_record(&active_session).await;
 
     // -- Restore terminal --
     restore_terminal(&mut terminal, viewport)?;
@@ -1362,6 +1385,30 @@ fn handle_agent_event(app: &mut TuiApp, event: AgentEvent) {
     }
 }
 
+fn restore_conversation(app: &mut TuiApp, messages: &[AgentMessage]) {
+    app.reset_conversation();
+    app.total_input_tokens = 0;
+    app.total_output_tokens = 0;
+    for message in messages {
+        let message = match message {
+            AgentMessage::Standard(message)
+            | AgentMessage::Steering(message)
+            | AgentMessage::FollowUp(message) => message,
+            AgentMessage::Marker(_) | AgentMessage::Extension { .. } => continue,
+        };
+        let text = message.text_content();
+        match message.role {
+            MessageRole::User => app.push_user_message(&text),
+            MessageRole::Assistant => app.push_assistant_message(&text),
+            MessageRole::System | MessageRole::Tool => app.push_system_message(&text),
+        }
+        if let Some(usage) = &message.usage {
+            app.total_input_tokens += usage.input_tokens;
+            app.total_output_tokens += usage.output_tokens;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Slash command handler
 // ---------------------------------------------------------------------------
@@ -1377,6 +1424,7 @@ async fn handle_slash_command(
     _checkpoint_mgr: &checkpoint::CheckpointManager,
     session_id: &mut String,
     active_session: &mut std::sync::Arc<JsonFileAgentSession>,
+    max_iterations: u32,
 ) {
     match cmd {
         "/quit" | "/exit" => {
@@ -1387,7 +1435,7 @@ async fn handle_slash_command(
                 "Commands:\n\
                  /new        Start a fresh session\n\
                  /fork       Fork current session\n\
-                 /resume     Resume a saved session\n\
+                 /resume ID  Resume a saved session (see /sessions)\n\
                  /sessions   List all sessions\n\
                  /plan       Toggle plan mode (read-only)\n\
                  /model [id] Switch model\n\
@@ -1436,18 +1484,17 @@ async fn handle_slash_command(
         "/auto" => {
             use alva_app_core::PermissionMode;
             let current = agent.permission_mode();
-            let new_mode = if current == PermissionMode::AcceptShell {
-                PermissionMode::Ask
-            } else {
-                PermissionMode::AcceptShell
-            };
+            if current != PermissionMode::AcceptShell {
+                app.push_error_message(
+                    "Cannot enable auto-shell from the TUI: interactive CLI sessions have no \
+                     enforced OS sandbox.",
+                );
+                return;
+            }
+            let new_mode = PermissionMode::Ask;
             if !agent.set_permission_mode(new_mode) {
                 app.push_system_message(
                     "Cannot change permission mode -- the `permission` component is disabled.",
-                );
-            } else if new_mode == PermissionMode::AcceptShell {
-                app.push_system_message(
-                    "Auto-shell ON -- non-destructive shell commands run without prompting",
                 );
             } else {
                 app.push_system_message("Auto-shell OFF -- shell commands ask for approval");
@@ -1455,10 +1502,19 @@ async fn handle_slash_command(
         }
         "/new" => {
             let _ = active_session.flush().await;
+            session_manager.write_run_record(active_session).await;
             let new_session = session_manager.create("").await;
             *session_id = new_session.session_id().to_string();
             agent.swap_session(new_session.clone()).await;
             *active_session = new_session;
+            session_manager
+                .append_config_snapshot_if_needed(
+                    active_session,
+                    agent,
+                    &config.model,
+                    max_iterations,
+                )
+                .await;
             app.session_id = session_id.clone();
             app.reset_conversation();
             app.total_input_tokens = 0;
@@ -1467,6 +1523,7 @@ async fn handle_slash_command(
         }
         "/fork" => {
             let _ = active_session.flush().await;
+            session_manager.write_run_record(active_session).await;
             let old_id = session_id.clone();
             let messages = agent.messages().await;
             let new_session = session_manager.create("").await;
@@ -1477,6 +1534,14 @@ async fn handle_slash_command(
             }
             agent.swap_session(new_session.clone()).await;
             *active_session = new_session;
+            session_manager
+                .append_config_snapshot_if_needed(
+                    active_session,
+                    agent,
+                    &config.model,
+                    max_iterations,
+                )
+                .await;
             app.session_id = session_id.clone();
             app.push_system_message(&format!(
                 "Forked from {} -> {}\n{} messages carried over.",
@@ -1501,12 +1566,42 @@ async fn handle_slash_command(
                         ""
                     };
                     info.push_str(&format!(
-                        "  {} | {} events | {}{}\n",
-                        date, s.event_count, s.preview, marker,
+                        "  {} | {} | {} events | {}{}\n",
+                        s.session_id, date, s.event_count, s.preview, marker,
                     ));
                 }
                 app.push_system_message(&info);
             }
+        }
+        cmd if cmd.starts_with("/resume ") => {
+            let requested = cmd.trim_start_matches("/resume ").trim();
+            if requested.is_empty() {
+                app.push_error_message("Usage: /resume <session-id> (see /sessions)");
+                return;
+            }
+            let Some(resumed) = session_manager.load(requested).await else {
+                app.push_error_message(&format!("Session not found: {requested}"));
+                return;
+            };
+            let _ = active_session.flush().await;
+            session_manager.write_run_record(active_session).await;
+            agent.swap_session(resumed.clone()).await;
+            *session_id = resumed.session_id().to_string();
+            *active_session = resumed;
+            session_manager
+                .append_config_snapshot_if_needed(
+                    active_session,
+                    agent,
+                    &config.model,
+                    max_iterations,
+                )
+                .await;
+            restore_conversation(app, &agent.messages().await);
+            app.session_id = session_id.clone();
+            app.push_system_message(&format!("Resumed session: {session_id}"));
+        }
+        "/resume" => {
+            app.push_error_message("Usage: /resume <session-id> (see /sessions)");
         }
         cmd if cmd.starts_with("/model ") => {
             let model_id = cmd.strip_prefix("/model ").unwrap().trim();
@@ -1745,6 +1840,35 @@ mod tests {
                 .any(|(r, t)| matches!(r, BubbleRole::Error) && t.contains("boom")),
             "expected an error bubble, got: {b:?}"
         );
+    }
+
+    #[test]
+    fn restored_session_messages_are_rendered_with_usage() {
+        let mut a = app();
+        let messages = vec![
+            AgentMessage::Standard(Message::user("prior question")),
+            assistant_msg(
+                "prior answer",
+                Some(UsageMetadata {
+                    input_tokens: 11,
+                    output_tokens: 7,
+                    total_tokens: 18,
+                    ..Default::default()
+                }),
+            ),
+        ];
+
+        restore_conversation(&mut a, &messages);
+
+        let restored = bubbles(&a);
+        assert!(restored
+            .iter()
+            .any(|(role, text)| matches!(role, BubbleRole::User) && text == "prior question"));
+        assert!(restored
+            .iter()
+            .any(|(role, text)| matches!(role, BubbleRole::Assistant) && text == "prior answer"));
+        assert_eq!(a.total_input_tokens, 11);
+        assert_eq!(a.total_output_tokens, 7);
     }
 
     // -- streaming ------------------------------------------------------------

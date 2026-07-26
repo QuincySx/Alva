@@ -66,7 +66,13 @@ fn print_help() {
 
 async fn run_list() -> i32 {
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    let mgr = JsonFileSessionManager::for_workspace(&workspace);
+    let mgr = match JsonFileSessionManager::for_workspace(&workspace) {
+        Ok(manager) => manager,
+        Err(error) => {
+            eprintln!("Error: cannot initialize workspace sessions: {error}");
+            return 1;
+        }
+    };
     let entries = mgr.list();
     if entries.is_empty() {
         println!("No sessions in {}", workspace.display());
@@ -105,7 +111,13 @@ async fn run_list() -> i32 {
 
 async fn run_analyze(session_id: Option<&str>) -> i32 {
     let workspace = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    let mgr = JsonFileSessionManager::for_workspace(&workspace);
+    let mgr = match JsonFileSessionManager::for_workspace(&workspace) {
+        Ok(manager) => manager,
+        Err(error) => {
+            eprintln!("Error: cannot initialize workspace sessions: {error}");
+            return 1;
+        }
+    };
 
     let sid = match session_id {
         Some(s) => s.to_string(),

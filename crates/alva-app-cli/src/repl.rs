@@ -57,6 +57,7 @@ pub(crate) async fn run_repl(
     session_manager: &JsonFileSessionManager,
     checkpoint_mgr: &checkpoint::CheckpointManager,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
+    max_iterations: u32,
 ) {
     let registry = CommandRegistry::new();
     let mut tokens = TokenUsage::default();
@@ -94,7 +95,7 @@ pub(crate) async fn run_repl(
     // Append eval_config_snapshot once per session — idempotent, so safe to
     // call here after every resume/create. Same record shape as Tauri's.
     session_manager
-        .append_config_snapshot_if_needed(&active_session, agent, &config.model)
+        .append_config_snapshot_if_needed(&active_session, agent, &config.model, max_iterations)
         .await;
 
     output::print_divider();
@@ -275,6 +276,7 @@ pub(crate) async fn run_repl(
                                     &active_session,
                                     agent,
                                     &config.model,
+                                    max_iterations,
                                 )
                                 .await;
                         }
@@ -397,17 +399,19 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
         }
         "/auto" => {
             let current = agent.permission_mode();
-            let new_mode = if current == PermissionMode::AcceptShell {
-                PermissionMode::Ask
-            } else {
-                PermissionMode::AcceptShell
-            };
+            if current != PermissionMode::AcceptShell {
+                output::print_error(
+                    "Cannot enable auto-shell from the REPL: interactive CLI sessions have no \
+                     enforced OS sandbox. Start with an explicitly approved permission mode in \
+                     an isolated environment instead.",
+                );
+                return ReplAction::Continue;
+            }
+            let new_mode = PermissionMode::Ask;
             if !agent.set_permission_mode(new_mode) {
                 eprintln!(
                     "  Cannot change permission mode — the `permission` component is disabled."
                 );
-            } else if new_mode == PermissionMode::AcceptShell {
-                eprintln!("  Auto-shell ON — non-destructive shell commands run without prompting");
             } else {
                 eprintln!("  Auto-shell OFF — shell commands ask for approval");
             }
@@ -525,6 +529,12 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
 
     // === !shell ===
     if trimmed.starts_with('!') {
+        if agent.permission_mode() == PermissionMode::Plan {
+            output::print_error(
+                "Direct !shell commands are disabled in plan mode; leave /plan before executing.",
+            );
+            return ReplAction::Continue;
+        }
         handle_shell(trimmed, workspace);
         return ReplAction::Continue;
     }
@@ -901,7 +911,7 @@ mod tests {
             custom_headers: Default::default(),
             kind: None,
         };
-        let mgr = JsonFileSessionManager::for_workspace(ws);
+        let mgr = JsonFileSessionManager::for_workspace(ws).unwrap();
         let ckpt = checkpoint::CheckpointManager::new(ws);
         let registry = CommandRegistry::new();
         let session = mgr.create("").await;
@@ -1024,6 +1034,59 @@ mod tests {
             PermissionMode::Plan,
             "/plan again toggles OFF"
         );
+    }
+
+    #[tokio::test]
+    async fn plan_mode_blocks_direct_shell_escape() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        assert!(agent.set_permission_mode(PermissionMode::Plan));
+        let marker = tmp.path().join("must-not-exist");
+        let command = format!("!touch {}", marker.display());
+        let mut c = ctx!(
+            agent,
+            config,
+            tmp.path(),
+            registry,
+            mgr,
+            ckpt,
+            sid,
+            sess,
+            tok
+        );
+
+        assert!(matches!(
+            dispatch(&command, &mut c).await,
+            ReplAction::Continue
+        ));
+        assert!(
+            !marker.exists(),
+            "plan mode must cover the direct !shell shortcut"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_shell_cannot_be_enabled_from_unsandboxed_repl() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        assert_eq!(agent.permission_mode(), PermissionMode::Ask);
+        let mut c = ctx!(
+            agent,
+            config,
+            tmp.path(),
+            registry,
+            mgr,
+            ckpt,
+            sid,
+            sess,
+            tok
+        );
+
+        assert!(matches!(
+            dispatch("/auto", &mut c).await,
+            ReplAction::Continue
+        ));
+        assert_eq!(agent.permission_mode(), PermissionMode::Ask);
     }
 
     #[tokio::test]

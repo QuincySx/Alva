@@ -410,21 +410,34 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
         };
     }
 
-    let session_manager = JsonFileSessionManager::for_workspace(&workspace);
+    let session_manager = match JsonFileSessionManager::for_workspace(&workspace) {
+        Ok(manager) => manager,
+        Err(error) => {
+            eprintln!("Error: cannot initialize workspace sessions: {error}");
+            return 1;
+        }
+    };
 
     // 2. Build agent (provider, skills, approval channel, checkpoint callback)
     let agent_setup::AgentBundle {
         agent,
         mut approval_rx,
         checkpoint_mgr: _checkpoint_mgr,
-    } = agent_setup::build_agent(
+    } = match agent_setup::build_agent(
         &config,
         &workspace,
         &paths,
         system_prompt_override.as_deref(),
         max_turns,
     )
-    .await;
+    .await
+    {
+        Ok(bundle) => bundle,
+        Err(error) => {
+            eprintln!("Error: failed to assemble agent: {error}");
+            return 1;
+        }
+    };
 
     // An OS-tier worker has no unsandboxed host executor: its normal shell
     // already runs inside Seatbelt/Landlock. Keeping request_escalation would falsely
@@ -625,7 +638,12 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
         };
         agent.swap_session(print_session.clone()).await;
         session_manager
-            .append_config_snapshot_if_needed(&print_session, &agent, &config.model)
+            .append_config_snapshot_if_needed(
+                &print_session,
+                &agent,
+                &config.model,
+                max_turns.unwrap_or(20),
+            )
             .await;
 
         let exit_code = if output_json {
@@ -705,6 +723,7 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
             &_checkpoint_mgr,
             &mut approval_rx,
             viewport,
+            max_turns.unwrap_or(20),
         )
         .await
         {
@@ -744,7 +763,12 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
         // captures the actual model + tool/skill/extension config used.
         // Same shape as Tauri's append_config_snapshot_if_needed.
         session_manager
-            .append_config_snapshot_if_needed(&initial_session, &agent, &config.model)
+            .append_config_snapshot_if_needed(
+                &initial_session,
+                &agent,
+                &config.model,
+                max_turns.unwrap_or(20),
+            )
             .await;
         event_handler::run_prompt(&agent, &prompt, &mut approval_rx).await;
         // Persistence is automatic — refresh the index summary, then drop a
@@ -766,6 +790,7 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
         &session_manager,
         &_checkpoint_mgr,
         &mut approval_rx,
+        max_turns.unwrap_or(20),
     )
     .await;
 

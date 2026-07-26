@@ -1,11 +1,12 @@
 // INPUT:  json_file_session::JsonFileAgentSession, serde, serde_json, std::fs
-// OUTPUT: JsonFileSessionManager, SessionSummary, eval_config_snapshot records
+// OUTPUT: fallible JsonFileSessionManager, SessionSummary, eval_config_snapshot records
 // POS:    CLI session directory manager — knows about .alva/sessions/ layout,
-//         index.json, JsonFileAgentSession construction, and agent config snapshots.
+//         UUID/path validation, private atomic metadata, session construction,
+//         and agent config snapshots.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -27,33 +28,58 @@ pub struct SessionSummary {
 pub struct JsonFileSessionManager {
     sessions_dir: PathBuf,
     index_path: PathBuf,
+    index_lock: Mutex<()>,
 }
 
 impl JsonFileSessionManager {
     /// Create a manager for the given workspace, ensuring the sessions
     /// directory exists.
-    pub fn for_workspace(workspace: &Path) -> Self {
-        let sessions_dir = workspace.join(".alva").join("sessions");
+    pub fn for_workspace(workspace: &Path) -> Result<Self, String> {
+        let canonical_workspace = workspace.canonicalize().map_err(|error| {
+            format!("cannot resolve workspace {}: {error}", workspace.display())
+        })?;
+        let alva_dir = canonical_workspace.join(".alva");
+        ensure_workspace_dir(&alva_dir, &canonical_workspace)?;
+        let sessions_dir = alva_dir.join("sessions");
+        ensure_workspace_dir(&sessions_dir, &canonical_workspace)?;
         let index_path = sessions_dir.join("index.json");
-        let _ = fs::create_dir_all(&sessions_dir);
-        Self {
+        ensure_private_dir(&sessions_dir).map_err(|error| {
+            format!(
+                "failed to prepare sessions directory {}: {error}",
+                sessions_dir.display()
+            )
+        })?;
+        Ok(Self {
             sessions_dir,
             index_path,
-        }
+            index_lock: Mutex::new(()),
+        })
     }
 
     fn load_index(&self) -> Vec<SessionSummary> {
         if !self.index_path.exists() {
             return Vec::new();
         }
+        if fs::symlink_metadata(&self.index_path)
+            .map(|metadata| metadata.file_type().is_symlink() || !metadata.is_file())
+            .unwrap_or(true)
+        {
+            return Vec::new();
+        }
         fs::read_to_string(&self.index_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
+            .map(|entries: Vec<SessionSummary>| {
+                entries
+                    .into_iter()
+                    .filter(|entry| valid_session_id(&entry.session_id))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     fn save_index(&self, entries: &[SessionSummary]) {
-        if let Err(e) = fs::create_dir_all(&self.sessions_dir) {
+        if let Err(e) = ensure_private_dir(&self.sessions_dir) {
             tracing::warn!(
                 dir = ?self.sessions_dir,
                 error = %e,
@@ -62,7 +88,7 @@ impl JsonFileSessionManager {
         }
         match serde_json::to_string_pretty(entries) {
             Ok(json) => {
-                if let Err(e) = fs::write(&self.index_path, &json) {
+                if let Err(e) = atomic_write_private(&self.index_path, json.as_bytes()) {
                     tracing::warn!(
                         path = ?self.index_path,
                         error = %e,
@@ -80,8 +106,8 @@ impl JsonFileSessionManager {
         }
     }
 
-    fn session_path(&self, session_id: &str) -> PathBuf {
-        self.sessions_dir.join(format!("{}.json", session_id))
+    fn session_path(&self, session_id: &str) -> Option<PathBuf> {
+        valid_session_id(session_id).then(|| self.sessions_dir.join(format!("{}.json", session_id)))
     }
 
     /// List all known sessions, most recently updated first.
@@ -106,7 +132,9 @@ impl JsonFileSessionManager {
         let session_id = temp_session.session_id().to_string();
         drop(temp_session);
 
-        let path = self.session_path(&session_id);
+        let path = self
+            .session_path(&session_id)
+            .expect("internally generated session id must be a canonical UUID");
 
         // Construct a fresh session with the real path.
         let real_session = Arc::new(JsonFileAgentSession::with_id_at(
@@ -117,6 +145,7 @@ impl JsonFileSessionManager {
         let _ = real_session.flush().await;
 
         // Update the index.
+        let _guard = self.index_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut index = self.load_index();
         index.push(SessionSummary {
             session_id: session_id.clone(),
@@ -132,8 +161,11 @@ impl JsonFileSessionManager {
 
     /// Load an existing session by id. Returns `None` if the file does not exist.
     pub async fn load(&self, session_id: &str) -> Option<Arc<JsonFileAgentSession>> {
-        let path = self.session_path(session_id);
-        if !path.exists() {
+        let path = self.session_path(session_id)?;
+        if fs::symlink_metadata(&path)
+            .map(|metadata| metadata.file_type().is_symlink() || !metadata.is_file())
+            .unwrap_or(true)
+        {
             return None;
         }
         let session = Arc::new(JsonFileAgentSession::with_id_at(
@@ -149,8 +181,11 @@ impl JsonFileSessionManager {
 
     /// Delete a session's file and remove it from the index.
     pub fn delete(&self, session_id: &str) {
-        let path = self.session_path(session_id);
+        let Some(path) = self.session_path(session_id) else {
+            return;
+        };
         let _ = fs::remove_file(&path);
+        let _guard = self.index_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut index = self.load_index();
         index.retain(|e| e.session_id != session_id);
         self.save_index(&index);
@@ -164,6 +199,10 @@ impl JsonFileSessionManager {
         event_count: usize,
         preview_override: Option<&str>,
     ) {
+        if !valid_session_id(session_id) {
+            return;
+        }
+        let _guard = self.index_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut index = self.load_index();
         if let Some(entry) = index.iter_mut().find(|e| e.session_id == session_id) {
             entry.updated_at = chrono::Utc::now().timestamp_millis();
@@ -185,6 +224,7 @@ impl JsonFileSessionManager {
         session: &Arc<JsonFileAgentSession>,
         agent: &alva_app_core::BaseAgent,
         model_id: &str,
+        max_iterations: u32,
     ) {
         let events = session
             .query(&EventQuery {
@@ -219,7 +259,7 @@ impl JsonFileSessionManager {
             "tool_names": tool_names,
             "tool_definitions": tool_definitions,
             "skill_names": Vec::<String>::new(),
-            "max_iterations": 20u32,
+            "max_iterations": max_iterations,
             "plugin_names": plugin_names,
             "plugin_assembly": assembly.plugins,
             "middleware_names": middleware_names,
@@ -250,10 +290,14 @@ impl JsonFileSessionManager {
             .map(|m| m.event)
             .collect();
         let record = alva_app_core::session_projection::build_run_record(&events);
+        if !valid_session_id(&session_id) {
+            tracing::warn!(%session_id, "refusing to write run record with invalid session id");
+            return;
+        }
         let path = self.sessions_dir.join(format!("{}.run.json", session_id));
         match serde_json::to_string_pretty(&record) {
             Ok(json) => {
-                if let Err(e) = fs::write(&path, json) {
+                if let Err(e) = atomic_write_private(&path, json.as_bytes()) {
                     tracing::warn!(session_id = %session_id, error = %e, "write run record failed");
                 }
             }
@@ -262,6 +306,110 @@ impl JsonFileSessionManager {
             }
         }
     }
+}
+
+fn valid_session_id(session_id: &str) -> bool {
+    uuid::Uuid::parse_str(session_id)
+        .map(|id| id.to_string() == session_id)
+        .unwrap_or(false)
+}
+
+fn ensure_private_dir(path: &Path) -> std::io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("refusing symlinked private directory: {}", path.display()),
+            ));
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("private path is not a directory: {}", path.display()),
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir_all(path)?,
+        Err(error) => return Err(error),
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+fn ensure_workspace_dir(path: &Path, canonical_workspace: &Path) -> Result<(), String> {
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "refusing symlinked session directory component: {}",
+                path.display()
+            ));
+        }
+        if !metadata.is_dir() {
+            return Err(format!(
+                "session path is not a directory: {}",
+                path.display()
+            ));
+        }
+    } else {
+        fs::create_dir(path)
+            .map_err(|error| format!("create session directory {}: {error}", path.display()))?;
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("resolve session directory {}: {error}", path.display()))?;
+    if !canonical.starts_with(canonical_workspace) {
+        return Err(format!(
+            "session directory resolves outside workspace: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn atomic_write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "session metadata file must have a parent directory",
+        )
+    })?;
+    ensure_private_dir(parent)?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("session.json");
+    let temp_path = parent.join(format!(
+        ".{file_name}.{}.tmp",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let result = (|| {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temp_path)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        #[cfg(windows)]
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        fs::rename(&temp_path, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
 }
 
 fn truncate_preview(s: &str) -> String {
@@ -345,7 +493,7 @@ mod tests {
     #[tokio::test]
     async fn config_snapshot_records_actual_plugins_and_middleware() {
         let tmp = tempfile::tempdir().unwrap();
-        let manager = JsonFileSessionManager::for_workspace(tmp.path());
+        let manager = JsonFileSessionManager::for_workspace(tmp.path()).unwrap();
         let session = manager.create("snapshot test").await;
         let model = Arc::new(alva_llm_provider::OpenAIChatProvider::new(
             alva_llm_provider::ProviderConfig {
@@ -369,7 +517,7 @@ mod tests {
             .expect("agent builds");
 
         manager
-            .append_config_snapshot_if_needed(&session, &agent, "test-model")
+            .append_config_snapshot_if_needed(&session, &agent, "test-model", 7)
             .await;
 
         let events = session
@@ -436,6 +584,59 @@ mod tests {
             direct_middleware,
             &[serde_json::json!("builtins_loop_detection")],
             "direct middleware should be attributed separately"
+        );
+        assert_eq!(
+            snapshot.get("max_iterations").and_then(|v| v.as_u64()),
+            Some(7),
+            "snapshot must record the invocation's actual turn budget"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_session_id_cannot_escape_workspace_on_load_or_delete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manager = JsonFileSessionManager::for_workspace(tmp.path()).unwrap();
+        let victim = tmp.path().join("victim.json");
+        std::fs::write(&victim, "must survive").unwrap();
+
+        assert!(manager.load("../../victim").await.is_none());
+        manager.delete("../../victim");
+        assert_eq!(std::fs::read_to_string(victim).unwrap(), "must survive");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manager_creates_private_sessions_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let manager = JsonFileSessionManager::for_workspace(tmp.path()).unwrap();
+        assert_eq!(
+            std::fs::metadata(manager.sessions_dir)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manager_rejects_symlinked_alva_directory() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        symlink(outside.path(), workspace.path().join(".alva")).unwrap();
+
+        let error = JsonFileSessionManager::for_workspace(workspace.path())
+            .err()
+            .expect("symlinked metadata directory must be rejected");
+        assert!(error.contains("symlinked session directory"), "{error}");
+        assert!(
+            !outside.path().join("sessions").exists(),
+            "manager must not create files through the symlink"
         );
     }
 }

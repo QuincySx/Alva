@@ -1,11 +1,12 @@
 // INPUT:  alva_app_core, alva_host_native, alva_llm_provider, alva_app_extension_loader, checkpoint, optional job_log middleware
-// OUTPUT: CliCheckpointCallback, load_project_context, build_agent
-// POS:    Agent construction — config loading, provider wiring, checkpoint callback, project context discovery, subprocess plugin loader wiring
+// OUTPUT: bounded workspace-only project context, fallible AgentBundle construction
+// POS:    Agent construction — config loading, provider wiring, checkpoint callback, secure project context discovery, subprocess plugin loader wiring
 
+use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
 
-use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder};
+use alva_app_core::{AlvaPaths, BaseAgent, BaseAgentBuilder, EngineError};
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::LanguageModel;
 use alva_llm_provider::ProviderConfig;
@@ -27,19 +28,62 @@ pub(crate) fn bundled_skill_dir() -> Option<std::path::PathBuf> {
     }
 }
 
-/// Load project context from well-known files (AGENTS.md, CLAUDE.md, .alva/context.md).
+const MAX_PROJECT_CONTEXT_FILE_BYTES: u64 = 1024 * 1024;
+
+/// Load project context from well-known files (AGENTS.md, CLAUDE.md,
+/// .alva/context.md).
+///
+/// Context files must resolve inside the canonical workspace. This prevents a
+/// repository-controlled symlink from copying an arbitrary host file into the
+/// model prompt. Each file is also bounded so a malformed repository cannot
+/// exhaust memory or consume the entire context window during startup.
 pub(crate) fn load_project_context(workspace: &Path) -> String {
+    let canonical_workspace = match workspace.canonicalize() {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(path = ?workspace, %error, "cannot resolve workspace for project context");
+            return String::new();
+        }
+    };
     let mut context = String::new();
     for name in &["AGENTS.md", "CLAUDE.md", ".alva/context.md"] {
         let path = workspace.join(name);
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                context.push_str(&format!(
-                    "\n\n# Project Context (from {})\n\n{}",
-                    name, content
-                ));
-            }
+        let Ok(canonical_path) = path.canonicalize() else {
+            continue;
+        };
+        if !canonical_path.starts_with(&canonical_workspace) || !canonical_path.is_file() {
+            tracing::warn!(
+                path = ?path,
+                resolved = ?canonical_path,
+                "skipping project context outside workspace"
+            );
+            continue;
         }
+
+        let Ok(file) = std::fs::File::open(&canonical_path) else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        if file
+            .take(MAX_PROJECT_CONTEXT_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .is_err()
+        {
+            continue;
+        }
+        let truncated = bytes.len() as u64 > MAX_PROJECT_CONTEXT_FILE_BYTES;
+        bytes.truncate(MAX_PROJECT_CONTEXT_FILE_BYTES as usize);
+        let content = String::from_utf8_lossy(&bytes);
+        context.push_str(&format!(
+            "\n\n# Project Context (from {})\n\n{}{}",
+            name,
+            content,
+            if truncated {
+                "\n\n[project context truncated at 1 MiB]"
+            } else {
+                ""
+            }
+        ));
     }
     context
 }
@@ -64,7 +108,7 @@ pub(crate) async fn build_agent(
     // `--max-turns` (recursion-gate wave): per-invocation turn budget so an
     // orchestrator can bound a cheap-model worker. None -> the default 20.
     max_turns: Option<u32>,
-) -> AgentBundle {
+) -> Result<AgentBundle, EngineError> {
     let project_context = load_project_context(workspace);
     let base_prompt = system_prompt_override.unwrap_or(
         "You are a helpful coding assistant. You have access to tools for \
@@ -131,7 +175,7 @@ pub(crate) async fn build_agent(
     if let Some(logger) = JobToolLogger::from_env() {
         builder = builder.middleware(Arc::new(JobToolLogMiddleware::new(logger)));
     }
-    let agent = builder.build(model).await.expect("failed to build agent");
+    let agent = builder.build(model).await?;
 
     // Register checkpoint callback
     let checkpoint_mgr = checkpoint::CheckpointManager::new(workspace);
@@ -141,11 +185,11 @@ pub(crate) async fn build_agent(
         ),
     ));
 
-    AgentBundle {
+    Ok(AgentBundle {
         agent,
         approval_rx,
         checkpoint_mgr,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -239,5 +283,35 @@ mod tests {
         // Body after the header is empty — verify there isn't garbage.
         let after_header = out.split("(from AGENTS.md)").nth(1).unwrap();
         assert!(after_header.trim().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_project_context_rejects_symlink_outside_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(outside.path(), "host-secret-that-must-not-be-loaded").unwrap();
+        symlink(outside.path(), tmp.path().join("AGENTS.md")).unwrap();
+
+        let out = load_project_context(tmp.path());
+        assert!(!out.contains("host-secret-that-must-not-be-loaded"));
+        assert!(!out.contains("(from AGENTS.md)"));
+    }
+
+    #[test]
+    fn load_project_context_bounds_oversized_files() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let oversized = "x".repeat(MAX_PROJECT_CONTEXT_FILE_BYTES as usize + 32);
+        std::fs::write(tmp.path().join("AGENTS.md"), oversized).unwrap();
+
+        let out = load_project_context(tmp.path());
+        assert!(out.contains("[project context truncated at 1 MiB]"));
+        assert!(
+            out.len() < MAX_PROJECT_CONTEXT_FILE_BYTES as usize + 256,
+            "bounded context unexpectedly large: {} bytes",
+            out.len()
+        );
     }
 }
