@@ -21,6 +21,7 @@
 - `.alva`/`sessions` 不得是软链接，session id 仅接受 canonical UUID；session JSON/index/RunRecord 必须同目录原子替换、写操作串行化，Unix 目录/文件权限固定为 0700/0600。
 - `AGENTS.md`/`CLAUDE.md`/`.alva/context.md` 必须 canonicalize 后仍位于 workspace，且单文件读取上限为 1 MiB。
 - jobs submit 不得允许调用方覆盖 runner 持有的 print/JSON flag，非交互 job 必须含 positional prompt。
+- setup wizard 读取 API key 时不得回显凭据，临时修改终端 echo 状态必须以作用域 guard 恢复。
 - interactive `/auto` 不得绕过“依赖沙箱的权限模式”门禁；Plan mode 必须同时阻止 middleware tool 与 REPL/TUI 的直接 `!shell` shortcut。
 - macOS os 档是写圈禁而非读圈禁，动态路径只经 canonicalize + `-D` 进入固定 profile，enforcement 必须由实际 EPERM 探针确认；Linux os 档在任何线程创建前施加 Landlock，ABI v3/status 不足必须 fail-closed；TMPDIR 必须由 host 在可信系统 temp 下按 job 创建，support files 只允许 jobs 目录内固定输出名。
 

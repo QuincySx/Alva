@@ -87,6 +87,52 @@ fn read_line_trimmed() -> String {
     input.trim().to_string()
 }
 
+/// Read a credential without echoing it back into the terminal. The guard is
+/// intentionally scoped around only the blocking read so terminal state is
+/// restored before any subsequent wizard output, including early returns.
+fn read_secret_trimmed() -> String {
+    #[cfg(unix)]
+    let value = {
+        let _echo_guard = StdinEchoGuard::disable();
+        read_line_trimmed()
+    };
+    #[cfg(not(unix))]
+    let value = read_line_trimmed();
+
+    // With echo disabled, the terminal does not render the user's newline.
+    eprintln!();
+    value
+}
+
+#[cfg(unix)]
+struct StdinEchoGuard {
+    original: libc::termios,
+}
+
+#[cfg(unix)]
+impl StdinEchoGuard {
+    fn disable() -> Option<Self> {
+        let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+        if unsafe { libc::tcgetattr(libc::STDIN_FILENO, original.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        let original = unsafe { original.assume_init() };
+        let mut hidden = original;
+        hidden.c_lflag &= !libc::ECHO;
+        if unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &hidden) } != 0 {
+            return None;
+        }
+        Some(Self { original })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for StdinEchoGuard {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.original) };
+    }
+}
+
 /// Run the interactive setup wizard. Returns a ProviderConfig on success.
 pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
     eprintln!();
@@ -155,12 +201,11 @@ pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
         eprintln!("{}", format!("Enter your {} API key:", preset.name).bold());
         eprint!("  {} ", "Key:".bold());
         io::stderr().flush().ok();
-        let key = read_line_trimmed();
+        let key = read_secret_trimmed();
         if key.is_empty() {
             eprintln!("{}", "API key is required.".red());
             return None;
         }
-        eprintln!();
         key
     } else {
         // Local providers like Ollama don't need a key
