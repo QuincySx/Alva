@@ -1,26 +1,24 @@
 # alva-engine-adapter-alva
-> 本地 Agent 引擎的 EngineRuntime 适配器，将 alva-kernel-core 的 Agent 包装为统一运行时接口。
+> Alva Hub 的 canonical app-layer adapter：每个 engine session 构造完整 BaseAgent。
 
 ## 地位
-作为 alva-engine-runtime 的具体实现之一，本模块将内置的 alva-kernel-core Agent 引擎适配为统一的 `EngineRuntime` trait。上层消费者仅依赖 `EngineRuntime`，无需感知底层引擎细节。属于"多引擎架构"中的本地引擎适配层。
+它实现轻量 `alva-engine-runtime::EngineRuntime` contract，但本身属于 Hub/app 产品层，允许依赖 `alva-app-core`。每个 native engine session 由 `BaseAgentFactory` 独立构造，保留 BaseAgent 的默认 plugin、security、memory、context 和自定义 harness 配方。
 
 ## 逻辑
-1. `AlvaAdapter::new()` 接收 `AlvaAdapterConfig`（含 LLM model、工具集、执行模式等），构建适配器实例并初始化空的 session map。
-2. `execute()` 每次调用生成唯一 session_id，读取 `RuntimeRequest` 中的 `system_prompt` / `working_directory` / `max_turns`，创建 `Agent` 实例并启动 agent loop，通过 `mpsc` channel 将 `AgentEvent` 流转发到输出端。
-3. `EventMapper` 是有状态映射器，维护 session_id、turn_count、tool_names（tool_use_id -> name 查找表），将 `AgentEvent` 逐个转换为 `Vec<RuntimeEvent>`。
-4. `cancel()` 通过 session map 查找并终止对应 Agent；`respond_permission()` 当前未实现（本地引擎不涉及外部权限回调）；`resume_session` 明确返回 `RuntimeError::Unsupported`。
-5. 事件流终止语义：`Completed` 为唯一终端事件，错误时先发 `Error { recoverable: false }` 再发 `Completed { result: None }`。
+1. `BaseAgentFactory` 在新 session 时构造一个独立 `BaseAgent`；默认 factory 消费 request 的 cwd/system prompt/max turns，复杂产品配方可自定义 factory。
+2. `execute()` 将 BaseAgent loop 的 `AgentEvent` 映射为 `RuntimeEvent`，并持有 native session 到 BaseAgent 的映射。
+3. 完成后 BaseAgent 变 idle 而不删除；同一 native session 的 `resume_session` 可继续历史，running session 拒绝并发 execute。
+4. `cancel()` 和 `respond_permission()` 路由至对应 BaseAgent；修改 tool input 尚不被 Alva permission API 支持。
 
 ## 约束
-- `AlvaAdapterConfig` 中 `model` 和 `tools` 为必填项；`max_iterations` 是默认值，可被 `RuntimeRequest.options.max_turns` 覆盖。
-- `EventMapper` 在 `MessageEnd` 时拆分 ToolUse/ToolResult 为独立的 `ToolStart`/`ToolEnd` 事件，`Message.content` 中不含工具块。
-- 返回的 Stream 为 `'static`，不借用 `&self`。
-- `working_directory` 会写入 `AgentConfig.workspace` 并透传给 tool context。
+- 不得构造裸 `AgentState` 或直接调用 `run_agent`；必须通过 BaseAgent factory。
+- 一个 engine session 只拥有一个 BaseAgent，不能用 `swap_session` 共享 agent 支撑并发。
+- 这是 app/product 层 crate，不能被 SDK/kernel/agent crate 反向依赖；Hub core 只依赖 `alva-engine-runtime` contract。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | AlvaAdapter | adapter.rs | EngineRuntime trait 实现，管理 session 生命周期、启动 agent loop 并输出事件流 |
-| AlvaAdapterConfig | config.rs | 适配器配置：LLM model、工具集、工具上下文、执行模式、最大迭代数、流式开关 |
+| BaseAgentFactory | factory.rs | 每 session 完整 BaseAgent 组装；default factory 提供 batteries baseline |
 | EventMapper | mapping.rs | 有状态事件映射器，将 AgentEvent 转换为 RuntimeEvent，维护 turn 计数和工具名查找表 |
-| lib.rs | lib.rs | 模块入口，重导出 AlvaAdapter 和 AlvaAdapterConfig |
+| lib.rs | lib.rs | 模块入口，重导出 AlvaAdapter 与 BaseAgent factory API |

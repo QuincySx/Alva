@@ -22,6 +22,8 @@ members = [
     "crates/alva-engine-runtime",
     "crates/alva-engine-adapter-claude",
     "crates/alva-engine-adapter-alva",
+    "crates/alva-hub-core",
+    "crates/alva-hub-cli",
     "crates/alva-test",
     "crates/alva-app-devtools-mcp",
     "crates/alva-environment",

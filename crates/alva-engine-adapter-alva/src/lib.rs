@@ -1,10 +1,10 @@
-// INPUT:  config, mapping, adapter (internal modules)
-// OUTPUT: pub AlvaAdapterConfig, pub AlvaAdapter
-// POS:    Crate root that re-exports the Alva native engine adapter and its configuration.
+// INPUT:  adapter, factory, mapping (internal modules)
+// OUTPUT: AlvaAdapter, BaseAgentFactory, DefaultBaseAgentFactory, DefaultBaseAgentFactoryConfig
+// POS:    Canonical app-layer Alva engine adapter that builds complete BaseAgent sessions for Hub.
 
 mod adapter;
-mod config;
+mod factory;
 mod mapping;
 
 pub use adapter::AlvaAdapter;
-pub use config::AlvaAdapterConfig;
+pub use factory::{BaseAgentFactory, DefaultBaseAgentFactory, DefaultBaseAgentFactoryConfig};

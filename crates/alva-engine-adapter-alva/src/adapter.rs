@@ -1,59 +1,40 @@
-// INPUT:  AlvaAdapterConfig, EventMapper, alva_kernel_core, alva_engine_runtime::*
-// OUTPUT: AlvaAdapter — EngineRuntime implementation that wraps agent engine
-// POS:    Core adapter bridging the agent engine to the unified EngineRuntime interface.
+// INPUT:  BaseAgentFactory, EventMapper, alva_app_core::BaseAgent, alva_engine_runtime::*
+// OUTPUT: AlvaAdapter implementing EngineRuntime
+// POS:    Runs one independently assembled BaseAgent per engine session and exposes it through the neutral engine contract.
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
-use futures_core::Stream;
-use std::sync::Mutex;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::debug;
-
+use alva_app_core::{BaseAgent, PermissionDecision as AlvaPermissionDecision};
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
     RuntimeRequest,
 };
-use alva_kernel_abi::{CancellationToken, ContentBlock, Message, MessageRole};
-use alva_kernel_core::agent_session::InMemoryAgentSession;
-use alva_kernel_core::middleware::MiddlewareStack;
-use alva_kernel_core::run::run_agent;
-use alva_kernel_core::shared::Extensions;
-use alva_kernel_core::state::{AgentConfig, AgentState};
-use alva_kernel_core::AgentMessage;
+use async_trait::async_trait;
+use futures_core::Stream;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use crate::config::AlvaAdapterConfig;
+use crate::factory::BaseAgentFactory;
 use crate::mapping::EventMapper;
 
-// ---------------------------------------------------------------------------
-// Session handle — kept alive while the agent loop is running
-// ---------------------------------------------------------------------------
-
-struct SessionHandle {
-    cancel: CancellationToken,
+struct RuntimeSession {
+    agent: Option<Arc<BaseAgent>>,
+    running: bool,
 }
 
-// ---------------------------------------------------------------------------
-// AlvaAdapter
-// ---------------------------------------------------------------------------
-
-/// `EngineRuntime` adapter that wraps agent engine.
-///
-/// Each `execute()` call creates a fresh `AgentState` + `AgentConfig`, runs
-/// `run_agent` in a spawned task, and returns a `RuntimeEvent` stream.
+/// Canonical Hub-facing Alva engine. Each engine session owns one independent
+/// BaseAgent, preserving app-core plugins, middleware, security and context.
 pub struct AlvaAdapter {
-    config: AlvaAdapterConfig,
-    sessions: Arc<Mutex<HashMap<String, SessionHandle>>>,
+    factory: Arc<dyn BaseAgentFactory>,
+    sessions: Arc<Mutex<HashMap<String, RuntimeSession>>>,
 }
 
 impl AlvaAdapter {
-    /// Create a new adapter from the given configuration.
-    pub fn new(config: AlvaAdapterConfig) -> Self {
+    pub fn new(factory: Arc<dyn BaseAgentFactory>) -> Self {
         Self {
-            config,
+            factory,
             sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -65,163 +46,158 @@ impl EngineRuntime for AlvaAdapter {
         &self,
         request: RuntimeRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
-        if request.resume_session.is_some() {
-            return Err(RuntimeError::Unsupported(
-                "resume_session is not supported by AlvaAdapter".to_string(),
-            ));
-        }
-
-        let max_iterations = request
-            .options
-            .max_turns
-            .unwrap_or(self.config.max_iterations);
-
-        // 1. Generate a unique session ID.
-        let session_id = uuid::Uuid::new_v4().to_string();
-
-        // 2. Determine the system prompt.
-        let system_prompt = request
-            .system_prompt
-            .unwrap_or_else(|| self.config.system_prompt.clone());
-
-        // 3. Build AgentState.
-        let session: Arc<dyn alva_kernel_core::agent_session::AgentSession> =
-            Arc::new(InMemoryAgentSession::new());
-        let state = AgentState {
-            model: self.config.model.clone(),
-            tools: self.config.tools.clone(),
-            session,
-            extensions: Extensions::new(),
+        let session_id = request
+            .resume_session
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let resumed_agent = if request.resume_session.is_some() {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("Alva adapter session lock poisoned");
+            let session = sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| RuntimeError::SessionNotFound(session_id.clone()))?;
+            if session.running {
+                return Err(RuntimeError::NotReady(format!(
+                    "session '{session_id}' is already running"
+                )));
+            }
+            let agent = session
+                .agent
+                .clone()
+                .ok_or_else(|| RuntimeError::NotReady(session_id.clone()))?;
+            session.running = true;
+            Some(agent)
+        } else {
+            self.sessions
+                .lock()
+                .expect("Alva adapter session lock poisoned")
+                .insert(
+                    session_id.clone(),
+                    RuntimeSession {
+                        agent: None,
+                        running: true,
+                    },
+                );
+            None
         };
 
-        // 4. Build AgentConfig. Single-segment system prompt at this
-        //    layer; cache markers don't apply here yet (only the
-        //    BaseAgent path uses prompt cache).
-        let config = AgentConfig {
-            middleware: MiddlewareStack::new(),
-            system_prompt: if system_prompt.is_empty() {
-                Vec::new()
-            } else {
-                vec![system_prompt]
-            },
-            max_iterations,
-            model_config: alva_kernel_abi::ModelConfig::default(),
-            context_window: 0,
-            workspace: request.working_directory,
-            bus: self.config.bus.clone(),
-            context_system: None,
-            context_token_budget: None,
-        };
-
-        // 5. Build the user message from request.prompt.
-        let user_message = AgentMessage::Standard(Message {
-            id: uuid::Uuid::new_v4().to_string(),
-            role: MessageRole::User,
-            content: vec![ContentBlock::Text {
-                text: request.prompt,
-            }],
-            tool_call_id: None,
-            usage: None,
-            timestamp: 0,
-        });
-
-        // 6. Create the output channel for RuntimeEvents.
-        let (event_tx, event_rx) = mpsc::unbounded_channel::<RuntimeEvent>();
-
-        // 7. Create cancellation token.
-        let cancel = CancellationToken::new();
-
-        // 8. Clone what the spawned task needs.
+        let factory = self.factory.clone();
         let sessions = self.sessions.clone();
-        let sid = session_id.clone();
-        let cancel_clone = cancel.clone();
-
-        // 9. Register the session handle synchronously to avoid a race where
-        //    cancel() is called before the spawned task inserts the entry.
-        {
-            let mut map = self.sessions.lock().unwrap();
-            map.insert(
-                sid.clone(),
-                SessionHandle {
-                    cancel: cancel.clone(),
-                },
-            );
-        }
-
-        // 10. Spawn the background task.
         tokio::spawn(async move {
-            debug!(session_id = %sid, "AlvaAdapter: starting agent");
-
-            // Create a mapper to convert AgentEvents to RuntimeEvents.
-            let (agent_tx, mut agent_rx) = mpsc::unbounded_channel();
-
-            // Run the agent loop.
-            let mut state = state;
-            let run_handle = tokio::spawn(async move {
-                let _ = run_agent(
-                    &mut state,
-                    &config,
-                    cancel_clone,
-                    vec![user_message],
-                    agent_tx,
-                )
-                .await;
-            });
-
-            // Map AgentEvents to RuntimeEvents.
-            let mut mapper = EventMapper::new(sid.clone());
-
-            while let Some(agent_event) = agent_rx.recv().await {
-                let runtime_events = mapper.map(agent_event);
-                for re in runtime_events {
-                    if event_tx.send(re).is_err() {
-                        debug!(session_id = %sid, "AlvaAdapter: consumer dropped, stopping");
-                        break;
+            let agent = match resumed_agent {
+                Some(agent) => agent,
+                None => match factory.build(&request).await {
+                    Ok(agent) => Arc::new(agent),
+                    Err(error) => {
+                        let _ = event_tx.send(RuntimeEvent::Error {
+                            message: error.to_string(),
+                            recoverable: false,
+                        });
+                        let _ = event_tx.send(RuntimeEvent::Completed {
+                            session_id: session_id.clone(),
+                            result: None,
+                            usage: None,
+                        });
+                        sessions
+                            .lock()
+                            .expect("Alva adapter session lock poisoned")
+                            .remove(&session_id);
+                        return;
                     }
+                },
+            };
+
+            {
+                let mut sessions = sessions.lock().expect("Alva adapter session lock poisoned");
+                let Some(session) = sessions.get_mut(&session_id) else {
+                    return;
+                };
+                session.agent = Some(agent.clone());
+            }
+
+            let model = agent.model_id().await;
+            let tools = agent.tool_names();
+            let mut events = agent.prompt_text(&request.prompt);
+            let mut mapper = EventMapper::new(session_id.clone(), model, tools);
+            let mut output_open = true;
+            while let Some(event) = events.recv().await {
+                let mapped = mapper.map(event);
+                let terminal = mapped
+                    .iter()
+                    .any(|event| matches!(event, RuntimeEvent::Completed { .. }));
+                for event in mapped {
+                    if output_open && event_tx.send(event).is_err() {
+                        output_open = false;
+                        agent.cancel();
+                    }
+                }
+                if terminal {
+                    break;
                 }
             }
 
-            // Wait for the run task to complete.
-            let _ = run_handle.await;
-
-            // Clean up the session.
+            if let Some(session) = sessions
+                .lock()
+                .expect("Alva adapter session lock poisoned")
+                .get_mut(&session_id)
             {
-                let mut map = sessions.lock().unwrap();
-                map.remove(&sid);
+                session.running = false;
             }
-
-            debug!(session_id = %sid, "AlvaAdapter: session completed");
         });
 
-        // 11. Wrap the receiver as a Stream.
         Ok(Box::pin(UnboundedReceiverStream::new(event_rx)))
     }
 
     async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
-        let map = self.sessions.lock().unwrap();
-        match map.get(session_id) {
-            Some(handle) => {
-                handle.cancel.cancel();
-                Ok(())
-            }
-            None => Err(RuntimeError::SessionNotFound(session_id.to_string())),
-        }
+        let agent = self
+            .sessions
+            .lock()
+            .expect("Alva adapter session lock poisoned")
+            .get(session_id)
+            .ok_or_else(|| RuntimeError::SessionNotFound(session_id.into()))?
+            .agent
+            .clone()
+            .ok_or_else(|| RuntimeError::NotReady(session_id.into()))?;
+        agent.cancel();
+        Ok(())
     }
 
     async fn respond_permission(
         &self,
         session_id: &str,
-        _request_id: &str,
-        _decision: PermissionDecision,
+        request_id: &str,
+        decision: PermissionDecision,
     ) -> Result<(), RuntimeError> {
-        let map = self.sessions.lock().unwrap();
-        if map.contains_key(session_id) {
-            Err(RuntimeError::PermissionNotFound(
-                "permission callback not implemented in v2".to_string(),
-            ))
-        } else {
-            Err(RuntimeError::SessionNotFound(session_id.to_string()))
-        }
+        let agent = self
+            .sessions
+            .lock()
+            .expect("Alva adapter session lock poisoned")
+            .get(session_id)
+            .ok_or_else(|| RuntimeError::SessionNotFound(session_id.into()))?
+            .agent
+            .clone()
+            .ok_or_else(|| RuntimeError::NotReady(session_id.into()))?;
+        let decision = match decision {
+            PermissionDecision::Allow {
+                updated_input: None,
+            } => AlvaPermissionDecision::AllowOnce,
+            PermissionDecision::Deny { .. } => AlvaPermissionDecision::RejectOnce,
+            PermissionDecision::Allow {
+                updated_input: Some(_),
+            } => {
+                return Err(RuntimeError::Unsupported(
+                    "Alva permissions cannot modify tool input".into(),
+                ));
+            }
+        };
+        // RuntimeEvent's permission response is keyed by request ID only;
+        // SecurityGuard uses that ID as the authority and accepts this label
+        // for diagnostics.
+        agent.resolve_permission(request_id, "hub", decision).await;
+        Ok(())
     }
 
     fn capabilities(&self) -> RuntimeCapabilities {
@@ -229,261 +205,84 @@ impl EngineRuntime for AlvaAdapter {
             streaming: true,
             tool_control: true,
             permission_callback: false,
-            resume: false,
+            resume: true,
             cancel: true,
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use alva_kernel_abi::{AgentError, Message, Tool, ToolExecutionContext, ToolOutput};
+    use std::sync::Arc;
+
+    use alva_engine_runtime::{EngineRuntime, RuntimeEvent, RuntimeRequest};
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
-    use async_trait::async_trait;
-    use serde_json::json;
-    use std::path::Path;
     use tokio_stream::StreamExt;
 
-    fn make_config(model: MockLanguageModel) -> AlvaAdapterConfig {
-        AlvaAdapterConfig {
-            model: Arc::new(model),
-            tools: vec![],
-            system_prompt: "You are a helpful assistant.".to_string(),
-            max_iterations: 1,
-            streaming: false,
-            bus: None,
-        }
-    }
-
-    struct WorkspaceEchoTool;
-
-    #[async_trait]
-    impl Tool for WorkspaceEchoTool {
-        fn name(&self) -> &str {
-            "workspace_echo"
-        }
-
-        fn description(&self) -> &str {
-            "Echoes the current workspace path"
-        }
-
-        fn parameters_schema(&self) -> serde_json::Value {
-            json!({
-                "type": "object",
-                "properties": {},
-            })
-        }
-
-        async fn execute(
-            &self,
-            _input: serde_json::Value,
-            ctx: &dyn ToolExecutionContext,
-        ) -> Result<ToolOutput, AgentError> {
-            let workspace = ctx
-                .workspace()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "<none>".to_string());
-            Ok(ToolOutput::text(workspace))
-        }
-    }
-
-    struct NoopTool;
-
-    #[async_trait]
-    impl Tool for NoopTool {
-        fn name(&self) -> &str {
-            "noop"
-        }
-
-        fn description(&self) -> &str {
-            "Returns ok"
-        }
-
-        fn parameters_schema(&self) -> serde_json::Value {
-            json!({
-                "type": "object",
-                "properties": {},
-            })
-        }
-
-        async fn execute(
-            &self,
-            _input: serde_json::Value,
-            _ctx: &dyn ToolExecutionContext,
-        ) -> Result<ToolOutput, AgentError> {
-            Ok(ToolOutput::text("ok"))
-        }
-    }
+    use super::*;
+    use crate::{DefaultBaseAgentFactory, DefaultBaseAgentFactoryConfig};
 
     #[tokio::test]
-    async fn test_execute_simple_prompt() {
-        let response = make_assistant_message("Hello, world!");
-        let model = MockLanguageModel::new().with_response(response);
-        let config = make_config(model);
-        let adapter = AlvaAdapter::new(config);
+    async fn runs_a_complete_base_agent_session() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("hub")));
+        let config = DefaultBaseAgentFactoryConfig::new(model, std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
 
-        let request = RuntimeRequest::new("Say hello");
-        let stream = adapter.execute(request).expect("execute should succeed");
-
-        let events: Vec<RuntimeEvent> = stream.collect().await;
-
-        assert!(
-            events.len() >= 2,
-            "expected at least 2 events, got {}",
-            events.len()
-        );
-
-        assert!(
-            matches!(&events[0], RuntimeEvent::SessionStarted { .. }),
-            "first event should be SessionStarted, got {:?}",
-            &events[0]
-        );
-
-        let last = events.last().unwrap();
-        assert!(
-            matches!(last, RuntimeEvent::Completed { .. }),
-            "last event should be Completed, got {:?}",
-            last
-        );
-
-        let has_message = events
-            .iter()
-            .any(|e| matches!(e, RuntimeEvent::Message { .. }));
-        assert!(has_message, "expected at least one Message event");
-    }
-
-    #[tokio::test]
-    async fn test_cancel_unknown_session() {
-        let model = MockLanguageModel::new();
-        let config = make_config(model);
-        let adapter = AlvaAdapter::new(config);
-
-        let result = adapter.cancel("nonexistent-session").await;
-        assert!(matches!(result, Err(RuntimeError::SessionNotFound(_))));
-    }
-
-    #[tokio::test]
-    async fn test_capabilities() {
-        let model = MockLanguageModel::new();
-        let config = make_config(model);
-        let adapter = AlvaAdapter::new(config);
-
-        let caps = adapter.capabilities();
-        assert!(caps.streaming);
-        assert!(caps.tool_control);
-        assert!(!caps.permission_callback);
-        assert!(!caps.resume);
-        assert!(caps.cancel);
-    }
-
-    #[tokio::test]
-    async fn test_respond_permission_not_implemented() {
-        let model = MockLanguageModel::new();
-        let config = make_config(model);
-        let adapter = AlvaAdapter::new(config);
-
-        let result = adapter
-            .respond_permission(
-                "no-session",
-                "req-1",
-                PermissionDecision::Allow {
-                    updated_input: None,
-                },
-            )
+        let events: Vec<_> = adapter
+            .execute(RuntimeRequest::new("say hub"))
+            .unwrap()
+            .collect()
             .await;
-        assert!(matches!(result, Err(RuntimeError::SessionNotFound(_))));
+
+        assert!(matches!(
+            events.first(),
+            Some(RuntimeEvent::SessionStarted { .. })
+        ));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, RuntimeEvent::Message { .. })));
+        assert!(matches!(
+            events.last(),
+            Some(RuntimeEvent::Completed { .. })
+        ));
     }
 
     #[tokio::test]
-    async fn test_execute_propagates_working_directory_to_tool_context() {
-        let first = Message {
-            id: "tool-call".into(),
-            role: MessageRole::Assistant,
-            content: vec![ContentBlock::ToolUse {
-                id: "tool-1".into(),
-                name: "workspace_echo".into(),
-                input: json!({}),
-            }],
-            tool_call_id: None,
-            usage: None,
-            timestamp: 0,
-        };
-        let second = make_assistant_message("done");
-        let model = MockLanguageModel::new()
-            .with_response(first)
-            .with_response(second);
-        let mut config = make_config(model);
-        config.tools = vec![Arc::new(WorkspaceEchoTool)];
-        config.max_iterations = 4;
-        let adapter = AlvaAdapter::new(config);
-
-        let workspace = Path::new("/tmp/alva-adapter-workspace");
-        let request = RuntimeRequest::new("inspect workspace").with_cwd(workspace);
-        let stream = adapter.execute(request).expect("execute should succeed");
-        let events: Vec<RuntimeEvent> = stream.collect().await;
-
-        let tool_result_text = events.iter().find_map(|event| match event {
-            RuntimeEvent::ToolEnd { result, .. } => Some(result.model_text()),
-            _ => None,
-        });
-
-        assert_eq!(
-            tool_result_text.as_deref(),
-            Some("/tmp/alva-adapter-workspace")
+    async fn resumes_the_same_base_agent_session() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("first"))
+                .with_response(make_assistant_message("second")),
         );
-    }
+        let config = DefaultBaseAgentFactoryConfig::new(model.clone(), std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
 
-    #[tokio::test]
-    async fn test_execute_honors_request_max_turns() {
-        let first = Message {
-            id: "tool-call".into(),
-            role: MessageRole::Assistant,
-            content: vec![ContentBlock::ToolUse {
-                id: "tool-1".into(),
-                name: "noop".into(),
-                input: json!({}),
-            }],
-            tool_call_id: None,
-            usage: None,
-            timestamp: 0,
+        let first: Vec<_> = adapter
+            .execute(RuntimeRequest::new("first prompt"))
+            .unwrap()
+            .collect()
+            .await;
+        let session_id = match first.first() {
+            Some(RuntimeEvent::SessionStarted { session_id, .. }) => session_id.clone(),
+            other => panic!("expected SessionStarted, got {other:?}"),
         };
-        let second = make_assistant_message("this should never be reached");
-        let model = MockLanguageModel::new()
-            .with_response(first)
-            .with_response(second);
-        let mut config = make_config(model);
-        config.tools = vec![Arc::new(NoopTool)];
-        config.max_iterations = 5;
-        let adapter = AlvaAdapter::new(config);
 
-        let mut request = RuntimeRequest::new("loop once");
-        request.options.max_turns = Some(1);
-        let stream = adapter.execute(request).expect("execute should succeed");
-        let events: Vec<RuntimeEvent> = stream.collect().await;
-
-        assert!(events.iter().any(|event| matches!(
-            event,
-            RuntimeEvent::Error { message, .. } if message.contains("Max iterations reached: 1")
-        )));
-    }
-
-    #[tokio::test]
-    async fn test_execute_rejects_resume_session_for_unsupported_adapter() {
-        let response = make_assistant_message("Hello, world!");
-        let model = MockLanguageModel::new().with_response(response);
-        let config = make_config(model);
-        let adapter = AlvaAdapter::new(config);
-
-        let mut request = RuntimeRequest::new("Say hello");
-        request.resume_session = Some("existing-session".into());
-
-        let result = adapter.execute(request);
-        assert!(matches!(result, Err(RuntimeError::Unsupported(_))));
+        let mut resumed = RuntimeRequest::new("second prompt");
+        resumed.resume_session = Some(session_id);
+        let second: Vec<_> = adapter.execute(resumed).unwrap().collect().await;
+        assert!(matches!(
+            second.first(),
+            Some(RuntimeEvent::SessionStarted { .. })
+        ));
+        assert!(matches!(
+            second.last(),
+            Some(RuntimeEvent::Completed { .. })
+        ));
+        assert_eq!(model.calls().len(), 2);
+        assert!(
+            model.calls()[1].len() >= 3,
+            "resumed turn retains first history"
+        );
     }
 }

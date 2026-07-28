@@ -1,0 +1,17 @@
+[package]
+name = "alva-hub-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal Alva Hub command-line client"
+
+[[bin]]
+name = "alva-hub"
+path = "src/main.rs"
+
+[dependencies]
+alva-engine-runtime = { path = "../alva-engine-runtime" }
+alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
+alva-hub-core = { path = "../alva-hub-core" }
+alva-llm-provider = { path = "../alva-llm-provider" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio-stream = "0.1"

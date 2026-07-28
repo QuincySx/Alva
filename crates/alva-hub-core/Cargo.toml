@@ -1,0 +1,18 @@
+[package]
+name = "alva-hub-core"
+version = "0.1.0"
+edition = "2021"
+description = "Product-level multi-engine session supervisor for Alva Hub"
+
+[dependencies]
+alva-engine-runtime = { path = "../alva-engine-runtime" }
+futures-core = "0.3"
+tokio = { version = "1", features = ["sync", "rt"] }
+tokio-stream = "0.1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+async-trait = "0.1"
+futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
