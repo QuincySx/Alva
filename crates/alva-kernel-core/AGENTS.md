@@ -11,6 +11,7 @@
 - `context_runtime.rs` 提供 `ContextRuntime`，集中处理 ContextHooks 的 pending injection、assemble、budget compression、after_turn 与 dispose。
 - `context_apply.rs` 提供 `apply_injections` / `apply_compressions`——把 context-hook 返回值落到 system prompt 桶与 message 列表（从 `alva-kernel-abi` 迁出的 runtime helper）。
 - `tool_batch.rs` 提供 `ToolBatchCoordinator`，集中处理一批模型声明的 tool call：发 `tool_use` skeleton、执行 before/wrap/after middleware、写 `tool_result`，并保证 session commit 顺序稳定。
+- `tool_lock.rs` 提供 `ToolLockRegistry` / `ToolLockGuards`——跨 agent 共享的工具资源锁运行时（类型在 abi，实现在 core）。
 - `runtime_context.rs` 为 tool 执行构造 `RuntimeExecutionContext`，把 progress、workspace、bus 等能力桥接给 tool。
 - `builtins/` 放 kernel 级默认 middleware，如 loop detection、dangling tool call、tool timeout。
 

@@ -90,7 +90,7 @@ impl ToolBatchCoordinator {
                         Some(ref t) => 'locked: {
                             let _lock_guards = if let Some(bus) = config.bus.as_ref() {
                                 if let Some(registry) =
-                                    bus.get::<alva_kernel_abi::ToolLockRegistry>()
+                                    bus.get::<crate::ToolLockRegistry>()
                                 {
                                     let keys = t.resource_keys(&tool_call.arguments);
                                     let mode = t.execution_mode();

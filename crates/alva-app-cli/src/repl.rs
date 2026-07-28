@@ -428,7 +428,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
             return ReplAction::Continue;
         }
         "/locks" => {
-            if let Some(reg) = agent.bus().get::<alva_kernel_abi::ToolLockRegistry>() {
+            if let Some(reg) = agent.bus().get::<alva_kernel_core::ToolLockRegistry>() {
                 let snap = reg.inspect();
                 if snap.is_empty() {
                     eprintln!("  no active locks");

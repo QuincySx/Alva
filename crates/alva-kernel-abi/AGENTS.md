@@ -28,8 +28,8 @@ structs.
 - Prefer pure contracts: traits, enums, value types. Runtime apply helpers
   (`apply_injections` / `apply_compressions`) live in `alva-kernel-core`.
 - Concrete session backends (`InMemoryAgentSession`) live in `alva-kernel-core`.
-- Remaining runtime still hosted here (to migrate): `tool/scheduler.rs`
-  (`ToolLockRegistry` implementation).
+- Scheduling **types** (`ResourceKey` / `LockMode` / `ExecutionMode`) stay
+  here; the `ToolLockRegistry` runtime lives in `alva-kernel-core::tool_lock`.
 - All traits are `Send + Sync`
 - `ToolContext` is a trait (not a struct) to stay generic across deployments
 

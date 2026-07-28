@@ -262,7 +262,8 @@ async fn coordinator_commits_cancelled_results_for_remaining_declared_calls() {
 /// time out and land an error result instead of parking the batch forever.
 #[tokio::test]
 async fn lock_contention_times_out_as_tool_error_instead_of_hanging() {
-    use alva_kernel_abi::{Bus, ExecutionMode, ToolLockRegistry};
+    use alva_kernel_abi::{Bus, ExecutionMode};
+    use alva_kernel_core::ToolLockRegistry;
 
     let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
     let tool = MockTool::new("blocked_tool").with_result(ToolOutput::text("never runs"));
