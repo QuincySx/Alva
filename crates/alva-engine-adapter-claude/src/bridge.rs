@@ -182,4 +182,34 @@ mod tests {
             "rewrite did not happen — pre-existing stale content survived"
         );
     }
+
+    #[test]
+    fn windows_drive_paths_are_classified_as_filesystem_not_urls() {
+        let Ok(node) = std::process::Command::new("node").arg("--version").output() else {
+            eprintln!("skipping Node bridge classification test: node is not installed");
+            return;
+        };
+        assert!(node.status.success());
+
+        let start = BRIDGE_SCRIPT
+            .find("function isWindowsDrivePath")
+            .expect("bridge must classify Windows drive paths");
+        let end = BRIDGE_SCRIPT[start..]
+            .find("async function importExplicitSdk")
+            .map(|offset| start + offset)
+            .expect("bridge must retain explicit SDK resolver after classifiers");
+        let classifiers = &BRIDGE_SCRIPT[start..end];
+        let program = format!(
+            "import path from 'path';\n{classifiers}\n\
+             if (!isWindowsDrivePath('C:\\\\sdk\\\\index.js') ||\n\
+                 isUrlSpecifier('C:\\\\sdk\\\\index.js') ||\n\
+                 !isFilesystemSpecifier('C:\\\\sdk\\\\index.js') ||\n\
+                 !isUrlSpecifier('file:///sdk/index.js')) process.exit(1);"
+        );
+        let status = std::process::Command::new("node")
+            .args(["--input-type=module", "--eval", &program])
+            .status()
+            .expect("Node must execute the bridge classifier excerpt");
+        assert!(status.success(), "Windows drive-path classifier contract failed");
+    }
 }

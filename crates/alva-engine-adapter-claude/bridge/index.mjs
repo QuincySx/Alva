@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// INPUT:  JSON config, stdin control messages, Claude Agent SDK module resolution
+// OUTPUT: JSON-line bridge events and sanitized SDK-load failures
+// POS:    Node boundary that resolves and drives the external Claude Agent SDK.
 // bridge/index.mjs — Embedded in alva-engine-adapter-claude, written to cache at runtime.
 //
 // Protocol:
@@ -8,6 +11,10 @@
 // Rust process ←→ this script ←→ Claude Agent SDK ←→ Claude Code subprocess
 
 import { createInterface } from "readline";
+import { execFileSync } from "child_process";
+import { createRequire } from "module";
+import path from "path";
+import { pathToFileURL } from "url";
 
 // Config is passed as the first CLI argument (JSON string).
 const config = JSON.parse(process.argv[2] || "{}");
@@ -73,19 +80,166 @@ async function canUseTool(toolName, toolInput, { signal }) {
 }
 
 // --- Dynamic import of SDK ---
-async function loadSdk() {
+const SDK_PACKAGE = "@anthropic-ai/claude-agent-sdk";
+const NPM_ROOT_TIMEOUT_MS = 3_000;
+
+async function importResolved(requireFrom, label, attempts) {
+  let resolved;
   try {
-    return await import("@anthropic-ai/claude-agent-sdk");
+    resolved = requireFrom.resolve(SDK_PACKAGE);
   } catch {
-    // If the SDK is not in node_modules, try the explicit path
-    if (config.sdk_package_path) {
-      return await import(config.sdk_package_path);
-    }
-    throw new Error(
-      "Cannot find @anthropic-ai/claude-agent-sdk. " +
-      "Install it via: npm install -g @anthropic-ai/claude-agent-sdk"
-    );
+    attempts.push(`${label}: not found`);
+    return null;
   }
+
+  attempts.push(`${label}: resolved`);
+  try {
+    return await import(pathToFileURL(resolved).href);
+  } catch {
+    throw sdkLoadFailure(label, "import failed");
+  }
+}
+
+async function importFromGlobalRoot(globalRoot, attempts) {
+  const label = "npm global root";
+  let resolved;
+  try {
+    // `npm root -g` already returns the node_modules directory. Resolve the
+    // package by its absolute child path; using a require rooted *inside*
+    // globalRoot would incorrectly search globalRoot/node_modules.
+    const resolver = createRequire(path.join(globalRoot, "__alva_sdk_resolver__.cjs"));
+    const packagePath = path.join(globalRoot, SDK_PACKAGE);
+    resolved = resolver.resolve(packagePath);
+  } catch {
+    attempts.push(`${label}: not found`);
+    return null;
+  }
+  attempts.push(`${label}: resolved`);
+  try {
+    return await import(pathToFileURL(resolved).href);
+  } catch {
+    throw sdkLoadFailure(label, "import failed");
+  }
+}
+
+function requireFromDirectory(directory) {
+  return createRequire(path.join(directory, "package.json"));
+}
+
+function sdkLoadFailure(label, reason) {
+  const error = new Error(`Claude Agent SDK load failed at ${label}: ${reason}.`);
+  error.alvaSafeMessage = true;
+  return error;
+}
+
+function isWindowsDrivePath(specifier) {
+  return /^[a-zA-Z]:[\\/]/.test(specifier);
+}
+
+function isUrlSpecifier(specifier) {
+  return !isWindowsDrivePath(specifier)
+    && /^[a-zA-Z][a-zA-Z+.-]*:/.test(specifier);
+}
+
+function isFilesystemSpecifier(specifier) {
+  return path.isAbsolute(specifier)
+    || isWindowsDrivePath(specifier)
+    || specifier.startsWith("./")
+    || specifier.startsWith("../");
+}
+
+async function importExplicitSdk(specifier, attempts) {
+  const label = "explicit SDK override";
+  attempts.push(`${label}: configured`);
+  if (isUrlSpecifier(specifier)) {
+    try {
+      return await import(specifier);
+    } catch {
+      throw sdkLoadFailure(label, "import failed");
+    }
+  }
+
+  if (isFilesystemSpecifier(specifier)) {
+    try {
+      const base = config.cwd ? path.resolve(config.cwd) : process.cwd();
+      const resolvedPath = isWindowsDrivePath(specifier)
+        ? specifier
+        : path.resolve(base, specifier);
+      return await import(pathToFileURL(resolvedPath).href);
+    } catch {
+      throw sdkLoadFailure(label, "import failed");
+    }
+  }
+
+  const base = config.cwd ? path.resolve(config.cwd) : process.cwd();
+  let resolved;
+  try {
+    resolved = requireFromDirectory(base).resolve(specifier);
+  } catch {
+    throw sdkLoadFailure(label, "resolve failed");
+  }
+  try {
+    return await import(pathToFileURL(resolved).href);
+  } catch {
+    throw sdkLoadFailure(label, "import failed");
+  }
+}
+
+function npmGlobalRoot(attempts) {
+  const windows = process.platform === "win32";
+  const command = windows ? "cmd.exe" : "npm";
+  const args = windows ? ["/d", "/s", "/c", "npm root -g"] : ["root", "-g"];
+  try {
+    const root = execFileSync(command, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: NPM_ROOT_TIMEOUT_MS,
+    }).trim();
+    if (root) return root;
+  } catch {
+    // A missing/timed-out npm is equivalent to no global installation.
+  }
+  attempts.push("npm global root: unavailable");
+  return null;
+}
+
+// Resolve in explicit-to-ambient order. The bridge itself lives in a cache
+// directory, so a bare import would otherwise search the wrong node_modules.
+async function loadSdk() {
+  const attempts = [];
+  // `sdk_package_path` deliberately means an import specifier/path, NOT the
+  // Claude Code executable. A caller can use a file URL, absolute entry file,
+  // or an ESM-resolvable package specifier.
+  if (config.sdk_package_path !== null && config.sdk_package_path !== undefined) {
+    // Explicit configuration is fail-closed. Falling through after it fails
+    // could silently load a different ambient SDK version.
+    return importExplicitSdk(config.sdk_package_path, attempts);
+  }
+
+  const cwd = config.cwd ? path.resolve(config.cwd) : null;
+  if (cwd) {
+    const sdk = await importResolved(requireFromDirectory(cwd), "request cwd node_modules", attempts);
+    if (sdk) return sdk;
+  }
+
+  const processCwd = process.cwd();
+  if (!cwd || processCwd !== cwd) {
+    const sdk = await importResolved(requireFromDirectory(processCwd), "process cwd node_modules", attempts);
+    if (sdk) return sdk;
+  }
+
+  const globalRoot = npmGlobalRoot(attempts);
+  if (globalRoot) {
+    const sdk = await importFromGlobalRoot(globalRoot, attempts);
+    if (sdk) return sdk;
+  }
+
+  const error = new Error(
+    `Cannot find ${SDK_PACKAGE}. Tried ${attempts.join("; ")}. ` +
+    `Install it via: npm install -g ${SDK_PACKAGE}`
+  );
+  error.alvaSafeMessage = true;
+  throw error;
 }
 
 // --- Main ---
@@ -115,7 +269,6 @@ async function main() {
   if (config.api_base_url) options.env.ANTHROPIC_BASE_URL = config.api_base_url;
 
   // --- Execution ---
-  if (config.sdk_executable_path) options.pathToClaudeCodeExecutable = config.sdk_executable_path;
   if (config.sandbox && config.sandbox.enabled) {
     options.sandbox = { enabled: true };
   }
@@ -150,7 +303,13 @@ async function main() {
   emit("done");
 }
 
-main().catch((err) => {
-  emit("error", { message: err?.message || String(err) });
+main().catch((error) => {
+  // The host only receives stable category text. Never reflect Node paths,
+  // import URLs, or error strings which can expose machine/user information.
+  emit("error", {
+    message: error?.alvaSafeMessage
+      ? error.message
+      : "Claude Agent SDK bridge failed",
+  });
   process.exit(1);
 });

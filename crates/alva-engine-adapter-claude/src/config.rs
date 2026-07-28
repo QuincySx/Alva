@@ -13,8 +13,9 @@ pub struct ClaudeAdapterConfig {
     /// Node.js executable path (default: "node").
     pub node_path: Option<String>,
 
-    /// Path to @anthropic-ai/claude-agent-sdk package.
-    /// Default: resolved from npm global or project node_modules.
+    /// Explicit ESM specifier or filesystem path for
+    /// `@anthropic-ai/claude-agent-sdk`. This is the SDK package lookup
+    /// override, not a Claude Code executable path.
     pub sdk_package_path: Option<String>,
 
     // ── API 认证 ─────────────────────────────────────────────────
@@ -159,7 +160,7 @@ pub(crate) struct BridgeConfig {
     pub persist_session: Option<bool>,
 
     // Bridge internals
-    pub sdk_executable_path: Option<String>,
+    pub sdk_package_path: Option<String>,
     pub env: HashMap<String, String>,
 }
 
@@ -299,7 +300,7 @@ mod tests {
             agents: HashMap::new(),
             setting_sources: vec![],
             persist_session: None,
-            sdk_executable_path: None,
+            sdk_package_path: None,
             env: HashMap::new(),
         }
     }
@@ -336,6 +337,19 @@ mod tests {
             json.get("sandbox").is_none(),
             "sandbox=None must be omitted: {json}"
         );
+    }
+
+    #[test]
+    fn bridge_config_uses_sdk_package_path_not_executable_path() {
+        let mut cfg = empty_bridge_config();
+        cfg.sdk_package_path = Some("file:///tmp/fake-sdk/index.js".into());
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(
+            json.get("sdk_package_path")
+                .and_then(|value| value.as_str()),
+            Some("file:///tmp/fake-sdk/index.js")
+        );
+        assert!(json.get("sdk_executable_path").is_none());
     }
 
     #[test]

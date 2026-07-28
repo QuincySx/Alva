@@ -1,11 +1,13 @@
-// INPUT:  std::process::Stdio, tokio::io, tokio::process, tokio::time, tracing, alva_engine_runtime::RuntimeError, crate::protocol
-// OUTPUT: pub(crate) struct BridgeSpawnConfig, pub(crate) struct BridgeProcess
-// POS:    Manages the Node.js bridge child process lifecycle including spawn, JSON-line I/O, and shutdown.
+// INPUT:  std::process::Stdio, tokio async I/O/process/sync/time, tracing, RuntimeError, Bridge protocol
+// OUTPUT: BridgeSpawnConfig, BridgeControl, BridgeProcess
+// POS:    Duplex Node bridge process host with independently writable stdin and cancellable stdout reading.
 
 use std::process::Stdio;
+use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, warn};
 
@@ -14,8 +16,9 @@ use alva_engine_runtime::RuntimeError;
 use crate::protocol::{BridgeMessage, BridgeOutbound};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const CONTROL_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Configuration for spawning the bridge process.
+/// Configuration for spawning the Node bridge child process.
 pub(crate) struct BridgeSpawnConfig {
     pub node_path: String,
     pub script_path: String,
@@ -23,16 +26,41 @@ pub(crate) struct BridgeSpawnConfig {
     pub env: Vec<(String, String)>,
 }
 
-/// Manages the Node.js bridge child process lifecycle.
+/// Cloneable, independently lockable writer for bridge stdin.
+///
+/// The adapter's control-forwarding task owns a clone while its main task is
+/// blocked in `recv()`, so permission responses never wait for stdout traffic.
+#[derive(Clone)]
+pub(crate) struct BridgeControl {
+    stdin: Arc<Mutex<BufWriter<ChildStdin>>>,
+}
+
+impl BridgeControl {
+    pub(crate) async fn send(&self, msg: &BridgeOutbound) -> Result<(), RuntimeError> {
+        let json = serde_json::to_string(msg)?;
+        timeout(CONTROL_WRITE_TIMEOUT, async {
+            let mut stdin = self.stdin.lock().await;
+            stdin.write_all(json.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.flush().await
+        })
+        .await
+        .map_err(|_| RuntimeError::ProcessError("Bridge control write timed out".into()))??;
+        Ok(())
+    }
+}
+
+/// Manages child lifecycle and the stdout half of the JSON-line protocol.
 pub(crate) struct BridgeProcess {
     child: Child,
-    stdin: BufWriter<ChildStdin>,
+    control: BridgeControl,
     stdout_lines: Lines<BufReader<ChildStdout>>,
 }
 
 impl BridgeProcess {
-    /// Spawn the Node.js bridge process.
-    pub async fn spawn(config: BridgeSpawnConfig) -> Result<Self, RuntimeError> {
+    /// Spawn the bridge. The returned control handle is safe to clone and use
+    /// while `recv()` awaits stdout.
+    pub(crate) async fn spawn(config: BridgeSpawnConfig) -> Result<Self, RuntimeError> {
         let mut cmd = Command::new(&config.node_path);
         cmd.arg(&config.script_path)
             .arg(&config.config_json)
@@ -40,18 +68,16 @@ impl BridgeProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-
-        for (key, val) in &config.env {
-            cmd.env(key, val);
+        for (key, value) in &config.env {
+            cmd.env(key, value);
         }
 
-        let mut child = cmd.spawn().map_err(|e| {
+        let mut child = cmd.spawn().map_err(|error| {
             RuntimeError::ProcessError(format!(
-                "Failed to spawn Node.js bridge ({}): {}",
-                config.node_path, e
+                "Failed to spawn Node.js bridge ({}): {error}",
+                config.node_path
             ))
         })?;
-
         let stdin = child
             .stdin
             .take()
@@ -60,76 +86,68 @@ impl BridgeProcess {
             .stdout
             .take()
             .ok_or_else(|| RuntimeError::ProcessError("Failed to capture stdout".into()))?;
-        let stderr = child.stderr.take();
-
-        // Spawn stderr monitoring task
-        if let Some(stderr) = stderr {
-            tokio::spawn(async move {
-                let reader = BufReader::new(stderr);
-                let mut lines = reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if is_fatal_stderr(&line) {
-                        warn!(target: "claude_bridge", "Fatal stderr: {}", line);
-                    } else {
-                        debug!(target: "claude_bridge", "stderr: {}", line);
-                    }
-                }
-            });
-        }
+        monitor_stderr(child.stderr.take());
 
         Ok(Self {
             child,
-            stdin: BufWriter::new(stdin),
+            control: BridgeControl {
+                stdin: Arc::new(Mutex::new(BufWriter::new(stdin))),
+            },
             stdout_lines: BufReader::new(stdout).lines(),
         })
     }
 
-    /// Send a JSON-line control message to the bridge via stdin.
-    pub async fn send(&mut self, msg: &BridgeOutbound) -> Result<(), RuntimeError> {
-        let json = serde_json::to_string(msg)?;
-        self.stdin.write_all(json.as_bytes()).await?;
-        self.stdin.write_all(b"\n").await?;
-        self.stdin.flush().await?;
-        Ok(())
+    pub(crate) fn control(&self) -> BridgeControl {
+        self.control.clone()
     }
 
-    /// Read the next JSON-line message from stdout.
-    /// Returns None when stdout is closed (process exited).
-    pub async fn recv(&mut self) -> Result<Option<BridgeMessage>, RuntimeError> {
+    /// Await one stdout line. `Lines::next_line` is cancellation-safe, so this
+    /// future may be used in a select loop if a caller needs to stop reading.
+    pub(crate) async fn recv(&mut self) -> Result<Option<BridgeMessage>, RuntimeError> {
         match self.stdout_lines.next_line().await? {
-            Some(line) => {
-                let msg = serde_json::from_str(&line).map_err(|e| {
-                    RuntimeError::ProtocolError(format!(
-                        "Invalid JSON from bridge: {e} — line: {line}"
-                    ))
-                })?;
-                Ok(Some(msg))
-            }
+            Some(line) => serde_json::from_str(&line).map(Some).map_err(|error| {
+                RuntimeError::ProtocolError(format!(
+                    "Invalid JSON from bridge: {error} — line: {line}"
+                ))
+            }),
             None => Ok(None),
         }
     }
 
-    /// Graceful shutdown: send shutdown message, wait, then kill.
-    pub async fn shutdown(&mut self) -> Result<(), RuntimeError> {
-        let _ = self.send(&BridgeOutbound::Shutdown).await;
+    pub(crate) async fn shutdown(&mut self) -> Result<(), RuntimeError> {
+        let _ = self.control.send(&BridgeOutbound::Shutdown).await;
         match timeout(SHUTDOWN_TIMEOUT, self.child.wait()).await {
             Ok(Ok(_)) => Ok(()),
             _ => self.kill().await,
         }
     }
 
-    /// Force-kill the process.
-    pub async fn kill(&mut self) -> Result<(), RuntimeError> {
-        self.child
-            .kill()
-            .await
-            .map_err(|e| RuntimeError::ProcessError(format!("Failed to kill bridge process: {e}")))
+    pub(crate) async fn kill(&mut self) -> Result<(), RuntimeError> {
+        self.child.kill().await.map_err(|error| {
+            RuntimeError::ProcessError(format!("Failed to kill bridge process: {error}"))
+        })
+    }
+}
+
+fn monitor_stderr(stderr: Option<tokio::process::ChildStderr>) {
+    if let Some(stderr) = stderr {
+        tokio::spawn(async move {
+            let reader = BufReader::new(stderr);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if is_fatal_stderr(&line) {
+                    warn!(target: "claude_bridge", "Fatal stderr: {line}");
+                } else {
+                    debug!(target: "claude_bridge", "stderr: {line}");
+                }
+            }
+        });
     }
 }
 
 fn is_fatal_stderr(line: &str) -> bool {
     let lower = line.to_lowercase();
-    let patterns = [
+    [
         "authentication_error",
         "authentication error",
         "invalid_api_key",
@@ -142,8 +160,9 @@ fn is_fatal_stderr(line: &str) -> bool {
         "overloaded",
         "connection_refused",
         "econnrefused",
-    ];
-    patterns.iter().any(|p| lower.contains(p))
+    ]
+    .iter()
+    .any(|pattern| lower.contains(pattern))
 }
 
 #[cfg(test)]
