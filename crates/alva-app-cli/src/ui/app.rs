@@ -1220,7 +1220,7 @@ pub async fn run_tui(
                                 // Regular prompt
                                 app.push_user_message(&text);
                                 app.spinner_active = true;
-                                agent_event_rx = Some(agent.prompt_text(&text));
+                                agent_event_rx = Some(agent.prompt_text(&text).await);
                             }
                         }
                         KeyAction::Interrupt => {

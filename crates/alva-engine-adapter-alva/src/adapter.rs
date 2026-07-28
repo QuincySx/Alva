@@ -120,7 +120,7 @@ impl EngineRuntime for AlvaAdapter {
 
             let model = agent.model_id().await;
             let tools = agent.tool_names();
-            let mut events = agent.prompt_text(&request.prompt);
+            let mut events = agent.prompt_text(&request.prompt).await;
             let mut mapper = EventMapper::new(session_id.clone(), model, tools);
             let mut output_open = true;
             while let Some(event) = events.recv().await {

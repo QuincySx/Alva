@@ -108,7 +108,7 @@ pub(crate) async fn run_print_mode_with(
     out: &mut (dyn Write + Send),
     err: &mut (dyn Write + Send),
 ) -> i32 {
-    let mut rx = agent.prompt_text(prompt);
+    let mut rx = agent.prompt_text(prompt).await;
     let mut exit_code = 0;
 
     loop {
@@ -175,7 +175,7 @@ pub(crate) async fn run_print_mode_collect(
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
     err: &mut (dyn Write + Send),
 ) -> PrintOutcome {
-    let mut rx = agent.prompt_text(prompt);
+    let mut rx = agent.prompt_text(prompt).await;
     let mut outcome = PrintOutcome {
         text: String::new(),
         input_tokens: 0,
@@ -232,7 +232,7 @@ pub(crate) async fn run_prompt(
     prompt: &str,
     approval_rx: &mut mpsc::UnboundedReceiver<ApprovalRequest>,
 ) -> (u64, u64) {
-    let mut event_rx = agent.prompt_text(prompt);
+    let mut event_rx = agent.prompt_text(prompt).await;
 
     let mut total_input_tokens: u64 = 0;
     let mut total_output_tokens: u64 = 0;

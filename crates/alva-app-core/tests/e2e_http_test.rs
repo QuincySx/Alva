@@ -199,7 +199,7 @@ async fn e2e_http_streaming_full_pipeline() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Say hello");
+    let rx = agent.prompt_text("Say hello").await;
     let events = collect_events(rx).await;
 
     // Collect streamed text
@@ -272,7 +272,7 @@ async fn e2e_http_tool_call_pipeline() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Use the tool.");
+    let rx = agent.prompt_text("Use the tool.").await;
     let events = collect_events(rx).await;
 
     // Verify tool was called via HTTP streaming

@@ -90,8 +90,10 @@ pub async fn send_message(
     // ensure_agent → swap_session → per-turn knobs → prompt_text mutate
     // process-global agent state across several awaits. Serialize the
     // whole section so a concurrent send_message (multi-window,
-    // double-send) can't interleave and run turn A on turn B's session
-    // or knob values. Held until after prompt_text captures the turn.
+    // double-send) can't interleave knobs/session setup. `prompt_text`
+    // itself waits until the spawned run owns AgentState, so dropping
+    // this guard after it returns cannot let a later swap_session steal
+    // the session from a turn that has not yet started.
     let turn_guard = state.turn_start_lock.lock().await;
 
     let agent = ensure_agent(&app, &state, &request).await?;
@@ -141,7 +143,7 @@ pub async fn send_message(
         .set_disable_tools(request.disable_tools.unwrap_or(false))
         .await;
 
-    let mut rx = agent.prompt_text(&request.text);
+    let mut rx = agent.prompt_text(&request.text).await;
     // The turn is now started against the right session/knobs; the event
     // pump below is per-turn state and needs no serialization.
     drop(turn_guard);

@@ -400,7 +400,7 @@ async fn run_attempt(case: &EvalCase) -> AttemptOutcome {
     }
 
     let agent = build_agent(&ws).await;
-    let rx = agent.prompt_text(case.prompt);
+    let rx = agent.prompt_text(case.prompt).await;
 
     // Wide overall timeout — local model can be slow on a multi-step
     // tool loop. If it blows past this, we treat it as failure.

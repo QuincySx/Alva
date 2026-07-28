@@ -115,7 +115,7 @@ async fn auto_directory_is_always_in_system_prompt_for_chinese_input() {
         .await
         .unwrap();
 
-    let events = collect_events(agent.prompt_text("請幫我整理這份資料，不含任何英文關鍵詞")).await;
+    let events = collect_events(agent.prompt_text("請幫我整理這份資料，不含任何英文關鍵詞").await).await;
     assert!(events
         .iter()
         .any(|event| matches!(event, alva_app_core::AgentEvent::AgentEnd { .. })));
@@ -176,7 +176,7 @@ async fn unified_skill_tool_loads_explicit_body_and_applies_strict_allowlist() {
         .await
         .unwrap();
 
-    let events = collect_events(agent.prompt_text("invoke it by exact name")).await;
+    let events = collect_events(agent.prompt_text("invoke it by exact name").await).await;
     let result = tool_result_for(&events, "skill");
     assert!(!result.is_error, "{}", result.model_text());
     assert!(result.model_text().contains("EXPLICIT_RUNTIME_BODY"));
@@ -213,7 +213,7 @@ async fn unified_skill_tool_unknown_name_lists_auto_and_explicit_enabled_skills(
         .await
         .unwrap();
 
-    let events = collect_events(agent.prompt_text("invoke missing skill")).await;
+    let events = collect_events(agent.prompt_text("invoke missing skill").await).await;
     let result = tool_result_for(&events, "skill");
     assert!(result.is_error, "unknown skill must be a loud tool error");
     let text = result.model_text();

@@ -307,7 +307,7 @@ async fn subagent_running_shell_does_not_deadlock() {
 
     let agent = build_mini_agent(ws, Arc::new(model), &default_toggles()).await;
 
-    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.");
+    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.").await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
         .await
         .expect("KILL-1: sub-agent running a serial-global tool deadlocked the session");
@@ -369,7 +369,7 @@ async fn parent_cancel_propagates_to_subagent() {
 
     let agent = build_mini_agent(ws, Arc::new(model), &toggles).await;
 
-    let mut rx = agent.prompt_text("Delegate a long sleep to a sub-agent.");
+    let mut rx = agent.prompt_text("Delegate a long sleep to a sub-agent.").await;
 
     let drive = async {
         let mut cancelled = false;
@@ -441,7 +441,7 @@ async fn subagent_timeout_fires() {
     )
     .await;
 
-    let rx = agent.prompt_text("Delegate a long sleep to a sub-agent.");
+    let rx = agent.prompt_text("Delegate a long sleep to a sub-agent.").await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(10), collect_events(rx))
         .await
         .expect("KILL-1b(2): sub-agent wall-clock timeout did not fire (child ran unbounded)");
@@ -519,7 +519,7 @@ async fn subagent_dangerous_tool_goes_through_hitl() {
         }
     });
 
-    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.");
+    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.").await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
         .await
         .expect("run hung (an approval was never resolved?)");
@@ -579,7 +579,7 @@ async fn subagent_tool_timeout_bounds_a_stuck_tool() {
     )
     .await;
 
-    let rx = agent.prompt_text("Delegate a nap to a sub-agent.");
+    let rx = agent.prompt_text("Delegate a nap to a sub-agent.").await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(10), collect_events(rx))
         .await
         .expect("child per-tool timeout did not fire (stuck tool ran unbounded)");
@@ -633,7 +633,7 @@ async fn subagent_loop_detection_breaks_repeated_tool_calls() {
     let model_handle = model.clone();
     let agent = build_mini_agent(ws, Arc::new(model), &default_toggles()).await;
 
-    let rx = agent.prompt_text("Delegate a read to a sub-agent.");
+    let rx = agent.prompt_text("Delegate a read to a sub-agent.").await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
         .await
         .expect("run hung");
@@ -2498,7 +2498,7 @@ async fn mock_capability_suite() {
 
         let agent = build_mini_agent(&ws, Arc::new(model), &toggles).await;
         let start = std::time::Instant::now();
-        let rx = agent.prompt_text(case.task);
+        let rx = agent.prompt_text(case.task).await;
 
         // Guard against a hang (e.g. an approval that never resolves) so the
         // suite reports ❌ instead of blocking forever.
@@ -2622,7 +2622,7 @@ async fn real_capability_suite() {
 
             let agent = build_mini_agent(&ws, make_model(), &toggles).await;
             let start = std::time::Instant::now();
-            let rx = agent.prompt_text(case.task);
+            let rx = agent.prompt_text(case.task).await;
 
             let (events, verdict) =
                 match tokio::time::timeout(std::time::Duration::from_secs(120), collect_events(rx))

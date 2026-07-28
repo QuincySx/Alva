@@ -46,7 +46,7 @@ async fn e2e_simple_prompt_produces_streaming_events() {
     );
 
     let (agent, _tmp) = build_agent(model).await;
-    let rx = agent.prompt_text("Hi there!");
+    let rx = agent.prompt_text("Hi there!").await;
     let events = collect_events(rx).await;
 
     // Check lifecycle events are present
@@ -122,7 +122,7 @@ async fn e2e_tool_call_chain() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Use the tool please.");
+    let rx = agent.prompt_text("Use the tool please.").await;
     let events = collect_events(rx).await;
 
     // Verify tool execution events
@@ -228,7 +228,7 @@ async fn e2e_plan_mode_blocks_writes() {
         .expect("build should succeed");
     assert!(agent.set_permission_mode(PermissionMode::Plan));
 
-    let rx = agent.prompt_text("Create a file.");
+    let rx = agent.prompt_text("Create a file.").await;
     let events = collect_events(rx).await;
 
     // The tool execution should have been blocked
@@ -264,7 +264,7 @@ async fn e2e_cancel_stops_agent() {
     // the cancellation token will be checked on the first iteration.
     agent.cancel();
 
-    let rx = agent.prompt_text("Run something.");
+    let rx = agent.prompt_text("Run something.").await;
     let events = collect_events(rx).await;
 
     // Should receive AgentEnd (possibly with a cancellation error)
@@ -299,7 +299,7 @@ async fn e2e_usage_metadata_in_events() {
     let model = Arc::new(MockLanguageModel::new().with_response(response));
 
     let (agent, _tmp) = build_agent(model).await;
-    let rx = agent.prompt_text("What is the answer?");
+    let rx = agent.prompt_text("What is the answer?").await;
     let events = collect_events(rx).await;
 
     // Check that usage metadata was emitted as a StreamEvent::Usage
@@ -362,7 +362,7 @@ async fn e2e_multiple_tool_calls_in_single_response() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Use both tools.");
+    let rx = agent.prompt_text("Use both tools.").await;
     let events = collect_events(rx).await;
 
     // Both tools should have ToolExecutionStart and ToolExecutionEnd
@@ -405,7 +405,7 @@ async fn e2e_session_persists_across_prompts() {
     let (agent, _tmp) = build_agent(model).await;
 
     // First prompt
-    let rx1 = agent.prompt_text("First message.");
+    let rx1 = agent.prompt_text("First message.").await;
     let _ = collect_events(rx1).await;
 
     let messages_after_first = agent.messages().await;
@@ -416,7 +416,7 @@ async fn e2e_session_persists_across_prompts() {
     );
 
     // Second prompt — session should accumulate
-    let rx2 = agent.prompt_text("Second message.");
+    let rx2 = agent.prompt_text("Second message.").await;
     let _ = collect_events(rx2).await;
 
     let messages_after_second = agent.messages().await;
@@ -442,7 +442,7 @@ async fn e2e_new_session_clears_history() {
     let (agent, _tmp) = build_agent(model).await;
 
     // First prompt
-    let rx = agent.prompt_text("Hello.");
+    let rx = agent.prompt_text("Hello.").await;
     let _ = collect_events(rx).await;
     assert_eq!(agent.messages().await.len(), 2);
 
@@ -455,7 +455,7 @@ async fn e2e_new_session_clears_history() {
     );
 
     // Second prompt — fresh session
-    let rx2 = agent.prompt_text("Fresh start.");
+    let rx2 = agent.prompt_text("Fresh start.").await;
     let _ = collect_events(rx2).await;
     assert_eq!(
         agent.messages().await.len(),
@@ -475,7 +475,7 @@ async fn e2e_llm_error_propagated() {
     ));
 
     let (agent, _tmp) = build_agent(model).await;
-    let rx = agent.prompt_text("This will fail.");
+    let rx = agent.prompt_text("This will fail.").await;
     let events = collect_events(rx).await;
 
     let has_error = events.iter().any(|e| {
@@ -556,7 +556,7 @@ async fn e2e_real_read_file_tool() {
     );
 
     let agent = build_agent_with_workspace(model, tmp.path()).await;
-    let rx = agent.prompt_text("Read the hello.txt file.");
+    let rx = agent.prompt_text("Read the hello.txt file.").await;
     let events = collect_events(rx).await;
 
     // Verify the read_file tool was found and execution was attempted
@@ -623,7 +623,7 @@ async fn e2e_real_file_edit_tool_blocked_without_approval() {
     );
 
     let agent = build_agent_with_workspace(model, tmp.path()).await;
-    let rx = agent.prompt_text("Edit the code.");
+    let rx = agent.prompt_text("Edit the code.").await;
     let events = collect_events(rx).await;
 
     // file_edit is a dangerous tool; without an approval handler, it gets blocked
@@ -680,7 +680,7 @@ async fn e2e_real_grep_search_tool() {
     );
 
     let agent = build_agent_with_workspace(model, tmp.path()).await;
-    let rx = agent.prompt_text("Search for hello.");
+    let rx = agent.prompt_text("Search for hello.").await;
     let events = collect_events(rx).await;
 
     // Verify the grep_search tool was found and execution was attempted
@@ -736,7 +736,7 @@ async fn e2e_real_find_files_tool() {
     );
 
     let agent = build_agent_with_workspace(model, tmp.path()).await;
-    let rx = agent.prompt_text("Find all rust files.");
+    let rx = agent.prompt_text("Find all rust files.").await;
     let events = collect_events(rx).await;
 
     // Tool is found and execution attempted
@@ -798,7 +798,7 @@ async fn e2e_find_files_respects_gitignore() {
     );
 
     let agent = build_agent_with_workspace(model, tmp.path()).await;
-    let rx = agent.prompt_text("Find all .rs files.");
+    let rx = agent.prompt_text("Find all .rs files.").await;
     let events = collect_events(rx).await;
 
     // Tool is found and execution attempted
@@ -847,7 +847,7 @@ async fn e2e_execute_shell_blocked_without_approval() {
     );
 
     let agent = build_agent_with_workspace(model, tmp.path()).await;
-    let rx = agent.prompt_text("Run echo.");
+    let rx = agent.prompt_text("Run echo.").await;
     let events = collect_events(rx).await;
 
     // execute_shell is a dangerous tool — blocked without approval handler
@@ -907,7 +907,7 @@ async fn e2e_multi_turn_tool_loop() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Execute all three steps.");
+    let rx = agent.prompt_text("Execute all three steps.").await;
     let events = collect_events(rx).await;
 
     // Verify exactly 3 ToolExecutionStart events
@@ -1041,7 +1041,7 @@ async fn e2e_checkpoint_created_on_file_edit() {
     let checkpoint_cb = TestCheckpointCallback::new();
     agent.set_checkpoint_callback(Arc::new(checkpoint_cb.clone()));
 
-    let rx = agent.prompt_text("Edit the file.");
+    let rx = agent.prompt_text("Edit the file.").await;
     let events = collect_events(rx).await;
 
     // Verify the checkpoint callback was invoked before the tool call
@@ -1105,7 +1105,7 @@ async fn e2e_session_message_flow() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Use the tool.");
+    let rx = agent.prompt_text("Use the tool.").await;
     let _ = collect_events(rx).await;
 
     // Inspect session messages
@@ -1214,7 +1214,7 @@ async fn e2e_multi_turn_mixed_tools() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Analyze the data.");
+    let rx = agent.prompt_text("Analyze the data.").await;
     let events = collect_events(rx).await;
 
     // 2 tool calls, each with Start and End
@@ -1279,7 +1279,7 @@ async fn e2e_unknown_tool_produces_error_result() {
     );
 
     let (agent, _tmp) = build_agent(model).await;
-    let rx = agent.prompt_text("Call the missing tool.");
+    let rx = agent.prompt_text("Call the missing tool.").await;
     let events = collect_events(rx).await;
 
     // The tool call should produce a ToolExecutionEnd with an error
@@ -1315,7 +1315,7 @@ async fn e2e_event_ordering_is_correct() {
     );
 
     let (agent, _tmp) = build_agent(model).await;
-    let rx = agent.prompt_text("Check ordering.");
+    let rx = agent.prompt_text("Check ordering.").await;
     let events = collect_events(rx).await;
 
     // Find indices of key events
@@ -1388,7 +1388,7 @@ async fn e2e_tool_event_ordering() {
         .await
         .expect("build");
 
-    let rx = agent.prompt_text("Do it.");
+    let rx = agent.prompt_text("Do it.").await;
     let events = collect_events(rx).await;
 
     // Find indices for the tool-related events

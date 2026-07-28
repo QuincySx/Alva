@@ -48,16 +48,23 @@ impl BaseAgent {
     }
 
     /// Convenience: wrap a text string as a user message and prompt the agent.
-    pub fn prompt_text(&self, text: &str) -> mpsc::UnboundedReceiver<AgentEvent> {
+    pub async fn prompt_text(&self, text: &str) -> mpsc::UnboundedReceiver<AgentEvent> {
         let msg = AgentMessage::Standard(Message::user(text));
-        self.prompt(vec![msg])
+        self.prompt(vec![msg]).await
     }
 
     /// Send messages to the agent and receive events via an unbounded channel.
     ///
     /// A fresh `CancellationToken` is created for each call so that a
     /// previously-cancelled token does not block future prompts.
-    pub fn prompt(&self, messages: Vec<AgentMessage>) -> mpsc::UnboundedReceiver<AgentEvent> {
+    ///
+    /// **Turn ownership:** this future does not resolve until the spawned run
+    /// has acquired `AgentState` (and a config read lock). Callers that set
+    /// per-turn knobs / `swap_session` before `prompt` can therefore drop their
+    /// harness lock as soon as `prompt` returns, knowing the turn already owns
+    /// the shared agent — a concurrent `swap_session` will block until the run
+    /// finishes rather than stealing the session mid-flight.
+    pub async fn prompt(&self, messages: Vec<AgentMessage>) -> mpsc::UnboundedReceiver<AgentEvent> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         let cancel = CancellationToken::new();
@@ -70,15 +77,23 @@ impl BaseAgent {
         }
 
         let inner = self.inner.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
+            // Acquire state first so concurrent swap_session/retain_tools
+            // cannot interleave between spawn and run_agent. Hold config
+            // read for the whole turn so per-turn knob writes serialize
+            // behind this run (single shared agent = one active turn).
             let mut st = inner.state().lock().await;
             let config = inner.config().await;
-            if let Err(e) = run_agent(&mut st, &*config, cancel, messages, event_tx.clone()).await {
+            let _ = started_tx.send(());
+            if let Err(e) = run_agent(&mut st, &*config, cancel, messages, event_tx).await {
                 tracing::error!(error = %e, "agent loop failed");
             }
         });
 
+        // Close the spawn→lock race window before returning to the harness.
+        let _ = started_rx.await;
         event_rx
     }
 
@@ -376,7 +391,7 @@ mod tests {
         );
 
         let agent = build_test_agent(model).await;
-        let mut rx = agent.prompt_text("hi");
+        let mut rx = agent.prompt_text("hi").await;
 
         let mut got_agent_start = false;
         let mut got_agent_end = false;
@@ -408,7 +423,7 @@ mod tests {
             Arc::new(MockLanguageModel::new().with_response(make_assistant_message("All good!")));
 
         let agent = build_test_agent(model).await;
-        let mut rx = agent.prompt_text("Tell me something.");
+        let mut rx = agent.prompt_text("Tell me something.").await;
 
         let mut end_error: Option<Option<String>> = None;
         while let Some(event) = rx.recv().await {
@@ -433,7 +448,7 @@ mod tests {
         );
 
         let agent = build_test_agent(model).await;
-        let mut rx = agent.prompt_text("hello");
+        let mut rx = agent.prompt_text("hello").await;
 
         // Drain all events until AgentEnd
         while let Some(event) = rx.recv().await {
@@ -448,6 +463,90 @@ mod tests {
             messages.len() >= 2,
             "expected at least 2 messages (user + assistant), got {}",
             messages.len()
+        );
+    }
+
+    /// Regression: concurrent `swap_session` after `prompt` returns must not
+    /// move an already-started turn onto a different session. Before the
+    /// spawn→lock handshake, the second swap could win the state lock first.
+    #[tokio::test]
+    async fn concurrent_swap_cannot_steal_an_in_flight_turn_session() {
+        use alva_kernel_core::agent_session::InMemoryAgentSession;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("from-first"))
+                .with_response(make_assistant_message("from-second")),
+        );
+        let agent = Arc::new(build_test_agent(model).await);
+
+        let session_a = Arc::new(InMemoryAgentSession::new()) as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
+        let session_b = Arc::new(InMemoryAgentSession::new()) as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
+        let id_a = session_a.session_id().to_string();
+        let id_b = session_b.session_id().to_string();
+        assert_ne!(id_a, id_b);
+
+        agent.swap_session(session_a.clone()).await;
+        let mut rx_a = agent.prompt_text("message-for-a").await;
+
+        // prompt_text returned ⇒ turn A owns AgentState. A concurrent swap
+        // must block until A finishes rather than re-pointing mid-run.
+        let agent_b = agent.clone();
+        let session_b_clone = session_b.clone();
+        let second = tokio::spawn(async move {
+            agent_b.swap_session(session_b_clone).await;
+            agent_b.prompt_text("message-for-b").await
+        });
+
+        // Give the second task a chance to race if the handshake were broken.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        while let Some(event) = rx_a.recv().await {
+            if matches!(event, AgentEvent::AgentEnd { .. }) {
+                break;
+            }
+        }
+        let mut rx_b = second.await.expect("second turn task");
+        while let Some(event) = rx_b.recv().await {
+            if matches!(event, AgentEvent::AgentEnd { .. }) {
+                break;
+            }
+        }
+
+        let msgs_a = session_a.messages().await;
+        let msgs_b = session_b.messages().await;
+        let text_a: Vec<String> = msgs_a
+            .iter()
+            .filter_map(|m| match m {
+                AgentMessage::Standard(msg) => Some(msg.text_content()),
+                _ => None,
+            })
+            .collect();
+        let text_b: Vec<String> = msgs_b
+            .iter()
+            .filter_map(|m| match m {
+                AgentMessage::Standard(msg) => Some(msg.text_content()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            text_a.iter().any(|t| t.contains("message-for-a")),
+            "session A must keep the first user prompt, got {text_a:?}"
+        );
+        assert!(
+            text_b.iter().any(|t| t.contains("message-for-b")),
+            "session B must receive the second user prompt, got {text_b:?}"
+        );
+        assert!(
+            !text_a.iter().any(|t| t.contains("message-for-b")),
+            "session A must not be polluted by the second turn, got {text_a:?}"
+        );
+        assert!(
+            !text_b.iter().any(|t| t.contains("message-for-a")),
+            "session B must not steal the first turn, got {text_b:?}"
         );
     }
 
@@ -480,7 +579,7 @@ mod tests {
             .await
             .expect("build should succeed");
 
-        let mut rx = agent.prompt_text("Use the tool please.");
+        let mut rx = agent.prompt_text("Use the tool please.").await;
 
         let mut got_tool_exec_start = false;
         let mut got_tool_exec_end = false;

@@ -141,7 +141,7 @@ async fn stage1_create_file_writes_to_workspace() {
     )
     .await;
 
-    let rx = agent.prompt_text("Create the file.");
+    let rx = agent.prompt_text("Create the file.").await;
     let events = collect_events(rx).await;
 
     let result = tool_result_for(&events, "create_file");
@@ -170,7 +170,7 @@ async fn stage1_list_files_returns_workspace_entries() {
     )
     .await;
 
-    let rx = agent.prompt_text("List the workspace.");
+    let rx = agent.prompt_text("List the workspace.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "list_files");
@@ -227,7 +227,7 @@ async fn stage1_notebook_edit_modifies_cell() {
     )
     .await;
 
-    let rx = agent.prompt_text("Edit notebook cell.");
+    let rx = agent.prompt_text("Edit notebook cell.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "notebook_edit");
@@ -260,7 +260,7 @@ async fn stage1_execute_shell_runs_command_in_accept_shell_mode() {
     )
     .await;
 
-    let rx = agent.prompt_text("Run echo.");
+    let rx = agent.prompt_text("Run echo.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "execute_shell");
@@ -300,7 +300,7 @@ async fn stage1_skill_tool_invokes_real_registry() {
     )
     .await;
 
-    let rx = agent.prompt_text("Invoke commit skill.");
+    let rx = agent.prompt_text("Invoke commit skill.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "skill");
@@ -336,7 +336,7 @@ async fn stage1_tool_search_returns_stub_with_query() {
     )
     .await;
 
-    let rx = agent.prompt_text("Search for file tools.");
+    let rx = agent.prompt_text("Search for file tools.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "tool_search");
@@ -367,7 +367,7 @@ async fn stage1_config_get_returns_not_set_for_unknown_key() {
     )
     .await;
 
-    let rx = agent.prompt_text("Check config.");
+    let rx = agent.prompt_text("Check config.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "config");
@@ -393,7 +393,7 @@ async fn stage1_sleep_tool_blocks_for_requested_duration() {
     .await;
 
     let start = std::time::Instant::now();
-    let rx = agent.prompt_text("Sleep briefly.");
+    let rx = agent.prompt_text("Sleep briefly.").await;
     let events = collect_events(rx).await;
     let elapsed = start.elapsed();
 
@@ -423,7 +423,7 @@ async fn stage1_todo_write_appends_to_default_file() {
     )
     .await;
 
-    let rx = agent.prompt_text("Record a todo.");
+    let rx = agent.prompt_text("Record a todo.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "todo_write");
@@ -465,7 +465,7 @@ async fn stage1_enter_plan_mode_tool_stub_and_real_plan_mode_blocks_writes() {
         ],
     )
     .await;
-    let rx = agent.prompt_text("Enter plan mode.");
+    let rx = agent.prompt_text("Enter plan mode.").await;
     let events = collect_events(rx).await;
     let out = tool_result_for(&events, "enter_plan_mode");
     assert!(!out.is_error);
@@ -487,7 +487,7 @@ async fn stage1_enter_plan_mode_tool_stub_and_real_plan_mode_blocks_writes() {
         .with_response(make_assistant_message("attempted"));
     agent.set_model(Arc::new(new_model)).await;
 
-    let rx2 = agent.prompt_text("Create a file in plan mode.");
+    let rx2 = agent.prompt_text("Create a file in plan mode.").await;
     let events2 = collect_events(rx2).await;
     let blocked = tool_result_for(&events2, "create_file");
     assert!(
@@ -535,7 +535,7 @@ async fn stage2_read_url_fetches_from_wiremock_server() {
     )
     .await;
 
-    let rx = agent.prompt_text("Read the URL.");
+    let rx = agent.prompt_text("Read the URL.").await;
     let events = collect_events(rx).await;
 
     // SecurityMiddleware's URL-aware SSRF check on 127.0.0.1 routes through
@@ -574,7 +574,7 @@ async fn stage2_read_url_with_malformed_url_returns_terminal_state() {
     )
     .await;
 
-    let rx = agent.prompt_text("Read garbage URL.");
+    let rx = agent.prompt_text("Read garbage URL.").await;
     let events = collect_events(rx).await;
 
     // Strengthened: malformed URL must NOT silently succeed. Three valid
@@ -639,7 +639,7 @@ async fn stage2_internet_search_executes_and_returns_terminal_state() {
     )
     .await;
 
-    let rx = agent.prompt_text("Search.");
+    let rx = agent.prompt_text("Search.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "internet_search");
@@ -690,7 +690,7 @@ async fn stage2_task_create_persists_to_in_memory_store() {
     )
     .await;
 
-    let rx = agent.prompt_text("Create a task.");
+    let rx = agent.prompt_text("Create a task.").await;
     let events = collect_events(rx).await;
 
     let out = tool_result_for(&events, "task_create");
@@ -729,7 +729,7 @@ async fn stage2_task_list_after_create_includes_new_task() {
     )
     .await;
 
-    let rx = agent.prompt_text("Create then list.");
+    let rx = agent.prompt_text("Create then list.").await;
     let events = collect_events(rx).await;
 
     let list_out = tool_result_for(&events, "task_list");
@@ -766,7 +766,7 @@ async fn stage2_task_update_happy_path_marks_task_completed() {
     )
     .await;
 
-    let rx = agent.prompt_text("Create.");
+    let rx = agent.prompt_text("Create.").await;
     let events = collect_events(rx).await;
     let created = tool_result_for(&events, "task_create");
     let task_id = created
@@ -784,7 +784,7 @@ async fn stage2_task_update_happy_path_marks_task_completed() {
         ))
         .with_response(make_assistant_message("updated"));
     agent.set_model(Arc::new(upd_model)).await;
-    let rx2 = agent.prompt_text("Update.");
+    let rx2 = agent.prompt_text("Update.").await;
     let events2 = collect_events(rx2).await;
 
     let upd_out = tool_result_for(&events2, "task_update");
@@ -803,7 +803,7 @@ async fn stage2_task_update_happy_path_marks_task_completed() {
         ))
         .with_response(make_assistant_message("got"));
     agent.set_model(Arc::new(get_model)).await;
-    let rx3 = agent.prompt_text("Get.");
+    let rx3 = agent.prompt_text("Get.").await;
     let events3 = collect_events(rx3).await;
 
     let got_out = tool_result_for(&events3, "task_get");
@@ -839,7 +839,7 @@ async fn stage2_task_get_returns_state_for_created_task() {
     )
     .await;
 
-    let rx = agent.prompt_text("Create.");
+    let rx = agent.prompt_text("Create.").await;
     let events = collect_events(rx).await;
     let created = tool_result_for(&events, "task_create");
     let task_id = created
@@ -857,7 +857,7 @@ async fn stage2_task_get_returns_state_for_created_task() {
         .with_response(make_assistant_message("done"));
     agent.set_model(Arc::new(new_model)).await;
 
-    let rx2 = agent.prompt_text("Look up the task.");
+    let rx2 = agent.prompt_text("Look up the task.").await;
     let events2 = collect_events(rx2).await;
 
     let got = tool_result_for(&events2, "task_get");
@@ -892,7 +892,7 @@ async fn stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes() 
     .await;
 
     // (a) Stub text contract.
-    let rx = agent.prompt_text("Exit plan.");
+    let rx = agent.prompt_text("Exit plan.").await;
     let events = collect_events(rx).await;
     let out = tool_result_for(&events, "exit_plan_mode");
     assert!(!out.is_error);
@@ -913,7 +913,7 @@ async fn stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes() 
         ))
         .with_response(make_assistant_message("attempted"));
     agent.set_model(Arc::new(blocked_model)).await;
-    let rx2 = agent.prompt_text("Create in plan mode.");
+    let rx2 = agent.prompt_text("Create in plan mode.").await;
     let events2 = collect_events(rx2).await;
     let blocked = tool_result_for(&events2, "create_file");
     assert!(
@@ -933,7 +933,7 @@ async fn stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes() 
         ))
         .with_response(make_assistant_message("done"));
     agent.set_model(Arc::new(allow_model)).await;
-    let rx3 = agent.prompt_text("Create after exit.");
+    let rx3 = agent.prompt_text("Create after exit.").await;
     let events3 = collect_events(rx3).await;
     let allowed = tool_result_for(&events3, "create_file");
     assert!(
@@ -990,7 +990,7 @@ async fn stage3_read_then_edit_then_create_in_sequence() {
     )
     .await;
 
-    let rx = agent.prompt_text("Read, edit, create.");
+    let rx = agent.prompt_text("Read, edit, create.").await;
     let events = collect_events(rx).await;
 
     assert!(ran_tool(&events, "read_file"), "read_file should run");
@@ -1044,7 +1044,7 @@ async fn stage3_grep_then_read_then_edit_chain() {
     )
     .await;
 
-    let rx = agent.prompt_text("Grep, read, then edit.");
+    let rx = agent.prompt_text("Grep, read, then edit.").await;
     let events = collect_events(rx).await;
 
     assert!(ran_tool(&events, "grep_search"));
@@ -1084,7 +1084,7 @@ async fn stage3_shell_output_feeds_into_grep() {
     )
     .await;
 
-    let rx = agent.prompt_text("Shell then grep.");
+    let rx = agent.prompt_text("Shell then grep.").await;
     let events = collect_events(rx).await;
 
     // Shell side-effect must be real, not just "no panic".
@@ -1144,7 +1144,7 @@ async fn stage3_create_then_list_then_read_visibility_chain() {
     )
     .await;
 
-    let rx = agent.prompt_text("Create, list, read.");
+    let rx = agent.prompt_text("Create, list, read.").await;
     let events = collect_events(rx).await;
 
     assert!(ran_tool(&events, "create_file"));
@@ -1181,7 +1181,7 @@ async fn stage3_task_create_then_get_round_trip() {
         ],
     )
     .await;
-    let rx = agent.prompt_text("Create.");
+    let rx = agent.prompt_text("Create.").await;
     let events = collect_events(rx).await;
     let created = tool_result_for(&events, "task_create");
     let task_id = created
@@ -1199,7 +1199,7 @@ async fn stage3_task_create_then_get_round_trip() {
         .with_response(make_assistant_message("done"));
     agent.set_model(Arc::new(next_model)).await;
 
-    let rx2 = agent.prompt_text("Get it back.");
+    let rx2 = agent.prompt_text("Get it back.").await;
     let events2 = collect_events(rx2).await;
     let got = tool_result_for(&events2, "task_get");
     assert!(

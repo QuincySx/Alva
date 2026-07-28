@@ -82,7 +82,7 @@ async fn run_with_decision(decision: PermissionDecision) -> (tempfile::TempDir, 
         }
     });
 
-    let rx = agent.prompt_text("spawn a worker to create the marker file");
+    let rx = agent.prompt_text("spawn a worker to create the marker file").await;
     let _events = collect_events(rx).await;
 
     let approvals = counter.load(std::sync::atomic::Ordering::SeqCst);
@@ -189,7 +189,7 @@ async fn child_escalation_call_is_gated_and_reject_blocks_it() {
         }
     });
 
-    let _events = collect_events(agent.prompt_text("spawn the worker")).await;
+    let _events = collect_events(agent.prompt_text("spawn the worker").await).await;
 
     assert_eq!(
         approvals.load(std::sync::atomic::Ordering::SeqCst),

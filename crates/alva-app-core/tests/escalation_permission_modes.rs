@@ -132,7 +132,7 @@ async fn golden_ask_waits_then_approval_executes_and_rejection_returns_reason() 
         )
         .await;
 
-        let event_rx = agent.prompt_text("run tests outside the worker");
+        let event_rx = agent.prompt_text("run tests outside the worker").await;
         let request = next_approval(&mut approval_rx).await;
         assert_eq!(request.tool_name, "request_escalation");
         assert_eq!(
@@ -174,7 +174,7 @@ async fn golden_accept_shell_runs_safe_or_unknown_and_blocks_destructive() {
         )
         .await;
 
-        let events = collect_events(agent.prompt_text("run host command")).await;
+        let events = collect_events(agent.prompt_text("run host command").await).await;
         let result = tool_result_for(&events, "request_escalation");
         assert_eq!(executor.call_count(), usize::from(should_execute));
         assert!(approval_rx.try_recv().is_err(), "Auto must not open HITL");
@@ -201,7 +201,7 @@ async fn golden_bypass_executes_without_prompting() {
     )
     .await;
 
-    let events = collect_events(agent.prompt_text("run host command")).await;
+    let events = collect_events(agent.prompt_text("run host command").await).await;
     assert!(!tool_result_for(&events, "request_escalation").is_error);
     assert_eq!(executor.call_count(), 1);
     assert!(approval_rx.try_recv().is_err());
@@ -221,7 +221,7 @@ async fn golden_accept_edits_still_waits_for_shell_approval() {
     )
     .await;
 
-    let event_rx = agent.prompt_text("run host command");
+    let event_rx = agent.prompt_text("run host command").await;
     let request = next_approval(&mut approval_rx).await;
     assert_eq!(executor.call_count(), 0);
     resolve(&agent, &request, PermissionDecision::RejectOnce).await;
@@ -245,7 +245,7 @@ async fn golden_plan_never_executes_escalation() {
     )
     .await;
 
-    let events = collect_events(agent.prompt_text("run host command")).await;
+    let events = collect_events(agent.prompt_text("run host command").await).await;
     let result = tool_result_for(&events, "request_escalation");
     assert!(result.is_error);
     assert!(result.model_text().to_lowercase().contains("plan mode"));
@@ -328,7 +328,7 @@ async fn scripted_worker_edits_runs_tests_reads_failure_and_repairs() {
     )
     .await;
 
-    let events = collect_events(agent.prompt_text("repair answer.txt and verify it")).await;
+    let events = collect_events(agent.prompt_text("repair answer.txt and verify it").await).await;
 
     assert_eq!(
         std::fs::read_to_string(workspace.path().join("answer.txt")).unwrap(),
