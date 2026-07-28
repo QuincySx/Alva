@@ -85,14 +85,18 @@ alva-hub-core
         v
 alva-engine-runtime (neutral contract)
         |
-        v
-alva-engine-adapter-alva
+        +--> alva-engine-adapter-alva
+        |          |
+        |          v
+        |    alva-app-core::BaseAgent
+        |          |
+        |          v
+        |    the native SDK/kernel flow above
         |
-        v
-alva-app-core::BaseAgent
-        |
-        v
-the native SDK/kernel flow above
+        +--> alva-engine-adapter-claude
+                   |
+                   v
+             Node.js bridge
 ```
 
 ## Layer Map
