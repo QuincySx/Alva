@@ -359,6 +359,13 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
                 return 1;
             }
         };
+        let wasm_fuel = match parse_wasm_fuel(&argv) {
+            Ok(fuel) => fuel,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return 1;
+            }
+        };
         let model = alva_llm_provider::build_language_model(config.kind.as_deref(), config.clone());
         let started = std::time::Instant::now();
         let result = wasm_sandbox::run(
@@ -369,6 +376,7 @@ async fn run(mut early_linux_sandbox: Option<alva_app_core::SandboxConfig>) -> i
             invocation.allow_unsandboxed_escalation,
             max_turns.unwrap_or(20),
             wasm_wall_clock_secs,
+            wasm_fuel,
             invocation.prompt,
         )
         .await;
@@ -959,7 +967,8 @@ fn parse_wasm_print_invocation(args: &[String]) -> Result<WasmPrintInvocation, S
             | "--grant"
             | "--allow-domain"
             | "--provider"
-            | "--wasm-wall-clock-secs" => index += 2,
+            | "--wasm-wall-clock-secs"
+            | "--wasm-fuel" => index += 2,
             "--output-format" => {
                 match args.get(index + 1).map(String::as_str) {
                     Some("json") => output_json = true,
@@ -1068,6 +1077,14 @@ FLAGS:
                                   clock is spent waiting on the model too; model-call
                                   latency itself is bounded separately (provider HTTP
                                   read timeout, stream-aware).
+    --wasm-fuel <N>               -p --sandbox wasm: override the guest's wasm-instruction
+                                  fuel budget (default 400,000,000,000); also settable
+                                  via ALVA_WASM_FUEL (flag wins). Unlike the wall clock,
+                                  fuel only counts wasm-instruction execution — a guest
+                                  blocked on a host call (e.g. waiting on the model)
+                                  spends none, so this specifically catches a runaway
+                                  CPU spin (a stuck loop, not a slow model) and does so
+                                  far sooner than the wall-clock backstop.
     --allowed-tools <a,b,c>       -p: restrict this invocation to the listed
                                   tools (discover names via `alva tools list`).
     --max-turns <N>               Turn budget for this run (default 20). Lets an
@@ -1281,6 +1298,49 @@ fn wasm_wall_clock_secs_from(
     }
 }
 
+/// Parse the wasm-tier fuel override: `--wasm-fuel <N>` on argv, falling
+/// back to `ALVA_WASM_FUEL` when the flag is absent (flag wins if both are
+/// set). `N` must be a positive integer number of Wasmtime fuel units.
+///
+/// Thin env-reading wrapper around [`wasm_fuel_from`], mirroring
+/// `parse_wasm_wall_clock_secs`/`wasm_wall_clock_secs_from` above.
+fn parse_wasm_fuel(args: &[String]) -> Result<Option<u64>, String> {
+    wasm_fuel_from(args, std::env::var("ALVA_WASM_FUEL").ok())
+}
+
+/// - `Ok(None)` — neither source set; caller keeps `alva-sandbox-wasm`'s
+///   built-in fuel default (`RunLimits::default()` is untouched).
+/// - `Ok(Some(fuel))` — override to thread into `RunRequest.limits.fuel`.
+/// - `Err(msg)` — flag present but the value is missing/not a positive
+///   integer, or the env var is set but unparseable.
+fn wasm_fuel_from(args: &[String], env_value: Option<String>) -> Result<Option<u64>, String> {
+    if let Some(pos) = args.iter().position(|a| a == "--wasm-fuel") {
+        let raw = args
+            .get(pos + 1)
+            .ok_or_else(|| "--wasm-fuel requires a positive integer fuel budget".to_string())?;
+        let fuel: u64 = raw
+            .parse()
+            .map_err(|_| format!("--wasm-fuel expects a positive integer, got {raw:?}"))?;
+        if fuel == 0 {
+            return Err("--wasm-fuel must be greater than 0".to_string());
+        }
+        return Ok(Some(fuel));
+    }
+    match env_value {
+        Some(raw) if !raw.is_empty() => {
+            let fuel: u64 = raw
+                .trim()
+                .parse()
+                .map_err(|_| format!("ALVA_WASM_FUEL expects a positive integer, got {raw:?}"))?;
+            if fuel == 0 {
+                return Err("ALVA_WASM_FUEL must be greater than 0".to_string());
+            }
+            Ok(Some(fuel))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Human-facing label for a permission mode (matches the `--permission-mode`
 /// flag spelling).
 fn permission_mode_label(mode: alva_app_core::PermissionMode) -> &'static str {
@@ -1354,6 +1414,14 @@ mod tests {
         assert!(
             u.contains("ALVA_WASM_WALL_CLOCK_SECS"),
             "documents the env var fallback: {u}"
+        );
+        assert!(
+            u.contains("--wasm-fuel"),
+            "lists the wasm fuel override flag: {u}"
+        );
+        assert!(
+            u.contains("ALVA_WASM_FUEL"),
+            "documents the fuel env var fallback: {u}"
         );
     }
 
@@ -1565,6 +1633,24 @@ mod tests {
     }
 
     #[test]
+    fn wasm_prompt_parser_consumes_fuel_flag_without_leaking_into_prompt() {
+        let grant = tempfile::tempdir().unwrap();
+        let invocation = parse_wasm_print_invocation(&argv(&[
+            "alva",
+            "-p",
+            "--sandbox",
+            "wasm",
+            "--grant",
+            grant.path().to_str().unwrap(),
+            "--wasm-fuel",
+            "123456",
+            "run tests",
+        ]))
+        .unwrap();
+        assert_eq!(invocation.prompt, "run tests");
+    }
+
+    #[test]
     fn wasm_wall_clock_absent_flag_and_env_is_none() {
         // Nothing set on either source -> caller keeps
         // alva-sandbox-wasm's RunLimits::default() untouched.
@@ -1616,5 +1702,45 @@ mod tests {
         assert!(
             wasm_wall_clock_secs_from(&argv(&["alva", "-p"]), Some("nope".to_string())).is_err()
         );
+    }
+
+    #[test]
+    fn wasm_fuel_absent_flag_and_env_is_none() {
+        // Nothing set on either source -> caller keeps
+        // alva-sandbox-wasm's RunLimits::default() untouched.
+        assert_eq!(wasm_fuel_from(&argv(&["alva", "-p"]), None), Ok(None));
+    }
+
+    #[test]
+    fn wasm_fuel_flag_parses_and_overrides_env() {
+        assert_eq!(
+            wasm_fuel_from(&argv(&["alva", "-p", "--wasm-fuel", "900000"]), None),
+            Ok(Some(900_000))
+        );
+        // Flag wins over env when both are present.
+        assert_eq!(
+            wasm_fuel_from(
+                &argv(&["alva", "-p", "--wasm-fuel", "900000"]),
+                Some("5".to_string())
+            ),
+            Ok(Some(900_000))
+        );
+    }
+
+    #[test]
+    fn wasm_fuel_falls_back_to_env_when_flag_absent() {
+        assert_eq!(
+            wasm_fuel_from(&argv(&["alva", "-p"]), Some("7200000000".to_string())),
+            Ok(Some(7_200_000_000))
+        );
+    }
+
+    #[test]
+    fn wasm_fuel_rejects_missing_zero_and_non_numeric_values() {
+        assert!(wasm_fuel_from(&argv(&["alva", "--wasm-fuel"]), None).is_err());
+        assert!(wasm_fuel_from(&argv(&["alva", "--wasm-fuel", "0"]), None).is_err());
+        assert!(wasm_fuel_from(&argv(&["alva", "--wasm-fuel", "lots"]), None).is_err());
+        assert!(wasm_fuel_from(&argv(&["alva", "-p"]), Some("0".to_string())).is_err());
+        assert!(wasm_fuel_from(&argv(&["alva", "-p"]), Some("nope".to_string())).is_err());
     }
 }

@@ -929,6 +929,13 @@ fn granted_directory_supports_crud_and_blocks_escape() {
 
     assert_eq!(outcome.exit_code, 0);
     assert!(outcome.stderr.is_empty(), "stderr: {}", outcome.stderr);
+    // Fuel metering (sampling step, no enforced ceiling yet): a run that does
+    // real filesystem work must report nonzero consumption, proving the meter
+    // is wired up and producing a plausible, non-trivial value.
+    assert!(
+        outcome.fuel_consumed > 0,
+        "expected nonzero fuel consumption for a guest that does real work"
+    );
     assert!(outcome.stdout.contains("READ existing.txt: before"));
     assert!(outcome
         .stdout
@@ -1031,11 +1038,174 @@ fn host_epoch_deadline_traps_non_yielding_guest() {
         limits: RunLimits {
             wall_clock: std::time::Duration::from_millis(50),
             max_memory_bytes: 64 * 1024 * 1024,
+            ..RunLimits::default()
         },
     })
     .expect_err("epoch deadline must interrupt a busy guest");
 
     assert!(error.to_string().contains("wall-clock limit"), "{error}");
+}
+
+/// Measures the wasm-native execution rate of a genuinely non-yielding CPU
+/// spin, in fuel units per second of real wall-clock time. This is the
+/// evidence `DEFAULT_WASM_FUEL` in `alva-sandbox-wasm/src/lib.rs` is derived
+/// from.
+///
+/// Method: give the spin fixture a fuel budget and a wall clock generous
+/// enough that `Trap::OutOfFuel`, not the epoch deadline, is what trips;
+/// then divide the (fixed, known) fuel budget by real elapsed time around
+/// the call. The budget is large (5e10) so that module
+/// compilation/instantiation overhead — which this wall-clock measurement,
+/// unlike the host's own internal `elapsed_ms`, cannot subtract out — is
+/// negligible next to the multi-second timed window; this trades a slightly
+/// pessimistic (i.e. safely conservative) rate estimate for a test that
+/// doesn't depend on capturing the host's `tracing` output, which is
+/// unreliable here: `tracing`'s per-callsite interest cache is shared
+/// process-wide, and this test binary runs many `#[test]`s concurrently
+/// that all execute the same `tracing::info!` call site in
+/// `run_with_imports` without a subscriber installed, which can memoize
+/// that callsite as uninteresting before a thread-scoped
+/// `tracing::subscriber::with_default` in this test gets a chance to
+/// observe it — confirmed by this test flaking exactly that way under
+/// `cargo test` (all tests, parallel) while passing every time run alone.
+///
+/// An earlier version of this test measured the rate the other way around:
+/// small *wall-clock* deadline, read `fuel_consumed` off the resulting
+/// `Trap::Interrupt`. That produced a fuel figure which stayed constant
+/// (~19.3k) regardless of whether the configured deadline was 200ms or
+/// 1000ms — i.e. it was measuring some fixed guest-startup fuel cost, not
+/// loop-iteration throughput, and is not reliable evidence for calibrating a
+/// ceiling. Timing a real `Trap::OutOfFuel` avoids that confound: the
+/// elapsed time is bounded by "how long did it take to spend this many fuel
+/// units", which is precisely the question the ceiling's derivation needs
+/// answered.
+#[test]
+fn spin_fuel_rate_is_within_expected_order_of_magnitude() {
+    let root = tempfile::tempdir().expect("create test root");
+    let granted = root.path().join("granted");
+    fs::create_dir_all(&granted).unwrap();
+
+    let fuel_budget = 50_000_000_000;
+    let started = std::time::Instant::now();
+    let error = run_module(RunRequest {
+        module: fixture_wasm().to_vec(),
+        grants: vec![Grant::read_write(granted, "/work")],
+        args: vec!["fixture".into(), "spin".into()],
+        allowed_domains: Vec::new(),
+        limits: RunLimits {
+            // Generous enough that the fuel budget above, not this
+            // deadline, is guaranteed to be what trips.
+            wall_clock: std::time::Duration::from_secs(30),
+            max_memory_bytes: 64 * 1024 * 1024,
+            fuel: fuel_budget,
+        },
+    })
+    .expect_err("fuel budget must trap the spin fixture");
+    // Includes module compile + instantiate, unlike the host's internal
+    // `elapsed_ms`; see the doc comment above for why that tradeoff is
+    // deliberate here.
+    let elapsed = started.elapsed();
+
+    assert!(
+        error.to_string().contains("fuel budget"),
+        "expected an out-of-fuel trap, not a wall-clock one: {error}"
+    );
+    assert_eq!(error.fuel_consumed(), Some(fuel_budget));
+
+    let fuel_per_second = fuel_budget as f64 / elapsed.as_secs_f64();
+    eprintln!(
+        "measured wasm-native spin rate: {fuel_budget} fuel in {elapsed:?} => \
+         {fuel_per_second:.0} fuel/sec (includes module compile+instantiate \
+         overhead, so this understates the guest's true rate)"
+    );
+
+    // Sanity bounds wide enough to tolerate machine-speed variance across CI
+    // hardware, and the compile/instantiate overhead baked into this
+    // measurement, while still catching a metering regression (fuel not
+    // wired up, wrong units, a build that stops actually spinning). Isolated
+    // local measurement of *just* the guest call (excluding compile
+    // overhead), at several fuel-budget magnitudes (2e9, 1e10, 5e10),
+    // consistently landed in the 1.7e10 - 3.2e10 fuel/sec range; these
+    // bounds give roughly 10x headroom on either side of that for slower or
+    // faster CI hardware plus this measurement's extra overhead.
+    assert!(
+        fuel_per_second > 1_000_000_000.0,
+        "spin rate implausibly low, fuel metering may be broken: {fuel_per_second} fuel/sec"
+    );
+    assert!(
+        fuel_per_second < 300_000_000_000.0,
+        "spin rate implausibly high, sanity check the measurement: {fuel_per_second} fuel/sec"
+    );
+}
+
+/// A small fuel budget must cut off a non-yielding guest well before its
+/// generous wall-clock allowance would, proving the fuel ceiling is a real,
+/// enforced cutoff and not just the observational metering from the prior
+/// step.
+#[test]
+fn host_fuel_budget_traps_non_yielding_guest() {
+    let root = tempfile::tempdir().expect("create test root");
+    let granted = root.path().join("granted");
+    fs::create_dir_all(&granted).unwrap();
+
+    let small_fuel = 200_000;
+    let error = run_module(RunRequest {
+        module: fixture_wasm().to_vec(),
+        grants: vec![Grant::read_write(granted, "/work")],
+        args: vec!["fixture".into(), "spin".into()],
+        allowed_domains: Vec::new(),
+        limits: RunLimits {
+            // Generous enough that if the fuel ceiling did not work, this
+            // test would hang for a very long time instead of quietly
+            // passing for the wrong reason.
+            wall_clock: std::time::Duration::from_secs(30),
+            max_memory_bytes: 64 * 1024 * 1024,
+            fuel: small_fuel,
+        },
+    })
+    .expect_err("fuel budget must trap a non-yielding guest");
+
+    assert!(
+        error.to_string().contains("fuel budget"),
+        "expected an out-of-fuel error, not a wall-clock trap: {error}"
+    );
+    assert!(
+        error.to_string().contains(&small_fuel.to_string()),
+        "{error}"
+    );
+    assert_eq!(
+        error.fuel_consumed(),
+        Some(small_fuel),
+        "an out-of-fuel trap must report consuming the entire budget"
+    );
+}
+
+/// A normal (non-spinning) fixture run must stay far under the default fuel
+/// ceiling, proving legitimate workloads have headroom.
+#[test]
+fn default_fuel_budget_does_not_trip_a_normal_run() {
+    let root = tempfile::tempdir().expect("create test root");
+    let granted = root.path().join("granted");
+    fs::create_dir_all(&granted).unwrap();
+    fs::write(granted.join("existing.txt"), "before").unwrap();
+
+    let outcome = run_module(RunRequest {
+        module: fixture_wasm().to_vec(),
+        grants: vec![Grant::read_write(granted, "/work")],
+        args: vec!["fixture".into(), "job".into()],
+        allowed_domains: Vec::new(),
+        limits: RunLimits::default(),
+    })
+    .expect("a normal fixture run must not trip the default fuel budget");
+
+    assert_eq!(outcome.exit_code, 0);
+    assert!(
+        outcome.fuel_consumed < RunLimits::default().fuel / 30,
+        "a normal fixture run should have at least 30x headroom under the default fuel \
+         ceiling, got {} of {} fuel",
+        outcome.fuel_consumed,
+        RunLimits::default().fuel
+    );
 }
 
 #[test]
@@ -1052,6 +1222,7 @@ fn host_store_limiter_traps_linear_memory_growth() {
         limits: RunLimits {
             wall_clock: std::time::Duration::from_secs(5),
             max_memory_bytes: 8 * 1024 * 1024,
+            ..RunLimits::default()
         },
     })
     .expect_err("store limiter must interrupt memory growth");

@@ -9,6 +9,7 @@ alva-sandbox-abi = { path = "../alva-sandbox-abi" }
 reqwest = { version = "0.12", features = ["blocking"] }
 serde_json = "1"
 thiserror = "2"
+tracing = "0.1"
 wasmtime = { version = "46.0.1", default-features = false, features = ["cranelift", "runtime"] }
 wasmtime-wasi = { version = "46.0.1", default-features = false, features = ["p1"] }
 

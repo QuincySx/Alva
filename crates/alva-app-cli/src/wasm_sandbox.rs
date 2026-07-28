@@ -350,16 +350,18 @@ impl Tool for DefinitionOnlyTool {
 /// Build the per-run resource ceilings passed to the sandbox. `wall_clock_secs`
 /// is the CLI-resolved `--wasm-wall-clock-secs`/`ALVA_WASM_WALL_CLOCK_SECS`
 /// override (flag beats env var; see `parse_wasm_wall_clock_secs` in
-/// `main.rs`). `None` keeps the library's existing default untouched —
-/// this function only ever widens or narrows `wall_clock`, `max_memory_bytes`
-/// always stays at `RunLimits::default()`.
-pub(crate) fn build_run_limits(wall_clock_secs: Option<u64>) -> RunLimits {
-    match wall_clock_secs {
-        Some(secs) => RunLimits {
-            wall_clock: Duration::from_secs(secs),
-            ..RunLimits::default()
-        },
-        None => RunLimits::default(),
+/// `main.rs`); `wasm_fuel` is the analogous `--wasm-fuel`/`ALVA_WASM_FUEL`
+/// override (see `parse_wasm_fuel` in `main.rs`). Either `None` keeps the
+/// library's corresponding `RunLimits::default()` field untouched;
+/// `max_memory_bytes` always stays at the library default — neither CLI flag
+/// touches it.
+pub(crate) fn build_run_limits(wall_clock_secs: Option<u64>, wasm_fuel: Option<u64>) -> RunLimits {
+    RunLimits {
+        wall_clock: wall_clock_secs
+            .map(Duration::from_secs)
+            .unwrap_or(RunLimits::default().wall_clock),
+        fuel: wasm_fuel.unwrap_or(RunLimits::default().fuel),
+        ..RunLimits::default()
     }
 }
 
@@ -371,6 +373,7 @@ pub(crate) async fn run(
     allow_unsandboxed_execution: bool,
     max_turns: u32,
     wasm_wall_clock_secs: Option<u64>,
+    wasm_fuel: Option<u64>,
     task: String,
 ) -> Result<String, String> {
     let runtime_handle = tokio::runtime::Handle::current();
@@ -378,10 +381,6 @@ pub(crate) async fn run(
     let environment_skill = crate::bundled_skills::wasm_environment_skill_injection().await?;
     tokio::task::spawn_blocking(move || {
         let module = read_worker_module(&resolve_worker_wasm()?)?;
-        let run_limits = build_run_limits(wasm_wall_clock_secs);
-        let run_deadline = Instant::now()
-            .checked_add(run_limits.wall_clock)
-            .ok_or_else(|| "WASM wall-clock deadline is out of range".to_string())?;
         let guest_paths = host_grants
             .iter()
             .enumerate()
@@ -393,6 +392,10 @@ pub(crate) async fn run(
                 }
             })
             .collect::<Vec<_>>();
+        let run_limits = build_run_limits(wasm_wall_clock_secs, wasm_fuel);
+        let run_deadline = Instant::now()
+            .checked_add(run_limits.wall_clock)
+            .ok_or_else(|| "WASM wall-clock limit is too large for this platform".to_string())?;
         let grants = host_grants
             .into_iter()
             .zip(&guest_paths)
@@ -706,8 +709,9 @@ mod tests {
     #[test]
     fn build_run_limits_keeps_library_default_when_unset() {
         // No CLI override -> the RunRequest gets exactly RunLimits::default(),
-        // so the existing library wall clock is untouched.
-        assert_eq!(build_run_limits(None), RunLimits::default());
+        // so the existing wall clock and fuel defaults in alva-sandbox-wasm
+        // are untouched.
+        assert_eq!(build_run_limits(None, None), RunLimits::default());
     }
 
     #[test]
@@ -717,14 +721,35 @@ mod tests {
         // RunRequest constructed in `run` above (see the `limits:` field),
         // so asserting its output pins the override end to end without
         // needing a real 30s+ sandbox run.
-        let limits = build_run_limits(Some(90));
+        let limits = build_run_limits(Some(90), None);
         assert_eq!(limits.wall_clock, Duration::from_secs(90));
+        // fuel keeps the library default since only wall_clock was overridden.
+        assert_eq!(limits.fuel, RunLimits::default().fuel);
         // max_memory_bytes must stay at the library default; only wall_clock
-        // is CLI-overridable per the task's scope.
+        // and fuel are CLI-overridable per the task's scope.
         assert_eq!(
             limits.max_memory_bytes,
             RunLimits::default().max_memory_bytes
         );
+    }
+
+    #[test]
+    fn build_run_limits_threads_the_cli_override_into_fuel() {
+        let limits = build_run_limits(None, Some(123_456));
+        assert_eq!(limits.fuel, 123_456);
+        // wall_clock keeps the library default since only fuel was overridden.
+        assert_eq!(limits.wall_clock, RunLimits::default().wall_clock);
+        assert_eq!(
+            limits.max_memory_bytes,
+            RunLimits::default().max_memory_bytes
+        );
+    }
+
+    #[test]
+    fn build_run_limits_threads_both_overrides_independently() {
+        let limits = build_run_limits(Some(45), Some(999));
+        assert_eq!(limits.wall_clock, Duration::from_secs(45));
+        assert_eq!(limits.fuel, 999);
     }
 
     #[test]
@@ -816,6 +841,7 @@ mod tests {
             false,
             20,
             None,
+            None,
             "Read a.txt and write its uppercase content to b.txt".into(),
         )
         .await
@@ -898,6 +924,7 @@ mod tests {
             true,
             20,
             None,
+            None,
             "Create the crate, run its tests, repair failures, and verify again".into(),
         )
         .await
@@ -942,6 +969,7 @@ mod tests {
             false,
             20,
             None,
+            None,
             "Run tests, or report the exact host denial".into(),
         )
         .await
@@ -978,6 +1006,7 @@ mod tests {
             PermissionMode::AcceptShell,
             false,
             20,
+            None,
             None,
             "Try the destructive command and report policy".into(),
         )

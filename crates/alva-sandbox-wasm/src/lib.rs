@@ -42,21 +42,59 @@ use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 const OUTPUT_CAPACITY: usize = 1024 * 1024;
 /// Maximum encoded module size accepted before Wasmtime validation/compilation.
 ///
-/// Store memory and epoch limits begin only after compilation, so this
+/// Store memory, fuel, and epoch limits begin only after compilation, so this
 /// host-side byte ceiling bounds the otherwise-unmetered compiler input.
 pub const MAX_WASM_MODULE_BYTES: usize = 64 * 1024 * 1024;
 const EPOCH_TICK: Duration = Duration::from_millis(10);
-// A coarse backstop against a genuinely runaway (non-yielding) guest, not a
-// tight per-turn budget: multi-turn -p runs block the guest thread on
-// synchronous LLM completions (see `register_llm_proxy`), so their wall-clock
-// spend tracks the model's real latency, not CPU time. A CPU-bound infinite
-// loop is still caught within a handful of epoch ticks (10ms each) regardless
-// of how high this ceiling is; raising it just stops slow multi-turn agents
-// from tripping a limit that was never meant to bound them. CLI callers can
-// still override per run via `--wasm-wall-clock-secs` /
+// A coarse elapsed-time backstop for guest execution. Epoch interruption is
+// checked while Wasm instructions run; it cannot preempt a synchronous host
+// import, so every caller-supplied blocking callback must enforce its own
+// timeout/cancellation. Fuel below is the tighter CPU-spin ceiling. CLI callers
+// can override this value via `--wasm-wall-clock-secs` /
 // `ALVA_WASM_WALL_CLOCK_SECS` (see alva-app-cli).
 const DEFAULT_WALL_CLOCK: Duration = Duration::from_secs(3600);
 const DEFAULT_MAX_MEMORY_BYTES: usize = 256 * 1024 * 1024;
+// Real fuel ceiling, not pure metering: this is the enforced budget a guest
+// gets before `store.set_fuel` is exhausted and a `Trap::OutOfFuel` cuts it
+// off.
+//
+// Derivation: `spin_fuel_rate_is_within_expected_order_of_magnitude` in
+// tests/runner.rs times a fuel-bounded (not wall-clock-bounded) run of the
+// non-yielding "spin" fixture and consistently measures ~1.7e10-3.2e10 fuel
+// per second of real time on development hardware, across fuel budgets
+// spanning 2e9-5e10. (An earlier attempt derived the rate from a
+// *wall-clock*-triggered trap instead; that measured a fuel figure that
+// stayed constant regardless of the configured deadline, which turned out to
+// be fixed guest-startup cost leaking into the epoch-trap path rather than
+// loop-iteration throughput -- see that test's doc comment. Timing a real
+// `Trap::OutOfFuel` avoids the confound.)
+//
+// This budget targets a ~20s time-to-cutoff for a genuine non-yielding spin
+// at the measured rate: 2e10 fuel/sec * 20s = 4e11. That is dramatically
+// tighter than the 60-minute wall-clock backstop above (a ~180x tighter
+// bound in the worst case, and the two mechanisms are independent: fuel
+// tracks CPU burned executing wasm instructions, wall clock tracks elapsed
+// real time including blocked-on-host-call waiting, so this catches the
+// "the guest itself is spinning" case specifically that wall clock alone
+// leaves to a 60-minute leash).
+//
+// Because both the ceiling and every workload it is compared against run on
+// the *same* engine, expressing the ceiling as "N seconds' worth of this
+// engine's own measured native rate" keeps the headroom ratios
+// self-consistent regardless of whether the deployment host is faster or
+// slower than the measurement host:
+//   - a real knowledge-base -p run (7 model turns): ~17.0M fuel measured
+//     -> ~23,500x headroom
+//   - one QuickJS agent-loop turn incl. a tool call: ~5M fuel measured
+//     -> ~80,000x headroom
+//   - the worst legitimate case, a `run_script` guest burning its own 10s
+//     timeout at full wasm-native speed: ~2e11 fuel (10s * 2e10/s, i.e. half
+//     of this budget) -> ~2x headroom, so a legal 10s script is not starved
+//     by a fuel ceiling tighter than its own timeout, while a spin that
+//     doesn't stop at 10s keeps burning into the other half and traps.
+// CLI callers can override per run via `--wasm-fuel` / `ALVA_WASM_FUEL` (see
+// alva-app-cli) for workloads that legitimately need more.
+const DEFAULT_WASM_FUEL: u64 = 400_000_000_000;
 
 /// Filesystem access a [`Grant`] confers on its mounted directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -125,6 +163,12 @@ pub struct RunLimits {
     pub wall_clock: Duration,
     /// Maximum bytes for each WebAssembly linear memory in the store.
     pub max_memory_bytes: usize,
+    /// Maximum Wasmtime fuel units the guest may consume before a
+    /// `Trap::OutOfFuel` cuts it off. Fuel tracks wasm-instruction execution
+    /// specifically: a guest blocked on a host call (for example waiting on
+    /// a model completion) does not spend fuel while it waits, so this is a
+    /// precise CPU-spin gate, unlike the coarse wall-clock backstop above.
+    pub fuel: u64,
 }
 
 impl Default for RunLimits {
@@ -132,6 +176,7 @@ impl Default for RunLimits {
         Self {
             wall_clock: DEFAULT_WALL_CLOCK,
             max_memory_bytes: DEFAULT_MAX_MEMORY_BYTES,
+            fuel: DEFAULT_WASM_FUEL,
         }
     }
 }
@@ -185,6 +230,17 @@ pub struct RunOutcome {
     pub stdout: String,
     /// UTF-8 stderr captured in memory.
     pub stderr: String,
+    /// Wasmtime fuel units consumed executing guest instructions this run.
+    ///
+    /// The store is seeded with `RunLimits::fuel` before the guest starts and
+    /// this is `RunLimits::fuel - store.get_fuel()` at completion, so it
+    /// reflects real guest CPU work. Host calls the guest blocks on (for
+    /// example waiting on a model completion) do not consume fuel, so this
+    /// tracks wasm-instruction work specifically. A run that exhausts its
+    /// budget traps (see [`SandboxError::Execution`]) rather than reaching
+    /// this field, so on success this is always strictly less than the
+    /// budget that was set.
+    pub fuel_consumed: u64,
 }
 
 /// Failure to configure or execute a guest module.
@@ -227,9 +283,22 @@ pub enum SandboxError {
     #[error("failed to resolve WASIp1 `_start` entry point: {0}")]
     StartFunction(#[source] wasmtime::Error),
 
-    /// The guest trapped for a reason other than WASI `proc_exit`.
-    #[error("WASIp1 module execution failed: {0}")]
-    Execution(#[source] wasmtime::Error),
+    /// The guest trapped for a reason other than WASI `proc_exit`. This
+    /// covers the wall-clock deadline, the linear-memory limiter, the fuel
+    /// budget, and any other Wasmtime execution failure.
+    #[error("WASIp1 module execution failed: {source}")]
+    Execution {
+        /// The underlying Wasmtime error or trap.
+        #[source]
+        source: wasmtime::Error,
+        /// Fuel consumed by the guest before this trap, computed the same
+        /// way as [`RunOutcome::fuel_consumed`]. Present for every
+        /// `Execution` error, not only fuel-related ones, so callers can
+        /// tell a genuine CPU-bound spin (high fuel burned quickly) apart
+        /// from a wall-clock trap on a guest that was mostly blocked on a
+        /// host call (low fuel despite the long wall-clock spend).
+        fuel_consumed: u64,
+    },
 
     /// Captured stdout was not valid UTF-8.
     #[error("guest stdout is not valid UTF-8: {0}")]
@@ -238,6 +307,18 @@ pub enum SandboxError {
     /// Captured stderr was not valid UTF-8.
     #[error("guest stderr is not valid UTF-8: {0}")]
     StderrUtf8(#[source] FromUtf8Error),
+}
+
+impl SandboxError {
+    /// Fuel consumed by the guest before an [`SandboxError::Execution`]
+    /// trap. `None` for every other variant, since those fail before any
+    /// guest instruction runs.
+    pub fn fuel_consumed(&self) -> Option<u64> {
+        match self {
+            SandboxError::Execution { fuel_consumed, .. } => Some(*fuel_consumed),
+            _ => None,
+        }
+    }
 }
 
 /// A reusable host runner that owns one shared [`Engine`].
@@ -286,8 +367,10 @@ impl SandboxRunner {
     pub fn new() -> Self {
         let mut config = Config::new();
         config.epoch_interruption(true);
-        let engine = Engine::new(&config)
-            .expect("epoch interruption is a valid Wasmtime engine configuration");
+        config.consume_fuel(true);
+        let engine = Engine::new(&config).expect(
+            "epoch interruption and fuel consumption are valid Wasmtime engine configurations",
+        );
         let deadline_engine = engine.clone();
         let (epoch_cancel, epoch_wait) = std::sync::mpsc::channel();
         let epoch_thread = std::thread::spawn(move || {
@@ -400,6 +483,13 @@ impl SandboxRunner {
         store.limiter(|data| &mut data.limits);
         store.set_epoch_deadline(epoch_ticks(limits.wall_clock));
         store.epoch_deadline_trap();
+        // Real enforced ceiling: set after the store is created because fuel
+        // is exhausted at zero by default. See `DEFAULT_WASM_FUEL` for the
+        // default budget and its derivation; `RunLimits::fuel` lets callers
+        // override it per run.
+        store
+            .set_fuel(limits.fuel)
+            .expect("fuel consumption is enabled by this runner's engine config");
         let instance = linker
             .instantiate(&mut store, &module)
             .map_err(SandboxError::Instantiate)?;
@@ -407,25 +497,64 @@ impl SandboxRunner {
             .get_typed_func::<(), ()>(&mut store, "_start")
             .map_err(SandboxError::StartFunction)?;
 
+        let run_started = std::time::Instant::now();
         let call_result = start.call(&mut store, ());
+        // `u64`, not the `u128` `Duration::as_millis()` returns: a run
+        // lasting anywhere near `u64::MAX` ms (585 million years) is not a
+        // real scenario, and `tracing`'s field-recording API dispatches
+        // `u128` values through a distinct `record_u128` visitor method,
+        // which is easy for a log consumer to forget to implement (as a
+        // regression here already demonstrated for a test-side subscriber).
+        let elapsed_ms = u64::try_from(run_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+        // Computed unconditionally so it covers every exit path below: a
+        // normal return, a WASI proc_exit, an epoch/memory/fuel trap, and
+        // any other execution error all fall through this same measurement
+        // before the match decides how to report the outcome.
+        let fuel_consumed = limits.fuel.saturating_sub(
+            store
+                .get_fuel()
+                .expect("fuel consumption is enabled by this runner's engine config"),
+        );
+        tracing::info!(fuel_consumed, elapsed_ms, "wasm run consumed fuel");
 
         let exit_code = match call_result {
             Ok(()) => 0,
             Err(error) => match error.downcast_ref::<I32Exit>() {
                 Some(exit) => exit.0,
                 None if error.downcast_ref::<Trap>() == Some(&Trap::Interrupt) => {
-                    return Err(SandboxError::Execution(wasmtime::Error::msg(format!(
-                        "wall-clock limit of {} ms exceeded",
-                        limits.wall_clock.as_millis()
-                    ))));
+                    return Err(SandboxError::Execution {
+                        source: wasmtime::Error::msg(format!(
+                            "wall-clock limit of {} ms exceeded",
+                            limits.wall_clock.as_millis()
+                        )),
+                        fuel_consumed,
+                    });
+                }
+                None if error.downcast_ref::<Trap>() == Some(&Trap::OutOfFuel) => {
+                    return Err(SandboxError::Execution {
+                        source: wasmtime::Error::msg(format!(
+                            "fuel budget of {} exceeded (possible runaway guest CPU spin)",
+                            limits.fuel
+                        )),
+                        fuel_consumed,
+                    });
                 }
                 None if format!("{error:#}").contains("growing memory") => {
-                    return Err(SandboxError::Execution(wasmtime::Error::msg(format!(
-                        "linear-memory limit of {} bytes exceeded: {error}",
-                        limits.max_memory_bytes
-                    ))));
+                    return Err(SandboxError::Execution {
+                        source: wasmtime::Error::msg(format!(
+                            "linear-memory limit of {} bytes exceeded: {error}",
+                            limits.max_memory_bytes
+                        )),
+                        fuel_consumed,
+                    });
                 }
-                None => return Err(SandboxError::Execution(error)),
+                None => {
+                    return Err(SandboxError::Execution {
+                        source: error,
+                        fuel_consumed,
+                    })
+                }
             },
         };
 
@@ -438,6 +567,7 @@ impl SandboxRunner {
             exit_code,
             stdout,
             stderr,
+            fuel_consumed,
         })
     }
 }
