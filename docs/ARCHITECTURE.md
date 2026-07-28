@@ -1,7 +1,13 @@
 # Alva Architecture
 
-This file describes the current architecture. Historical design plans live in
-`docs/plans/` and `docs/superpowers/`; they are not the source of truth.
+This file is the architecture source of truth for the current tree.
+
+Related living docs (not historical plans):
+
+- `docs/specs/` — accepted product/runtime specs still in force
+- `docs/BUS-RULES.md` / `docs/BUS-TEMPLATES.md` — bus governance
+- `docs/reviews/` — dated reviews; useful as backlog snapshots, not design truth
+- `AGENTS.md` — crate inventory and extension philosophy
 
 ## Core Contract
 

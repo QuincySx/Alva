@@ -81,7 +81,7 @@ pub use utils::{estimate_cost_usd, format_token_count};
 // Plugin runtime API
 pub use crate::extension::PluginHost;
 
-// Managed Agents parity surface — see docs/plans/2026-05-11-managed-agents-parity.md.
+// Managed Agents parity surface (outcome / resource registries).
 pub use outcome::{
     render_outcomes_for_session, InMemoryOutcomeRegistry, Outcome, OutcomeError, OutcomeFilter,
     OutcomeParams, OutcomePatch, OutcomeRegistry, OutcomeScore, OutcomeStatus, Rubric,
