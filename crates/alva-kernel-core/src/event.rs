@@ -217,4 +217,22 @@ mod tests {
             text: "smoke".into(),
         };
     }
+
+    #[test]
+    fn message_update_text_delta_wire_shape_is_externally_tagged() {
+        let m = Message::user("hi");
+        let v = ev_value(AgentEvent::MessageUpdate {
+            message: AgentMessage::Standard(m),
+            delta: StreamEvent::TextDelta {
+                text: "hello".into(),
+            },
+        });
+        // Pin the nested StreamEvent shape that Tauri web consumers match
+        // (`delta.TextDelta.text` in Home.tsx).
+        assert_eq!(
+            v["delta"],
+            json!({"TextDelta": {"text": "hello"}}),
+            "delta wire shape: {v}"
+        );
+    }
 }

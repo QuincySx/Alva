@@ -33,9 +33,9 @@ cargo run -p alva-app-tauri                   # Tauri Rust 侧
 
 ## 下一步(按序排)
 
-- [ ] MessageUpdate 流式渲染(当前只在 MessageEnd 整段追加)
-- [ ] 会话侧边栏 + 多会话切换(迁 `alva-app/src/models/workspace_model.rs` 的语义)
-- [ ] Settings 面板 + provider 配置持久化
+- [x] MessageUpdate 流式渲染（`streamReducer.ts` 纯函数累积 TextDelta/ReasoningDelta；Home 用 functional setState 避免连发 delta 丢字）
+- [x] 会话侧边栏 + 多会话切换
+- [x] Settings 面板 + provider 配置持久化
 - [x] Session inspector(已内嵌为 Inspector 组件 + 独立窗口,session_projection port 自原 eval)
 - [x] ~~删除旧 `alva-app`(GPUI)~~ 已完成
 

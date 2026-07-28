@@ -45,6 +45,12 @@ import {
   useAppStore,
   useResolvedModelCapabilities,
 } from "../store/appStore";
+import {
+  INITIAL_STREAM_FLAGS,
+  applyMessageUpdateDelta,
+  closeStreams as closeStreamFlags,
+  type StreamFlags,
+} from "../streamReducer";
 
 interface HomeProps {
   onNavigate: (id: import("../components/NavSidebar").RouteId) => void;
@@ -111,14 +117,23 @@ export default function Home({ onNavigate }: HomeProps) {
   // session switch + on AgentEnd (via inspectorNonce).
   const [events, setEvents] = useState<unknown[]>([]);
 
-  // Streaming state — held in refs so listeners stay stable and StrictMode's
-  // double-invoked state updaters stay pure. Reset on MessageStart / End /
-  // ToolExec / AgentEnd so each LLM turn starts fresh.
-  const assistantStreamOpenRef = useRef(false);
-  const thinkingStreamOpenRef = useRef(false);
+  // Streaming open-flags + a messages mirror. The mirror lets consecutive
+  // MessageUpdate events compose synchronously (without waiting for React
+  // to re-render) while keeping setState updaters pure for Strict Mode.
+  const streamFlagsRef = useRef<StreamFlags>({ ...INITIAL_STREAM_FLAGS });
+  const messagesRef = useRef<ChatEntry[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  /** Commit chat entries to both React state and the streaming mirror. */
+  const commitMessages = (next: ChatEntry[] | ((prev: ChatEntry[]) => ChatEntry[])) => {
+    setMessages((prev) => {
+      const resolved = typeof next === "function" ? next(prev) : next;
+      messagesRef.current = resolved;
+      return resolved;
+    });
+  };
 
   // No auto-select on mount. User picks a task from the sidebar
   // or clicks "新建任务". Until then, the empty-state landing shows.
@@ -127,6 +142,7 @@ export default function Home({ onNavigate }: HomeProps) {
   // the history and refresh the header title.
   useEffect(() => {
     if (!activeSessionId) {
+      messagesRef.current = [];
       setMessages([]);
       setActiveSessionInfo(null);
       return;
@@ -139,6 +155,7 @@ export default function Home({ onNavigate }: HomeProps) {
           listSessions(),
         ]);
         if (cancelled) return;
+        messagesRef.current = entries;
         setMessages(entries);
         const info = all.find((s) => s.id === activeSessionId) ?? null;
         setActiveSessionInfo(info);
@@ -255,39 +272,8 @@ export default function Home({ onNavigate }: HomeProps) {
   }, [activeSessionId, inspectorNonce]);
 
   useEffect(() => {
-    const appendAssistant = (text: string) => {
-      if (!assistantStreamOpenRef.current) {
-        assistantStreamOpenRef.current = true;
-        setMessages((prev) => [...prev, { type: "assistant", text }]);
-      } else {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.type === "assistant") {
-            return [...prev.slice(0, -1), { ...last, text: last.text + text }];
-          }
-          return prev;
-        });
-      }
-    };
-
-    const appendThinking = (text: string) => {
-      if (!thinkingStreamOpenRef.current) {
-        thinkingStreamOpenRef.current = true;
-        setMessages((prev) => [...prev, { type: "thinking", text }]);
-      } else {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.type === "thinking") {
-            return [...prev.slice(0, -1), { ...last, text: last.text + text }];
-          }
-          return prev;
-        });
-      }
-    };
-
-    const closeStreams = () => {
-      assistantStreamOpenRef.current = false;
-      thinkingStreamOpenRef.current = false;
+    const resetStreams = () => {
+      streamFlagsRef.current = closeStreamFlags(streamFlagsRef.current);
     };
 
     const p = subscribeAgentEvents((envelope: AgentEventEnvelope) => {
@@ -296,42 +282,36 @@ export default function Home({ onNavigate }: HomeProps) {
 
       switch (ev.type) {
         case "MessageStart":
-          closeStreams();
+          resetStreams();
           break;
 
         case "MessageUpdate": {
           const delta = (ev as { delta: unknown }).delta;
-          if (!delta || typeof delta !== "object") break;
-          const d = delta as Record<string, unknown>;
-
-          const textDelta = d.TextDelta as { text?: string } | undefined;
-          if (textDelta?.text) {
-            // Switching from thinking → text closes the thinking stream
-            // so the next thinking delta starts a fresh block.
-            thinkingStreamOpenRef.current = false;
-            appendAssistant(textDelta.text);
-            break;
-          }
-
-          const reasoningDelta = d.ReasoningDelta as { text?: string } | undefined;
-          if (reasoningDelta?.text) {
-            assistantStreamOpenRef.current = false;
-            appendThinking(reasoningDelta.text);
-            break;
-          }
+          // Reduce against the mirror so back-to-back deltas compose even
+          // before React re-renders. Do not mutate refs inside setState
+          // updaters — Strict Mode double-invokes them.
+          const applied = applyMessageUpdateDelta(
+            messagesRef.current,
+            streamFlagsRef.current,
+            delta,
+          );
+          if (!applied) break;
+          streamFlagsRef.current = applied.flags;
+          messagesRef.current = applied.messages;
+          setMessages(applied.messages);
           break;
         }
 
         case "MessageEnd":
-          closeStreams();
+          resetStreams();
           break;
 
         case "MessageError":
-          setMessages((prev) => [
+          commitMessages((prev) => [
             ...prev,
             { type: "error", text: String(ev.error) },
           ]);
-          closeStreams();
+          resetStreams();
           break;
 
         case "ToolExecutionStart": {
@@ -341,7 +321,7 @@ export default function Home({ onNavigate }: HomeProps) {
           // Different backends name the arg field differently; accept both.
           const args =
             (tc?.arguments as unknown) ?? (tc?.input as unknown) ?? {};
-          setMessages((prev) => [
+          commitMessages((prev) => [
             ...prev,
             {
               type: "tool_call",
@@ -352,7 +332,7 @@ export default function Home({ onNavigate }: HomeProps) {
               is_error: false,
             },
           ]);
-          closeStreams();
+          resetStreams();
           break;
         }
 
@@ -362,7 +342,7 @@ export default function Home({ onNavigate }: HomeProps) {
           const result = (ev as { result: unknown }).result;
           const flattened = flattenToolOutput(result);
           const isError = extractIsError(result);
-          setMessages((prev) => {
+          commitMessages((prev) => {
             // Walk from the end to find the matching pending ToolCall entry.
             for (let i = prev.length - 1; i >= 0; i--) {
               const entry = prev[i];
@@ -379,12 +359,12 @@ export default function Home({ onNavigate }: HomeProps) {
 
         case "AgentEnd":
           if (ev.error) {
-            setMessages((prev) => [
+            commitMessages((prev) => [
               ...prev,
               { type: "error", text: `agent ended: ${ev.error}` },
             ]);
           }
-          closeStreams();
+          resetStreams();
           setRunning(false);
           setInspectorNonce((n) => n + 1);
           bumpSessionList();
@@ -395,14 +375,17 @@ export default function Home({ onNavigate }: HomeProps) {
             const sid = activeIdRef.current;
             switchSession(sid)
               .then((entries) => {
-                if (activeIdRef.current === sid) setMessages(entries);
+                if (activeIdRef.current === sid) {
+                  messagesRef.current = entries;
+                  setMessages(entries);
+                }
               })
               .catch(() => {});
           }
           break;
 
         case "RunChannelClosed":
-          closeStreams();
+          resetStreams();
           setRunning(false);
           break;
       }
@@ -426,7 +409,7 @@ export default function Home({ onNavigate }: HomeProps) {
     }
     const text = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { type: "user", text }]);
+    commitMessages((prev) => [...prev, { type: "user", text }]);
     setRunning(true);
     try {
       await sendMessage({
