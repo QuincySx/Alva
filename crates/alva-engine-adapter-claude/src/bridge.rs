@@ -210,6 +210,9 @@ mod tests {
             .args(["--input-type=module", "--eval", &program])
             .status()
             .expect("Node must execute the bridge classifier excerpt");
-        assert!(status.success(), "Windows drive-path classifier contract failed");
+        assert!(
+            status.success(),
+            "Windows drive-path classifier contract failed"
+        );
     }
 }

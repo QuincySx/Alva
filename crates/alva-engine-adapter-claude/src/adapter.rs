@@ -22,10 +22,7 @@ use crate::mapping::EventMapper;
 use crate::process::{BridgeProcess, BridgeSpawnConfig};
 use crate::protocol::{BridgeOutbound, BridgePermissionDecision};
 
-type ControlCommand = (
-    BridgeOutbound,
-    oneshot::Sender<Result<(), RuntimeError>>,
-);
+type ControlCommand = (BridgeOutbound, oneshot::Sender<Result<(), RuntimeError>>);
 type SessionSender = mpsc::UnboundedSender<ControlCommand>;
 const CONTROL_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -627,8 +624,7 @@ mod tests {
     async fn duplicate_active_session_id_keeps_existing_route_and_rejects_new_child() {
         let sessions = Mutex::new(HashMap::new());
         let (active_sender, active_receiver) = mpsc::unbounded_channel::<ControlCommand>();
-        let (duplicate_sender, _duplicate_receiver) =
-            mpsc::unbounded_channel::<ControlCommand>();
+        let (duplicate_sender, _duplicate_receiver) = mpsc::unbounded_channel::<ControlCommand>();
 
         register_session(&sessions, "native-session", active_sender.clone())
             .await
@@ -654,13 +650,11 @@ mod tests {
         register_session(&sessions, "native-session", replacement_sender.clone())
             .await
             .expect("closed stale sender may be replaced");
-        assert!(
-            sessions
-                .lock()
-                .await
-                .get("native-session")
-                .is_some_and(|current| current.same_channel(&replacement_sender))
-        );
+        assert!(sessions
+            .lock()
+            .await
+            .get("native-session")
+            .is_some_and(|current| current.same_channel(&replacement_sender)));
     }
 
     #[tokio::test]

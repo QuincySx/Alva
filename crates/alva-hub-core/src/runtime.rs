@@ -447,7 +447,10 @@ mod tests {
 
     use super::*;
 
-    fn session_registry() -> (ProductSessionId, RwLock<HashMap<ProductSessionId, HubSession>>) {
+    fn session_registry() -> (
+        ProductSessionId,
+        RwLock<HashMap<ProductSessionId, HubSession>>,
+    ) {
         let product_session_id = ProductSessionId::new();
         let sessions = RwLock::new(HashMap::from([(
             product_session_id.clone(),
