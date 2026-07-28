@@ -119,6 +119,12 @@ impl BaseAgent {
         self.inner.set_allowed_tools(allowed).await;
     }
 
+    /// Per-turn system-prompt additions (e.g. UI-selected skill bodies).
+    /// Replaces the previous turn's list; pass `vec![]` to clear.
+    pub async fn set_turn_system_additions(&self, additions: Vec<String>) {
+        self.inner.set_turn_system_additions(additions).await;
+    }
+
     /// Snapshot of the layered system-prompt segments currently set on
     /// the agent's config. Stable→dynamic order. Used by the harness
     /// to record what was actually assembled (vs the raw user-typed

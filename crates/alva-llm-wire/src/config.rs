@@ -55,6 +55,14 @@ pub struct ModelConfig {
     /// loud error. Set per-turn via `Agent::set_allowed_tools`.
     #[serde(default)]
     pub allowed_tools: Option<Vec<String>>,
+    /// Per-turn system-prompt additions (e.g. UI-selected skill bodies).
+    ///
+    /// Appended to the stable system-prompt bucket for the next `run()` only.
+    /// The harness replaces this list every turn (`empty` = clear previous
+    /// turn's selection). Does not mutate the agent's assembled base prompt.
+    /// Set via `Agent::set_turn_system_additions`.
+    #[serde(default)]
+    pub turn_system_additions: Vec<String>,
 }
 
 /// Cross-provider reasoning effort level.
@@ -167,6 +175,10 @@ mod tests {
             c.allowed_tools.is_none(),
             "Default allowed_tools must be None (no restriction — all tools)"
         );
+        assert!(
+            c.turn_system_additions.is_empty(),
+            "Default turn_system_additions must be empty (no per-turn prompt extras)"
+        );
     }
 
     #[test]
@@ -182,6 +194,7 @@ mod tests {
             extra_body: Some(extra_body),
             disable_tools: true,
             allowed_tools: Some(vec!["read_file".into(), "grep_search".into()]),
+            turn_system_additions: vec!["<skill>body</skill>".into()],
         };
 
         let encoded = serde_json::to_vec(&config).expect("serialize model config");

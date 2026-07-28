@@ -135,6 +135,15 @@ impl Agent {
         config.model_config.allowed_tools = allowed;
     }
 
+    /// Per-turn system-prompt additions (UI-selected skill bodies, etc.).
+    /// Replaces any previous turn's list; pass an empty vec to clear.
+    /// Applied only to the next `run()`'s stable system-prompt bucket —
+    /// the agent's assembled base prompt is not mutated.
+    pub async fn set_turn_system_additions(&self, additions: Vec<String>) {
+        let mut config = self.config.write().await;
+        config.model_config.turn_system_additions = additions;
+    }
+
     /// Access the bus for out-of-band communication (e.g. injecting
     /// steering messages, reading capability registrations).
     pub fn bus(&self) -> &BusHandle {

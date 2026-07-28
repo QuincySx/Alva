@@ -46,6 +46,37 @@ fn placeholder_assistant_message(message_id: &str) -> AgentMessage {
     })
 }
 
+/// Fold per-turn harness additions into the stable system-prompt bucket.
+///
+/// Convention (see `AgentConfig::system_prompt`): every entry except the last
+/// is stable/cacheable; the last is dynamic. When there is only one segment
+/// we treat it as the stable bucket and append in place so the additions sit
+/// with the long-lived instructions rather than the volatile tail.
+fn apply_turn_system_additions(system_prompt: &mut Vec<String>, additions: &[String]) {
+    let joined = additions
+        .iter()
+        .map(String::as_str)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if joined.is_empty() {
+        return;
+    }
+    if system_prompt.is_empty() {
+        system_prompt.push(joined);
+        return;
+    }
+    if system_prompt.len() == 1 {
+        system_prompt[0].push_str("\n\n");
+        system_prompt[0].push_str(&joined);
+        return;
+    }
+    // 2+ segments: last is dynamic, second-to-last is the stable bucket.
+    let idx = system_prompt.len() - 2;
+    system_prompt[idx].push_str("\n\n");
+    system_prompt[idx].push_str(&joined);
+}
+
 // ---------------------------------------------------------------------------
 // Schema pre-baking — freeze each tool's schema against the live bus before
 // the provider sees it
@@ -563,6 +594,14 @@ async fn run_loop(
         };
 
         let mut system_prompt_buf: Vec<String> = config.system_prompt.clone();
+        // Per-turn harness additions (UI-selected skill bodies, etc.) go into
+        // the stable bucket so they sit with cacheable instructions rather
+        // than the volatile RuntimeInject tail. Applied on a clone only —
+        // AgentConfig::system_prompt itself is not mutated.
+        apply_turn_system_additions(
+            &mut system_prompt_buf,
+            &config.model_config.turn_system_additions,
+        );
         let working_messages = context_runtime
             .prepare_llm_context(config, &mut system_prompt_buf, session_messages)
             .await;
@@ -943,5 +982,41 @@ mod tail_chars_tests {
     #[test]
     fn ascii_tail_matches_byte_intuition() {
         assert_eq!(tail_chars("abcdef", 3), "def");
+    }
+}
+
+#[cfg(test)]
+mod turn_system_additions_tests {
+    use super::apply_turn_system_additions;
+
+    #[test]
+    fn empty_additions_leave_prompt_untouched() {
+        let mut prompt = vec!["base".into()];
+        apply_turn_system_additions(&mut prompt, &[]);
+        assert_eq!(prompt, vec!["base".to_string()]);
+    }
+
+    #[test]
+    fn single_segment_appends_in_place() {
+        let mut prompt = vec!["base".into()];
+        apply_turn_system_additions(&mut prompt, &["skill-a".into(), "skill-b".into()]);
+        assert_eq!(prompt, vec!["base\n\nskill-a\n\nskill-b".to_string()]);
+    }
+
+    #[test]
+    fn multi_segment_appends_to_stable_bucket_not_dynamic_tail() {
+        let mut prompt = vec!["stable".into(), "dynamic".into()];
+        apply_turn_system_additions(&mut prompt, &["skill".into()]);
+        assert_eq!(
+            prompt,
+            vec!["stable\n\nskill".to_string(), "dynamic".to_string()]
+        );
+    }
+
+    #[test]
+    fn empty_prompt_receives_additions_as_first_segment() {
+        let mut prompt = Vec::new();
+        apply_turn_system_additions(&mut prompt, &["skill".into()]);
+        assert_eq!(prompt, vec!["skill".to_string()]);
     }
 }

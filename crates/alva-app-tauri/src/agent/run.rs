@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
 
+use alva_agent_extension_builtin::skill_tool::{SkillRegistry, SkillRegistryError};
 use alva_app_core::extension::ApprovalPlugin;
 use alva_app_core::{AlvaPaths, BaseAgent};
 use alva_kernel_abi::agent_session::AgentSession;
@@ -102,11 +103,6 @@ pub async fn send_message(
     // default "New chat".
     update_title_if_default(&state, &session_id, &request.text).await;
 
-    if let Some(skills) = &request.skill_names {
-        if !skills.is_empty() {
-            tracing::info!(?skills, "selected skills for turn (wiring is TODO)");
-        }
-    }
     // Manual tool allow-list for this turn. Enforced as a per-turn ModelConfig
     // override so the shared (cached) agent's registered tool set is not
     // mutated — the next turn can widen the selection again. `None` (no manual
@@ -120,6 +116,12 @@ pub async fn send_message(
             "manual tool allow-list enforced for turn"
         );
     }
+
+    // UI-selected skills for this turn → explicit system-prompt injection.
+    // Always set (including empty) so a previous turn's selection cannot
+    // leak onto a later turn that clears the SkillPicker.
+    let skill_blocks = resolve_selected_skill_blocks(&agent, request.skill_names.as_deref()).await?;
+    agent.set_turn_system_additions(skill_blocks).await;
 
     // Append an eval_config_snapshot event the first time we send a message
     // on this session so the projection layer (Inspector) has the run's
@@ -629,6 +631,58 @@ fn resolve_workspace(
         return Ok(p);
     }
     default_workspace_for(session_id)
+}
+
+/// Expand UI-selected skill names into Explicit/Strict injection blocks via
+/// the bus-published `SkillRegistry` (same path as the model-facing `skill`
+/// tool). Missing or disabled names fail the turn loudly so the picker cannot
+/// silently no-op.
+async fn resolve_selected_skill_blocks(
+    agent: &BaseAgent,
+    skill_names: Option<&[String]>,
+) -> Result<Vec<String>, String> {
+    let Some(names) = skill_names.filter(|n| !n.is_empty()) else {
+        return Ok(Vec::new());
+    };
+
+    let Some(registry) = agent.bus().get::<dyn SkillRegistry>() else {
+        return Err(
+            "skills plugin is not enabled; cannot inject the selected skills".to_string(),
+        );
+    };
+
+    let mut blocks = Vec::with_capacity(names.len());
+    let mut missing = Vec::new();
+    for name in names {
+        match registry.invoke(name, None).await {
+            Ok(block) => blocks.push(block),
+            Err(SkillRegistryError::NotFound(_)) => missing.push(name.clone()),
+            Err(SkillRegistryError::Load(message)) => {
+                return Err(format!("failed to load skill '{name}': {message}"));
+            }
+        }
+    }
+
+    if !missing.is_empty() {
+        let mut available = registry.available_names().await;
+        available.sort();
+        let available = if available.is_empty() {
+            "(none)".to_string()
+        } else {
+            available.join(", ")
+        };
+        return Err(format!(
+            "unknown or disabled skill(s): {}. Available: {available}",
+            missing.join(", ")
+        ));
+    }
+
+    tracing::info!(
+        selected = ?names,
+        count = blocks.len(),
+        "selected skills injected into turn system prompt"
+    );
+    Ok(blocks)
 }
 
 // ---------------------------------------------------------------------------
