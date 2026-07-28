@@ -405,9 +405,16 @@ fn update_session(
     match event {
         RuntimeEvent::SessionStarted { session_id, .. } => {
             session.engine_session_id = Some(session_id.clone());
-            session.status = HubSessionStatus::Running;
+            if session.status != HubSessionStatus::Failed {
+                session.status = HubSessionStatus::Running;
+            }
         }
-        RuntimeEvent::Completed { .. } => session.status = HubSessionStatus::Completed,
+        RuntimeEvent::Error {
+            recoverable: false, ..
+        } => session.status = HubSessionStatus::Failed,
+        RuntimeEvent::Completed { .. } if session.status != HubSessionStatus::Failed => {
+            session.status = HubSessionStatus::Completed;
+        }
         _ => {}
     }
 }
@@ -439,6 +446,81 @@ mod tests {
     use tokio_stream::StreamExt;
 
     use super::*;
+
+    fn session_registry() -> (ProductSessionId, RwLock<HashMap<ProductSessionId, HubSession>>) {
+        let product_session_id = ProductSessionId::new();
+        let sessions = RwLock::new(HashMap::from([(
+            product_session_id.clone(),
+            HubSession {
+                engine_id: EngineId::from("test"),
+                engine_session_id: None,
+                status: HubSessionStatus::Starting,
+            },
+        )]));
+        (product_session_id, sessions)
+    }
+
+    #[test]
+    fn nonrecoverable_error_keeps_session_failed_after_completed() {
+        let (product_session_id, sessions) = session_registry();
+        update_session(
+            &sessions,
+            &product_session_id,
+            &RuntimeEvent::Error {
+                message: "engine failed".into(),
+                recoverable: false,
+            },
+        );
+        update_session(
+            &sessions,
+            &product_session_id,
+            &RuntimeEvent::Completed {
+                session_id: String::new(),
+                result: None,
+                usage: None,
+            },
+        );
+
+        assert_eq!(
+            sessions.read().unwrap()[&product_session_id].status,
+            HubSessionStatus::Failed
+        );
+    }
+
+    #[test]
+    fn recoverable_error_allows_normal_completion() {
+        let (product_session_id, sessions) = session_registry();
+        update_session(
+            &sessions,
+            &product_session_id,
+            &RuntimeEvent::Error {
+                message: "temporary failure".into(),
+                recoverable: true,
+            },
+        );
+        update_session(
+            &sessions,
+            &product_session_id,
+            &RuntimeEvent::SessionStarted {
+                session_id: "native-session".into(),
+                model: None,
+                tools: vec![],
+            },
+        );
+        update_session(
+            &sessions,
+            &product_session_id,
+            &RuntimeEvent::Completed {
+                session_id: "native-session".into(),
+                result: Some("done".into()),
+                usage: None,
+            },
+        );
+
+        let session = &sessions.read().unwrap()[&product_session_id];
+        assert_eq!(session.status, HubSessionStatus::Completed);
+        assert_eq!(session.engine_session_id.as_deref(), Some("native-session"));
+    }
 
     struct PendingEngine;
 
@@ -477,6 +559,51 @@ mod tests {
 
     struct BrokenEngine {
         calls: AtomicUsize,
+    }
+
+    struct ErrorBeforeStartEngine;
+
+    #[async_trait]
+    impl EngineRuntime for ErrorBeforeStartEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::Error {
+                    message: "bridge spawn failed".into(),
+                    recoverable: false,
+                },
+                RuntimeEvent::Completed {
+                    session_id: String::new(),
+                    result: None,
+                    usage: None,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
     }
 
     #[async_trait]
@@ -671,6 +798,39 @@ mod tests {
         ));
         let session = hub.session(&events[0].product_session_id).unwrap();
         assert_eq!(session.status, HubSessionStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn error_before_session_started_then_completed_stays_failed() {
+        let hub = HubRuntime::new();
+        hub.register_engine("spawn-error", Arc::new(ErrorBeforeStartEngine))
+            .unwrap();
+
+        let events: Vec<_> = hub
+            .execute(HubRequest::new("spawn-error", RuntimeRequest::new("hello")))
+            .unwrap()
+            .collect()
+            .await;
+
+        assert!(matches!(
+            events.as_slice(),
+            [
+                HubEvent {
+                    event: RuntimeEvent::Error {
+                        recoverable: false,
+                        ..
+                    },
+                    ..
+                },
+                HubEvent {
+                    event: RuntimeEvent::Completed { .. },
+                    ..
+                },
+            ]
+        ));
+        let session = hub.session(&events[0].product_session_id).unwrap();
+        assert_eq!(session.status, HubSessionStatus::Failed);
+        assert!(session.engine_session_id.is_none());
     }
 
     #[tokio::test]

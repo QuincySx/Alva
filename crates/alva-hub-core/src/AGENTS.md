@@ -10,7 +10,7 @@
 1. 注册 product-visible `EngineId -> Arc<dyn EngineRuntime>`；同名替换 fail closed，避免已有 native session 被路由到新 engine 实例。
 2. 生成并保存 Hub `ProductSessionId`，再从 engine event 获取独立的 engine session ID。
 3. dispatch、resume、cancel、permission 均先按 product session 路由到对应 engine。
-4. 同一 product session 的 execute 在一个写锁内抢占 `Starting` 状态，防止并发 resume；违反终止契约的 engine stream 会被投影为 `Failed` 并补齐 Error/Completed。
+4. 同一 product session 的 execute 在一个写锁内抢占 `Starting` 状态，防止并发 resume；非恢复性 `RuntimeEvent::Error` 会锁定 `Failed`，后续 `Completed` 不得覆盖，恢复性错误则允许正常完成。违反终止契约的 engine stream 会被投影为 `Failed` 并补齐 Error/Completed。
 
 ## 约束
 
