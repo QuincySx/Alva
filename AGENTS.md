@@ -110,14 +110,13 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-sandbox-wasm` | Native-only WASIp1 模块宿主 runner。每次调用新建 wasmtime `Engine` / `Store` / `WasiCtx`，把 job 授权目录作为 preopen 映射进 guest，并捕获退出码与 stdout/stderr；提供 L0 DTO 驱动的 ptr/len LLM / host escalation import 桥、guest cwd→`RunRequest.grants` host path 安全翻译、宿主强制域名白名单/逐跳重定向校验的 fetch import，以及不持有落盘策略的有界 audit event import。 |
 | `alva-worker-wasm` | WASIp1 agent worker：用 SDK `AgentBuilder` + WASI 文件工具在 guest 内运行真 agent loop，经版本化、限额化 ptr/len import 接收宿主解析的 `wasm-env`、代理宿主 LLM stream、同步 fetch、`request_escalation` 与单向 audit event；workspace、任务、授权 guest path 与结果通道全部由 WASI args 注入，environment 正文不进 argv，审批模式/宿主路径/job 日志路径不进入 guest。 |
 
-### L4.5：引擎桥接（给 app 层用的统一引擎接口）
+### L4.5：引擎契约与 SDK bridge
 
-> **状态（2026-07）**：整簇零生产消费者（Tauri/CLI 均未接 `EngineRuntime`）。按 PR-8 裁决缓刑至 2026-12：期满仍无消费者即移出 workspace。跨环境子 agent 方案若采用 in-process adapter 先例（见 2026-07-02 wasm 可行性文档），本层将获得真实存在理由。
+> 引擎 contract 是轻量 SDK；若存在 SDK adapter，只能保持 SDK-clean。原生 `alva-app-cli` / `alva-app-tauri` 不接 `EngineRuntime`，继续是直接消费 `alva-app-core` 的 Alva 产品入口。
 
 | crate | 职责 |
 |------|------|
 | `alva-engine-runtime` | `EngineRuntime` trait：`execute` / `cancel` / `respond_permission` / `capabilities`。让 app 层用同一套接口驱动多种 agent 后端。 |
-| `alva-engine-adapter-alva` | 本地 Alva agent 适配器：`AgentEvent → RuntimeEvent` 映射，直接 Rust 调用 `alva-host-native`。 |
 | `alva-engine-adapter-claude` | Claude Code SDK 适配器：Node.js bridge + JSON-line 协议。 |
 
 ### L5：协议与基础设施
@@ -141,6 +140,28 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | `alva-app-devtools-mcp` | MCP 服务器：包装 `alva-app-debug` HTTP API，供外部 IDE 调试。 |
 | `alva-app-tauri` | Tauri 2 桌面壳 + React/Vite 前端：新一代 GUI，内置 Inspector、持久化 session（SQLite）、多窗口。 |
 | `alva-app-gateway` | 内嵌 HTTP gateway（OpenAI 兼容对外面）。**被 `alva-app-tauri::start_gateway` 承重**——曾被误判为死代码，勿删。 |
+
+### L7：Hub 产品聚合层（位于原生 app 之上）
+
+> Alva Hub 不改写原生 CLI/Tauri 的入口。它把多 engine session、会话路由和跨 engine 编排提到产品层；Hub 内的 Alva adapter 依赖 `alva-app-core`，因此必须位于 SDK 与原生 app 之上。
+
+```text
+alva-hub-cli / future alva-hub-desktop
+                  │
+             alva-hub-core
+                  │
+          alva-engine-runtime
+                  │
+       alva-engine-adapter-alva
+                  │
+             alva-app-core
+```
+
+| crate | 职责 |
+|------|------|
+| `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
+| `alva-engine-adapter-alva` | Hub 的 Alva adapter：每个 engine session 由 `BaseAgentFactory` 构造独立的完整 `BaseAgent`，保留 harness 语义。 |
+| `alva-hub-cli` | Alva Hub 最小单次执行 CLI：注册 Alva app adapter 并驱动 Hub registry；与原生 `alva-app-cli` 保持独立。 |
 
 ---
 

@@ -2,7 +2,7 @@
 > 多引擎架构的统一运行时接口层，定义所有引擎适配器必须实现的 trait 和共享类型。
 
 ## 地位
-本模块是多引擎架构的核心抽象层。上层消费者（如 alva-app-core）仅依赖此 crate 的 `EngineRuntime` trait 和类型定义，对具体引擎实现（alva-engine-adapter-alva、alva-engine-adapter-claude 等）保持无感知。所有适配器的输入（RuntimeRequest）、输出（RuntimeEvent）、错误（RuntimeError）和能力声明（RuntimeCapabilities）均在此统一定义。
+本模块是多引擎架构的核心抽象层。上层产品消费者（当前为 `alva-hub-core`）仅依赖此 crate 的 `EngineRuntime` trait 和类型定义，对具体引擎实现保持无感知。所有适配器的输入（RuntimeRequest）、输出（RuntimeEvent）、错误（RuntimeError）和能力声明（RuntimeCapabilities）均在此统一定义。
 
 ## 逻辑
 1. `EngineRuntime` trait 定义四个方法：`execute()` 返回事件流、`cancel()` 取消会话、`respond_permission()` 响应权限请求、`capabilities()` 查询引擎能力。

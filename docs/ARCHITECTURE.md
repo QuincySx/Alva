@@ -71,6 +71,30 @@ SessionEvent + AgentEvent
 RunRecord / Inspector / CLI diagnostics
 ```
 
+Alva Hub is a separate product path above the native harness. Native CLI and
+Tauri do not consume the multi-engine contract:
+
+```text
+alva-hub-cli / future alva-hub-desktop
+        |
+        v
+alva-hub-core
+  product session != engine session
+  dispatch / resume / cancel / permission routing
+        |
+        v
+alva-engine-runtime (neutral contract)
+        |
+        v
+alva-engine-adapter-alva
+        |
+        v
+alva-app-core::BaseAgent
+        |
+        v
+the native SDK/kernel flow above
+```
+
 ## Layer Map
 
 | Layer | Crates | Responsibility |
@@ -87,11 +111,16 @@ RunRecord / Inspector / CLI diagnostics
 | L4 | `alva-app-extension-browser` | browser automation plugin; native/heavy |
 | L4 | `alva-app-extension-memory` | SQLite memory backend; native/heavy |
 | L4 | `alva-app-extension-loader` | AEP subprocess plugin loader |
+| L4.5 | `alva-engine-runtime` | lightweight multi-engine request/event/control contract |
+| L4.5 | `alva-engine-adapter-claude` | SDK-clean Claude bridge implementation of the engine contract |
 | L5 | `alva-app-core` | BaseAgent harness, component catalog, app-layer plugins, session projection |
 | L5 | `alva-host-native` | native host assembly and native middleware |
 | L5 | `alva-host-wasm` | wasm host facade |
 | L6 | `alva-app-cli` | terminal product |
 | L6 | `alva-app-tauri` | Tauri desktop product and Inspector |
+| L7 | `alva-hub-core` | product-level engine registry and product/native session supervision |
+| L7 | `alva-engine-adapter-alva` | canonical app-layer Alva adapter; builds one complete BaseAgent per engine session |
+| L7 | `alva-hub-cli` | minimal Hub product proving the multi-engine path without changing native CLI/Tauri |
 
 ## Plugin Assembly
 
@@ -150,7 +179,9 @@ This avoids each product hand-copying its own plugin/middleware stack.
 ## Platform Boundary
 
 SDK crates must not depend on `alva-app-*` or `alva-host-*`. This is enforced by
-`scripts/ci-check-deps.sh`.
+`scripts/ci-check-deps.sh`. `alva-engine-runtime` remains part of that SDK
+boundary; `alva-engine-adapter-alva` is deliberately outside it because the
+canonical adapter now wraps the complete app-level `BaseAgent`.
 
 wasm-clean crates are checked explicitly. Native-only crates such as
 `alva-host-native` are not required to compile for wasm; wasm assembly belongs
