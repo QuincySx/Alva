@@ -1,14 +1,15 @@
-// INPUT:  alva_kernel_abi::scope::context::*, alva_kernel_abi::AgentMessage, alva_kernel_abi::Message
+// INPUT:  alva_kernel_abi context types (Injection, CompressAction, ContextHandle, …)
 // OUTPUT: pub fn apply_injections, pub async fn apply_compressions
-// POS:    Runtime helpers for applying context hook results to agent state.
-//         Moved from alva_kernel_abi::context::apply — types crate should not contain runtime logic.
+// POS:    Runtime helpers that apply context-hook results to system prompt /
+//         message state. Lives in kernel-core (L2) so the pure-contract L1 ABI
+//         crate does not own execution logic.
 
-use crate::base::content::ContentBlock;
-use crate::base::message::{Message, MessageRole};
-use crate::scope::context::{
+use alva_kernel_abi::base::content::ContentBlock;
+use alva_kernel_abi::base::message::{Message, MessageRole};
+use alva_kernel_abi::scope::context::{
     CompressAction, ContextHandle, Injection, InjectionContent, MessageSelector,
 };
-use crate::AgentMessage;
+use alva_kernel_abi::AgentMessage;
 use tracing::debug;
 
 /// Apply a list of Injections to the layered system prompt and message
@@ -251,12 +252,12 @@ mod tests {
     //! Summarize variant actually invokes `handle.summarize()` and that
     //! noop returns a known string we can assert on.
     use super::*;
-    use crate::base::message::{Message, MessageRole};
-    use crate::scope::context::{
+    use alva_kernel_abi::base::message::{Message, MessageRole};
+    use alva_kernel_abi::scope::context::{
         CompressAction, ContextLayer, Injection, InjectionContent, MemoryCategory, MemoryFact,
-        MessageRange, MessageSelector, NoopContextHandle, PromptSection,
+        MessageRange, MessageSelector, NoopContextHandle, PromptSection, Priority,
     };
-    use crate::AgentMessage;
+    use alva_kernel_abi::AgentMessage;
 
     fn user_msg(text: &str) -> AgentMessage {
         AgentMessage::Standard(Message::user(text))
@@ -346,7 +347,7 @@ mod tests {
         let section = PromptSection {
             id: "identity".to_string(),
             content: "You are Claude.".to_string(),
-            priority: crate::scope::context::Priority::Critical,
+            priority: Priority::Critical,
         };
         apply_injections(vec![Injection::system_prompt(section)], &mut sys, &mut msgs);
         assert!(sys[0].ends_with("You are Claude."));
@@ -762,7 +763,7 @@ mod tests {
                     path: "/tmp/x".to_string(),
                 },
                 CompressAction::RemoveByPriority {
-                    priority: crate::scope::context::Priority::Low,
+                    priority: Priority::Low,
                 },
             ],
             &mut msgs,

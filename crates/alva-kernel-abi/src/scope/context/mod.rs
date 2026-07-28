@@ -3,15 +3,17 @@
 // POS:    Shared context management vocabulary — traits, value types, container, and bus events for context observability.
 //! Context management shared vocabulary.
 //!
-//! This module provides the **trait definitions**, **value types**, the **ContextSystem**
-//! container, and pure **apply** helpers that multiple crates need. Concrete implementations
-//! (e.g., `DefaultContextHooks`, `RulesContextHooks`, `ContextHooksChain`,
-//! `ContextHandleImpl`, `ContextStore`, `InMemorySession`) live in `alva-agent-context`.
+//! This module provides the **trait definitions**, **value types**, and the
+//! **ContextSystem** container. Concrete implementations (e.g.,
+//! `DefaultContextHooks`, `RulesContextHooks`, `ContextHooksChain`,
+//! `ContextHandleImpl`, `ContextStore`) live in `alva-agent-context`. Runtime
+//! apply helpers (`apply_injections` / `apply_compressions`) live in
+//! `alva-kernel-core::context_apply` so this pure-contract crate does not own
+//! execution logic.
 //!
-//! By placing traits and types here in `alva-kernel-abi`, the core agent crate can depend on
-//! types alone, making the full context system an optional plugin.
+//! By placing traits and types here in `alva-kernel-abi`, the core agent crate
+//! can depend on types alone, making the full context system an optional plugin.
 
-mod apply;
 mod error;
 mod events;
 mod noop;
@@ -20,7 +22,6 @@ mod traits;
 mod types;
 
 // Re-export everything so `alva_kernel_abi::scope::context::*` continues to work.
-pub use apply::{apply_compressions, apply_injections};
 pub use error::*;
 pub use events::*;
 pub use noop::*;

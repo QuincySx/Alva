@@ -4,6 +4,7 @@
 
 pub mod agent_session;
 pub mod builtins;
+pub mod context_apply;
 pub mod context_runtime;
 pub mod event;
 pub mod middleware;
@@ -38,6 +39,9 @@ pub use runtime_context::RuntimeExecutionContext;
 // Re-exports — builtins
 pub use builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
 pub use context_runtime::ContextRuntime;
+
+// Re-exports — context apply helpers (runtime logic; contract types stay in abi).
+pub use context_apply::{apply_compressions, apply_injections};
 
 // Re-exports — concrete AgentSession backends (contract stays in alva-kernel-abi,
 // re-exported through agent_session for one-path consumer imports).

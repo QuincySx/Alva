@@ -1,9 +1,9 @@
 use alva_kernel_abi::scope::context::{
-    apply_compressions, apply_injections, ContextEntry, ContextLayer, ContextMetadata,
-    ContextSnapshot, Injection,
+    ContextEntry, ContextLayer, ContextMetadata, ContextSnapshot, Injection,
 };
 use alva_kernel_abi::{AgentMessage, BusHandle};
 
+use crate::context_apply::{apply_compressions, apply_injections};
 use crate::state::AgentConfig;
 
 pub struct ContextRuntime {

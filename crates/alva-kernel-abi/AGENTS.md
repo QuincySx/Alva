@@ -25,7 +25,11 @@ structs.
 - **Provider** (`provider.rs`) — `Provider` trait, `ProviderError`, `ProviderRegistry`.
 
 ## Constraints
-- Zero runtime dependencies (no tokio, no IO) beyond async-trait and serde
+- Prefer pure contracts: traits, enums, value types. Runtime apply helpers
+  (`apply_injections` / `apply_compressions`) live in `alva-kernel-core`.
+- Concrete session backends (`InMemoryAgentSession`) live in `alva-kernel-core`.
+- Remaining runtime still hosted here (to migrate): `tool/scheduler.rs`
+  (`ToolLockRegistry` implementation).
 - All traits are `Send + Sync`
 - `ToolContext` is a trait (not a struct) to stay generic across deployments
 

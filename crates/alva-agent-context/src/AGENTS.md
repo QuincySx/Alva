@@ -31,7 +31,7 @@
 | 会话存储 | `session.rs` | `SessionAccess` re-export 与 `InMemorySession` |
 | Hooks 组合 | `chain.rs` | `ContextHooksChain` |
 | 默认系统 | `context_system.rs` | `ContextSystem` re-export 与 `default_context_system()` |
-| 运行时应用 | `apply.rs` | `apply_injections()`、`apply_compressions()` |
+| 运行时应用 | `alva-kernel-core::context_apply` | `apply_injections()`、`apply_compressions()`（L2 runtime，不在本 crate） |
 | 规则策略 | `rules_plugin.rs` | `RulesContextHooks` |
 | 默认策略 | `default_plugin.rs` | `DefaultContextHooks`、`DefaultHooksConfig` |
 | 类型导出 | `types.rs` | context 相关共享值对象 re-export |
