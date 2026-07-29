@@ -167,6 +167,33 @@ for crate in "${SDK_CRATES[@]}"; do
     fi
 done
 
+# Rule 18: Native product entrypoints (CLI / Tauri) must NOT depend on the
+# multi-engine contract or any engine adapter — not even transitively.
+# EngineRuntime is for Hub (and other multi-engine products); native clients
+# stay on BaseAgent so Engine contract churn cannot break three frontends
+# at once. Hub is free to depend on alva-engine-*.
+echo ""
+echo "Checking native products do not depend on alva-engine-* (Rule 18)..."
+
+NATIVE_PRODUCTS=(
+    alva-app-cli
+    alva-app-tauri
+)
+
+for crate in "${NATIVE_PRODUCTS[@]}"; do
+    bad=$(cargo tree -p "$crate" --prefix none -e normal --all-features 2>/dev/null \
+        | grep -E "^alva-engine" \
+        || true)
+    if [ -n "$bad" ]; then
+        echo -e "${RED}VIOLATION: native product $crate depends on alva-engine-*:${NC}"
+        echo "$bad" | sed 's/^/    /'
+        echo "    EngineRuntime is Hub/multi-engine only; keep CLI/Tauri on BaseAgent."
+        VIOLATIONS=$((VIOLATIONS + 1))
+    else
+        echo -e "${GREEN}OK: $crate${NC}"
+    fi
+done
+
 echo ""
 if [ $VIOLATIONS -gt 0 ]; then
     echo -e "${RED}FAILED: $VIOLATIONS dependency violation(s) found${NC}"

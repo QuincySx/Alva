@@ -189,9 +189,14 @@ This avoids each product hand-copying its own plugin/middleware stack.
 ## Platform Boundary
 
 SDK crates must not depend on `alva-app-*` or `alva-host-*`. This is enforced by
-`scripts/ci-check-deps.sh`. `alva-engine-runtime` remains part of that SDK
-boundary; `alva-engine-adapter-alva` is deliberately outside it because the
+`scripts/ci-check-deps.sh` (Rule 17). `alva-engine-runtime` remains part of that
+SDK boundary; `alva-engine-adapter-alva` is deliberately outside it because the
 canonical adapter now wraps the complete app-level `BaseAgent`.
+
+Native product entrypoints must not depend on `alva-engine-*` (Rule 18):
+`alva-app-cli` and `alva-app-tauri` stay on `BaseAgent`. Only Hub (and other
+multi-engine products) consume `EngineRuntime`, so engine-contract changes do
+not force a three-client blast radius.
 
 wasm-clean crates are checked explicitly. Native-only crates such as
 `alva-host-native` are not required to compile for wasm; wasm assembly belongs

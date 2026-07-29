@@ -49,11 +49,15 @@ BaseAgent::builder()
 agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime，互不依赖。
 当前由 `alva-app-core::EvaluationPlugin` 在内部使用。
 
-### CI 强制边界（Rule 17）
+### CI 强制边界（Rule 17 / Rule 18）
 
-`scripts/ci-check-deps.sh` 强制：所有 SDK crate 不得（传递）依赖任何 `alva-app-*` 或
-`alva-host-*` crate。这是项目最重要的分层约束——SDK 必须能被第三方拿去搭自己的 harness，
-不能拖一坨我们自己的 harness 决策。
+`scripts/ci-check-deps.sh` 强制：
+
+- **Rule 17**：所有 SDK crate 不得（传递）依赖任何 `alva-app-*` 或 `alva-host-*`
+  crate。SDK 必须能被第三方拿去搭自己的 harness，不能拖一坨我们自己的 harness 决策。
+- **Rule 18**：原生产品入口 `alva-app-cli` / `alva-app-tauri` 不得（传递）依赖任何
+  `alva-engine-*`。`EngineRuntime` 只服务 Hub 等多引擎产品；CLI/Tauri 继续直连
+  `BaseAgent`，避免 multi-engine 合约变更同时打穿三端。
 
 ---
 
