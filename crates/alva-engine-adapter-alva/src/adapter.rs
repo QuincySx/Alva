@@ -215,7 +215,9 @@ impl EngineRuntime for AlvaAdapter {
 mod tests {
     use std::sync::Arc;
 
-    use alva_engine_runtime::{EngineRuntime, RuntimeEvent, RuntimeRequest};
+    use alva_engine_runtime::{
+        validate_event_stream, EngineRuntime, RuntimeEvent, RuntimeRequest,
+    };
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
     use tokio_stream::StreamExt;
@@ -244,8 +246,12 @@ mod tests {
             .any(|event| matches!(event, RuntimeEvent::Message { .. })));
         assert!(matches!(
             events.last(),
-            Some(RuntimeEvent::Completed { .. })
+            Some(RuntimeEvent::Completed { result: Some(text), .. }) if text == "hub"
         ));
+        assert!(
+            validate_event_stream(&events).is_ok(),
+            "Alva adapter stream must satisfy multi-engine contract: {events:?}"
+        );
     }
 
     #[tokio::test]

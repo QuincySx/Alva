@@ -7,21 +7,33 @@ use serde::{Deserialize, Serialize};
 
 /// Unified event type emitted by all engine adapters.
 ///
-/// **Termination semantics:** `Completed` is the only terminal event.
-/// On errors, adapters emit `Error { recoverable: false }` followed by
-/// `Completed { result: None }`. Consumers should wait for `Completed`
-/// to finalize cleanup.
+/// Lifecycle and pairing rules live in [`crate::stream_contract`] — that
+/// module is the source of truth; the notes below are a quick reference.
+///
+/// **Termination:** `Completed` is the only terminal event and must be last.
+/// On fatal errors adapters emit `Error { recoverable: false }` then
+/// `Completed { result: None }`. Consumers wait for `Completed` before cleanup.
+///
+/// **Tools:** announced via `ToolStart` / finished via `ToolEnd` (same `id`).
+/// Never embed ToolUse/ToolResult inside `Message.content`.
+///
+/// **Streaming:** `MessageDelta` carries only consumer-visible deltas
+/// (`TextDelta` / `ReasoningDelta`). Control frames must be filtered.
+///
+/// **Completed.result:** last assistant text when the run succeeded and a
+/// final answer exists; `None` on failure or empty output. Never a
+/// placeholder like `"completed"`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event_type")]
 pub enum RuntimeEvent {
-    /// Session has started.
+    /// Session has started (at most once per execute stream).
     SessionStarted {
         session_id: String,
         model: Option<String>,
         tools: Vec<String>,
     },
 
-    /// Complete assistant message.
+    /// Complete assistant message (non-tool content only).
     ///
     /// `content` does NOT contain ToolUse/ToolResult blocks — those are
     /// extracted into separate ToolStart/ToolEnd events.
@@ -31,20 +43,22 @@ pub enum RuntimeEvent {
         content: Vec<ContentBlock>,
     },
 
-    /// Streaming delta (reuses alva_kernel_abi::StreamEvent).
+    /// Streaming delta for the current assistant message.
+    ///
+    /// Only [`StreamEvent::TextDelta`] and [`StreamEvent::ReasoningDelta`].
     MessageDelta { id: String, delta: StreamEvent },
 
-    /// Tool call started.
+    /// Tool call announced / started (opens id for a later ToolEnd).
     ToolStart {
         id: String,
         name: String,
         input: serde_json::Value,
     },
 
-    /// Tool call ended.
+    /// Tool call finished.
     ///
     /// Adapters must maintain a `HashMap<tool_use_id, tool_name>` to
-    /// populate `name` since SDK tool_result only carries tool_use_id.
+    /// populate `name` when the backend only returns tool_use_id.
     ToolEnd {
         id: String,
         name: String,
@@ -52,7 +66,7 @@ pub enum RuntimeEvent {
         duration_ms: Option<u64>,
     },
 
-    /// Permission approval required from the user.
+    /// Permission approval required from the user (capability-gated).
     PermissionRequest {
         request_id: String,
         tool_name: String,
@@ -60,14 +74,17 @@ pub enum RuntimeEvent {
         description: Option<String>,
     },
 
-    /// Session completed (always the final event).
+    /// Session completed — always the final event, exactly once.
     Completed {
         session_id: String,
+        /// Final assistant text when available; never a status placeholder.
         result: Option<String>,
         usage: Option<RuntimeUsage>,
     },
 
     /// Error during execution.
+    ///
+    /// `recoverable: false` requires a following `Completed`.
     Error { message: String, recoverable: bool },
 }
 

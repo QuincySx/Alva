@@ -130,9 +130,12 @@ impl EventMapper {
                 let name = "shell".to_string();
                 let input = serde_json::json!({ "command": command });
                 match phase {
-                    ItemPhase::Started | ItemPhase::Updated => {
+                    // Only open once — item.updated must not re-emit ToolStart
+                    // (stream contract: no duplicate open id).
+                    ItemPhase::Started => {
                         vec![RuntimeEvent::ToolStart { id, name, input }]
                     }
+                    ItemPhase::Updated => Vec::new(),
                     ItemPhase::Completed => {
                         let body = aggregated_output.unwrap_or_default();
                         let is_error = exit_code.map(|c| c != 0).unwrap_or(false);
@@ -161,9 +164,10 @@ impl EventMapper {
                 let name = name.unwrap_or_else(|| "mcp_tool".into());
                 let input = arguments.unwrap_or_else(|| serde_json::json!({}));
                 match phase {
-                    ItemPhase::Started | ItemPhase::Updated => {
+                    ItemPhase::Started => {
                         vec![RuntimeEvent::ToolStart { id, name, input }]
                     }
+                    ItemPhase::Updated => Vec::new(),
                     ItemPhase::Completed => {
                         let body = result.map(|v| v.to_string()).unwrap_or_default();
                         vec![RuntimeEvent::ToolEnd {
@@ -232,5 +236,60 @@ mod tests {
             other => panic!("expected Message, got {other:?}"),
         }
         assert_eq!(mapper.last_agent_text(), Some("hello from codex"));
+    }
+
+    #[test]
+    fn tool_item_updated_does_not_duplicate_tool_start() {
+        use alva_engine_runtime::validate_event_stream;
+
+        let mut mapper = EventMapper::new();
+        let mut stream = Vec::new();
+        stream.extend(mapper.map(CodexEvent::ThreadStarted {
+            thread_id: Some("t".into()),
+        }));
+        stream.extend(mapper.map(CodexEvent::ItemStarted {
+            item: CodexItem::CommandExecution {
+                id: Some("c1".into()),
+                command: Some("ls".into()),
+                aggregated_output: None,
+                exit_code: None,
+                status: Some("in_progress".into()),
+            },
+        }));
+        // Updated must not re-open the same tool id.
+        stream.extend(mapper.map(CodexEvent::ItemUpdated {
+            item: CodexItem::CommandExecution {
+                id: Some("c1".into()),
+                command: Some("ls".into()),
+                aggregated_output: Some("partial".into()),
+                exit_code: None,
+                status: Some("in_progress".into()),
+            },
+        }));
+        stream.extend(mapper.map(CodexEvent::ItemCompleted {
+            item: CodexItem::CommandExecution {
+                id: Some("c1".into()),
+                command: Some("ls".into()),
+                aggregated_output: Some("ok".into()),
+                exit_code: Some(0),
+                status: Some("completed".into()),
+            },
+        }));
+        stream.extend(mapper.map(CodexEvent::ItemCompleted {
+            item: CodexItem::AgentMessage {
+                id: Some("a".into()),
+                text: Some("done".into()),
+            },
+        }));
+        // Synthesize terminal the way the adapter does after stdout EOF.
+        stream.push(RuntimeEvent::Completed {
+            session_id: "t".into(),
+            result: mapper.last_agent_text().map(str::to_string),
+            usage: Some(mapper.usage()),
+        });
+        assert!(
+            validate_event_stream(&stream).is_ok(),
+            "stream must satisfy multi-engine contract: {stream:?}"
+        );
     }
 }
