@@ -1,5 +1,6 @@
 // INPUT:  RuntimeEvent, StreamEvent (via RuntimeEvent::MessageDelta)
-// OUTPUT: StreamContract, StreamContractError, validate_event_stream, is_consumer_visible_delta
+// OUTPUT: StreamContract, StreamContractError, validate_event_stream, is_consumer_visible_delta,
+//         is_fatal_error, is_terminal_runtime_event, SoftStreamWarning
 // POS:    Shared multi-engine stream invariants — adapters must produce streams that pass these checks.
 
 //! Stream contract for multi-engine adapters.
@@ -10,6 +11,22 @@
 //! Hub (and any future multi-engine consumer) must be able to rely on one
 //! lifecycle, not three dialectics. This module is the single place those
 //! rules live — adapters unit-test against it; Hub may enforce it in debug.
+//!
+//! # Lessons absorbed from cindy (`makecindy/cindy`)
+//!
+//! cindy already paid for multi-vendor (Claude Code + Codex) event-model bugs.
+//! We map their hard-won semantics onto our smaller `RuntimeEvent` surface
+//! instead of copying their full taxonomy:
+//!
+//! | cindy concept | Our mapping |
+//! |---------------|-------------|
+//! | `done` is turn-terminal | `Completed` is the **only** consumer terminal |
+//! | `error.isTerminal` / `willRetry` | `Error.recoverable == false` / `true` |
+//! | terminal error must not also `done` in a way that double-ends | fatal `Error` then **only** `Completed` (no mid-stream events after fatal) |
+//! | retryable error must not free UI "running" | consumers wait for `Completed`; recoverable Error is informational |
+//! | unknown SDK messages: warn + drop | adapters return `[]` for unknown frames |
+//! | silent-stop vs empty-response | adapter policy (see claude mapper); contract only requires clean close |
+//! | tool args deltas ≠ UI text | `MessageDelta` only Text/Reasoning (`is_consumer_visible_delta`) |
 //!
 //! # Canonical lifecycle
 //!
@@ -24,9 +41,8 @@
 //!
 //! 1. **`Completed` is the only terminal event** and must appear exactly once,
 //!    as the last event. Consumers wait for it before cleanup.
-//! 2. **Non-recoverable `Error` must be followed by `Completed`** (possibly
-//!    with other events only if they already flushed — prefer immediate pair).
-//!    After a fatal Error, only `Completed` may still appear.
+//! 2. **Non-recoverable `Error` must be followed by `Completed`**. After a
+//!    fatal Error, **only** `Completed` may still appear (no tools/messages).
 //! 3. **No events after `Completed`**.
 //! 4. **`SessionStarted` at most once** (zero is tolerated for broken engines
 //!    that die before init, but production adapters should emit it).
@@ -36,7 +52,7 @@
 //!    before `ToolEnd` is a hard error.
 //! 6. **`MessageDelta` payload**: only consumer-visible stream deltas
 //!    (`TextDelta`, `ReasoningDelta`) should be forwarded. Control frames
-//!    (`Start`/`Done`/`Usage`/…) must be filtered by adapters.
+//!    and tool-arg deltas must be filtered by adapters.
 //! 7. **`Message.content`**: no `ToolUse` / `ToolResult` blocks — those are
 //!    `ToolStart` / `ToolEnd` only.
 //!
@@ -82,6 +98,8 @@ pub enum StreamContractViolation {
     DuplicateCompleted,
     /// Fatal `Error` was not followed by `Completed` as the next (or final) event.
     FatalErrorWithoutCompleted,
+    /// Non-`Completed` event after a fatal `Error` (double-end / dirty teardown).
+    EventAfterFatalError,
     /// `ToolStart` for an id that is already open.
     DuplicateToolStart { id: String },
     /// `ToolEnd` for an id with no open `ToolStart`.
@@ -102,6 +120,9 @@ impl fmt::Display for StreamContractViolation {
             Self::FatalErrorWithoutCompleted => {
                 write!(f, "fatal Error must be followed by Completed")
             }
+            Self::EventAfterFatalError => {
+                write!(f, "only Completed may follow a fatal Error")
+            }
             Self::DuplicateToolStart { id } => {
                 write!(f, "duplicate ToolStart for id '{id}' before ToolEnd")
             }
@@ -116,9 +137,56 @@ impl fmt::Display for StreamContractViolation {
     }
 }
 
+/// Soft (non-fatal) stream hygiene issues — useful in debug / adapter tests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SoftStreamWarning {
+    /// `ToolStart` without matching `ToolEnd` when the stream finished.
+    UnclosedTool { id: String },
+    /// Stream never emitted `SessionStarted`.
+    MissingSessionStarted,
+    /// Fatal path closed with a non-empty `Completed.result` (usually wrong).
+    FatalCompletedWithResult,
+}
+
+impl fmt::Display for SoftStreamWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnclosedTool { id } => write!(f, "unclosed ToolStart id '{id}'"),
+            Self::MissingSessionStarted => write!(f, "stream missing SessionStarted"),
+            Self::FatalCompletedWithResult => {
+                write!(f, "fatal Error path Completed with non-empty result")
+            }
+        }
+    }
+}
+
+/// Whether this event is a non-recoverable engine error.
+///
+/// cindy: `isTerminal === true` / missing flags default terminal.
+/// `recoverable: true` ≈ cindy `willRetry` / non-terminal error banner.
+pub fn is_fatal_error(event: &RuntimeEvent) -> bool {
+    matches!(
+        event,
+        RuntimeEvent::Error {
+            recoverable: false,
+            ..
+        }
+    )
+}
+
+/// Whether consumers may treat the turn as finished and free running state.
+///
+/// **Only `Completed`.** Unlike cindy (where terminal error alone can end a
+/// turn), our adapters always pair fatal errors with `Completed` so Hub has
+/// one cleanup edge. Do not free UI on recoverable `Error`.
+pub fn is_terminal_runtime_event(event: &RuntimeEvent) -> bool {
+    matches!(event, RuntimeEvent::Completed { .. })
+}
+
 /// Whether a [`StreamEvent`] is useful for product UI streaming.
 ///
 /// Adapters must only emit these as `RuntimeEvent::MessageDelta`.
+/// Tool-arg partial JSON (`ToolCallDelta`) and control frames stay adapter-local.
 pub fn is_consumer_visible_delta(delta: &StreamEvent) -> bool {
     matches!(
         delta,
@@ -144,6 +212,8 @@ pub struct StreamContract {
     /// Fatal error seen; next non-Completed hard-fails, Completed closes.
     awaiting_completed_after_fatal: bool,
     fatal_error_index: Option<usize>,
+    /// Soft: Completed after fatal had a result string.
+    fatal_completed_with_result: bool,
 }
 
 impl StreamContract {
@@ -160,6 +230,16 @@ impl StreamContract {
             return Err(StreamContractError {
                 index,
                 kind: StreamContractViolation::EventAfterCompleted,
+            });
+        }
+
+        // cindy empty-response lesson: after a terminal error, do not keep
+        // emitting mid-turn content that forces a second "end" path.
+        if self.awaiting_completed_after_fatal && !matches!(event, RuntimeEvent::Completed { .. })
+        {
+            return Err(StreamContractError {
+                index,
+                kind: StreamContractViolation::EventAfterFatalError,
             });
         }
 
@@ -214,12 +294,17 @@ impl StreamContract {
                     self.fatal_error_index = Some(index);
                 }
             }
-            RuntimeEvent::Completed { .. } => {
+            RuntimeEvent::Completed { result, .. } => {
                 if self.completed {
                     return Err(StreamContractError {
                         index,
                         kind: StreamContractViolation::DuplicateCompleted,
                     });
+                }
+                if self.awaiting_completed_after_fatal
+                    && result.as_ref().is_some_and(|s| !s.is_empty())
+                {
+                    self.fatal_completed_with_result = true;
                 }
                 self.completed = true;
                 self.awaiting_completed_after_fatal = false;
@@ -229,8 +314,8 @@ impl StreamContract {
         Ok(())
     }
 
-    /// Finish the stream (no more events).
-    pub fn finish(self) -> Result<(), StreamContractError> {
+    /// Finish the stream (no more events). Hard rules only.
+    pub fn finish(&self) -> Result<(), StreamContractError> {
         if self.awaiting_completed_after_fatal {
             return Err(StreamContractError {
                 index: self.fatal_error_index.unwrap_or(self.index),
@@ -244,6 +329,33 @@ impl StreamContract {
             });
         }
         Ok(())
+    }
+
+    /// Soft hygiene warnings (call after a successful [`finish`]).
+    pub fn soft_warnings(&self) -> Vec<SoftStreamWarning> {
+        let mut out = Vec::new();
+        if !self.session_started {
+            out.push(SoftStreamWarning::MissingSessionStarted);
+        }
+        for id in &self.open_tools {
+            out.push(SoftStreamWarning::UnclosedTool { id: id.clone() });
+        }
+        if self.fatal_completed_with_result {
+            out.push(SoftStreamWarning::FatalCompletedWithResult);
+        }
+        out
+    }
+
+    /// Validate hard rules and return soft warnings (empty if clean).
+    pub fn check_soft(
+        events: &[RuntimeEvent],
+    ) -> Result<Vec<SoftStreamWarning>, StreamContractError> {
+        let mut contract = StreamContract::new();
+        for event in events {
+            contract.observe(event)?;
+        }
+        contract.finish()?;
+        Ok(contract.soft_warnings())
     }
 }
 
@@ -274,6 +386,14 @@ mod tests {
         RuntimeEvent::Completed {
             session_id: "s1".into(),
             result: Some("ok".into()),
+            usage: None,
+        }
+    }
+
+    fn completed_none() -> RuntimeEvent {
+        RuntimeEvent::Completed {
+            session_id: "s1".into(),
+            result: None,
             usage: None,
         }
     }
@@ -309,6 +429,7 @@ mod tests {
             completed(),
         ];
         assert!(validate_event_stream(&events).is_ok());
+        assert!(StreamContract::check_soft(&events).unwrap().is_empty());
     }
 
     #[test]
@@ -336,6 +457,53 @@ mod tests {
             RuntimeEvent::Error {
                 message: "boom".into(),
                 recoverable: false,
+            },
+            completed_none(),
+        ];
+        assert!(validate_event_stream(&events).is_ok());
+    }
+
+    #[test]
+    fn event_between_fatal_error_and_completed_fails() {
+        // cindy empty-response: terminal error must not be followed by more
+        // turn content before the single cleanup edge.
+        let events = vec![
+            session_started(),
+            RuntimeEvent::Error {
+                message: "empty-response".into(),
+                recoverable: false,
+            },
+            RuntimeEvent::Message {
+                id: "late".into(),
+                role: MessageRole::Assistant,
+                content: vec![alva_kernel_abi::ContentBlock::Text {
+                    text: "should not appear".into(),
+                }],
+            },
+            completed_none(),
+        ];
+        assert!(matches!(
+            validate_event_stream(&events),
+            Err(StreamContractError {
+                kind: StreamContractViolation::EventAfterFatalError,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn recoverable_error_does_not_require_immediate_completed() {
+        let events = vec![
+            session_started(),
+            RuntimeEvent::Error {
+                message: "Reconnecting... 2/5".into(),
+                recoverable: true,
+            },
+            RuntimeEvent::MessageDelta {
+                id: "m".into(),
+                delta: StreamEvent::TextDelta {
+                    text: "still going".into(),
+                },
             },
             completed(),
         ];
@@ -427,6 +595,32 @@ mod tests {
     }
 
     #[test]
+    fn tool_call_delta_is_not_consumer_visible() {
+        // cindy/tool streaming: arg partials must not leak as MessageDelta.
+        let delta = StreamEvent::ToolCallDelta {
+            id: "0".into(),
+            name: None,
+            arguments_delta: "{\"a\":".into(),
+        };
+        assert!(!is_consumer_visible_delta(&delta));
+        let events = vec![
+            session_started(),
+            RuntimeEvent::MessageDelta {
+                id: "m".into(),
+                delta,
+            },
+            completed(),
+        ];
+        assert!(matches!(
+            validate_event_stream(&events),
+            Err(StreamContractError {
+                kind: StreamContractViolation::NonVisibleMessageDelta,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn message_with_tool_use_fails() {
         let events = vec![
             session_started(),
@@ -448,6 +642,57 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn soft_warns_unclosed_tool() {
+        let events = vec![
+            session_started(),
+            RuntimeEvent::ToolStart {
+                id: "t1".into(),
+                name: "bash".into(),
+                input: json!({}),
+            },
+            completed_none(),
+        ];
+        let warnings = StreamContract::check_soft(&events).unwrap();
+        assert!(warnings.iter().any(|w| matches!(
+            w,
+            SoftStreamWarning::UnclosedTool { id } if id == "t1"
+        )));
+    }
+
+    #[test]
+    fn soft_warns_fatal_completed_with_result() {
+        let events = vec![
+            session_started(),
+            RuntimeEvent::Error {
+                message: "boom".into(),
+                recoverable: false,
+            },
+            completed(), // result Some("ok") — wrong for fatal path
+        ];
+        let warnings = StreamContract::check_soft(&events).unwrap();
+        assert!(warnings
+            .iter()
+            .any(|w| matches!(w, SoftStreamWarning::FatalCompletedWithResult)));
+    }
+
+    #[test]
+    fn is_terminal_is_only_completed() {
+        assert!(!is_terminal_runtime_event(&RuntimeEvent::Error {
+            message: "x".into(),
+            recoverable: false,
+        }));
+        assert!(is_terminal_runtime_event(&completed_none()));
+        assert!(is_fatal_error(&RuntimeEvent::Error {
+            message: "x".into(),
+            recoverable: false,
+        }));
+        assert!(!is_fatal_error(&RuntimeEvent::Error {
+            message: "retry".into(),
+            recoverable: true,
+        }));
     }
 
     #[test]

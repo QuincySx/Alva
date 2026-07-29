@@ -18,7 +18,9 @@
 - `sdk_package_path` 是 SDK package 的 ESM specifier/path override，绝不是 Claude Code executable path；解析失败信息只列尝试来源，不得包含认证信息。
 - SDK-load 错误只能使用稳定来源标签（不能输出 raw specifier、绝对路径或 Node 原始错误）；Windows 通过固定 `cmd.exe /d /s /c "npm root -g"` 查询 global root，两平台均有限时。
 - 显式 filesystem SDK path（包括 Windows drive path）必须先以 request cwd（否则 process cwd）解析，再经 `pathToFileURL` import；只有真实 URL 可直接 import。bridge 收到缺少 Result 的 `done` 必须报错后完成，绝不可表示成功。
-- `BridgeMessage` 使用 `serde(tag = "type")` 反序列化，未知类型以 `Unknown` 静默忽略，保证前向兼容。
+- `BridgeMessage` 使用 `serde(tag = "type")` 反序列化，未知类型以 `Unknown` 静默忽略，保证前向兼容（cindy 同款：不认识的 SDK 帧 logger + drop）。
+- `EventMapper` 遵守 `alva-engine-runtime` stream contract：`MessageDelta` 只转发 Text/Reasoning；`input_json_delta` 不得泄漏为 MessageDelta；fatal `Error` 后只接 `Completed`。
+- cindy 对齐策略：`empty-response`（零 substance + 零 usage）发 fatal Error + Completed；空 thinking 不算 substance；`Completed.result` 优先 SDK result 否则累计助手正文。
 - `PermissionMode` 决定工具执行审批策略：default（SDK 默认）/ acceptEdits / bypassPermissions。
 - `resume` capability 为 true，表示适配器支持通过 session id 恢复历史会话。
 - 返回的 Stream 为 `'static`，不借用 `&self`。

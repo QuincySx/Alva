@@ -14,9 +14,11 @@
 ## 约束
 - `EngineRuntime` 必须是 object-safe（文件末尾有编译期断言 `_assert_object_safe`），支持 `dyn EngineRuntime` 动态分发。
 - `execute()` 返回的 Stream 必须为 `Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>`，生命周期为 `'static`，不借用 `&self`。
-- **流契约**（`stream_contract.rs`）是多引擎共同底线：`Completed` 唯一且收尾；fatal `Error` 后必须 `Completed`；`ToolStart`/`ToolEnd` 同 id 配对；`Message` 不含 Tool 块；`MessageDelta` 只允许 Text/Reasoning。
-- 适配器在错误时必须先发 `Error { recoverable: false }` 再发 `Completed { result: None }`，消费者应等待 `Completed` 后才做清理。
-- `Completed.result` 是最后一条助手正文（有则填），禁止占位字符串如 `"completed"`。
+- **流契约**（`stream_contract.rs`）是多引擎共同底线：`Completed` 唯一且收尾；fatal `Error` 后**只能**再发 `Completed`（中间不得夹 Message/Tool）；`ToolStart`/`ToolEnd` 同 id 配对；`Message` 不含 Tool 块；`MessageDelta` 只允许 Text/Reasoning（工具参数 delta 不得泄漏）。
+- `Error.recoverable` 对齐 cindy：`false` ≈ `isTerminal`，`true` ≈ `willRetry`/非终态横幅；UI 不得因 recoverable error 释放 running。
+- 适配器在错误时必须先发 `Error { recoverable: false }` 再发 `Completed { result: None }`，消费者应等待 `Completed` 后才做清理（比 cindy「终态 error 可单独收尾」更严，保证单一 cleanup edge）。
+- `Completed.result` 是最后一条助手正文（有则填），禁止占位字符串如 `"completed"`；fatal 路径 result 应为 `None`（soft warning 否则）。
+- 未知 vendor 帧：适配器静默丢弃（`[]`）+ 日志，禁止 panic（cindy forward-compat）。
 - `RuntimeOptions.extra` 用于引擎特有配置透传，运行时层本身不解析。
 
 ## 业务域清单

@@ -1,10 +1,10 @@
-// INPUT:  std::collections::HashMap, alva_engine_runtime::{RuntimeEvent, RuntimeUsage}, alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolResult}, crate::protocol
+// INPUT:  std::collections::HashMap, alva_engine_runtime::{RuntimeEvent, RuntimeUsage, is_consumer_visible_delta}, alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolResult}, crate::protocol
 // OUTPUT: pub(crate) struct EventMapper
 // POS:    Stateful mapper that converts bridge protocol messages into unified RuntimeEvent sequences.
 
 use std::collections::HashMap;
 
-use alva_engine_runtime::{RuntimeEvent, RuntimeUsage};
+use alva_engine_runtime::{is_consumer_visible_delta, RuntimeEvent, RuntimeUsage};
 use alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
 
 use crate::protocol::{BridgeMessage, SdkContentBlock, SdkMessage};
@@ -13,9 +13,26 @@ use crate::protocol::{BridgeMessage, SdkContentBlock, SdkMessage};
 ///
 /// Maintains a tool_use_id -> tool_name lookup to populate ToolEnd.name,
 /// since SDK tool_result blocks only carry tool_use_id.
+///
+/// # cindy-aligned policies
+///
+/// - **MessageDelta**: only consumer-visible text/reasoning (tool arg deltas
+///   stay local; stream contract forbids them as MessageDelta).
+/// - **Completed.result**: prefer SDK `result` text, else last non-empty
+///   assistant text — never a status placeholder.
+/// - **empty-response** (success + zero substance + zero usage): emit fatal
+///   `Error` then `Completed { result: None }` — cindy refuses a second
+///   "done" path that double-ends the turn.
+/// - **Unknown frames**: `[]` (forward-compat; do not panic).
 pub(crate) struct EventMapper {
     session_id: String,
     tool_names: HashMap<String, String>,
+    /// Last non-empty assistant text for Completed.result fallback.
+    last_assistant_text: Option<String>,
+    /// True once we saw non-empty text, tool_use, or tool_result this turn.
+    saw_substance: bool,
+    /// True once any message_start / usage-bearing stream frame arrived.
+    saw_api_activity: bool,
 }
 
 impl EventMapper {
@@ -23,6 +40,9 @@ impl EventMapper {
         Self {
             session_id: String::new(),
             tool_names: HashMap::new(),
+            last_assistant_text: None,
+            saw_substance: false,
+            saw_api_activity: false,
         }
     }
 
@@ -47,6 +67,7 @@ impl EventMapper {
                     description: None,
                 }]
             }
+            // Transport EOF only — Completed already came from Result (or Error pair).
             BridgeMessage::Done => vec![],
             BridgeMessage::Error { message } => vec![
                 RuntimeEvent::Error {
@@ -99,16 +120,29 @@ impl EventMapper {
                 for block in blocks {
                     match block {
                         SdkContentBlock::Text { text } => {
-                            text_blocks.push(ContentBlock::Text { text });
+                            if !text.is_empty() {
+                                self.last_assistant_text = Some(text.clone());
+                                self.saw_substance = true;
+                            }
+                            // Empty text still reserved? Skip empty-only noise.
+                            if !text.is_empty() {
+                                text_blocks.push(ContentBlock::Text { text });
+                            }
                         }
                         SdkContentBlock::Thinking { thinking } => {
-                            text_blocks.push(ContentBlock::Reasoning {
-                                text: thinking,
-                                signature: None,
-                            });
+                            // Empty thinking is the cindy silent-stop fingerprint —
+                            // do not mark substance.
+                            if !thinking.is_empty() {
+                                self.saw_substance = true;
+                                text_blocks.push(ContentBlock::Reasoning {
+                                    text: thinking,
+                                    signature: None,
+                                });
+                            }
                         }
                         SdkContentBlock::ToolUse { id, name, input } => {
                             self.tool_names.insert(id.clone(), name.clone());
+                            self.saw_substance = true;
                             events.push(RuntimeEvent::ToolStart { id, name, input });
                         }
                         SdkContentBlock::ToolResult {
@@ -116,6 +150,7 @@ impl EventMapper {
                             content,
                             is_error,
                         } => {
+                            self.saw_substance = true;
                             let name = self
                                 .tool_names
                                 .get(&tool_use_id)
@@ -158,11 +193,37 @@ impl EventMapper {
                     return vec![];
                 };
 
-                // Parse the stream event delta
-                if let Some(delta) = parse_stream_delta(&event_val) {
-                    vec![RuntimeEvent::MessageDelta { id: msg_id, delta }]
-                } else {
-                    vec![]
+                // Track API activity for empty-response detection (message_start etc.).
+                if event_val.get("type").and_then(|v| v.as_str()) == Some("message_start") {
+                    self.saw_api_activity = true;
+                }
+
+                // Parse + filter: only UI-visible deltas leave the adapter.
+                match parse_stream_delta(&event_val) {
+                    Some(delta) if is_consumer_visible_delta(&delta) => {
+                        match &delta {
+                            StreamEvent::TextDelta { text } if !text.is_empty() => {
+                                self.saw_substance = true;
+                                // Streaming may be the only source of final text
+                                // until a committed Assistant message replaces it.
+                                self.last_assistant_text =
+                                    Some(match self.last_assistant_text.take() {
+                                        Some(mut acc) => {
+                                            acc.push_str(text);
+                                            acc
+                                        }
+                                        None => text.clone(),
+                                    });
+                            }
+                            StreamEvent::ReasoningDelta { text } if !text.is_empty() => {
+                                self.saw_substance = true;
+                            }
+                            _ => {}
+                        }
+                        vec![RuntimeEvent::MessageDelta { id: msg_id, delta }]
+                    }
+                    // ToolCallDelta / control frames: drop (not MessageDelta).
+                    Some(_) | None => vec![],
                 }
             }
 
@@ -178,13 +239,26 @@ impl EventMapper {
                 let sid = session_id.unwrap_or_else(|| self.session_id.clone());
                 let is_error = subtype.as_deref() != Some("success");
 
+                let input_tokens =
+                    usage.as_ref().and_then(|u| u.input_tokens).unwrap_or(0) as u32;
+                let output_tokens =
+                    usage.as_ref().and_then(|u| u.output_tokens).unwrap_or(0) as u32;
                 let usage_data = RuntimeUsage {
-                    input_tokens: usage.as_ref().and_then(|u| u.input_tokens).unwrap_or(0) as u32,
-                    output_tokens: usage.as_ref().and_then(|u| u.output_tokens).unwrap_or(0) as u32,
+                    input_tokens,
+                    output_tokens,
                     total_cost_usd,
                     duration_ms: duration_ms.unwrap_or(0),
                     num_turns: num_turns.unwrap_or(0),
                 };
+
+                // cindy empty-response: success + no substance + zero usage after
+                // API activity → terminal error, then Completed (single cleanup edge).
+                let empty_response = !is_error
+                    && !self.saw_substance
+                    && input_tokens == 0
+                    && output_tokens == 0
+                    && result.as_ref().map(|s| s.is_empty()).unwrap_or(true)
+                    && (self.saw_api_activity || usage.is_some());
 
                 let mut events = Vec::new();
                 if is_error {
@@ -195,10 +269,25 @@ impl EventMapper {
                         ),
                         recoverable: false,
                     });
+                } else if empty_response {
+                    events.push(RuntimeEvent::Error {
+                        message: "empty-response: model returned no content and zero usage"
+                            .into(),
+                        recoverable: false,
+                    });
                 }
+
+                let completed_result = if is_error || empty_response {
+                    None
+                } else {
+                    result
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| self.last_assistant_text.clone())
+                };
+
                 events.push(RuntimeEvent::Completed {
                     session_id: sid,
-                    result: if is_error { None } else { result },
+                    result: completed_result,
                     usage: Some(usage_data),
                 });
                 events
@@ -529,5 +618,184 @@ mod tests {
             events.is_empty(),
             "Unknown SdkMessage must emit zero events for forward-compat"
         );
+    }
+
+    // -- cindy-aligned stream contract pins ------------------------------
+
+    #[test]
+    fn input_json_delta_is_not_emitted_as_message_delta() {
+        // Stream contract: ToolCallDelta must not leave the adapter as
+        // MessageDelta (cindy keeps tool-arg streaming out of the UI text bus).
+        let mut mapper = EventMapper::new();
+        let events = mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::StreamEvent {
+                uuid: Some("u".into()),
+                event: Some(serde_json::json!({
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": {"type": "input_json_delta", "partial_json": "{\"x\":"}
+                })),
+            },
+        });
+        assert!(
+            events.is_empty(),
+            "tool arg deltas must be filtered, got {events:?}"
+        );
+    }
+
+    #[test]
+    fn text_delta_is_emitted_and_tracks_substance() {
+        use alva_engine_runtime::validate_event_stream;
+
+        let mut mapper = EventMapper::new();
+        let mut stream = Vec::new();
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::System {
+                subtype: Some("init".into()),
+                session_id: Some("s1".into()),
+                model: Some("m".into()),
+                tools: None,
+            },
+        }));
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::StreamEvent {
+                uuid: Some("m1".into()),
+                event: Some(serde_json::json!({
+                    "type": "content_block_delta",
+                    "delta": {"type": "text_delta", "text": "hi"}
+                })),
+            },
+        }));
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::Result {
+                subtype: Some("success".into()),
+                session_id: Some("s1".into()),
+                result: None,
+                total_cost_usd: Some(0.01),
+                duration_ms: Some(100),
+                num_turns: Some(1),
+                usage: Some(SdkUsage {
+                    input_tokens: Some(10),
+                    output_tokens: Some(2),
+                }),
+            },
+        }));
+        assert!(validate_event_stream(&stream).is_ok());
+        match stream.last() {
+            Some(RuntimeEvent::Completed {
+                result: Some(text),
+                ..
+            }) => assert_eq!(text, "hi"),
+            other => panic!("expected Completed with streamed text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_response_emits_fatal_error_then_completed() {
+        // cindy empty-response guard: zero substance + zero usage → terminal
+        // error pair, not a silent success Completed.
+        use alva_engine_runtime::validate_event_stream;
+
+        let mut mapper = EventMapper::new();
+        let mut stream = Vec::new();
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::System {
+                subtype: Some("init".into()),
+                session_id: Some("s1".into()),
+                model: Some("m".into()),
+                tools: None,
+            },
+        }));
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::StreamEvent {
+                uuid: None,
+                event: Some(serde_json::json!({
+                    "type": "message_start",
+                    "message": {"model": "m", "usage": {"input_tokens": 0}}
+                })),
+            },
+        }));
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::Result {
+                subtype: Some("success".into()),
+                session_id: Some("s1".into()),
+                result: None,
+                total_cost_usd: Some(0.0),
+                duration_ms: Some(10),
+                num_turns: Some(1),
+                usage: Some(SdkUsage {
+                    input_tokens: Some(0),
+                    output_tokens: Some(0),
+                }),
+            },
+        }));
+        assert!(validate_event_stream(&stream).is_ok());
+        assert!(matches!(
+            &stream[stream.len() - 2],
+            RuntimeEvent::Error {
+                recoverable: false,
+                message,
+            } if message.contains("empty-response")
+        ));
+        assert!(matches!(
+            stream.last(),
+            Some(RuntimeEvent::Completed { result: None, .. })
+        ));
+    }
+
+    #[test]
+    fn empty_thinking_only_is_not_substance_but_normal_success_if_usage_nonzero() {
+        // cindy silent-stop: empty thinking is not substance; if usage is
+        // non-zero we still close cleanly with Completed (no empty-response
+        // fatal). Host may later layer silentStop metadata — contract only
+        // needs a single cleanup edge.
+        use alva_engine_runtime::validate_event_stream;
+
+        let mut mapper = EventMapper::new();
+        let mut stream = Vec::new();
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::System {
+                subtype: Some("init".into()),
+                session_id: Some("s1".into()),
+                model: Some("m".into()),
+                tools: None,
+            },
+        }));
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::Assistant {
+                uuid: Some("a".into()),
+                session_id: Some("s1".into()),
+                message: Some(SdkAssistantPayload {
+                    content: Some(vec![SdkContentBlock::Thinking {
+                        thinking: "".into(),
+                    }]),
+                }),
+            },
+        }));
+        stream.extend(mapper.map(BridgeMessage::SdkMessage {
+            message: SdkMessage::Result {
+                subtype: Some("success".into()),
+                session_id: Some("s1".into()),
+                result: None,
+                total_cost_usd: Some(0.1),
+                duration_ms: Some(50),
+                num_turns: Some(1),
+                usage: Some(SdkUsage {
+                    input_tokens: Some(1000),
+                    output_tokens: Some(2),
+                }),
+            },
+        }));
+        assert!(validate_event_stream(&stream).is_ok());
+        assert!(
+            !stream
+                .iter()
+                .any(|e| matches!(e, RuntimeEvent::Error { .. })),
+            "non-zero usage empty-thinking is not empty-response fatal"
+        );
+        assert!(matches!(
+            stream.last(),
+            Some(RuntimeEvent::Completed { result: None, .. })
+        ));
     }
 }

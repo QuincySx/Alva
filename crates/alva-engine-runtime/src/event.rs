@@ -84,7 +84,15 @@ pub enum RuntimeEvent {
 
     /// Error during execution.
     ///
-    /// `recoverable: false` requires a following `Completed`.
+    /// Maps to cindy's terminal / retry split:
+    /// - `recoverable: false` ≈ `isTerminal: true` — turn is dead; adapter
+    ///   **must** follow with `Completed { result: None }` and nothing else.
+    /// - `recoverable: true` ≈ `willRetry: true` / non-terminal banner —
+    ///   consumer **must not** free running/keepalive state; more events may
+    ///   follow until a real `Completed`.
+    ///
+    /// Consumers always wait for [`RuntimeEvent::Completed`] before cleanup
+    /// (stricter than cindy, where a terminal error alone can end a turn).
     Error { message: String, recoverable: bool },
 }
 

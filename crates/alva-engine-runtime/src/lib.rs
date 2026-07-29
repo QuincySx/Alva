@@ -12,8 +12,9 @@ pub use event::{PermissionDecision, RuntimeCapabilities, RuntimeEvent, RuntimeUs
 pub use request::{RuntimeOptions, RuntimeRequest};
 pub use runtime::EngineRuntime;
 pub use stream_contract::{
-    is_consumer_visible_delta, is_message_content_block, validate_event_stream, StreamContract,
-    StreamContractError, StreamContractViolation,
+    is_consumer_visible_delta, is_fatal_error, is_message_content_block, is_terminal_runtime_event,
+    validate_event_stream, SoftStreamWarning, StreamContract, StreamContractError,
+    StreamContractViolation,
 };
 
 #[cfg(test)]

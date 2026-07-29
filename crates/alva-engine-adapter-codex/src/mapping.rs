@@ -61,6 +61,9 @@ impl EventMapper {
                 let message = error
                     .and_then(|e| e.message)
                     .unwrap_or_else(|| "Codex turn failed".into());
+                // TurnFailed is always terminal for `codex exec --json` (no
+                // daemon willRetry loop on this path). Pair with Completed
+                // in the adapter after the stream ends.
                 vec![RuntimeEvent::Error {
                     message,
                     recoverable: false,
@@ -70,13 +73,19 @@ impl EventMapper {
             CodexEvent::ItemUpdated { item } => self.map_item_progress(item, ItemPhase::Updated),
             CodexEvent::ItemCompleted { item } => self.map_item_progress(item, ItemPhase::Completed),
             CodexEvent::Error { message, error } => {
-                self.failed = true;
                 let message = message
                     .or_else(|| error.and_then(|e| e.message))
                     .unwrap_or_else(|| "Codex error".into());
+                // cindy network-error / willRetry: reconnect progress is
+                // non-terminal so UI must not free running. `codex exec`
+                // rarely emits these, but classify if we see the fingerprint.
+                let recoverable = is_recoverable_codex_error(&message);
+                if !recoverable {
+                    self.failed = true;
+                }
                 vec![RuntimeEvent::Error {
                     message,
-                    recoverable: false,
+                    recoverable,
                 }]
             }
             CodexEvent::Unknown => Vec::new(),
@@ -208,6 +217,28 @@ enum ItemPhase {
     Completed,
 }
 
+/// cindy `isNetworkishErrorMessage` / reconnect progress — non-terminal.
+///
+/// Patterns intentionally conservative; false positives freeze UI less badly
+/// than false negatives that free running mid-retry.
+fn is_recoverable_codex_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("reconnecting")
+        || lower.contains("econnrefused")
+        || lower.contains("econnreset")
+        || lower.contains("etimedout")
+        || lower.contains("enotfound")
+        || lower.contains("socket hang up")
+        || lower.contains("network error")
+        || lower.contains("fetch failed")
+        || lower.contains("request timed out")
+        || lower.contains("connection error")
+        || lower.contains("bad gateway")
+        || lower.contains("service unavailable")
+        || lower.contains("gateway timeout")
+        || lower.contains("upstream unreachable")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,5 +322,59 @@ mod tests {
             validate_event_stream(&stream).is_ok(),
             "stream must satisfy multi-engine contract: {stream:?}"
         );
+    }
+
+    #[test]
+    fn reconnect_style_error_is_recoverable_not_failed() {
+        // cindy willRetry / network-error: reconnect progress must not free UI.
+        use alva_engine_runtime::validate_event_stream;
+
+        let mut mapper = EventMapper::new();
+        let mut stream = Vec::new();
+        stream.extend(mapper.map(CodexEvent::ThreadStarted {
+            thread_id: Some("t".into()),
+        }));
+        let err = mapper.map(CodexEvent::Error {
+            message: Some("Reconnecting... 2/5".into()),
+            error: None,
+        });
+        assert!(matches!(
+            &err[0],
+            RuntimeEvent::Error {
+                recoverable: true,
+                ..
+            }
+        ));
+        assert!(!mapper.failed());
+        stream.extend(err);
+        stream.extend(mapper.map(CodexEvent::ItemCompleted {
+            item: CodexItem::AgentMessage {
+                id: Some("a".into()),
+                text: Some("recovered".into()),
+            },
+        }));
+        stream.push(RuntimeEvent::Completed {
+            session_id: "t".into(),
+            result: mapper.last_agent_text().map(str::to_string),
+            usage: None,
+        });
+        assert!(validate_event_stream(&stream).is_ok());
+    }
+
+    #[test]
+    fn hard_error_is_fatal() {
+        let mut mapper = EventMapper::new();
+        let err = mapper.map(CodexEvent::Error {
+            message: Some("authentication required".into()),
+            error: None,
+        });
+        assert!(matches!(
+            &err[0],
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        ));
+        assert!(mapper.failed());
     }
 }
