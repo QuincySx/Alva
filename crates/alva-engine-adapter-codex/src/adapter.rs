@@ -1,10 +1,11 @@
-// INPUT:  CodexAdapterConfig, process/protocol/mapping, alva_engine_runtime
+// INPUT:  CodexAdapterConfig, process/protocol/mapping/retry_escalation, alva_engine_runtime
 // OUTPUT: CodexAdapter implementing EngineRuntime
 // POS:    Spawns `codex exec --json` per session and streams mapped RuntimeEvents.
 
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -22,6 +23,9 @@ use crate::config::CodexAdapterConfig;
 use crate::mapping::EventMapper;
 use crate::process::CodexProcess;
 use crate::protocol::CodexEvent;
+use crate::retry_escalation::{
+    build_escalation_message, RecoverableRetryTracker,
+};
 
 type KillSender = mpsc::UnboundedSender<()>;
 
@@ -31,6 +35,9 @@ type KillSender = mpsc::UnboundedSender<()>;
 /// JSONL event stream into `RuntimeEvent`. Cancel kills the child process.
 /// Interactive permission callbacks are not supported by this exec path
 /// (approval_policy defaults to never for non-interactive runs).
+///
+/// Recoverable/network errors are forwarded as `recoverable: true` until
+/// [`RecoverableRetryTracker`] escalates (cindy retry-escalation ceiling).
 pub struct CodexAdapter {
     config: CodexAdapterConfig,
     sessions: Arc<Mutex<HashMap<String, KillSender>>>,
@@ -89,7 +96,8 @@ impl EngineRuntime for CodexAdapter {
 
             let mut mapper = EventMapper::new();
             let mut native_session = provisional_id.clone();
-            let mut completed = false;
+            let mut retry_tracker = RecoverableRetryTracker::new();
+            let mut escalated = false;
 
             loop {
                 tokio::select! {
@@ -117,6 +125,10 @@ impl EngineRuntime for CodexAdapter {
                                         continue;
                                     }
                                 };
+                                // New turn resets recoverable retry budget (cindy).
+                                if matches!(event, CodexEvent::TurnStarted) {
+                                    retry_tracker.reset();
+                                }
                                 for runtime_event in mapper.map(event) {
                                     if let RuntimeEvent::SessionStarted { session_id, .. } =
                                         &runtime_event
@@ -129,13 +141,39 @@ impl EngineRuntime for CodexAdapter {
                                             native_session = session_id.clone();
                                         }
                                     }
+
+                                    // cindy retry-escalation: recoverable errors may
+                                    // continue the stream, but unbounded reconnect is
+                                    // escalated to a single fatal close + kill.
+                                    if let RuntimeEvent::Error {
+                                        message,
+                                        recoverable: true,
+                                    } = &runtime_event
+                                    {
+                                        let decision = retry_tracker.track(Instant::now());
+                                        if decision.escalate {
+                                            escalated = true;
+                                            let fatal_msg =
+                                                build_escalation_message(&decision, message);
+                                            warn!(%fatal_msg, "codex recoverable retries escalated");
+                                            if let Err(error) = process.kill().await {
+                                                warn!(%error, "codex kill after escalation failed");
+                                            }
+                                            let _ = event_tx.send(RuntimeEvent::Error {
+                                                message: fatal_msg,
+                                                recoverable: false,
+                                            });
+                                            break;
+                                        }
+                                    }
+
                                     let _ = event_tx.send(runtime_event);
                                 }
+                                if escalated {
+                                    break;
+                                }
                             }
-                            Ok(None) => {
-                                completed = true;
-                                break;
-                            }
+                            Ok(None) => break,
                             Err(error) => {
                                 let _ = event_tx.send(RuntimeEvent::Error {
                                     message: error.to_string(),
@@ -146,18 +184,24 @@ impl EngineRuntime for CodexAdapter {
                         }
                     }
                 }
+                if escalated {
+                    break;
+                }
             }
 
             let session_id = mapper
                 .session_id()
                 .unwrap_or(native_session.as_str())
                 .to_string();
-            if !completed && mapper.failed() {
-                // already emitted Error
-            }
+            // Fatal path: never put a success answer on Completed (stream soft rule).
+            let result = if mapper.failed() || escalated {
+                None
+            } else {
+                mapper.last_agent_text().map(str::to_string)
+            };
             let _ = event_tx.send(RuntimeEvent::Completed {
                 session_id: session_id.clone(),
-                result: mapper.last_agent_text().map(str::to_string),
+                result,
                 usage: Some(mapper.usage()),
             });
             sessions.lock().await.remove(&session_id);

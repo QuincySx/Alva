@@ -110,9 +110,18 @@ async fn run() -> i32 {
                     eprintln!("alva-hub: could not deny permission request: {error}");
                 }
             }
-            RuntimeEvent::Error { message, .. } => {
-                failed = true;
-                eprintln!("alva-hub: {message}");
+            // cindy: recoverable ≈ willRetry — print a banner but do not
+            // fail the process until a fatal error (or missing success).
+            RuntimeEvent::Error {
+                message,
+                recoverable,
+            } => {
+                if recoverable {
+                    eprintln!("alva-hub: (retrying) {message}");
+                } else {
+                    failed = true;
+                    eprintln!("alva-hub: {message}");
+                }
             }
             RuntimeEvent::Completed { result, .. } => {
                 // Some bridge failures/successes surface only a final result.
@@ -201,5 +210,35 @@ mod tests {
             std::path::Path::new("/definitely/not/an/alva/provider/workspace");
 
         assert!(build_selected_engine(Engine::Codex, nonexistent_workspace).is_ok());
+    }
+
+    #[test]
+    fn recoverable_error_does_not_mark_cli_failed() {
+        // Mirror the exit-code policy: only fatal errors set failed.
+        let mut failed = false;
+        let recoverable = RuntimeEvent::Error {
+            message: "Reconnecting... 2/5".into(),
+            recoverable: true,
+        };
+        let fatal = RuntimeEvent::Error {
+            message: "boom".into(),
+            recoverable: false,
+        };
+        if let RuntimeEvent::Error {
+            recoverable: true, ..
+        } = recoverable
+        {
+            // banner only
+        } else {
+            failed = true;
+        }
+        assert!(!failed);
+        if let RuntimeEvent::Error {
+            recoverable: false, ..
+        } = fatal
+        {
+            failed = true;
+        }
+        assert!(failed);
     }
 }

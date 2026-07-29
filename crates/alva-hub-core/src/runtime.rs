@@ -6,10 +6,13 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
-use alva_engine_runtime::{EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest};
+use alva_engine_runtime::{
+    EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest, StreamContract,
+};
 use futures_core::Stream;
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
+use tracing::{debug, warn};
 
 use crate::HubError;
 
@@ -293,7 +296,29 @@ impl HubRuntime {
             let mut engine_stream = engine_stream;
             let mut output_open = true;
             let mut saw_completed = false;
+            // Multi-engine stream contract (cindy lessons): observe every
+            // engine event. Hard violations are logged; Hub still forwards
+            // events so adapters stay debuggable, and missing Completed is
+            // still synthesized below.
+            let mut contract = StreamContract::new();
+            let mut hard_violations = 0u32;
             while let Some(event) = engine_stream.next().await {
+                if let Err(err) = contract.observe(&event) {
+                    hard_violations = hard_violations.saturating_add(1);
+                    warn!(
+                        product_session = %output_session_id,
+                        engine = %engine_id,
+                        %err,
+                        "engine stream violated multi-engine stream contract"
+                    );
+                    // debug builds also surface on stderr so hub CLI / tests
+                    // catch adapter regressions without a tracing subscriber.
+                    if cfg!(debug_assertions) {
+                        eprintln!(
+                            "alva-hub-core: stream contract violation (session={output_session_id}, engine={engine_id}): {err}"
+                        );
+                    }
+                }
                 saw_completed |= matches!(event, RuntimeEvent::Completed { .. });
                 update_session(&sessions, &output_session_id, &event);
                 if output_open
@@ -310,6 +335,39 @@ impl HubRuntime {
                     // reach Completed so the session does not remain busy.
                     output_open = false;
                 }
+            }
+            match contract.finish() {
+                Ok(()) => {
+                    for warning in contract.soft_warnings() {
+                        debug!(
+                            product_session = %output_session_id,
+                            engine = %engine_id,
+                            %warning,
+                            "engine stream soft contract warning"
+                        );
+                    }
+                }
+                Err(err) => {
+                    // MissingCompleted is expected when adapters die mid-stream;
+                    // synthesis below repairs the product edge.
+                    if hard_violations == 0 {
+                        hard_violations = 1;
+                    }
+                    warn!(
+                        product_session = %output_session_id,
+                        engine = %engine_id,
+                        %err,
+                        "engine stream failed stream-contract finish check"
+                    );
+                }
+            }
+            if hard_violations > 0 {
+                debug!(
+                    product_session = %output_session_id,
+                    engine = %engine_id,
+                    hard_violations,
+                    "engine stream finished with contract hard violations"
+                );
             }
             if !saw_completed {
                 let engine_session_id =
@@ -870,5 +928,89 @@ mod tests {
             .register_engine("alva", Arc::new(FakeEngine::new()))
             .unwrap_err();
         assert!(matches!(error, HubError::EngineAlreadyRegistered(_)));
+    }
+
+    /// Emits a post-Completed event — hard stream-contract violation.
+    /// Hub must still forward events (observe + warn, not drop).
+    struct ContractBreakingEngine;
+
+    #[async_trait]
+    impl EngineRuntime for ContractBreakingEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "break-1".into(),
+                    model: None,
+                    tools: vec![],
+                },
+                RuntimeEvent::Completed {
+                    session_id: "break-1".into(),
+                    result: Some("ok".into()),
+                    usage: None,
+                },
+                RuntimeEvent::Error {
+                    message: "late event after completed".into(),
+                    recoverable: true,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: false,
+                tool_control: false,
+                permission_callback: false,
+                resume: false,
+                cancel: false,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_contract_violations_are_forwarded_not_dropped() {
+        let hub = HubRuntime::new();
+        hub.register_engine("broken-contract", Arc::new(ContractBreakingEngine))
+            .unwrap();
+
+        let events: Vec<_> = hub
+            .execute(HubRequest::new(
+                "broken-contract",
+                RuntimeRequest::new("probe"),
+            ))
+            .unwrap()
+            .collect()
+            .await;
+
+        assert_eq!(events.len(), 3, "Hub observes contract but does not drop events");
+        assert!(matches!(
+            events[1].event,
+            RuntimeEvent::Completed { .. }
+        ));
+        assert!(matches!(
+            events[2].event,
+            RuntimeEvent::Error {
+                recoverable: true,
+                ..
+            }
+        ));
+        // Product session still completed from the Completed event (before late error).
+        let session = hub.session(&events[0].product_session_id).unwrap();
+        assert_eq!(session.status, HubSessionStatus::Completed);
     }
 }
