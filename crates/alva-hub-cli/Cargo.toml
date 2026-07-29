@@ -12,6 +12,7 @@ path = "src/main.rs"
 alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
 alva-engine-adapter-claude = { path = "../alva-engine-adapter-claude" }
+alva-engine-adapter-codex = { path = "../alva-engine-adapter-codex" }
 alva-hub-core = { path = "../alva-hub-core" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

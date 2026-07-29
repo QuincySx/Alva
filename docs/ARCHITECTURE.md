@@ -100,9 +100,14 @@ alva-engine-runtime (neutral contract)
         |    the native SDK/kernel flow above
         |
         +--> alva-engine-adapter-claude
+        |          |
+        |          v
+        |    Node.js bridge
+        |
+        +--> alva-engine-adapter-codex
                    |
                    v
-             Node.js bridge
+             codex exec --json
 ```
 
 ## Layer Map
@@ -123,6 +128,7 @@ alva-engine-runtime (neutral contract)
 | L4 | `alva-app-extension-loader` | AEP subprocess plugin loader |
 | L4.5 | `alva-engine-runtime` | lightweight multi-engine request/event/control contract |
 | L4.5 | `alva-engine-adapter-claude` | SDK-clean Claude bridge implementation of the engine contract |
+| L4.5 | `alva-engine-adapter-codex` | SDK-clean Codex CLI (`exec --json`) implementation of the engine contract |
 | L5 | `alva-app-core` | BaseAgent harness, component catalog, app-layer plugins, session projection |
 | L5 | `alva-host-native` | native host assembly and native middleware |
 | L5 | `alva-host-wasm` | wasm host facade |

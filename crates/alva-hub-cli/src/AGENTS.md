@@ -3,12 +3,15 @@
 
 ## 地位
 
-独立于 `alva-app-cli`。后者继续是原生 Alva Agent 产品；本 crate 负责启动 `alva-hub-core`，并按显式 engine 选择注册 Alva 或 Claude adapter。
+独立于 `alva-app-cli`。后者继续是原生 Alva Agent 产品；本 crate 负责启动 `alva-hub-core`，并按显式 engine 选择注册 Alva / Claude / Codex adapter。
 
 ## 逻辑
 
-1. `cli.rs` fail-closed 解析 `--engine alva|claude`、`--` 与 prompt。
-2. 只初始化被选中的 adapter：Alva 读取既有 provider 配置；Claude 复用 Claude adapter 的默认环境入口（`node` 来自 PATH、模型由 SDK 默认选择、认证来自 `ANTHROPIC_API_KEY` 或本地 Claude Code 登录）。
+1. `cli.rs` fail-closed 解析 `--engine alva|claude|codex`、`--` 与 prompt。
+2. 只初始化被选中的 adapter：
+   - Alva：既有 provider 配置 + `ALVA_API_KEY`
+   - Claude：Node bridge + SDK 默认模型 + `ANTHROPIC_API_KEY` / 本地 Claude Code 登录
+   - Codex：`codex exec --json`（PATH 上的 Codex CLI + CODEX_HOME 认证）
 3. 运行单次 Hub session，输出 final Message；遇到 permission request 立即 fail-closed deny 并继续 drain 到 Completed。
 
 ## 约束

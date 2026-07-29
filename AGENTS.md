@@ -122,6 +122,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 |------|------|
 | `alva-engine-runtime` | `EngineRuntime` trait：`execute` / `cancel` / `respond_permission` / `capabilities`。让 app 层用同一套接口驱动多种 agent 后端。 |
 | `alva-engine-adapter-claude` | Claude Code SDK 适配器：Node.js bridge + JSON-line 协议。 |
+| `alva-engine-adapter-codex` | Codex CLI 适配器：`codex exec --json` 子进程 + JSONL 事件映射。 |
 
 ### L5：协议与基础设施
 
@@ -155,18 +156,18 @@ alva-hub-cli / future alva-hub-desktop
              alva-hub-core
                   │
           alva-engine-runtime
-             ┌────┴────┐
-             │         │
- alva-engine-adapter-alva   alva-engine-adapter-claude
-             │                         │
-        alva-app-core             Node.js bridge
+       ┌──────────┼──────────┐
+       │          │          │
+   adapter-alva  adapter-claude  adapter-codex
+       │          │          │
+  alva-app-core  Node bridge  codex exec --json
 ```
 
 | crate | 职责 |
 |------|------|
 | `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
 | `alva-engine-adapter-alva` | Hub 的 Alva adapter：每个 engine session 由 `BaseAgentFactory` 构造独立的完整 `BaseAgent`，保留 harness 语义。 |
-| `alva-hub-cli` | Alva Hub 最小单次执行 CLI：显式选择并仅注册 Alva 或 Claude adapter，再驱动 Hub registry；与原生 `alva-app-cli` 保持独立。 |
+| `alva-hub-cli` | Alva Hub 最小单次执行 CLI：显式选择并仅注册 Alva / Claude / Codex adapter，再驱动 Hub registry；与原生 `alva-app-cli` 保持独立。 |
 
 ---
 

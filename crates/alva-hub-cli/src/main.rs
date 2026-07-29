@@ -10,6 +10,7 @@ use alva_engine_adapter_alva::{
     AlvaAdapter, DefaultBaseAgentFactory, DefaultBaseAgentFactoryConfig,
 };
 use alva_engine_adapter_claude::{ClaudeAdapter, ClaudeAdapterConfig};
+use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
 use alva_engine_runtime::{EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest};
 use alva_hub_core::{HubRequest, HubRuntime};
 use tokio_stream::StreamExt;
@@ -162,14 +163,23 @@ fn build_selected_engine(
             // adapter as RuntimeEvent::Error; never print config/env secrets.
             Ok(Arc::new(ClaudeAdapter::new(ClaudeAdapterConfig::default())))
         }
+        Engine::Codex => {
+            // Spawns `codex exec --json` from PATH. Auth uses Codex CLI login /
+            // CODEX_HOME; never print secrets. Missing binary surfaces as
+            // RuntimeEvent::Error after execute starts.
+            let mut config = CodexAdapterConfig::default();
+            config.default_cwd = Some(workspace.to_path_buf());
+            Ok(Arc::new(CodexAdapter::new(config)))
+        }
     }
 }
 
 fn print_usage() {
     println!(
-        "Usage: alva-hub [--engine alva|claude] [--] <prompt>\n\nEngines:\n  \
+        "Usage: alva-hub [--engine alva|claude|codex] [--] <prompt>\n\nEngines:\n  \
          alva    Default; uses the existing Alva provider config and ALVA_API_KEY.\n  \
-         claude  Uses Node from PATH, the SDK default model, and ANTHROPIC_API_KEY or a local Claude Code login."
+         claude  Uses Node from PATH, the SDK default model, and ANTHROPIC_API_KEY or a local Claude Code login.\n  \
+         codex   Uses `codex exec --json` from PATH (Codex CLI auth / CODEX_HOME)."
     );
 }
 
@@ -183,5 +193,13 @@ mod tests {
             std::path::Path::new("/definitely/not/an/alva/provider/workspace");
 
         assert!(build_selected_engine(Engine::Claude, nonexistent_workspace).is_ok());
+    }
+
+    #[test]
+    fn selecting_codex_does_not_read_alva_provider_configuration() {
+        let nonexistent_workspace =
+            std::path::Path::new("/definitely/not/an/alva/provider/workspace");
+
+        assert!(build_selected_engine(Engine::Codex, nonexistent_workspace).is_ok());
     }
 }

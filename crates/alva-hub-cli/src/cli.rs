@@ -9,6 +9,7 @@ use std::fmt;
 pub(crate) enum Engine {
     Alva,
     Claude,
+    Codex,
 }
 
 impl Engine {
@@ -16,6 +17,7 @@ impl Engine {
         match self {
             Self::Alva => "alva",
             Self::Claude => "claude",
+            Self::Codex => "codex",
         }
     }
 
@@ -23,6 +25,7 @@ impl Engine {
         match value {
             "alva" => Ok(Self::Alva),
             "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
             _ => Err(ParseError::UnknownEngine(value.into())),
         }
     }
@@ -53,10 +56,15 @@ pub(crate) enum ParseError {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingEngineValue => write!(f, "--engine requires 'alva' or 'claude'"),
+            Self::MissingEngineValue => {
+                write!(f, "--engine requires 'alva', 'claude', or 'codex'")
+            }
             Self::DuplicateEngine => write!(f, "--engine may be supplied only once"),
             Self::UnknownEngine(engine) => {
-                write!(f, "unknown engine '{engine}' (expected alva or claude)")
+                write!(
+                    f,
+                    "unknown engine '{engine}' (expected alva, claude, or codex)"
+                )
             }
             Self::UnknownOption(option) => write!(f, "unknown option '{option}'"),
             Self::EmptyPrompt => write!(f, "a prompt is required"),
@@ -163,6 +171,18 @@ mod tests {
     fn engine_ids_match_registry_contract() {
         assert_eq!(Engine::Alva.id(), "alva");
         assert_eq!(Engine::Claude.id(), "claude");
+        assert_eq!(Engine::Codex.id(), "codex");
+    }
+
+    #[test]
+    fn parses_codex_engine() {
+        assert_eq!(
+            parse_args(&args(&["--engine", "codex", "hello"])),
+            Ok(ParseOutcome::Run(Invocation {
+                engine: Engine::Codex,
+                prompt: "hello".into(),
+            }))
+        );
     }
 
     #[test]
@@ -180,8 +200,8 @@ mod tests {
             Err(ParseError::MissingEngineValue)
         );
         assert_eq!(
-            parse_args(&args(&["--engine=codex", "hello"])),
-            Err(ParseError::UnknownEngine("codex".into()))
+            parse_args(&args(&["--engine=gemini", "hello"])),
+            Err(ParseError::UnknownEngine("gemini".into()))
         );
     }
 

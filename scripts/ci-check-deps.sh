@@ -74,6 +74,9 @@ check_no_workspace_deps "alva-engine-runtime" "alva-kernel-abi"
 # Rule 10: alva-engine-adapter-claude only depends on alva-kernel-abi + alva-engine-runtime
 check_no_workspace_deps "alva-engine-adapter-claude" "alva-kernel-abi|alva-engine-runtime"
 
+# Rule 10b: alva-engine-adapter-codex is SDK-clean (Codex CLI child process only)
+check_no_workspace_deps "alva-engine-adapter-codex" "alva-kernel-abi|alva-engine-runtime"
+
 # Rule 11: alva-engine-adapter-alva is the canonical app-level Alva adapter.
 # It may depend on the complete BaseAgent harness, but SDK crates must never
 # reverse-depend on it (enforced by Rule 17 below).
@@ -83,7 +86,7 @@ check_no_workspace_deps "alva-engine-adapter-alva" "alva-app-core|alva-engine-ru
 # reach into kernel/agent/app implementations directly; concrete adapters own
 # those dependencies.
 check_no_workspace_deps "alva-hub-core" "alva-engine-runtime"
-check_no_workspace_deps "alva-hub-cli" "alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-runtime|alva-hub-core|alva-llm-provider"
+check_no_workspace_deps "alva-hub-cli" "alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-runtime|alva-hub-core|alva-llm-provider"
 
 # Rule 12: alva-llm-provider only depends on alva-kernel-abi
 # (was `alva-provider` — a crate that does not exist; `cargo tree` failed,
@@ -142,6 +145,7 @@ SDK_CRATES=(
     alva-agent-memory
     alva-agent-security
     alva-engine-adapter-claude
+    alva-engine-adapter-codex
     alva-engine-runtime
     alva-environment
     alva-llm-provider
