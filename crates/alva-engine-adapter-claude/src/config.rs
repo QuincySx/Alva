@@ -83,6 +83,18 @@ pub struct ClaudeAdapterConfig {
     /// Persist session to disk for later resume.
     pub persist_session: Option<bool>,
 
+    // ── Host idle watchdog ───────────────────────────────────────
+    /// Host-side bridge idle timeout in milliseconds (cindy-style last resort).
+    ///
+    /// - `None` → read `ALVA_CLAUDE_BRIDGE_IDLE_TIMEOUT_MS`, else 30 minutes
+    /// - `Some(0)` → disable host idle watchdog
+    /// - `Some(ms)` → arm after `ms` of silence while waiting on the model
+    ///
+    /// Does **not** count tool execution or permission-prompt waits.
+    /// In-process stream recovery (`CLAUDE_ENABLE_STREAM_WATCHDOG`) is a
+    /// separate, shorter layer injected into the bridge env.
+    pub bridge_idle_timeout_ms: Option<u64>,
+
     // ── 透传 ─────────────────────────────────────────────────────
     /// Additional environment variables for the subprocess.
     /// 可用于设置任意 Claude Code 支持的环境变量。
@@ -274,6 +286,10 @@ mod tests {
         assert!(c.agents.is_empty());
         assert!(c.setting_sources.is_empty());
         assert!(c.persist_session.is_none());
+        assert!(
+            c.bridge_idle_timeout_ms.is_none(),
+            "idle timeout must default to env/30min resolution, not a hard-coded Some"
+        );
         assert!(c.env.is_empty());
     }
 

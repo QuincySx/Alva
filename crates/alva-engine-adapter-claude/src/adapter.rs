@@ -1,4 +1,4 @@
-// INPUT:  async_trait, futures_core::Stream, tokio::sync, alva_engine_runtime::*, crate::{bridge, config, mapping, process, protocol}
+// INPUT:  async_trait, futures_core::Stream, tokio::sync, alva_engine_runtime::*, crate::{bridge, config, idle_watchdog, mapping, process, protocol}
 // OUTPUT: pub struct ClaudeAdapter
 // POS:    EngineRuntime implementation that spawns a Node.js bridge process to communicate with the Claude Agent SDK.
 
@@ -9,7 +9,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures_core::Stream;
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time::{sleep_until, Instant};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tracing::warn;
 
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
@@ -18,6 +20,10 @@ use alva_engine_runtime::{
 
 use crate::bridge::ensure_bridge_script;
 use crate::config::{BridgeConfig, ClaudeAdapterConfig};
+use crate::idle_watchdog::{
+    build_idle_timeout_message, ensure_in_process_stream_watchdog_env, far_future_deadline,
+    resolve_bridge_idle_timeout, schedule_idle, IdleActivityGate,
+};
 use crate::mapping::EventMapper;
 use crate::process::{BridgeProcess, BridgeSpawnConfig};
 use crate::protocol::{BridgeOutbound, BridgePermissionDecision};
@@ -56,6 +62,9 @@ impl ClaudeAdapter {
         if self.config.use_azure {
             env.insert("CLAUDE_CODE_USE_FOUNDRY".into(), "1".into());
         }
+        // cindy layer-1: let the SDK/cc child self-heal SSE stalls before the
+        // host idle watchdog (layer-2, default 30min) kills the session.
+        ensure_in_process_stream_watchdog_env(&mut env);
 
         BridgeConfig {
             prompt: request.prompt,
@@ -242,6 +251,7 @@ impl EngineRuntime for ClaudeAdapter {
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlCommand>();
         let (control_failure_tx, mut control_failures) = mpsc::unbounded_channel::<()>();
         let sessions = self.sessions.clone();
+        let idle_timeout = resolve_bridge_idle_timeout(&self.config);
 
         tokio::spawn(async move {
             // Spawn bridge process
@@ -277,6 +287,13 @@ impl EngineRuntime for ClaudeAdapter {
             });
             let mut active_session_id = None;
             let mut mapper = EventMapper::new();
+            let mut idle_gate = IdleActivityGate::new();
+            // cindy host idle: count silence only while waiting on the model.
+            let mut idle_deadline = Box::pin(sleep_until(if idle_timeout.is_zero() {
+                far_future_deadline()
+            } else {
+                Instant::now() + idle_timeout
+            }));
 
             // Read stdout while also observing the consumer lifecycle. A
             // receiver dropped before the first bridge event must still tear
@@ -297,6 +314,35 @@ impl EngineRuntime for ClaudeAdapter {
                     Some(()) = control_failures.recv() => {
                         let _ = event_tx.send(RuntimeEvent::Error {
                             message: "Bridge control write failed".into(),
+                            recoverable: false,
+                        });
+                        kill_session(
+                            process,
+                            control_task,
+                            &sessions,
+                            active_session_id,
+                            control_tx.clone(),
+                        )
+                        .await;
+                        let _ = event_tx.send(RuntimeEvent::Completed {
+                            session_id: mapper.session_id().to_string(),
+                            result: None,
+                            usage: None,
+                        });
+                        return;
+                    }
+                    () = &mut idle_deadline => {
+                        // Host-side last resort (layer-2). In-process stream
+                        // recovery should have fired first for pure SSE stalls.
+                        let message = build_idle_timeout_message(idle_timeout);
+                        warn!(
+                            %message,
+                            open_tools = idle_gate.open_tool_count(),
+                            pending_permissions = idle_gate.pending_permission_count(),
+                            "claude bridge idle watchdog tripped"
+                        );
+                        let _ = event_tx.send(RuntimeEvent::Error {
+                            message,
                             recoverable: false,
                         });
                         kill_session(
@@ -355,6 +401,7 @@ impl EngineRuntime for ClaudeAdapter {
                         }
 
                         for event in events {
+                            idle_gate.observe(&event);
                             let is_completed = matches!(&event, RuntimeEvent::Completed { .. });
                             if is_completed {
                                 finish_session(
@@ -380,6 +427,14 @@ impl EngineRuntime for ClaudeAdapter {
                                 return;
                             }
                         }
+
+                        // Any stdout frame is progress for the host timer;
+                        // re-arm only when the ball is still with the model.
+                        schedule_idle(
+                            &mut idle_deadline,
+                            idle_timeout,
+                            idle_gate.waiting_on_upstream(),
+                        );
 
                         if is_done {
                             // A bridge without Result is never success: surface a terminal
@@ -555,6 +610,20 @@ mod tests {
         assert_eq!(bridge.cwd.as_deref(), Some("/tmp/alva-claude"));
         assert!(bridge.streaming);
         assert_eq!(bridge.max_turns, Some(3));
+    }
+
+    #[test]
+    fn build_bridge_config_injects_stream_watchdog_env() {
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
+        let bridge = adapter.build_bridge_config(RuntimeRequest::new("hello"));
+        assert_eq!(
+            bridge.env.get("CLAUDE_ENABLE_STREAM_WATCHDOG").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            bridge.env.get("API_TIMEOUT_MS").map(String::as_str),
+            Some("900000")
+        );
     }
 
     #[test]

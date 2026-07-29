@@ -21,6 +21,9 @@
 - `BridgeMessage` 使用 `serde(tag = "type")` 反序列化，未知类型以 `Unknown` 静默忽略，保证前向兼容（cindy 同款：不认识的 SDK 帧 logger + drop）。
 - `EventMapper` 遵守 `alva-engine-runtime` stream contract：`MessageDelta` 只转发 Text/Reasoning；`input_json_delta` 不得泄漏为 MessageDelta；fatal `Error` 后只接 `Completed`。
 - cindy 对齐策略：`empty-response`（零 substance + 零 usage）发 fatal Error + Completed；空 thinking 不算 substance；`Completed.result` 优先 SDK result 否则累计助手正文。
+- **双层 idle watchdog**（cindy `upstream_response_idle_timeout`）：
+  1. 进程内：默认注入 `CLAUDE_ENABLE_STREAM_WATCHDOG=true` + `API_TIMEOUT_MS=900000`（用户 env 优先不覆盖）
+  2. 宿主：bridge stdout 在「等模型」时静默超过阈值 → fatal Error + kill + Completed；默认 30min，`ALVA_CLAUDE_BRIDGE_IDLE_TIMEOUT_MS` / `bridge_idle_timeout_ms` 覆盖，`0` 关闭；工具执行与 permission 等待不计时
 - `PermissionMode` 决定工具执行审批策略：default（SDK 默认）/ acceptEdits / bypassPermissions。
 - `resume` capability 为 true，表示适配器支持通过 session id 恢复历史会话。
 - 返回的 Stream 为 `'static`，不借用 `&self`。
