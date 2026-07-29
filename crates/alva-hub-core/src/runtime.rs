@@ -91,6 +91,15 @@ pub struct HubSessionSnapshot {
     pub engine_id: EngineId,
     pub engine_session_id: Option<String>,
     pub status: HubSessionStatus,
+    /// Hard stream-contract violations observed on the **latest** execute stream.
+    ///
+    /// Hub still forwards violating events (adapters stay debuggable); this
+    /// counter is the product-visible signal for inspector / CLI / tests.
+    pub stream_hard_violations: u32,
+    /// Soft hygiene warnings (e.g. unclosed tools) from the latest finish check.
+    pub stream_soft_warnings: u32,
+    /// Last hard violation description (human-readable, for debug UIs).
+    pub last_stream_violation: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,15 +107,38 @@ struct HubSession {
     engine_id: EngineId,
     engine_session_id: Option<String>,
     status: HubSessionStatus,
+    stream_hard_violations: u32,
+    stream_soft_warnings: u32,
+    last_stream_violation: Option<String>,
 }
 
 impl HubSession {
+    fn new(engine_id: EngineId) -> Self {
+        Self {
+            engine_id,
+            engine_session_id: None,
+            status: HubSessionStatus::Starting,
+            stream_hard_violations: 0,
+            stream_soft_warnings: 0,
+            last_stream_violation: None,
+        }
+    }
+
+    fn reset_stream_diagnostics(&mut self) {
+        self.stream_hard_violations = 0;
+        self.stream_soft_warnings = 0;
+        self.last_stream_violation = None;
+    }
+
     fn snapshot(&self, product_session_id: ProductSessionId) -> HubSessionSnapshot {
         HubSessionSnapshot {
             product_session_id,
             engine_id: self.engine_id.clone(),
             engine_session_id: self.engine_session_id.clone(),
             status: self.status,
+            stream_hard_violations: self.stream_hard_violations,
+            stream_soft_warnings: self.stream_soft_warnings,
+            last_stream_violation: self.last_stream_violation.clone(),
         }
     }
 }
@@ -256,15 +288,13 @@ impl HubRuntime {
                     })?);
                 let status = existing.status;
                 existing.status = HubSessionStatus::Starting;
+                // New execute turn: diagnostics describe the stream about to run.
+                existing.reset_stream_diagnostics();
                 Some(status)
             } else {
                 sessions.insert(
                     product_session_id.clone(),
-                    HubSession {
-                        engine_id: request.engine_id.clone(),
-                        engine_session_id: None,
-                        status: HubSessionStatus::Starting,
-                    },
+                    HubSession::new(request.engine_id.clone()),
                 );
                 None
             }
@@ -305,6 +335,7 @@ impl HubRuntime {
             while let Some(event) = engine_stream.next().await {
                 if let Err(err) = contract.observe(&event) {
                     hard_violations = hard_violations.saturating_add(1);
+                    record_hard_violation(&sessions, &output_session_id, &err.to_string());
                     warn!(
                         product_session = %output_session_id,
                         engine = %engine_id,
@@ -338,7 +369,12 @@ impl HubRuntime {
             }
             match contract.finish() {
                 Ok(()) => {
-                    for warning in contract.soft_warnings() {
+                    let warnings = contract.soft_warnings();
+                    let soft_count = warnings.len() as u32;
+                    if soft_count > 0 {
+                        record_soft_warnings(&sessions, &output_session_id, soft_count);
+                    }
+                    for warning in warnings {
                         debug!(
                             product_session = %output_session_id,
                             engine = %engine_id,
@@ -352,6 +388,7 @@ impl HubRuntime {
                     // synthesis below repairs the product edge.
                     if hard_violations == 0 {
                         hard_violations = 1;
+                        record_hard_violation(&sessions, &output_session_id, &err.to_string());
                     }
                     warn!(
                         product_session = %output_session_id,
@@ -489,6 +526,35 @@ fn mark_session_failed(
     session.engine_session_id.clone()
 }
 
+fn record_hard_violation(
+    sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
+    product_session_id: &ProductSessionId,
+    detail: &str,
+) {
+    let mut sessions = sessions
+        .write()
+        .expect("Hub session registry lock poisoned");
+    let Some(session) = sessions.get_mut(product_session_id) else {
+        return;
+    };
+    session.stream_hard_violations = session.stream_hard_violations.saturating_add(1);
+    session.last_stream_violation = Some(detail.to_string());
+}
+
+fn record_soft_warnings(
+    sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
+    product_session_id: &ProductSessionId,
+    count: u32,
+) {
+    let mut sessions = sessions
+        .write()
+        .expect("Hub session registry lock poisoned");
+    let Some(session) = sessions.get_mut(product_session_id) else {
+        return;
+    };
+    session.stream_soft_warnings = session.stream_soft_warnings.saturating_add(count);
+}
+
 #[cfg(test)]
 mod tests {
     use std::pin::Pin;
@@ -512,11 +578,7 @@ mod tests {
         let product_session_id = ProductSessionId::new();
         let sessions = RwLock::new(HashMap::from([(
             product_session_id.clone(),
-            HubSession {
-                engine_id: EngineId::from("test"),
-                engine_session_id: None,
-                status: HubSessionStatus::Starting,
-            },
+            HubSession::new(EngineId::from("test")),
         )]));
         (product_session_id, sessions)
     }
@@ -1012,5 +1074,106 @@ mod tests {
         // Product session still completed from the Completed event (before late error).
         let session = hub.session(&events[0].product_session_id).unwrap();
         assert_eq!(session.status, HubSessionStatus::Completed);
+        assert!(
+            session.stream_hard_violations >= 1,
+            "snapshot must expose hard violations for inspector: {session:?}"
+        );
+        assert!(
+            session
+                .last_stream_violation
+                .as_deref()
+                .is_some_and(|s| s.contains("after Completed") || s.contains("EventAfterCompleted") || s.contains("event after")),
+            "last violation detail missing: {:?}",
+            session.last_stream_violation
+        );
+    }
+
+    /// Leaves a tool open so soft warnings are recorded on finish.
+    struct SoftWarningEngine;
+
+    #[async_trait]
+    impl EngineRuntime for SoftWarningEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "soft-1".into(),
+                    model: None,
+                    tools: vec![],
+                },
+                RuntimeEvent::ToolStart {
+                    id: "t-open".into(),
+                    name: "bash".into(),
+                    input: serde_json::json!({}),
+                },
+                RuntimeEvent::Completed {
+                    session_id: "soft-1".into(),
+                    result: None,
+                    usage: None,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: false,
+                tool_control: true,
+                permission_callback: false,
+                resume: false,
+                cancel: false,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_soft_warnings_are_recorded_on_snapshot() {
+        let hub = HubRuntime::new();
+        hub.register_engine("soft", Arc::new(SoftWarningEngine))
+            .unwrap();
+
+        let events: Vec<_> = hub
+            .execute(HubRequest::new("soft", RuntimeRequest::new("probe")))
+            .unwrap()
+            .collect()
+            .await;
+
+        let session = hub.session(&events[0].product_session_id).unwrap();
+        assert_eq!(session.status, HubSessionStatus::Completed);
+        assert_eq!(session.stream_hard_violations, 0);
+        assert!(
+            session.stream_soft_warnings >= 1,
+            "unclosed ToolStart must soft-warn: {session:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn clean_stream_has_zero_diagnostics() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        let events: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("hello")))
+            .unwrap()
+            .collect()
+            .await;
+        let session = hub.session(&events[0].product_session_id).unwrap();
+        assert_eq!(session.stream_hard_violations, 0);
+        assert_eq!(session.stream_soft_warnings, 0);
+        assert!(session.last_stream_violation.is_none());
     }
 }

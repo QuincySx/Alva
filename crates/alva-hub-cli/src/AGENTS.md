@@ -14,6 +14,7 @@
    - Codex：`codex exec --json`（PATH 上的 Codex CLI + CODEX_HOME 认证）
 3. 运行单次 Hub session，输出 final Message；遇到 permission request 立即 fail-closed deny 并继续 drain 到 Completed。
 4. `Error.recoverable == true` 只打印 `(retrying)` 横幅，**不**把进程 exit code 置失败；fatal error 才失败（对齐 cindy willRetry）。
+5. 流结束后若 `HubSessionSnapshot` 有 stream contract hard/soft 诊断，打印到 stderr（不单独改 exit code）。
 
 ## 约束
 

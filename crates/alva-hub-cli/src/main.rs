@@ -75,8 +75,10 @@ async fn run() -> i32 {
     };
     let mut failed = false;
     let mut emitted_text = false;
+    let mut product_session_id = None;
     while let Some(hub_event) = events.next().await {
-        let product_session_id = hub_event.product_session_id;
+        product_session_id = Some(hub_event.product_session_id.clone());
+        let product_session_id = &hub_event.product_session_id;
         match hub_event.event {
             RuntimeEvent::Message { content, .. } => {
                 for block in content {
@@ -140,6 +142,28 @@ async fn run() -> i32 {
     }
     if emitted_text {
         println!();
+    }
+    // Surface multi-engine stream-contract diagnostics without failing a
+    // successful turn — adapters may still have produced a useful answer.
+    if let Some(session_id) = product_session_id {
+        if let Some(snapshot) = hub.session(&session_id) {
+            if snapshot.stream_hard_violations > 0 {
+                eprintln!(
+                    "alva-hub: stream contract hard violations: {}{}",
+                    snapshot.stream_hard_violations,
+                    snapshot
+                        .last_stream_violation
+                        .as_ref()
+                        .map(|d| format!(" (last: {d})"))
+                        .unwrap_or_default()
+                );
+            } else if snapshot.stream_soft_warnings > 0 {
+                eprintln!(
+                    "alva-hub: stream contract soft warnings: {}",
+                    snapshot.stream_soft_warnings
+                );
+            }
+        }
     }
     if failed {
         1
