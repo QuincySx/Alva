@@ -1,5 +1,5 @@
 // INPUT:  process argument strings
-// OUTPUT: Engine, Invocation, ParseOutcome, ParseError, parse_args
+// OUTPUT: Engine, ClaudeMode, Invocation, ParseOutcome, ParseError, parse_args
 // POS:    Fail-closed command-line grammar for selecting one Hub engine and one prompt.
 
 use std::fmt;
@@ -31,10 +31,32 @@ impl Engine {
     }
 }
 
+/// Claude transport for `--engine claude`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ClaudeMode {
+    /// `claude -p --output-format stream-json` (default Hub one-shot).
+    #[default]
+    Light,
+    /// Node bridge + `@anthropic-ai/claude-agent-sdk`.
+    Full,
+}
+
+impl ClaudeMode {
+    fn parse(value: &str) -> Result<Self, ParseError> {
+        match value {
+            "light" | "print" | "cli" | "p" => Ok(Self::Light),
+            "full" | "sdk" => Ok(Self::Full),
+            _ => Err(ParseError::UnknownClaudeMode(value.into())),
+        }
+    }
+}
+
 /// A validated one-shot Hub invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Invocation {
     pub(crate) engine: Engine,
+    /// Only meaningful when `engine == Claude`; ignored otherwise.
+    pub(crate) claude_mode: ClaudeMode,
     pub(crate) prompt: String,
 }
 
@@ -49,6 +71,10 @@ pub(crate) enum ParseError {
     MissingEngineValue,
     DuplicateEngine,
     UnknownEngine(String),
+    MissingClaudeModeValue,
+    DuplicateClaudeMode,
+    UnknownClaudeMode(String),
+    ClaudeModeWithoutClaudeEngine,
     UnknownOption(String),
     EmptyPrompt,
 }
@@ -66,6 +92,19 @@ impl fmt::Display for ParseError {
                     "unknown engine '{engine}' (expected alva, claude, or codex)"
                 )
             }
+            Self::MissingClaudeModeValue => {
+                write!(f, "--claude-mode requires 'light' or 'full'")
+            }
+            Self::DuplicateClaudeMode => write!(f, "--claude-mode may be supplied only once"),
+            Self::UnknownClaudeMode(mode) => {
+                write!(
+                    f,
+                    "unknown claude mode '{mode}' (expected light or full)"
+                )
+            }
+            Self::ClaudeModeWithoutClaudeEngine => {
+                write!(f, "--claude-mode is only valid with --engine claude")
+            }
             Self::UnknownOption(option) => write!(f, "unknown option '{option}'"),
             Self::EmptyPrompt => write!(f, "a prompt is required"),
         }
@@ -76,6 +115,8 @@ impl fmt::Display for ParseError {
 pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
     let mut engine = Engine::Alva;
     let mut engine_set = false;
+    let mut claude_mode = ClaudeMode::Light;
+    let mut claude_mode_set = false;
     let mut prompt_parts = Vec::new();
     let mut options_ended = false;
     let mut index = 0;
@@ -118,6 +159,31 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
             index += 1;
             continue;
         }
+        if argument == "--claude-mode" {
+            if claude_mode_set {
+                return Err(ParseError::DuplicateClaudeMode);
+            }
+            let value = args
+                .get(index + 1)
+                .filter(|value| !value.starts_with('-'))
+                .ok_or(ParseError::MissingClaudeModeValue)?;
+            claude_mode = ClaudeMode::parse(value)?;
+            claude_mode_set = true;
+            index += 2;
+            continue;
+        }
+        if let Some(value) = argument.strip_prefix("--claude-mode=") {
+            if claude_mode_set {
+                return Err(ParseError::DuplicateClaudeMode);
+            }
+            if value.is_empty() {
+                return Err(ParseError::MissingClaudeModeValue);
+            }
+            claude_mode = ClaudeMode::parse(value)?;
+            claude_mode_set = true;
+            index += 1;
+            continue;
+        }
         if argument.starts_with('-') {
             return Err(ParseError::UnknownOption(argument.clone()));
         }
@@ -125,11 +191,19 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
         index += 1;
     }
 
+    if claude_mode_set && engine != Engine::Claude {
+        return Err(ParseError::ClaudeModeWithoutClaudeEngine);
+    }
+
     let prompt = prompt_parts.join(" ");
     if prompt.trim().is_empty() {
         return Err(ParseError::EmptyPrompt);
     }
-    Ok(ParseOutcome::Run(Invocation { engine, prompt }))
+    Ok(ParseOutcome::Run(Invocation {
+        engine,
+        claude_mode,
+        prompt,
+    }))
 }
 
 #[cfg(test)]
@@ -146,6 +220,7 @@ mod tests {
             parse_args(&args(&["hello", "world"])),
             Ok(ParseOutcome::Run(Invocation {
                 engine: Engine::Alva,
+                claude_mode: ClaudeMode::Light,
                 prompt: "hello world".into(),
             }))
         );
@@ -161,6 +236,7 @@ mod tests {
                 parse_args(&args(values)),
                 Ok(ParseOutcome::Run(Invocation {
                     engine: Engine::Claude,
+                    claude_mode: ClaudeMode::Light,
                     prompt: "hello".into(),
                 }))
             );
@@ -180,8 +256,51 @@ mod tests {
             parse_args(&args(&["--engine", "codex", "hello"])),
             Ok(ParseOutcome::Run(Invocation {
                 engine: Engine::Codex,
+                claude_mode: ClaudeMode::Light,
                 prompt: "hello".into(),
             }))
+        );
+    }
+
+    #[test]
+    fn parses_claude_mode_full_and_light() {
+        assert_eq!(
+            parse_args(&args(&[
+                "--engine",
+                "claude",
+                "--claude-mode",
+                "full",
+                "hello"
+            ])),
+            Ok(ParseOutcome::Run(Invocation {
+                engine: Engine::Claude,
+                claude_mode: ClaudeMode::Full,
+                prompt: "hello".into(),
+            }))
+        );
+        assert_eq!(
+            parse_args(&args(&["--engine=claude", "--claude-mode=sdk", "hi"])),
+            Ok(ParseOutcome::Run(Invocation {
+                engine: Engine::Claude,
+                claude_mode: ClaudeMode::Full,
+                prompt: "hi".into(),
+            }))
+        );
+        assert_eq!(
+            parse_args(&args(&["--engine=claude", "--claude-mode=print", "hi"])),
+            Ok(ParseOutcome::Run(Invocation {
+                engine: Engine::Claude,
+                claude_mode: ClaudeMode::Light,
+                prompt: "hi".into(),
+            }))
+        );
+    }
+
+    #[test]
+    fn rejects_claude_mode_on_non_claude_engine() {
+        assert_eq!(
+            parse_args(&args(&["--engine", "alva", "--claude-mode", "light", "x"])),
+            Err(ParseError::ClaudeModeWithoutClaudeEngine)
         );
     }
 
@@ -235,6 +354,7 @@ mod tests {
             parse_args(&args(&["--engine=claude", "--", "--explain", "-v"])),
             Ok(ParseOutcome::Run(Invocation {
                 engine: Engine::Claude,
+                claude_mode: ClaudeMode::Light,
                 prompt: "--explain -v".into(),
             }))
         );

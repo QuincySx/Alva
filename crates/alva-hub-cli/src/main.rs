@@ -9,13 +9,15 @@ use std::sync::Arc;
 use alva_engine_adapter_alva::{
     AlvaAdapter, DefaultBaseAgentFactory, DefaultBaseAgentFactoryConfig,
 };
-use alva_engine_adapter_claude::{ClaudeAdapter, ClaudeAdapterConfig};
+use alva_engine_adapter_claude::{
+    ClaudeAdapter, ClaudeAdapterConfig, ClaudePrintAdapter, ClaudePrintConfig,
+};
 use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
 use alva_engine_runtime::{EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest};
 use alva_hub_core::{HubRequest, HubRuntime};
 use tokio_stream::StreamExt;
 
-use crate::cli::{parse_args, Engine, ParseOutcome};
+use crate::cli::{parse_args, ClaudeMode, Engine, ParseOutcome};
 
 const USAGE_EXIT: i32 = 2;
 
@@ -51,7 +53,11 @@ async fn run() -> i32 {
     };
     let hub = HubRuntime::new();
     let engine_id = invocation.engine.id();
-    let engine = match build_selected_engine(invocation.engine, &workspace) {
+    let engine = match build_selected_engine(
+        invocation.engine,
+        invocation.claude_mode,
+        &workspace,
+    ) {
         Ok(engine) => engine,
         Err(error) => {
             eprintln!("alva-hub: {error}");
@@ -174,6 +180,7 @@ async fn run() -> i32 {
 
 fn build_selected_engine(
     engine: Engine,
+    claude_mode: ClaudeMode,
     workspace: &std::path::Path,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
     match engine {
@@ -188,14 +195,20 @@ fn build_selected_engine(
                 DefaultBaseAgentFactory::new(DefaultBaseAgentFactoryConfig::new(model, workspace));
             Ok(Arc::new(AlvaAdapter::new(Arc::new(factory))))
         }
-        Engine::Claude => {
-            // ClaudeAdapterConfig's default is the adapter's existing env path:
-            // the Node bridge inherits ANTHROPIC_API_KEY (or local Claude Code
-            // login), uses `node`, and lets the SDK choose its default model.
-            // Missing Node, SDK package, or authentication is emitted by the
-            // adapter as RuntimeEvent::Error; never print config/env secrets.
-            Ok(Arc::new(ClaudeAdapter::new(ClaudeAdapterConfig::default())))
-        }
+        Engine::Claude => match claude_mode {
+            ClaudeMode::Light => {
+                // Codex-exec analogue: `claude -p --output-format stream-json`.
+                // Auth = local Claude Code login / ANTHROPIC_* env; no npm SDK.
+                let mut config = ClaudePrintConfig::default();
+                config.default_cwd = Some(workspace.to_path_buf());
+                Ok(Arc::new(ClaudePrintAdapter::new(config)))
+            }
+            ClaudeMode::Full => {
+                // Node bridge + `@anthropic-ai/claude-agent-sdk` (cindy path).
+                // Missing Node/SDK/auth surfaces as RuntimeEvent::Error.
+                Ok(Arc::new(ClaudeAdapter::new(ClaudeAdapterConfig::default())))
+            }
+        },
         Engine::Codex => {
             // Spawns `codex exec --json` from PATH. Auth uses Codex CLI login /
             // CODEX_HOME; never print secrets. Missing binary surfaces as
@@ -209,10 +222,14 @@ fn build_selected_engine(
 
 fn print_usage() {
     println!(
-        "Usage: alva-hub [--engine alva|claude|codex] [--] <prompt>\n\nEngines:\n  \
+        "Usage: alva-hub [--engine alva|claude|codex] [--claude-mode light|full] [--] <prompt>\n\n\
+         Engines:\n  \
          alva    Default; uses the existing Alva provider config and ALVA_API_KEY.\n  \
-         claude  Uses Node from PATH, the SDK default model, and ANTHROPIC_API_KEY or a local Claude Code login.\n  \
-         codex   Uses `codex exec --json` from PATH (Codex CLI auth / CODEX_HOME)."
+         claude  Claude Code harness (see --claude-mode).\n  \
+         codex   Uses `codex exec --json` from PATH (Codex CLI auth / CODEX_HOME).\n\n\
+         Claude modes (only with --engine claude):\n  \
+         light   Default. `claude -p --output-format stream-json` (needs `claude` on PATH).\n  \
+         full    Node bridge + @anthropic-ai/claude-agent-sdk (interactive-capable)."
     );
 }
 
@@ -221,11 +238,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn selecting_claude_does_not_read_alva_provider_configuration() {
+    fn selecting_claude_light_does_not_read_alva_provider_configuration() {
         let nonexistent_workspace =
             std::path::Path::new("/definitely/not/an/alva/provider/workspace");
 
-        assert!(build_selected_engine(Engine::Claude, nonexistent_workspace).is_ok());
+        assert!(build_selected_engine(
+            Engine::Claude,
+            ClaudeMode::Light,
+            nonexistent_workspace
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn selecting_claude_full_does_not_read_alva_provider_configuration() {
+        let nonexistent_workspace =
+            std::path::Path::new("/definitely/not/an/alva/provider/workspace");
+
+        assert!(build_selected_engine(
+            Engine::Claude,
+            ClaudeMode::Full,
+            nonexistent_workspace
+        )
+        .is_ok());
     }
 
     #[test]
@@ -233,7 +268,12 @@ mod tests {
         let nonexistent_workspace =
             std::path::Path::new("/definitely/not/an/alva/provider/workspace");
 
-        assert!(build_selected_engine(Engine::Codex, nonexistent_workspace).is_ok());
+        assert!(build_selected_engine(
+            Engine::Codex,
+            ClaudeMode::Light,
+            nonexistent_workspace
+        )
+        .is_ok());
     }
 
     #[test]

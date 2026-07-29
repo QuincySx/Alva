@@ -7,10 +7,11 @@
 
 ## 逻辑
 
-1. `cli.rs` fail-closed 解析 `--engine alva|claude|codex`、`--` 与 prompt。
+1. `cli.rs` fail-closed 解析 `--engine alva|claude|codex`、`--claude-mode light|full`、`--` 与 prompt。
 2. 只初始化被选中的 adapter：
    - Alva：既有 provider 配置 + `ALVA_API_KEY`
-   - Claude：Node bridge + SDK 默认模型 + `ANTHROPIC_API_KEY` / 本地 Claude Code 登录
+   - Claude **light**（默认）：`claude -p --output-format stream-json`（PATH 上的 `claude`）
+   - Claude **full**：Node bridge + `@anthropic-ai/claude-agent-sdk`
    - Codex：`codex exec --json`（PATH 上的 Codex CLI + CODEX_HOME 认证）
 3. 运行单次 Hub session，输出 final Message；遇到 permission request 立即 fail-closed deny 并继续 drain 到 Completed。
 4. `Error.recoverable == true` 只打印 `(retrying)` 横幅，**不**把进程 exit code 置失败；fatal error 才失败（对齐 cindy willRetry）。
