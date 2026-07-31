@@ -5,6 +5,10 @@ This file is the architecture source of truth for the current tree.
 Related living docs (not historical plans):
 
 - `docs/specs/` — accepted product/runtime specs still in force
+- `docs/ALVA-HUB-V1.md` / `docs/ALVA-HUB-GLOSSARY.md` — accepted Hub
+  target and canonical domain vocabulary; target behavior is not current
+  implementation
+- `docs/adr/` — accepted Hub architecture decisions
 - `docs/BUS-RULES.md` / `docs/BUS-TEMPLATES.md` — bus governance
 - `docs/reviews/` — dated reviews; useful as backlog snapshots, not design truth
 - `AGENTS.md` — crate inventory and extension philosophy
@@ -81,7 +85,8 @@ Alva Hub is a separate product path above the native harness. Native CLI and
 Tauri do not consume the multi-engine contract:
 
 ```text
-alva-hub-cli / future alva-hub-desktop
+current: alva-hub-cli
+target:  alva-hub-desktop (Desktop-first, not yet implemented)
         |
         v
 alva-hub-core
@@ -137,7 +142,32 @@ alva-engine-runtime (neutral contract)
 | L6 | `alva-app-tauri` | Tauri desktop product and Inspector |
 | L7 | `alva-hub-core` | product-level engine registry and product/native session supervision |
 | L7 | `alva-engine-adapter-alva` | canonical app-layer Alva adapter; builds one complete BaseAgent per engine session |
-| L7 | `alva-hub-cli` | minimal final-message-only Hub product proving the multi-engine path without changing native CLI/Tauri; requests `streaming = false` |
+| L7 | `alva-hub-cli` | auxiliary Hub CLI with one-shot/REPL flows, private session journal, resume, manual switching, handoff, and diagnostics |
+| L7 target | `alva-hub-desktop` | accepted but not yet implemented Desktop-first Hub product for reversible fallback, engine branches, timeline, and Orca-style Lead/Worker collaboration |
+
+## Accepted Hub Target (Not Yet Implemented)
+
+The current tree proves multi-engine execution through `alva-hub-core`,
+adapters, and `alva-hub-cli`. The accepted V1 product target is a separate
+`alva-hub-desktop` above those layers:
+
+- Desktop is the primary V1 surface; Hub CLI remains auxiliary.
+- `alva-app-tauri` remains an independently maintained Alva-only product.
+- one HubSession retains reversible engine branches and serial fallback
+  attempts;
+- operational continuity failures can automatically use a visible,
+  user-authorized fallback chain;
+- Cindy Orca-style TeamRuns provide one durable Lead and parallel durable
+  cross-engine Workers;
+- shared workspace is the default, with product-level resource coordination
+  and optional isolated worktrees;
+- permissions may tighten across adapters but never loosen.
+
+The normative target, vocabulary, and decisions are
+[`ALVA-HUB-V1.md`](./ALVA-HUB-V1.md),
+[`ALVA-HUB-GLOSSARY.md`](./ALVA-HUB-GLOSSARY.md), and
+[`docs/adr/`](./adr/README.md). Current crate-level behavior remains documented
+by each crate's `AGENTS.md`.
 
 ## Plugin Assembly
 

@@ -151,7 +151,8 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 > Alva Hub 不改写原生 CLI/Tauri 的入口。它把多 engine session、会话路由和跨 engine 编排提到产品层；Hub 内的 Alva adapter 依赖 `alva-app-core`，因此必须位于 SDK 与原生 app 之上。
 
 ```text
-alva-hub-cli / future alva-hub-desktop
+current: alva-hub-cli
+target:  alva-hub-desktop (Desktop-first, not yet implemented)
                   │
              alva-hub-core
                   │
@@ -167,7 +168,8 @@ alva-hub-cli / future alva-hub-desktop
 |------|------|
 | `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
 | `alva-engine-adapter-alva` | Hub 的 Alva adapter：每个 engine session 由 `BaseAgentFactory` 构造独立的完整 `BaseAgent`，保留 harness 语义。 |
-| `alva-hub-cli` | Alva Hub 最小单次执行 CLI：显式选择并仅注册 Alva / Claude / Codex adapter，再驱动 Hub registry；仅打印 final `Message`，因此显式请求 `streaming = false`；与原生 `alva-app-cli` 保持独立。 |
+| `alva-hub-cli` | Hub 命令行验证、诊断与自动化入口：支持 one-shot / REPL、私有 session journal、显式 Alva / Claude / Codex 选择、resume、手动切换与 handoff；与原生 `alva-app-cli` 保持独立。 |
+| `alva-hub-desktop` | **已接受但尚未实现的 V1 主产品目标**：独立 Tauri 2 + React/Vite/TypeScript L7 入口，承载可逆自动 fallback、engine branch、timeline 与 Cindy Orca 风格 Lead/Worker 协作；不得改写 `alva-app-tauri`。 |
 
 ---
 
@@ -213,6 +215,9 @@ let agent = BaseAgent::builder()
 | `scripts/ci-check-deps.sh` | CI 强制 crate 边界规则。Rule 17 = SDK 不得依赖 app/host。wasm-clean crate 集合必须通过 `wasm32-unknown-unknown`；native host 由 `alva-host-native` 承担，不要求 wasm-clean。 |
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object）。 |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app。 |
+| `docs/ALVA-HUB-V1.md` | 已接受但尚未实现的 Hub Desktop V1 产品、fallback、Orca 协作与验收规范。 |
+| `docs/ALVA-HUB-GLOSSARY.md` | HubSession / EngineBranch / Turn / Attempt / TeamRun / Worker 等领域术语规范。 |
+| `docs/adr/` | Hub Desktop-first、可逆多引擎 fallback、Cindy Orca 风格协作的架构决策记录。 |
 | `Cargo.toml` | Rust workspace，管理 35 个 crate。 |
 | `alva-bus-lint` | CI lint binary：扫 `#[bus_cap]` trait 的跨 crate 类型表面，配合 `docs/BUS-RULES.md` 防止 bus 退化为 God Object。 |
 | `sdk/python/` | Python 插件 SDK（`alva_sdk` 包）。供第三方用 Python 写 `alva-app-extension-loader` 的子进程插件，不在 Cargo workspace 里。 |

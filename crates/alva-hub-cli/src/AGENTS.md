@@ -1,9 +1,14 @@
 # alva-hub-cli
-> Alva Hub 的最小命令行产品入口。
+> Alva Hub 的命令行验证、诊断与自动化入口。
 
 ## 地位
 
 独立于 `alva-app-cli`。后者继续是原生 Alva Agent 产品；本 crate 负责启动 `alva-hub-core`，并按显式 engine 选择注册 Alva / Claude / Codex adapter。
+
+已接受的 V1 主产品目标是尚未实现的独立 `alva-hub-desktop`。本 crate
+继续承担 headless 自动化、adapter 合约验证、故障诊断和 CLI 回归，不是
+Desktop 会话数据库或 UI 状态的事实来源。目标规范见
+[`docs/ALVA-HUB-V1.md`](../../../docs/ALVA-HUB-V1.md)。
 
 ## 逻辑
 
