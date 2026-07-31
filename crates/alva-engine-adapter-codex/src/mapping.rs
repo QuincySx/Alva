@@ -71,7 +71,9 @@ impl EventMapper {
             }
             CodexEvent::ItemStarted { item } => self.map_item_progress(item, ItemPhase::Started),
             CodexEvent::ItemUpdated { item } => self.map_item_progress(item, ItemPhase::Updated),
-            CodexEvent::ItemCompleted { item } => self.map_item_progress(item, ItemPhase::Completed),
+            CodexEvent::ItemCompleted { item } => {
+                self.map_item_progress(item, ItemPhase::Completed)
+            }
             CodexEvent::Error { message, error } => {
                 let message = message
                     .or_else(|| error.and_then(|e| e.message))

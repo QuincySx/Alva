@@ -87,7 +87,7 @@ impl Agent {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut state = self.state.lock().await;
         let config = self.config.read().await;
-        run_agent(&mut state, &*config, cancel, input, tx).await?;
+        run_agent(&mut state, &config, cancel, input, tx).await?;
         Ok(rx)
     }
 

@@ -58,6 +58,14 @@ impl ProductSessionId {
         Self(uuid::Uuid::new_v4().to_string())
     }
 
+    /// Reconstruct a product session id from a previously printed token.
+    ///
+    /// Hub does not validate UUID shape here — the registry is the authority
+    /// for whether the id still exists in this process.
+    pub fn from_existing(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -91,6 +99,12 @@ pub struct HubSessionSnapshot {
     pub engine_id: EngineId,
     pub engine_session_id: Option<String>,
     pub status: HubSessionStatus,
+    /// Engine this product session used before the latest handoff, if any.
+    pub previous_engine_id: Option<EngineId>,
+    /// Native session id of the previous engine (for audit / optional context).
+    pub previous_engine_session_id: Option<String>,
+    /// True until the first execute after [`HubRuntime::switch_engine`].
+    pub pending_handoff: bool,
     /// Hard stream-contract violations observed on the **latest** execute stream.
     ///
     /// Hub still forwards violating events (adapters stay debuggable); this
@@ -106,6 +120,13 @@ pub struct HubSessionSnapshot {
 struct HubSession {
     engine_id: EngineId,
     engine_session_id: Option<String>,
+    previous_engine_id: Option<EngineId>,
+    previous_engine_session_id: Option<String>,
+    /// Cleared on the first execute after a handoff.
+    pending_handoff: bool,
+    /// Product-supplied handoff context retained only when engine startup fails
+    /// synchronously, so the next retry can reuse the same one-shot preamble.
+    pending_handoff_context: Option<String>,
     status: HubSessionStatus,
     stream_hard_violations: u32,
     stream_soft_warnings: u32,
@@ -117,6 +138,10 @@ impl HubSession {
         Self {
             engine_id,
             engine_session_id: None,
+            previous_engine_id: None,
+            previous_engine_session_id: None,
+            pending_handoff: false,
+            pending_handoff_context: None,
             status: HubSessionStatus::Starting,
             stream_hard_violations: 0,
             stream_soft_warnings: 0,
@@ -136,6 +161,9 @@ impl HubSession {
             engine_id: self.engine_id.clone(),
             engine_session_id: self.engine_session_id.clone(),
             status: self.status,
+            previous_engine_id: self.previous_engine_id.clone(),
+            previous_engine_session_id: self.previous_engine_session_id.clone(),
+            pending_handoff: self.pending_handoff,
             stream_hard_violations: self.stream_hard_violations,
             stream_soft_warnings: self.stream_soft_warnings,
             last_stream_violation: self.last_stream_violation.clone(),
@@ -149,6 +177,10 @@ pub struct HubRequest {
     pub engine_id: EngineId,
     pub product_session_id: Option<ProductSessionId>,
     pub request: RuntimeRequest,
+    /// Optional preamble injected once on the first turn after
+    /// [`HubRuntime::switch_engine`] (when `pending_handoff` is set).
+    /// Products typically include previous-engine previews / transcript excerpts.
+    pub handoff_context: Option<String>,
 }
 
 impl HubRequest {
@@ -158,6 +190,7 @@ impl HubRequest {
             engine_id: engine_id.into(),
             product_session_id: None,
             request,
+            handoff_context: None,
         }
     }
 
@@ -165,6 +198,12 @@ impl HubRequest {
     /// from its session map instead of exposing it as product API.
     pub fn resume(mut self, product_session_id: ProductSessionId) -> Self {
         self.product_session_id = Some(product_session_id);
+        self
+    }
+
+    /// Attach a one-shot handoff preamble for the next post-switch execute.
+    pub fn with_handoff_context(mut self, context: impl Into<String>) -> Self {
+        self.handoff_context = Some(context.into());
         self
     }
 }
@@ -235,6 +274,119 @@ impl HubRuntime {
             .map(|session| session.snapshot(id.clone()))
     }
 
+    /// Seed a product session so the next [`Self::execute`] can resume it.
+    ///
+    /// Used by products that rehydrate from disk after process restart.
+    /// The engine must still understand `engine_session_id` (e.g. Claude
+    /// `--resume`); in-memory engines like Alva only work if that native
+    /// session still lives in the same adapter process.
+    ///
+    /// Fails if the product id is already registered to a different engine or
+    /// a different engine session id.
+    pub fn restore_session(
+        &self,
+        product_session_id: ProductSessionId,
+        engine_id: impl Into<EngineId>,
+        engine_session_id: impl Into<String>,
+        status: HubSessionStatus,
+    ) -> Result<(), HubError> {
+        let engine_id = engine_id.into();
+        let engine_session_id = engine_session_id.into();
+        if engine_session_id.trim().is_empty() {
+            return Err(HubError::SessionNotReady(product_session_id.to_string()));
+        }
+        // Engine must be registered so resume routing is possible.
+        let _ = self.engine(&engine_id)?;
+
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("Hub session registry lock poisoned");
+        if let Some(existing) = sessions.get(&product_session_id) {
+            if existing.engine_id != engine_id {
+                return Err(HubError::EngineMismatch {
+                    session_id: product_session_id.to_string(),
+                    requested: engine_id.to_string(),
+                    actual: existing.engine_id.to_string(),
+                });
+            }
+            if let Some(prev) = &existing.engine_session_id {
+                if prev != &engine_session_id {
+                    return Err(HubError::SessionConflict {
+                        session_id: product_session_id.to_string(),
+                        detail: format!(
+                            "engine session mismatch (have {prev}, restore {engine_session_id})"
+                        ),
+                    });
+                }
+            }
+            // Idempotent restore of the same mapping.
+            let entry = sessions.get_mut(&product_session_id).expect("just checked");
+            entry.engine_session_id = Some(engine_session_id);
+            if !matches!(
+                entry.status,
+                HubSessionStatus::Starting | HubSessionStatus::Running
+            ) {
+                entry.status = status;
+            }
+            return Ok(());
+        }
+
+        let mut session = HubSession::new(engine_id);
+        session.engine_session_id = Some(engine_session_id);
+        session.status = status;
+        sessions.insert(product_session_id, session);
+        Ok(())
+    }
+
+    /// Hand off a product session to another registered engine.
+    ///
+    /// Keeps the same [`ProductSessionId`]. The previous engine mapping is
+    /// stored on the snapshot for audit; the next [`Self::execute`] starts a
+    /// **fresh** native session on `new_engine_id` (no native resume on the
+    /// new engine). Context is not automatically migrated — products may
+    /// inject a summary into the next prompt if desired.
+    ///
+    /// No-op (success) when the session already targets `new_engine_id`.
+    pub fn switch_engine(
+        &self,
+        product_session_id: &ProductSessionId,
+        new_engine_id: impl Into<EngineId>,
+    ) -> Result<HubSessionSnapshot, HubError> {
+        let new_engine_id = new_engine_id.into();
+        let _ = self.engine(&new_engine_id)?;
+
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("Hub session registry lock poisoned");
+        let session = sessions
+            .get_mut(product_session_id)
+            .ok_or_else(|| HubError::SessionNotFound(product_session_id.to_string()))?;
+
+        if matches!(
+            session.status,
+            HubSessionStatus::Starting | HubSessionStatus::Running
+        ) {
+            return Err(HubError::SessionBusy(product_session_id.to_string()));
+        }
+
+        if session.engine_id == new_engine_id {
+            return Ok(session.snapshot(product_session_id.clone()));
+        }
+
+        session.previous_engine_id = Some(session.engine_id.clone());
+        session.previous_engine_session_id = session.engine_session_id.clone();
+        session.engine_id = new_engine_id;
+        session.engine_session_id = None;
+        session.pending_handoff = true;
+        session.pending_handoff_context = None;
+        // Ready for a new native session on the target engine.
+        session.status = HubSessionStatus::Completed;
+        session.reset_stream_diagnostics();
+        Ok(session.snapshot(product_session_id.clone()))
+    }
+
     pub fn sessions(&self) -> Vec<HubSessionSnapshot> {
         let mut sessions = self
             .sessions
@@ -256,11 +408,12 @@ impl HubRuntime {
         let engine = self.engine(&request.engine_id)?;
         let product_session_id = request.product_session_id.unwrap_or_default();
         let mut runtime_request = request.request;
+        let handoff_context = request.handoff_context;
 
         // Claim the product session under one write lock. Without this
         // transition a pair of concurrent resume calls can both observe
         // `Completed` and enter the same native session.
-        let previous_status = {
+        let (previous_session, handoff_context_used) = {
             let mut sessions = self
                 .sessions
                 .write()
@@ -273,30 +426,57 @@ impl HubRuntime {
                         actual: existing.engine_id.to_string(),
                     });
                 }
-                if !engine.capabilities().resume {
-                    return Err(HubError::ResumeUnsupported(request.engine_id.to_string()));
-                }
                 if matches!(
                     existing.status,
                     HubSessionStatus::Starting | HubSessionStatus::Running
                 ) {
                     return Err(HubError::SessionBusy(product_session_id.to_string()));
                 }
-                runtime_request.resume_session =
-                    Some(existing.engine_session_id.clone().ok_or_else(|| {
-                        HubError::SessionNotReady(product_session_id.to_string())
-                    })?);
-                let status = existing.status;
+                // Same product session, same engine:
+                // - with native id → resume when the engine supports it
+                // - without native id → handoff / first turn after switch_engine
+                match &existing.engine_session_id {
+                    Some(engine_sid) => {
+                        if !engine.capabilities().resume {
+                            return Err(HubError::ResumeUnsupported(request.engine_id.to_string()));
+                        }
+                        runtime_request.resume_session = Some(engine_sid.clone());
+                    }
+                    None => {
+                        runtime_request.resume_session = None;
+                    }
+                }
+
+                let rollback = existing.clone();
+                let mut handoff_context_used = None;
+                // One-shot handoff preamble for the first post-switch turn.
+                if existing.pending_handoff {
+                    let prev = existing
+                        .previous_engine_id
+                        .as_ref()
+                        .map(|e| e.as_str())
+                        .unwrap_or("unknown");
+                    let banner = handoff_context
+                        .or_else(|| existing.pending_handoff_context.take())
+                        .unwrap_or_else(|| {
+                            default_handoff_banner(prev, request.engine_id.as_str())
+                        });
+                    runtime_request.prompt =
+                        format!("{banner}\n\n## User message\n\n{}", runtime_request.prompt);
+                    handoff_context_used = Some(banner);
+                    existing.pending_handoff = false;
+                }
+
                 existing.status = HubSessionStatus::Starting;
                 // New execute turn: diagnostics describe the stream about to run.
                 existing.reset_stream_diagnostics();
-                Some(status)
+                (Some(rollback), handoff_context_used)
             } else {
                 sessions.insert(
                     product_session_id.clone(),
                     HubSession::new(request.engine_id.clone()),
                 );
-                None
+                (None, None)
             }
         };
 
@@ -307,10 +487,9 @@ impl HubRuntime {
                     .sessions
                     .write()
                     .expect("Hub session registry lock poisoned");
-                if let Some(status) = previous_status {
-                    if let Some(session) = sessions.get_mut(&product_session_id) {
-                        session.status = status;
-                    }
+                if let Some(mut previous) = previous_session {
+                    previous.pending_handoff_context = handoff_context_used;
+                    sessions.insert(product_session_id.clone(), previous);
                 } else {
                     sessions.remove(&product_session_id);
                 }
@@ -555,6 +734,21 @@ fn record_soft_warnings(
     session.stream_soft_warnings = session.stream_soft_warnings.saturating_add(count);
 }
 
+/// Minimal handoff banner when the product does not supply richer context.
+fn default_handoff_banner(from_engine: &str, to_engine: &str) -> String {
+    format!(
+        "\
+## Alva Hub engine handoff
+
+You are continuing **product-session** work after a handoff from engine \
+`{from_engine}` to engine `{to_engine}`.
+
+The previous engine's full conversation is **not** automatically available \
+here. Infer carefully from any previews below and from the new user message. \
+If critical context is missing, say what you need."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::pin::Pin;
@@ -781,6 +975,59 @@ mod tests {
         }
     }
 
+    struct FailOnceEngine {
+        calls: AtomicUsize,
+        requests: Mutex<Vec<RuntimeRequest>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for FailOnceEngine {
+        fn execute(
+            &self,
+            request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            self.requests.lock().unwrap().push(request);
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err(RuntimeError::ProcessError("transient spawn failure".into()));
+            }
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "retry-engine".into(),
+                    model: None,
+                    tools: vec![],
+                },
+                RuntimeEvent::Completed {
+                    session_id: "retry-engine".into(),
+                    result: Some("done".into()),
+                    usage: None,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
     #[async_trait]
     impl EngineRuntime for FakeEngine {
         fn execute(
@@ -867,6 +1114,226 @@ mod tests {
 
         let requests = engine.requests.lock().unwrap();
         assert_eq!(requests[1].resume_session.as_deref(), Some("engine-42"));
+    }
+
+    #[tokio::test]
+    async fn restore_session_enables_resume_after_rehydrate() {
+        let hub = HubRuntime::new();
+        let engine = Arc::new(FakeEngine::new());
+        hub.register_engine("claude", engine.clone()).unwrap();
+
+        let product_id = ProductSessionId::from_existing("prod-restored");
+        hub.restore_session(
+            product_id.clone(),
+            "claude",
+            "engine-from-disk",
+            HubSessionStatus::Completed,
+        )
+        .unwrap();
+
+        let snap = hub.session(&product_id).unwrap();
+        assert_eq!(snap.engine_id.as_str(), "claude");
+        assert_eq!(snap.engine_session_id.as_deref(), Some("engine-from-disk"));
+        assert_eq!(snap.status, HubSessionStatus::Completed);
+
+        let _: Vec<_> = hub
+            .execute(HubRequest::new("claude", RuntimeRequest::new("again")).resume(product_id))
+            .unwrap()
+            .collect()
+            .await;
+
+        let requests = engine.requests.lock().unwrap();
+        assert_eq!(
+            requests[0].resume_session.as_deref(),
+            Some("engine-from-disk")
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_session_rejects_engine_mismatch() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        hub.register_engine("claude", Arc::new(FakeEngine::new()))
+            .unwrap();
+        let product_id = ProductSessionId::from_existing("prod-x");
+        hub.restore_session(
+            product_id.clone(),
+            "alva",
+            "e1",
+            HubSessionStatus::Completed,
+        )
+        .unwrap();
+        let err = hub
+            .restore_session(product_id, "claude", "e2", HubSessionStatus::Completed)
+            .unwrap_err();
+        assert!(matches!(err, HubError::EngineMismatch { .. }));
+    }
+
+    #[tokio::test]
+    async fn switch_engine_starts_fresh_native_session_on_target() {
+        let hub = HubRuntime::new();
+        let alva = Arc::new(FakeEngine::new());
+        let claude = Arc::new(FakeEngine::new());
+        hub.register_engine("alva", alva.clone()).unwrap();
+        hub.register_engine("claude", claude.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("on alva")))
+            .unwrap()
+            .collect()
+            .await;
+        let product_id = first[0].product_session_id.clone();
+        let snap = hub.session(&product_id).unwrap();
+        assert_eq!(snap.engine_id.as_str(), "alva");
+        assert!(snap.engine_session_id.is_some());
+
+        let switched = hub.switch_engine(&product_id, "claude").unwrap();
+        assert_eq!(switched.engine_id.as_str(), "claude");
+        assert!(switched.engine_session_id.is_none());
+        assert_eq!(
+            switched.previous_engine_id.as_ref().map(|e| e.as_str()),
+            Some("alva")
+        );
+        assert_eq!(
+            switched.previous_engine_session_id.as_deref(),
+            Some("engine-42")
+        );
+
+        let _: Vec<_> = hub
+            .execute(HubRequest::new("claude", RuntimeRequest::new("on claude")).resume(product_id))
+            .unwrap()
+            .collect()
+            .await;
+
+        // Fresh native session on claude — no resume_session filled; handoff
+        // banner is prepended to the user prompt.
+        {
+            let claude_reqs = claude.requests.lock().unwrap();
+            assert_eq!(claude_reqs.len(), 1);
+            assert!(claude_reqs[0].resume_session.is_none());
+            assert!(
+                claude_reqs[0].prompt.contains("engine handoff")
+                    && claude_reqs[0].prompt.contains("on claude"),
+                "expected handoff banner + user prompt, got: {}",
+                claude_reqs[0].prompt
+            );
+        }
+        // Second turn on same engine should not re-inject the banner.
+        // Drop the requests lock before execute — FakeEngine locks the same mutex.
+        let product_id = first[0].product_session_id.clone();
+        let _: Vec<_> = hub
+            .execute(
+                HubRequest::new("claude", RuntimeRequest::new("again"))
+                    .resume(product_id)
+                    .with_handoff_context("SHOULD_NOT_APPEAR"),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        let claude_reqs = claude.requests.lock().unwrap();
+        assert_eq!(claude_reqs.len(), 2);
+        assert!(!claude_reqs[1].prompt.contains("SHOULD_NOT_APPEAR"));
+        assert!(!claude_reqs[1].prompt.contains("engine handoff"));
+    }
+
+    #[tokio::test]
+    async fn handoff_uses_product_supplied_context_once() {
+        let hub = HubRuntime::new();
+        let alva = Arc::new(FakeEngine::new());
+        let claude = Arc::new(FakeEngine::new());
+        hub.register_engine("alva", alva).unwrap();
+        hub.register_engine("claude", claude.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("start")))
+            .unwrap()
+            .collect()
+            .await;
+        let product_id = first[0].product_session_id.clone();
+        hub.switch_engine(&product_id, "claude").unwrap();
+        let _: Vec<_> = hub
+            .execute(
+                HubRequest::new("claude", RuntimeRequest::new("go"))
+                    .resume(product_id)
+                    .with_handoff_context("CUSTOM_HANDOFF_BLOCK"),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        let reqs = claude.requests.lock().unwrap();
+        assert!(reqs[0].prompt.contains("CUSTOM_HANDOFF_BLOCK"));
+        assert!(reqs[0].prompt.contains("## User message"));
+        assert!(reqs[0].prompt.contains("go"));
+    }
+
+    #[tokio::test]
+    async fn failed_engine_start_preserves_handoff_context_for_retry() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        let retry_engine = Arc::new(FailOnceEngine {
+            calls: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
+        });
+        hub.register_engine("retry", retry_engine.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("start")))
+            .unwrap()
+            .collect()
+            .await;
+        let product_id = first[0].product_session_id.clone();
+        hub.switch_engine(&product_id, "retry").unwrap();
+
+        let error = match hub.execute(
+            HubRequest::new("retry", RuntimeRequest::new("first attempt"))
+                .resume(product_id.clone())
+                .with_handoff_context("CUSTOM_HANDOFF_BLOCK"),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("first engine start should fail"),
+        };
+        assert!(matches!(
+            error,
+            HubError::Runtime(RuntimeError::ProcessError(_))
+        ));
+        let after_error = hub.session(&product_id).unwrap();
+        assert_eq!(after_error.status, HubSessionStatus::Completed);
+        assert!(after_error.pending_handoff);
+
+        let _: Vec<_> = hub
+            .execute(
+                HubRequest::new("retry", RuntimeRequest::new("retry attempt"))
+                    .resume(product_id.clone()),
+            )
+            .unwrap()
+            .collect()
+            .await;
+
+        let requests = retry_engine.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].prompt.contains("CUSTOM_HANDOFF_BLOCK"));
+        assert!(requests[1].prompt.contains("retry attempt"));
+        assert!(!hub.session(&product_id).unwrap().pending_handoff);
+    }
+
+    #[tokio::test]
+    async fn switch_engine_same_target_is_noop() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        let product_id = ProductSessionId::from_existing("p-same");
+        hub.restore_session(
+            product_id.clone(),
+            "alva",
+            "e1",
+            HubSessionStatus::Completed,
+        )
+        .unwrap();
+        let snap = hub.switch_engine(&product_id, "alva").unwrap();
+        assert_eq!(snap.engine_session_id.as_deref(), Some("e1"));
+        assert!(snap.previous_engine_id.is_none());
     }
 
     #[tokio::test]
@@ -1059,11 +1526,12 @@ mod tests {
             .collect()
             .await;
 
-        assert_eq!(events.len(), 3, "Hub observes contract but does not drop events");
-        assert!(matches!(
-            events[1].event,
-            RuntimeEvent::Completed { .. }
-        ));
+        assert_eq!(
+            events.len(),
+            3,
+            "Hub observes contract but does not drop events"
+        );
+        assert!(matches!(events[1].event, RuntimeEvent::Completed { .. }));
         assert!(matches!(
             events[2].event,
             RuntimeEvent::Error {
@@ -1082,7 +1550,9 @@ mod tests {
             session
                 .last_stream_violation
                 .as_deref()
-                .is_some_and(|s| s.contains("after Completed") || s.contains("EventAfterCompleted") || s.contains("event after")),
+                .is_some_and(|s| s.contains("after Completed")
+                    || s.contains("EventAfterCompleted")
+                    || s.contains("event after")),
             "last violation detail missing: {:?}",
             session.last_stream_violation
         );

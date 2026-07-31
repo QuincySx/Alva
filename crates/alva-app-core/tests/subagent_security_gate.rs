@@ -82,7 +82,9 @@ async fn run_with_decision(decision: PermissionDecision) -> (tempfile::TempDir, 
         }
     });
 
-    let rx = agent.prompt_text("spawn a worker to create the marker file").await;
+    let rx = agent
+        .prompt_text("spawn a worker to create the marker file")
+        .await;
     let _events = collect_events(rx).await;
 
     let approvals = counter.load(std::sync::atomic::Ordering::SeqCst);

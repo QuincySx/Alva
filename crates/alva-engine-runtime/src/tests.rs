@@ -77,8 +77,10 @@ fn options_extra_fields() {
 
 #[test]
 fn options_max_turns() {
-    let mut opts = RuntimeOptions::default();
-    opts.max_turns = Some(10);
+    let opts = RuntimeOptions {
+        max_turns: Some(10),
+        ..RuntimeOptions::default()
+    };
     assert_eq!(opts.max_turns, Some(10));
 }
 

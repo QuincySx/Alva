@@ -155,10 +155,7 @@ mod tests {
 
     #[test]
     fn parse_idle_timeout_defaults_and_zero_disable() {
-        assert_eq!(
-            parse_idle_timeout_ms(None),
-            DEFAULT_BRIDGE_IDLE_TIMEOUT_MS
-        );
+        assert_eq!(parse_idle_timeout_ms(None), DEFAULT_BRIDGE_IDLE_TIMEOUT_MS);
         assert_eq!(
             parse_idle_timeout_ms(Some("")),
             DEFAULT_BRIDGE_IDLE_TIMEOUT_MS

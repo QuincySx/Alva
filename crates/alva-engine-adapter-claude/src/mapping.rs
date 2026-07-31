@@ -9,6 +9,19 @@ use alva_kernel_abi::{ContentBlock, MessageRole, StreamEvent, ToolOutput};
 
 use crate::protocol::{BridgeMessage, SdkContentBlock, SdkMessage};
 
+fn tool_result_text(content: Option<serde_json::Value>) -> String {
+    match content {
+        Some(serde_json::Value::String(text)) => text,
+        Some(serde_json::Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|block| block.get("text").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(value) => serde_json::to_string(&value).unwrap_or_default(),
+        None => String::new(),
+    }
+}
+
 /// Stateful mapper that converts bridge messages to runtime events.
 ///
 /// Maintains a tool_use_id -> tool_name lookup to populate ToolEnd.name,
@@ -157,7 +170,7 @@ impl EventMapper {
                                 .cloned()
                                 .unwrap_or_default();
                             let is_err = is_error.unwrap_or(false);
-                            let text = content.unwrap_or_default();
+                            let text = tool_result_text(content);
                             events.push(RuntimeEvent::ToolEnd {
                                 id: tool_use_id,
                                 name,
@@ -184,6 +197,43 @@ impl EventMapper {
                     );
                 }
 
+                events
+            }
+
+            SdkMessage::User { message, .. } => {
+                let Some(payload) = message else {
+                    return vec![];
+                };
+                let Some(blocks) = payload.content else {
+                    return vec![];
+                };
+                let mut events = Vec::new();
+                for block in blocks {
+                    if let SdkContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                        is_error,
+                    } = block
+                    {
+                        self.saw_substance = true;
+                        let name = self
+                            .tool_names
+                            .get(&tool_use_id)
+                            .cloned()
+                            .unwrap_or_default();
+                        let result = tool_result_text(content);
+                        events.push(RuntimeEvent::ToolEnd {
+                            id: tool_use_id,
+                            name,
+                            result: if is_error.unwrap_or(false) {
+                                ToolOutput::error(result)
+                            } else {
+                                ToolOutput::text(result)
+                            },
+                            duration_ms: None,
+                        });
+                    }
+                }
                 events
             }
 
@@ -239,8 +289,7 @@ impl EventMapper {
                 let sid = session_id.unwrap_or_else(|| self.session_id.clone());
                 let is_error = subtype.as_deref() != Some("success");
 
-                let input_tokens =
-                    usage.as_ref().and_then(|u| u.input_tokens).unwrap_or(0) as u32;
+                let input_tokens = usage.as_ref().and_then(|u| u.input_tokens).unwrap_or(0) as u32;
                 let output_tokens =
                     usage.as_ref().and_then(|u| u.output_tokens).unwrap_or(0) as u32;
                 let usage_data = RuntimeUsage {
@@ -271,8 +320,7 @@ impl EventMapper {
                     });
                 } else if empty_response {
                     events.push(RuntimeEvent::Error {
-                        message: "empty-response: model returned no content and zero usage"
-                            .into(),
+                        message: "empty-response: model returned no content and zero usage".into(),
                         recoverable: false,
                     });
                 }
@@ -406,6 +454,23 @@ mod tests {
         let events = mapper.map(msg);
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], RuntimeEvent::ToolEnd { name, .. } if name == "Bash"));
+    }
+
+    #[test]
+    fn maps_real_print_user_tool_result_to_tool_end() {
+        let mut mapper = EventMapper::new();
+        mapper.tool_names.insert("tool-1".into(), "Bash".into());
+        let message: SdkMessage = serde_json::from_str(
+            r#"{"type":"user","uuid":"user-1","session_id":"session-1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":[{"type":"text","text":"command output"}],"is_error":false}]}}"#,
+        )
+        .unwrap();
+
+        let events = mapper.map(BridgeMessage::SdkMessage { message });
+        assert!(matches!(
+            events.as_slice(),
+            [RuntimeEvent::ToolEnd { id, name, result, .. }]
+                if id == "tool-1" && name == "Bash" && result.model_text() == "command output"
+        ));
     }
 
     #[test]
@@ -683,8 +748,7 @@ mod tests {
         assert!(validate_event_stream(&stream).is_ok());
         match stream.last() {
             Some(RuntimeEvent::Completed {
-                result: Some(text),
-                ..
+                result: Some(text), ..
             }) => assert_eq!(text, "hi"),
             other => panic!("expected Completed with streamed text, got {other:?}"),
         }

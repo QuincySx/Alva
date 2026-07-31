@@ -155,7 +155,7 @@ pub(crate) async fn ensure_session_loaded(
 /// - `User` / `Assistant` / `System` → a plain bubble with text.
 /// - `Thinking` → collapsible "思考" block.
 /// - `ToolCall` → collapsible block with the tool name, arguments, and
-///    (once the paired `tool_result` block arrives) its output + error flag.
+///   (once the paired `tool_result` block arrives) its output + error flag.
 /// - `Error` → red bubble for surfaced errors.
 ///
 /// Projection from `Vec<AgentMessage>` happens in `messages_to_chat_entries`,

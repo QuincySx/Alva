@@ -89,9 +89,7 @@ impl ToolBatchCoordinator {
                     Ok(()) => match tool {
                         Some(ref t) => 'locked: {
                             let _lock_guards = if let Some(bus) = config.bus.as_ref() {
-                                if let Some(registry) =
-                                    bus.get::<crate::ToolLockRegistry>()
-                                {
+                                if let Some(registry) = bus.get::<crate::ToolLockRegistry>() {
                                     let keys = t.resource_keys(&tool_call.arguments);
                                     let mode = t.execution_mode();
                                     // Bounded acquire: deadlock-shaped contention

@@ -564,7 +564,7 @@ async fn run_loop(
         // Periodic durability flush (lifecycle contract point b): bound how
         // long a permanent backend write failure can stay hidden. Checked at
         // the iteration boundary so it never interrupts a turn mid-flight.
-        if total_iterations % FLUSH_EVERY_N_ITERATIONS == 0
+        if total_iterations.is_multiple_of(FLUSH_EVERY_N_ITERATIONS)
             || last_flush.elapsed() >= FLUSH_INTERVAL
         {
             if let Err(e) = state.session.flush().await {

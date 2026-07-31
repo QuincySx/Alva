@@ -1,3 +1,5 @@
+// INPUT:  std::collections, serde, crate::AgentMessage
+// OUTPUT: Public context layers, entries, actions, injections, snapshots, and session query types
 // POS: Context value types — layers, priorities, entries, snapshots, actions, session types.
 
 use std::collections::HashMap;
@@ -24,24 +26,21 @@ pub enum ContextLayer {
 }
 
 /// Retention priority during compression. Higher = harder to remove.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub enum Priority {
     /// Can always be removed.
     Disposable = 0,
     /// Remove if needed.
     Low = 1,
     /// Default.
+    #[default]
     Normal = 2,
     /// Keep unless desperate.
     High = 3,
     /// Never remove (user intent, architecture decisions, identifiers).
     Critical = 4,
-}
-
-impl Default for Priority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 // ---------------------------------------------------------------------------

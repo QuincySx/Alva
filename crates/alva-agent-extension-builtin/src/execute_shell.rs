@@ -148,12 +148,10 @@ const GIT_OPERATIONS: &[&str] = &[
 /// Check if a command is a git operation and return the operation type.
 fn detect_git_operation(command: &str) -> Option<&'static str> {
     let trimmed = command.trim();
-    for op in GIT_OPERATIONS {
-        if trimmed.starts_with(op) {
-            return Some(op);
-        }
-    }
-    None
+    GIT_OPERATIONS
+        .iter()
+        .copied()
+        .find(|operation| trimmed.starts_with(operation))
 }
 
 #[derive(Tool)]

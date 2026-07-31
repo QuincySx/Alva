@@ -366,7 +366,6 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
-    let mut turns = turns;
     if let Some(err) = run_error {
         if let Some(last) = turns.last_mut() {
             last.llm_call.error_message = Some(err);

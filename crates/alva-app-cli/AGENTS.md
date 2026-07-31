@@ -15,7 +15,7 @@
 6. jobs 子进程由宿主持有 `tools.jsonl` 路径：native middleware、限次数且只接受 `tool_call` kind 的 wasm log import 与可信 host `escalation_request`/`escalation_result` 实时追加同一格式；job runner 独占 `-p --output-format json`，拒绝调用方覆盖，job 目录/文件使用 0700/0600 且不进入 guest args/env/preopen。
 7. os 档允许全网络；macOS 只圈禁写、不圈禁读，Linux 则把读写限制到 grant 与显式 runtime support paths。子进程继承 Seatbelt/Landlock，真实内核 enforcement 成功后才开放依赖沙箱的权限模式，`request_escalation` 因不存在外部 host 边界而移除。
 8. native agent 只读取 canonical workspace 内、单文件不超过 1 MiB 的 project context；session id 必须是 canonical UUID，`.alva/sessions` 拒绝软链接，JSON/index/RunRecord 以 0700/0600 权限原子替换并串行化写入。
-9. REPL 未知斜杠命令先查 skill registry：精确命中由 harness 加载正文，未命中保留原 unknown-command 错误；TUI 的启动恢复与 `/resume ID` 同步恢复历史 UI，并在每次完成/退出生成 RunRecord。
+9. REPL 未知斜杠命令先查 skill registry：精确命中由 harness 加载正文，未命中保留原 unknown-command 错误；slash command 产出的 `allowed_tools` 作为单轮工具白名单执行并在该轮后清空；TUI 的启动恢复与 `/resume ID` 同步恢复历史 UI，并在每次完成/退出生成 RunRecord。
 
 ## 约束
 

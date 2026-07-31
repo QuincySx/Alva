@@ -259,7 +259,11 @@ mod tests {
             timestamp: 0,
         };
         let _ = mock
-            .complete(&[input_msg.clone()], &[], &ModelConfig::default())
+            .complete(
+                std::slice::from_ref(&input_msg),
+                &[],
+                &ModelConfig::default(),
+            )
             .await;
         let calls = mock.calls();
         assert_eq!(calls.len(), 1);

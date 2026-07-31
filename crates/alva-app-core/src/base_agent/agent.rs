@@ -87,7 +87,7 @@ impl BaseAgent {
             let mut st = inner.state().lock().await;
             let config = inner.config().await;
             let _ = started_tx.send(());
-            if let Err(e) = run_agent(&mut st, &*config, cancel, messages, event_tx).await {
+            if let Err(e) = run_agent(&mut st, &config, cancel, messages, event_tx).await {
                 tracing::error!(error = %e, "agent loop failed");
             }
         });
@@ -482,8 +482,10 @@ mod tests {
         );
         let agent = Arc::new(build_test_agent(model).await);
 
-        let session_a = Arc::new(InMemoryAgentSession::new()) as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
-        let session_b = Arc::new(InMemoryAgentSession::new()) as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
+        let session_a = Arc::new(InMemoryAgentSession::new())
+            as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
+        let session_b = Arc::new(InMemoryAgentSession::new())
+            as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
         let id_a = session_a.session_id().to_string();
         let id_b = session_b.session_id().to_string();
         assert_ne!(id_a, id_b);

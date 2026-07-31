@@ -17,6 +17,12 @@ pub struct HistorySearch {
     match_cursor: usize,
 }
 
+impl Default for HistorySearch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HistorySearch {
     pub fn new() -> Self {
         Self {

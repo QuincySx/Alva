@@ -131,7 +131,7 @@ impl WasmAgent {
         event_tx: tokio::sync::mpsc::UnboundedSender<AgentEvent>,
     ) -> Result<(), AgentError> {
         let input = vec![AgentMessage::Standard(
-            alva_kernel_abi::base::message::Message::user(&prompt.into()),
+            alva_kernel_abi::base::message::Message::user(prompt.into()),
         )];
         run_agent(&mut self.state, &self.config, cancel, input, event_tx).await
     }
@@ -151,15 +151,16 @@ impl WasmAgent {
 
         let mut output = String::new();
         while let Ok(event) = rx.try_recv() {
-            if let AgentEvent::MessageEnd { message } = event {
-                if let AgentMessage::Standard(msg) = message {
-                    let text = msg.text_content();
-                    if !text.is_empty() {
-                        if !output.is_empty() {
-                            output.push('\n');
-                        }
-                        output.push_str(&text);
+            if let AgentEvent::MessageEnd {
+                message: AgentMessage::Standard(msg),
+            } = event
+            {
+                let text = msg.text_content();
+                if !text.is_empty() {
+                    if !output.is_empty() {
+                        output.push('\n');
                     }
+                    output.push_str(&text);
                 }
             }
         }

@@ -307,7 +307,7 @@ impl ContextStore {
                 ToolPattern {
                     tool_name: t.tool_name.clone(),
                     call_count: count,
-                    avg_result_tokens: if count > 0 { total / count } else { 0 },
+                    avg_result_tokens: total.checked_div(count).unwrap_or(0),
                     total_result_tokens: total,
                 }
             })

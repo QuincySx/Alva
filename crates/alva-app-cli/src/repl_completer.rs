@@ -145,15 +145,12 @@ mod tests {
         let c = SlashCompleter::new(registry());
         // Prefix `c` should match `clear` (from registry)
         let m = c.matches("c");
-        assert!(m.iter().any(|s| *s == "clear"), "missing `clear`: {m:?}");
+        assert!(m.contains(&"clear"), "missing `clear`: {m:?}");
         // Prefix `re` should match `resume`+`rewind` (extras) but not `model`
         let m = c.matches("re");
-        assert!(m.iter().any(|s| *s == "resume"), "missing `resume`: {m:?}");
-        assert!(m.iter().any(|s| *s == "rewind"), "missing `rewind`: {m:?}");
-        assert!(
-            !m.iter().any(|s| *s == "model"),
-            "model should not match `re`"
-        );
+        assert!(m.contains(&"resume"), "missing `resume`: {m:?}");
+        assert!(m.contains(&"rewind"), "missing `rewind`: {m:?}");
+        assert!(!m.contains(&"model"), "model should not match `re`");
     }
 
     #[test]

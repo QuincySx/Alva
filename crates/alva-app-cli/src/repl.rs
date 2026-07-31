@@ -21,6 +21,7 @@ use crate::session::{JsonFileAgentSession, JsonFileSessionManager, SessionSummar
 // Session-level token accumulation uses TokenUsage directly.
 
 /// Build a CommandContext from current REPL state.
+#[allow(clippy::too_many_arguments)] // Mirrors the fields of the command context contract.
 fn build_command_context<'a>(
     workspace: &'a std::path::Path,
     config: &'a ProviderConfig,
@@ -49,6 +50,7 @@ fn build_command_context<'a>(
 }
 
 /// Run the interactive REPL loop with session management.
+#[allow(clippy::too_many_arguments)] // Top-level harness entry keeps dependencies explicit.
 pub(crate) async fn run_repl(
     agent: &BaseAgent,
     config: &ProviderConfig,
@@ -266,7 +268,11 @@ pub(crate) async fn run_repl(
                 match dispatch(trimmed, &mut ctx).await {
                     ReplAction::Quit => break,
                     ReplAction::Continue => continue,
-                    ReplAction::Prompt { content, snapshot } => {
+                    ReplAction::Prompt {
+                        content,
+                        snapshot,
+                        allowed_tools,
+                    } => {
                         if snapshot {
                             // Idempotent — only writes the snapshot if this
                             // session doesn't have one yet. Covers /new +
@@ -280,8 +286,10 @@ pub(crate) async fn run_repl(
                                 )
                                 .await;
                         }
+                        agent.set_allowed_tools(allowed_tools).await;
                         let (in_tok, out_tok) =
                             event_handler::run_prompt(agent, &content, approval_rx).await;
+                        agent.set_allowed_tools(None).await;
                         tokens.input_tokens += in_tok;
                         tokens.output_tokens += out_tok;
 
@@ -321,7 +329,11 @@ pub(crate) enum ReplAction {
     /// Run `content` as an agent prompt turn (loop persists the run record).
     /// `snapshot` = write the idempotent config snapshot first (plain user
     /// prompts do; registry-expanded prompts historically don't — preserved).
-    Prompt { content: String, snapshot: bool },
+    Prompt {
+        content: String,
+        snapshot: bool,
+        allowed_tools: Option<Vec<String>>,
+    },
 }
 
 /// Borrowed view of everything a REPL line can touch.
@@ -433,10 +445,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
                 if snap.is_empty() {
                     eprintln!("  no active locks");
                 } else {
-                    eprintln!(
-                        "  {:<32}  {:<5}  {:<24}  {}",
-                        "key", "mode", "holder", "age"
-                    );
+                    eprintln!("  {:<32}  {:<5}  {:<24}  age", "key", "mode", "holder");
                     for s in &snap {
                         let mode = match s.mode {
                             alva_kernel_abi::LockMode::Read => "read",
@@ -464,7 +473,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
             agent.swap_session(new_session.clone()).await;
             **active_session = new_session;
             **tokens = TokenUsage::default();
-            output::print_session_new(&session_id);
+            output::print_session_new(session_id);
             output::print_divider();
             return ReplAction::Continue;
         }
@@ -504,7 +513,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
             return ReplAction::Continue;
         }
         "/sessions" => {
-            handle_sessions(session_manager, &session_id);
+            handle_sessions(session_manager, session_id);
             return ReplAction::Continue;
         }
         _ => {} // Fall through to registry or model/shell handling
@@ -549,9 +558,9 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
         let ctx = build_command_context(
             workspace,
             config,
-            &session_id,
+            session_id,
             message_count,
-            &tokens,
+            tokens,
             tool_names,
             plugin_names,
             middleware_names,
@@ -566,7 +575,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
                 CommandResult::Prompt {
                     content,
                     progress_message,
-                    ..
+                    allowed_tools,
                 } => {
                     if let Some(msg) = &progress_message {
                         eprintln!("  {}", msg);
@@ -574,6 +583,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
                     return ReplAction::Prompt {
                         content,
                         snapshot: false,
+                        allowed_tools,
                     };
                 }
                 CommandResult::Compact { summary } => {
@@ -582,6 +592,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
                     return ReplAction::Prompt {
                         content: summary,
                         snapshot: false,
+                        allowed_tools: None,
                     };
                 }
                 CommandResult::Error(e) => {
@@ -600,6 +611,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
                                 return ReplAction::Prompt {
                                     content,
                                     snapshot: false,
+                                    allowed_tools: None,
                                 };
                             }
                             Some(Err(SkillRegistryError::Load(error))) => {
@@ -627,6 +639,7 @@ pub(crate) async fn dispatch(trimmed: &str, ctx: &mut ReplCtx<'_>) -> ReplAction
     ReplAction::Prompt {
         content: trimmed.to_string(),
         snapshot: true,
+        allowed_tools: None,
     }
 }
 
@@ -974,14 +987,44 @@ mod tests {
             tok
         );
         match dispatch("hello there", &mut c).await {
-            ReplAction::Prompt { content, snapshot } => {
+            ReplAction::Prompt {
+                content,
+                snapshot,
+                allowed_tools,
+            } => {
                 assert_eq!(content, "hello there");
                 assert!(snapshot, "plain prompts write the config snapshot");
+                assert!(allowed_tools.is_none());
             }
             other => panic!(
                 "expected Prompt, got a different action: {}",
                 matches!(other, ReplAction::Continue)
             ),
+        }
+    }
+
+    #[tokio::test]
+    async fn slash_prompt_preserves_its_per_turn_tool_allowlist() {
+        let (agent, config, mgr, ckpt, registry, mut sid, mut sess, tmp) = harness().await;
+        let mut tok = TokenUsage::default();
+        let mut c = ctx!(
+            agent,
+            config,
+            tmp.path(),
+            registry,
+            mgr,
+            ckpt,
+            sid,
+            sess,
+            tok
+        );
+
+        match dispatch("/commit", &mut c).await {
+            ReplAction::Prompt { allowed_tools, .. } => {
+                let allowed_tools = allowed_tools.expect("/commit must restrict its tools");
+                assert_eq!(allowed_tools, ["execute_shell"]);
+            }
+            _ => panic!("expected /commit to produce a prompt"),
         }
     }
 
@@ -1158,7 +1201,11 @@ mod tests {
         );
 
         match dispatch("/repl-fallback-skill focus here", &mut c).await {
-            ReplAction::Prompt { content, snapshot } => {
+            ReplAction::Prompt {
+                content,
+                snapshot,
+                allowed_tools,
+            } => {
                 assert!(
                     content.contains("## Skill: repl-fallback-skill"),
                     "{content}"
@@ -1169,6 +1216,7 @@ mod tests {
                     !snapshot,
                     "slash skill fallback is already harness-expanded"
                 );
+                assert!(allowed_tools.is_none());
             }
             _ => panic!("matching slash skill should become a direct injected prompt"),
         }

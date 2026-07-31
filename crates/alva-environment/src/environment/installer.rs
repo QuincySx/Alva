@@ -88,7 +88,7 @@ impl Installer {
         // extract into — reject anything that could escape the install tree.
         validate_segment("component name", name)?;
 
-        let format = ArchiveFormat::from_str(&artifact.format)
+        let format = ArchiveFormat::parse(&artifact.format)
             .ok_or_else(|| InstallerError::UnsupportedFormat(artifact.format.clone()))?;
 
         // Resolve the archive file path
@@ -321,11 +321,8 @@ impl Installer {
                 }
             } else {
                 // Take the first path component as the candidate prefix.
-                if let Some(slash_pos) = name.find('/') {
-                    first_dir = Some(name[..=slash_pos].to_string());
-                } else {
-                    return None; // Top-level file → no common directory
-                }
+                let slash_pos = name.find('/')?;
+                first_dir = Some(name[..=slash_pos].to_string());
             }
         }
         first_dir

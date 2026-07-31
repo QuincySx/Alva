@@ -28,8 +28,8 @@ pub use alva_agent_extension_builtin::skill_tool::SkillRegistryError;
 pub use alva_agent_extension_builtin::tool_presets;
 
 pub use alva_agent_security::{
-    AuthorizedRoots, PermissionDecision, PermissionManager, SandboxConfig, SandboxEnforcement,
-    SandboxMode, SecurityDecision, SecurityGuard, SensitivePathFilter,
+    ApprovalRequest, AuthorizedRoots, PermissionDecision, PermissionManager, SandboxConfig,
+    SandboxEnforcement, SandboxMode, SecurityDecision, SecurityGuard, SensitivePathFilter,
 };
 
 pub use alva_agent_memory::{EmbeddingProvider, NoopEmbeddingProvider};

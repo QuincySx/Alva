@@ -20,6 +20,12 @@ impl ScopeId {
     }
 }
 
+impl Default for ScopeId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl fmt::Display for ScopeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

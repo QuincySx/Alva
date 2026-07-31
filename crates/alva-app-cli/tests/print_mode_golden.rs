@@ -344,7 +344,7 @@ fn print_mode_json_output_carries_result_usage_and_session() {
     );
     assert_eq!(v["usage"]["output_tokens"], 3);
     assert!(
-        v["session_id"].as_str().map_or(false, |s| !s.is_empty()),
+        v["session_id"].as_str().is_some_and(|s| !s.is_empty()),
         "session_id is the --resume handle, must be present: {v}"
     );
     assert!(v["duration_ms"].is_number());

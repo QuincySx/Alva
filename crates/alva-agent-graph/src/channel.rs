@@ -1,12 +1,12 @@
 // INPUT:  (none - no external dependencies)
 // OUTPUT: pub trait Channel, pub struct LastValue, pub struct BinaryOperatorAggregate, pub struct EphemeralValue
 // POS:    Typed state channels with version tracking for graph step communication.
-/// Channel types for typed state management in graph execution.
-///
-/// Three channel implementations modeled after LangGraph:
-/// - `LastValue<T>`: stores exactly one value; last update wins
-/// - `BinaryOperatorAggregate<T>`: folds updates with a reducer function
-/// - `EphemeralValue<T>`: like LastValue but `reset()` clears it
+//! Channel types for typed state management in graph execution.
+//!
+//! Three channel implementations modeled after LangGraph:
+//! - `LastValue<T>`: stores exactly one value; last update wins
+//! - `BinaryOperatorAggregate<T>`: folds updates with a reducer function
+//! - `EphemeralValue<T>`: like LastValue but `reset()` clears it
 
 /// Base trait for typed state channels.
 ///

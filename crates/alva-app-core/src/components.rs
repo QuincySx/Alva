@@ -262,7 +262,7 @@ pub fn is_on(toggles: &ComponentToggles, meta: &ComponentMeta) -> bool {
 /// `"shel": false` would otherwise be silently ignored and the component
 /// it meant to disable stays on. `apply_components` warns about these;
 /// exposed so config UIs/validators can surface them too.
-pub fn unknown_toggle_ids<'a>(toggles: &'a ComponentToggles) -> Vec<&'a str> {
+pub fn unknown_toggle_ids(toggles: &ComponentToggles) -> Vec<&str> {
     toggles
         .keys()
         .map(String::as_str)
@@ -290,15 +290,46 @@ pub const DEFAULT_SUBAGENT_TOOL_TIMEOUT: std::time::Duration = std::time::Durati
 /// `~/.alva/config.json`.
 pub const DEFAULT_SUBAGENT_DEPTH: u32 = 3;
 
+/// Paths for [`ext::SkillsPlugin`] multi-root discovery.
+///
+/// - `primary`: Alva project skills tree (`.alva/skills`) — writable install root
+/// - `bundled`: optional App-extracted bundled skills cache
+/// - `extra_dirs`: flat co-load roots (`.agents/skills`, `~/.claude/skills`, …)
+#[derive(Debug, Clone)]
+pub struct SkillsDiscovery {
+    pub primary: PathBuf,
+    pub bundled: Option<PathBuf>,
+    pub extra_dirs: Vec<PathBuf>,
+}
+
+impl SkillsDiscovery {
+    /// Alva primary + ecosystem co-load roots from [`crate::paths::AlvaPaths`].
+    pub fn from_alva_paths(paths: &crate::paths::AlvaPaths, bundled: Option<PathBuf>) -> Self {
+        Self {
+            primary: paths.project_skills_dir(),
+            bundled,
+            extra_dirs: paths.skill_extra_dirs(),
+        }
+    }
+
+    /// Single primary tree (tests / minimal harness).
+    pub fn primary_only(primary: impl Into<PathBuf>) -> Self {
+        Self {
+            primary: primary.into(),
+            bundled: None,
+            extra_dirs: Vec::new(),
+        }
+    }
+}
+
 pub struct ComponentContext {
     /// Agent workspace root (informational / for callers building paths).
     pub workspace: PathBuf,
     /// Provider registry for `provider-registry`. `None` → that component skips.
     pub provider_registry: Option<Arc<ProviderRegistry>>,
-    /// `(primary skills dir, optional bundled override)` for `skills`.
-    /// `None` → `skills` skips.
-    pub skills: Option<(PathBuf, Option<PathBuf>)>,
-    /// MCP config file paths for `mcp`.
+    /// Skill discovery for `skills`. `None` → `skills` skips.
+    pub skills: Option<SkillsDiscovery>,
+    /// MCP config file paths for `mcp` (later paths override earlier).
     pub mcp_config_paths: Vec<PathBuf>,
     /// Max spawn depth for `sub-agents`.
     pub subagent_depth: u32,
@@ -403,9 +434,10 @@ pub fn apply_components(
                 }
             },
             "skills" => match &ctx.skills {
-                Some((primary, bundled)) => b.plugin(Box::new(ext::SkillsPlugin::with_bundled(
-                    primary.clone(),
-                    bundled.clone(),
+                Some(disc) => b.plugin(Box::new(ext::SkillsPlugin::with_discovery(
+                    disc.primary.clone(),
+                    disc.bundled.clone(),
+                    disc.extra_dirs.clone(),
                 ))),
                 None => {
                     tracing::info!(

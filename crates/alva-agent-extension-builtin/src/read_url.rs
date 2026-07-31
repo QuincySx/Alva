@@ -483,17 +483,15 @@ fn html_to_markdown(html: &str) -> String {
                         in_link = true;
                     }
                 }
-                "/a" => {
-                    if in_link {
-                        if let Some(ref href) = link_href {
-                            result.push_str(&format!("[{}]({})", link_text.trim(), href));
-                        } else {
-                            result.push_str(link_text.trim());
-                        }
-                        in_link = false;
-                        link_href = None;
-                        link_text.clear();
+                "/a" if in_link => {
+                    if let Some(ref href) = link_href {
+                        result.push_str(&format!("[{}]({})", link_text.trim(), href));
+                    } else {
+                        result.push_str(link_text.trim());
                     }
+                    in_link = false;
+                    link_href = None;
+                    link_text.clear();
                 }
                 _ => {}
             }
@@ -564,12 +562,12 @@ fn extract_href(tag: &str) -> Option<String> {
     let after_href = &tag[href_pos + 5..];
     let trimmed = after_href.trim_start();
 
-    if trimmed.starts_with('"') {
-        let end = trimmed[1..].find('"')?;
-        Some(trimmed[1..1 + end].to_string())
-    } else if trimmed.starts_with('\'') {
-        let end = trimmed[1..].find('\'')?;
-        Some(trimmed[1..1 + end].to_string())
+    if let Some(stripped) = trimmed.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        Some(stripped[..end].to_string())
+    } else if let Some(stripped) = trimmed.strip_prefix('\'') {
+        let end = stripped.find('\'')?;
+        Some(stripped[..end].to_string())
     } else {
         let end = trimmed
             .find(|c: char| c.is_whitespace() || c == '>')

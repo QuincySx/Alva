@@ -25,6 +25,10 @@ pub trait MemoryBackend: Send + Sync {
     async fn get_file(&self, path: &str) -> Result<Option<MemoryFile>, MemoryError>;
 
     /// Insert a content chunk and return its auto-generated id.
+    ///
+    /// The flat argument list is the stable backend trait contract shared by
+    /// lightweight and persistent implementations.
+    #[allow(clippy::too_many_arguments)]
     async fn insert_chunk(
         &self,
         path: &str,

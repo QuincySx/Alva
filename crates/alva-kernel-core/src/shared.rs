@@ -259,12 +259,14 @@ mod tests {
         // CONTEXT (= DEFAULT) < ROUTING < OBSERVATION < RETRY. Reorder
         // → middleware execution order changes silently (e.g. observation
         // running before security).
-        assert!(MiddlewarePriority::SECURITY < MiddlewarePriority::HOOKS);
-        assert!(MiddlewarePriority::HOOKS < MiddlewarePriority::GUARDRAIL);
-        assert!(MiddlewarePriority::GUARDRAIL < MiddlewarePriority::CONTEXT);
-        assert!(MiddlewarePriority::CONTEXT < MiddlewarePriority::ROUTING);
-        assert!(MiddlewarePriority::ROUTING < MiddlewarePriority::OBSERVATION);
-        assert!(MiddlewarePriority::OBSERVATION < MiddlewarePriority::RETRY);
+        const {
+            assert!(MiddlewarePriority::SECURITY < MiddlewarePriority::HOOKS);
+            assert!(MiddlewarePriority::HOOKS < MiddlewarePriority::GUARDRAIL);
+            assert!(MiddlewarePriority::GUARDRAIL < MiddlewarePriority::CONTEXT);
+            assert!(MiddlewarePriority::CONTEXT < MiddlewarePriority::ROUTING);
+            assert!(MiddlewarePriority::ROUTING < MiddlewarePriority::OBSERVATION);
+            assert!(MiddlewarePriority::OBSERVATION < MiddlewarePriority::RETRY);
+        }
     }
 
     #[test]

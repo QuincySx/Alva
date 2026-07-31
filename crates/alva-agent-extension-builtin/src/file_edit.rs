@@ -30,10 +30,8 @@ fn unique_match_count(content: &str, needle: &str) -> usize {
 /// - \u{2013} (en dash) -> -
 /// - \u{2014} (em dash) -> --
 fn normalize_quotes(text: &str) -> String {
-    text.replace('\u{2018}', "'")
-        .replace('\u{2019}', "'")
-        .replace('\u{201C}', "\"")
-        .replace('\u{201D}', "\"")
+    text.replace(['\u{2018}', '\u{2019}'], "'")
+        .replace(['\u{201C}', '\u{201D}'], "\"")
         .replace('\u{2013}', "-")
         .replace('\u{2014}', "--")
 }
@@ -377,7 +375,7 @@ impl FileEditTool {
         // Prepend staleness warning if detected
         let mut output_text = String::new();
         if let Some(ref warning) = staleness_warning {
-            output_text.push_str(&warning);
+            output_text.push_str(warning);
             output_text.push_str("\n\n");
         }
         output_text.push_str(&summary);

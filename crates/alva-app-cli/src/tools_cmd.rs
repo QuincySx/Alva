@@ -81,11 +81,11 @@ async fn list(args: &[String]) -> i32 {
     let ctx = alva_app_core::components::ComponentContext {
         workspace: workspace.clone(),
         provider_registry: None,
-        skills: Some((
-            paths.project_skills_dir(),
+        skills: Some(alva_app_core::components::SkillsDiscovery::from_alva_paths(
+            &paths,
             crate::agent_setup::bundled_skill_dir(),
         )),
-        mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
+        mcp_config_paths: paths.mcp_discovery_paths(),
         subagent_depth: shared_cfg
             .as_ref()
             .and_then(|c| c.subagent_depth)

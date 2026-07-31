@@ -115,8 +115,8 @@ pub async fn update_memory_index(memory_dir: &Path) -> Result<(), std::io::Error
 
     while let Some(entry) = dir.next_entry().await? {
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "md")
-            && path.file_name().map_or(false, |n| n != "MEMORY.md")
+        if path.extension().is_some_and(|e| e == "md")
+            && path.file_name().is_some_and(|n| n != "MEMORY.md")
         {
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 if let Some(desc) = extract_description(&content) {

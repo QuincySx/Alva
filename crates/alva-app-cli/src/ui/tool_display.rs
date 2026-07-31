@@ -143,7 +143,7 @@ mod tests {
     //! shapes tool-call input summaries to fit the available column
     //! width. The previous inline byte-slice would panic if `max_bytes
     //! - 3` landed mid-char — common for tool args containing CJK paths
-    //! or emoji.
+    //!   or emoji.
     use super::*;
 
     #[test]

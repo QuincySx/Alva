@@ -31,6 +31,9 @@ pub enum HubError {
     #[error("product session '{0}' is already running")]
     SessionBusy(String),
 
+    #[error("product session '{session_id}': {detail}")]
+    SessionConflict { session_id: String, detail: String },
+
     #[error("engine '{0}' does not support session resume")]
     ResumeUnsupported(String),
 

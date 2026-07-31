@@ -123,7 +123,7 @@ impl<T: Clone> Picker<T> {
         if self.filtered.is_empty() {
             return;
         }
-        let pages = (self.filtered.len() + self.page_size - 1) / self.page_size;
+        let pages = self.filtered.len().div_ceil(self.page_size);
         self.page = (self.page + 1) % pages;
         self.selected = (self.page * self.page_size).min(self.filtered.len() - 1);
     }
@@ -132,7 +132,7 @@ impl<T: Clone> Picker<T> {
         if self.filtered.is_empty() {
             return;
         }
-        let pages = (self.filtered.len() + self.page_size - 1) / self.page_size;
+        let pages = self.filtered.len().div_ceil(self.page_size);
         self.page = if self.page == 0 {
             pages - 1
         } else {

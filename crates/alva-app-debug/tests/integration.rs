@@ -584,11 +584,8 @@ fn decode_chunked(data: &str) -> String {
     let mut result = String::new();
     let mut remaining = data;
 
-    loop {
+    while let Some(newline_pos) = remaining.find("\r\n") {
         // Find the chunk size line
-        let Some(newline_pos) = remaining.find("\r\n") else {
-            break;
-        };
         let size_str = remaining[..newline_pos].trim();
         let size = usize::from_str_radix(size_str, 16).unwrap_or(0);
         if size == 0 {

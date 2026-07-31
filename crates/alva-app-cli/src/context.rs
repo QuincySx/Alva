@@ -310,7 +310,7 @@ fn render(session_id: &str, workspace: &Path, a: &Analysis) {
     }
 
     println!();
-    println!("{} {}", "Total events in session:", a.total_events);
+    println!("Total events in session: {}", a.total_events);
 
     // Caching stats — only if we captured a usage with cache info.
     if let Some(u) = &a.last_usage {
@@ -628,16 +628,17 @@ mod analytics {
                 .by_tool
                 .iter()
                 .map(|(name, s)| {
-                    let avg = if s.calls > 0 {
-                        s.latency_ms_samples.iter().sum::<u64>() / s.calls
-                    } else {
-                        0
-                    };
+                    let avg = s
+                        .latency_ms_samples
+                        .iter()
+                        .sum::<u64>()
+                        .checked_div(s.calls)
+                        .unwrap_or(0);
                     let p95 = percentile(&s.latency_ms_samples, 0.95);
                     (name.clone(), s.clone(), avg, p95)
                 })
                 .collect();
-            tools.sort_by(|a, b| b.2.cmp(&a.2));
+            tools.sort_by_key(|entry| std::cmp::Reverse(entry.2));
             println!(
                 "  {:<28}  {:>6}  {:>4}/{:<4}  {:>9}  {:>9}",
                 "tool", "calls", "ok", "err", "avg_ms", "p95_ms"

@@ -4,21 +4,16 @@
 use serde::{Deserialize, Serialize};
 
 /// Sandbox level enumeration.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxLevel {
     /// No sandbox (development)
+    #[default]
     None,
     /// Network sandbox (allow files, block network)
     Network,
     /// Full sandbox (macOS sandbox-exec)
     Full,
-}
-
-impl Default for SandboxLevel {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 /// Model configuration -- tells external Agent which model to use.

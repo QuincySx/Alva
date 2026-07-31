@@ -468,18 +468,22 @@ impl ProtocolAdapter for AnthropicAdapter {
                         "input": input,
                     }));
                 }
-                ContentBlock::Reasoning { text, signature } => {
+                ContentBlock::Reasoning {
+                    text,
+                    signature: Some(signature),
+                } => {
                     // SIGNATURE RULE: only emit thinking block when signature is Some.
                     // Anthropic 400s on a thinking block without a signature.
-                    if let Some(sig) = signature {
-                        content.push(serde_json::json!({
-                            "type": "thinking",
-                            "thinking": text,
-                            "signature": sig,
-                        }));
-                    }
-                    // If signature is None, omit the block entirely.
+                    content.push(serde_json::json!({
+                        "type": "thinking",
+                        "thinking": text,
+                        "signature": signature,
+                    }));
                 }
+                // Anthropic 400s on a thinking block without a signature.
+                ContentBlock::Reasoning {
+                    signature: None, ..
+                } => {}
                 // ToolResult / Image not expected in an assistant response; skip.
                 _ => {}
             }
@@ -797,7 +801,7 @@ impl ProtocolAdapter for AnthropicAdapter {
             }
         }
 
-        let usage = response.get("usage").and_then(|u| parse_usage(u));
+        let usage = response.get("usage").and_then(parse_usage);
 
         Ok(DecodedResponse {
             message: Message {

@@ -150,7 +150,7 @@ fn is_read_only(cmd: &str) -> bool {
     let first_word = cmd.split_whitespace().next().unwrap_or("");
 
     // Check single-word read-only commands
-    if READ_ONLY_COMMANDS.iter().any(|rc| first_word == *rc) {
+    if READ_ONLY_COMMANDS.contains(&first_word) {
         return true;
     }
 

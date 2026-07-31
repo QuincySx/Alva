@@ -102,7 +102,8 @@ alva-engine-runtime (neutral contract)
         +--> alva-engine-adapter-claude
         |          |
         |          v
-        |    Node.js bridge
+        |    Full: Node.js Agent SDK bridge
+        |    Light: claude -p --output-format stream-json
         |
         +--> alva-engine-adapter-codex
                    |
@@ -127,7 +128,7 @@ alva-engine-runtime (neutral contract)
 | L4 | `alva-app-extension-memory` | SQLite memory backend; native/heavy |
 | L4 | `alva-app-extension-loader` | AEP subprocess plugin loader |
 | L4.5 | `alva-engine-runtime` | lightweight multi-engine request/event/control contract |
-| L4.5 | `alva-engine-adapter-claude` | SDK-clean Claude bridge implementation of the engine contract |
+| L4.5 | `alva-engine-adapter-claude` | SDK-clean Claude dual-mode engine contract adapter: Full Node.js Agent SDK bridge; Light `claude -p --output-format stream-json`, default `--safe-mode` + fail-closed `dontAsk` (bypass explicit opt-in) |
 | L4.5 | `alva-engine-adapter-codex` | SDK-clean Codex CLI (`exec --json`) implementation of the engine contract |
 | L5 | `alva-app-core` | BaseAgent harness, component catalog, app-layer plugins, session projection |
 | L5 | `alva-host-native` | native host assembly and native middleware |
@@ -136,7 +137,7 @@ alva-engine-runtime (neutral contract)
 | L6 | `alva-app-tauri` | Tauri desktop product and Inspector |
 | L7 | `alva-hub-core` | product-level engine registry and product/native session supervision |
 | L7 | `alva-engine-adapter-alva` | canonical app-layer Alva adapter; builds one complete BaseAgent per engine session |
-| L7 | `alva-hub-cli` | minimal Hub product proving the multi-engine path without changing native CLI/Tauri |
+| L7 | `alva-hub-cli` | minimal final-message-only Hub product proving the multi-engine path without changing native CLI/Tauri; requests `streaming = false` |
 
 ## Plugin Assembly
 

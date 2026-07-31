@@ -276,9 +276,9 @@ pub fn run_setup_wizard(_workspace: &Path) -> Option<ProviderConfig> {
         }
         Err(e) => {
             eprintln!(
-                "  {} {}",
+                "  {} Could not save global config: {}",
                 "Warning:".yellow().bold(),
-                format!("Could not save global config: {}", e)
+                e
             );
             eprintln!("  You can set env vars instead: ALVA_API_KEY, ALVA_MODEL, ALVA_BASE_URL");
         }

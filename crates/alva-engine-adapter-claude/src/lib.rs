@@ -6,17 +6,15 @@ mod bridge;
 mod config;
 mod idle_watchdog;
 mod mapping;
-mod process;
-mod protocol;
 mod print_adapter;
 mod print_config;
 mod print_process;
+mod process;
+mod protocol;
 
 mod adapter;
 
 pub use adapter::ClaudeAdapter;
 pub use config::{ClaudeAdapterConfig, PermissionMode};
 pub use print_adapter::ClaudePrintAdapter;
-pub use print_config::{
-    ClaudePrintConfig, ClaudePrintPermissionMode, ClaudeRuntimeMode,
-};
+pub use print_config::{ClaudePrintConfig, ClaudePrintPermissionMode, ClaudeRuntimeMode};

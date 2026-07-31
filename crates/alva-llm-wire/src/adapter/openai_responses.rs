@@ -1630,8 +1630,7 @@ mod tests {
 
         let second_text_index = all_frames
             .iter()
-            .filter(|f| f.event.as_deref() == Some("response.output_text.delta"))
-            .last() // the last text delta is "b"
+            .rfind(|f| f.event.as_deref() == Some("response.output_text.delta")) // the last text delta is "b"
             .and_then(|f| f.data.get("output_index").and_then(|v| v.as_u64()))
             .expect("second text delta frame");
 

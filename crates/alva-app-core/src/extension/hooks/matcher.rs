@@ -1,3 +1,6 @@
+// INPUT:  crate::settings::HookConfig
+// OUTPUT: hook_matches()
+// POS:    Case-insensitive exact and edge-wildcard matching for hook dispatch.
 //! Hook matching — determines which hooks fire for a given event + context.
 
 use crate::settings::HookConfig;
@@ -47,9 +50,8 @@ pub fn matches_hook(config: &HookConfig, query: Option<&str>) -> bool {
         let prefix = &lower_matcher[..lower_matcher.len() - 1];
         return lower_query.starts_with(prefix);
     }
-    if lower_matcher.starts_with('*') {
+    if let Some(suffix) = lower_matcher.strip_prefix('*') {
         // *pattern → suffix
-        let suffix = &lower_matcher[1..];
         return lower_query.ends_with(suffix);
     }
 

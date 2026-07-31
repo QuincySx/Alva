@@ -156,6 +156,7 @@ impl MemorySqlite {
     // -----------------------------------------------------------------------
 
     /// Insert a chunk and return its auto-generated id.
+    #[allow(clippy::too_many_arguments)] // Mirrors the stable MemoryBackend contract.
     pub async fn insert_chunk(
         &self,
         path: &str,

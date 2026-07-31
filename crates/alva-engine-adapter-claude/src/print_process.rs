@@ -38,7 +38,6 @@ impl ClaudePrintProcess {
             .arg("--output-format")
             .arg("stream-json")
             .arg("--verbose") // required by some CLI builds for stream-json partials
-            .arg("--include-partial-messages")
             .arg("--permission-mode")
             .arg(config.permission_mode.as_cli_str())
             .current_dir(&cwd)
@@ -47,9 +46,12 @@ impl ClaudePrintProcess {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        // Skip SessionStart hooks / CLAUDE.md auto-discovery noise for Hub one-shots.
-        if config.bare {
-            cmd.arg("--bare");
+        if config.safe_mode {
+            cmd.arg("--safe-mode");
+        }
+
+        if request.options.streaming {
+            cmd.arg("--include-partial-messages");
         }
 
         let model_override = config.model.clone().or_else(|| {
@@ -78,8 +80,8 @@ impl ClaudePrintProcess {
             cmd.arg("--resume").arg(session);
         }
 
-        // Prompt last (positional).
-        cmd.arg(&request.prompt);
+        // Prompt last (positional); `--` prevents a prompt beginning with `-` becoming a flag.
+        cmd.arg("--").arg(&request.prompt);
 
         let mut child = cmd.spawn().map_err(|error| {
             RuntimeError::ProcessError(format!(
@@ -88,10 +90,9 @@ impl ClaudePrintProcess {
             ))
         })?;
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| RuntimeError::ProcessError("Failed to capture Claude CLI stdout".into()))?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            RuntimeError::ProcessError("Failed to capture Claude CLI stdout".into())
+        })?;
         monitor_stderr(child.stderr.take());
 
         Ok(Self {
@@ -124,7 +125,7 @@ pub(crate) fn parse_print_line(line: &str) -> Result<Option<SdkMessage>, Runtime
         Ok(msg) => Ok(Some(msg)),
         Err(error) => {
             // Forward-compat: unknown top-level shapes are dropped (cindy style).
-            debug!(%error, %line, "skipping unparseable claude -p JSONL line");
+            debug!(%error, "skipping unparseable claude -p JSONL line");
             Ok(None)
         }
     }
@@ -135,10 +136,14 @@ fn monitor_stderr(stderr: Option<tokio::process::ChildStderr>) {
         tokio::spawn(async move {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
+            let mut nonempty_lines = 0usize;
             while let Ok(Some(line)) = lines.next_line().await {
                 if !line.trim().is_empty() {
-                    warn!(target: "claude_print", "stderr: {line}");
+                    nonempty_lines += 1;
                 }
+            }
+            if nonempty_lines > 0 {
+                warn!(target: "claude_print", nonempty_lines, "Claude CLI wrote to stderr");
             }
         });
     }
@@ -148,9 +153,24 @@ fn monitor_stderr(stderr: Option<tokio::process::ChildStderr>) {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    fn fake_claude(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::write(
+            path,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"fake\",\"result\":\"done\",\"usage\":{}}'\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
     #[test]
     fn parse_system_init_line() {
-        let line = r#"{"type":"system","subtype":"init","session_id":"s1","model":"m","tools":["Read"]}"#;
+        let line =
+            r#"{"type":"system","subtype":"init","session_id":"s1","model":"m","tools":["Read"]}"#;
         let msg = parse_print_line(line).unwrap().unwrap();
         assert!(matches!(
             msg,
@@ -173,5 +193,42 @@ mod tests {
     #[test]
     fn empty_line_skipped() {
         assert!(parse_print_line("   ").unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn argv_is_safe_and_streaming_is_opt_in() {
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-claude");
+        fake_claude(&executable);
+        let config = ClaudePrintConfig {
+            claude_path: executable.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+
+        let mut process = ClaudePrintProcess::spawn(
+            &config,
+            &RuntimeRequest::new("-not-an-option").with_cwd(fixture.path()),
+        )
+        .await
+        .unwrap();
+        assert!(process.next_line().await.unwrap().is_some());
+        let argv = std::fs::read_to_string(format!("{}.args", executable.display())).unwrap();
+        let args: Vec<_> = argv.lines().collect();
+        assert!(args.contains(&"--safe-mode"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--permission-mode", "dontAsk"]));
+        assert!(!args.contains(&"--include-partial-messages"));
+        assert!(args.windows(2).any(|pair| pair == ["--", "-not-an-option"]));
+
+        let mut streaming = RuntimeRequest::new("stream me").with_cwd(fixture.path());
+        streaming.options.streaming = true;
+        let mut process = ClaudePrintProcess::spawn(&config, &streaming)
+            .await
+            .unwrap();
+        assert!(process.next_line().await.unwrap().is_some());
+        let argv = std::fs::read_to_string(format!("{}.args", executable.display())).unwrap();
+        assert!(argv.lines().any(|arg| arg == "--include-partial-messages"));
     }
 }

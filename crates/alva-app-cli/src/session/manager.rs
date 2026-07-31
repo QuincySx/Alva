@@ -113,7 +113,7 @@ impl JsonFileSessionManager {
     /// List all known sessions, most recently updated first.
     pub fn list(&self) -> Vec<SessionSummary> {
         let mut entries = self.load_index();
-        entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
         entries
     }
 

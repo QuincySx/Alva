@@ -34,14 +34,14 @@ impl TokenEstimator for SimpleTokenEstimator {
                 ascii_run += 1;
             } else {
                 // Flush ASCII run
-                count += (ascii_run + 3) / 4;
+                count += ascii_run.div_ceil(4);
                 ascii_run = 0;
                 // CJK and other non-ASCII: ~1 token per char
                 count += 1;
             }
         }
         // Flush remaining ASCII
-        count += (ascii_run + 3) / 4;
+        count += ascii_run.div_ceil(4);
         count.max(1) // At least 1 token for non-empty text
     }
 

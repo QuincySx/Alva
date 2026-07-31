@@ -22,19 +22,14 @@ use tokio::sync::RwLock;
 
 /// How a mutable resource (today: `MemoryStore`) is exposed to the agent.
 /// Mirrors Anthropic Managed Agents `access` on memory store resources.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceAccess {
     /// Default — the agent can read and write.
+    #[default]
     ReadWrite,
     /// The agent can only read; mutating tools should refuse.
     ReadOnly,
-}
-
-impl Default for ResourceAccess {
-    fn default() -> Self {
-        Self::ReadWrite
-    }
 }
 
 /// Which Git revision to check out at mount time.

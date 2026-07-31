@@ -365,6 +365,7 @@ pub(crate) fn build_run_limits(wall_clock_secs: Option<u64>, wasm_fuel: Option<u
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Sandbox policy inputs stay explicit at the host boundary.
 pub(crate) async fn run(
     model: Arc<dyn LanguageModel>,
     host_grants: Vec<PathBuf>,

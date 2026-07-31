@@ -46,6 +46,13 @@ pub enum SdkMessage {
         message: Option<SdkAssistantPayload>,
     },
 
+    #[serde(rename = "user")]
+    User {
+        uuid: Option<String>,
+        session_id: Option<String>,
+        message: Option<SdkAssistantPayload>,
+    },
+
     #[serde(rename = "stream_event")]
     StreamEvent {
         uuid: Option<String>,
@@ -91,7 +98,7 @@ pub enum SdkContentBlock {
     #[serde(rename = "tool_result")]
     ToolResult {
         tool_use_id: String,
-        content: Option<String>,
+        content: Option<Value>,
         is_error: Option<bool>,
     },
 
@@ -223,6 +230,27 @@ mod tests {
                 message: SdkMessage::Unknown
             }
         ));
+    }
+
+    #[test]
+    fn test_real_print_user_tool_result() {
+        let json = r#"{"type":"user","uuid":"user-1","session_id":"session-1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":[{"type":"text","text":"command output"}],"is_error":false}]}}"#;
+        let msg: SdkMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            SdkMessage::User {
+                session_id,
+                message: Some(payload),
+                ..
+            } => {
+                assert_eq!(session_id.as_deref(), Some("session-1"));
+                assert!(matches!(
+                    payload.content.unwrap().as_slice(),
+                    [SdkContentBlock::ToolResult { tool_use_id, content: Some(Value::Array(_)), .. }]
+                        if tool_use_id == "tool-1"
+                ));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 
     #[test]

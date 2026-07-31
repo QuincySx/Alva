@@ -736,7 +736,7 @@ fn filter_match(meta: &SessionMetadata, filter: &SessionFilter) -> bool {
 // ===========================================================================
 
 /// Read the metadata for `session_id` and enrich it with `session_group_id`
-/// + `depth` by climbing the parent chain. Returns `None` if `session_id`
+/// and `depth` by climbing the parent chain. Returns `None` if `session_id`
 /// is not in the registry; returns `Some` with derived fields filled even
 /// if some ancestor is missing (climb stops at the highest reachable
 /// ancestor, which becomes the group root).

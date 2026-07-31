@@ -121,7 +121,7 @@ impl Middleware for DanglingToolCallMiddleware {
         }
 
         // Insert in reverse order to preserve indices
-        insertions.sort_by(|a, b| b.0.cmp(&a.0));
+        insertions.sort_by_key(|entry| std::cmp::Reverse(entry.0));
         for (idx, msg) in insertions {
             messages.insert(idx, msg);
         }

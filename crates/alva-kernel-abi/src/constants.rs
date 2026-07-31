@@ -112,30 +112,34 @@ mod tests {
         // Used as a multiplier on the context window: must be > 0
         // (otherwise auto-compact fires at 0 tokens, every turn) and
         // ≤ 1.0 (otherwise it never fires).
-        assert!(AUTO_COMPACT_TOKEN_THRESHOLD_PERCENT > 0.0);
-        assert!(AUTO_COMPACT_TOKEN_THRESHOLD_PERCENT <= 1.0);
+        const {
+            assert!(AUTO_COMPACT_TOKEN_THRESHOLD_PERCENT > 0.0);
+            assert!(AUTO_COMPACT_TOKEN_THRESHOLD_PERCENT <= 1.0);
+        }
     }
 
     #[test]
     fn max_tool_timeout_is_at_least_default() {
         // Pin: MAX must allow DEFAULT — otherwise users get a
         // compile-clean panic when an explicit timeout exceeds MAX.
-        assert!(MAX_TOOL_TIMEOUT_MS >= DEFAULT_TOOL_TIMEOUT_MS);
+        const { assert!(MAX_TOOL_TIMEOUT_MS >= DEFAULT_TOOL_TIMEOUT_MS) }
     }
 
     #[test]
     fn positive_counts_and_sizes() {
         // Pin: zero anywhere here breaks the corresponding feature
         // silently (history disabled, no concurrent tools, etc.).
-        assert!(MAX_TOOL_RESULT_INLINE_CHARS > 0);
-        assert!(MAX_GLOB_RESULTS > 0);
-        assert!(MAX_CONCURRENT_TOOL_EXECUTIONS > 0);
-        assert!(MAX_AGENT_DEPTH > 0);
-        assert!(MAX_HISTORY_ENTRIES > 0);
-        assert!(DEFAULT_MAX_OUTPUT_TOKENS > 0);
-        assert!(AUTO_COMPACT_MESSAGE_THRESHOLD > 0);
-        assert!(MEMORY_EXTRACTION_THRESHOLD > 0);
-        assert!(SPINNER_FRAME_RATE_MS > 0);
+        const {
+            assert!(MAX_TOOL_RESULT_INLINE_CHARS > 0);
+            assert!(MAX_GLOB_RESULTS > 0);
+            assert!(MAX_CONCURRENT_TOOL_EXECUTIONS > 0);
+            assert!(MAX_AGENT_DEPTH > 0);
+            assert!(MAX_HISTORY_ENTRIES > 0);
+            assert!(DEFAULT_MAX_OUTPUT_TOKENS > 0);
+            assert!(AUTO_COMPACT_MESSAGE_THRESHOLD > 0);
+            assert!(MEMORY_EXTRACTION_THRESHOLD > 0);
+            assert!(SPINNER_FRAME_RATE_MS > 0);
+        }
     }
 
     // -- agent_tools list invariants --------------------------------------

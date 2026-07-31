@@ -98,7 +98,7 @@ impl Tool for McpRuntimeTool {
                         params
                             .server_id
                             .as_ref()
-                            .map_or(true, |sid| t.server_id == *sid)
+                            .is_none_or(|server_id| t.server_id == *server_id)
                     })
                     .map(|t| {
                         json!({

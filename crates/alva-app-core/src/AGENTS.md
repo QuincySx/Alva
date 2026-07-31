@@ -34,6 +34,7 @@
 - 环境管理器（EnvironmentManager）负责嵌入式运行时的安装和版本解析
 - DDD 层级：domain（纯实体）→ ports（trait 接口）→ adapters（具体实现）
 - alva-app 仅依赖 alva-app-core（通过 Facade 模式），不直接依赖 alva-kernel-abi/alva-kernel-core/alva-agent-graph
+- `collect_agents_md_chain` 只在 canonical workspace 边界内逐级加载 AGENTS.md；`stop` 必须是 `start` 的祖先，符号链接目标不得越界。
 
 ## 业务域清单
 | 名称 | 子目录 | 职责 |
@@ -52,6 +53,7 @@
 | 适配器 | `adapters/` | 端口的具体实现（如 memory storage） |
 | 基础设施 | `base/` | ProcessManager 进程管理 |
 | 类型 | `types/` | 共享类型定义（如 AcpMessage） |
+| 路径策略 | `paths.rs` | XDG / workspace 路径发现、MCP/Skill 共载路径、workspace-bounded AGENTS.md 链 |
 | 网关 | `gateway/` | API 网关（placeholder） |
 | 系统能力 | `system/` | 系统能力抽象（placeholder） |
 | BaseAgent | `base_agent/` | 开箱即用 Agent：自动组装默认插件/中间件，透传工具、session、权限控制，并暴露实际 plugin/middleware 装配快照供 CLI/session 观测 |

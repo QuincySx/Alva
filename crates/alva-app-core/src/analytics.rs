@@ -163,7 +163,7 @@ fn list_rotated(parent: &Path, stem: &str, ext: &str) -> std::io::Result<Vec<(us
 }
 
 fn io_other<E: std::fmt::Display>(e: E) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    std::io::Error::other(e.to_string())
 }
 
 #[cfg(test)]

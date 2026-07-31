@@ -939,8 +939,8 @@ impl TuiApp {
     ) {
         // Reserve roughly half the conversation height, capped at 17 rows
         // (15 visible + 2 borders) — the underlying Picker pages internally.
-        let height = conv_area.height.min(17).max(5);
-        let width = conv_area.width.saturating_sub(4).min(60).max(20);
+        let height = conv_area.height.clamp(5, 17);
+        let width = conv_area.width.saturating_sub(4).clamp(20, 60);
         let x = conv_area.x + 2;
         let y = conv_area.y + conv_area.height.saturating_sub(height + 1);
         let area = Rect {
@@ -1104,6 +1104,7 @@ fn restore_terminal(
 /// Run the ratatui-based TUI in either Inline or Fullscreen mode (see
 /// `UiViewport`). Owns the terminal lifecycle for the chosen mode and
 /// returns when the user exits.
+#[allow(clippy::too_many_arguments)] // Top-level harness entry keeps dependencies explicit.
 pub async fn run_tui(
     agent: &BaseAgent,
     config: &ProviderConfig,
@@ -1201,9 +1202,9 @@ pub async fn run_tui(
                                     max_iterations,
                                 )
                                 .await;
-                            } else if text.starts_with('!') {
+                            } else if let Some(shell_text) = text.strip_prefix('!') {
                                 // Shell command
-                                let shell_cmd = text[1..].trim();
+                                let shell_cmd = shell_text.trim();
                                 if !shell_cmd.is_empty() {
                                     if agent.permission_mode()
                                         == alva_app_core::PermissionMode::Plan
@@ -1264,7 +1265,7 @@ pub async fn run_tui(
                     if app.spinner_active {
                         app.spinner_frame = (app.spinner_frame + 1) % SPINNER_FRAMES.len();
                         // Rotate tips every ~3 seconds
-                        if app.tick_count % 90 == 0 {
+                        if app.tick_count.is_multiple_of(90) {
                             app.spinner_tip_index += 1;
                         }
                     }
@@ -1294,13 +1295,8 @@ pub async fn run_tui(
         }
 
         // Drain approval requests (non-blocking)
-        loop {
-            match approval_rx.try_recv() {
-                Ok(req) => {
-                    app.pending_approval = Some(PendingApproval { request: req });
-                }
-                Err(_) => break,
-            }
+        while let Ok(req) = approval_rx.try_recv() {
+            app.pending_approval = Some(PendingApproval { request: req });
         }
 
         // Check quit flag
@@ -1413,6 +1409,7 @@ fn restore_conversation(app: &mut TuiApp, messages: &[AgentMessage]) {
 // Slash command handler
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)] // Command handler owns the current TUI session state.
 async fn handle_slash_command(
     app: &mut TuiApp,
     cmd: &str,

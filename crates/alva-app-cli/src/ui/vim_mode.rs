@@ -43,6 +43,12 @@ pub struct VimMode {
     pending: Option<char>,
 }
 
+impl Default for VimMode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VimMode {
     pub fn new() -> Self {
         Self {
@@ -154,7 +160,7 @@ impl VimMode {
                 }
             }
             '0' => VimAction::MoveTo(0),
-            '$' => VimAction::MoveTo(line_len.saturating_sub(1).max(0)),
+            '$' => VimAction::MoveTo(line_len.saturating_sub(1)),
             'w' => {
                 // Move to start of next word
                 let pos = next_word_start(line, cursor);

@@ -106,7 +106,7 @@ pub struct SkillRef {
 }
 
 /// Skill injection strategy into system prompt
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InjectionPolicy {
     /// Explicit injection: inject SKILL.md body in full into system prompt
@@ -114,16 +114,11 @@ pub enum InjectionPolicy {
     Explicit,
     /// Auto injection: inject only description (metadata layer),
     /// Agent uses the `skill` tool to pull full content on demand
+    #[default]
     Auto,
     /// Strict injection: same as explicit, but also restricts Agent
     /// to only use this Skill's allowed_tools
     Strict,
-}
-
-impl Default for InjectionPolicy {
-    fn default() -> Self {
-        InjectionPolicy::Auto
-    }
 }
 
 #[cfg(test)]

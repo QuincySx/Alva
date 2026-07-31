@@ -57,6 +57,7 @@ async fn full_bus_round_trip() {
     let engine_writer = bus.writer();
     let tool_handle = bus.handle();
     let context_handle = bus.handle();
+    let mut token_usage_rx = context_handle.subscribe::<TokenUsageUpdated>();
 
     init_engine_layer(&engine_writer);
 
@@ -68,10 +69,21 @@ async fn full_bus_round_trip() {
     tokio::task::yield_now().await;
 
     init_tool_layer(&tool_handle);
+    tool_handle.emit(TokenUsageUpdated {
+        used: 3000,
+        total: 4096,
+    });
 
     let received = context_task.await.unwrap();
     assert_eq!(received.tool_name, "shell");
     assert_eq!(received.session_id, "sess-1");
+    assert_eq!(
+        token_usage_rx.recv().await.unwrap(),
+        TokenUsageUpdated {
+            used: 3000,
+            total: 4096,
+        }
+    );
 
     let accounting = context_handle.require::<dyn TokenAccounting>();
     assert_eq!(accounting.current_usage(), (3000, 4096));
@@ -98,6 +110,9 @@ async fn state_cell_cross_handle() {
 fn concurrent_provide_and_get() {
     use std::thread;
 
+    #[derive(Debug)]
+    struct Val(usize);
+
     let bus = Bus::new();
     let writers: Vec<_> = (0..10).map(|_| bus.writer()).collect();
 
@@ -106,8 +121,6 @@ fn concurrent_provide_and_get() {
         .enumerate()
         .map(|(i, w)| {
             thread::spawn(move || {
-                #[derive(Debug)]
-                struct Val(usize);
                 w.provide(Arc::new(Val(i)));
             })
         })
@@ -116,4 +129,7 @@ fn concurrent_provide_and_get() {
     for t in threads {
         t.join().unwrap();
     }
+
+    let value = bus.handle().require::<Val>();
+    assert!(value.0 < 10);
 }

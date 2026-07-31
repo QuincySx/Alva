@@ -23,18 +23,17 @@ use crate::config::CodexAdapterConfig;
 use crate::mapping::EventMapper;
 use crate::process::CodexProcess;
 use crate::protocol::CodexEvent;
-use crate::retry_escalation::{
-    build_escalation_message, RecoverableRetryTracker,
-};
+use crate::retry_escalation::{build_escalation_message, RecoverableRetryTracker};
 
 type KillSender = mpsc::UnboundedSender<()>;
 
 /// Codex CLI engine for Alva Hub.
 ///
-/// One-shot slice: each `execute` spawns `codex exec --json` and maps the
-/// JSONL event stream into `RuntimeEvent`. Cancel kills the child process.
-/// Interactive permission callbacks are not supported by this exec path
-/// (approval_policy defaults to never for non-interactive runs).
+/// Each `execute` spawns `codex exec --json` (or `codex exec resume <id>
+/// --json` when `resume_session` is set) and maps the JSONL event stream
+/// into `RuntimeEvent`. Cancel kills the child process. Interactive
+/// permission callbacks are not supported (approval_policy defaults to
+/// never for non-interactive runs).
 ///
 /// Recoverable/network errors are forwarded as `recoverable: true` until
 /// [`RecoverableRetryTracker`] escalates (cindy retry-escalation ceiling).
@@ -58,16 +57,14 @@ impl EngineRuntime for CodexAdapter {
         &self,
         request: RuntimeRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
-        if request.resume_session.is_some() {
-            return Err(RuntimeError::Unsupported(
-                "Codex adapter v1 one-shot does not support resume_session; use a fresh prompt"
-                    .into(),
-            ));
-        }
-
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (kill_tx, mut kill_rx) = mpsc::unbounded_channel();
-        let provisional_id = Uuid::new_v4().to_string();
+        // Prefer the native session id when resuming so Hub journal / cancel
+        // map keys stay stable across process restarts.
+        let provisional_id = request
+            .resume_session
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         let sessions = self.sessions.clone();
         let config = self.config.clone();
 
@@ -243,7 +240,8 @@ impl EngineRuntime for CodexAdapter {
             streaming: false,
             tool_control: true,
             permission_callback: false,
-            resume: false,
+            // `codex exec resume <id> --json` (host Codex CLI must support it).
+            resume: true,
             cancel: true,
         }
     }

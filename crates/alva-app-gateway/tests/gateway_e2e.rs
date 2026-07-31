@@ -1,14 +1,14 @@
 //! End-to-end test: gateway HTTP server → mock upstream OpenAI Chat → response.
 //!
 //! Topology:
-//!   reqwest client
-//!     →  gateway (axum, ephemeral port)
-//!         →  mock OpenAI server (tokio TcpListener, ephemeral port)
+//!     reqwest client
+//!       →  gateway (axum, ephemeral port)
+//!           →  mock OpenAI server (tokio TcpListener, ephemeral port)
 //!
 //! Covers:
-//!   - Non-streaming:  OpenAI Responses inbound → OpenAI Chat upstream → OpenAI Responses outbound.
-//!   - Streaming:      OpenAI Responses inbound (stream:true) → OpenAI Chat upstream SSE →
-//!                     OpenAI Responses SSE outbound with monotonically-increasing sequence_number.
+//!     - Non-streaming: OpenAI Responses inbound → OpenAI Chat upstream → OpenAI Responses outbound.
+//!     - Streaming: OpenAI Responses inbound (stream:true) → OpenAI Chat upstream SSE →
+//!       OpenAI Responses SSE outbound with monotonically-increasing sequence_number.
 
 use std::sync::{Arc, Mutex};
 

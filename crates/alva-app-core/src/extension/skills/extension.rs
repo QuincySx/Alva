@@ -31,17 +31,17 @@ pub struct SkillsPlugin {
 
 impl SkillsPlugin {
     /// Create a new SkillsPlugin with the given skill directories.
-    /// The first directory is used as primary (bundled/mbb/user subdirs).
+    /// The first directory is used as primary (bundled/mbb/user subdirs);
+    /// remaining dirs are co-loaded as flat ecosystem roots.
     ///
-    /// **Note**: only the first directory in `skill_dirs` is consulted.
-    /// Use [`Self::with_bundled`] when the App-bundled skills tree lives
-    /// elsewhere (e.g. extracted from the binary into a cache dir).
+    /// Prefer [`Self::with_discovery`] when wiring Alva + ecosystem paths.
     pub fn new(skill_dirs: Vec<PathBuf>) -> Self {
         let primary = skill_dirs
             .first()
             .cloned()
             .unwrap_or_else(|| PathBuf::from(".alva/skills"));
-        Self::with_bundled(primary, None)
+        let extra: Vec<PathBuf> = skill_dirs.into_iter().skip(1).collect();
+        Self::with_discovery(primary, None, extra)
     }
 
     /// Construct from an explicit primary skill dir (containing
@@ -52,13 +52,30 @@ impl SkillsPlugin {
     /// bundled source instead of looking for a `<primary>/bundled/`
     /// subdir that the user never created.
     pub fn with_bundled(primary: PathBuf, bundled_override: Option<PathBuf>) -> Self {
+        Self::with_discovery(primary, bundled_override, Vec::new())
+    }
+
+    /// Primary Alva tree + optional bundled override + flat co-load roots
+    /// (`.agents/skills`, `~/.claude/skills`, Alva global, …).
+    ///
+    /// Primary is also scanned as a flat root (peers of `user/`) so
+    /// `.alva/skills/<name>/SKILL.md` works without nesting under `user/`.
+    pub fn with_discovery(
+        primary: PathBuf,
+        bundled_override: Option<PathBuf>,
+        extra_dirs: Vec<PathBuf>,
+    ) -> Self {
         let bundled_dir = bundled_override.unwrap_or_else(|| primary.join("bundled"));
-        let repo = Arc::new(FsSkillRepository::new(
-            bundled_dir,
-            primary.join("mbb"),
-            primary.join("user"),
-            primary.join("state.json"),
-        ));
+        let repo = Arc::new(
+            FsSkillRepository::new(
+                bundled_dir,
+                primary.join("mbb"),
+                primary.join("user"),
+                primary.join("state.json"),
+            )
+            .with_extra_dirs(extra_dirs)
+            .with_flat_primary(primary),
+        );
         let store = Arc::new(SkillStore::new(repo.clone() as Arc<dyn SkillRepository>));
         let loader = Arc::new(SkillLoader::new(repo.clone() as Arc<dyn SkillRepository>));
         let injector = Arc::new(SkillInjector::new(SkillLoader::new(

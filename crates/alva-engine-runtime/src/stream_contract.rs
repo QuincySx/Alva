@@ -128,10 +128,16 @@ impl fmt::Display for StreamContractViolation {
             }
             Self::OrphanToolEnd { id } => write!(f, "ToolEnd without ToolStart for id '{id}'"),
             Self::MessageContainsToolBlocks { message_id } => {
-                write!(f, "Message '{message_id}' contains ToolUse/ToolResult blocks")
+                write!(
+                    f,
+                    "Message '{message_id}' contains ToolUse/ToolResult blocks"
+                )
             }
             Self::NonVisibleMessageDelta => {
-                write!(f, "MessageDelta is not a consumer-visible text/reasoning delta")
+                write!(
+                    f,
+                    "MessageDelta is not a consumer-visible text/reasoning delta"
+                )
             }
         }
     }
@@ -235,8 +241,7 @@ impl StreamContract {
 
         // cindy empty-response lesson: after a terminal error, do not keep
         // emitting mid-turn content that forces a second "end" path.
-        if self.awaiting_completed_after_fatal && !matches!(event, RuntimeEvent::Completed { .. })
-        {
+        if self.awaiting_completed_after_fatal && !matches!(event, RuntimeEvent::Completed { .. }) {
             return Err(StreamContractError {
                 index,
                 kind: StreamContractViolation::EventAfterFatalError,
@@ -404,9 +409,7 @@ mod tests {
             session_started(),
             RuntimeEvent::MessageDelta {
                 id: "m1".into(),
-                delta: StreamEvent::TextDelta {
-                    text: "he".into(),
-                },
+                delta: StreamEvent::TextDelta { text: "he".into() },
             },
             RuntimeEvent::Message {
                 id: "m1".into(),

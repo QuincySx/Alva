@@ -10,9 +10,11 @@
 1. 注册 product-visible `EngineId -> Arc<dyn EngineRuntime>`；同名替换 fail closed，避免已有 native session 被路由到新 engine 实例。
 2. 生成并保存 Hub `ProductSessionId`，再从 engine event 获取独立的 engine session ID。
 3. dispatch、resume、cancel、permission 均先按 product session 路由到对应 engine。
-4. 同一 product session 的 execute 在一个写锁内抢占 `Starting` 状态，防止并发 resume；非恢复性 `RuntimeEvent::Error` 会锁定 `Failed`，后续 `Completed` 不得覆盖，恢复性错误则允许正常完成。违反终止契约的 engine stream 会被投影为 `Failed` 并补齐 Error/Completed。
-5. execute 转发循环用 `StreamContract` 观测每条 engine 事件：hard violation `tracing::warn`（debug build 另 `eprintln`），soft warning `debug`；**不丢弃**违规事件，便于 adapter 排障；缺 `Completed` 仍合成 Error+Completed。
-6. 观测结果写入 `HubSessionSnapshot`：`stream_hard_violations` / `stream_soft_warnings` / `last_stream_violation`；每次 execute 开始时清零。产品层（CLI / 未来 inspector）可读，不改变会话成功/失败语义。
+4. `restore_session`：产品从 journal 再水合 product→engine session 映射（幂等；engine/session 冲突 fail-closed）。
+5. `switch_engine`：同一 `ProductSessionId` 切到另一已注册 engine；保留 previous_*；设 `pending_handoff`；清空 native session。
+6. 同 product session execute：有 native id 则 resume；无则 handoff 首轮。`pending_handoff` 时注入 `HubRequest.handoff_context`（或默认 banner）一次；若 engine 同步启动失败，完整恢复 session 状态并缓存同一 context 供重试。
+7. execute 转发循环用 `StreamContract` 观测；缺 `Completed` 仍合成 Error+Completed。
+8. `HubSessionSnapshot` 含 stream 诊断 + previous engine + `pending_handoff`。
 
 ## 约束
 

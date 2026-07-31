@@ -217,7 +217,7 @@ impl AgentRuntimeBuilder {
         let mut plan_mode_middleware: Option<Arc<PlanModeMiddleware>> = None;
         let mut security_guard: Option<Arc<Mutex<SecurityGuard>>> = None;
 
-        if let Some(sandbox_mode) = self.standard_agent_stack.clone() {
+        if let Some(sandbox_mode) = self.standard_agent_stack {
             let workspace = self.workspace.clone().ok_or_else(|| {
                 AgentError::ConfigError(
                     "standard agent stack requires workspace() to be set".into(),

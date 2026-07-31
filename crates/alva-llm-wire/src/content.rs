@@ -140,7 +140,7 @@ impl ContentBlock {
             ContentBlock::ProviderState { data, .. } => data.to_string().len(),
         };
         // ~4 chars per token is a common rough estimate
-        (char_len + 3) / 4
+        char_len.div_ceil(4)
     }
 }
 

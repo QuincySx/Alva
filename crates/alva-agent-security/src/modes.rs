@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// - `Bypass` — allow everything (requires sandbox)
 /// - `Default` — same as Interactive
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionMode {
     /// Interactive: Ask user for each unrecognized tool use.
@@ -25,6 +25,7 @@ pub enum PermissionMode {
     /// Bypass: Allow everything (requires sandbox).
     Bypass = 3,
     /// Default: Same as Interactive.
+    #[default]
     Default = 4,
 }
 
@@ -39,12 +40,6 @@ impl PermissionMode {
             3 => PermissionMode::Bypass,
             _ => PermissionMode::Default,
         }
-    }
-}
-
-impl std::default::Default for PermissionMode {
-    fn default() -> Self {
-        Self::Default
     }
 }
 

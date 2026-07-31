@@ -276,9 +276,12 @@ mod tests {
         ]
     }
 
+    type CheckpointCall = (String, Vec<PathBuf>);
+    type CheckpointCalls = Arc<StdMutex<Vec<CheckpointCall>>>;
+
     #[derive(Clone)]
     struct MockCheckpointCallback {
-        calls: Arc<StdMutex<Vec<(String, Vec<PathBuf>)>>>,
+        calls: CheckpointCalls,
     }
 
     impl MockCheckpointCallback {

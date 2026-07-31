@@ -415,7 +415,7 @@ fn validate_support_files(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| matches!(name, "result.json" | "stderr.log" | "tools.jsonl"));
-            if !canonical.is_file() || !canonical.starts_with(&jobs_root) || !allowed_name {
+            if !canonical.is_file() || !canonical.starts_with(jobs_root) || !allowed_name {
                 return Err(format!(
                     "OS sandbox support file is outside the scoped jobs directory: {}",
                     canonical.display()

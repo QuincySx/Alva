@@ -1,3 +1,6 @@
+// INPUT:  local TCP mock server, OpenAIChatProvider, BaseAgent
+// OUTPUT: HTTP-to-provider-to-agent streaming integration tests
+// POS:    End-to-end verification of SSE transport, provider decoding, and agent events.
 //! HTTP-level E2E test: mock OpenAI server -> Provider -> Agent -> Events.
 //!
 //! Starts a local TCP server speaking the OpenAI SSE streaming protocol,
@@ -208,16 +211,17 @@ async fn e2e_http_streaming_full_pipeline() {
 
     for event in &events {
         match event {
-            AgentEvent::MessageUpdate { delta, .. } => match delta {
-                StreamEvent::TextDelta { text } => {
-                    streamed_text.push_str(text);
-                }
-                StreamEvent::Usage(u) => {
-                    assert_eq!(u.total_tokens, 13);
-                    got_usage = true;
-                }
-                _ => {}
-            },
+            AgentEvent::MessageUpdate {
+                delta: StreamEvent::TextDelta { text },
+                ..
+            } => streamed_text.push_str(text),
+            AgentEvent::MessageUpdate {
+                delta: StreamEvent::Usage(usage),
+                ..
+            } => {
+                assert_eq!(usage.total_tokens, 13);
+                got_usage = true;
+            }
             _ => {}
         }
     }

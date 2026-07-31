@@ -14,21 +14,16 @@ use crate::truncate::{truncate_head, truncate_line, MAX_BYTES, MAX_LINES, MAX_LI
 use crate::walkdir::walk_dir_filtered;
 
 /// Output mode for grep results.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum OutputMode {
     /// Show matching lines with context (default for content).
     Content,
     /// Show only file paths that contain matches (default).
+    #[default]
     FilesWithMatches,
     /// Show match counts per file.
     Count,
-}
-
-impl Default for OutputMode {
-    fn default() -> Self {
-        OutputMode::FilesWithMatches
-    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

@@ -203,7 +203,7 @@ impl BaseAgentBuilder {
                 Box::new(
                     alva_agent_extension_builtin::wrappers::SecurityPlugin::for_workspace(
                         &workspace,
-                        self.sandbox_mode.clone(),
+                        self.sandbox_mode,
                     ),
                 ),
             );

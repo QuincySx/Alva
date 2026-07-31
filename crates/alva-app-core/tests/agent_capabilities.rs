@@ -156,7 +156,9 @@ async fn build_mini_agent_inner(
         // No real provider in tests: provider-registry skips, sub-agents degrade.
         provider_registry: None,
         // Empty skills tree under the tempdir (cleaned with it); bundled = None.
-        skills: Some((workspace.join(".alva/skills"), None)),
+        skills: Some(alva_app_core::components::SkillsDiscovery::primary_only(
+            workspace.join(".alva/skills"),
+        )),
         mcp_config_paths: vec![],
         subagent_depth: 3,
         subagent_timeout,
@@ -218,7 +220,9 @@ async fn video_template_wires_into_spawn_and_skill_service() {
     let ctx = alva_app_core::components::ComponentContext {
         workspace: ws.clone(),
         provider_registry: None,
-        skills: Some((ws.join(".alva/skills"), None)),
+        skills: Some(alva_app_core::components::SkillsDiscovery::primary_only(
+            ws.join(".alva/skills"),
+        )),
         mcp_config_paths: vec![],
         subagent_depth: 3,
         subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
@@ -307,7 +311,9 @@ async fn subagent_running_shell_does_not_deadlock() {
 
     let agent = build_mini_agent(ws, Arc::new(model), &default_toggles()).await;
 
-    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.").await;
+    let rx = agent
+        .prompt_text("Delegate a shell command to a sub-agent.")
+        .await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
         .await
         .expect("KILL-1: sub-agent running a serial-global tool deadlocked the session");
@@ -369,7 +375,9 @@ async fn parent_cancel_propagates_to_subagent() {
 
     let agent = build_mini_agent(ws, Arc::new(model), &toggles).await;
 
-    let mut rx = agent.prompt_text("Delegate a long sleep to a sub-agent.").await;
+    let mut rx = agent
+        .prompt_text("Delegate a long sleep to a sub-agent.")
+        .await;
 
     let drive = async {
         let mut cancelled = false;
@@ -441,7 +449,9 @@ async fn subagent_timeout_fires() {
     )
     .await;
 
-    let rx = agent.prompt_text("Delegate a long sleep to a sub-agent.").await;
+    let rx = agent
+        .prompt_text("Delegate a long sleep to a sub-agent.")
+        .await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(10), collect_events(rx))
         .await
         .expect("KILL-1b(2): sub-agent wall-clock timeout did not fire (child ran unbounded)");
@@ -519,7 +529,9 @@ async fn subagent_dangerous_tool_goes_through_hitl() {
         }
     });
 
-    let rx = agent.prompt_text("Delegate a shell command to a sub-agent.").await;
+    let rx = agent
+        .prompt_text("Delegate a shell command to a sub-agent.")
+        .await;
     let events = tokio::time::timeout(std::time::Duration::from_secs(20), collect_events(rx))
         .await
         .expect("run hung (an approval was never resolved?)");
@@ -652,12 +664,11 @@ async fn subagent_loop_detection_breaks_repeated_tool_calls() {
     );
 }
 
-/// Resolve the component toggles for the REAL suite from `ALVA_TEST_COMPONENTS`:
-///   - unset / empty → `default_toggles()` (catalog `default_on`).
-///   - `all`         → every catalog id forced ON (maximal tool-set).
-///   - `core,shell,…`→ EXACT subset: every catalog id forced OFF, then only the
-///                     listed ids forced ON. Lets you measure "model accuracy
-///                     when given only these tools".
+/// Resolve the component toggles for the REAL suite from `ALVA_TEST_COMPONENTS`.
+///
+/// Unset/empty uses catalog defaults; `all` enables every component; any
+/// comma-separated list disables all components before enabling exactly the
+/// listed ids.
 fn toggles_from_env() -> alva_app_core::components::ComponentToggles {
     use alva_app_core::components::COMPONENTS;
     match std::env::var("ALVA_TEST_COMPONENTS") {
@@ -783,6 +794,9 @@ fn results_for(events: &[AgentEvent], tool_name: &str) -> Vec<ToolOutput> {
 // Capability case definition.
 // ---------------------------------------------------------------------------
 
+type MockScript = dyn Fn(&Path) -> Vec<Message>;
+type CaseCheck = dyn Fn(&Path, &[AgentEvent]) -> Result<(), String>;
+
 struct Cap {
     /// Stable case name (and report row label). Unique across ALL cases.
     name: &'static str,
@@ -809,9 +823,9 @@ struct Cap {
     setup: Box<dyn Fn(&Path)>,
     /// Script the MockLanguageModel's tool call(s) for the MOCK path.
     /// (A trailing assistant message is appended by the runner.)
-    mock_script: Box<dyn Fn(&Path) -> Vec<Message>>,
+    mock_script: Box<MockScript>,
     /// Shared assertion: inspect workspace + events, Ok(()) on pass.
-    check: Box<dyn Fn(&Path, &[AgentEvent]) -> Result<(), String>>,
+    check: Box<CaseCheck>,
 }
 
 fn cases() -> Vec<Cap> {
@@ -1804,11 +1818,7 @@ fn case_to_json(run: &CaseRun) -> serde_json::Value {
                     }
                 }
             }
-            AgentEvent::AgentEnd { error } => {
-                if let Some(e) = error {
-                    end_error = Some(e.clone());
-                }
-            }
+            AgentEvent::AgentEnd { error: Some(error) } => end_error = Some(error.clone()),
             _ => {}
         }
     }
@@ -2064,6 +2074,10 @@ fn repeat_count_from_env() -> usize {
 
 /// Format a unix timestamp (UTC) as a `YYYYMMDD-HHMMSS` filename slug.
 /// Self-contained calendar math (no chrono dep needed for filenames).
+fn is_leap_year(year: u64) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+}
+
 fn timestamp_slug(unix: u64) -> String {
     let secs = unix % 60;
     let mins = (unix / 60) % 60;
@@ -2072,7 +2086,7 @@ fn timestamp_slug(unix: u64) -> String {
 
     let mut year = 1970u64;
     loop {
-        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let leap = is_leap_year(year);
         let ydays = if leap { 366 } else { 365 };
         if days >= ydays {
             days -= ydays;
@@ -2081,7 +2095,7 @@ fn timestamp_slug(unix: u64) -> String {
             break;
         }
     }
-    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let leap = is_leap_year(year);
     let mdays = [
         31,
         if leap { 29 } else { 28 },
@@ -2136,7 +2150,7 @@ fn write_run_report_to_dir(
     let report = build_report_json(suite_label, model_label, components, runs);
     let json_str = serde_json::to_string_pretty(&report).expect("report JSON must serialize");
 
-    std::fs::create_dir_all(&dir).expect("failed to create tests/reports dir");
+    std::fs::create_dir_all(dir).expect("failed to create tests/reports dir");
 
     let unix = report
         .get("timestamp_unix")
@@ -2174,8 +2188,8 @@ fn write_run_report_to_dir(
     std::fs::write(dir.join("latest-agent-summary.json"), &summary_str)
         .expect("failed to write latest agent summary JSON");
 
-    regenerate_index(&dir);
-    regenerate_data_js(&dir);
+    regenerate_index(dir);
+    regenerate_data_js(dir);
     run_path
 }
 

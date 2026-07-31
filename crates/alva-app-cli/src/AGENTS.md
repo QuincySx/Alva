@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`main.rs` 是严格参数 grammar 和模式总路由；`agent_setup.rs` 负责普通 native agent，并只加载 workspace 内的有界 project context；`os_sandbox.rs` 复用完整 worker 重入边界：host 创建每次运行私有 TMPDIR，macOS 用 Seatbelt 与写拒绝探针，Linux child 在 Tokio runtime 前进入 Landlock ABI v3 并核验 status；`bundled_skills.rs` 校验并安全重建后解包、解析宿主内置 skill；`wasm_sandbox.rs` 负责 wasm-env context 下发、permission/max-turns 参数、只读/读写 preopen、带 deadline/call/response-byte budget 的 host proxy callbacks 及仅 Bypass 可达的 escalation；`job_log.rs` 限制 guest audit 次数并只接受 `tool_call` kind，让可信 host escalation 使用独立 JSONL kind；`session/` 对 UUID、软链接、权限、并发与原子替换负责；`repl.rs` 对未知斜杠命令做 skill registry 精确点名 fallback；`ui/` 恢复历史并持久化 RunRecord；其余模块承载子命令。
+`main.rs` 是严格参数 grammar 和模式总路由；`agent_setup.rs` 负责普通 native agent，并只加载 workspace 内的有界 project context；`os_sandbox.rs` 复用完整 worker 重入边界：host 创建每次运行私有 TMPDIR，macOS 用 Seatbelt 与写拒绝探针，Linux child 在 Tokio runtime 前进入 Landlock ABI v3 并核验 status；`bundled_skills.rs` 校验并安全重建后解包、解析宿主内置 skill；`wasm_sandbox.rs` 负责 wasm-env context 下发、permission/max-turns 参数、只读/读写 preopen、带 deadline/call/response-byte budget 的 host proxy callbacks 及仅 Bypass 可达的 escalation；`job_log.rs` 限制 guest audit 次数并只接受 `tool_call` kind，让可信 host escalation 使用独立 JSONL kind；`session/` 对 UUID、软链接、权限、并发与原子替换负责；`repl.rs` 对未知斜杠命令做 skill registry 精确点名 fallback，并把 slash command 的 `allowed_tools` 作为单轮白名单应用后清空；`ui/` 恢复历史并持久化 RunRecord；其余模块承载子命令。
 
 ## 约束
 

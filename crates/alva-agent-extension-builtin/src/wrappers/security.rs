@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_core extension API, alva_agent_security, tokio
+// OUTPUT: SecurityPlugin
+// POS:    Default plugin wrapper that installs and publishes workspace security controls.
 //! Default `SecurityPlugin` wrapping `SecurityMiddleware::for_workspace`.
 //!
 //! Ships the standard sandbox security middleware so `BaseAgent` is locked
@@ -47,7 +50,7 @@ impl Plugin for SecurityPlugin {
     }
 
     async fn register(&self, r: &Registrar) {
-        let mw = SecurityMiddleware::for_workspace(&self.workspace, self.sandbox_mode.clone());
+        let mw = SecurityMiddleware::for_workspace(&self.workspace, self.sandbox_mode);
         // Obtain the guard handle before moving `mw` into the Arc.
         let guard = mw.guard();
         r.middleware(Arc::new(mw));

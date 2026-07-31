@@ -32,8 +32,14 @@ impl CodexProcess {
             });
 
         let mut cmd = Command::new(&config.codex_path);
-        cmd.arg("exec")
-            .arg("--json")
+        // Fresh: `codex exec --json … PROMPT`
+        // Resume: `codex exec resume <SESSION_ID> --json … PROMPT`
+        // (Codex CLI 0.14x+; session ids come from thread.started / Hub journal.)
+        cmd.arg("exec");
+        if let Some(session) = &request.resume_session {
+            cmd.arg("resume").arg(session);
+        }
+        cmd.arg("--json")
             .arg("--skip-git-repo-check")
             .arg("-C")
             .arg(&cwd)
@@ -56,10 +62,7 @@ impl CodexProcess {
         if let Some(system) = &request.system_prompt {
             // Codex has no first-class system_prompt flag on exec; pass as
             // a leading instruction block in the user prompt instead.
-            let combined = format!(
-                "<system>\n{system}\n</system>\n\n{}",
-                request.prompt
-            );
+            let combined = format!("<system>\n{system}\n</system>\n\n{}", request.prompt);
             cmd.arg(combined);
         } else {
             cmd.arg(&request.prompt);
@@ -85,10 +88,9 @@ impl CodexProcess {
     }
 
     pub(crate) async fn next_line(&mut self) -> Result<Option<String>, RuntimeError> {
-        self.stdout_lines
-            .next_line()
-            .await
-            .map_err(|error| RuntimeError::ProcessError(format!("Codex stdout read failed: {error}")))
+        self.stdout_lines.next_line().await.map_err(|error| {
+            RuntimeError::ProcessError(format!("Codex stdout read failed: {error}"))
+        })
     }
 
     pub(crate) async fn kill(&mut self) -> Result<(), RuntimeError> {

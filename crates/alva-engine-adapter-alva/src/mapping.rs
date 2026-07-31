@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use alva_engine_runtime::{is_consumer_visible_delta, RuntimeEvent, RuntimeUsage};
-use alva_kernel_abi::{AgentMessage, ContentBlock};
+use alva_kernel_abi::{AgentMessage, ContentBlock, MessageRole};
 use alva_kernel_core::AgentEvent;
 
 pub(crate) struct EventMapper {
@@ -102,6 +102,8 @@ impl EventMapper {
         let AgentMessage::Standard(message) = message else {
             return vec![];
         };
+        let is_assistant = matches!(&message.role, MessageRole::Assistant);
+        let mut assistant_text = String::new();
         let mut content = Vec::new();
         let mut events = Vec::new();
         for block in message.content {
@@ -115,13 +117,16 @@ impl EventMapper {
                     // Never surface tool results inside Message — ToolEnd owns them.
                 }
                 ContentBlock::Text { ref text } => {
-                    if !text.is_empty() {
-                        self.last_assistant_text = Some(text.clone());
+                    if is_assistant && !text.is_empty() {
+                        assistant_text.push_str(text);
                     }
                     content.push(block);
                 }
                 other => content.push(other),
             }
+        }
+        if !assistant_text.is_empty() {
+            self.last_assistant_text = Some(assistant_text);
         }
         if !content.is_empty() {
             events.insert(
@@ -177,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn completed_result_is_last_assistant_text_not_placeholder() {
+    fn completed_result_contains_all_blocks_from_last_assistant_message() {
         let mut m = mapper();
         let mut stream = Vec::new();
         stream.extend(m.map(AgentEvent::AgentStart));
@@ -185,9 +190,18 @@ mod tests {
             message: AgentMessage::Standard(Message {
                 id: "m1".into(),
                 role: MessageRole::Assistant,
-                content: vec![ContentBlock::Text {
-                    text: "final answer".into(),
-                }],
+                content: vec![
+                    ContentBlock::Text {
+                        text: "final ".into(),
+                    },
+                    ContentBlock::Reasoning {
+                        text: "hidden".into(),
+                        signature: None,
+                    },
+                    ContentBlock::Text {
+                        text: "answer".into(),
+                    },
+                ],
                 tool_call_id: None,
                 usage: None,
                 timestamp: 0,
@@ -197,8 +211,7 @@ mod tests {
         assert!(validate_event_stream(&stream).is_ok());
         match stream.last() {
             Some(RuntimeEvent::Completed {
-                result: Some(text),
-                ..
+                result: Some(text), ..
             }) => assert_eq!(text, "final answer"),
             other => panic!("expected Completed with text, got {other:?}"),
         }

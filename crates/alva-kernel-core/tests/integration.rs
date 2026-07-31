@@ -400,20 +400,21 @@ async fn message_events_share_the_same_message_id() {
 
     while let Ok(event) = rx.try_recv() {
         match event {
-            AgentEvent::MessageStart { message } => {
-                if let AgentMessage::Standard(message) = message {
-                    start_id = Some(message.id);
-                }
+            AgentEvent::MessageStart {
+                message: AgentMessage::Standard(message),
+            } => {
+                start_id = Some(message.id);
             }
-            AgentEvent::MessageUpdate { message, .. } => {
-                if let AgentMessage::Standard(message) = message {
-                    update_ids.push(message.id);
-                }
+            AgentEvent::MessageUpdate {
+                message: AgentMessage::Standard(message),
+                ..
+            } => {
+                update_ids.push(message.id);
             }
-            AgentEvent::MessageEnd { message } => {
-                if let AgentMessage::Standard(message) = message {
-                    end_id = Some(message.id);
-                }
+            AgentEvent::MessageEnd {
+                message: AgentMessage::Standard(message),
+            } => {
+                end_id = Some(message.id);
             }
             _ => {}
         }
@@ -725,10 +726,10 @@ async fn stream_error_emits_message_error_event() {
 
     while let Ok(event) = rx.try_recv() {
         match event {
-            AgentEvent::MessageStart { message } => {
-                if let AgentMessage::Standard(message) = message {
-                    start_id = Some(message.id);
-                }
+            AgentEvent::MessageStart {
+                message: AgentMessage::Standard(message),
+            } => {
+                start_id = Some(message.id);
             }
             AgentEvent::MessageError { message, error } => {
                 if let AgentMessage::Standard(message) = message {
@@ -823,10 +824,10 @@ async fn after_llm_call_failure_emits_message_error_event() {
 
     while let Ok(event) = rx.try_recv() {
         match event {
-            AgentEvent::MessageStart { message } => {
-                if let AgentMessage::Standard(message) = message {
-                    start_id = Some(message.id);
-                }
+            AgentEvent::MessageStart {
+                message: AgentMessage::Standard(message),
+            } => {
+                start_id = Some(message.id);
             }
             AgentEvent::MessageError { message, error } => {
                 if let AgentMessage::Standard(message) = message {
@@ -1352,7 +1353,7 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
         let s: &dyn alva_kernel_core::agent_session::AgentSession = session.as_ref();
         for i in 0..30 {
             s.append_message(
-                AgentMessage::Standard(Message::user(&format!(
+                AgentMessage::Standard(Message::user(format!(
                     "msg-{}-with-some-padding-text-to-pump-up-the-token-estimate",
                     i
                 ))),
@@ -1495,8 +1496,10 @@ async fn allowed_tools_hides_unselected_tools_from_the_model() {
         Arc::new(NamedNoopTool("dangerous_tool")),
     ];
 
-    let mut model_config = ModelConfig::default();
-    model_config.allowed_tools = Some(vec!["safe_tool".to_string()]);
+    let model_config = ModelConfig {
+        allowed_tools: Some(vec!["safe_tool".to_string()]),
+        ..ModelConfig::default()
+    };
 
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),

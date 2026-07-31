@@ -4,7 +4,7 @@
 //         alva-app-eval::skills so the Tauri UI can list skills without
 //         depending on the eval crate.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -30,27 +30,18 @@ pub struct SkillSourceInfo {
 }
 
 pub fn discover_skill_sources() -> Vec<SkillSourceInfo> {
-    let mut sources = Vec::new();
-
-    if let Some(config_dir) = dirs::config_dir() {
-        let path = config_dir.join("alva").join("skills");
-        sources.push(SkillSourceInfo {
+    // Prefer workspace-aware labels when cwd is a project; still list globals.
+    let workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let paths = alva_app_core::AlvaPaths::new(&workspace);
+    paths
+        .skill_source_labels()
+        .into_iter()
+        .map(|(label, path)| SkillSourceInfo {
             exists: path.exists(),
             path: path.to_string_lossy().to_string(),
-            label: "Global ~/.config/alva/skills".into(),
-        });
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        let path = home.join(".claude").join("skills");
-        sources.push(SkillSourceInfo {
-            exists: path.exists(),
-            path: path.to_string_lossy().to_string(),
-            label: "Claude ~/.claude/skills".into(),
-        });
-    }
-
-    sources
+            label,
+        })
+        .collect()
 }
 
 pub async fn scan_skills(skill_dir: &Path) -> Vec<SkillInfo> {
@@ -86,8 +77,8 @@ mod tests {
     //! Tests for `scan_skills` — the Tauri-side entry point that the UI
     //! calls to populate its skill list. Built on `std::env::temp_dir()`
     //! + a unique pid/nanos-suffixed path so we stay hermetic without
-    //! pulling tempfile into alva-app-tauri's deps (same pattern as
-    //! sqlite_session/registry.rs).
+    //!   pulling tempfile into alva-app-tauri's deps (same pattern as
+    //!   sqlite_session/registry.rs).
     use super::*;
     use std::fs;
     use std::path::PathBuf;

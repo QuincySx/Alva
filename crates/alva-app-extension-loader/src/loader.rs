@@ -474,9 +474,9 @@ pub async fn discover_plugins(dirs: &[PathBuf]) -> Vec<DiscoveredPlugin> {
     out
 }
 
-/// Start a single plugin from its directory (containing `alva.toml`
-/// + entry file). Used by CLI tools like `alva plugins exec` that
-/// need one plugin running without the full loader lifecycle.
+/// Start a single plugin from its directory containing `alva.toml` and
+/// its entry file. Used by CLI tools like `alva plugins exec` that need
+/// one plugin running without the full loader lifecycle.
 ///
 /// Returns the running [`RemotePluginProxy`] — caller is
 /// responsible for `.shutdown()` when done.

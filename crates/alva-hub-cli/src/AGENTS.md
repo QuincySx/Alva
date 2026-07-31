@@ -7,21 +7,20 @@
 
 ## 逻辑
 
-1. `cli.rs` fail-closed 解析 `--engine alva|claude|codex`、`--claude-mode light|full`、`--` 与 prompt。
-2. 只初始化被选中的 adapter：
-   - Alva：既有 provider 配置 + `ALVA_API_KEY`
-   - Claude **light**（默认）：`claude -p --output-format stream-json`（PATH 上的 `claude`）
-   - Claude **full**：Node bridge + `@anthropic-ai/claude-agent-sdk`
-   - Codex：`codex exec --json`（PATH 上的 Codex CLI + CODEX_HOME 认证）
-3. 运行单次 Hub session，输出 final Message；遇到 permission request 立即 fail-closed deny 并继续 drain 到 Completed。
-4. `Error.recoverable == true` 只打印 `(retrying)` 横幅，**不**把进程 exit code 置失败；fatal error 才失败（对齐 cindy willRetry）。
-5. 流结束后若 `HubSessionSnapshot` 有 stream contract hard/soft 诊断，打印到 stderr（不单独改 exit code）。
+1. `cli.rs` fail-closed 解析 `--engine`、`--claude-mode`、`--cwd`、`--session`、`--repl`、`--verbose`、`--permission deny|allow|ask`。
+2. Session journal（`session_store.rs`）：`~/.config/alva/hub/sessions.json` 或 `$ALVA_HUB_HOME/sessions.json`；0700 目录 / 0600 文件、符号链接拒绝、跨进程锁 + 原子替换；每 turn 结束后 upsert。
+3. `--session <id>`：从 journal 恢复；显式 `--engine` 不同 → `restore` + `switch_engine` + **handoff preamble**（journal 预览 + 可选 Alva transcript 摘录）。
+4. Adapter 懒注册；handoff 不自动迁完整对话，只注入一次上下文摘要。
+5. 每 turn：stdout final Message；journal 记 `last_prompt_preview` / `last_result_preview`。
+6. Permission：Alva / Claude Full 用回调执行 `deny` / `allow` / `ask`；Claude Light 映射 `deny=dontAsk`、显式 `allow=bypassPermissions` 且拒绝 `ask`；Codex exec 仅接受 `deny`，不会为 auto-allow 暗中关闭 sandbox。
+7. `--repl`：`/engine <name>` 切引擎并准备 handoff context。
 
 ## 约束
 
-- 不向 `alva-app-cli`、`alva-app-tauri` 添加 Hub 或 engine runtime 依赖。
-- 这是第一条单次执行切片；持久化、交互式 REPL、engine switch、desktop UI 后续实现。
-- 不打印 stream delta：Alva 和 Claude 都会追加 final Message，双打会重复输出文本。
+- 不向 `alva-app-cli` / `alva-app-tauri` 添加 Hub 或 engine runtime 依赖。
+- Journal 保存 product→engine 路由；Alva 另存 `alva-history/{engine_session}.json` 消息 transcript 以支持跨进程 resume。
+- Claude：`claude --resume`；Codex：`codex exec resume <id> --json`。
+- stdout 不混 tool 噪声；verbose / permission / journal 一律 stderr。
 
 ## 业务域清单
 
@@ -29,3 +28,5 @@
 |---|---|---|
 | alva-hub | `src/main.rs` | selected-engine bootstrap、Hub registry、fail-closed permission 与 event 输出 |
 | CLI grammar | `src/cli.rs` | engine/prompt 参数解析及纯单元测试 |
+| Session journal | `src/session_store.rs` | 私有、加锁、原子持久化 product→engine session 路由 |
+| Handoff context | `src/handoff.rs` | 从 journal / Alva transcript 构造一次性跨引擎上下文 |

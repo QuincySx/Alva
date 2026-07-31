@@ -115,7 +115,12 @@ async fn auto_directory_is_always_in_system_prompt_for_chinese_input() {
         .await
         .unwrap();
 
-    let events = collect_events(agent.prompt_text("請幫我整理這份資料，不含任何英文關鍵詞").await).await;
+    let events = collect_events(
+        agent
+            .prompt_text("請幫我整理這份資料，不含任何英文關鍵詞")
+            .await,
+    )
+    .await;
     assert!(events
         .iter()
         .any(|event| matches!(event, alva_app_core::AgentEvent::AgentEnd { .. })));

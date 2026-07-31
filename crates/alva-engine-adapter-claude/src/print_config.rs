@@ -38,19 +38,28 @@ impl ClaudeRuntimeMode {
 pub enum ClaudePrintPermissionMode {
     /// Accept file edits without prompting; other tools may still ask.
     AcceptEdits,
-    /// Bypass all permission checks (Hub one-shot default — no TTY).
-    #[default]
+    /// Permit tools automatically according to Claude Code's `auto` policy.
+    Auto,
+    /// Bypass all permission checks. This is an explicit host opt-in only.
     BypassPermissions,
-    /// Default CLI ask mode (will hang without a TTY / auto-deny path).
-    Default,
+    /// Require manual approval for each permission request.
+    Manual,
+    /// Reject permission requests rather than prompting without a TTY.
+    #[default]
+    DontAsk,
+    /// Restrict Claude Code to plan-mode operations.
+    Plan,
 }
 
 impl ClaudePrintPermissionMode {
     pub fn as_cli_str(self) -> &'static str {
         match self {
             Self::AcceptEdits => "acceptEdits",
+            Self::Auto => "auto",
             Self::BypassPermissions => "bypassPermissions",
-            Self::Default => "default",
+            Self::Manual => "manual",
+            Self::DontAsk => "dontAsk",
+            Self::Plan => "plan",
         }
     }
 }
@@ -64,12 +73,9 @@ pub struct ClaudePrintConfig {
     pub model: Option<String>,
     /// `--permission-mode` for non-interactive runs.
     pub permission_mode: ClaudePrintPermissionMode,
-    /// Pass `--bare` (skip hooks / CLAUDE.md auto-discovery).
-    ///
-    /// Default **false**: `--bare` also disables OAuth/keychain auth and only
-    /// accepts `ANTHROPIC_API_KEY`, which breaks "use my Claude Code login".
-    /// Hosts that inject API keys and want minimal context may set this true.
-    pub bare: bool,
+    /// Pass `--safe-mode` to disable workspace customizations while preserving
+    /// Claude Code authentication, model selection, built-ins, and permissions.
+    pub safe_mode: bool,
     /// Default working directory when the request omits one.
     pub default_cwd: Option<PathBuf>,
 }
@@ -79,9 +85,36 @@ impl Default for ClaudePrintConfig {
         Self {
             claude_path: "claude".into(),
             model: None,
-            permission_mode: ClaudePrintPermissionMode::BypassPermissions,
-            bare: false,
+            permission_mode: ClaudePrintPermissionMode::DontAsk,
+            safe_mode: true,
             default_cwd: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClaudePrintPermissionMode;
+
+    #[test]
+    fn permission_modes_match_current_claude_cli_values() {
+        assert_eq!(
+            [
+                ClaudePrintPermissionMode::AcceptEdits.as_cli_str(),
+                ClaudePrintPermissionMode::Auto.as_cli_str(),
+                ClaudePrintPermissionMode::BypassPermissions.as_cli_str(),
+                ClaudePrintPermissionMode::Manual.as_cli_str(),
+                ClaudePrintPermissionMode::DontAsk.as_cli_str(),
+                ClaudePrintPermissionMode::Plan.as_cli_str(),
+            ],
+            [
+                "acceptEdits",
+                "auto",
+                "bypassPermissions",
+                "manual",
+                "dontAsk",
+                "plan",
+            ]
+        );
     }
 }

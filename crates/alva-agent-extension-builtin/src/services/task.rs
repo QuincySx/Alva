@@ -1,3 +1,6 @@
+// INPUT:  alva_kernel_abi bus/task types, async_trait, serde, tokio
+// OUTPUT: TaskService, InMemoryTaskStore, TaskError, TaskUpdate
+// POS:    Shared task lifecycle service and default process-lifetime backend for task tools.
 //! `TaskService` trait + default in-memory backend.
 //!
 //! Tools (`task_create`/`task_get`/`task_list`/`task_update`/`task_stop`/
@@ -162,12 +165,12 @@ impl TaskService for InMemoryTaskStore {
         let tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
         let mut out: Vec<TaskState> = tasks
             .values()
-            .filter(|t| status_filter.map_or(true, |s| t.status == s))
+            .filter(|t| status_filter.is_none_or(|status| t.status == status))
             .cloned()
             .collect();
         // Most recent first — matches what an LLM rendering a task list
         // expects to see at the top.
-        out.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        out.sort_by_key(|task| std::cmp::Reverse(task.start_time));
         out
     }
 

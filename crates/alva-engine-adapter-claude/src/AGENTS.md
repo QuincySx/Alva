@@ -20,8 +20,8 @@ Hub 通过 `--claude-mode light|full` 选择；两种模式共用 `EventMapper`�
 6. SDK 解析：显式 path → cwd node_modules → process cwd → `npm root -g`，fail-closed。
 
 ### Light（CLI print）
-1. `ClaudePrintAdapter` spawn `claude -p --output-format stream-json --include-partial-messages`。
-2. 默认 `--bare` + `--permission-mode bypassPermissions`（Hub 无 TTY 一锤子）。
+1. `ClaudePrintAdapter` spawn `claude -p --output-format stream-json`；仅当请求启用 streaming 时追加 `--include-partial-messages`。
+2. 默认追加 `--safe-mode` + `--permission-mode dontAsk`：无 TTY 时拒绝无法获批的操作；Light 不传 `--bare`，保留本地 OAuth/keychain 认证；safe mode 禁用 CLAUDE.md、skills、plugins、hooks 与 MCP 等工作区自定义。`bypassPermissions` 仅为宿主显式 opt-in。
 3. stdout JSONL 直接反序列化为 `SdkMessage`，经同一 `EventMapper` 产出 `RuntimeEvent`。
 4. 无 interactive permission callback（`Unsupported`）；cancel 杀子进程。
 
@@ -37,7 +37,7 @@ Hub 通过 `--claude-mode light|full` 选择；两种模式共用 `EventMapper`�
 - **双层 idle watchdog**（cindy `upstream_response_idle_timeout`）：
   1. 进程内：默认注入 `CLAUDE_ENABLE_STREAM_WATCHDOG=true` + `API_TIMEOUT_MS=900000`（用户 env 优先不覆盖）
   2. 宿主：bridge stdout 在「等模型」时静默超过阈值 → fatal Error + kill + Completed；默认 30min，`ALVA_CLAUDE_BRIDGE_IDLE_TIMEOUT_MS` / `bridge_idle_timeout_ms` 覆盖，`0` 关闭；工具执行与 permission 等待不计时
-- `PermissionMode` 决定工具执行审批策略：default（SDK 默认）/ acceptEdits / bypassPermissions。
+- Full SDK bridge 的 `PermissionMode` 决定工具执行审批策略：default（SDK 默认）/ acceptEdits / bypassPermissions。Light 默认 `dontAsk` 并启用 `--safe-mode`；Light bypass 必须由宿主显式 opt-in。
 - `resume` capability 为 true，表示适配器支持通过 session id 恢复历史会话。
 - 返回的 Stream 为 `'static`，不借用 `&self`。
 - 子进程 kill_on_drop 确保适配器析构时自动清理。
@@ -49,7 +49,7 @@ Hub 通过 `--claude-mode light|full` 选择；两种模式共用 `EventMapper`�
 | ClaudeAdapter | adapter.rs | **Full** EngineRuntime：SDK bridge、session map、权限转发、idle watchdog |
 | ClaudePrintAdapter | print_adapter.rs | **Light** EngineRuntime：`claude -p` spawn + JSONL 映射 |
 | ClaudeRuntimeMode | print_config.rs | full / light 选择器 |
-| ClaudePrintConfig | print_config.rs | light 模式：binary 路径、permission、bare、cwd |
+| ClaudePrintConfig | print_config.rs | light 模式：binary 路径、safe-mode、permission、cwd |
 | ClaudePrintProcess | print_process.rs | `claude -p` 子进程生命周期 |
 | BridgeProcess / BridgeControl | process.rs | Node.js 双工生命周期 |
 | bridge | bridge.rs | bridge 脚本部署 |

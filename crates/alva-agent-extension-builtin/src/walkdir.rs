@@ -81,7 +81,7 @@ pub fn walk_dir_filtered(
             tool_name: "walk_dir_filtered".into(),
             message: format!("walk error: {}", e),
         })?;
-        if entry.file_type().map_or(true, |ft| ft.is_dir()) {
+        if entry.file_type().is_none_or(|file_type| file_type.is_dir()) {
             continue;
         }
         if let Some(path) = entry.path().to_str() {

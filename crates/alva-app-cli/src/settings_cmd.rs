@@ -12,8 +12,7 @@
 //! - `alva settings`                — list all providers, mark active
 //! - `alva settings list`           — same as above
 //! - `alva settings get <kind>`     — show one provider's config
-//! - `alva settings set <kind> [--api-key K] [--model M] [--base-url U]`
-//!                                  — upsert a provider entry
+//! - `alva settings set <kind> [--api-key K] [--model M] [--base-url U]` — upsert a provider entry
 //! - `alva settings active <kind>`  — set the active provider
 //! - `alva settings remove <kind>`  — drop a provider entry
 //! - `alva settings path`           — print the config file path
@@ -23,7 +22,7 @@
 //! caches — re-reads the file every `lookup_provider`).
 
 use alva_app_core::components::{ComponentMeta, COMPONENTS};
-use alva_app_core::config::{self, AlvaConfig, ProviderEntry};
+use alva_app_core::config::{self, AlvaConfig};
 
 const KNOWN_KINDS: &[&str] = &["anthropic", "openai-chat", "openai-responses", "gemini"];
 
@@ -234,10 +233,7 @@ async fn run_set(args: &[String]) -> i32 {
         return 2;
     }
 
-    let entry = cfg
-        .providers
-        .entry(name.clone())
-        .or_insert_with(ProviderEntry::default);
+    let entry = cfg.providers.entry(name.clone()).or_default();
     if let Some(k) = kind_flag {
         entry.kind = Some(k);
     }
@@ -416,7 +412,7 @@ async fn run_component(args: &[String]) -> i32 {
                 eprintln!("usage: alva settings component set <id> <on|off>");
                 return 2;
             };
-            run_component_set(&[id.clone()], value).await
+            run_component_set(std::slice::from_ref(id), value).await
         }
         Some("reset") => run_component_reset(&args[1..]).await,
         Some("help") | Some("-h") | Some("--help") => {

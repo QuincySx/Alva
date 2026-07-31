@@ -349,7 +349,7 @@ impl ContextHandle for ContextHandleImpl {
         store.remove_range(from, to);
         let placeholder = ContextEntry {
             id: uuid::Uuid::new_v4().to_string(),
-            message: AgentMessage::Standard(alva_kernel_abi::Message::system(&format!(
+            message: AgentMessage::Standard(alva_kernel_abi::Message::system(format!(
                 "[Externalized {} entries to {}]",
                 count, path
             ))),

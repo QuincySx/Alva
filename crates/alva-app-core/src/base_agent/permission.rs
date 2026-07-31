@@ -1,3 +1,6 @@
+// INPUT:  alva_agent_security, alva_host_native plan control, alva_kernel_abi bus
+// OUTPUT: PermissionMode, PermissionModeService
+// POS:    Harness permission policy and bus fan-out control across security and plan subsystems.
 use std::sync::Mutex;
 
 use alva_agent_security::SecurityModeControl;
@@ -5,9 +8,10 @@ use alva_host_native::middleware::PlanModeControl;
 use alva_kernel_abi::{bus_cap, BusHandle};
 
 /// Controls how the agent handles tool permissions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PermissionMode {
     /// All write/execute tools require human approval (default).
+    #[default]
     Ask,
     /// All write tools auto-approved; shell commands still need approval.
     AcceptEdits,
@@ -20,12 +24,6 @@ pub enum PermissionMode {
     /// Allow everything without prompting ("dangerously skip permissions").
     /// Assumes a sandbox is in effect; intended for headless / CI runs.
     Bypass,
-}
-
-impl Default for PermissionMode {
-    fn default() -> Self {
-        PermissionMode::Ask
-    }
 }
 
 impl PermissionMode {

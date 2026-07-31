@@ -617,7 +617,10 @@ mod tests {
         let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
         let bridge = adapter.build_bridge_config(RuntimeRequest::new("hello"));
         assert_eq!(
-            bridge.env.get("CLAUDE_ENABLE_STREAM_WATCHDOG").map(String::as_str),
+            bridge
+                .env
+                .get("CLAUDE_ENABLE_STREAM_WATCHDOG")
+                .map(String::as_str),
             Some("true")
         );
         assert_eq!(

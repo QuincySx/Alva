@@ -92,7 +92,7 @@ mod tests {
             MemoryError::Storage("a".into()),
             MemoryError::Embedding("b".into()),
             MemoryError::Sync("c".into()),
-            MemoryError::Io(io::Error::new(io::ErrorKind::Other, "d")),
+            MemoryError::Io(io::Error::other("d")),
         ];
         for v in &variants {
             assert!(!format!("{v:?}").is_empty());

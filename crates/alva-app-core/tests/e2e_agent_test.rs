@@ -1,3 +1,6 @@
+// INPUT:  BaseAgent, MockLanguageModel, builtin tools, temporary workspaces
+// OUTPUT: End-to-end agent loop, tool, permission, and checkpoint integration tests
+// POS:    Product-harness regression suite over real middleware and deterministic model scripts.
 //! End-to-end tests for the full agent pipeline.
 //!
 //! Tests the complete chain: prompt -> LLM -> tool call -> tool execution ->
@@ -976,10 +979,12 @@ async fn e2e_checkpoint_created_on_file_edit() {
     use alva_host_native::middleware::CheckpointCallback;
     use std::sync::Mutex as StdMutex;
 
+    type CheckpointCalls = Arc<StdMutex<Vec<(String, Vec<std::path::PathBuf>)>>>;
+
     /// In-test checkpoint callback that records calls.
     #[derive(Clone)]
     struct TestCheckpointCallback {
-        calls: Arc<StdMutex<Vec<(String, Vec<std::path::PathBuf>)>>>,
+        calls: CheckpointCalls,
     }
 
     impl TestCheckpointCallback {

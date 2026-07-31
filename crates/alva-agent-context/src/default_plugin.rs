@@ -97,6 +97,7 @@ impl Default for DefaultHooksConfig {
 const RECENT_MESSAGE_BUFFER_SIZE: usize = 10;
 
 /// Per-session state tracked by the plugin.
+#[derive(Default)]
 struct SessionState {
     /// Whether bootstrap has run.
     bootstrapped: bool,
@@ -112,16 +113,6 @@ struct SessionState {
 struct RecentMessage {
     role: &'static str,
     text: String,
-}
-
-impl Default for SessionState {
-    fn default() -> Self {
-        Self {
-            bootstrapped: false,
-            turn_count: 0,
-            recent_messages: Vec::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

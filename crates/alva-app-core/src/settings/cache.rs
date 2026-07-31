@@ -1,18 +1,19 @@
+// INPUT:  settings types, tokio::sync::RwLock, std::sync::Arc
+// OUTPUT: SettingsCache
+// POS:    Async session-level settings cache with lazy load and invalidation.
 use super::types::Settings;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Session-level settings cache
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SettingsCache {
     settings: Arc<RwLock<Option<Settings>>>,
 }
 
 impl SettingsCache {
     pub fn new() -> Self {
-        Self {
-            settings: Arc::new(RwLock::new(None)),
-        }
+        Self::default()
     }
 
     pub async fn get(&self) -> Option<Settings> {

@@ -415,7 +415,7 @@ mod tests {
     /// Text blocks pass through the error-extraction join.
     #[test]
     fn error_text_extraction() {
-        let blocks = vec![ToolContent::text("first"), ToolContent::text("second")];
+        let blocks = [ToolContent::text("first"), ToolContent::text("second")];
         let joined = blocks
             .iter()
             .filter_map(ToolContent::as_text)

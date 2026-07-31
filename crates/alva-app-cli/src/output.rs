@@ -315,7 +315,7 @@ mod tests {
         let kept = out.strip_suffix("...").unwrap();
         assert!(kept.len() <= 100);
         // Verify no half-character: take the chars iterator round-trip.
-        assert_eq!(kept.chars().count() > 0, true);
+        assert!(kept.chars().count() > 0);
     }
 
     #[test]

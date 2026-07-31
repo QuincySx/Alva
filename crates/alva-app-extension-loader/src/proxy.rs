@@ -699,7 +699,7 @@ mod tests {
     //! 3. **`action_to_dispatch_result` decision branches** — Continue
     //!    passthrough + Block reason propagation + LLM mutation parsing
     //!    + a merged forward-compat/defensive test covering unsupported
-    //!    variants AND malformed JSON.
+    //!      variants AND malformed JSON.
     use super::*;
     use alva_kernel_abi::{ContentBlock, MessageRole};
 

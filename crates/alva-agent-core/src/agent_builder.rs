@@ -332,10 +332,7 @@ impl AgentBuilder {
         drop(bus_writer);
 
         // Snapshot tools for cheap external inspection (BaseAgent, tests).
-        let tools_snapshot = {
-            let st = state.tools.clone();
-            st
-        };
+        let tools_snapshot = state.tools.clone();
 
         Ok(Agent {
             state: Mutex::new(state),

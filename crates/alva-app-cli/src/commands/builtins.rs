@@ -531,13 +531,7 @@ You have the capability to call multiple tools in a single response. Stage and c
         CommandResult::Prompt {
             content: prompt,
             progress_message: Some("Creating commit...".to_string()),
-            allowed_tools: Some(vec![
-                "Bash(git add:*)".to_string(),
-                "Bash(git status:*)".to_string(),
-                "Bash(git diff:*)".to_string(),
-                "Bash(git commit:*)".to_string(),
-                "Bash(git log:*)".to_string(),
-            ]),
+            allowed_tools: Some(vec!["execute_shell".to_string()]),
         }
     }
 }
@@ -741,12 +735,13 @@ impl Command for McpCommand {
     }
     fn execute(&self, args: &str, ctx: &CommandContext) -> CommandResult {
         if args.is_empty() {
-            let mut lines = Vec::new();
-            lines.push("MCP commands:".to_string());
-            lines.push("  /mcp list       List connected MCP servers".to_string());
-            lines.push("  /mcp add <cfg>  Add an MCP server".to_string());
-            lines.push("  /mcp remove <n> Remove an MCP server".to_string());
-            lines.push(String::new());
+            let mut lines = vec![
+                "MCP commands:".to_string(),
+                "  /mcp list       List connected MCP servers".to_string(),
+                "  /mcp add <cfg>  Add an MCP server".to_string(),
+                "  /mcp remove <n> Remove an MCP server".to_string(),
+                String::new(),
+            ];
 
             // Show MCP config files
             let project_mcp = ctx.workspace.join(".claude").join("mcp.json");

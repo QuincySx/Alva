@@ -98,7 +98,7 @@ impl CheckpointManager {
                 }
             }
         }
-        checkpoints.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        checkpoints.sort_by_key(|checkpoint| std::cmp::Reverse(checkpoint.created_at));
         checkpoints
     }
 
@@ -172,7 +172,9 @@ mod tests {
         let file = workspace.join("test.txt");
         fs::write(&file, "original content").unwrap();
 
-        let id = mgr.create("before edit", &[file.clone()]).unwrap();
+        let id = mgr
+            .create("before edit", std::slice::from_ref(&file))
+            .unwrap();
         let list = mgr.list();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, id);
@@ -189,7 +191,9 @@ mod tests {
         let file = workspace.join("test.txt");
         fs::write(&file, "original").unwrap();
 
-        let id = mgr.create("before edit", &[file.clone()]).unwrap();
+        let id = mgr
+            .create("before edit", std::slice::from_ref(&file))
+            .unwrap();
 
         // Modify the file
         fs::write(&file, "modified").unwrap();
@@ -216,13 +220,17 @@ mod tests {
 
         let file = workspace.join("test.txt");
         fs::write(&file, "v1").unwrap();
-        let _id1 = mgr.create("checkpoint 1", &[file.clone()]).unwrap();
+        let _id1 = mgr
+            .create("checkpoint 1", std::slice::from_ref(&file))
+            .unwrap();
 
         // Small delay to ensure different timestamps
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         fs::write(&file, "v2").unwrap();
-        let id2 = mgr.create("checkpoint 2", &[file.clone()]).unwrap();
+        let id2 = mgr
+            .create("checkpoint 2", std::slice::from_ref(&file))
+            .unwrap();
 
         let list = mgr.list();
         assert_eq!(list.len(), 2);
@@ -241,7 +249,9 @@ mod tests {
         let file = nested_dir.join("mod.rs");
         fs::write(&file, "original mod").unwrap();
 
-        let id = mgr.create("before refactor", &[file.clone()]).unwrap();
+        let id = mgr
+            .create("before refactor", std::slice::from_ref(&file))
+            .unwrap();
 
         fs::write(&file, "refactored mod").unwrap();
 
@@ -263,7 +273,7 @@ mod tests {
         fs::write(&file, "v1").unwrap();
 
         let cb = ManagerCheckpointCallback::new(CheckpointManager::new(workspace));
-        cb.create_checkpoint("auto", &[file.clone()]);
+        cb.create_checkpoint("auto", std::slice::from_ref(&file));
 
         let mgr = CheckpointManager::new(workspace);
         let list = mgr.list();

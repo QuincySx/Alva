@@ -1,3 +1,6 @@
+// INPUT:  reqwest, std::collections
+// OUTPUT: AuthScheme, resolve_auth_headers(), apply_auth()
+// POS:    Normalizes API-key or custom-header authentication for provider requests.
 //! Authentication resolution — converts user-facing auth inputs into unified headers.
 //!
 //! The external API accepts two mutually exclusive auth modes:
@@ -22,7 +25,7 @@ pub enum AuthScheme {
 
 impl AuthScheme {
     /// Convert an API key to the standard header pair for this scheme.
-    fn to_header(&self, api_key: &str) -> (&'static str, String) {
+    fn to_header(self, api_key: &str) -> (&'static str, String) {
         match self {
             AuthScheme::Bearer => ("Authorization", format!("Bearer {}", api_key)),
             AuthScheme::XApiKey => ("x-api-key", api_key.to_string()),

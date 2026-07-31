@@ -179,7 +179,7 @@ impl ConversationView {
 
         for (i, item) in self.items.iter().enumerate() {
             let h = item_height(item, inner.width);
-            if skip >= h + 1 {
+            if skip > h {
                 skip -= h + 1;
                 continue;
             }
@@ -268,6 +268,7 @@ fn item_height(item: &ConversationItem, width: u16) -> u16 {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)] // Rendering helpers follow the state tests in this legacy module.
 mod tests {
     //! Tests for ConversationView state + handle_event routing +
     //! MessageBubble ctors. render() needs a Frame so is not

@@ -30,13 +30,16 @@ pub(crate) fn bundled_skill_dir() -> Option<std::path::PathBuf> {
 
 const MAX_PROJECT_CONTEXT_FILE_BYTES: u64 = 1024 * 1024;
 
-/// Load project context from well-known files (AGENTS.md, CLAUDE.md,
+/// Load project context from well-known files (AGENTS.md chain, CLAUDE.md,
 /// .alva/context.md).
 ///
 /// Context files must resolve inside the canonical workspace. This prevents a
 /// repository-controlled symlink from copying an arbitrary host file into the
 /// model prompt. Each file is also bounded so a malformed repository cannot
 /// exhaust memory or consume the entire context window during startup.
+///
+/// `AGENTS.md` is collected from the workspace root **and** nested paths when
+/// the process cwd sits under the workspace (outer → inner, nearest last).
 pub(crate) fn load_project_context(workspace: &Path) -> String {
     let canonical_workspace = match workspace.canonicalize() {
         Ok(path) => path,
@@ -46,46 +49,87 @@ pub(crate) fn load_project_context(workspace: &Path) -> String {
         }
     };
     let mut context = String::new();
-    for name in &["AGENTS.md", "CLAUDE.md", ".alva/context.md"] {
+    let mut seen = std::collections::HashSet::new();
+
+    // AGENTS.md chain: prefer cwd when it is inside the workspace (monorepo
+    // nearest-wins by concatenating outer → inner). Fall back to workspace root.
+    let agents_start = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| cwd.canonicalize().ok())
+        .filter(|cwd| cwd.starts_with(&canonical_workspace))
+        .unwrap_or_else(|| canonical_workspace.clone());
+    for path in alva_app_core::paths::collect_agents_md_chain(&agents_start, &canonical_workspace) {
+        append_context_file(
+            &mut context,
+            &mut seen,
+            &canonical_workspace,
+            &path,
+            "AGENTS.md",
+        );
+    }
+
+    for name in &["CLAUDE.md", ".alva/context.md"] {
         let path = workspace.join(name);
         let Ok(canonical_path) = path.canonicalize() else {
             continue;
         };
-        if !canonical_path.starts_with(&canonical_workspace) || !canonical_path.is_file() {
-            tracing::warn!(
-                path = ?path,
-                resolved = ?canonical_path,
-                "skipping project context outside workspace"
-            );
-            continue;
-        }
-
-        let Ok(file) = std::fs::File::open(&canonical_path) else {
-            continue;
-        };
-        let mut bytes = Vec::new();
-        if file
-            .take(MAX_PROJECT_CONTEXT_FILE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .is_err()
-        {
-            continue;
-        }
-        let truncated = bytes.len() as u64 > MAX_PROJECT_CONTEXT_FILE_BYTES;
-        bytes.truncate(MAX_PROJECT_CONTEXT_FILE_BYTES as usize);
-        let content = String::from_utf8_lossy(&bytes);
-        context.push_str(&format!(
-            "\n\n# Project Context (from {})\n\n{}{}",
+        append_context_file(
+            &mut context,
+            &mut seen,
+            &canonical_workspace,
+            &canonical_path,
             name,
-            content,
-            if truncated {
-                "\n\n[project context truncated at 1 MiB]"
-            } else {
-                ""
-            }
-        ));
+        );
     }
     context
+}
+
+fn append_context_file(
+    context: &mut String,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+    canonical_workspace: &Path,
+    canonical_path: &Path,
+    label: &str,
+) {
+    if !canonical_path.starts_with(canonical_workspace) || !canonical_path.is_file() {
+        tracing::warn!(
+            path = ?canonical_path,
+            "skipping project context outside workspace"
+        );
+        return;
+    }
+    if !seen.insert(canonical_path.to_path_buf()) {
+        return;
+    }
+
+    let Ok(file) = std::fs::File::open(canonical_path) else {
+        return;
+    };
+    let mut bytes = Vec::new();
+    if file
+        .take(MAX_PROJECT_CONTEXT_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return;
+    }
+    let truncated = bytes.len() as u64 > MAX_PROJECT_CONTEXT_FILE_BYTES;
+    bytes.truncate(MAX_PROJECT_CONTEXT_FILE_BYTES as usize);
+    let content = String::from_utf8_lossy(&bytes);
+    let display = canonical_path
+        .strip_prefix(canonical_workspace)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| label.to_string());
+    context.push_str(&format!(
+        "\n\n# Project Context (from {})\n\n{}{}",
+        display,
+        content,
+        if truncated {
+            "\n\n[project context truncated at 1 MiB]"
+        } else {
+            ""
+        }
+    ));
 }
 
 /// Result of building the agent, bundling everything the caller needs.
@@ -142,8 +186,11 @@ pub(crate) async fn build_agent(
     let ctx = alva_app_core::components::ComponentContext {
         workspace: workspace.to_path_buf(),
         provider_registry: Some(provider_registry),
-        skills: Some((paths.project_skills_dir(), bundled_skill_dir())),
-        mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
+        skills: Some(alva_app_core::components::SkillsDiscovery::from_alva_paths(
+            paths,
+            bundled_skill_dir(),
+        )),
+        mcp_config_paths: paths.mcp_discovery_paths(),
         // ONE knob for both recursion forms — the same config value also
         // drives main.rs's cross-process ALVA_AGENT_DEPTH gate.
         subagent_depth: shared_cfg

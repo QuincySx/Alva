@@ -255,7 +255,7 @@ mod tests {
     use alva_kernel_abi::base::message::{Message, MessageRole};
     use alva_kernel_abi::scope::context::{
         CompressAction, ContextLayer, Injection, InjectionContent, MemoryCategory, MemoryFact,
-        MessageRange, MessageSelector, NoopContextHandle, PromptSection, Priority,
+        MessageRange, MessageSelector, NoopContextHandle, Priority, PromptSection,
     };
     use alva_kernel_abi::AgentMessage;
 

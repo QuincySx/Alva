@@ -122,7 +122,8 @@ pub async fn send_message(
     // UI-selected skills for this turn → explicit system-prompt injection.
     // Always set (including empty) so a previous turn's selection cannot
     // leak onto a later turn that clears the SkillPicker.
-    let skill_blocks = resolve_selected_skill_blocks(&agent, request.skill_names.as_deref()).await?;
+    let skill_blocks =
+        resolve_selected_skill_blocks(&agent, request.skill_names.as_deref()).await?;
     agent.set_turn_system_additions(skill_blocks).await;
 
     // Append an eval_config_snapshot event the first time we send a message
@@ -409,11 +410,11 @@ async fn ensure_agent(
     let component_ctx = alva_app_core::components::ComponentContext {
         workspace: workspace.clone(),
         provider_registry: Some(provider_registry),
-        skills: Some((
-            paths.project_skills_dir(),
+        skills: Some(alva_app_core::components::SkillsDiscovery::from_alva_paths(
+            &paths,
             crate::bundled_skills::ensure_extracted().ok(),
         )),
-        mcp_config_paths: vec![paths.global_mcp_config(), paths.project_mcp_config()],
+        mcp_config_paths: paths.mcp_discovery_paths(),
         subagent_depth: 3,
         subagent_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TIMEOUT,
         subagent_tool_timeout: alva_app_core::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
@@ -648,9 +649,7 @@ async fn resolve_selected_skill_blocks(
     };
 
     let Some(registry) = agent.bus().get::<dyn SkillRegistry>() else {
-        return Err(
-            "skills plugin is not enabled; cannot inject the selected skills".to_string(),
-        );
+        return Err("skills plugin is not enabled; cannot inject the selected skills".to_string());
     };
 
     let mut blocks = Vec::with_capacity(names.len());

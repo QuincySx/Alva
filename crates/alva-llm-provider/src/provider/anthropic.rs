@@ -1,3 +1,6 @@
+// INPUT:  reqwest, futures, serde_json, alva_kernel_abi adapter/model/tool APIs
+// OUTPUT: AnthropicProvider implementing LanguageModel
+// POS:    Native Anthropic Messages HTTP/SSE provider shell around the shared wire adapter.
 //! Direct Anthropic Messages API provider.
 //!
 //! Implements `LanguageModel` by calling Anthropic's `/v1/messages` endpoint
@@ -432,6 +435,7 @@ impl LanguageModel for AnthropicProvider {
 /// - Other extended-thinking models → `{type:"enabled", budget_tokens: N}`
 ///   where N is clamped to `max_tokens - 1` to satisfy the budget_tokens <
 ///   max_tokens rule.
+///
 /// Place `cache_control: ephemeral` on the **last user message's last
 /// text block** in `body["messages"]`. This is one of Anthropic's 4
 /// cache breakpoints — caching the entire conversation prefix up to

@@ -205,11 +205,10 @@ async fn second_fetch_of_same_url_hits_cache() {
     );
     // First call: cache miss → no `cached` flag (or false).
     assert!(
-        first_value
+        !first_value
             .get("cached")
             .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-            == false,
+            .unwrap_or(false),
         "first call must not be marked cached"
     );
 

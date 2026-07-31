@@ -464,10 +464,11 @@ mod tests {
             keep_recent_tokens: 0,
         })
         .with_bus(handle.clone());
+        assert!(mw.bus.get().is_some());
 
         // With the fixed counter, each message = 10 + 4 = 14 tokens.
         // 3 messages = 42 tokens, which is under trigger_tokens (50).
-        let msgs = vec![make_user_msg("a"), make_user_msg("b"), make_user_msg("c")];
+        let msgs = [make_user_msg("a"), make_user_msg("b"), make_user_msg("c")];
         // Verify the bus counter is used (local estimate would give different result).
         let total: usize = {
             let counter = handle.get::<dyn alva_kernel_abi::TokenCounter>().unwrap();

@@ -159,8 +159,7 @@ pub fn save(cfg: &AlvaConfig) -> Result<PathBuf, std::io::Error> {
             let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
         }
     }
-    let body = serde_json::to_string_pretty(cfg)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let body = serde_json::to_string_pretty(cfg).map_err(std::io::Error::other)?;
     // Write with owner-only permissions (0600) from the start. Creating the
     // file with the right mode (rather than write-then-chmod) avoids a window
     // where the plaintext keys are briefly world-readable.

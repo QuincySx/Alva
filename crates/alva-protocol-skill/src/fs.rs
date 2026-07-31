@@ -29,10 +29,20 @@ use crate::{
 ///     skill-name/
 ///       SKILL.md
 ///       ...
+///   <extra_dirs>/...         -- Ecosystem / co-load roots (flat, read-only)
+///   <flat_primary_dir>/      -- Optional flat peers of user/mbb/bundled
+///
+/// Merge priority (later wins on name clash): bundled → mbb → extra_dirs
+/// (in order) → flat_primary → user.
 pub struct FsSkillRepository {
     bundled_dir: PathBuf,
     mbb_dir: PathBuf,
     user_dir: PathBuf,
+    /// Additional flat skill roots (e.g. `.agents/skills`, `~/.claude/skills`).
+    extra_dirs: Vec<PathBuf>,
+    /// When set, scan this dir for flat `<name>/SKILL.md`, skipping
+    /// reserved `bundled` / `mbb` / `user` names.
+    flat_primary_dir: Option<PathBuf>,
     /// Skill enabled state persistence file (JSON format)
     state_file: PathBuf,
 }
@@ -70,8 +80,22 @@ impl FsSkillRepository {
             bundled_dir: bundled_dir.into(),
             mbb_dir: mbb_dir.into(),
             user_dir: user_dir.into(),
+            extra_dirs: Vec::new(),
+            flat_primary_dir: None,
             state_file: state_file.into(),
         }
+    }
+
+    /// Co-load flat skill roots (ecosystem paths). Order is low → high priority.
+    pub fn with_extra_dirs(mut self, dirs: impl IntoIterator<Item = PathBuf>) -> Self {
+        self.extra_dirs = dirs.into_iter().collect();
+        self
+    }
+
+    /// Also scan `dir` for flat `<name>/SKILL.md` (skips bundled/mbb/user).
+    pub fn with_flat_primary(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.flat_primary_dir = Some(dir.into());
+        self
     }
 
     /// Parse a single Skill directory
@@ -124,9 +148,8 @@ impl FsSkillRepository {
     /// Parse SKILL.md body (everything after frontmatter)
     pub fn parse_body(content: &str) -> SkillBody {
         // Skip frontmatter: find second "---"
-        let body_start = if content.starts_with("---") {
+        let body_start = if let Some(after_opening) = content.strip_prefix("---") {
             // Find the closing "---" after the opening one
-            let after_opening = &content[3..];
             if let Some(newline_pos) = after_opening.find('\n') {
                 let after_first_newline = &after_opening[newline_pos + 1..];
                 if let Some(closing_pos) = after_first_newline.find("\n---") {
@@ -188,15 +211,14 @@ impl FsSkillRepository {
     /// Load enabled skill names from state file.
     ///
     /// When the state file does not exist (first run or fresh install),
-    /// defaults to all bundled skills enabled — scans bundled_dir for SKILL.md
-    /// frontmatter names.
+    /// defaults to **all discovered** skills enabled (bundled + user +
+    /// ecosystem co-load roots) so dual-path loading is useful out of the box.
     async fn load_enabled_names(&self) -> HashSet<String> {
         let Ok(content) = tokio::fs::read_to_string(&self.state_file).await else {
-            // No state file → default: all bundled skills enabled
-            return self.scan_bundled_names().await;
+            return self.scan_default_enabled_names().await;
         };
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
-            return self.scan_bundled_names().await;
+            return self.scan_default_enabled_names().await;
         };
         value["enabled"]
             .as_array()
@@ -211,10 +233,29 @@ impl FsSkillRepository {
             })
     }
 
-    /// Scan bundled_dir for skill names (used as default when no state file exists).
-    async fn scan_bundled_names(&self) -> HashSet<String> {
+    /// Default-enable every skill that would be discovered under any root.
+    async fn scan_default_enabled_names(&self) -> HashSet<String> {
         let mut names = HashSet::new();
-        let Ok(mut entries) = tokio::fs::read_dir(&self.bundled_dir).await else {
+        for dir in self.all_flat_scan_dirs() {
+            names.extend(self.scan_skill_names_in_dir(&dir).await);
+        }
+        // MBB skills live as direct children of mbb_dir (same flat shape).
+        names.extend(self.scan_skill_names_in_dir(&self.mbb_dir).await);
+        names
+    }
+
+    fn all_flat_scan_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = vec![self.bundled_dir.clone(), self.user_dir.clone()];
+        dirs.extend(self.extra_dirs.iter().cloned());
+        if let Some(flat) = &self.flat_primary_dir {
+            dirs.push(flat.clone());
+        }
+        dirs
+    }
+
+    async fn scan_skill_names_in_dir(&self, dir: &Path) -> HashSet<String> {
+        let mut names = HashSet::new();
+        let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
             return names;
         };
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -289,15 +330,23 @@ impl SkillRepository for FsSkillRepository {
     async fn list_skills(&self) -> Result<Vec<Skill>, SkillError> {
         let enabled_names = self.load_enabled_names().await;
         let mbb_domains = self.read_mbb_manifest().await;
-        let mut skills = vec![];
+        // name → skill; later sources override earlier (see struct docs).
+        let mut by_name: HashMap<String, Skill> = HashMap::new();
 
-        // Scan Bundled Skills
-        let bundled = self
-            .scan_dir(&self.bundled_dir, |_| SkillKind::Bundled, &enabled_names)
-            .await;
-        skills.extend(bundled);
+        let insert_all = |by_name: &mut HashMap<String, Skill>, batch: Vec<Skill>| {
+            for skill in batch {
+                by_name.insert(skill.meta.name.clone(), skill);
+            }
+        };
 
-        // Scan MBB Skills
+        // 1. Bundled (lowest priority among content sources)
+        insert_all(
+            &mut by_name,
+            self.scan_dir(&self.bundled_dir, |_| SkillKind::Bundled, &enabled_names)
+                .await,
+        );
+
+        // 2. MBB
         let mbb_dir = self.mbb_dir.clone();
         if let Ok(mut entries) = tokio::fs::read_dir(&mbb_dir).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
@@ -309,7 +358,9 @@ impl SkillRepository for FsSkillRepository {
                         .parse_skill_dir(&entry.path(), kind, &enabled_names)
                         .await
                     {
-                        Ok(Some(skill)) => skills.push(skill),
+                        Ok(Some(skill)) => {
+                            by_name.insert(skill.meta.name.clone(), skill);
+                        }
                         Ok(None) => {}
                         Err(e) => tracing::warn!(
                             skill_dir = %entry.path().display(),
@@ -321,13 +372,41 @@ impl SkillRepository for FsSkillRepository {
             }
         }
 
-        // Scan User-installed Skills
-        let user = self
-            .scan_dir(&self.user_dir, |_| SkillKind::UserInstalled, &enabled_names)
-            .await;
-        skills.extend(user);
+        // 3. Ecosystem / co-load roots (low → high as listed)
+        for dir in &self.extra_dirs {
+            insert_all(
+                &mut by_name,
+                self.scan_dir(dir, |_| SkillKind::UserInstalled, &enabled_names)
+                    .await,
+            );
+        }
 
-        Ok(skills)
+        // 4. Flat peers under primary (.alva/skills/<name>/SKILL.md)
+        if let Some(flat) = &self.flat_primary_dir {
+            let reserved = ["bundled", "mbb", "user"];
+            let batch = self
+                .scan_dir(flat, |_| SkillKind::UserInstalled, &enabled_names)
+                .await
+                .into_iter()
+                .filter(|s| {
+                    s.root_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| !reserved.contains(&n))
+                        .unwrap_or(true)
+                })
+                .collect();
+            insert_all(&mut by_name, batch);
+        }
+
+        // 5. User-installed (highest priority)
+        insert_all(
+            &mut by_name,
+            self.scan_dir(&self.user_dir, |_| SkillKind::UserInstalled, &enabled_names)
+                .await,
+        );
+
+        Ok(by_name.into_values().collect())
     }
 
     async fn find_skill(&self, name: &str) -> Result<Option<Skill>, SkillError> {
@@ -511,6 +590,24 @@ impl SkillRepository for FsSkillRepository {
     }
 }
 
+/// Recursively copy a directory
+async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
+    tokio::fs::create_dir_all(dst).await?;
+
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let ty = entry.file_type().await?;
+        let dest_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            Box::pin(copy_dir_recursive(&entry.path(), &dest_path)).await?;
+        } else {
+            tokio::fs::copy(entry.path(), &dest_path).await?;
+        }
+    }
+
+    Ok(())
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -617,7 +714,7 @@ Do beta things.
             "good sibling must survive: {names:?}"
         );
         assert!(
-            !names.iter().any(|n| *n == "bad"),
+            !names.contains(&"bad"),
             "broken skill must be skipped, not half-loaded: {names:?}"
         );
     }
@@ -739,6 +836,46 @@ Do beta things.
             .filter(|s| matches!(s.kind, SkillKind::UserInstalled))
             .collect();
         assert_eq!(user_skills.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_skills_co_loads_extra_dirs_and_defaults_enabled() {
+        let (dir, repo) = setup_repo();
+        let eco = dir.path().join("agents-skills");
+        write_skill(&eco, "eco", SKILL_MD_BETA);
+        // name in frontmatter is "beta"
+        let repo = repo.with_extra_dirs(vec![eco]);
+
+        let skills = repo.list_skills().await.unwrap();
+        let eco = skills
+            .iter()
+            .find(|s| s.meta.name == "beta")
+            .expect("ecosystem skill present");
+        assert!(eco.enabled, "no state file → all discovered skills enabled");
+    }
+
+    #[tokio::test]
+    async fn list_skills_user_overrides_extra_same_name() {
+        let (dir, repo) = setup_repo();
+        let eco = dir.path().join("agents-skills");
+        write_skill(&eco, "alpha", SKILL_MD_ALPHA);
+        write_skill(
+            &dir.path().join("user"),
+            "alpha",
+            r#"---
+name: alpha
+description: user wins
+---
+# user
+"#,
+        );
+        let repo = repo.with_extra_dirs(vec![eco]);
+        let skills = repo.list_skills().await.unwrap();
+        let alpha = skills.iter().find(|s| s.meta.name == "alpha").unwrap();
+        assert_eq!(alpha.meta.description, "user wins");
+        assert!(
+            alpha.root_path.ends_with("user/alpha") || alpha.root_path.ends_with("user\\alpha")
+        );
     }
 
     // ── find_skill ──────────────────────────────────────────────────────
@@ -995,22 +1132,4 @@ Do beta things.
             _ => panic!("expected Mbb kind"),
         }
     }
-}
-
-/// Recursively copy a directory
-async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
-    tokio::fs::create_dir_all(dst).await?;
-
-    let mut entries = tokio::fs::read_dir(src).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let ty = entry.file_type().await?;
-        let dest_path = dst.join(entry.file_name());
-        if ty.is_dir() {
-            Box::pin(copy_dir_recursive(&entry.path(), &dest_path)).await?;
-        } else {
-            tokio::fs::copy(entry.path(), &dest_path).await?;
-        }
-    }
-
-    Ok(())
 }

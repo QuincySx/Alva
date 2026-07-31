@@ -114,7 +114,7 @@ impl ToastStack {
             return;
         }
         let anchor = self.anchor.unwrap_or(Anchor::TopRight);
-        let max_w = (area.width / 3).max(20).min(60);
+        let max_w = (area.width / 3).clamp(20, 60);
         let mut y_offset = 0u16;
         for t in &self.queue {
             let h = 3u16;
@@ -284,7 +284,7 @@ mod tests {
         let mut s = ToastStack::new();
         s.push(expired_toast("old", ToastKind::Info));
         s.push(Toast::info("still alive"));
-        assert_eq!(s.is_empty(), false);
+        assert!(!s.is_empty());
         let removed = s.tick();
         assert!(
             removed,

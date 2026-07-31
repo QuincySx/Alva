@@ -134,12 +134,13 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
     // Collect output from events
     let mut output = String::new();
     while let Ok(event) = event_rx.try_recv() {
-        if let AgentEvent::MessageEnd { message } = event {
-            if let AgentMessage::Standard(msg) = &message {
-                let text = msg.text_content();
-                if !text.is_empty() {
-                    output.push_str(&text);
-                }
+        if let AgentEvent::MessageEnd {
+            message: AgentMessage::Standard(message),
+        } = event
+        {
+            let text = message.text_content();
+            if !text.is_empty() {
+                output.push_str(&text);
             }
         }
     }

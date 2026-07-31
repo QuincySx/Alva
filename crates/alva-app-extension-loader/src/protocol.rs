@@ -1,3 +1,6 @@
+// INPUT:  serde, serde_json
+// OUTPUT: AEP JSON-RPC constants, envelopes, and typed request/response payloads
+// POS:    Wire contract shared by the subprocess plugin loader and external plugins.
 //! **AEP** — Alva Plugin Protocol wire types.
 //!
 //! JSON-RPC 2.0 messages exchanged between host and plugin subprocess
@@ -13,9 +16,8 @@
 //! - **Error codes** — [`error_codes`] constants for standard and
 //!   AEP-specific errors.
 //! - **Payloads** — typed `*Params` and `*Result` structs for each
-//!   method. Phase 1 defines the handshake + one representative event
-//!   + one representative host-api call; the rest will be added as
-//!   phase 2/3 wire them up.
+//!   method. Phase 1 defines the handshake and representative event
+//!   and host-api calls; later phases add the remaining methods.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

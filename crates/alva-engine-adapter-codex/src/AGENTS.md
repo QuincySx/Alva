@@ -7,12 +7,14 @@ Hub multi-engine 的 Codex 后端。与 Claude adapter 对称：子进程 + 事�
 与 `alva-kernel-abi`。
 
 ## 逻辑
-1. `CodexAdapter::execute` 为每次请求 spawn `codex exec --json -C <cwd> -s <sandbox>`。
+1. `CodexAdapter::execute` spawn：
+   - 新会话：`codex exec --json -C <cwd> -s <sandbox> PROMPT`
+   - resume：`codex exec resume <SESSION_ID> --json -C <cwd> -s <sandbox> PROMPT`
 2. stdout JSONL（`thread.started` / `item.*` / `turn.*` / `error`）由 `EventMapper`
    转为 `RuntimeEvent`（Message / ToolStart / ToolEnd / Error / Completed）。
 3. `cancel` 通过 session map 向 child 发 kill 信号。
 4. 默认 `approval_policy="never"` + `workspace-write` sandbox，避免 Hub 单次执行挂在审批上。
-5. `resume_session` / interactive `respond_permission` v1 明确 `Unsupported`。
+5. interactive `respond_permission` 仍 `Unsupported`（exec 路径无 HITL 回调）。
 
 ## 约束
 - 依赖宿主机安装 `codex`（PATH 或 `CodexAdapterConfig.codex_path`）。

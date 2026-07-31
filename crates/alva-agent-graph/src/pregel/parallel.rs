@@ -347,10 +347,8 @@ mod tests {
         //  - sorting: caller sees random scheduling order per run
         //  - dedup: same target enqueued N times → wasted re-execution
         let mut g = empty_graph();
-        g.nodes
-            .insert("a".to_string(), node_fn(|s| NodeResult::Update(s)));
-        g.nodes
-            .insert("b".to_string(), node_fn(|s| NodeResult::Update(s)));
+        g.nodes.insert("a".to_string(), node_fn(NodeResult::Update));
+        g.nodes.insert("b".to_string(), node_fn(NodeResult::Update));
         // both fan out to the SAME target — must dedup to 1 entry
         g.edges.push(Edge::Direct {
             from: "a".into(),
@@ -453,10 +451,8 @@ mod tests {
         // event in the parallel branch. A refactor that dropped either
         // emit would silently break observability subscribers.
         let mut g = empty_graph();
-        g.nodes
-            .insert("a".to_string(), node_fn(|s| NodeResult::Update(s)));
-        g.nodes
-            .insert("b".to_string(), node_fn(|s| NodeResult::Update(s)));
+        g.nodes.insert("a".to_string(), node_fn(NodeResult::Update));
+        g.nodes.insert("b".to_string(), node_fn(NodeResult::Update));
         let (tx, mut rx) = mpsc::unbounded_channel::<GraphEvent>();
         let cfg = InvokeConfig::default().with_events(tx);
         let mut state: State = 0;

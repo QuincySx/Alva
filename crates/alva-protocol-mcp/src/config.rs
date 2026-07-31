@@ -1,9 +1,9 @@
 // INPUT:  crate::types, crate::error, serde, std::collections, std::path (non-wasm), tokio::fs (non-wasm)
-// OUTPUT: McpConfigFile (from_str + load/save on non-wasm), McpServerEntry, McpTransportEntry
+// OUTPUT: McpConfigFile (parse_json + load/save on non-wasm), McpServerEntry, McpTransportEntry
 // POS:    MCP Server config management — JSON parsing (all platforms) + file I/O (non-wasm only, cfg-gated).
 //! MCP Server configuration reader/writer.
 //!
-//! `from_str()` works everywhere. `load()`/`save()` are cfg-gated for non-wasm platforms.
+//! `parse_json()` works everywhere. `load()`/`save()` are cfg-gated for non-wasm platforms.
 
 use crate::error::McpError;
 use crate::types::{McpServerConfig, McpTransportConfig};
@@ -59,7 +59,7 @@ pub enum McpTransportEntry {
 
 impl McpConfigFile {
     /// Parse config from a JSON string. Works on all platforms.
-    pub fn from_str(json: &str) -> Result<Self, McpError> {
+    pub fn parse_json(json: &str) -> Result<Self, McpError> {
         serde_json::from_str(json)
             .map_err(|e| McpError::Serialization(format!("Invalid config JSON: {e}")))
     }
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn from_str_parses_valid_json() {
-        let cfg = McpConfigFile::from_str(sample_json()).unwrap();
+        let cfg = McpConfigFile::parse_json(sample_json()).unwrap();
         assert_eq!(cfg.servers.len(), 2);
         assert!(cfg.servers.contains_key("browser"));
         assert!(cfg.servers.contains_key("remote-api"));
@@ -188,13 +188,13 @@ mod tests {
 
     #[test]
     fn from_str_empty_servers() {
-        let cfg = McpConfigFile::from_str(r#"{"servers": {}}"#).unwrap();
+        let cfg = McpConfigFile::parse_json(r#"{"servers": {}}"#).unwrap();
         assert!(cfg.servers.is_empty());
     }
 
     #[test]
     fn from_str_invalid_json_returns_error() {
-        let err = McpConfigFile::from_str("not json").unwrap_err();
+        let err = McpConfigFile::parse_json("not json").unwrap_err();
         match err {
             McpError::Serialization(msg) => assert!(msg.contains("Invalid config JSON")),
             other => panic!("expected Serialization, got {:?}", other),
@@ -213,7 +213,7 @@ mod tests {
                 }
             }
         }"#;
-        let cfg = McpConfigFile::from_str(json).unwrap();
+        let cfg = McpConfigFile::parse_json(json).unwrap();
         let entry = &cfg.servers["minimal"];
         assert!(entry.auto_connect, "auto_connect should default to true");
         assert_eq!(
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn to_server_configs_converts_all_entries() {
-        let cfg = McpConfigFile::from_str(sample_json()).unwrap();
+        let cfg = McpConfigFile::parse_json(sample_json()).unwrap();
         let configs = cfg.to_server_configs();
         assert_eq!(configs.len(), 2);
 
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn upsert_overwrites_existing_entry() {
-        let mut cfg = McpConfigFile::from_str(sample_json()).unwrap();
+        let mut cfg = McpConfigFile::parse_json(sample_json()).unwrap();
         let original_len = cfg.servers.len();
 
         cfg.upsert(
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn remove_returns_entry_and_shrinks_map() {
-        let mut cfg = McpConfigFile::from_str(sample_json()).unwrap();
+        let mut cfg = McpConfigFile::parse_json(sample_json()).unwrap();
         assert_eq!(cfg.servers.len(), 2);
 
         let removed = cfg.remove("browser");
