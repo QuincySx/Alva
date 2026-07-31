@@ -1,6 +1,6 @@
 # ALVA Hub Desktop V1 Product Specification
 
-> Status: Accepted target; implementation has not started.
+> Status: Accepted target; implementation started with ticket 01.
 >
 > Decision date: 2026-07-31
 >
@@ -21,11 +21,17 @@ The current repository has:
   stream diagnostics.
 - `alva-hub-cli`: one-shot and REPL flows, a private JSON session journal,
   explicit Alva/Claude/Codex selection, manual switching, and text handoff.
+- `alva-hub-desktop`: a ticket-01 Tauri/React walking skeleton that selects a
+  workspace, runs one Alva EngineAttempt through the real `EngineRuntime` seam,
+  and projects running/completed/failed product timeline states. It does not
+  yet persist HubSession state or implement multi-engine branches, fallback,
+  or TeamRun.
 - `alva-app-tauri`: the existing Alva-only Tauri desktop product. It directly
   consumes `BaseAgent` and remains subject to Rule 18.
 
-The accepted target adds a separate L7 `alva-hub-desktop` product. It does not
-turn `alva-app-tauri` into a multi-engine product and does not remove it.
+The remaining accepted target expands this separate L7 `alva-hub-desktop`
+product. It does not turn `alva-app-tauri` into a multi-engine product and does
+not remove it.
 
 ## 2. Product Promise
 

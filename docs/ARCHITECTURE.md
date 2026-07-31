@@ -85,8 +85,8 @@ Alva Hub is a separate product path above the native harness. Native CLI and
 Tauri do not consume the multi-engine contract:
 
 ```text
-current: alva-hub-cli
-target:  alva-hub-desktop (Desktop-first, not yet implemented)
+current: alva-hub-cli + alva-hub-desktop (ticket-01 walking skeleton)
+target:  complete Desktop V1 (fallback + branches + Orca collaboration)
         |
         v
 alva-hub-core
@@ -143,13 +143,14 @@ alva-engine-runtime (neutral contract)
 | L7 | `alva-hub-core` | product-level engine registry and product/native session supervision |
 | L7 | `alva-engine-adapter-alva` | canonical app-layer Alva adapter; builds one complete BaseAgent per engine session |
 | L7 | `alva-hub-cli` | auxiliary Hub CLI with one-shot/REPL flows, private session journal, resume, manual switching, handoff, and diagnostics |
-| L7 target | `alva-hub-desktop` | accepted but not yet implemented Desktop-first Hub product for reversible fallback, engine branches, timeline, and Orca-style Lead/Worker collaboration |
+| L7 | `alva-hub-desktop` | Desktop-first Hub product; ticket 01 currently provides an Alva workspace/composer/timeline walking skeleton through the real EngineRuntime seam |
 
-## Accepted Hub Target (Not Yet Implemented)
+## Accepted Hub Target (Implementation Started)
 
 The current tree proves multi-engine execution through `alva-hub-core`,
-adapters, and `alva-hub-cli`. The accepted V1 product target is a separate
-`alva-hub-desktop` above those layers:
+adapters, and `alva-hub-cli`. It now also contains a separate
+`alva-hub-desktop` walking skeleton above those layers. The remaining accepted
+V1 target expands that product:
 
 - Desktop is the primary V1 surface; Hub CLI remains auxiliary.
 - `alva-app-tauri` remains an independently maintained Alva-only product.

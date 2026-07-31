@@ -87,6 +87,7 @@ check_no_workspace_deps "alva-engine-adapter-alva" "alva-app-core|alva-engine-ru
 # those dependencies.
 check_no_workspace_deps "alva-hub-core" "alva-engine-runtime"
 check_no_workspace_deps "alva-hub-cli" "alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-runtime|alva-hub-core|alva-llm-provider"
+check_no_workspace_deps "alva-hub-desktop" "alva-engine-adapter-alva|alva-engine-runtime|alva-hub-core|alva-llm-provider"
 
 # Rule 12: alva-llm-provider only depends on alva-kernel-abi
 # (was `alva-provider` — a crate that does not exist; `cargo tree` failed,

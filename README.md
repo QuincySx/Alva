@@ -61,7 +61,7 @@ AgentEvent / SessionEvent / RunRecord / Inspector
 | L4.5 | `alva-engine-runtime`, `alva-engine-adapter-{claude,codex}` | SDK-clean multi-engine contract and external engine adapters |
 | L5 | `alva-app-core`, `alva-host-*` | opinionated harness and platform assembly |
 | L6 | `alva-app-cli`, `alva-app-tauri` | end-user products |
-| L7 | `alva-hub-core`, `alva-engine-adapter-alva`, `alva-hub-cli` | multi-engine Hub product aggregation; Hub Desktop is the accepted next target |
+| L7 | `alva-hub-core`, `alva-engine-adapter-alva`, `alva-hub-{cli,desktop}` | multi-engine Hub product aggregation; Desktop ticket 01 provides the current Alva walking skeleton |
 
 ## Plugin Model
 
@@ -81,8 +81,8 @@ by same-name plugin.
 
 - [AGENTS.md](./AGENTS.md): agent-facing project map and repository rules.
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md): current architecture detail.
-- [docs/ALVA-HUB-V1.md](./docs/ALVA-HUB-V1.md): accepted, not-yet-implemented
-  Hub Desktop V1 product and acceptance contract.
+- [docs/ALVA-HUB-V1.md](./docs/ALVA-HUB-V1.md): accepted, incrementally
+  implemented Hub Desktop V1 product and acceptance contract.
 - [docs/ALVA-HUB-GLOSSARY.md](./docs/ALVA-HUB-GLOSSARY.md): canonical Hub
   domain vocabulary.
 - [docs/adr/README.md](./docs/adr/README.md): accepted Hub architecture

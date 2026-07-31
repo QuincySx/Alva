@@ -1,0 +1,30 @@
+[package]
+name = "alva-hub-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop-first multi-engine product shell for Alva Hub"
+
+[[bin]]
+name = "alva-hub-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
+alva-engine-runtime = { path = "../alva-engine-runtime" }
+alva-hub-core = { path = "../alva-hub-core" }
+alva-llm-provider = { path = "../alva-llm-provider" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tokio-stream = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+async-trait = "0.1"
+futures-core = "0.3"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

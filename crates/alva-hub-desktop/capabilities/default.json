@@ -1,0 +1,12 @@
+{
+  "identifier": "default",
+  "description": "Hub Desktop main-window IPC, events, and workspace dialog.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default",
+    "dialog:default"
+  ]
+}
