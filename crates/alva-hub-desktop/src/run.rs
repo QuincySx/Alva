@@ -1,6 +1,6 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: run seams, durable Attempt progress capture, and timeline product DTOs
-// POS:    Highest product seam for Hub Desktop turns, independent of Tauri.
+// OUTPUT: multi-engine run seams, full-handoff injection, Attempt capture, timeline DTOs
+// POS:    Highest product seam for durable Hub Desktop branch execution, independent of Tauri.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,12 +10,18 @@ use alva_hub_core::{HubRequest, HubRuntime, HubSessionStatus, ProductSessionId};
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use crate::store::{HubStore, PreparedTurn, SideEffectEvidence, StoredUsage};
+use crate::store::{EngineTarget, HubStore, PreparedTurn, SideEffectEvidence, StoredUsage};
+
+fn default_engine_id() -> String {
+    "alva".to_string()
+}
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct RunRequest {
     pub prompt: String,
     pub workspace: PathBuf,
+    #[serde(default = "default_engine_id")]
+    pub engine_id: String,
     #[serde(default)]
     pub product_session_id: Option<String>,
 }
@@ -61,8 +67,9 @@ where
 {
     validate_prompt(&request.prompt)?;
     let workspace = canonical_workspace(&request.workspace)?;
+    let target = EngineTarget::for_engine(&request.engine_id)?;
     let hub = HubRuntime::new();
-    hub.register_engine("alva", engine)
+    hub.register_engine(target.engine_id.as_str(), engine)
         .map_err(|error| error.to_string())?;
     let product_session_id = ProductSessionId::new();
     Ok(execute_turn(
@@ -70,6 +77,7 @@ where
         product_session_id,
         request.prompt,
         workspace,
+        &target.engine_id,
         None,
         &mut emit,
     )
@@ -87,38 +95,63 @@ where
     F: FnMut(TimelineEvent) + Send,
 {
     validate_prompt(&request.prompt)?;
-    let hub = HubRuntime::new();
-    hub.register_engine("alva", engine)
-        .map_err(|error| error.to_string())?;
 
     let prepared = if let Some(product_session_id) = request.product_session_id.as_deref() {
         let detail = store
             .get_session(product_session_id)?
             .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
         canonical_workspace(PathBuf::from(&detail.session.workspace).as_path())?;
+        if request.engine_id != detail.session.engine_id {
+            return Err(format!(
+                "Hub session '{product_session_id}' is active on '{}'; switch engines before running '{}'",
+                detail.session.engine_id, request.engine_id
+            ));
+        }
         store.prepare_resumed_turn(product_session_id, &request.prompt)?
     } else {
         let workspace = canonical_workspace(&request.workspace)?;
         let product_session_id = ProductSessionId::new();
-        store.prepare_new_turn(product_session_id.as_str(), &workspace, &request.prompt)?
+        let target = EngineTarget::for_engine(&request.engine_id)?;
+        store.prepare_new_turn(
+            product_session_id.as_str(),
+            &workspace,
+            &request.prompt,
+            &target,
+        )?
     };
+
+    let hub = HubRuntime::new();
+    hub.register_engine(prepared.target.engine_id.as_str(), engine)
+        .map_err(|error| error.to_string())?;
 
     let product_session_id = ProductSessionId::from_existing(&prepared.product_session_id);
     if let Some(engine_session_id) = &prepared.engine_session_id {
         hub.restore_session(
             product_session_id.clone(),
-            "alva",
+            prepared.target.engine_id.as_str(),
             engine_session_id,
             HubSessionStatus::Completed,
         )
         .map_err(|error| error.to_string())?;
     }
 
+    let prompt = prepared
+        .handoff
+        .as_ref()
+        .map(|handoff| {
+            format!(
+                "{}\n\n<current-user-instruction>\n{}\n</current-user-instruction>",
+                handoff.render_for_engine(),
+                request.prompt
+            )
+        })
+        .unwrap_or(request.prompt);
     let execution = execute_turn(
         &hub,
         product_session_id,
-        request.prompt,
+        prompt,
         canonical_workspace(&prepared.workspace)?,
+        &prepared.target.engine_id,
         Some((store, &prepared)),
         &mut emit,
     )
@@ -130,6 +163,7 @@ where
         execution.terminal_error.as_deref(),
         execution.usage.as_ref(),
     )?;
+    store.apply_pending_switch(&prepared.product_session_id)?;
     Ok(execution.outcome)
 }
 
@@ -138,6 +172,7 @@ async fn execute_turn<F>(
     product_session_id: ProductSessionId,
     prompt: String,
     workspace: PathBuf,
+    engine_id: &str,
     persistence: Option<(&HubStore, &PreparedTurn)>,
     emit: &mut F,
 ) -> ExecutedTurn
@@ -147,7 +182,7 @@ where
     let product_id = product_session_id.as_str().to_string();
     emit(TimelineEvent {
         status: TimelineStatus::Running,
-        engine_id: "alva".into(),
+        engine_id: engine_id.to_string(),
         product_session_id: product_id.clone(),
         message: None,
     });
@@ -155,14 +190,14 @@ where
     let runtime_request = RuntimeRequest::new(prompt)
         .with_cwd(workspace)
         .with_streaming();
-    let hub_request = HubRequest::new("alva", runtime_request).resume(product_session_id);
+    let hub_request = HubRequest::new(engine_id, runtime_request).resume(product_session_id);
     let mut stream = match hub.execute(hub_request) {
         Ok(stream) => stream,
         Err(error) => {
             let message = error.to_string();
             emit(TimelineEvent {
                 status: TimelineStatus::Failed,
-                engine_id: "alva".into(),
+                engine_id: engine_id.to_string(),
                 product_session_id: product_id.clone(),
                 message: Some(message.clone()),
             });
@@ -191,7 +226,7 @@ where
                         store.record_engine_session(prepared, &session_id),
                         &mut terminal_error,
                         &product_id,
-                        "alva",
+                        engine_id,
                         emit,
                     );
                 }
@@ -211,7 +246,7 @@ where
                         ),
                         &mut terminal_error,
                         &product_id,
-                        "alva",
+                        engine_id,
                         emit,
                     );
                 }
@@ -235,7 +270,7 @@ where
                         ),
                         &mut terminal_error,
                         &product_id,
-                        "alva",
+                        engine_id,
                         emit,
                     );
                 }
@@ -436,6 +471,7 @@ mod tests {
             RunRequest {
                 prompt: "ship it".into(),
                 workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
                 product_session_id: None,
             },
             |event| timeline.push(event),
@@ -492,6 +528,7 @@ mod tests {
             RunRequest {
                 prompt: "ship it".into(),
                 workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
                 product_session_id: None,
             },
             |event| timeline.push(event),
@@ -529,6 +566,7 @@ mod tests {
             RunRequest {
                 prompt: "ship it".into(),
                 workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
                 product_session_id: None,
             },
             |event| timeline.push(event),
@@ -576,6 +614,7 @@ mod tests {
             RunRequest {
                 prompt: "first turn".into(),
                 workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
                 product_session_id: None,
             },
             |_| {},
@@ -612,6 +651,7 @@ mod tests {
             RunRequest {
                 prompt: "second turn".into(),
                 workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
                 product_session_id: Some(first.product_session_id.clone()),
             },
             |_| {},
@@ -683,6 +723,7 @@ mod tests {
             RunRequest {
                 prompt: "change it".into(),
                 workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
                 product_session_id: None,
             },
             |_| {},
@@ -699,7 +740,9 @@ mod tests {
         let attempt = &detail.turns[0].attempts[0];
         assert_eq!(attempt.status, "completed");
         assert!(attempt.started_at > 0);
-        assert!(attempt.completed_at.is_some_and(|end| end >= attempt.started_at));
+        assert!(attempt
+            .completed_at
+            .is_some_and(|end| end >= attempt.started_at));
         assert_eq!(attempt.failure_reason, None);
         assert_eq!(attempt.usage.as_ref().unwrap().input_tokens, 11);
         assert_eq!(attempt.side_effects.len(), 1);
@@ -714,7 +757,12 @@ mod tests {
         let database = data_dir.path().join("alva-hub.db");
         let store = crate::HubStore::open(&database).unwrap();
         store
-            .prepare_new_turn("product-before-start", workspace.path(), "first")
+            .prepare_new_turn(
+                "product-before-start",
+                workspace.path(),
+                "first",
+                &EngineTarget::for_engine("alva").unwrap(),
+            )
             .unwrap();
         drop(store);
 
@@ -739,6 +787,7 @@ mod tests {
             RunRequest {
                 prompt: "continue".into(),
                 workspace: PathBuf::from("ignored-for-resume"),
+                engine_id: "alva".into(),
                 product_session_id: Some("product-before-start".into()),
             },
             |_| {},
@@ -758,5 +807,117 @@ mod tests {
             detail.session.engine_session_id.as_deref(),
             Some("native-fresh")
         );
+    }
+
+    #[tokio::test]
+    async fn first_turn_after_each_manual_switch_receives_a_full_handoff() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "alva-native-1".into(),
+                model: None,
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Completed {
+                session_id: "alva-native-1".into(),
+                result: Some("Alva finished the first task".into()),
+                usage: None,
+            },
+        ]));
+        let first = run_persisted(
+            &store,
+            alva,
+            RunRequest {
+                prompt: "Implement the first task".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        store
+            .request_engine_switch(
+                &first.product_session_id,
+                &EngineTarget::for_engine("claude").unwrap(),
+                "User explicitly selected Claude",
+            )
+            .unwrap();
+        let claude = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "claude-native-1".into(),
+                model: None,
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Completed {
+                session_id: "claude-native-1".into(),
+                result: Some("Claude continued".into()),
+                usage: None,
+            },
+        ]));
+        let claude_requests = Arc::clone(&claude.requests);
+        run_persisted(
+            &store,
+            claude,
+            RunRequest {
+                prompt: "Continue with Claude".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "claude".into(),
+                product_session_id: Some(first.product_session_id.clone()),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let claude_request = claude_requests.lock().unwrap()[0].clone();
+        assert!(claude_request
+            .prompt
+            .contains("<alva-hub-handoff kind=\"full\">"));
+        assert!(claude_request
+            .prompt
+            .contains("User explicitly selected Claude"));
+        assert!(claude_request
+            .prompt
+            .contains("Alva finished the first task"));
+        assert!(claude_request.prompt.contains("Continue with Claude"));
+        assert_eq!(claude_request.resume_session, None);
+
+        store
+            .request_engine_switch(
+                &first.product_session_id,
+                &EngineTarget::for_engine("alva").unwrap(),
+                "User returned to Alva",
+            )
+            .unwrap();
+        let resumed_alva = Arc::new(FakeEngine::new(vec![RuntimeEvent::Completed {
+            session_id: "alva-native-1".into(),
+            result: Some("Alva resumed".into()),
+            usage: None,
+        }]));
+        let resumed_requests = Arc::clone(&resumed_alva.requests);
+        run_persisted(
+            &store,
+            resumed_alva,
+            RunRequest {
+                prompt: "Resume the Alva branch".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some(first.product_session_id),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let resumed_request = resumed_requests.lock().unwrap()[0].clone();
+        assert_eq!(
+            resumed_request.resume_session.as_deref(),
+            Some("alva-native-1")
+        );
+        assert!(resumed_request.prompt.contains("User returned to Alva"));
+        assert!(resumed_request.prompt.contains("Claude continued"));
     }
 }

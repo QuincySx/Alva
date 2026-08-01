@@ -13,6 +13,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
+alva-engine-adapter-claude = { path = "../alva-engine-adapter-claude" }
+alva-engine-adapter-codex = { path = "../alva-engine-adapter-codex" }
 alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-hub-core = { path = "../alva-hub-core" }
 alva-llm-provider = { path = "../alva-llm-provider" }

@@ -1,23 +1,32 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/run/timeline plus persisted Session/Turn/Attempt IPC DTOs
-// POS:    Typed IPC boundary between React and Hub Desktop product commands.
+// OUTPUT: workspace/run/switch/timeline plus persisted branch/handoff IPC DTOs
+// POS:    Typed multi-engine IPC boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
-export type TimelineStatus = "running" | "completed" | "failed" | "interrupted";
+export type TimelineStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "queued"
+  | "switched"
+  | "cancelled";
 
 export interface TimelineEvent {
   status: TimelineStatus;
   engine_id: string;
   product_session_id: string;
   message: string | null;
+  created_at?: number;
 }
 
 export interface RunRequest {
   prompt: string;
   workspace: string;
+  engine_id: string;
   product_session_id: string | null;
 }
 
@@ -32,6 +41,8 @@ export interface HubSessionSummary {
   workspace: string;
   active_branch_id: string;
   engine_id: string;
+  model_id: string;
+  provider_id: string;
   engine_session_id: string | null;
   status: string;
   updated_at: number;
@@ -81,6 +92,52 @@ export interface StoredAttempt {
 export interface HubSessionDetail {
   session: HubSessionSummary;
   turns: StoredTurn[];
+  branches: StoredBranch[];
+  timeline_events: StoredTimelineEvent[];
+  pending_switch: PendingSwitch | null;
+}
+
+export interface StoredBranch {
+  branch_id: string;
+  engine_id: string;
+  model_id: string;
+  provider_id: string;
+  engine_session_id: string | null;
+  status: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface EngineTarget {
+  engine_id: string;
+  model_id: string;
+  provider_id: string;
+}
+
+export interface PendingSwitch {
+  switch_id: string;
+  source_branch_id: string;
+  target: EngineTarget;
+  reason: string;
+  requested_at: number;
+}
+
+export interface StoredTimelineEvent {
+  event_id: string;
+  kind: string;
+  source_branch_id: string;
+  target_branch_id: string | null;
+  source_engine_id: string;
+  target_engine_id: string;
+  reason: string;
+  created_at: number;
+}
+
+export interface SwitchOutcome {
+  disposition: "applied" | "queued";
+  active_branch_id: string;
+  active_engine_id: string;
+  target_engine_id: string;
 }
 
 const hasTauri =
@@ -94,13 +151,26 @@ export async function chooseWorkspace(): Promise<string | null> {
   return typeof selected === "string" ? selected : null;
 }
 
-export async function runAlvaPrompt(
+export async function runHubPrompt(
   request: RunRequest,
 ): Promise<RunOutcome> {
   if (!hasTauri) {
-    throw new Error("Running Alva requires the ALVA Hub desktop runtime.");
+    throw new Error("Running an engine requires the ALVA Hub desktop runtime.");
   }
-  return await invoke<RunOutcome>("run_alva_prompt", { request });
+  return await invoke<RunOutcome>("run_hub_prompt", { request });
+}
+
+export async function switchHubEngine(
+  productSessionId: string,
+  engineId: string,
+  reason: string,
+): Promise<SwitchOutcome> {
+  if (!hasTauri) {
+    throw new Error("Engine switching requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<SwitchOutcome>("switch_hub_engine", {
+    request: { productSessionId, engineId, reason },
+  });
 }
 
 export async function listHubSessions(): Promise<HubSessionSummary[]> {

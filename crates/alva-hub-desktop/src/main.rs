@@ -1,6 +1,6 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with crash-repaired persisted run/session-list/session-detail IPC
-// POS:    Tauri 2 entrypoint and instance-locked private Hub Desktop state owner.
+// OUTPUT: binary with run/switch/session IPC over the crash-repaired Hub store
+// POS:    Tauri 2 entrypoint and user-selected multi-engine Desktop state owner.
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -10,9 +10,10 @@
 use std::path::PathBuf;
 
 use alva_hub_desktop::{
-    build_alva_engine, run_persisted, HubSessionDetail, HubSessionSummary, HubStore, RunOutcome,
-    RunRequest,
+    build_engine, run_persisted, EngineTarget, HubSessionDetail, HubSessionSummary, HubStore,
+    RunOutcome, RunRequest, SwitchOutcome,
 };
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 struct DesktopState {
@@ -21,31 +22,56 @@ struct DesktopState {
 }
 
 impl DesktopState {
-    fn workspace_for(&self, request: &RunRequest) -> Result<PathBuf, String> {
+    fn execution_target(&self, request: &RunRequest) -> Result<(PathBuf, String), String> {
         let Some(product_session_id) = request.product_session_id.as_deref() else {
-            return Ok(request.workspace.clone());
+            EngineTarget::for_engine(&request.engine_id)?;
+            return Ok((request.workspace.clone(), request.engine_id.clone()));
         };
         self.store
             .get_session(product_session_id)?
-            .map(|detail| PathBuf::from(detail.session.workspace))
+            .map(|detail| {
+                (
+                    PathBuf::from(detail.session.workspace),
+                    detail.session.engine_id,
+                )
+            })
             .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))
     }
 }
 
 #[tauri::command]
-async fn run_alva_prompt(
+async fn run_hub_prompt(
     app: AppHandle,
     state: State<'_, DesktopState>,
     request: RunRequest,
 ) -> Result<RunOutcome, String> {
-    let workspace = state.workspace_for(&request)?;
-    let engine = build_alva_engine(&workspace, &state.history_dir)?;
+    let (workspace, engine_id) = state.execution_target(&request)?;
+    let engine = build_engine(&engine_id, &workspace, &state.history_dir)?;
     run_persisted(&state.store, engine, request, move |event| {
         if let Err(error) = app.emit("hub_timeline", event) {
             tracing::warn!(%error, "failed to emit Hub timeline event");
         }
     })
     .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManualSwitchRequest {
+    product_session_id: String,
+    engine_id: String,
+    reason: String,
+}
+
+#[tauri::command]
+fn switch_hub_engine(
+    state: State<'_, DesktopState>,
+    request: ManualSwitchRequest,
+) -> Result<SwitchOutcome, String> {
+    let target = EngineTarget::for_engine(&request.engine_id)?;
+    state
+        .store
+        .request_engine_switch(&request.product_session_id, &target, &request.reason)
 }
 
 #[tauri::command]
@@ -82,7 +108,8 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            run_alva_prompt,
+            run_hub_prompt,
+            switch_hub_engine,
             list_hub_sessions,
             get_hub_session
         ])

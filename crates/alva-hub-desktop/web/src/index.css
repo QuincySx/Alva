@@ -1,6 +1,6 @@
 /* INPUT:  semantic class names rendered by App.tsx */
-/* OUTPUT: two-column session rail, attempt terminal states, responsive fallback */
-/* POS:    Hub Desktop visual system for resumable and crash-recovered sessions. */
+/* OUTPUT: two-column session rail, engine-switch/attempt states, responsive fallback */
+/* POS:    Hub Desktop visual system for durable multi-engine product sessions. */
 
 :root {
   font-family:
@@ -229,6 +229,11 @@ h1 {
   gap: 12px;
 }
 
+.topbar > div:first-child small {
+  color: #e4a85d;
+  font-size: 11px;
+}
+
 select {
   padding: 8px 32px 8px 11px;
   border: 1px solid rgba(128, 142, 187, 0.2);
@@ -271,6 +276,18 @@ select {
 
 .status-interrupted span {
   background: #e4a85d;
+}
+
+.status-queued span {
+  background: #e4a85d;
+}
+
+.status-switched span {
+  background: #8f9cff;
+}
+
+.status-cancelled span {
+  background: #6f7a92;
 }
 
 .timeline {
@@ -335,6 +352,18 @@ select {
 
 .timeline-interrupted {
   border-color: rgba(228, 168, 93, 0.4);
+}
+
+.timeline-queued {
+  border-color: rgba(228, 168, 93, 0.4);
+}
+
+.timeline-switched {
+  border-color: rgba(127, 143, 255, 0.35);
+}
+
+.timeline-cancelled {
+  border-color: rgba(127, 137, 160, 0.3);
 }
 
 .timeline-meta {

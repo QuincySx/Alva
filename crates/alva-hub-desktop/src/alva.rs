@@ -1,14 +1,37 @@
-// INPUT:  alva_engine_adapter_alva, alva_engine_runtime, alva_llm_provider
-// OUTPUT: build_alva_engine() with durable Alva transcript history
-// POS:    Builds the Hub Desktop Alva EngineRuntime for a selected workspace.
+// INPUT:  Alva/Claude/Codex engine adapters, alva_engine_runtime, alva_llm_provider
+// OUTPUT: build_engine() for the user-selected Alva, Claude, or Codex runtime
+// POS:    Hub Desktop engine assembly; adapters stay behind EngineRuntime.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory};
+use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
+use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
 use alva_engine_runtime::EngineRuntime;
 
-pub fn build_alva_engine(
+pub fn build_engine(
+    engine_id: &str,
+    workspace: &Path,
+    history_dir: &Path,
+) -> Result<Arc<dyn EngineRuntime>, String> {
+    match engine_id {
+        "alva" => build_alva_engine(workspace, history_dir),
+        "claude" => Ok(Arc::new(ClaudePrintAdapter::new(ClaudePrintConfig {
+            default_cwd: Some(workspace.to_path_buf()),
+            ..ClaudePrintConfig::default()
+        }))),
+        "codex" => Ok(Arc::new(CodexAdapter::new(CodexAdapterConfig {
+            default_cwd: Some(workspace.to_path_buf()),
+            ..CodexAdapterConfig::default()
+        }))),
+        other => Err(format!(
+            "unsupported Hub engine '{other}'; expected alva, claude, or codex"
+        )),
+    }
+}
+
+fn build_alva_engine(
     workspace: &Path,
     history_dir: &Path,
 ) -> Result<Arc<dyn EngineRuntime>, String> {

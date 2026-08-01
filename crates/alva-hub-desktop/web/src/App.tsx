@@ -1,6 +1,6 @@
 // INPUT:  React hooks, bridge workspace/run/timeline/session functions
-// OUTPUT: persistent Hub sessions, interrupted recovery, composer, and timeline UI
-// POS:    Primary Hub Desktop product surface for resumable Alva sessions.
+// OUTPUT: engine selection, durable branches, interrupted recovery, composer, timeline UI
+// POS:    Primary Hub Desktop product surface for reversible Alva/Claude/Codex sessions.
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
@@ -8,10 +8,44 @@ import {
   getHubSession,
   listHubSessions,
   listenTimeline,
-  runAlvaPrompt,
+  runHubPrompt,
+  switchHubEngine,
+  type HubSessionDetail,
   type HubSessionSummary,
   type TimelineEvent,
 } from "./bridge";
+
+function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
+  const turns = detail.turns.map((turn) => ({
+    status:
+      turn.status === "failed"
+        ? ("failed" as const)
+        : turn.status === "running"
+          ? ("running" as const)
+          : turn.status === "interrupted"
+            ? ("interrupted" as const)
+            : ("completed" as const),
+    engine_id: turn.attempts.at(-1)?.engine_id ?? detail.session.engine_id,
+    product_session_id: detail.session.product_session_id,
+    message: [turn.prompt, turn.result ?? turn.error].filter(Boolean).join("\n\n"),
+    created_at: turn.created_at,
+  }));
+  const switches = detail.timeline_events.map((event) => ({
+    status:
+      event.kind === "engine_switch_queued"
+        ? ("queued" as const)
+        : event.kind === "engine_switch_cancelled"
+          ? ("cancelled" as const)
+          : ("switched" as const),
+    engine_id: event.target_engine_id,
+    product_session_id: detail.session.product_session_id,
+    message: `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
+    created_at: event.created_at,
+  }));
+  return [...turns, ...switches].sort(
+    (left, right) => (left.created_at ?? 0) - (right.created_at ?? 0),
+  );
+}
 
 export default function App() {
   const [workspace, setWorkspace] = useState("");
@@ -19,6 +53,8 @@ export default function App() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [engine, setEngine] = useState("alva");
+  const [pendingEngine, setPendingEngine] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,13 +86,19 @@ export default function App() {
   const statusLabel = useMemo(() => {
     switch (latest?.status) {
       case "running":
-        return "Alva is working";
+        return `${latest.engine_id} is working`;
       case "completed":
         return "Completed";
       case "failed":
         return "Failed";
       case "interrupted":
         return "Interrupted · ready to continue";
+      case "queued":
+        return "Engine switch queued";
+      case "switched":
+        return "Engine switched";
+      case "cancelled":
+        return "Engine switch cancelled";
       default:
         return "Ready";
     }
@@ -68,6 +110,8 @@ export default function App() {
       if (selected) {
         setWorkspace(selected);
         setActiveSessionId(null);
+        setEngine("alva");
+        setPendingEngine(null);
         setTimeline([]);
       }
     } catch (error) {
@@ -87,27 +131,38 @@ export default function App() {
   async function openSession(session: HubSessionSummary) {
     if (busy) return;
     try {
-      const detail = await getHubSession(session.product_session_id);
-      if (!detail) throw new Error("This Hub session no longer exists.");
-      setActiveSessionId(detail.session.product_session_id);
-      setWorkspace(detail.session.workspace);
-      setTimeline(
-        detail.turns.map((turn) => ({
-          status:
-            turn.status === "failed"
-              ? "failed"
-              : turn.status === "running"
-                ? "running"
-                : turn.status === "interrupted"
-                  ? "interrupted"
-                : "completed",
-          engine_id: detail.session.engine_id,
-          product_session_id: detail.session.product_session_id,
-          message: [turn.prompt, turn.result ?? turn.error]
-            .filter(Boolean)
-            .join("\n\n"),
-        })),
+      await loadSession(session.product_session_id);
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function loadSession(productSessionId: string) {
+    const detail = await getHubSession(productSessionId);
+    if (!detail) throw new Error("This Hub session no longer exists.");
+    setActiveSessionId(detail.session.product_session_id);
+    setWorkspace(detail.session.workspace);
+    setEngine(detail.session.engine_id);
+    setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
+    setTimeline(projectTimeline(detail));
+  }
+
+  async function selectEngine(engineId: string) {
+    if (!activeSessionId) {
+      setEngine(engineId);
+      setPendingEngine(null);
+      return;
+    }
+    try {
+      const outcome = await switchHubEngine(
+        activeSessionId,
+        engineId,
+        `User explicitly selected ${engineId}`,
       );
+      setEngine(outcome.active_engine_id);
+      setPendingEngine(outcome.disposition === "queued" ? engineId : null);
+      await loadSession(activeSessionId);
+      await refreshSessions();
     } catch (error) {
       appendLocalFailure(error);
     }
@@ -118,7 +173,7 @@ export default function App() {
       ...current,
       {
         status: "failed",
-        engine_id: "alva",
+        engine_id: engine,
         product_session_id: "setup",
         message: error instanceof Error ? error.message : String(error),
       },
@@ -129,7 +184,7 @@ export default function App() {
     event.preventDefault();
     const text = prompt.trim();
     if (!workspace) {
-      appendLocalFailure(new Error("Choose a workspace before running Alva."));
+      appendLocalFailure(new Error("Choose a workspace before running an engine."));
       return;
     }
     if (!text || busy) return;
@@ -137,13 +192,15 @@ export default function App() {
     setBusy(true);
     setPrompt("");
     try {
-      const outcome = await runAlvaPrompt({
+      const outcome = await runHubPrompt({
         prompt: text,
         workspace,
+        engine_id: engine,
         product_session_id: activeSessionId,
       });
       setActiveSessionId(outcome.product_session_id);
       await refreshSessions();
+      await loadSession(outcome.product_session_id);
     } catch (error) {
       appendLocalFailure(error);
     } finally {
@@ -191,7 +248,7 @@ export default function App() {
                 >
                   <strong>{session.workspace.split("/").at(-1)}</strong>
                   <span>{session.last_prompt ?? "Untitled session"}</span>
-                  <small>{session.status}</small>
+                  <small>{session.engine_id} · {session.status}</small>
                 </button>
               ))
             )}
@@ -199,8 +256,8 @@ export default function App() {
         </section>
 
         <div className="ticket-note">
-          <span>Durable attempts</span>
-          <small>Single Alva EngineTarget · crash recovery enabled</small>
+          <span>Durable engine branches</span>
+          <small>Alva · Claude · Codex · reversible handoff</small>
         </div>
       </aside>
 
@@ -208,9 +265,16 @@ export default function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">Engine</span>
-            <select aria-label="Engine" defaultValue="alva">
+            <select
+              aria-label="Engine"
+              value={pendingEngine ?? engine}
+              onChange={(event) => void selectEngine(event.target.value)}
+            >
               <option value="alva">Alva</option>
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
             </select>
+            {pendingEngine ? <small>Queued after the current run</small> : null}
           </div>
           <div className={`status-pill status-${latest?.status ?? "ready"}`}>
             <span />
@@ -224,8 +288,8 @@ export default function App() {
               <span className="empty-icon">↗</span>
               <h2>Start one continuous project session</h2>
               <p>
-                Hub keeps completed Alva turns in private local storage, so you
-                can reopen a project session and continue after restarting.
+                Hub keeps each engine branch in private local storage, so you can
+                switch engines and return without losing its native session.
               </p>
             </div>
           ) : (
@@ -257,7 +321,7 @@ export default function App() {
         <form className="composer" onSubmit={submit}>
           <textarea
             aria-label="Message"
-            placeholder="Ask Alva to inspect, change, or explain this project…"
+            placeholder={`Ask ${pendingEngine ?? engine} to inspect, change, or explain this project…`}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
@@ -274,7 +338,7 @@ export default function App() {
               type="submit"
               disabled={busy || !prompt.trim() || !workspace}
             >
-              {busy ? "Running…" : "Run with Alva"}
+              {busy ? "Running…" : `Run with ${engine}`}
             </button>
           </div>
         </form>

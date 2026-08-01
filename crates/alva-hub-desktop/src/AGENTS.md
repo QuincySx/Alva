@@ -8,13 +8,13 @@
 
 ## 逻辑
 
-1. `alva` 为用户 workspace 构造完整 BaseAgent-backed adapter，并启用 transcript history。
-2. `store` 在私有 SQLite 中原子保存 HubSession、活动 EngineBranch、Turn 和 EngineAttempt。
-3. `run` 创建或恢复 product/native session 映射，再通过注入的 `EngineRuntime` 执行。
+1. `alva` 按用户选择为 workspace 构造 Alva、Claude light 或 Codex adapter。
+2. `store` 在私有 SQLite 中原子保存 HubSession、多 EngineBranch、switch、handoff、timeline、Turn 和 Attempt。
+3. `run` 创建或恢复 active branch 的 product/native session 映射，并向切换后的首次请求注入完整 handoff。
 4. SessionStarted/ToolEnd 增量落盘，Completed 原子提交 Attempt usage 与 Turn 终态。
-5. store 启动时在实例锁保护下把遗留 running Attempt/Turn/Session 修复为 interrupted。
-6. runtime events 被投影为稳定 timeline states。
-7. `main` 从 Tauri app-data 初始化 store，并暴露运行、列表和详情 IPC。
+5. 运行中 switch 持久化为 queued；终态或启动 crash repair 后再原子应用。
+6. runtime events 与 switch facts 被投影为稳定 timeline states。
+7. `main` 从 Tauri app-data 初始化 store，并暴露运行、切换、列表和详情 IPC。
 
 ## 约束
 
@@ -29,7 +29,7 @@
 | 名称 | 文件 | 职责 |
 |---|---|---|
 | Crate facade | `lib.rs` | 导出 run seam 与 DTO |
-| Alva assembly | `alva.rs` | provider/model/catalog factory 装配 |
-| Run controller | `run.rs` | Hub request、事件投影与结果 |
-| SQLite store | `store.rs` | product/native identity、branch、Turn/Attempt 与崩溃修复 |
-| Desktop entry | `main.rs` | Tauri plugin、command 和 event bridge |
+| Engine assembly | `alva.rs` | Alva provider/catalog、Claude light 与 Codex safe-default 装配 |
+| Run controller | `run.rs` | 动态 Hub request、完整 handoff、事件投影与结果 |
+| SQLite store | `store.rs` | identity、branch/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
+| Desktop entry | `main.rs` | Tauri plugin、运行/切换 command 和 event bridge |
