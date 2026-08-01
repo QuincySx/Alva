@@ -16,12 +16,14 @@ alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
 alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-hub-core = { path = "../alva-hub-core" }
 alva-llm-provider = { path = "../alva-llm-provider" }
+rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tokio-stream = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 async-trait = "0.1"

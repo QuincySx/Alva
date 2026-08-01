@@ -1,19 +1,23 @@
-// INPUT:  alva_engine_runtime, alva_hub_core, serde, tokio_stream
-// OUTPUT: run_once plus request/outcome/timeline product DTOs
-// POS:    Highest product seam for one Hub Desktop turn, independent of Tauri.
+// INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
+// OUTPUT: transient/persisted run seams plus request/outcome/timeline product DTOs
+// POS:    Highest product seam for Hub Desktop turns, independent of Tauri.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use alva_engine_runtime::{EngineRuntime, RuntimeEvent, RuntimeRequest};
-use alva_hub_core::{HubRequest, HubRuntime, ProductSessionId};
+use alva_hub_core::{HubRequest, HubRuntime, HubSessionStatus, ProductSessionId};
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
+
+use crate::store::HubStore;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct RunRequest {
     pub prompt: String,
     pub workspace: PathBuf,
+    #[serde(default)]
+    pub product_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -39,6 +43,12 @@ pub struct RunOutcome {
     pub failed: bool,
 }
 
+struct ExecutedTurn {
+    outcome: RunOutcome,
+    engine_session_id: Option<String>,
+    terminal_error: Option<String>,
+}
+
 pub async fn run_once<F>(
     engine: Arc<dyn EngineRuntime>,
     request: RunRequest,
@@ -47,25 +57,87 @@ pub async fn run_once<F>(
 where
     F: FnMut(TimelineEvent) + Send,
 {
-    if request.prompt.trim().is_empty() {
-        return Err("prompt must not be empty".into());
-    }
-    if !request.workspace.is_dir() {
-        return Err(format!(
-            "workspace is not a directory: {}",
-            request.workspace.display()
-        ));
-    }
-    let workspace = request
-        .workspace
-        .canonicalize()
-        .map_err(|error| format!("cannot resolve workspace: {error}"))?;
+    validate_prompt(&request.prompt)?;
+    let workspace = canonical_workspace(&request.workspace)?;
+    let hub = HubRuntime::new();
+    hub.register_engine("alva", engine)
+        .map_err(|error| error.to_string())?;
+    let product_session_id = ProductSessionId::new();
+    Ok(execute_turn(
+        &hub,
+        product_session_id,
+        request.prompt,
+        workspace,
+        &mut emit,
+    )
+    .await
+    .outcome)
+}
 
+pub async fn run_persisted<F>(
+    store: &HubStore,
+    engine: Arc<dyn EngineRuntime>,
+    request: RunRequest,
+    mut emit: F,
+) -> Result<RunOutcome, String>
+where
+    F: FnMut(TimelineEvent) + Send,
+{
+    validate_prompt(&request.prompt)?;
     let hub = HubRuntime::new();
     hub.register_engine("alva", engine)
         .map_err(|error| error.to_string())?;
 
-    let product_session_id = ProductSessionId::new();
+    let prepared = if let Some(product_session_id) = request.product_session_id.as_deref() {
+        let detail = store
+            .get_session(product_session_id)?
+            .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        canonical_workspace(PathBuf::from(&detail.session.workspace).as_path())?;
+        store.prepare_resumed_turn(product_session_id, &request.prompt)?
+    } else {
+        let workspace = canonical_workspace(&request.workspace)?;
+        let product_session_id = ProductSessionId::new();
+        store.prepare_new_turn(product_session_id.as_str(), &workspace, &request.prompt)?
+    };
+
+    let product_session_id = ProductSessionId::from_existing(&prepared.product_session_id);
+    if let Some(engine_session_id) = &prepared.engine_session_id {
+        hub.restore_session(
+            product_session_id.clone(),
+            "alva",
+            engine_session_id,
+            HubSessionStatus::Completed,
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    let execution = execute_turn(
+        &hub,
+        product_session_id,
+        request.prompt,
+        canonical_workspace(&prepared.workspace)?,
+        &mut emit,
+    )
+    .await;
+    store.finish_turn(
+        &prepared,
+        execution.engine_session_id.as_deref(),
+        execution.outcome.result.as_deref(),
+        execution.terminal_error.as_deref(),
+    )?;
+    Ok(execution.outcome)
+}
+
+async fn execute_turn<F>(
+    hub: &HubRuntime,
+    product_session_id: ProductSessionId,
+    prompt: String,
+    workspace: PathBuf,
+    emit: &mut F,
+) -> ExecutedTurn
+where
+    F: FnMut(TimelineEvent) + Send,
+{
     let product_id = product_session_id.as_str().to_string();
     emit(TimelineEvent {
         status: TimelineStatus::Running,
@@ -74,7 +146,7 @@ where
         message: None,
     });
 
-    let runtime_request = RuntimeRequest::new(request.prompt)
+    let runtime_request = RuntimeRequest::new(prompt)
         .with_cwd(workspace)
         .with_streaming();
     let hub_request = HubRequest::new("alva", runtime_request).resume(product_session_id);
@@ -86,37 +158,50 @@ where
                 status: TimelineStatus::Failed,
                 engine_id: "alva".into(),
                 product_session_id: product_id.clone(),
-                message: Some(message),
+                message: Some(message.clone()),
             });
-            return Ok(RunOutcome {
-                product_session_id: product_id,
-                result: None,
-                failed: true,
-            });
+            return ExecutedTurn {
+                outcome: RunOutcome {
+                    product_session_id: product_id,
+                    result: None,
+                    failed: true,
+                },
+                engine_session_id: None,
+                terminal_error: Some(message),
+            };
         }
     };
 
     let mut terminal_error = None;
     let mut result = None;
+    let mut engine_session_id = None;
     while let Some(hub_event) = stream.next().await {
         match hub_event.event {
+            RuntimeEvent::SessionStarted { session_id, .. } => {
+                engine_session_id = Some(session_id);
+            }
             RuntimeEvent::Error {
                 message,
                 recoverable: false,
             } => {
-                emit(TimelineEvent {
-                    status: TimelineStatus::Failed,
-                    engine_id: hub_event.engine_id.to_string(),
-                    product_session_id: product_id.clone(),
-                    message: Some(message.clone()),
-                });
-                terminal_error = Some(message);
-                break;
+                if terminal_error.is_none() {
+                    emit(TimelineEvent {
+                        status: TimelineStatus::Failed,
+                        engine_id: hub_event.engine_id.to_string(),
+                        product_session_id: product_id.clone(),
+                        message: Some(message.clone()),
+                    });
+                    terminal_error = Some(message);
+                }
             }
             RuntimeEvent::Completed {
+                session_id,
                 result: completed_result,
                 ..
-            } => {
+            } if terminal_error.is_none() => {
+                if !session_id.is_empty() {
+                    engine_session_id = Some(session_id);
+                }
                 result = completed_result;
                 emit(TimelineEvent {
                     status: TimelineStatus::Completed,
@@ -126,15 +211,45 @@ where
                 });
                 break;
             }
+            RuntimeEvent::Completed { session_id, .. } => {
+                if !session_id.is_empty() {
+                    engine_session_id = Some(session_id);
+                }
+                break;
+            }
             _ => {}
         }
     }
 
-    Ok(RunOutcome {
-        product_session_id: product_id,
-        result,
-        failed: terminal_error.is_some(),
-    })
+    ExecutedTurn {
+        outcome: RunOutcome {
+            product_session_id: product_id,
+            result,
+            failed: terminal_error.is_some(),
+        },
+        engine_session_id,
+        terminal_error,
+    }
+}
+
+fn validate_prompt(prompt: &str) -> Result<(), String> {
+    if prompt.trim().is_empty() {
+        Err("prompt must not be empty".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn canonical_workspace(workspace: &std::path::Path) -> Result<PathBuf, String> {
+    if !workspace.is_dir() {
+        return Err(format!(
+            "workspace is not a directory: {}",
+            workspace.display()
+        ));
+    }
+    workspace
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve workspace: {error}"))
 }
 
 #[cfg(test)]
@@ -221,6 +336,7 @@ mod tests {
             RunRequest {
                 prompt: "ship it".into(),
                 workspace: workspace.path().to_path_buf(),
+                product_session_id: None,
             },
             |event| timeline.push(event),
         )
@@ -276,6 +392,7 @@ mod tests {
             RunRequest {
                 prompt: "ship it".into(),
                 workspace: workspace.path().to_path_buf(),
+                product_session_id: None,
             },
             |event| timeline.push(event),
         )
@@ -312,6 +429,7 @@ mod tests {
             RunRequest {
                 prompt: "ship it".into(),
                 workspace: workspace.path().to_path_buf(),
+                product_session_id: None,
             },
             |event| timeline.push(event),
         )
@@ -331,5 +449,91 @@ mod tests {
             timeline.last().and_then(|event| event.message.as_deref()),
             Some("engine stream ended without terminal Completed event")
         );
+    }
+
+    #[tokio::test]
+    async fn persists_reopens_and_resumes_a_product_session() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = crate::HubStore::open(&database).unwrap();
+        let first_engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "native-1".into(),
+                model: Some("fake-model".into()),
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Completed {
+                session_id: "native-1".into(),
+                result: Some("first result".into()),
+                usage: None,
+            },
+        ]));
+
+        let first = run_persisted(
+            &store,
+            first_engine,
+            RunRequest {
+                prompt: "first turn".into(),
+                workspace: workspace.path().to_path_buf(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert_ne!(first.product_session_id, "native-1");
+        drop(store);
+
+        let reopened = crate::HubStore::open(&database).unwrap();
+        let sessions = reopened.list_sessions().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].product_session_id, first.product_session_id);
+        assert_eq!(sessions[0].engine_session_id.as_deref(), Some("native-1"));
+
+        let second_engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "native-1".into(),
+                model: Some("fake-model".into()),
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Completed {
+                session_id: "native-1".into(),
+                result: Some("second result".into()),
+                usage: None,
+            },
+        ]));
+        let second_requests = second_engine.requests.clone();
+
+        let second = run_persisted(
+            &reopened,
+            second_engine,
+            RunRequest {
+                prompt: "second turn".into(),
+                workspace: workspace.path().to_path_buf(),
+                product_session_id: Some(first.product_session_id.clone()),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(second.product_session_id, first.product_session_id);
+        assert_eq!(second.result.as_deref(), Some("second result"));
+        assert_eq!(
+            second_requests.lock().unwrap()[0].resume_session.as_deref(),
+            Some("native-1")
+        );
+
+        let detail = reopened
+            .get_session(&first.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.turns.len(), 2);
+        assert_eq!(detail.turns[0].prompt, "first turn");
+        assert_eq!(detail.turns[0].result.as_deref(), Some("first result"));
+        assert_eq!(detail.turns[1].prompt, "second turn");
+        assert_eq!(detail.turns[1].result.as_deref(), Some("second result"));
     }
 }

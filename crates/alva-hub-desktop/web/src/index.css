@@ -1,6 +1,6 @@
 /* INPUT:  semantic class names rendered by App.tsx */
-/* OUTPUT: two-column Desktop layout, timeline states, responsive fallback */
-/* POS:    Ticket-01 visual system for the Hub Desktop main window. */
+/* OUTPUT: two-column layout, persisted-session rail, timeline, responsive fallback */
+/* POS:    Hub Desktop visual system for resumable product sessions. */
 
 :root {
   font-family:
@@ -43,8 +43,8 @@ button {
 
 .sidebar {
   display: flex;
+  overflow: hidden;
   flex-direction: column;
-  justify-content: space-between;
   gap: 28px;
   padding: 28px 22px;
   background: rgba(12, 16, 29, 0.92);
@@ -124,6 +124,76 @@ h1 {
 
 .secondary-button:hover {
   background: #2d3756;
+}
+
+.session-panel {
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-heading small,
+.session-empty,
+.session-error {
+  color: #68738b;
+  font-size: 10px;
+}
+
+.session-error {
+  color: #d9765d;
+  line-height: 1.5;
+}
+
+.session-list {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.session-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #8d98b2;
+  text-align: left;
+  background: rgba(21, 27, 47, 0.52);
+}
+
+.session-item:hover,
+.session-item.active {
+  border-color: rgba(112, 128, 231, 0.28);
+  background: rgba(35, 43, 76, 0.72);
+}
+
+.session-item strong,
+.session-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item strong {
+  color: #c8d0e4;
+  font-size: 12px;
+}
+
+.session-item span,
+.session-item small {
+  color: #737f99;
+  font-size: 10px;
 }
 
 .ticket-note {

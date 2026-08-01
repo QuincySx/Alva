@@ -1,12 +1,15 @@
-// INPUT:  React hooks, bridge workspace/run/timeline functions
-// OUTPUT: Hub Desktop ticket-01 workspace, composer, and timeline UI
-// POS:    Primary walking-skeleton product surface for a single Alva turn.
+// INPUT:  React hooks, bridge workspace/run/timeline/session functions
+// OUTPUT: persistent Hub session list, workspace, composer, and timeline UI
+// POS:    Primary Hub Desktop product surface for resumable Alva sessions.
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   chooseWorkspace,
+  getHubSession,
+  listHubSessions,
   listenTimeline,
   runAlvaPrompt,
+  type HubSessionSummary,
   type TimelineEvent,
 } from "./bridge";
 
@@ -14,6 +17,9 @@ export default function App() {
   const [workspace, setWorkspace] = useState("");
   const [prompt, setPrompt] = useState("");
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -36,6 +42,10 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    void refreshSessions();
+  }, []);
+
   const latest = timeline.at(-1);
   const statusLabel = useMemo(() => {
     switch (latest?.status) {
@@ -53,7 +63,47 @@ export default function App() {
   async function selectWorkspace() {
     try {
       const selected = await chooseWorkspace();
-      if (selected) setWorkspace(selected);
+      if (selected) {
+        setWorkspace(selected);
+        setActiveSessionId(null);
+        setTimeline([]);
+      }
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function refreshSessions() {
+    try {
+      setSessions(await listHubSessions());
+      setSessionError(null);
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function openSession(session: HubSessionSummary) {
+    if (busy) return;
+    try {
+      const detail = await getHubSession(session.product_session_id);
+      if (!detail) throw new Error("This Hub session no longer exists.");
+      setActiveSessionId(detail.session.product_session_id);
+      setWorkspace(detail.session.workspace);
+      setTimeline(
+        detail.turns.map((turn) => ({
+          status:
+            turn.status === "failed"
+              ? "failed"
+              : turn.status === "running"
+                ? "running"
+                : "completed",
+          engine_id: detail.session.engine_id,
+          product_session_id: detail.session.product_session_id,
+          message: [turn.prompt, turn.result ?? turn.error]
+            .filter(Boolean)
+            .join("\n\n"),
+        })),
+      );
     } catch (error) {
       appendLocalFailure(error);
     }
@@ -83,7 +133,13 @@ export default function App() {
     setBusy(true);
     setPrompt("");
     try {
-      await runAlvaPrompt({ prompt: text, workspace });
+      const outcome = await runAlvaPrompt({
+        prompt: text,
+        workspace,
+        product_session_id: activeSessionId,
+      });
+      setActiveSessionId(outcome.product_session_id);
+      await refreshSessions();
     } catch (error) {
       appendLocalFailure(error);
     } finally {
@@ -109,9 +165,38 @@ export default function App() {
           </button>
         </section>
 
+        <section className="session-panel">
+          <div className="session-heading">
+            <span className="eyebrow">Sessions</span>
+            <small>{sessions.length}</small>
+          </div>
+          <div className="session-list">
+            {sessionError ? (
+              <small className="session-error">{sessionError}</small>
+            ) : sessions.length === 0 ? (
+              <small className="session-empty">Hub runs will appear here.</small>
+            ) : (
+              sessions.map((session) => (
+                <button
+                  className={`session-item ${
+                    activeSessionId === session.product_session_id ? "active" : ""
+                  }`}
+                  key={session.product_session_id}
+                  type="button"
+                  onClick={() => void openSession(session)}
+                >
+                  <strong>{session.workspace.split("/").at(-1)}</strong>
+                  <span>{session.last_prompt ?? "Untitled session"}</span>
+                  <small>{session.status}</small>
+                </button>
+              ))
+            )}
+          </div>
+        </section>
+
         <div className="ticket-note">
           <span>Walking skeleton</span>
-          <small>Single Alva EngineTarget · no persistence yet</small>
+          <small>Single Alva EngineTarget · SQLite resume enabled</small>
         </div>
       </aside>
 
@@ -135,8 +220,8 @@ export default function App() {
               <span className="empty-icon">↗</span>
               <h2>Start one continuous project session</h2>
               <p>
-                Ticket 01 connects the real Hub runtime to a focused Desktop
-                timeline. Persistence and multi-engine branches arrive next.
+                Hub keeps completed Alva turns in private local storage, so you
+                can reopen a project session and continue after restarting.
               </p>
             </div>
           ) : (

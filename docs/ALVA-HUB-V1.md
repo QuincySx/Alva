@@ -1,6 +1,6 @@
 # ALVA Hub Desktop V1 Product Specification
 
-> Status: Accepted target; implementation started with ticket 01.
+> Status: Accepted target; tickets 01–02 implemented incrementally.
 >
 > Decision date: 2026-07-31
 >
@@ -21,11 +21,13 @@ The current repository has:
   stream diagnostics.
 - `alva-hub-cli`: one-shot and REPL flows, a private JSON session journal,
   explicit Alva/Claude/Codex selection, manual switching, and text handoff.
-- `alva-hub-desktop`: a ticket-01 Tauri/React walking skeleton that selects a
-  workspace, runs one Alva EngineAttempt through the real `EngineRuntime` seam,
-  and projects running/completed/failed product timeline states. It does not
-  yet persist HubSession state or implement multi-engine branches, fallback,
-  or TeamRun.
+- `alva-hub-desktop`: a Tauri/React product that selects a workspace, runs Alva
+  through the real `EngineRuntime` seam, and projects
+  running/completed/failed product timeline states. Its private `alva-hub.db`
+  now persists HubSession identity, the active Alva EngineBranch, completed
+  Turns, and final results; Alva transcripts are stored separately for real
+  cross-process native-session resume. It does not yet implement multiple
+  engine branches, fallback, crash recovery, or TeamRun.
 - `alva-app-tauri`: the existing Alva-only Tauri desktop product. It directly
   consumes `BaseAgent` and remains subject to Rule 18.
 
@@ -389,6 +391,11 @@ general recursive panel tree.
 
 Hub Desktop owns an independent private SQLite database, `alva-hub.db`.
 It does not reuse `alva-app-tauri` storage.
+
+Ticket 02 implements the first schema slice: `hub_sessions`,
+`engine_branches`, and `turns`, with SQLite transactions, native locking,
+private directory/file modes, and symlink rejection. The remaining tables and
+restart repair of interrupted running rows arrive with their owning tickets.
 
 Minimum tables:
 

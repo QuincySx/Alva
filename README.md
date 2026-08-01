@@ -61,7 +61,7 @@ AgentEvent / SessionEvent / RunRecord / Inspector
 | L4.5 | `alva-engine-runtime`, `alva-engine-adapter-{claude,codex}` | SDK-clean multi-engine contract and external engine adapters |
 | L5 | `alva-app-core`, `alva-host-*` | opinionated harness and platform assembly |
 | L6 | `alva-app-cli`, `alva-app-tauri` | end-user products |
-| L7 | `alva-hub-core`, `alva-engine-adapter-alva`, `alva-hub-{cli,desktop}` | multi-engine Hub product aggregation; Desktop ticket 01 provides the current Alva walking skeleton |
+| L7 | `alva-hub-core`, `alva-engine-adapter-alva`, `alva-hub-{cli,desktop}` | multi-engine Hub product aggregation; Desktop tickets 01–02 provide the Alva timeline plus private SQLite session/turn persistence and resume |
 
 ## Plugin Model
 

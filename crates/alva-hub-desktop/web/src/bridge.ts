@@ -1,6 +1,6 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: chooseWorkspace(), runAlvaPrompt(), listenTimeline(), shared DTOs
-// POS:    Typed IPC boundary between React and Hub Desktop Rust commands.
+// OUTPUT: workspace/run/timeline plus persisted Hub session IPC and DTOs
+// POS:    Typed IPC boundary between React and Hub Desktop product commands.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -18,12 +18,40 @@ export interface TimelineEvent {
 export interface RunRequest {
   prompt: string;
   workspace: string;
+  product_session_id: string | null;
 }
 
 export interface RunOutcome {
   product_session_id: string;
   result: string | null;
   failed: boolean;
+}
+
+export interface HubSessionSummary {
+  product_session_id: string;
+  workspace: string;
+  active_branch_id: string;
+  engine_id: string;
+  engine_session_id: string | null;
+  status: string;
+  updated_at: number;
+  last_prompt: string | null;
+  last_result: string | null;
+}
+
+export interface StoredTurn {
+  turn_id: string;
+  prompt: string;
+  result: string | null;
+  error: string | null;
+  status: string;
+  created_at: number;
+  completed_at: number | null;
+}
+
+export interface HubSessionDetail {
+  session: HubSessionSummary;
+  turns: StoredTurn[];
 }
 
 const hasTauri =
@@ -44,6 +72,20 @@ export async function runAlvaPrompt(
     throw new Error("Running Alva requires the ALVA Hub desktop runtime.");
   }
   return await invoke<RunOutcome>("run_alva_prompt", { request });
+}
+
+export async function listHubSessions(): Promise<HubSessionSummary[]> {
+  if (!hasTauri) return [];
+  return await invoke<HubSessionSummary[]>("list_hub_sessions");
+}
+
+export async function getHubSession(
+  productSessionId: string,
+): Promise<HubSessionDetail | null> {
+  if (!hasTauri) return null;
+  return await invoke<HubSessionDetail | null>("get_hub_session", {
+    productSessionId,
+  });
 }
 
 export async function listenTimeline(
