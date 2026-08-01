@@ -1,6 +1,6 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with persisted run/session-list/session-detail IPC
-// POS:    Tauri 2 entrypoint and private Hub Desktop state owner.
+// OUTPUT: binary with crash-repaired persisted run/session-list/session-detail IPC
+// POS:    Tauri 2 entrypoint and instance-locked private Hub Desktop state owner.
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),

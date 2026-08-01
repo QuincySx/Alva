@@ -151,7 +151,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 > Alva Hub 不改写原生 CLI/Tauri 的入口。它把多 engine session、会话路由和跨 engine 编排提到产品层；Hub 内的 Alva adapter 依赖 `alva-app-core`，因此必须位于 SDK 与原生 app 之上。
 
 ```text
-current: alva-hub-cli + alva-hub-desktop (ticket-02 persisted Alva sessions)
+current: alva-hub-cli + alva-hub-desktop (ticket-03 durable attempts + crash recovery)
 target:  complete Desktop V1 (fallback + branches + Orca collaboration)
                   │
              alva-hub-core
@@ -169,7 +169,7 @@ target:  complete Desktop V1 (fallback + branches + Orca collaboration)
 | `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
 | `alva-engine-adapter-alva` | Hub 的 Alva adapter：每个 engine session 由 `BaseAgentFactory` 构造独立的完整 `BaseAgent`，保留 harness 语义。 |
 | `alva-hub-cli` | Hub 命令行验证、诊断与自动化入口：支持 one-shot / REPL、私有 session journal、显式 Alva / Claude / Codex 选择、resume、手动切换与 handoff；与原生 `alva-app-cli` 保持独立。 |
-| `alva-hub-desktop` | **正在实现的 V1 主产品**：独立 Tauri 2 + React/Vite/TypeScript L7 入口；ticket 01/02 已打通 workspace → Alva EngineRuntime → timeline，并用私有 SQLite 持久化 HubSession、活动 Alva branch、Turn 与跨进程 transcript resume；尚未实现多 engine branch、自动 fallback 与 Cindy Orca Lead/Worker；不得改写 `alva-app-tauri`。 |
+| `alva-hub-desktop` | **正在实现的 V1 主产品**：独立 Tauri 2 + React/Vite/TypeScript L7 入口；ticket 01–03 已打通 workspace → Alva EngineRuntime → timeline，并用私有 SQLite 持久化 HubSession、活动 Alva branch、Turn/EngineAttempt、跨进程 transcript resume 与崩溃中断修复；尚未实现多 engine branch、自动 fallback 与 Cindy Orca Lead/Worker；不得改写 `alva-app-tauri`。 |
 
 ---
 

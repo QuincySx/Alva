@@ -18,6 +18,7 @@ alva-hub-core = { path = "../alva-hub-core" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tokio-stream = "0.1"

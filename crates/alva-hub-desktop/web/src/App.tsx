@@ -1,5 +1,5 @@
 // INPUT:  React hooks, bridge workspace/run/timeline/session functions
-// OUTPUT: persistent Hub session list, workspace, composer, and timeline UI
+// OUTPUT: persistent Hub sessions, interrupted recovery, composer, and timeline UI
 // POS:    Primary Hub Desktop product surface for resumable Alva sessions.
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -55,6 +55,8 @@ export default function App() {
         return "Completed";
       case "failed":
         return "Failed";
+      case "interrupted":
+        return "Interrupted · ready to continue";
       default:
         return "Ready";
     }
@@ -96,6 +98,8 @@ export default function App() {
               ? "failed"
               : turn.status === "running"
                 ? "running"
+                : turn.status === "interrupted"
+                  ? "interrupted"
                 : "completed",
           engine_id: detail.session.engine_id,
           product_session_id: detail.session.product_session_id,
@@ -195,8 +199,8 @@ export default function App() {
         </section>
 
         <div className="ticket-note">
-          <span>Walking skeleton</span>
-          <small>Single Alva EngineTarget · SQLite resume enabled</small>
+          <span>Durable attempts</span>
+          <small>Single Alva EngineTarget · crash recovery enabled</small>
         </div>
       </aside>
 
@@ -240,6 +244,11 @@ export default function App() {
                       ? "Executing in the selected workspace…"
                       : "Run finished.")}
                 </p>
+                {entry.status === "interrupted" ? (
+                  <small className="timeline-hint">
+                    The previous runtime is gone. Continue safely from the composer below.
+                  </small>
+                ) : null}
               </article>
             ))
           )}

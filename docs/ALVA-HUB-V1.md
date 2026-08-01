@@ -1,6 +1,6 @@
 # ALVA Hub Desktop V1 Product Specification
 
-> Status: Accepted target; tickets 01–02 implemented incrementally.
+> Status: Accepted target; tickets 01–03 implemented incrementally.
 >
 > Decision date: 2026-07-31
 >
@@ -24,10 +24,12 @@ The current repository has:
 - `alva-hub-desktop`: a Tauri/React product that selects a workspace, runs Alva
   through the real `EngineRuntime` seam, and projects
   running/completed/failed product timeline states. Its private `alva-hub.db`
-  now persists HubSession identity, the active Alva EngineBranch, completed
-  Turns, and final results; Alva transcripts are stored separately for real
-  cross-process native-session resume. It does not yet implement multiple
-  engine branches, fallback, crash recovery, or TeamRun.
+  now persists HubSession identity, the active Alva EngineBranch, Turns,
+  EngineAttempts, usage, failure reasons, and bounded tool start/end evidence;
+  Alva transcripts are stored separately for real cross-process native-session
+  resume. Startup repairs orphaned running state to interrupted under an
+  instance lock. It does not yet implement multiple engine branches, fallback,
+  or TeamRun.
 - `alva-app-tauri`: the existing Alva-only Tauri desktop product. It directly
   consumes `BaseAgent` and remains subject to Rule 18.
 
@@ -392,10 +394,13 @@ general recursive panel tree.
 Hub Desktop owns an independent private SQLite database, `alva-hub.db`.
 It does not reuse `alva-app-tauri` storage.
 
-Ticket 02 implements the first schema slice: `hub_sessions`,
-`engine_branches`, and `turns`, with SQLite transactions, native locking,
-private directory/file modes, and symlink rejection. The remaining tables and
-restart repair of interrupted running rows arrive with their owning tickets.
+Tickets 02–03 implement the first schema slices: `hub_sessions`,
+`engine_branches`, `turns`, and `engine_attempts`, with SQLite transactions,
+native locking, private directory/file modes, and symlink rejection. Schema 2
+separates one user Turn from its bounded EngineAttempt, records terminal usage,
+failure and known tool evidence (including started-but-not-finished calls), and repairs orphaned `running` rows
+to `interrupted` when the next exclusive Desktop instance opens the database.
+The remaining tables arrive with their owning tickets.
 
 Minimum tables:
 

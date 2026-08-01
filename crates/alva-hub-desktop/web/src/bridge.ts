@@ -1,12 +1,12 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/run/timeline plus persisted Hub session IPC and DTOs
+// OUTPUT: workspace/run/timeline plus persisted Session/Turn/Attempt IPC DTOs
 // POS:    Typed IPC boundary between React and Hub Desktop product commands.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
-export type TimelineStatus = "running" | "completed" | "failed";
+export type TimelineStatus = "running" | "completed" | "failed" | "interrupted";
 
 export interface TimelineEvent {
   status: TimelineStatus;
@@ -46,6 +46,35 @@ export interface StoredTurn {
   error: string | null;
   status: string;
   created_at: number;
+  completed_at: number | null;
+  attempts: StoredAttempt[];
+}
+
+export interface StoredUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_cost_usd: number | null;
+  duration_ms: number;
+  num_turns: number;
+}
+
+export interface SideEffectEvidence {
+  tool_call_id: string;
+  tool_name: string;
+  succeeded: boolean | null;
+  duration_ms: number | null;
+}
+
+export interface StoredAttempt {
+  attempt_id: string;
+  turn_id: string;
+  branch_id: string;
+  engine_id: string;
+  status: string;
+  failure_reason: string | null;
+  usage: StoredUsage | null;
+  side_effects: SideEffectEvidence[];
+  started_at: number;
   completed_at: number | null;
 }
 

@@ -1,16 +1,16 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: transient/persisted run seams plus request/outcome/timeline product DTOs
+// OUTPUT: run seams, durable Attempt progress capture, and timeline product DTOs
 // POS:    Highest product seam for Hub Desktop turns, independent of Tauri.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_engine_runtime::{EngineRuntime, RuntimeEvent, RuntimeRequest};
+use alva_engine_runtime::{EngineRuntime, RuntimeEvent, RuntimeRequest, RuntimeUsage};
 use alva_hub_core::{HubRequest, HubRuntime, HubSessionStatus, ProductSessionId};
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use crate::store::HubStore;
+use crate::store::{HubStore, PreparedTurn, SideEffectEvidence, StoredUsage};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct RunRequest {
@@ -26,6 +26,7 @@ pub enum TimelineStatus {
     Running,
     Completed,
     Failed,
+    Interrupted,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -47,6 +48,7 @@ struct ExecutedTurn {
     outcome: RunOutcome,
     engine_session_id: Option<String>,
     terminal_error: Option<String>,
+    usage: Option<StoredUsage>,
 }
 
 pub async fn run_once<F>(
@@ -68,6 +70,7 @@ where
         product_session_id,
         request.prompt,
         workspace,
+        None,
         &mut emit,
     )
     .await
@@ -116,6 +119,7 @@ where
         product_session_id,
         request.prompt,
         canonical_workspace(&prepared.workspace)?,
+        Some((store, &prepared)),
         &mut emit,
     )
     .await;
@@ -124,6 +128,7 @@ where
         execution.engine_session_id.as_deref(),
         execution.outcome.result.as_deref(),
         execution.terminal_error.as_deref(),
+        execution.usage.as_ref(),
     )?;
     Ok(execution.outcome)
 }
@@ -133,6 +138,7 @@ async fn execute_turn<F>(
     product_session_id: ProductSessionId,
     prompt: String,
     workspace: PathBuf,
+    persistence: Option<(&HubStore, &PreparedTurn)>,
     emit: &mut F,
 ) -> ExecutedTurn
 where
@@ -168,6 +174,7 @@ where
                 },
                 engine_session_id: None,
                 terminal_error: Some(message),
+                usage: None,
             };
         }
     };
@@ -175,10 +182,63 @@ where
     let mut terminal_error = None;
     let mut result = None;
     let mut engine_session_id = None;
+    let mut usage = None;
     while let Some(hub_event) = stream.next().await {
         match hub_event.event {
             RuntimeEvent::SessionStarted { session_id, .. } => {
+                if let Some((store, prepared)) = persistence {
+                    capture_persistence_error(
+                        store.record_engine_session(prepared, &session_id),
+                        &mut terminal_error,
+                        &product_id,
+                        "alva",
+                        emit,
+                    );
+                }
                 engine_session_id = Some(session_id);
+            }
+            RuntimeEvent::ToolStart { id, name, .. } => {
+                if let Some((store, prepared)) = persistence {
+                    capture_persistence_error(
+                        store.record_side_effect(
+                            prepared,
+                            SideEffectEvidence {
+                                tool_call_id: id,
+                                tool_name: name,
+                                succeeded: None,
+                                duration_ms: None,
+                            },
+                        ),
+                        &mut terminal_error,
+                        &product_id,
+                        "alva",
+                        emit,
+                    );
+                }
+            }
+            RuntimeEvent::ToolEnd {
+                id,
+                name,
+                result: tool_result,
+                duration_ms,
+            } => {
+                if let Some((store, prepared)) = persistence {
+                    capture_persistence_error(
+                        store.record_side_effect(
+                            prepared,
+                            SideEffectEvidence {
+                                tool_call_id: id,
+                                tool_name: name,
+                                succeeded: Some(!tool_result.is_error),
+                                duration_ms,
+                            },
+                        ),
+                        &mut terminal_error,
+                        &product_id,
+                        "alva",
+                        emit,
+                    );
+                }
             }
             RuntimeEvent::Error {
                 message,
@@ -197,11 +257,12 @@ where
             RuntimeEvent::Completed {
                 session_id,
                 result: completed_result,
-                ..
+                usage: completed_usage,
             } if terminal_error.is_none() => {
                 if !session_id.is_empty() {
                     engine_session_id = Some(session_id);
                 }
+                usage = completed_usage.as_ref().map(stored_usage);
                 result = completed_result;
                 emit(TimelineEvent {
                     status: TimelineStatus::Completed,
@@ -211,10 +272,15 @@ where
                 });
                 break;
             }
-            RuntimeEvent::Completed { session_id, .. } => {
+            RuntimeEvent::Completed {
+                session_id,
+                usage: completed_usage,
+                ..
+            } => {
                 if !session_id.is_empty() {
                     engine_session_id = Some(session_id);
                 }
+                usage = completed_usage.as_ref().map(stored_usage);
                 break;
             }
             _ => {}
@@ -229,6 +295,40 @@ where
         },
         engine_session_id,
         terminal_error,
+        usage,
+    }
+}
+
+fn capture_persistence_error<F>(
+    result: Result<(), String>,
+    terminal_error: &mut Option<String>,
+    product_session_id: &str,
+    engine_id: &str,
+    emit: &mut F,
+) where
+    F: FnMut(TimelineEvent),
+{
+    if let Err(error) = result {
+        if terminal_error.is_none() {
+            let message = format!("persist engine attempt progress: {error}");
+            emit(TimelineEvent {
+                status: TimelineStatus::Failed,
+                engine_id: engine_id.to_string(),
+                product_session_id: product_session_id.to_string(),
+                message: Some(message.clone()),
+            });
+            *terminal_error = Some(message);
+        }
+    }
+}
+
+fn stored_usage(usage: &RuntimeUsage) -> StoredUsage {
+    StoredUsage {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        total_cost_usd: usage.total_cost_usd,
+        duration_ms: usage.duration_ms,
+        num_turns: usage.num_turns,
     }
 }
 
@@ -535,5 +635,128 @@ mod tests {
         assert_eq!(detail.turns[0].result.as_deref(), Some("first result"));
         assert_eq!(detail.turns[1].prompt, "second turn");
         assert_eq!(detail.turns[1].result.as_deref(), Some("second result"));
+    }
+
+    #[tokio::test]
+    async fn persists_attempt_usage_and_side_effect_evidence() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = crate::HubStore::open(&database).unwrap();
+        let engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "native-evidence".into(),
+                model: Some("fake-model".into()),
+                tools: vec!["write_file".into()],
+            },
+            RuntimeEvent::ToolStart {
+                id: "tool-1".into(),
+                name: "write_file".into(),
+                input: serde_json::json!({"path": "changed.txt"}),
+            },
+            RuntimeEvent::ToolEnd {
+                id: "tool-1".into(),
+                name: "write_file".into(),
+                result: serde_json::from_value(serde_json::json!({
+                    "content": [{"type": "text", "text": "written"}],
+                    "is_error": false
+                }))
+                .unwrap(),
+                duration_ms: Some(14),
+            },
+            RuntimeEvent::Completed {
+                session_id: "native-evidence".into(),
+                result: Some("done".into()),
+                usage: Some(alva_engine_runtime::RuntimeUsage {
+                    input_tokens: 11,
+                    output_tokens: 7,
+                    total_cost_usd: Some(0.03),
+                    duration_ms: 28,
+                    num_turns: 1,
+                }),
+            },
+        ]));
+
+        let outcome = run_persisted(
+            &store,
+            engine,
+            RunRequest {
+                prompt: "change it".into(),
+                workspace: workspace.path().to_path_buf(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.turns.len(), 1);
+        assert_eq!(detail.turns[0].attempts.len(), 1);
+        let attempt = &detail.turns[0].attempts[0];
+        assert_eq!(attempt.status, "completed");
+        assert!(attempt.started_at > 0);
+        assert!(attempt.completed_at.is_some_and(|end| end >= attempt.started_at));
+        assert_eq!(attempt.failure_reason, None);
+        assert_eq!(attempt.usage.as_ref().unwrap().input_tokens, 11);
+        assert_eq!(attempt.side_effects.len(), 1);
+        assert_eq!(attempt.side_effects[0].tool_name, "write_file");
+        assert_eq!(attempt.side_effects[0].succeeded, Some(true));
+    }
+
+    #[tokio::test]
+    async fn recovered_attempt_without_native_session_continues_fresh() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = crate::HubStore::open(&database).unwrap();
+        store
+            .prepare_new_turn("product-before-start", workspace.path(), "first")
+            .unwrap();
+        drop(store);
+
+        let reopened = crate::HubStore::open(&database).unwrap();
+        let engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "native-fresh".into(),
+                model: None,
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Completed {
+                session_id: "native-fresh".into(),
+                result: Some("continued".into()),
+                usage: None,
+            },
+        ]));
+        let requests = Arc::clone(&engine.requests);
+
+        let outcome = run_persisted(
+            &reopened,
+            engine,
+            RunRequest {
+                prompt: "continue".into(),
+                workspace: PathBuf::from("ignored-for-resume"),
+                product_session_id: Some("product-before-start".into()),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.product_session_id, "product-before-start");
+        assert_eq!(requests.lock().unwrap()[0].resume_session, None);
+        let detail = reopened
+            .get_session("product-before-start")
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.turns[0].status, "interrupted");
+        assert_eq!(detail.turns[1].status, "completed");
+        assert_eq!(
+            detail.session.engine_session_id.as_deref(),
+            Some("native-fresh")
+        );
     }
 }
