@@ -13,7 +13,8 @@ export type TimelineStatus =
   | "interrupted"
   | "queued"
   | "switched"
-  | "cancelled";
+  | "cancelled"
+  | "fallback";
 
 export interface TimelineEvent {
   status: TimelineStatus;

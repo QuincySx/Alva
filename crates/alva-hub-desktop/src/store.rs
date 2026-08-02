@@ -204,6 +204,16 @@ pub struct HandoffPackage {
 }
 
 impl HandoffPackage {
+    /// One-line summary shared by the live fallback card and the persisted
+    /// `engine_fallback` timeline fact.
+    pub(crate) fn fallback_summary(&self) -> String {
+        format!(
+            "full context · {} completed · {} pending",
+            self.completed_work.len(),
+            self.pending_work.len()
+        )
+    }
+
     pub(crate) fn render_for_engine(&self) -> String {
         let encoded = serde_json::to_string_pretty(self)
             .unwrap_or_else(|_| "{\"error\":\"handoff serialization failed\"}".to_string());
@@ -1012,6 +1022,250 @@ impl HubStore {
             handoff: Some(package),
             native_resume: false,
         })
+    }
+
+    /// Atomically continue the same Turn on an authorized fallback target:
+    /// the running source attempt is marked failed, the source branch parks
+    /// with a watermark, the target branch is created or re-activated, a Full
+    /// handoff is persisted BEFORE any execution, a serial attempt starts on
+    /// the target, and an `engine_fallback` timeline fact records
+    /// source/target/reason/handoff summary. If the target later fails to
+    /// start, all of this state survives for manual recovery.
+    pub(crate) fn fallback_failed_attempt(
+        &self,
+        prepared: &PreparedTurn,
+        failure_reason: &str,
+        target: &EngineTarget,
+    ) -> Result<PreparedTurn, String> {
+        validate_engine_target(target)?;
+        if target.engine_id == prepared.target.engine_id {
+            return Err("automatic fallback requires a different engine target".to_string());
+        }
+        let now = now_unix_ms();
+        let next_attempt_id = uuid::Uuid::new_v4().to_string();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub fallback transaction: {error}"))?;
+        let session =
+            query_session(&transaction, &prepared.product_session_id)?.ok_or_else(|| {
+                format!(
+                    "Hub session '{}' was not found",
+                    prepared.product_session_id
+                )
+            })?;
+        if session.active_branch_id != prepared.branch_id {
+            return Err("cannot fall back from a non-active Hub engine branch".to_string());
+        }
+        if !query_fallback_policy(&transaction, Some(&prepared.product_session_id))?
+            .targets
+            .iter()
+            .any(|candidate| {
+                candidate.engine_id == target.engine_id
+                    && candidate.model_id == target.model_id
+                    && candidate.provider_id == target.provider_id
+                    && candidate.automatic_use_authorized
+            })
+        {
+            return Err(format!(
+                "engine '{}' is not authorized for automatic fallback in this session",
+                target.engine_id
+            ));
+        }
+        let changed = transaction
+            .execute(
+                "UPDATE engine_attempts
+                    SET status = ?2, failure_reason = ?3, completed_at = ?4
+                  WHERE attempt_id = ?1 AND status = ?5",
+                params![
+                    prepared.attempt_id,
+                    STATUS_FAILED,
+                    failure_reason,
+                    now,
+                    STATUS_RUNNING
+                ],
+            )
+            .map_err(|error| format!("record failed Hub fallback source attempt: {error}"))?;
+        if changed != 1 {
+            return Err(format!(
+                "Hub engine attempt '{}' was not in running state",
+                prepared.attempt_id
+            ));
+        }
+
+        let existing_target = transaction
+            .query_row(
+                "SELECT branch_id FROM engine_branches
+                  WHERE product_session_id = ?1 AND engine_id = ?2
+                    AND model_id = ?3 AND provider_id = ?4",
+                params![
+                    prepared.product_session_id,
+                    target.engine_id,
+                    target.model_id,
+                    target.provider_id
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("find Hub fallback target branch: {error}"))?;
+        let target_branch_id = match existing_target {
+            Some(branch_id) => branch_id,
+            None => {
+                let branch_id = uuid::Uuid::new_v4().to_string();
+                transaction
+                    .execute(
+                        "INSERT INTO engine_branches
+                           (branch_id, product_session_id, engine_id, model_id, provider_id,
+                            engine_session_id, status, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'parked', ?6, ?6)",
+                        params![
+                            branch_id,
+                            prepared.product_session_id,
+                            target.engine_id,
+                            target.model_id,
+                            target.provider_id,
+                            now
+                        ],
+                    )
+                    .map_err(|error| format!("create Hub fallback target branch: {error}"))?;
+                branch_id
+            }
+        };
+
+        // The watermark must exclude the in-flight turn: the source engine
+        // never saw its result — the fallback target completes it — so a later
+        // delta on returning to the source branch has to include this turn.
+        transaction
+            .execute(
+                "UPDATE engine_branches
+                    SET status = 'parked', updated_at = ?2,
+                        watermark_turn_rowid = (
+                          SELECT MAX(t.rowid) FROM turns t
+                           WHERE t.product_session_id = ?1 AND t.turn_id <> ?4
+                        )
+                  WHERE branch_id = ?3",
+                params![
+                    prepared.product_session_id,
+                    now,
+                    prepared.branch_id,
+                    prepared.turn_id
+                ],
+            )
+            .map_err(|error| format!("park Hub fallback source branch: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE engine_branches SET status = 'parked', updated_at = ?2
+                  WHERE product_session_id = ?1 AND branch_id <> ?3",
+                params![prepared.product_session_id, now, prepared.branch_id],
+            )
+            .map_err(|error| format!("park inactive Hub engine branches: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE engine_branches SET status = 'active', updated_at = ?2
+                  WHERE branch_id = ?1",
+                params![target_branch_id, now],
+            )
+            .map_err(|error| format!("activate Hub fallback target branch: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE hub_sessions
+                    SET active_branch_id = ?2, status = ?3, updated_at = ?4
+                  WHERE product_session_id = ?1",
+                params![
+                    prepared.product_session_id,
+                    target_branch_id,
+                    STATUS_RUNNING,
+                    now
+                ],
+            )
+            .map_err(|error| format!("activate Hub fallback session branch: {error}"))?;
+
+        let package = build_handoff_package(
+            &transaction,
+            &prepared.product_session_id,
+            &prepared.branch_id,
+            &target_branch_id,
+            prepared.target.clone(),
+            target.clone(),
+            failure_reason,
+            now,
+            HandoffKind::Full,
+            None,
+        )?;
+        persist_handoff_package(&transaction, &package)?;
+        insert_switch_timeline(
+            &transaction,
+            &prepared.product_session_id,
+            "engine_fallback",
+            &prepared.branch_id,
+            Some(&target_branch_id),
+            &prepared.target.engine_id,
+            &target.engine_id,
+            &format!("{failure_reason} · handoff: {}", package.fallback_summary()),
+            now,
+        )?;
+        transaction
+            .execute(
+                "INSERT INTO engine_attempts
+                   (attempt_id, turn_id, product_session_id, branch_id, engine_id,
+                    status, failure_reason, usage_json, side_effects_json,
+                    started_at, completed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, '[]', ?7, NULL)",
+                params![
+                    next_attempt_id,
+                    prepared.turn_id,
+                    prepared.product_session_id,
+                    target_branch_id,
+                    target.engine_id,
+                    STATUS_RUNNING,
+                    now
+                ],
+            )
+            .map_err(|error| format!("create Hub fallback engine attempt: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub fallback transaction: {error}"))?;
+
+        Ok(PreparedTurn {
+            product_session_id: prepared.product_session_id.clone(),
+            branch_id: target_branch_id,
+            turn_id: prepared.turn_id.clone(),
+            attempt_id: next_attempt_id,
+            workspace: prepared.workspace.clone(),
+            engine_session_id: None,
+            target: target.clone(),
+            handoff: Some(package),
+            native_resume: false,
+        })
+    }
+
+    /// A handoff counts as delivered once its target engine actually starts
+    /// executing with it; until then it stays pending for recovery.
+    pub(crate) fn mark_handoff_used(&self, handoff_id: &str) -> Result<(), String> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "UPDATE handoff_packages SET used_at = COALESCE(used_at, ?2)
+                  WHERE handoff_id = ?1",
+                params![handoff_id, now_unix_ms()],
+            )
+            .map_err(|error| format!("mark Hub handoff used: {error}"))?;
+        Ok(())
+    }
+
+    /// First policy-chain target authorized for automatic use whose engine has
+    /// not been tried in this Turn. Read-only selection over the session's
+    /// policy snapshot.
+    pub(crate) fn next_authorized_fallback_target(
+        &self,
+        product_session_id: &str,
+        tried_engine_ids: &[String],
+    ) -> Result<Option<EngineTarget>, String> {
+        let connection = self.lock()?;
+        let policy = query_fallback_policy(&connection, Some(product_session_id))?;
+        Ok(policy.targets.into_iter().find(|target| {
+            target.automatic_use_authorized && !tried_engine_ids.contains(&target.engine_id)
+        }))
     }
 
     pub(crate) fn record_engine_session(
@@ -3028,6 +3282,219 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(detail.fallback_policy.targets, vec![codex]);
+    }
+
+    #[test]
+    fn automatic_fallback_continues_the_turn_with_serial_attempt_and_persisted_handoff() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let mut claude = EngineTarget::for_engine("claude").unwrap();
+        claude.automatic_use_authorized = true;
+        let prepared = store
+            .prepare_new_turn("product-fallback", workspace.path(), "do the work", &alva)
+            .unwrap();
+        store
+            .set_session_fallback_policy("product-fallback", vec![claude.clone()])
+            .unwrap();
+
+        let next = store
+            .fallback_failed_attempt(&prepared, "engine process died", &claude)
+            .unwrap();
+        assert_eq!(next.turn_id, prepared.turn_id);
+        assert_ne!(next.attempt_id, prepared.attempt_id);
+        assert_eq!(next.target.engine_id, "claude");
+        assert!(next.handoff.as_ref().is_some_and(|handoff| {
+            handoff.kind == HandoffKind::Full && handoff.reason == "engine process died"
+        }));
+        assert!(!next.native_resume);
+
+        let detail = store.get_session("product-fallback").unwrap().unwrap();
+        assert_eq!(detail.session.engine_id, "claude");
+        assert_eq!(detail.session.status, "running");
+        let source = detail
+            .branches
+            .iter()
+            .find(|branch| branch.engine_id == "alva")
+            .unwrap();
+        assert_eq!(source.status, "parked");
+        let target = detail
+            .branches
+            .iter()
+            .find(|branch| branch.engine_id == "claude")
+            .unwrap();
+        assert_eq!(target.status, "active");
+
+        assert_eq!(detail.turns.len(), 1);
+        let attempts = &detail.turns[0].attempts;
+        assert_eq!(attempts.len(), 2);
+        assert_eq!(attempts[0].engine_id, "alva");
+        assert_eq!(attempts[0].status, "failed");
+        assert_eq!(
+            attempts[0].failure_reason.as_deref(),
+            Some("engine process died")
+        );
+        assert_eq!(attempts[1].engine_id, "claude");
+        assert_eq!(attempts[1].status, "running");
+
+        assert!(detail.handoffs.iter().any(
+            |handoff| handoff.kind == HandoffKind::Full && handoff.target.engine_id == "claude"
+        ));
+        let fallback_event = detail
+            .timeline_events
+            .iter()
+            .find(|event| event.kind == "engine_fallback")
+            .unwrap();
+        assert_eq!(fallback_event.source_engine_id, "alva");
+        assert_eq!(fallback_event.target_engine_id, "claude");
+        assert!(fallback_event.reason.contains("engine process died"));
+        assert!(fallback_event.reason.contains("handoff"));
+    }
+
+    #[test]
+    fn fallback_requires_session_authorization_and_a_different_engine() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let mut claude = EngineTarget::for_engine("claude").unwrap();
+        let prepared = store
+            .prepare_new_turn("product-fallback-auth", workspace.path(), "work", &alva)
+            .unwrap();
+        store
+            .set_session_fallback_policy("product-fallback-auth", vec![claude.clone()])
+            .unwrap();
+
+        let unauthorized = store
+            .fallback_failed_attempt(&prepared, "engine process died", &claude)
+            .unwrap_err();
+        assert!(unauthorized.contains("not authorized"));
+
+        let same_engine = store
+            .fallback_failed_attempt(&prepared, "engine process died", &alva)
+            .unwrap_err();
+        assert!(same_engine.contains("different engine"));
+
+        // The rejected fallback must leave the source attempt recoverable.
+        let detail = store.get_session("product-fallback-auth").unwrap().unwrap();
+        assert_eq!(detail.turns[0].attempts.len(), 1);
+        assert_eq!(detail.turns[0].attempts[0].status, "running");
+        assert_eq!(detail.session.engine_id, "alva");
+
+        claude.automatic_use_authorized = true;
+        store
+            .set_session_fallback_policy("product-fallback-auth", vec![claude.clone()])
+            .unwrap();
+        assert!(store
+            .fallback_failed_attempt(&prepared, "engine process died", &claude)
+            .is_ok());
+    }
+
+    #[test]
+    fn returning_to_the_fallback_source_branch_receives_the_fallback_turn_in_the_delta() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let mut claude = EngineTarget::for_engine("claude").unwrap();
+        claude.automatic_use_authorized = true;
+
+        let first = store
+            .prepare_new_turn(
+                "product-fallback-delta",
+                workspace.path(),
+                "first task",
+                &alva,
+            )
+            .unwrap();
+        store.record_engine_session(&first, "alva-native").unwrap();
+        store
+            .finish_turn(
+                &first,
+                Some("alva-native"),
+                Some("alva did the first task"),
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .set_session_fallback_policy("product-fallback-delta", vec![claude.clone()])
+            .unwrap();
+
+        let second = store
+            .prepare_resumed_turn("product-fallback-delta", "second task")
+            .unwrap();
+        let fallback = store
+            .fallback_failed_attempt(&second, "alva stream died", &claude)
+            .unwrap();
+        store
+            .finish_turn(
+                &fallback,
+                Some("claude-native"),
+                Some("claude completed the second task"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        store
+            .request_engine_switch(
+                "product-fallback-delta",
+                &EngineTarget::for_engine("alva").unwrap(),
+                "return to Alva",
+            )
+            .unwrap();
+        let resumed = store
+            .prepare_resumed_turn("product-fallback-delta", "third task")
+            .unwrap();
+        assert_eq!(resumed.engine_session_id.as_deref(), Some("alva-native"));
+        let handoff = resumed
+            .handoff
+            .expect("returning source receives a handoff");
+        assert_eq!(handoff.kind, HandoffKind::Delta);
+        // The turn the fallback engine completed happened after the source
+        // engine died — it must be part of the delta.
+        assert!(handoff
+            .completed_work
+            .iter()
+            .any(|work| work.result == "claude completed the second task"));
+        assert!(!handoff
+            .completed_work
+            .iter()
+            .any(|work| work.result == "alva did the first task"));
+    }
+
+    #[test]
+    fn next_authorized_fallback_target_follows_chain_order_and_skips_tried_engines() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let codex = EngineTarget::for_engine("codex").unwrap();
+        let mut claude = EngineTarget::for_engine("claude").unwrap();
+        claude.automatic_use_authorized = true;
+        store
+            .prepare_new_turn("product-chain", workspace.path(), "work", &alva)
+            .unwrap();
+        store
+            .set_session_fallback_policy("product-chain", vec![codex, claude])
+            .unwrap();
+
+        // codex is first in the chain but unauthorized; claude is next.
+        let selected = store
+            .next_authorized_fallback_target("product-chain", &["alva".to_string()])
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.engine_id, "claude");
+
+        let exhausted = store
+            .next_authorized_fallback_target(
+                "product-chain",
+                &["alva".to_string(), "claude".to_string()],
+            )
+            .unwrap();
+        assert!(exhausted.is_none());
     }
 
     #[test]

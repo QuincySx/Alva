@@ -46,13 +46,18 @@ async fn run_hub_prompt(
     state: State<'_, DesktopState>,
     request: RunRequest,
 ) -> Result<RunOutcome, String> {
-    let (workspace, engine_id) = state.execution_target(&request)?;
-    let engine = build_engine(&engine_id, &workspace, &state.history_dir)?;
-    run_persisted(&state.store, engine, request, move |event| {
-        if let Err(error) = app.emit("hub_timeline", event) {
-            tracing::warn!(%error, "failed to emit Hub timeline event");
-        }
-    })
+    let (workspace, _engine_id) = state.execution_target(&request)?;
+    let history_dir = state.history_dir.clone();
+    run_persisted(
+        &state.store,
+        move |target| build_engine(&target.engine_id, &workspace, &history_dir),
+        request,
+        move |event| {
+            if let Err(error) = app.emit("hub_timeline", event) {
+                tracing::warn!(%error, "failed to emit Hub timeline event");
+            }
+        },
+    )
     .await
 }
 

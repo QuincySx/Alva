@@ -5,8 +5,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_engine_runtime::{EngineRuntime, RuntimeEvent, RuntimeRequest, RuntimeUsage};
-use alva_hub_core::{HubRequest, HubRuntime, HubSessionStatus, ProductSessionId};
+use alva_engine_runtime::{
+    EngineRuntime, RuntimeError, RuntimeEvent, RuntimeRequest, RuntimeUsage,
+};
+use alva_hub_core::{HubError, HubRequest, HubRuntime, HubSessionStatus, ProductSessionId};
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
@@ -33,6 +35,7 @@ pub enum TimelineStatus {
     Completed,
     Failed,
     Interrupted,
+    Fallback,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -55,6 +58,10 @@ struct ExecutedTurn {
     engine_session_id: Option<String>,
     terminal_error: Option<String>,
     usage: Option<StoredUsage>,
+    /// True when the engine could not start or its stream died with a fatal
+    /// error — the terminal continuity failures that may trigger automatic
+    /// fallback. Persistence failures never set this.
+    continuity_failure: bool,
 }
 
 pub async fn run_once<F>(
@@ -85,14 +92,15 @@ where
     .outcome)
 }
 
-pub async fn run_persisted<F>(
+pub async fn run_persisted<F, B>(
     store: &HubStore,
-    engine: Arc<dyn EngineRuntime>,
+    build_engine: B,
     request: RunRequest,
     mut emit: F,
 ) -> Result<RunOutcome, String>
 where
     F: FnMut(TimelineEvent) + Send,
+    B: Fn(&EngineTarget) -> Result<Arc<dyn EngineRuntime>, String>,
 {
     validate_prompt(&request.prompt)?;
 
@@ -121,14 +129,12 @@ where
     };
 
     let mut prepared = prepared;
-    let mut execution = execute_persisted_turn(
-        store,
-        Arc::clone(&engine),
-        &prepared,
-        &request.prompt,
-        &mut emit,
-    )
-    .await?;
+    let mut execution = match build_engine(&prepared.target) {
+        Ok(engine) => {
+            execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
+        }
+        Err(error) => start_failure_execution(&prepared, error, &mut emit),
+    };
     if prepared.native_resume
         && execution
             .terminal_error
@@ -140,9 +146,59 @@ where
             .as_deref()
             .expect("native resume failure was checked above");
         prepared = store.upgrade_failed_native_resume(&prepared, failure_reason)?;
-        execution =
-            execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?;
+        execution = match build_engine(&prepared.target) {
+            Ok(engine) => {
+                execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
+            }
+            Err(error) => start_failure_execution(&prepared, error, &mut emit),
+        };
     }
+
+    // Basic automatic fallback: a terminal continuity failure continues the
+    // same Turn on the next policy target the user authorized for automatic
+    // use. Every target engine is tried at most once per Turn.
+    let mut tried_engine_ids = vec![prepared.target.engine_id.clone()];
+    while execution.continuity_failure {
+        let failure_reason = execution
+            .terminal_error
+            .clone()
+            .unwrap_or_else(|| "the engine terminated without a result".to_string());
+        let Some(target) = store
+            .next_authorized_fallback_target(&prepared.product_session_id, &tried_engine_ids)?
+        else {
+            break;
+        };
+        tried_engine_ids.push(target.engine_id.clone());
+        let source_engine_id = prepared.target.engine_id.clone();
+        prepared = store.fallback_failed_attempt(&prepared, &failure_reason, &target)?;
+        let handoff_summary = prepared
+            .handoff
+            .as_ref()
+            .map(|handoff| handoff.fallback_summary())
+            .unwrap_or_else(|| "full context".to_string());
+        emit(TimelineEvent {
+            status: TimelineStatus::Fallback,
+            engine_id: target.engine_id.clone(),
+            product_session_id: prepared.product_session_id.clone(),
+            message: Some(format!(
+                "{source_engine_id} → {}\n\n{failure_reason}\n\nHandoff: {handoff_summary}",
+                target.engine_id
+            )),
+        });
+        execution = match build_engine(&target) {
+            Ok(engine) => {
+                // The handoff counts as delivered only once the target engine
+                // actually starts executing with it; on a start failure it
+                // stays pending for recovery.
+                if let Some(handoff) = &prepared.handoff {
+                    store.mark_handoff_used(&handoff.handoff_id)?;
+                }
+                execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
+            }
+            Err(error) => start_failure_execution(&prepared, error, &mut emit),
+        };
+    }
+
     store.finish_turn(
         &prepared,
         execution.engine_session_id.as_deref(),
@@ -152,6 +208,33 @@ where
     )?;
     store.apply_pending_switch(&prepared.product_session_id)?;
     Ok(execution.outcome)
+}
+
+/// The engine could not even be assembled — a synchronous start failure. The
+/// prepared attempt, parked source branch, and persisted handoff all survive,
+/// so the session stays recoverable.
+fn start_failure_execution<F>(prepared: &PreparedTurn, error: String, emit: &mut F) -> ExecutedTurn
+where
+    F: FnMut(TimelineEvent) + Send,
+{
+    let message = format!("start Hub engine '{}': {error}", prepared.target.engine_id);
+    emit(TimelineEvent {
+        status: TimelineStatus::Failed,
+        engine_id: prepared.target.engine_id.clone(),
+        product_session_id: prepared.product_session_id.clone(),
+        message: Some(message.clone()),
+    });
+    ExecutedTurn {
+        outcome: RunOutcome {
+            product_session_id: prepared.product_session_id.clone(),
+            result: None,
+            failed: true,
+        },
+        engine_session_id: None,
+        terminal_error: Some(message),
+        usage: None,
+        continuity_failure: true,
+    }
 }
 
 async fn execute_persisted_turn<F>(
@@ -235,6 +318,7 @@ where
     let mut stream = match hub.execute(hub_request) {
         Ok(stream) => stream,
         Err(error) => {
+            let continuity_failure = is_continuity_start_failure(&error);
             let message = error.to_string();
             emit(TimelineEvent {
                 status: TimelineStatus::Failed,
@@ -251,6 +335,7 @@ where
                 engine_session_id: None,
                 terminal_error: Some(message),
                 usage: None,
+                continuity_failure,
             };
         }
     };
@@ -259,6 +344,7 @@ where
     let mut result = None;
     let mut engine_session_id = None;
     let mut usage = None;
+    let mut continuity_failure = false;
     while let Some(hub_event) = stream.next().await {
         match hub_event.event {
             RuntimeEvent::SessionStarted { session_id, .. } => {
@@ -328,6 +414,10 @@ where
                         message: Some(message.clone()),
                     });
                     terminal_error = Some(message);
+                    // Basic version: every fatal stream error counts as a
+                    // continuity failure. Ticket 09's failure matrix narrows
+                    // this so auth/quota errors stop instead of falling back.
+                    continuity_failure = true;
                 }
             }
             RuntimeEvent::Completed {
@@ -372,7 +462,15 @@ where
         engine_session_id,
         terminal_error,
         usage,
+        continuity_failure,
     }
+}
+
+fn is_continuity_start_failure(error: &HubError) -> bool {
+    matches!(
+        error,
+        HubError::Runtime(RuntimeError::ProcessError(_) | RuntimeError::NotReady(_))
+    )
 }
 
 fn capture_persistence_error<F>(
@@ -440,6 +538,12 @@ mod tests {
     use futures_core::Stream;
 
     use super::*;
+
+    fn single_engine<E: EngineRuntime + 'static>(
+        engine: Arc<E>,
+    ) -> impl Fn(&EngineTarget) -> Result<Arc<dyn EngineRuntime>, String> {
+        move |_| Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
+    }
 
     struct FakeEngine {
         events: Vec<RuntimeEvent>,
@@ -705,7 +809,7 @@ mod tests {
 
         let first = run_persisted(
             &store,
-            first_engine,
+            single_engine(first_engine),
             RunRequest {
                 prompt: "first turn".into(),
                 workspace: workspace.path().to_path_buf(),
@@ -742,7 +846,7 @@ mod tests {
 
         let second = run_persisted(
             &reopened,
-            second_engine,
+            single_engine(second_engine),
             RunRequest {
                 prompt: "second turn".into(),
                 workspace: workspace.path().to_path_buf(),
@@ -814,7 +918,7 @@ mod tests {
 
         let outcome = run_persisted(
             &store,
-            engine,
+            single_engine(engine),
             RunRequest {
                 prompt: "change it".into(),
                 workspace: workspace.path().to_path_buf(),
@@ -878,7 +982,7 @@ mod tests {
 
         let outcome = run_persisted(
             &reopened,
-            engine,
+            single_engine(engine),
             RunRequest {
                 prompt: "continue".into(),
                 workspace: PathBuf::from("ignored-for-resume"),
@@ -923,7 +1027,7 @@ mod tests {
         ]));
         let first = run_persisted(
             &store,
-            alva,
+            single_engine(alva),
             RunRequest {
                 prompt: "Implement the first task".into(),
                 workspace: workspace.path().to_path_buf(),
@@ -957,7 +1061,7 @@ mod tests {
         let claude_requests = Arc::clone(&claude.requests);
         run_persisted(
             &store,
-            claude,
+            single_engine(claude),
             RunRequest {
                 prompt: "Continue with Claude".into(),
                 workspace: workspace.path().to_path_buf(),
@@ -996,7 +1100,7 @@ mod tests {
         let resumed_requests = Arc::clone(&resumed_alva.requests);
         run_persisted(
             &store,
-            resumed_alva,
+            single_engine(resumed_alva),
             RunRequest {
                 prompt: "Resume the Alva branch".into(),
                 workspace: workspace.path().to_path_buf(),
@@ -1065,7 +1169,7 @@ mod tests {
         });
         let outcome = run_persisted(
             &store,
-            engine,
+            single_engine(engine),
             RunRequest {
                 prompt: "finish it".into(),
                 workspace: workspace.path().to_path_buf(),
@@ -1101,5 +1205,385 @@ mod tests {
         assert_eq!(latest_turn.attempts.len(), 2);
         assert_eq!(latest_turn.attempts[0].status, "failed");
         assert_eq!(latest_turn.attempts[1].status, "completed");
+    }
+
+    struct StartFailingEngine;
+
+    #[async_trait]
+    impl EngineRuntime for StartFailingEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Err(RuntimeError::ProcessError("alva process died".into()))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: true,
+                permission_callback: true,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    fn authorized_claude() -> crate::store::EngineTarget {
+        let mut claude = crate::store::EngineTarget::for_engine("claude").unwrap();
+        claude.automatic_use_authorized = true;
+        claude
+    }
+
+    #[tokio::test]
+    async fn terminal_continuity_failure_falls_back_to_next_authorized_engine_in_same_turn() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+
+        let alva = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "alva-native".into(),
+                model: None,
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Error {
+                message: "engine stream died mid-run".into(),
+                recoverable: false,
+            },
+        ]));
+        let claude = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "claude-native".into(),
+                model: None,
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Completed {
+                session_id: "claude-native".into(),
+                result: Some("claude finished the work".into()),
+                usage: None,
+            },
+        ]));
+        let claude_requests = Arc::clone(&claude.requests);
+
+        let mut timeline = Vec::new();
+        let outcome = run_persisted(
+            &store,
+            {
+                let alva = Arc::clone(&alva);
+                let claude = Arc::clone(&claude);
+                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                    "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
+                    "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
+                    other => Err(format!("unexpected engine '{other}'")),
+                }
+            },
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |event| timeline.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        assert_eq!(outcome.result.as_deref(), Some("claude finished the work"));
+
+        // The persisted handoff was injected before the target executed.
+        let claude_prompt = claude_requests.lock().unwrap()[0].prompt.clone();
+        assert!(claude_prompt.contains("<alva-hub-handoff kind=\"full\""));
+        assert!(claude_prompt.contains("do the work"));
+
+        let fallback = timeline
+            .iter()
+            .find(|event| event.status == TimelineStatus::Fallback)
+            .expect("a fallback timeline card was emitted");
+        assert_eq!(fallback.engine_id, "claude");
+        let message = fallback.message.as_deref().unwrap();
+        assert!(message.contains("alva → claude"));
+        assert!(message.contains("engine stream died mid-run"));
+        assert!(message.contains("Handoff: full context"));
+
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.session.engine_id, "claude");
+        assert_eq!(detail.turns.len(), 1);
+        assert_eq!(detail.turns[0].status, "completed");
+        let attempts = &detail.turns[0].attempts;
+        assert_eq!(attempts.len(), 2);
+        assert_eq!(attempts[0].engine_id, "alva");
+        assert_eq!(attempts[0].status, "failed");
+        assert_eq!(
+            attempts[0].failure_reason.as_deref(),
+            Some("engine stream died mid-run")
+        );
+        assert_eq!(attempts[1].engine_id, "claude");
+        assert_eq!(attempts[1].status, "completed");
+        assert!(detail
+            .branches
+            .iter()
+            .any(|branch| branch.engine_id == "alva" && branch.status == "parked"));
+        assert!(detail
+            .branches
+            .iter()
+            .any(|branch| branch.engine_id == "claude" && branch.status == "active"));
+        assert!(detail
+            .timeline_events
+            .iter()
+            .any(|event| event.kind == "engine_fallback"));
+        // The delivered handoff is marked used.
+        assert!(detail
+            .handoffs
+            .iter()
+            .find(|handoff| handoff.target.engine_id == "claude")
+            .unwrap()
+            .used_at
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn fallback_chain_tries_each_authorized_engine_once_in_order() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let mut codex = crate::store::EngineTarget::for_engine("codex").unwrap();
+        codex.automatic_use_authorized = true;
+        store
+            .set_global_fallback_policy(vec![authorized_claude(), codex])
+            .unwrap();
+
+        let dying_events = vec![RuntimeEvent::Error {
+            message: "engine stream died mid-run".into(),
+            recoverable: false,
+        }];
+        let alva = Arc::new(FakeEngine::new(dying_events.clone()));
+        let claude = Arc::new(FakeEngine::new(dying_events));
+        let codex_engine = Arc::new(FakeEngine::new(vec![RuntimeEvent::Completed {
+            session_id: "codex-native".into(),
+            result: Some("codex finished it".into()),
+            usage: None,
+        }]));
+
+        let outcome = run_persisted(
+            &store,
+            {
+                let alva = Arc::clone(&alva);
+                let claude = Arc::clone(&claude);
+                let codex_engine = Arc::clone(&codex_engine);
+                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                    "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
+                    "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
+                    "codex" => Ok(Arc::clone(&codex_engine) as Arc<dyn EngineRuntime>),
+                    other => Err(format!("unexpected engine '{other}'")),
+                }
+            },
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        assert_eq!(outcome.result.as_deref(), Some("codex finished it"));
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.session.engine_id, "codex");
+        assert_eq!(detail.turns[0].status, "completed");
+        let engines: Vec<_> = detail.turns[0]
+            .attempts
+            .iter()
+            .map(|attempt| attempt.engine_id.as_str())
+            .collect();
+        assert_eq!(engines, vec!["alva", "claude", "codex"]);
+        // Each engine executed exactly once.
+        assert_eq!(alva.requests.lock().unwrap().len(), 1);
+        assert_eq!(claude.requests.lock().unwrap().len(), 1);
+        assert_eq!(codex_engine.requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_engine_build_after_native_resume_upgrade_finishes_the_turn() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = crate::store::EngineTarget::for_engine("alva").unwrap();
+        let first = store
+            .prepare_new_turn("product-upgrade-build", workspace.path(), "start", &alva)
+            .unwrap();
+        store
+            .record_engine_session(&first, "expired-native")
+            .unwrap();
+        store
+            .finish_turn(&first, Some("expired-native"), Some("done"), None, None)
+            .unwrap();
+
+        let builds = Arc::new(Mutex::new(0usize));
+        let outcome = run_persisted(
+            &store,
+            {
+                let builds = Arc::clone(&builds);
+                move |_target: &crate::store::EngineTarget| {
+                    let mut builds = builds.lock().unwrap();
+                    *builds += 1;
+                    if *builds == 1 {
+                        Ok(Arc::new(ResumeFailureThenFreshEngine {
+                            requests: Arc::new(Mutex::new(Vec::new())),
+                        }) as Arc<dyn EngineRuntime>)
+                    } else {
+                        Err("provider configuration vanished".to_string())
+                    }
+                }
+            },
+            RunRequest {
+                prompt: "continue".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some("product-upgrade-build".into()),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.failed);
+        // The turn is finished — the session must not be wedged in running.
+        let detail = store.get_session("product-upgrade-build").unwrap().unwrap();
+        assert_ne!(detail.session.status, "running");
+        let latest_turn = detail.turns.last().unwrap();
+        assert_eq!(latest_turn.status, "failed");
+        assert!(latest_turn
+            .attempts
+            .iter()
+            .all(|attempt| attempt.status != "running"));
+    }
+
+    #[tokio::test]
+    async fn fallback_target_start_failure_keeps_source_and_handoff_recoverable() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+
+        let outcome = run_persisted(
+            &store,
+            |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
+                _ => Err("claude binary is missing".to_string()),
+            },
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.failed);
+
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.turns[0].status, "failed");
+        let attempts = &detail.turns[0].attempts;
+        assert_eq!(attempts.len(), 2);
+        assert_eq!(attempts[0].engine_id, "alva");
+        assert_eq!(attempts[0].status, "failed");
+        assert_eq!(attempts[1].engine_id, "claude");
+        assert_eq!(attempts[1].status, "failed");
+        assert!(attempts[1]
+            .failure_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("claude binary is missing")));
+
+        // Source branch and the pending handoff survive for recovery — the
+        // handoff was never delivered, so it must still be unused.
+        assert!(detail
+            .branches
+            .iter()
+            .any(|branch| branch.engine_id == "alva" && branch.status == "parked"));
+        let handoff = detail
+            .handoffs
+            .iter()
+            .find(|handoff| handoff.target.engine_id == "claude")
+            .unwrap();
+        assert!(handoff.used_at.is_none());
+        assert_ne!(detail.session.status, "running");
+    }
+
+    #[tokio::test]
+    async fn continuity_failure_without_authorization_fails_without_fallback() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let mut unauthorized = crate::store::EngineTarget::for_engine("claude").unwrap();
+        unauthorized.automatic_use_authorized = false;
+        store
+            .set_global_fallback_policy(vec![unauthorized])
+            .unwrap();
+
+        let outcome = run_persisted(
+            &store,
+            |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
+                other => Err(format!(
+                    "engine '{other}' must not be built without authorization"
+                )),
+            },
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.failed);
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.turns[0].attempts.len(), 1);
+        assert_eq!(detail.session.engine_id, "alva");
+        assert!(detail
+            .timeline_events
+            .iter()
+            .all(|event| event.kind != "engine_fallback"));
     }
 }

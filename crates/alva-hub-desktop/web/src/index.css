@@ -498,6 +498,11 @@ select {
   background: #6f7a92;
 }
 
+.status-fallback span {
+  background: #e4a85d;
+  box-shadow: 0 0 10px #e4a85d;
+}
+
 .timeline {
   display: flex;
   overflow-y: auto;
@@ -572,6 +577,11 @@ select {
 
 .timeline-cancelled {
   border-color: rgba(127, 137, 160, 0.3);
+}
+
+.timeline-fallback {
+  border-color: rgba(228, 168, 93, 0.5);
+  background: rgba(228, 168, 93, 0.06);
 }
 
 .timeline-meta {

@@ -99,7 +99,9 @@ function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
         ? ("queued" as const)
         : event.kind === "engine_switch_cancelled"
           ? ("cancelled" as const)
-          : ("switched" as const),
+          : event.kind === "engine_fallback"
+            ? ("fallback" as const)
+            : ("switched" as const),
     engine_id: event.target_engine_id,
     product_session_id: detail.session.product_session_id,
     message: `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
@@ -197,6 +199,8 @@ export default function App() {
         return "Engine switched";
       case "cancelled":
         return "Engine switch cancelled";
+      case "fallback":
+        return "Automatic fallback";
       default:
         return "Ready";
     }
