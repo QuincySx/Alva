@@ -16,6 +16,7 @@
 6. runtime events 与 switch facts 被投影为稳定 timeline states。
 7. `main` 从 Tauri app-data 初始化 store，并暴露运行、切换、列表和详情 IPC。
 8. `main` 暴露全局与单 session fallback policy IPC；自动使用必须来自当前 session snapshot 的明确授权。
+9. `readiness` 用只读 `EngineProbe` facts（PATH 发现、`--version`、凭证存在性、attempt 历史）分类出结构化 EngineReadiness；`main` 以 `SystemProbe` 暴露 readiness IPC。
 
 ## 约束
 
@@ -24,6 +25,7 @@
 - terminal error 不得再投影为成功状态。
 - restart resume 只从持久化 workspace 和 native session 映射恢复，不信任 UI 覆盖。
 - 同一 MainlineSession 的 running EngineAttempt 由 SQLite partial unique index 强制唯一。
+- readiness probe 只读：不执行 engine run，不写 binary/model/account/权限配置；原因是结构化 reason code 而非 stderr 文本；capabilities 来自 adapter `RuntimeCapabilities`，不手写。
 
 ## 业务域清单
 
@@ -32,5 +34,6 @@
 | Crate facade | `lib.rs` | 导出 run seam 与 DTO |
 | Engine assembly | `alva.rs` | Alva provider/catalog、Claude light 与 Codex safe-default 装配 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、事件投影与结果 |
+| Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
 | SQLite store | `store.rs` | identity、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
-| Desktop entry | `main.rs` | Tauri plugin、运行/切换/policy command 和 event bridge |
+| Desktop entry | `main.rs` | Tauri plugin、运行/切换/policy/readiness command 和 event bridge |

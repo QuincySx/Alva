@@ -18,6 +18,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 7. Tauri command 把用户运行/切换请求转换为 Hub 产品操作，并把 timeline event 发给 React。
 8. React/Vite/TypeScript 前端负责 session list、workspace、engine selector、composer 和 timeline。
 9. 用户保存全局或 session fallback chain 前可看到 target 的 model/provider、账号、账单路径和自动使用授权；手动切换不授予自动 fallback 权限。
+10. Engines dashboard 自动发现三个 engine 并展示版本兼容性、capabilities、auth 与 stream health；不可用原因是结构化 reason，可从 composer 与详情到达；刷新只读。
 
 ## 约束
 
@@ -32,6 +33,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 |---|---|---|
 | Product seam | `src/run.rs` | 动态 engine Hub 运行、完整 handoff 注入与 timeline 投影 |
 | Engine assembly | `src/alva.rs` | 为 workspace 构造 Alva、Claude light 或 Codex adapter |
+| Engine readiness | `src/readiness.rs` | 只读 probe、结构化 readiness 分类与 dashboard DTO |
 | Session store | `src/store.rs` | 私有 SQLite policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
 | Tauri entry | `src/main.rs` | 运行/切换 IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |

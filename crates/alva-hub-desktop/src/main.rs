@@ -10,8 +10,9 @@
 use std::path::PathBuf;
 
 use alva_hub_desktop::{
-    build_engine, run_persisted, EngineTarget, FallbackPolicy, HubSessionDetail, HubSessionSummary,
-    HubStore, RunOutcome, RunRequest, SwitchOutcome,
+    build_engine, probe_readiness, run_persisted, EngineReadiness, EngineTarget, FallbackPolicy,
+    HubSessionDetail, HubSessionSummary, HubStore, RunOutcome, RunRequest, SwitchOutcome,
+    SystemProbe,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -111,6 +112,19 @@ fn set_session_fallback_policy(
         .set_session_fallback_policy(&product_session_id, targets)
 }
 
+#[tauri::command]
+async fn get_engine_readiness(
+    state: State<'_, DesktopState>,
+    workspace: Option<String>,
+) -> Result<Vec<EngineReadiness>, String> {
+    // The probe copies its store evidence up front, so the slow CLI probing
+    // (`--version` child processes) runs off the IPC thread.
+    let probe = SystemProbe::new(Some(&state.store), workspace.map(PathBuf::from));
+    tauri::async_runtime::spawn_blocking(move || probe_readiness(&probe))
+        .await
+        .map_err(|error| format!("engine readiness probe task failed: {error}"))
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -138,7 +152,8 @@ fn main() {
             get_hub_session,
             get_global_fallback_policy,
             set_global_fallback_policy,
-            set_session_fallback_policy
+            set_session_fallback_policy,
+            get_engine_readiness
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

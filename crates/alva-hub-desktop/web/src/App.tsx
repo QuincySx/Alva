@@ -2,9 +2,10 @@
 // OUTPUT: engine selection, fallback authorization, durable branches, composer, timeline UI
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   chooseWorkspace,
+  getEngineReadiness,
   getGlobalFallbackPolicy,
   getHubSession,
   listHubSessions,
@@ -13,10 +14,12 @@ import {
   setGlobalFallbackPolicy,
   setSessionFallbackPolicy,
   switchHubEngine,
+  type EngineReadiness,
   type EngineTarget,
   type FallbackPolicy,
   type HubSessionDetail,
   type HubSessionSummary,
+  type ReadinessReason,
   type TimelineEvent,
 } from "./bridge";
 
@@ -49,6 +52,31 @@ const engineCatalog: EngineTarget[] = [
     required_capabilities: [],
   },
 ];
+
+function describeReadinessReason(reason: ReadinessReason): string {
+  switch (reason.code) {
+    case "binary_not_found":
+      return `Not installed — searched ${reason.searched.join(", ") || "PATH"}.`;
+    case "version_unreadable":
+      return `Version check failed: ${reason.detail}`;
+    case "version_incompatible":
+      return `Version ${reason.found} is older than the required ${reason.minimum}.`;
+    case "unauthenticated":
+      return reason.remedy;
+    case "provider_key_missing":
+      return reason.remedy;
+    case "stream_failing":
+      return `Streaming is failing: ${reason.last_failure}`;
+  }
+}
+
+const readinessBadge: Record<EngineReadiness["status"], string> = {
+  healthy: "Healthy",
+  missing: "Not installed",
+  incompatible: "Incompatible",
+  unauthenticated: "Sign-in needed",
+  unhealthy: "Unhealthy",
+};
 
 function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
   const turns = detail.turns.map((turn) => ({
@@ -97,6 +125,11 @@ export default function App() {
   const [policySaving, setPolicySaving] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [readiness, setReadiness] = useState<EngineReadiness[]>([]);
+  const [readinessBusy, setReadinessBusy] = useState(false);
+  // Logic value: identifies the newest in-flight readiness request so a stale
+  // response can never overwrite a fresher one.
+  const readinessRequestRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -122,6 +155,30 @@ export default function App() {
     void refreshSessions();
     void loadGlobalFallbackPolicy().catch(appendLocalFailure);
   }, []);
+
+  useEffect(() => {
+    void refreshReadiness(workspace || null);
+  }, [workspace]);
+
+  async function refreshReadiness(workspacePath: string | null) {
+    const requestId = readinessRequestRef.current + 1;
+    readinessRequestRef.current = requestId;
+    setReadinessBusy(true);
+    try {
+      const report = await getEngineReadiness(workspacePath);
+      if (readinessRequestRef.current === requestId) {
+        setReadiness(report);
+      }
+    } catch (error) {
+      if (readinessRequestRef.current === requestId) {
+        appendLocalFailure(error);
+      }
+    } finally {
+      if (readinessRequestRef.current === requestId) {
+        setReadinessBusy(false);
+      }
+    }
+  }
 
   const latest = timeline.at(-1);
   const statusLabel = useMemo(() => {
@@ -352,6 +409,61 @@ export default function App() {
           </div>
         </section>
 
+        <section className="readiness-panel">
+          <div className="session-heading">
+            <span className="eyebrow">Engines</span>
+            <button
+              className="readiness-refresh"
+              disabled={readinessBusy}
+              onClick={() => void refreshReadiness(workspace || null)}
+              type="button"
+            >
+              {readinessBusy ? "Checking…" : "Refresh"}
+            </button>
+          </div>
+          <div className="readiness-list">
+            {readiness.length === 0 ? (
+              <small className="session-empty">
+                Engine health will appear here.
+              </small>
+            ) : (
+              readiness.map((engine) => (
+                <div className="readiness-card" key={engine.engine_id}>
+                  <div className="readiness-heading">
+                    <strong>{engine.display_name}</strong>
+                    <span className={`readiness-badge readiness-${engine.status}`}>
+                      {readinessBadge[engine.status]}
+                    </span>
+                  </div>
+                  <small>
+                    {engine.version
+                      ? `v${engine.version} · requires ≥ ${engine.minimum_version}`
+                      : `requires ≥ ${engine.minimum_version}`}
+                    {" · "}
+                    {engine.authenticated === true
+                      ? "signed in"
+                      : engine.authenticated === false
+                        ? "not signed in"
+                        : "sign-in unknown"}
+                    {" · stream "}
+                    {engine.stream_health}
+                  </small>
+                  {engine.capabilities.length > 0 ? (
+                    <small className="readiness-capabilities">
+                      {engine.capabilities.join(" · ")}
+                    </small>
+                  ) : null}
+                  {engine.reasons.map((reason, index) => (
+                    <small className="readiness-reason" key={`${reason.code}-${index}`}>
+                      {describeReadinessReason(reason)}
+                    </small>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
         <section className="fallback-panel">
           <div className="session-heading">
             <span className="eyebrow">
@@ -444,9 +556,23 @@ export default function App() {
               value={pendingEngine ?? engine}
               onChange={(event) => void selectEngine(event.target.value)}
             >
-              <option value="alva">Alva</option>
-              <option value="claude">Claude</option>
-              <option value="codex">Codex</option>
+              {engineCatalog.map((target) => {
+                const health = readiness.find(
+                  (candidate) => candidate.engine_id === target.engine_id,
+                );
+                const suffix =
+                  health && health.status !== "healthy"
+                    ? ` — ${readinessBadge[health.status]}`
+                    : "";
+                const label =
+                  health?.display_name ??
+                  `${target.engine_id.charAt(0).toUpperCase()}${target.engine_id.slice(1)}`;
+                return (
+                  <option key={target.engine_id} value={target.engine_id}>
+                    {`${label}${suffix}`}
+                  </option>
+                );
+              })}
             </select>
             {pendingEngine ? <small>Queued after the current run</small> : null}
           </div>
@@ -491,6 +617,26 @@ export default function App() {
             ))
           )}
         </section>
+
+        {(() => {
+          const selectedId = pendingEngine ?? engine;
+          const health = readiness.find(
+            (candidate) => candidate.engine_id === selectedId,
+          );
+          if (!health || health.status === "healthy") return null;
+          return (
+            <div className="composer-readiness" role="status">
+              <strong>
+                {health.display_name} · {readinessBadge[health.status]}
+              </strong>
+              {health.reasons.map((reason, index) => (
+                <small key={`${reason.code}-${index}`}>
+                  {describeReadinessReason(reason)}
+                </small>
+              ))}
+            </div>
+          );
+        })()}
 
         <form className="composer" onSubmit={submit}>
           <textarea

@@ -464,6 +464,26 @@ impl HubStore {
             .any(|candidate| candidate == target && candidate.automatic_use_authorized))
     }
 
+    /// Most recent terminal attempt outcome (status, failure_reason) for an
+    /// engine across all sessions — read-only stream-health evidence for the
+    /// readiness dashboard.
+    pub fn latest_attempt_outcome(
+        &self,
+        engine_id: &str,
+    ) -> Result<Option<(String, Option<String>)>, String> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT status, failure_reason FROM engine_attempts
+                  WHERE engine_id = ?1 AND status != ?2
+                  ORDER BY started_at DESC, completed_at DESC LIMIT 1",
+                params![engine_id, STATUS_RUNNING],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| format!("query latest Hub attempt outcome: {error}"))
+    }
+
     pub fn request_engine_switch(
         &self,
         product_session_id: &str,
@@ -3008,5 +3028,37 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(detail.fallback_policy.targets, vec![codex]);
+    }
+
+    #[test]
+    fn latest_attempt_outcome_reports_terminal_evidence_per_engine() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        assert_eq!(store.latest_attempt_outcome("alva").unwrap(), None);
+
+        let failed = store
+            .prepare_new_turn("product-outcome", workspace.path(), "first", &alva)
+            .unwrap();
+        store
+            .finish_turn(&failed, None, None, Some("stream ended early"), None)
+            .unwrap();
+        assert_eq!(
+            store.latest_attempt_outcome("alva").unwrap(),
+            Some(("failed".to_string(), Some("stream ended early".to_string())))
+        );
+
+        let completed = store
+            .prepare_resumed_turn("product-outcome", "second")
+            .unwrap();
+        store
+            .finish_turn(&completed, None, Some("done"), None, None)
+            .unwrap();
+        assert_eq!(
+            store.latest_attempt_outcome("alva").unwrap(),
+            Some(("completed".to_string(), None))
+        );
+        assert_eq!(store.latest_attempt_outcome("claude").unwrap(), None);
     }
 }

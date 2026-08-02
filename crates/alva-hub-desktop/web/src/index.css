@@ -160,6 +160,122 @@ h1 {
   gap: 7px;
 }
 
+.readiness-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid rgba(132, 145, 186, 0.15);
+  border-radius: 15px;
+  background: rgba(21, 27, 47, 0.52);
+}
+
+.readiness-refresh {
+  padding: 4px 9px;
+  border: 1px solid rgba(130, 144, 195, 0.2);
+  border-radius: 7px;
+  color: #9da9c5;
+  background: #1b2239;
+  font-size: 10px;
+}
+
+.readiness-refresh:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.readiness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.readiness-card {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid rgba(130, 144, 195, 0.16);
+  border-radius: 10px;
+  background: rgba(27, 34, 57, 0.6);
+}
+
+.readiness-card small {
+  color: #78839b;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.readiness-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.readiness-heading strong {
+  color: #d3daf1;
+  font-size: 12px;
+}
+
+.readiness-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.readiness-healthy {
+  color: #50c897;
+  background: rgba(80, 200, 151, 0.14);
+}
+
+.readiness-missing {
+  color: #929db6;
+  background: rgba(111, 122, 146, 0.2);
+}
+
+.readiness-incompatible,
+.readiness-unhealthy {
+  color: #ee6f79;
+  background: rgba(238, 111, 121, 0.14);
+}
+
+.readiness-unauthenticated {
+  color: #e4a85d;
+  background: rgba(228, 168, 93, 0.15);
+}
+
+.readiness-capabilities {
+  color: #68738b;
+}
+
+.readiness-reason {
+  color: #e4a85d;
+}
+
+.composer-readiness {
+  display: grid;
+  gap: 3px;
+  margin: 0 max(28px, calc((100% - 760px) / 2)) 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(228, 168, 93, 0.3);
+  border-radius: 12px;
+  background: rgba(228, 168, 93, 0.08);
+}
+
+.composer-readiness strong {
+  color: #e4a85d;
+  font-size: 11px;
+}
+
+.composer-readiness small {
+  color: #b7a58a;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .fallback-panel {
   display: flex;
   flex-direction: column;
@@ -543,7 +659,8 @@ textarea::placeholder {
     padding-left: 18px;
   }
 
-  .composer {
+  .composer,
+  .composer-readiness {
     margin-right: 18px;
     margin-left: 18px;
   }

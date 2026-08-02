@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/run/switch/policy/timeline plus persisted Hub IPC DTOs
+// OUTPUT: workspace/run/switch/policy/readiness/timeline plus persisted Hub IPC DTOs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -143,6 +143,36 @@ export interface StoredTimelineEvent {
   created_at: number;
 }
 
+export type ReadinessStatus =
+  | "healthy"
+  | "missing"
+  | "incompatible"
+  | "unauthenticated"
+  | "unhealthy";
+
+export type StreamHealth = "ok" | "untested" | "failing";
+
+export type ReadinessReason =
+  | { code: "binary_not_found"; searched: string[] }
+  | { code: "version_unreadable"; detail: string }
+  | { code: "version_incompatible"; found: string; minimum: string }
+  | { code: "unauthenticated"; remedy: string }
+  | { code: "provider_key_missing"; remedy: string }
+  | { code: "stream_failing"; last_failure: string };
+
+export interface EngineReadiness {
+  engine_id: string;
+  display_name: string;
+  status: ReadinessStatus;
+  binary_path: string | null;
+  version: string | null;
+  minimum_version: string;
+  capabilities: string[];
+  authenticated: boolean | null;
+  stream_health: StreamHealth;
+  reasons: ReadinessReason[];
+}
+
 export interface SwitchOutcome {
   disposition: "applied" | "queued";
   active_branch_id: string;
@@ -224,6 +254,13 @@ export async function setSessionFallbackPolicy(
     productSessionId,
     targets,
   });
+}
+
+export async function getEngineReadiness(
+  workspace: string | null,
+): Promise<EngineReadiness[]> {
+  if (!hasTauri) return [];
+  return await invoke<EngineReadiness[]>("get_engine_readiness", { workspace });
 }
 
 export async function listenTimeline(
