@@ -160,6 +160,98 @@ h1 {
   gap: 7px;
 }
 
+.fallback-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid rgba(132, 145, 186, 0.15);
+  border-radius: 15px;
+  background: rgba(21, 27, 47, 0.52);
+}
+
+.policy-note,
+.policy-target small {
+  margin: 0;
+  color: #78839b;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.policy-catalog,
+.policy-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.policy-engine,
+.policy-order button {
+  border: 1px solid rgba(130, 144, 195, 0.2);
+  border-radius: 7px;
+  color: #9da9c5;
+  background: #1b2239;
+  font-size: 10px;
+}
+
+.policy-engine {
+  padding: 5px 7px;
+}
+
+.policy-engine.selected {
+  border-color: rgba(120, 137, 247, 0.6);
+  color: #d5dcff;
+  background: rgba(67, 81, 172, 0.42);
+}
+
+.policy-target {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid rgba(130, 144, 195, 0.15);
+  border-radius: 9px;
+  background: rgba(10, 14, 28, 0.5);
+}
+
+.policy-target > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.policy-target strong {
+  color: #cbd4ea;
+  font-size: 11px;
+}
+
+.policy-authorize {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  color: #b4bfd8;
+  font-size: 10px;
+}
+
+.policy-authorize input {
+  accent-color: #7184ed;
+}
+
+.policy-order button {
+  width: 23px;
+  height: 22px;
+}
+
+.policy-order button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.policy-save {
+  margin-top: 2px;
+}
+
 .session-item {
   display: grid;
   gap: 4px;

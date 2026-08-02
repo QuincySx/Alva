@@ -1,6 +1,6 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/run/switch/timeline plus persisted branch/handoff IPC DTOs
-// POS:    Typed multi-engine IPC boundary between React and Hub Desktop commands.
+// OUTPUT: workspace/run/switch/policy/timeline plus persisted Hub IPC DTOs
+// POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -95,6 +95,7 @@ export interface HubSessionDetail {
   branches: StoredBranch[];
   timeline_events: StoredTimelineEvent[];
   pending_switch: PendingSwitch | null;
+  fallback_policy: FallbackPolicy;
 }
 
 export interface StoredBranch {
@@ -112,6 +113,15 @@ export interface EngineTarget {
   engine_id: string;
   model_id: string;
   provider_id: string;
+  account_source: string;
+  billing_route: string;
+  automatic_use_authorized: boolean;
+  required_capabilities: string[];
+}
+
+export interface FallbackPolicy {
+  targets: EngineTarget[];
+  updated_at: number;
 }
 
 export interface PendingSwitch {
@@ -184,6 +194,35 @@ export async function getHubSession(
   if (!hasTauri) return null;
   return await invoke<HubSessionDetail | null>("get_hub_session", {
     productSessionId,
+  });
+}
+
+export async function getGlobalFallbackPolicy(): Promise<FallbackPolicy> {
+  if (!hasTauri) {
+    return { targets: [], updated_at: 0 };
+  }
+  return await invoke<FallbackPolicy>("get_global_fallback_policy");
+}
+
+export async function setGlobalFallbackPolicy(
+  targets: EngineTarget[],
+): Promise<FallbackPolicy> {
+  if (!hasTauri) {
+    throw new Error("Fallback settings require the ALVA Hub desktop runtime.");
+  }
+  return await invoke<FallbackPolicy>("set_global_fallback_policy", { targets });
+}
+
+export async function setSessionFallbackPolicy(
+  productSessionId: string,
+  targets: EngineTarget[],
+): Promise<FallbackPolicy> {
+  if (!hasTauri) {
+    throw new Error("Fallback settings require the ALVA Hub desktop runtime.");
+  }
+  return await invoke<FallbackPolicy>("set_session_fallback_policy", {
+    productSessionId,
+    targets,
   });
 }
 

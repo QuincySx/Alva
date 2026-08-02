@@ -10,13 +10,14 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 ## 逻辑
 
 1. 产品控制器通过 `EngineRuntime` seam 驱动 `HubRuntime`。
-2. `HubStore` 以 Desktop 私有 SQLite 持久化 product session、多 EngineBranch、switch、handoff、timeline、Turn 和 EngineAttempt。
+2. `HubStore` 以 Desktop 私有 SQLite 持久化 product session、session-scoped FallbackPolicy snapshot、多 EngineBranch、switch、handoff、timeline、Turn 和 EngineAttempt。
 3. Attempt 运行中增量记录 native session 与工具开始/完成证据，终态记录 usage/失败原因。
 4. 用户显式选择 Alva/Claude/Codex；源 branch parked 并保留 native session，目标 branch 创建或恢复。
 5. 首次进入目标 branch 注入完整 HandoffPackage；返回 parked branch 以 watermark 生成 delta 并先 native resume，失效时原子升级 full handoff 后 fresh 执行。
 6. 运行中切换排队到安全终态；启动修复 running Attempt 后自动应用可执行的 pending switch。
 7. Tauri command 把用户运行/切换请求转换为 Hub 产品操作，并把 timeline event 发给 React。
 8. React/Vite/TypeScript 前端负责 session list、workspace、engine selector、composer 和 timeline。
+9. 用户保存全局或 session fallback chain 前可看到 target 的 model/provider、账号、账单路径和自动使用授权；手动切换不授予自动 fallback 权限。
 
 ## 约束
 
@@ -31,7 +32,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 |---|---|---|
 | Product seam | `src/run.rs` | 动态 engine Hub 运行、完整 handoff 注入与 timeline 投影 |
 | Engine assembly | `src/alva.rs` | 为 workspace 构造 Alva、Claude light 或 Codex adapter |
-| Session store | `src/store.rs` | 私有 SQLite branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
+| Session store | `src/store.rs` | 私有 SQLite policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
 | Tauri entry | `src/main.rs` | 运行/切换 IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |
 | Web frontend | `web/` | React/Vite/TypeScript workspace、composer 与 timeline |

@@ -1,19 +1,54 @@
 // INPUT:  React hooks, bridge workspace/run/timeline/session functions
-// OUTPUT: engine selection, durable branches, interrupted recovery, composer, timeline UI
-// POS:    Primary Hub Desktop product surface for reversible Alva/Claude/Codex sessions.
+// OUTPUT: engine selection, fallback authorization, durable branches, composer, timeline UI
+// POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   chooseWorkspace,
+  getGlobalFallbackPolicy,
   getHubSession,
   listHubSessions,
   listenTimeline,
   runHubPrompt,
+  setGlobalFallbackPolicy,
+  setSessionFallbackPolicy,
   switchHubEngine,
+  type EngineTarget,
+  type FallbackPolicy,
   type HubSessionDetail,
   type HubSessionSummary,
   type TimelineEvent,
 } from "./bridge";
+
+const engineCatalog: EngineTarget[] = [
+  {
+    engine_id: "alva",
+    model_id: "workspace-config",
+    provider_id: "workspace-config",
+    account_source: "Workspace provider configuration",
+    billing_route: "Workspace provider account",
+    automatic_use_authorized: false,
+    required_capabilities: [],
+  },
+  {
+    engine_id: "claude",
+    model_id: "engine-default",
+    provider_id: "claude-cli",
+    account_source: "Claude Code CLI account",
+    billing_route: "Anthropic account via Claude CLI",
+    automatic_use_authorized: false,
+    required_capabilities: [],
+  },
+  {
+    engine_id: "codex",
+    model_id: "engine-default",
+    provider_id: "codex-cli",
+    account_source: "Codex CLI account",
+    billing_route: "OpenAI account via Codex CLI",
+    automatic_use_authorized: false,
+    required_capabilities: [],
+  },
+];
 
 function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
   const turns = detail.turns.map((turn) => ({
@@ -55,6 +90,11 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
   const [pendingEngine, setPendingEngine] = useState<string | null>(null);
+  const [fallbackPolicy, setFallbackPolicy] = useState<FallbackPolicy>({
+    targets: [],
+    updated_at: 0,
+  });
+  const [policySaving, setPolicySaving] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -80,6 +120,7 @@ export default function App() {
 
   useEffect(() => {
     void refreshSessions();
+    void loadGlobalFallbackPolicy().catch(appendLocalFailure);
   }, []);
 
   const latest = timeline.at(-1);
@@ -113,6 +154,7 @@ export default function App() {
         setEngine("alva");
         setPendingEngine(null);
         setTimeline([]);
+        await loadGlobalFallbackPolicy();
       }
     } catch (error) {
       appendLocalFailure(error);
@@ -144,7 +186,62 @@ export default function App() {
     setWorkspace(detail.session.workspace);
     setEngine(detail.session.engine_id);
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
+    setFallbackPolicy(detail.fallback_policy);
     setTimeline(projectTimeline(detail));
+  }
+
+  async function loadGlobalFallbackPolicy() {
+    setFallbackPolicy(await getGlobalFallbackPolicy());
+  }
+
+  function updateFallbackTargets(
+    update: (targets: EngineTarget[]) => EngineTarget[],
+  ) {
+    setFallbackPolicy((current) => ({
+      ...current,
+      targets: update(current.targets),
+    }));
+  }
+
+  function toggleFallbackTarget(engineId: string) {
+    updateFallbackTargets((targets) => {
+      const exists = targets.some((target) => target.engine_id === engineId);
+      if (exists) return targets.filter((target) => target.engine_id !== engineId);
+      const catalogTarget = engineCatalog.find((target) => target.engine_id === engineId);
+      return catalogTarget ? [...targets, { ...catalogTarget }] : targets;
+    });
+  }
+
+  function updateFallbackTarget(index: number, update: Partial<EngineTarget>) {
+    updateFallbackTargets((targets) =>
+      targets.map((target, targetIndex) =>
+        targetIndex === index ? { ...target, ...update } : target,
+      ),
+    );
+  }
+
+  function moveFallbackTarget(index: number, direction: -1 | 1) {
+    updateFallbackTargets((targets) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= targets.length) return targets;
+      const next = [...targets];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  }
+
+  async function saveFallbackPolicy() {
+    setPolicySaving(true);
+    try {
+      const saved = activeSessionId
+        ? await setSessionFallbackPolicy(activeSessionId, fallbackPolicy.targets)
+        : await setGlobalFallbackPolicy(fallbackPolicy.targets);
+      setFallbackPolicy(saved);
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setPolicySaving(false);
+    }
   }
 
   async function selectEngine(engineId: string) {
@@ -253,6 +350,83 @@ export default function App() {
               ))
             )}
           </div>
+        </section>
+
+        <section className="fallback-panel">
+          <div className="session-heading">
+            <span className="eyebrow">
+              {activeSessionId ? "Session fallback chain" : "Default fallback chain"}
+            </span>
+            <small>{fallbackPolicy.targets.length}</small>
+          </div>
+          <p className="policy-note">
+            Only checked targets may run automatically. Manual engine switching is always explicit.
+          </p>
+          <div className="policy-catalog">
+            {engineCatalog.map((target) => {
+              const selected = fallbackPolicy.targets.some(
+                (candidate) => candidate.engine_id === target.engine_id,
+              );
+              return (
+                <button
+                  className={`policy-engine ${selected ? "selected" : ""}`}
+                  key={target.engine_id}
+                  onClick={() => toggleFallbackTarget(target.engine_id)}
+                  type="button"
+                >
+                  {selected ? "✓ " : "+ "}{target.engine_id}
+                </button>
+              );
+            })}
+          </div>
+          {fallbackPolicy.targets.map((target, index) => (
+            <div className="policy-target" key={`${target.engine_id}-${target.model_id}`}>
+              <div>
+                <strong>{index + 1}. {target.engine_id}</strong>
+                <small>{target.model_id} · {target.provider_id}</small>
+              </div>
+              <small>{target.account_source}</small>
+              <small>{target.billing_route}</small>
+              <label className="policy-authorize">
+                <input
+                  checked={target.automatic_use_authorized}
+                  onChange={(event) =>
+                    updateFallbackTarget(index, {
+                      automatic_use_authorized: event.target.checked,
+                    })
+                  }
+                  type="checkbox"
+                />
+                Authorize automatic use
+              </label>
+              <div className="policy-order">
+                <button
+                  aria-label={`Move ${target.engine_id} earlier`}
+                  disabled={index === 0}
+                  onClick={() => moveFallbackTarget(index, -1)}
+                  type="button"
+                >
+                  ↑
+                </button>
+                <button
+                  aria-label={`Move ${target.engine_id} later`}
+                  disabled={index === fallbackPolicy.targets.length - 1}
+                  onClick={() => moveFallbackTarget(index, 1)}
+                  type="button"
+                >
+                  ↓
+                </button>
+              </div>
+            </div>
+          ))}
+          <button
+            className="secondary-button policy-save"
+            disabled={policySaving}
+            onClick={() => void saveFallbackPolicy()}
+            type="button"
+          >
+            {policySaving ? "Saving…" : activeSessionId ? "Save session chain" : "Save default chain"}
+          </button>
         </section>
 
         <div className="ticket-note">

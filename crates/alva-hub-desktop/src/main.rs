@@ -1,6 +1,6 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with run/switch/session IPC over the crash-repaired Hub store
-// POS:    Tauri 2 entrypoint and user-selected multi-engine Desktop state owner.
+// OUTPUT: binary with run/switch/session/policy IPC over the crash-repaired Hub store
+// POS:    Tauri 2 entrypoint and user-authorized multi-engine Desktop state owner.
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -10,8 +10,8 @@
 use std::path::PathBuf;
 
 use alva_hub_desktop::{
-    build_engine, run_persisted, EngineTarget, HubSessionDetail, HubSessionSummary, HubStore,
-    RunOutcome, RunRequest, SwitchOutcome,
+    build_engine, run_persisted, EngineTarget, FallbackPolicy, HubSessionDetail, HubSessionSummary,
+    HubStore, RunOutcome, RunRequest, SwitchOutcome,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -87,6 +87,30 @@ fn get_hub_session(
     state.store.get_session(&product_session_id)
 }
 
+#[tauri::command]
+fn get_global_fallback_policy(state: State<'_, DesktopState>) -> Result<FallbackPolicy, String> {
+    state.store.global_fallback_policy()
+}
+
+#[tauri::command]
+fn set_global_fallback_policy(
+    state: State<'_, DesktopState>,
+    targets: Vec<EngineTarget>,
+) -> Result<FallbackPolicy, String> {
+    state.store.set_global_fallback_policy(targets)
+}
+
+#[tauri::command]
+fn set_session_fallback_policy(
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+    targets: Vec<EngineTarget>,
+) -> Result<FallbackPolicy, String> {
+    state
+        .store
+        .set_session_fallback_policy(&product_session_id, targets)
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -111,7 +135,10 @@ fn main() {
             run_hub_prompt,
             switch_hub_engine,
             list_hub_sessions,
-            get_hub_session
+            get_hub_session,
+            get_global_fallback_policy,
+            set_global_fallback_policy,
+            set_session_fallback_policy
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

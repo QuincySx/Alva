@@ -1,6 +1,6 @@
 // INPUT:  rusqlite, serde, filesystem paths, UUID/time primitives
-// OUTPUT: HubStore plus durable branch/watermark/handoff/timeline/turn/attempt DTOs
-// POS:    Hub Desktop-private multi-engine SQLite state machine, delta handoff, and crash repair owner.
+// OUTPUT: HubStore plus durable branch/policy/handoff/timeline/turn/attempt DTOs
+// POS:    Hub Desktop-private multi-engine state machine, authorization snapshots, and crash repair owner.
 
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -23,14 +23,45 @@ pub struct EngineTarget {
     pub engine_id: String,
     pub model_id: String,
     pub provider_id: String,
+    #[serde(default = "default_account_source")]
+    pub account_source: String,
+    #[serde(default = "default_billing_route")]
+    pub billing_route: String,
+    #[serde(default)]
+    pub automatic_use_authorized: bool,
+    #[serde(default)]
+    pub required_capabilities: Vec<String>,
+}
+
+fn default_account_source() -> String {
+    "Unconfigured account".to_string()
+}
+
+fn default_billing_route() -> String {
+    "Unconfigured billing route".to_string()
 }
 
 impl EngineTarget {
     pub fn for_engine(engine_id: &str) -> Result<Self, String> {
-        let (model_id, provider_id) = match engine_id {
-            "alva" => ("workspace-config", "workspace-config"),
-            "claude" => ("engine-default", "claude-cli"),
-            "codex" => ("engine-default", "codex-cli"),
+        let (model_id, provider_id, account_source, billing_route) = match engine_id {
+            "alva" => (
+                "workspace-config",
+                "workspace-config",
+                "Workspace provider configuration",
+                "Workspace provider account",
+            ),
+            "claude" => (
+                "engine-default",
+                "claude-cli",
+                "Claude Code CLI account",
+                "Anthropic account via Claude CLI",
+            ),
+            "codex" => (
+                "engine-default",
+                "codex-cli",
+                "Codex CLI account",
+                "OpenAI account via Codex CLI",
+            ),
             other => {
                 return Err(format!(
                     "unsupported Hub engine '{other}'; expected alva, claude, or codex"
@@ -41,8 +72,18 @@ impl EngineTarget {
             engine_id: engine_id.to_string(),
             model_id: model_id.to_string(),
             provider_id: provider_id.to_string(),
+            account_source: account_source.to_string(),
+            billing_route: billing_route.to_string(),
+            automatic_use_authorized: false,
+            required_capabilities: Vec::new(),
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FallbackPolicy {
+    pub targets: Vec<EngineTarget>,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -218,6 +259,7 @@ pub struct HubSessionDetail {
     pub handoffs: Vec<HandoffPackage>,
     pub timeline_events: Vec<StoredTimelineEvent>,
     pub pending_switch: Option<PendingSwitch>,
+    pub fallback_policy: FallbackPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +386,7 @@ impl HubStore {
         let handoffs = query_handoffs(&connection, product_session_id)?;
         let timeline_events = query_timeline_events(&connection, product_session_id)?;
         let pending_switch = query_pending_switch(&connection, product_session_id)?;
+        let fallback_policy = query_fallback_policy(&connection, Some(product_session_id))?;
         Ok(Some(HubSessionDetail {
             session,
             turns,
@@ -351,7 +394,74 @@ impl HubStore {
             handoffs,
             timeline_events,
             pending_switch,
+            fallback_policy,
         }))
+    }
+
+    pub fn global_fallback_policy(&self) -> Result<FallbackPolicy, String> {
+        let connection = self.lock()?;
+        query_fallback_policy(&connection, None)
+    }
+
+    pub fn set_global_fallback_policy(
+        &self,
+        targets: Vec<EngineTarget>,
+    ) -> Result<FallbackPolicy, String> {
+        validate_fallback_targets(&targets)?;
+        let policy = FallbackPolicy {
+            targets,
+            updated_at: now_unix_ms(),
+        };
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin global fallback policy transaction: {error}"))?;
+        persist_fallback_policy(&transaction, None, &policy)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit global fallback policy: {error}"))?;
+        Ok(policy)
+    }
+
+    pub fn set_session_fallback_policy(
+        &self,
+        product_session_id: &str,
+        targets: Vec<EngineTarget>,
+    ) -> Result<FallbackPolicy, String> {
+        validate_fallback_targets(&targets)?;
+        let policy = FallbackPolicy {
+            targets,
+            updated_at: now_unix_ms(),
+        };
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin session fallback policy transaction: {error}"))?;
+        if query_session(&transaction, product_session_id)?.is_none() {
+            return Err(format!("Hub session '{product_session_id}' was not found"));
+        }
+        persist_fallback_policy(&transaction, Some(product_session_id), &policy)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit session fallback policy: {error}"))?;
+        Ok(policy)
+    }
+
+    pub fn is_authorized_for_automatic_fallback(
+        &self,
+        product_session_id: &str,
+        target: &EngineTarget,
+    ) -> Result<bool, String> {
+        validate_engine_target(target)?;
+        let connection = self.lock()?;
+        if query_session(&connection, product_session_id)?.is_none() {
+            return Err(format!("Hub session '{product_session_id}' was not found"));
+        }
+        let policy = query_fallback_policy(&connection, Some(product_session_id))?;
+        Ok(policy
+            .targets
+            .iter()
+            .any(|candidate| candidate == target && candidate.automatic_use_authorized))
     }
 
     pub fn request_engine_switch(
@@ -557,6 +667,12 @@ impl HubStore {
                 ],
             )
             .map_err(|error| format!("insert Hub engine branch: {error}"))?;
+        let global_policy = query_fallback_policy(&transaction, None)?;
+        let session_policy = FallbackPolicy {
+            targets: global_policy.targets,
+            updated_at: now,
+        };
+        persist_fallback_policy(&transaction, Some(product_session_id), &session_policy)?;
         insert_turn_and_attempt(
             &transaction,
             &turn_id,
@@ -607,11 +723,9 @@ impl HubStore {
             .engine_session_id
             .clone()
             .filter(|id| !id.is_empty());
-        let target = EngineTarget {
-            engine_id: session.engine_id.clone(),
-            model_id: session.model_id.clone(),
-            provider_id: session.provider_id.clone(),
-        };
+        let mut target = EngineTarget::for_engine(&session.engine_id)?;
+        target.model_id = session.model_id.clone();
+        target.provider_id = session.provider_id.clone();
         let watermark_turn_rowid = transaction
             .query_row(
                 "SELECT watermark_turn_rowid FROM engine_branches WHERE branch_id = ?1",
@@ -962,13 +1076,131 @@ impl HubStore {
 }
 
 fn validate_engine_target(target: &EngineTarget) -> Result<(), String> {
-    let expected = EngineTarget::for_engine(&target.engine_id)?;
-    if &expected != target {
+    EngineTarget::for_engine(&target.engine_id)?;
+    if target.model_id.trim().is_empty() || target.provider_id.trim().is_empty() {
         return Err(format!(
-            "engine target '{}' must use model '{}' and provider '{}'",
-            target.engine_id, expected.model_id, expected.provider_id
+            "engine target '{}' requires a model policy and provider/account source",
+            target.engine_id
         ));
     }
+    if target.account_source.trim().is_empty() || target.billing_route.trim().is_empty() {
+        return Err(format!(
+            "engine target '{}' requires visible account and billing metadata",
+            target.engine_id
+        ));
+    }
+    if target
+        .required_capabilities
+        .iter()
+        .any(|capability| capability.trim().is_empty())
+    {
+        return Err(format!(
+            "engine target '{}' has an empty required capability",
+            target.engine_id
+        ));
+    }
+    Ok(())
+}
+
+fn engine_target_from_branch(
+    engine_id: String,
+    model_id: String,
+    provider_id: String,
+) -> EngineTarget {
+    let mut target = EngineTarget::for_engine(&engine_id)
+        .expect("Hub engine branches are created only from supported engine targets");
+    target.model_id = model_id;
+    target.provider_id = provider_id;
+    target
+}
+
+fn validate_fallback_targets(targets: &[EngineTarget]) -> Result<(), String> {
+    for (index, target) in targets.iter().enumerate() {
+        validate_engine_target(target)?;
+        if targets[..index].iter().any(|previous| {
+            previous.engine_id == target.engine_id
+                && previous.model_id == target.model_id
+                && previous.provider_id == target.provider_id
+        }) {
+            return Err(format!(
+                "fallback policy repeats engine target '{}'/{}",
+                target.engine_id, target.model_id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn query_fallback_policy(
+    connection: &Connection,
+    product_session_id: Option<&str>,
+) -> Result<FallbackPolicy, String> {
+    let row = match product_session_id {
+        Some(product_session_id) => connection.query_row(
+            "SELECT targets_json, updated_at FROM fallback_policies
+              WHERE scope = 'session' AND product_session_id = ?1",
+            [product_session_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        ),
+        None => connection.query_row(
+            "SELECT targets_json, updated_at FROM fallback_policies
+              WHERE scope = 'global' LIMIT 1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        ),
+    }
+    .optional()
+    .map_err(|error| format!("read Hub fallback policy: {error}"))?;
+    match row {
+        Some((targets_json, updated_at)) => {
+            let targets = serde_json::from_str(&targets_json)
+                .map_err(|error| format!("decode Hub fallback policy: {error}"))?;
+            Ok(FallbackPolicy {
+                targets,
+                updated_at,
+            })
+        }
+        None => Ok(FallbackPolicy {
+            targets: Vec::new(),
+            updated_at: 0,
+        }),
+    }
+}
+
+fn persist_fallback_policy(
+    transaction: &Transaction<'_>,
+    product_session_id: Option<&str>,
+    policy: &FallbackPolicy,
+) -> Result<(), String> {
+    let targets_json = serde_json::to_string(&policy.targets)
+        .map_err(|error| format!("serialize Hub fallback policy: {error}"))?;
+    match product_session_id {
+        Some(product_session_id) => transaction
+            .execute(
+                "INSERT INTO fallback_policies
+                   (policy_id, scope, product_session_id, targets_json, updated_at)
+                 VALUES (?1, 'session', ?2, ?3, ?4)
+                 ON CONFLICT(policy_id) DO UPDATE SET
+                   targets_json = excluded.targets_json, updated_at = excluded.updated_at",
+                params![
+                    format!("session-{product_session_id}"),
+                    product_session_id,
+                    targets_json,
+                    policy.updated_at
+                ],
+            )
+            .map_err(|error| format!("persist Hub session fallback policy: {error}"))?,
+        None => transaction
+            .execute(
+                "INSERT INTO fallback_policies
+                   (policy_id, scope, product_session_id, targets_json, updated_at)
+                 VALUES ('global-default', 'global', NULL, ?1, ?2)
+                 ON CONFLICT(policy_id) DO UPDATE SET
+                   targets_json = excluded.targets_json, updated_at = excluded.updated_at",
+                params![targets_json, policy.updated_at],
+            )
+            .map_err(|error| format!("persist global Hub fallback policy: {error}"))?,
+    };
     Ok(())
 }
 
@@ -1121,11 +1353,9 @@ fn apply_switch_in_transaction(
         )
         .map_err(|error| format!("activate Hub session engine branch: {error}"))?;
 
-    let source = EngineTarget {
-        engine_id: source_session.engine_id.clone(),
-        model_id: source_session.model_id.clone(),
-        provider_id: source_session.provider_id.clone(),
-    };
+    let mut source = EngineTarget::for_engine(&source_session.engine_id)?;
+    source.model_id = source_session.model_id.clone();
+    source.provider_id = source_session.provider_id.clone();
     let package = build_handoff_package(
         transaction,
         product_session_id,
@@ -1618,11 +1848,7 @@ fn query_pending_switch(
                 Ok(PendingSwitch {
                     switch_id: row.get(0)?,
                     source_branch_id: row.get(1)?,
-                    target: EngineTarget {
-                        engine_id: row.get(2)?,
-                        model_id: row.get(3)?,
-                        provider_id: row.get(4)?,
-                    },
+                    target: engine_target_from_branch(row.get(2)?, row.get(3)?, row.get(4)?),
                     reason: row.get(5)?,
                     requested_at: row.get(6)?,
                 })
@@ -1838,6 +2064,35 @@ fn initialize_schema_and_recover(
                    ON handoff_packages(target_branch_id, kind, created_at);",
             )
             .map_err(|error| format!("migrate Hub database to schema 4: {error}"))?;
+    }
+
+    if schema_version < 5 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE fallback_policies (
+                   policy_id TEXT PRIMARY KEY,
+                   scope TEXT NOT NULL CHECK(scope IN ('global', 'session')),
+                   product_session_id TEXT UNIQUE,
+                   targets_json TEXT NOT NULL,
+                   updated_at INTEGER NOT NULL,
+                   FOREIGN KEY(product_session_id) REFERENCES hub_sessions(product_session_id)
+                 );
+                 INSERT INTO fallback_policies
+                   (policy_id, scope, product_session_id, targets_json, updated_at)
+                 VALUES ('global-default', 'global', NULL, '[]', 0);
+                 INSERT INTO fallback_policies
+                   (policy_id, scope, product_session_id, targets_json, updated_at)
+                 SELECT 'session-' || product_session_id, 'session', product_session_id, '[]', 0
+                   FROM hub_sessions;",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 5: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE fallback_policies SET updated_at = ?1
+                  WHERE scope = 'session' AND updated_at = 0",
+                [now],
+            )
+            .map_err(|error| format!("timestamp migrated Hub fallback policies: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -2305,7 +2560,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 5).unwrap();
+        connection.pragma_update(None, "user_version", 6).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -2317,7 +2572,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -2617,5 +2872,141 @@ mod tests {
             .handoffs
             .iter()
             .any(|handoff| handoff.kind == HandoffKind::Full));
+    }
+
+    #[test]
+    fn new_session_snapshots_global_fallback_policy_without_later_drift() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let mut claude = EngineTarget::for_engine("claude").unwrap();
+        claude.automatic_use_authorized = true;
+        claude.required_capabilities = vec!["streaming".into(), "resume".into()];
+        store
+            .set_global_fallback_policy(vec![claude.clone()])
+            .unwrap();
+
+        store
+            .prepare_new_turn(
+                "product-policy-snapshot",
+                workspace.path(),
+                "start work",
+                &EngineTarget::for_engine("alva").unwrap(),
+            )
+            .unwrap();
+        let first = store
+            .get_session("product-policy-snapshot")
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.fallback_policy.targets, vec![claude]);
+
+        let mut codex = EngineTarget::for_engine("codex").unwrap();
+        codex.automatic_use_authorized = true;
+        store
+            .set_global_fallback_policy(vec![codex.clone()])
+            .unwrap();
+        let unchanged = store
+            .get_session("product-policy-snapshot")
+            .unwrap()
+            .unwrap();
+        assert_eq!(unchanged.fallback_policy.targets[0].engine_id, "claude");
+
+        store
+            .prepare_new_turn(
+                "product-policy-new",
+                workspace.path(),
+                "start another",
+                &EngineTarget::for_engine("alva").unwrap(),
+            )
+            .unwrap();
+        let later = store.get_session("product-policy-new").unwrap().unwrap();
+        assert_eq!(later.fallback_policy.targets, vec![codex]);
+    }
+
+    #[test]
+    fn automatic_fallback_needs_explicit_session_authorization_but_manual_switch_does_not() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let claude = EngineTarget::for_engine("claude").unwrap();
+        let prepared = store
+            .prepare_new_turn("product-policy-auth", workspace.path(), "work", &alva)
+            .unwrap();
+        store
+            .finish_turn(&prepared, None, Some("done"), None, None)
+            .unwrap();
+        store
+            .set_session_fallback_policy("product-policy-auth", vec![claude.clone(), alva.clone()])
+            .unwrap();
+        let policy = store
+            .get_session("product-policy-auth")
+            .unwrap()
+            .unwrap()
+            .fallback_policy;
+        assert_eq!(
+            policy
+                .targets
+                .iter()
+                .map(|target| target.engine_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["claude", "alva"]
+        );
+        assert!(!store
+            .is_authorized_for_automatic_fallback("product-policy-auth", &claude)
+            .unwrap());
+
+        let manual = store
+            .request_engine_switch(
+                "product-policy-auth",
+                &claude,
+                "User explicitly selected Claude",
+            )
+            .unwrap();
+        assert_eq!(manual.active_engine_id, "claude");
+
+        let mut authorized = claude.clone();
+        authorized.automatic_use_authorized = true;
+        store
+            .set_session_fallback_policy("product-policy-auth", vec![authorized.clone()])
+            .unwrap();
+        assert!(store
+            .is_authorized_for_automatic_fallback("product-policy-auth", &authorized)
+            .unwrap());
+    }
+
+    #[test]
+    fn session_fallback_policy_and_target_account_metadata_survive_restart() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                "product-policy-restart",
+                workspace.path(),
+                "work",
+                &EngineTarget::for_engine("alva").unwrap(),
+            )
+            .unwrap();
+        store
+            .finish_turn(&prepared, None, Some("done"), None, None)
+            .unwrap();
+        let mut codex = EngineTarget::for_engine("codex").unwrap();
+        codex.account_source = "Personal Codex subscription".into();
+        codex.billing_route = "OpenAI account · monthly plan".into();
+        codex.automatic_use_authorized = true;
+        codex.required_capabilities = vec!["streaming".into()];
+        store
+            .set_session_fallback_policy("product-policy-restart", vec![codex.clone()])
+            .unwrap();
+        drop(store);
+
+        let reopened = HubStore::open(&database).unwrap();
+        let detail = reopened
+            .get_session("product-policy-restart")
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.fallback_policy.targets, vec![codex]);
     }
 }
