@@ -1,6 +1,6 @@
 // INPUT:  rusqlite, serde, filesystem paths, UUID/time primitives
-// OUTPUT: HubStore plus durable branch/switch/handoff/timeline/turn/attempt DTOs
-// POS:    Hub Desktop-private multi-engine SQLite state machine and crash repair owner.
+// OUTPUT: HubStore plus durable branch/watermark/handoff/timeline/turn/attempt DTOs
+// POS:    Hub Desktop-private multi-engine SQLite state machine, delta handoff, and crash repair owner.
 
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -67,9 +67,18 @@ pub struct StoredBranch {
     pub model_id: String,
     pub provider_id: String,
     pub engine_session_id: Option<String>,
+    pub watermark_turn_rowid: Option<i64>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffKind {
+    #[default]
+    Full,
+    Delta,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -135,6 +144,8 @@ pub struct HandoffPackage {
     pub target_branch_id: String,
     pub source: EngineTarget,
     pub target: EngineTarget,
+    #[serde(default)]
+    pub kind: HandoffKind,
     pub reason: String,
     pub user_goal: Option<String>,
     pub latest_instruction: Option<String>,
@@ -155,7 +166,11 @@ impl HandoffPackage {
     pub(crate) fn render_for_engine(&self) -> String {
         let encoded = serde_json::to_string_pretty(self)
             .unwrap_or_else(|_| "{\"error\":\"handoff serialization failed\"}".to_string());
-        format!("<alva-hub-handoff kind=\"full\">\n{encoded}\n</alva-hub-handoff>")
+        let kind = match self.kind {
+            HandoffKind::Full => "full",
+            HandoffKind::Delta => "delta",
+        };
+        format!("<alva-hub-handoff kind=\"{kind}\">\n{encoded}\n</alva-hub-handoff>")
     }
 }
 
@@ -215,6 +230,7 @@ pub(crate) struct PreparedTurn {
     pub engine_session_id: Option<String>,
     pub target: EngineTarget,
     pub handoff: Option<HandoffPackage>,
+    pub native_resume: bool,
 }
 
 #[derive(Clone)]
@@ -564,6 +580,7 @@ impl HubStore {
             engine_session_id: None,
             target: target.clone(),
             handoff: None,
+            native_resume: false,
         })
     }
 
@@ -595,7 +612,44 @@ impl HubStore {
             model_id: session.model_id.clone(),
             provider_id: session.provider_id.clone(),
         };
-        let handoff = query_pending_handoff(&transaction, &session.active_branch_id)?;
+        let watermark_turn_rowid = transaction
+            .query_row(
+                "SELECT watermark_turn_rowid FROM engine_branches WHERE branch_id = ?1",
+                [&session.active_branch_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .map_err(|error| format!("read Hub branch watermark: {error}"))?;
+        let handoff = if engine_session_id.is_some() {
+            let prior = query_latest_handoff(&transaction, &session.active_branch_id, None)?;
+            let source = prior
+                .as_ref()
+                .map(|package| package.source.clone())
+                .unwrap_or_else(|| target.clone());
+            let reason = prior
+                .as_ref()
+                .map(|package| package.reason.as_str())
+                .unwrap_or("resume parked native engine branch");
+            let package = build_handoff_package(
+                &transaction,
+                product_session_id,
+                &source_branch_for_handoff(&prior, &session.active_branch_id),
+                &session.active_branch_id,
+                source,
+                target.clone(),
+                reason,
+                now,
+                HandoffKind::Delta,
+                watermark_turn_rowid,
+            )?;
+            persist_handoff_package(&transaction, &package)?;
+            Some(package)
+        } else {
+            query_latest_handoff(
+                &transaction,
+                &session.active_branch_id,
+                Some(HandoffKind::Full),
+            )?
+        };
         transaction
             .execute(
                 "UPDATE hub_sessions SET status = ?2, updated_at = ?3
@@ -613,17 +667,20 @@ impl HubStore {
             prompt,
             now,
         )?;
-        transaction
-            .execute(
-                "UPDATE handoff_packages SET used_at = COALESCE(used_at, ?2)
-                  WHERE target_branch_id = ?1 AND used_at IS NULL",
-                params![session.active_branch_id, now],
-            )
-            .map_err(|error| format!("mark Hub handoff consumed: {error}"))?;
+        if let Some(package) = &handoff {
+            transaction
+                .execute(
+                    "UPDATE handoff_packages SET used_at = COALESCE(used_at, ?2)
+                      WHERE handoff_id = ?1",
+                    params![package.handoff_id, now],
+                )
+                .map_err(|error| format!("mark Hub handoff consumed: {error}"))?;
+        }
         transaction
             .commit()
             .map_err(|error| format!("commit Hub resume transaction: {error}"))?;
 
+        let native_resume = engine_session_id.is_some();
         Ok(PreparedTurn {
             product_session_id: product_session_id.to_string(),
             branch_id: session.active_branch_id,
@@ -633,6 +690,7 @@ impl HubStore {
             engine_session_id,
             target,
             handoff,
+            native_resume,
         })
     }
 
@@ -713,6 +771,113 @@ impl HubStore {
         transaction
             .commit()
             .map_err(|error| format!("commit Hub completion transaction: {error}"))
+    }
+
+    pub(crate) fn upgrade_failed_native_resume(
+        &self,
+        prepared: &PreparedTurn,
+        failure_reason: &str,
+    ) -> Result<PreparedTurn, String> {
+        if !prepared.native_resume {
+            return Err("cannot upgrade a fresh engine attempt to a full handoff".to_string());
+        }
+        let now = now_unix_ms();
+        let fresh_attempt_id = uuid::Uuid::new_v4().to_string();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin native resume upgrade transaction: {error}"))?;
+        let session =
+            query_session(&transaction, &prepared.product_session_id)?.ok_or_else(|| {
+                format!(
+                    "Hub session '{}' was not found",
+                    prepared.product_session_id
+                )
+            })?;
+        if session.active_branch_id != prepared.branch_id {
+            return Err("cannot upgrade a non-active Hub engine branch".to_string());
+        }
+        let changed = transaction
+            .execute(
+                "UPDATE engine_attempts
+                    SET status = ?2, failure_reason = ?3, completed_at = ?4
+                  WHERE attempt_id = ?1 AND status = ?5",
+                params![
+                    prepared.attempt_id,
+                    STATUS_FAILED,
+                    failure_reason,
+                    now,
+                    STATUS_RUNNING
+                ],
+            )
+            .map_err(|error| format!("record failed native resume attempt: {error}"))?;
+        if changed != 1 {
+            return Err(format!(
+                "Hub engine attempt '{}' was not in running state",
+                prepared.attempt_id
+            ));
+        }
+        transaction
+            .execute(
+                "UPDATE engine_branches
+                    SET engine_session_id = NULL, updated_at = ?2
+                  WHERE branch_id = ?1",
+                params![prepared.branch_id, now],
+            )
+            .map_err(|error| format!("clear invalid native session id: {error}"))?;
+        let package = build_handoff_package(
+            &transaction,
+            &prepared.product_session_id,
+            &prepared.branch_id,
+            &prepared.branch_id,
+            prepared.target.clone(),
+            prepared.target.clone(),
+            &format!("Native session resume failed: {failure_reason}"),
+            now,
+            HandoffKind::Full,
+            None,
+        )?;
+        persist_handoff_package(&transaction, &package)?;
+        transaction
+            .execute(
+                "INSERT INTO engine_attempts
+                   (attempt_id, turn_id, product_session_id, branch_id, engine_id,
+                    status, failure_reason, usage_json, side_effects_json,
+                    started_at, completed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, '[]', ?7, NULL)",
+                params![
+                    fresh_attempt_id,
+                    prepared.turn_id,
+                    prepared.product_session_id,
+                    prepared.branch_id,
+                    prepared.target.engine_id,
+                    STATUS_RUNNING,
+                    now
+                ],
+            )
+            .map_err(|error| format!("create fresh Hub engine attempt: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE hub_sessions SET status = ?2, updated_at = ?3
+                  WHERE product_session_id = ?1",
+                params![prepared.product_session_id, STATUS_RUNNING, now],
+            )
+            .map_err(|error| format!("keep Hub session running after resume upgrade: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit native resume upgrade transaction: {error}"))?;
+
+        Ok(PreparedTurn {
+            product_session_id: prepared.product_session_id.clone(),
+            branch_id: prepared.branch_id.clone(),
+            turn_id: prepared.turn_id.clone(),
+            attempt_id: fresh_attempt_id,
+            workspace: prepared.workspace.clone(),
+            engine_session_id: None,
+            target: prepared.target.clone(),
+            handoff: Some(package),
+            native_resume: false,
+        })
     }
 
     pub(crate) fn record_engine_session(
@@ -924,11 +1089,23 @@ fn apply_switch_in_transaction(
 
     transaction
         .execute(
-            "UPDATE engine_branches SET status = 'parked', updated_at = ?2
-              WHERE product_session_id = ?1",
-            params![product_session_id, now],
+            "UPDATE engine_branches
+                SET status = 'parked', updated_at = ?2,
+                    watermark_turn_rowid = (
+                      SELECT MAX(t.rowid) FROM turns t
+                       WHERE t.product_session_id = ?1
+                    )
+              WHERE branch_id = ?3",
+            params![product_session_id, now, source_session.active_branch_id],
         )
-        .map_err(|error| format!("park Hub engine branches: {error}"))?;
+        .map_err(|error| format!("record Hub source branch watermark: {error}"))?;
+    transaction
+        .execute(
+            "UPDATE engine_branches SET status = 'parked', updated_at = ?2
+              WHERE product_session_id = ?1 AND branch_id <> ?3",
+            params![product_session_id, now, source_session.active_branch_id],
+        )
+        .map_err(|error| format!("park inactive Hub engine branches: {error}"))?;
     transaction
         .execute(
             "UPDATE engine_branches SET status = 'active', updated_at = ?2
@@ -958,26 +1135,10 @@ fn apply_switch_in_transaction(
         target.clone(),
         reason,
         now,
+        HandoffKind::Full,
+        None,
     )?;
-    let package_json = serde_json::to_string(&package)
-        .map_err(|error| format!("serialize full Hub handoff: {error}"))?;
-    transaction
-        .execute(
-            "INSERT INTO handoff_packages
-               (handoff_id, product_session_id, source_branch_id, target_branch_id,
-                reason, package_json, created_at, used_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
-            params![
-                package.handoff_id,
-                product_session_id,
-                source_session.active_branch_id,
-                target_branch_id,
-                reason,
-                package_json,
-                now
-            ],
-        )
-        .map_err(|error| format!("persist full Hub handoff: {error}"))?;
+    persist_handoff_package(transaction, &package)?;
     transaction
         .execute(
             "UPDATE engine_switches
@@ -1051,6 +1212,8 @@ fn build_handoff_package(
     target: EngineTarget,
     reason: &str,
     now: i64,
+    kind: HandoffKind,
+    watermark_turn_rowid: Option<i64>,
 ) -> Result<HandoffPackage, String> {
     let workspace = transaction
         .query_row(
@@ -1061,7 +1224,7 @@ fn build_handoff_package(
         .map_err(|error| format!("read workspace for Hub handoff: {error}"))?;
     let mut statement = transaction
         .prepare(
-            "SELECT prompt, final_result, error_message, status
+            "SELECT rowid, prompt, final_result, error_message, status
                FROM turns WHERE product_session_id = ?1
               ORDER BY created_at ASC, rowid ASC",
         )
@@ -1069,10 +1232,11 @@ fn build_handoff_package(
     let rows = statement
         .query_map([product_session_id], |row| {
             Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
                 row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
             ))
         })
         .map_err(|error| format!("query turn history for Hub handoff: {error}"))?;
@@ -1080,11 +1244,14 @@ fn build_handoff_package(
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| format!("decode turn history for Hub handoff: {error}"))?;
     drop(statement);
-    let user_goal = history.first().map(|row| bounded_text(&row.0));
-    let latest_instruction = history.last().map(|row| bounded_text(&row.0));
+    let user_goal = history.first().map(|row| bounded_text(&row.1));
+    let latest_instruction = history.last().map(|row| bounded_text(&row.1));
     let completed_work = history
         .iter()
-        .filter_map(|(prompt, result, _, status)| {
+        .filter(|(rowid, _, _, _, _)| {
+            watermark_turn_rowid.is_none_or(|watermark| *rowid > watermark)
+        })
+        .filter_map(|(_, prompt, result, _, status)| {
             (status == STATUS_COMPLETED).then(|| {
                 result.as_ref().map(|result| HandoffCompletedWork {
                     prompt: bounded_text(prompt),
@@ -1095,8 +1262,13 @@ fn build_handoff_package(
         .collect();
     let pending_work = history
         .iter()
-        .filter(|(_, _, _, status)| matches!(status.as_str(), STATUS_FAILED | STATUS_INTERRUPTED))
-        .map(|(prompt, _, error, status)| HandoffPendingWork {
+        .filter(|(rowid, _, _, _, _)| {
+            watermark_turn_rowid.is_none_or(|watermark| *rowid > watermark)
+        })
+        .filter(|(_, _, _, _, status)| {
+            matches!(status.as_str(), STATUS_FAILED | STATUS_INTERRUPTED)
+        })
+        .map(|(_, prompt, _, error, status)| HandoffPendingWork {
             prompt: bounded_text(prompt),
             reason: bounded_text(error.as_deref().unwrap_or(status)),
         })
@@ -1105,12 +1277,16 @@ fn build_handoff_package(
         .prepare(
             "SELECT ea.side_effects_json
                FROM engine_attempts ea
+               JOIN turns t ON t.turn_id = ea.turn_id
               WHERE ea.product_session_id = ?1
+                AND (?2 IS NULL OR t.rowid > ?2)
               ORDER BY ea.started_at ASC, ea.rowid ASC",
         )
         .map_err(|error| format!("prepare side effects for Hub handoff: {error}"))?;
     let encoded = side_effect_statement
-        .query_map([product_session_id], |row| row.get::<_, String>(0))
+        .query_map(params![product_session_id, watermark_turn_rowid], |row| {
+            row.get::<_, String>(0)
+        })
         .map_err(|error| format!("query side effects for Hub handoff: {error}"))?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| format!("decode side effects for Hub handoff: {error}"))?;
@@ -1128,6 +1304,7 @@ fn build_handoff_package(
         target_branch_id: target_branch_id.to_string(),
         source,
         target,
+        kind,
         reason: reason.to_string(),
         user_goal,
         latest_instruction,
@@ -1137,12 +1314,41 @@ fn build_handoff_package(
         changed_files: Vec::new(),
         recent_commands: Vec::new(),
         verification_results: Vec::new(),
-        workspace_summary: format!("Workspace: {workspace}"),
+        workspace_summary: format!(
+            "Workspace (authoritative; inspect it before trusting transcript evidence): {workspace}"
+        ),
         known_side_effects,
         team_snapshot: None,
         created_at: now,
         used_at: None,
     })
+}
+
+fn persist_handoff_package(
+    transaction: &Transaction<'_>,
+    package: &HandoffPackage,
+) -> Result<(), String> {
+    let package_json = serde_json::to_string(package)
+        .map_err(|error| format!("serialize {:?} Hub handoff: {error}", package.kind))?;
+    transaction
+        .execute(
+            "INSERT INTO handoff_packages
+               (handoff_id, product_session_id, source_branch_id, target_branch_id,
+                kind, reason, package_json, created_at, used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
+            params![
+                package.handoff_id,
+                package.product_session_id,
+                package.source_branch_id,
+                package.target_branch_id,
+                handoff_kind_name(package.kind),
+                package.reason,
+                package_json,
+                package.created_at
+            ],
+        )
+        .map_err(|error| format!("persist Hub handoff: {error}"))?;
+    Ok(())
 }
 
 fn bounded_text(text: &str) -> String {
@@ -1273,7 +1479,7 @@ fn query_branches(
     let mut statement = connection
         .prepare(
             "SELECT branch_id, engine_id, model_id, provider_id, engine_session_id,
-                    status, created_at, updated_at
+                    watermark_turn_rowid, status, created_at, updated_at
                FROM engine_branches WHERE product_session_id = ?1
               ORDER BY created_at ASC, rowid ASC",
         )
@@ -1286,9 +1492,10 @@ fn query_branches(
                 model_id: row.get(2)?,
                 provider_id: row.get(3)?,
                 engine_session_id: row.get(4)?,
-                status: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                watermark_turn_rowid: row.get(5)?,
+                status: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
             })
         })
         .map_err(|error| format!("query Hub engine branches: {error}"))?;
@@ -1322,25 +1529,48 @@ fn query_handoffs(
     .collect()
 }
 
-fn query_pending_handoff(
+fn query_latest_handoff(
     connection: &Connection,
     target_branch_id: &str,
+    kind: Option<HandoffKind>,
 ) -> Result<Option<HandoffPackage>, String> {
-    connection
-        .query_row(
-            "SELECT package_json FROM handoff_packages
-              WHERE target_branch_id = ?1 AND used_at IS NULL
-              ORDER BY created_at DESC, rowid DESC LIMIT 1",
-            [target_branch_id],
+    let sql = if kind.is_some() {
+        "SELECT package_json FROM handoff_packages
+           WHERE target_branch_id = ?1 AND kind = ?2
+           ORDER BY created_at DESC, rowid DESC LIMIT 1"
+    } else {
+        "SELECT package_json FROM handoff_packages
+           WHERE target_branch_id = ?1
+           ORDER BY created_at DESC, rowid DESC LIMIT 1"
+    };
+    let json = match kind {
+        Some(kind) => connection.query_row(
+            sql,
+            params![target_branch_id, handoff_kind_name(kind)],
             |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| format!("query pending Hub handoff: {error}"))?
-        .map(|json| {
-            serde_json::from_str(&json)
-                .map_err(|error| format!("decode pending Hub handoff: {error}"))
-        })
-        .transpose()
+        ),
+        None => connection.query_row(sql, [target_branch_id], |row| row.get::<_, String>(0)),
+    }
+    .optional()
+    .map_err(|error| format!("query latest Hub handoff: {error}"))?;
+    json.map(|json| {
+        serde_json::from_str(&json).map_err(|error| format!("decode latest Hub handoff: {error}"))
+    })
+    .transpose()
+}
+
+fn handoff_kind_name(kind: HandoffKind) -> &'static str {
+    match kind {
+        HandoffKind::Full => "full",
+        HandoffKind::Delta => "delta",
+    }
+}
+
+fn source_branch_for_handoff(prior: &Option<HandoffPackage>, fallback_branch_id: &str) -> String {
+    prior
+        .as_ref()
+        .map(|package| package.source_branch_id.clone())
+        .unwrap_or_else(|| fallback_branch_id.to_string())
 }
 
 fn query_timeline_events(
@@ -1595,6 +1825,19 @@ fn initialize_schema_and_recover(
                    ON timeline_events(product_session_id, created_at);",
             )
             .map_err(|error| format!("migrate Hub database to schema 3: {error}"))?;
+    }
+
+    if schema_version < 4 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE engine_branches
+                   ADD COLUMN watermark_turn_rowid INTEGER;
+                 ALTER TABLE handoff_packages
+                   ADD COLUMN kind TEXT NOT NULL DEFAULT 'full';
+                 CREATE INDEX idx_handoffs_target_kind_created
+                   ON handoff_packages(target_branch_id, kind, created_at);",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 4: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -2062,7 +2305,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 4).unwrap();
+        connection.pragma_update(None, "user_version", 5).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -2074,7 +2317,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -2250,5 +2493,129 @@ mod tests {
         assert_eq!(detail.session.engine_id, "claude");
         assert!(detail.pending_switch.is_none());
         assert_eq!(detail.handoffs.len(), 1);
+    }
+
+    #[test]
+    fn parked_branch_records_watermark_and_builds_a_delta_handoff_on_return() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let claude = EngineTarget::for_engine("claude").unwrap();
+
+        let first = store
+            .prepare_new_turn("product-delta", workspace.path(), "alva work", &alva)
+            .unwrap();
+        store.record_engine_session(&first, "alva-native").unwrap();
+        store
+            .finish_turn(
+                &first,
+                Some("alva-native"),
+                Some("alva complete"),
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .request_engine_switch("product-delta", &claude, "switch to Claude")
+            .unwrap();
+
+        let claude_turn = store
+            .prepare_resumed_turn("product-delta", "claude work")
+            .unwrap();
+        store
+            .finish_turn(
+                &claude_turn,
+                Some("claude-native"),
+                Some("claude complete"),
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .request_engine_switch("product-delta", &alva, "return to Alva")
+            .unwrap();
+
+        let detail = store.get_session("product-delta").unwrap().unwrap();
+        let alva_branch = detail
+            .branches
+            .iter()
+            .find(|branch| branch.engine_id == "alva")
+            .unwrap();
+        assert!(alva_branch.watermark_turn_rowid.is_some());
+
+        let resumed = store
+            .prepare_resumed_turn("product-delta", "resume Alva")
+            .unwrap();
+        assert_eq!(resumed.engine_session_id.as_deref(), Some("alva-native"));
+        let handoff = resumed
+            .handoff
+            .expect("native resume must receive a handoff");
+        assert_eq!(handoff.kind, HandoffKind::Delta);
+        assert_eq!(handoff.completed_work.len(), 1);
+        assert_eq!(handoff.completed_work[0].result, "claude complete");
+        assert!(!handoff
+            .completed_work
+            .iter()
+            .any(|work| work.result == "alva complete"));
+    }
+
+    #[test]
+    fn native_resume_upgrade_is_crash_recoverable_with_full_handoff() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let claude = EngineTarget::for_engine("claude").unwrap();
+
+        let first = store
+            .prepare_new_turn("product-upgrade", workspace.path(), "alva work", &alva)
+            .unwrap();
+        store
+            .record_engine_session(&first, "expired-native")
+            .unwrap();
+        store
+            .finish_turn(
+                &first,
+                Some("expired-native"),
+                Some("alva complete"),
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .request_engine_switch("product-upgrade", &claude, "switch to Claude")
+            .unwrap();
+        let claude_turn = store
+            .prepare_resumed_turn("product-upgrade", "claude work")
+            .unwrap();
+        store
+            .finish_turn(&claude_turn, None, Some("claude complete"), None, None)
+            .unwrap();
+        store
+            .request_engine_switch("product-upgrade", &alva, "return to Alva")
+            .unwrap();
+        let resume = store
+            .prepare_resumed_turn("product-upgrade", "resume Alva")
+            .unwrap();
+        assert!(resume.engine_session_id.is_some());
+
+        let fresh = store
+            .upgrade_failed_native_resume(&resume, "Session not found: expired-native")
+            .unwrap();
+        assert!(fresh.engine_session_id.is_none());
+        assert_eq!(fresh.handoff.as_ref().unwrap().kind, HandoffKind::Full);
+        drop(store);
+
+        let reopened = HubStore::open(&database).unwrap();
+        let detail = reopened.get_session("product-upgrade").unwrap().unwrap();
+        assert_eq!(detail.session.engine_session_id, None);
+        assert_eq!(detail.turns.last().unwrap().status, STATUS_INTERRUPTED);
+        assert_eq!(detail.turns.last().unwrap().attempts.len(), 2);
+        assert!(detail
+            .handoffs
+            .iter()
+            .any(|handoff| handoff.kind == HandoffKind::Full));
     }
 }

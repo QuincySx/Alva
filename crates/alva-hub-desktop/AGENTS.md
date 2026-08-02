@@ -13,7 +13,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 2. `HubStore` 以 Desktop 私有 SQLite 持久化 product session、多 EngineBranch、switch、handoff、timeline、Turn 和 EngineAttempt。
 3. Attempt 运行中增量记录 native session 与工具开始/完成证据，终态记录 usage/失败原因。
 4. 用户显式选择 Alva/Claude/Codex；源 branch parked 并保留 native session，目标 branch 创建或恢复。
-5. 首次进入目标 branch 注入完整 HandoffPackage；返回 parked branch 先 native resume。
+5. 首次进入目标 branch 注入完整 HandoffPackage；返回 parked branch 以 watermark 生成 delta 并先 native resume，失效时原子升级 full handoff 后 fresh 执行。
 6. 运行中切换排队到安全终态；启动修复 running Attempt 后自动应用可执行的 pending switch。
 7. Tauri command 把用户运行/切换请求转换为 Hub 产品操作，并把 timeline event 发给 React。
 8. React/Vite/TypeScript 前端负责 session list、workspace、engine selector、composer 和 timeline。

@@ -1,6 +1,6 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: multi-engine run seams, full-handoff injection, Attempt capture, timeline DTOs
-// POS:    Highest product seam for durable Hub Desktop branch execution, independent of Tauri.
+// OUTPUT: multi-engine run seams, delta/full handoff injection, Attempt capture, timeline DTOs
+// POS:    Highest product seam for durable Hub Desktop branch execution and native-resume recovery.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -120,10 +120,53 @@ where
         )?
     };
 
+    let mut prepared = prepared;
+    let mut execution = execute_persisted_turn(
+        store,
+        Arc::clone(&engine),
+        &prepared,
+        &request.prompt,
+        &mut emit,
+    )
+    .await?;
+    if prepared.native_resume
+        && execution
+            .terminal_error
+            .as_deref()
+            .is_some_and(is_invalid_native_resume_error)
+    {
+        let failure_reason = execution
+            .terminal_error
+            .as_deref()
+            .expect("native resume failure was checked above");
+        prepared = store.upgrade_failed_native_resume(&prepared, failure_reason)?;
+        execution =
+            execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?;
+    }
+    store.finish_turn(
+        &prepared,
+        execution.engine_session_id.as_deref(),
+        execution.outcome.result.as_deref(),
+        execution.terminal_error.as_deref(),
+        execution.usage.as_ref(),
+    )?;
+    store.apply_pending_switch(&prepared.product_session_id)?;
+    Ok(execution.outcome)
+}
+
+async fn execute_persisted_turn<F>(
+    store: &HubStore,
+    engine: Arc<dyn EngineRuntime>,
+    prepared: &PreparedTurn,
+    user_prompt: &str,
+    emit: &mut F,
+) -> Result<ExecutedTurn, String>
+where
+    F: FnMut(TimelineEvent) + Send,
+{
     let hub = HubRuntime::new();
     hub.register_engine(prepared.target.engine_id.as_str(), engine)
         .map_err(|error| error.to_string())?;
-
     let product_session_id = ProductSessionId::from_existing(&prepared.product_session_id);
     if let Some(engine_session_id) = &prepared.engine_session_id {
         hub.restore_session(
@@ -134,7 +177,6 @@ where
         )
         .map_err(|error| error.to_string())?;
     }
-
     let prompt = prepared
         .handoff
         .as_ref()
@@ -142,29 +184,28 @@ where
             format!(
                 "{}\n\n<current-user-instruction>\n{}\n</current-user-instruction>",
                 handoff.render_for_engine(),
-                request.prompt
+                user_prompt
             )
         })
-        .unwrap_or(request.prompt);
-    let execution = execute_turn(
+        .unwrap_or_else(|| user_prompt.to_string());
+    Ok(execute_turn(
         &hub,
         product_session_id,
         prompt,
         canonical_workspace(&prepared.workspace)?,
         &prepared.target.engine_id,
-        Some((store, &prepared)),
-        &mut emit,
+        Some((store, prepared)),
+        emit,
     )
-    .await;
-    store.finish_turn(
-        &prepared,
-        execution.engine_session_id.as_deref(),
-        execution.outcome.result.as_deref(),
-        execution.terminal_error.as_deref(),
-        execution.usage.as_ref(),
-    )?;
-    store.apply_pending_switch(&prepared.product_session_id)?;
-    Ok(execution.outcome)
+    .await)
+}
+
+fn is_invalid_native_resume_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("session not found")
+        || error.contains("invalid session")
+        || error.contains("unknown session")
+        || (error.contains("resume") && error.contains("session"))
 }
 
 async fn execute_turn<F>(
@@ -422,6 +463,60 @@ mod tests {
         ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
             self.requests.lock().unwrap().push(request);
             Ok(Box::pin(tokio_stream::iter(self.events.clone())))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: true,
+                permission_callback: true,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    struct ResumeFailureThenFreshEngine {
+        requests: Arc<Mutex<Vec<RuntimeRequest>>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for ResumeFailureThenFreshEngine {
+        fn execute(
+            &self,
+            request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            self.requests.lock().unwrap().push(request.clone());
+            if request.resume_session.is_some() {
+                return Err(RuntimeError::SessionNotFound(
+                    "expired native session".into(),
+                ));
+            }
+            Ok(Box::pin(tokio_stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "replacement-native".into(),
+                    model: None,
+                    tools: Vec::new(),
+                },
+                RuntimeEvent::Completed {
+                    session_id: "replacement-native".into(),
+                    result: Some("continued after fresh start".into()),
+                    usage: None,
+                },
+            ])))
         }
 
         async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
@@ -810,7 +905,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn first_turn_after_each_manual_switch_receives_a_full_handoff() {
+    async fn first_turn_on_a_new_branch_receives_full_then_native_return_receives_delta() {
         let workspace = tempfile::tempdir().unwrap();
         let data_dir = tempfile::tempdir().unwrap();
         let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
@@ -917,7 +1012,94 @@ mod tests {
             resumed_request.resume_session.as_deref(),
             Some("alva-native-1")
         );
+        assert!(resumed_request
+            .prompt
+            .contains("<alva-hub-handoff kind=\"delta\">"));
         assert!(resumed_request.prompt.contains("User returned to Alva"));
         assert!(resumed_request.prompt.contains("Claude continued"));
+    }
+
+    #[tokio::test]
+    async fn invalid_native_resume_replaces_delta_with_full_handoff_before_fresh_execution() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let claude = EngineTarget::for_engine("claude").unwrap();
+        let initial = store
+            .prepare_new_turn(
+                "product-resume-upgrade",
+                workspace.path(),
+                "initial Alva work",
+                &alva,
+            )
+            .unwrap();
+        store
+            .record_engine_session(&initial, "expired-native")
+            .unwrap();
+        store
+            .finish_turn(
+                &initial,
+                Some("expired-native"),
+                Some("Alva result"),
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .request_engine_switch("product-resume-upgrade", &claude, "switch to Claude")
+            .unwrap();
+        let claude_turn = store
+            .prepare_resumed_turn("product-resume-upgrade", "Claude follow-up")
+            .unwrap();
+        store
+            .finish_turn(&claude_turn, None, Some("Claude progress"), None, None)
+            .unwrap();
+        store
+            .request_engine_switch("product-resume-upgrade", &alva, "return to Alva")
+            .unwrap();
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let engine = Arc::new(ResumeFailureThenFreshEngine {
+            requests: Arc::clone(&requests),
+        });
+        let outcome = run_persisted(
+            &store,
+            engine,
+            RunRequest {
+                prompt: "finish it".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some("product-resume-upgrade".into()),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0].resume_session.as_deref(),
+            Some("expired-native")
+        );
+        assert!(requests[0].prompt.contains("kind=\"delta\""));
+        assert!(requests[1].resume_session.is_none());
+        assert!(requests[1].prompt.contains("kind=\"full\""));
+        drop(requests);
+
+        let detail = store
+            .get_session("product-resume-upgrade")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            detail.session.engine_session_id.as_deref(),
+            Some("replacement-native")
+        );
+        let latest_turn = detail.turns.last().unwrap();
+        assert_eq!(latest_turn.attempts.len(), 2);
+        assert_eq!(latest_turn.attempts[0].status, "failed");
+        assert_eq!(latest_turn.attempts[1].status, "completed");
     }
 }
