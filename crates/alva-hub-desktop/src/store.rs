@@ -1038,7 +1038,10 @@ impl HubStore {
         target: &EngineTarget,
     ) -> Result<PreparedTurn, String> {
         validate_engine_target(target)?;
-        if target.engine_id == prepared.target.engine_id {
+        if target.engine_id == prepared.target.engine_id
+            && target.model_id == prepared.target.model_id
+            && target.provider_id == prepared.target.provider_id
+        {
             return Err("automatic fallback requires a different engine target".to_string());
         }
         let now = now_unix_ms();
@@ -1253,19 +1256,90 @@ impl HubStore {
         Ok(())
     }
 
-    /// First policy-chain target authorized for automatic use whose engine has
-    /// not been tried in this Turn. Read-only selection over the session's
-    /// policy snapshot.
+    /// First policy-chain target authorized for automatic use that has not
+    /// been considered in this attempt cycle (compared as the full
+    /// engine/model/provider triple, so same-engine alternate providers each
+    /// get their one try). Read-only selection over the session's policy
+    /// snapshot; never loops back to a considered target.
     pub(crate) fn next_authorized_fallback_target(
         &self,
         product_session_id: &str,
-        tried_engine_ids: &[String],
+        considered: &[EngineTarget],
     ) -> Result<Option<EngineTarget>, String> {
         let connection = self.lock()?;
         let policy = query_fallback_policy(&connection, Some(product_session_id))?;
         Ok(policy.targets.into_iter().find(|target| {
-            target.automatic_use_authorized && !tried_engine_ids.contains(&target.engine_id)
+            target.automatic_use_authorized
+                && !considered.iter().any(|tried| {
+                    tried.engine_id == target.engine_id
+                        && tried.model_id == target.model_id
+                        && tried.provider_id == target.provider_id
+                })
         }))
+    }
+
+    /// Record that a fallback candidate was skipped (unhealthy or capability
+    /// mismatch) without ever executing, so the reason survives in the
+    /// timeline.
+    pub(crate) fn record_fallback_skip(
+        &self,
+        product_session_id: &str,
+        source_branch_id: &str,
+        source_engine_id: &str,
+        target: &EngineTarget,
+        reason: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub fallback skip transaction: {error}"))?;
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "engine_fallback_skipped",
+            source_branch_id,
+            None,
+            source_engine_id,
+            &target.engine_id,
+            reason,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub fallback skip: {error}"))?;
+        Ok(())
+    }
+
+    /// Record that the fallback chain is exhausted; the reason carries every
+    /// attempt's terminal state so the card can show the whole cycle.
+    pub(crate) fn record_fallback_exhaustion(
+        &self,
+        product_session_id: &str,
+        branch_id: &str,
+        engine_id: &str,
+        summary: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub fallback exhaustion transaction: {error}"))?;
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "fallback_exhausted",
+            branch_id,
+            None,
+            engine_id,
+            engine_id,
+            summary,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub fallback exhaustion: {error}"))?;
+        Ok(())
     }
 
     pub(crate) fn record_engine_session(
@@ -3478,21 +3552,59 @@ mod tests {
             .prepare_new_turn("product-chain", workspace.path(), "work", &alva)
             .unwrap();
         store
-            .set_session_fallback_policy("product-chain", vec![codex, claude])
+            .set_session_fallback_policy("product-chain", vec![codex, claude.clone()])
             .unwrap();
 
         // codex is first in the chain but unauthorized; claude is next.
         let selected = store
-            .next_authorized_fallback_target("product-chain", &["alva".to_string()])
+            .next_authorized_fallback_target("product-chain", std::slice::from_ref(&alva))
             .unwrap()
             .unwrap();
         assert_eq!(selected.engine_id, "claude");
 
         let exhausted = store
-            .next_authorized_fallback_target(
-                "product-chain",
-                &["alva".to_string(), "claude".to_string()],
+            .next_authorized_fallback_target("product-chain", &[alva, claude])
+            .unwrap();
+        assert!(exhausted.is_none());
+    }
+
+    #[test]
+    fn same_engine_alternate_provider_targets_each_get_their_own_try() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let mut claude_a = EngineTarget::for_engine("claude").unwrap();
+        claude_a.automatic_use_authorized = true;
+        let mut claude_b = claude_a.clone();
+        claude_b.provider_id = "claude-alt-provider".into();
+        store
+            .prepare_new_turn("product-alt-provider", workspace.path(), "work", &alva)
+            .unwrap();
+        store
+            .set_session_fallback_policy(
+                "product-alt-provider",
+                vec![claude_a.clone(), claude_b.clone()],
             )
+            .unwrap();
+
+        let first = store
+            .next_authorized_fallback_target("product-alt-provider", std::slice::from_ref(&alva))
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.provider_id, "claude-cli");
+
+        let second = store
+            .next_authorized_fallback_target(
+                "product-alt-provider",
+                &[alva.clone(), claude_a.clone()],
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(second.provider_id, "claude-alt-provider");
+
+        let exhausted = store
+            .next_authorized_fallback_target("product-alt-provider", &[alva, claude_a, claude_b])
             .unwrap();
         assert!(exhausted.is_none());
     }

@@ -17,7 +17,8 @@
 7. `main` 从 Tauri app-data 初始化 store，并暴露运行、切换、列表和详情 IPC。
 8. `main` 暴露全局与单 session fallback policy IPC；自动使用必须来自当前 session snapshot 的明确授权。
 9. `readiness` 用只读 `EngineProbe` facts（PATH 发现、`--version`、凭证存在性、attempt 历史）分类出结构化 EngineReadiness；`main` 以 `SystemProbe` 暴露 readiness IPC。
-10. `run` 以 engine factory 装配执行；continuity failure（启动失败/stream 致命错误）触发 `fallback_failed_attempt`：同一 Turn 原子转移到下一授权 target（parked source + 预持久化 full handoff + 串行 Attempt + `engine_fallback` timeline fact），target 同步启动失败时全部状态可恢复。
+10. `run` 以 engine factory + health veto 装配执行；`failure` 矩阵分类 terminal 失败，仅 operational continuity class 触发 `fallback_failed_attempt`：同一 Turn 原子转移到下一授权 target（parked source + 预持久化 full handoff + 串行 Attempt + `engine_fallback` fact），target 同步启动失败时全部状态可恢复。
+11. fallback 候选按 policy 顺序、三元组去重、一 cycle 一次；health veto 或 required_capabilities 不满足 → skip + `engine_fallback_skipped` fact；链路耗尽 → `fallback_exhausted` fact 汇总全 cycle 终态。
 
 ## 约束
 
@@ -36,5 +37,6 @@
 | Engine assembly | `alva.rs` | Alva provider/catalog、Claude light 与 Codex safe-default 装配 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
+| Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
 | SQLite store | `store.rs` | identity、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Desktop entry | `main.rs` | Tauri plugin、运行/切换/policy/readiness command 和 event bridge |

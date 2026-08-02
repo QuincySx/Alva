@@ -11,7 +11,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 1. `bridge` 选择 workspace、提交/恢复 prompt、请求手动 engine switch、global/session fallback policy 与 engine readiness，并读取持久化 session。
 2. `App` 管理 session list、EngineBranch 选择、显式授权的有序 fallback chain、switch queue、历史 Turn/Attempt、interrupted 提示和用户输入。
 3. `App` 的 Engines dashboard 展示每个 engine 的版本/能力/auth/stream health 与结构化不可用原因；composer 与 engine selector 同步显示不健康状态。
-4. 自动 fallback 以非阻塞 `fallback` timeline card 呈现 source→target、原因与 handoff 摘要（live event 与持久化 `engine_fallback` fact 同一投影）。
+4. 自动 fallback 以非阻塞 `fallback` timeline card 呈现 source→target、原因与 handoff 摘要；skip 复用 fallback 投影，链路耗尽以 `exhausted` card 展示全 cycle 终态（live event 与持久化 fact 同一投影）。
 5. `index.css` 提供两栏 Desktop walking-skeleton 布局。
 
 ## 约束

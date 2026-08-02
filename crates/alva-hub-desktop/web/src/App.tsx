@@ -99,12 +99,20 @@ function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
         ? ("queued" as const)
         : event.kind === "engine_switch_cancelled"
           ? ("cancelled" as const)
-          : event.kind === "engine_fallback"
+          : event.kind === "engine_fallback" ||
+              event.kind === "engine_fallback_skipped"
             ? ("fallback" as const)
-            : ("switched" as const),
+            : event.kind === "fallback_exhausted"
+              ? ("exhausted" as const)
+              : ("switched" as const),
     engine_id: event.target_engine_id,
     product_session_id: detail.session.product_session_id,
-    message: `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
+    message:
+      event.kind === "engine_fallback_skipped"
+        ? `Skipped ${event.target_engine_id}\n\n${event.reason}`
+        : event.kind === "fallback_exhausted"
+          ? event.reason
+          : `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
     created_at: event.created_at,
   }));
   return [...turns, ...switches].sort(
@@ -201,6 +209,8 @@ export default function App() {
         return "Engine switch cancelled";
       case "fallback":
         return "Automatic fallback";
+      case "exhausted":
+        return "Fallback exhausted";
       default:
         return "Ready";
     }

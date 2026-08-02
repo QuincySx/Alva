@@ -20,11 +20,13 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 9. 用户保存全局或 session fallback chain 前可看到 target 的 model/provider、账号、账单路径和自动使用授权；手动切换不授予自动 fallback 权限。
 10. Engines dashboard 自动发现三个 engine 并展示版本兼容性、capabilities、auth 与 stream health；不可用原因是结构化 reason，可从 composer 与详情到达；刷新只读。
 
-11. terminal continuity failure（引擎无法启动或 stream 致命错误）在同一 Turn 自动切换到 fallback chain 中下一个用户授权的 target：源 branch parked、handoff 先持久化再执行、串行新 Attempt、非阻塞 fallback timeline card；每个 engine 每 Turn 最多尝试一次。
+11. terminal 失败先经稳定 FailureClass 矩阵分类（missing/incompatible/auth/model/rate-quota-billing/context/crash/transport/other）；仅分类到 operational continuity failure 才在同一 Turn 自动切换到 fallback chain 下一个授权 target：源 branch parked、handoff 先持久化再执行、串行新 Attempt、非阻塞 fallback timeline card。
+12. fallback chain 按 policy 顺序有界执行：每个 EngineTarget（engine/model/provider 三元组）每 attempt cycle 最多考虑一次、不回环；不健康或能力不兼容 target 被跳过并落 `engine_fallback_skipped` fact；链路耗尽落 `fallback_exhausted` card，列出每次 attempt/skip 的终态与原因。
 
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。
+- 未分类（Other）失败与成功但质量不佳的结果都不触发自动 fallback。
 - 不复用 `alva-app-tauri` 的 Rust backend 或 session database。
 - raw adapter stream 不直接泄露给 UI；先投影为产品 timeline vocabulary。
 - SQLite 路径来自 Tauri app-data；目录/文件私有、拒绝符号链接、写入走事务，并以实例锁保护启动修复。

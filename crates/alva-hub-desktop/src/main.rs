@@ -48,9 +48,19 @@ async fn run_hub_prompt(
 ) -> Result<RunOutcome, String> {
     let (workspace, _engine_id) = state.execution_target(&request)?;
     let history_dir = state.history_dir.clone();
+    let health_store = state.store.clone();
+    let health_workspace = workspace.clone();
     run_persisted(
         &state.store,
         move |target| build_engine(&target.engine_id, &workspace, &history_dir),
+        // Fast readiness veto for fallback candidates: missing binaries and
+        // signed-out engines are skipped with the reason. quick_veto avoids
+        // subprocess probes, so it never blocks the async runtime; version
+        // incompatibility surfaces as a classified attempt failure instead.
+        move |target| {
+            SystemProbe::new(Some(&health_store), Some(health_workspace.clone()))
+                .quick_veto(&target.engine_id)
+        },
         request,
         move |event| {
             if let Err(error) = app.emit("hub_timeline", event) {

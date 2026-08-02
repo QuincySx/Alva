@@ -503,6 +503,11 @@ select {
   box-shadow: 0 0 10px #e4a85d;
 }
 
+.status-exhausted span {
+  background: #ee6f79;
+  box-shadow: 0 0 10px #ee6f79;
+}
+
 .timeline {
   display: flex;
   overflow-y: auto;
@@ -582,6 +587,12 @@ select {
 .timeline-fallback {
   border-color: rgba(228, 168, 93, 0.5);
   background: rgba(228, 168, 93, 0.06);
+}
+
+.timeline-exhausted {
+  border-color: rgba(238, 111, 121, 0.55);
+  background: rgba(238, 111, 121, 0.07);
+  white-space: pre-line;
 }
 
 .timeline-meta {

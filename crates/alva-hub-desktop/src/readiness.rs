@@ -43,6 +43,30 @@ pub enum ReadinessReason {
     StreamFailing { last_failure: String },
 }
 
+impl ReadinessReason {
+    /// Human-readable one-liner for timeline facts (fallback skip reasons).
+    pub fn describe(&self) -> String {
+        match self {
+            ReadinessReason::BinaryNotFound { .. } => "engine binary not found".to_string(),
+            ReadinessReason::VersionUnreadable { detail } => {
+                format!("engine version unreadable: {detail}")
+            }
+            ReadinessReason::VersionIncompatible { found, minimum } => {
+                format!("engine version {found} is older than required {minimum}")
+            }
+            ReadinessReason::Unauthenticated { remedy } => {
+                format!("not signed in — {remedy}")
+            }
+            ReadinessReason::ProviderKeyMissing { remedy } => {
+                format!("provider key missing — {remedy}")
+            }
+            ReadinessReason::StreamFailing { last_failure } => {
+                format!("stream failing: {last_failure}")
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EngineReadiness {
     pub engine_id: String,
@@ -411,6 +435,39 @@ impl SystemProbe {
             auth_remedy: None,
             stream_health,
             last_stream_failure,
+        }
+    }
+
+    /// Fast readiness veto for fallback-candidate gating: binary presence,
+    /// credential presence, and provider-key checks only — no subprocess
+    /// calls, so it is safe on an async thread. Version incompatibility is
+    /// deliberately not vetoed here (it needs `--version`); an incompatible
+    /// engine fails its attempt and the failure matrix classifies it.
+    /// Stream-failing history does not veto either — the fallback attempt is
+    /// itself the recovery path.
+    pub fn quick_veto(&self, engine_id: &str) -> Option<String> {
+        match engine_id {
+            "alva" => {
+                let facts = self.alva_facts();
+                (facts.authenticated == Some(false)).then(|| {
+                    "provider key missing — configure a provider API key for this workspace."
+                        .to_string()
+                })
+            }
+            "claude" | "codex" => {
+                if self.locate(engine_id).is_none() {
+                    return Some("engine binary not found".to_string());
+                }
+                let authenticated = if engine_id == "claude" {
+                    self.claude_authenticated()
+                } else {
+                    self.codex_authenticated()
+                };
+                (authenticated == Some(false)).then(|| {
+                    format!("not signed in — run `{engine_id} login` in a terminal to sign in.")
+                })
+            }
+            other => Some(format!("engine '{other}' is not supported by Hub")),
         }
     }
 
@@ -802,6 +859,35 @@ mod tests {
                 classify_engine("codex", healthy).status,
                 ReadinessStatus::Healthy
             );
+        }
+
+        #[test]
+        fn quick_veto_flags_missing_and_signed_out_engines_without_subprocesses() {
+            let bin = tempfile::tempdir().unwrap();
+            let home = tempfile::tempdir().unwrap();
+
+            // codex missing entirely.
+            let empty = probe(bin.path(), home.path());
+            assert_eq!(
+                empty.quick_veto("codex").as_deref(),
+                Some("engine binary not found")
+            );
+
+            // codex installed but signed out.
+            install_fake_cli(bin.path(), "codex", "codex-cli 0.44.0");
+            let signed_out = probe(bin.path(), home.path());
+            assert!(signed_out
+                .quick_veto("codex")
+                .is_some_and(|veto| veto.contains("not signed in")));
+
+            // codex signed in.
+            fs::create_dir_all(home.path().join(".codex")).unwrap();
+            fs::write(home.path().join(".codex/auth.json"), "{}").unwrap();
+            assert_eq!(probe(bin.path(), home.path()).quick_veto("codex"), None);
+
+            // claude present with unknown auth (keychain) is not vetoed.
+            install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
+            assert_eq!(probe(bin.path(), home.path()).quick_veto("claude"), None);
         }
 
         #[test]
