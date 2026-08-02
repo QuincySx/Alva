@@ -508,6 +508,11 @@ select {
   box-shadow: 0 0 10px #ee6f79;
 }
 
+.status-permission_required span {
+  background: #8f9cff;
+  box-shadow: 0 0 10px #8f9cff;
+}
+
 .timeline {
   display: flex;
   overflow-y: auto;
@@ -593,6 +598,29 @@ select {
   border-color: rgba(238, 111, 121, 0.55);
   background: rgba(238, 111, 121, 0.07);
   white-space: pre-line;
+}
+
+.timeline-permission_required {
+  border-color: rgba(143, 156, 255, 0.5);
+  background: rgba(143, 156, 255, 0.06);
+}
+
+.permission-card {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.permission-card small {
+  color: #96a1bd;
+}
+
+.permission-answered {
+  color: #8f9cff;
+}
+
+.eligibility-warning {
+  color: #e4a85d;
 }
 
 .timeline-controls {

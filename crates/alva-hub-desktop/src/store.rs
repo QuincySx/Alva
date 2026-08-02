@@ -10,7 +10,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA_VERSION: i64 = 5;
+use crate::permissions::PermissionProfile;
+
+const SCHEMA_VERSION: i64 = 6;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -99,6 +101,8 @@ pub struct HubSessionSummary {
     pub updated_at: i64,
     pub last_prompt: Option<String>,
     pub last_result: Option<String>,
+    /// Session-stable permission contract; branch switches never change it.
+    pub permission_profile: PermissionProfile,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -283,6 +287,7 @@ pub(crate) struct PreparedTurn {
     pub target: EngineTarget,
     pub handoff: Option<HandoffPackage>,
     pub native_resume: bool,
+    pub permission_profile: PermissionProfile,
 }
 
 #[derive(Clone)]
@@ -340,7 +345,8 @@ impl HubStore {
                            ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
                         (SELECT final_result FROM turns t
                            WHERE t.product_session_id = hs.product_session_id
-                           ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1)
+                           ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
+                        hs.permission_profile
                    FROM hub_sessions hs
                    JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
                   ORDER BY hs.updated_at DESC, hs.product_session_id ASC",
@@ -548,6 +554,18 @@ impl HubStore {
             });
         }
 
+        // Manual switches obey the same permission contract as automatic
+        // fallback: a target that can only weaken the session profile would
+        // brick the session (every later run fails engine assembly), so it
+        // is rejected here with the mapping's reason.
+        crate::permissions::enforcement_for(&target.engine_id, session.permission_profile)
+            .map_err(|reason| {
+                format!(
+                    "cannot switch Hub session '{product_session_id}' to '{}': {reason}",
+                    target.engine_id
+                )
+            })?;
+
         let switch_id = upsert_queued_switch(
             &transaction,
             product_session_id,
@@ -657,6 +675,7 @@ impl HubStore {
         workspace: &Path,
         prompt: &str,
         target: &EngineTarget,
+        permission_profile: PermissionProfile,
     ) -> Result<PreparedTurn, String> {
         let branch_id = uuid::Uuid::new_v4().to_string();
         let turn_id = uuid::Uuid::new_v4().to_string();
@@ -670,13 +689,15 @@ impl HubStore {
         transaction
             .execute(
                 "INSERT INTO hub_sessions
-                   (product_session_id, workspace, active_branch_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                   (product_session_id, workspace, active_branch_id, status,
+                    permission_profile, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
                 params![
                     product_session_id,
                     workspace_text,
                     branch_id,
                     STATUS_RUNNING,
+                    permission_profile.as_str(),
                     now
                 ],
             )
@@ -727,6 +748,7 @@ impl HubStore {
             target: target.clone(),
             handoff: None,
             native_resume: false,
+            permission_profile,
         })
     }
 
@@ -827,6 +849,7 @@ impl HubStore {
         let native_resume = engine_session_id.is_some();
         Ok(PreparedTurn {
             product_session_id: product_session_id.to_string(),
+            permission_profile: session.permission_profile,
             branch_id: session.active_branch_id,
             turn_id,
             attempt_id,
@@ -1021,6 +1044,7 @@ impl HubStore {
             target: prepared.target.clone(),
             handoff: Some(package),
             native_resume: false,
+            permission_profile: prepared.permission_profile,
         })
     }
 
@@ -1239,6 +1263,7 @@ impl HubStore {
             target: target.clone(),
             handoff: Some(package),
             native_resume: false,
+            permission_profile: prepared.permission_profile,
         })
     }
 
@@ -2256,7 +2281,8 @@ fn query_session(
                        ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
                     (SELECT final_result FROM turns t
                        WHERE t.product_session_id = hs.product_session_id
-                       ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1)
+                       ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
+                    hs.permission_profile
                FROM hub_sessions hs
                JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
               WHERE hs.product_session_id = ?1",
@@ -2268,6 +2294,7 @@ fn query_session(
 }
 
 fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSessionSummary> {
+    let profile_text: String = row.get(11)?;
     Ok(HubSessionSummary {
         product_session_id: row.get(0)?,
         workspace: row.get(1)?,
@@ -2280,6 +2307,9 @@ fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSessionSummary
         updated_at: row.get(8)?,
         last_prompt: row.get(9)?,
         last_result: row.get(10)?,
+        permission_profile: PermissionProfile::parse(&profile_text).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, error.into())
+        })?,
     })
 }
 
@@ -2477,6 +2507,17 @@ fn initialize_schema_and_recover(
                 [now],
             )
             .map_err(|error| format!("timestamp migrated Hub fallback policies: {error}"))?;
+    }
+
+    if schema_version < 6 {
+        // Existing sessions keep the pre-profile de-facto behavior:
+        // workspace-bounded side effects without prompting.
+        transaction
+            .execute_batch(
+                "ALTER TABLE hub_sessions
+                   ADD COLUMN permission_profile TEXT NOT NULL DEFAULT 'workspace_write';",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 6: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -2766,6 +2807,7 @@ mod tests {
                 workspace.path(),
                 "hello",
                 &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         let visible: (i64, i64) = second
@@ -2822,6 +2864,7 @@ mod tests {
                 workspace.path(),
                 "change the project",
                 &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         store
@@ -2931,6 +2974,11 @@ mod tests {
         assert_eq!(detail.turns[0].result.as_deref(), Some("old result"));
         assert_eq!(detail.turns[0].attempts.len(), 1);
         assert_eq!(detail.turns[0].attempts[0].status, STATUS_COMPLETED);
+        // Pre-profile sessions keep their de-facto contract after migration.
+        assert_eq!(
+            detail.session.permission_profile,
+            PermissionProfile::WorkspaceWrite
+        );
         let version = store
             .lock()
             .unwrap()
@@ -2940,11 +2988,145 @@ mod tests {
     }
 
     #[test]
+    fn permission_profile_persists_and_survives_branch_switches() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let claude = EngineTarget::for_engine("claude").unwrap();
+
+        let prepared = store
+            .prepare_new_turn(
+                "product-profile",
+                workspace.path(),
+                "work",
+                &alva,
+                PermissionProfile::Unrestricted,
+            )
+            .unwrap();
+        assert_eq!(prepared.permission_profile, PermissionProfile::Unrestricted);
+        store
+            .finish_turn(&prepared, Some("alva-native"), Some("done"), None, None)
+            .unwrap();
+
+        // A manual engine switch replaces the active branch but must never
+        // touch the session-stable permission profile.
+        store
+            .request_engine_switch("product-profile", &claude, "user chose claude")
+            .unwrap();
+        let switched = store.get_session("product-profile").unwrap().unwrap();
+        assert_eq!(switched.session.engine_id, "claude");
+        assert_eq!(
+            switched.session.permission_profile,
+            PermissionProfile::Unrestricted
+        );
+
+        // Resumed turns carry the stored profile, and it survives reopen.
+        let resumed = store
+            .prepare_resumed_turn("product-profile", "continue")
+            .unwrap();
+        assert_eq!(resumed.permission_profile, PermissionProfile::Unrestricted);
+        store
+            .finish_turn(&resumed, None, Some("ok"), None, None)
+            .unwrap();
+        drop(store);
+        let reopened = HubStore::open(&database).unwrap();
+        assert_eq!(
+            reopened
+                .get_session("product-profile")
+                .unwrap()
+                .unwrap()
+                .session
+                .permission_profile,
+            PermissionProfile::Unrestricted
+        );
+    }
+
+    #[test]
+    fn manual_switch_to_a_weaken_only_target_is_rejected_with_the_reason() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+
+        let prepared = store
+            .prepare_new_turn(
+                "product-gated-switch",
+                workspace.path(),
+                "work",
+                &alva,
+                PermissionProfile::Interactive,
+            )
+            .unwrap();
+        store
+            .finish_turn(&prepared, Some("alva-native"), Some("done"), None, None)
+            .unwrap();
+
+        for engine_id in ["claude", "codex"] {
+            let target = EngineTarget::for_engine(engine_id).unwrap();
+            let error = store
+                .request_engine_switch("product-gated-switch", &target, "user insisted")
+                .expect_err("a weaken-only manual switch must be rejected");
+            assert!(
+                error.contains("cannot preserve or tighten") && error.contains("interactive"),
+                "{engine_id}: {error}"
+            );
+        }
+        // Re-selecting the current engine stays a permitted no-op.
+        let same = store
+            .request_engine_switch("product-gated-switch", &alva, "stay on alva")
+            .unwrap();
+        assert_eq!(same.disposition, SwitchDisposition::Applied);
+        let detail = store.get_session("product-gated-switch").unwrap().unwrap();
+        assert_eq!(detail.session.engine_id, "alva");
+        assert!(detail.pending_switch.is_none());
+    }
+
+    #[test]
+    fn dirty_permission_profile_text_is_rejected_loudly() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                "product-dirty",
+                workspace.path(),
+                "work",
+                &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&prepared, None, Some("done"), None, None)
+            .unwrap();
+        store
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE hub_sessions SET permission_profile = 'yolo'
+                  WHERE product_session_id = 'product-dirty'",
+                [],
+            )
+            .unwrap();
+
+        let error = store
+            .get_session("product-dirty")
+            .expect_err("a corrupted profile must not silently default");
+        assert!(
+            error.contains("yolo"),
+            "error should name the value: {error}"
+        );
+    }
+
+    #[test]
     fn rejects_a_future_schema_without_downgrading_it() {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 6).unwrap();
+        connection.pragma_update(None, "user_version", 7).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -2956,7 +3138,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -2974,6 +3156,7 @@ mod tests {
                 workspace.path(),
                 "build the feature",
                 &alva,
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         store
@@ -3044,7 +3227,13 @@ mod tests {
         let alva = EngineTarget::for_engine("alva").unwrap();
         let codex = EngineTarget::for_engine("codex").unwrap();
         let prepared = store
-            .prepare_new_turn("product-queued", workspace.path(), "work", &alva)
+            .prepare_new_turn(
+                "product-queued",
+                workspace.path(),
+                "work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
 
         let queued = store
@@ -3112,6 +3301,7 @@ mod tests {
                 workspace.path(),
                 "work",
                 &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         store
@@ -3143,7 +3333,13 @@ mod tests {
         let claude = EngineTarget::for_engine("claude").unwrap();
 
         let first = store
-            .prepare_new_turn("product-delta", workspace.path(), "alva work", &alva)
+            .prepare_new_turn(
+                "product-delta",
+                workspace.path(),
+                "alva work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store.record_engine_session(&first, "alva-native").unwrap();
         store
@@ -3209,7 +3405,13 @@ mod tests {
         let claude = EngineTarget::for_engine("claude").unwrap();
 
         let first = store
-            .prepare_new_turn("product-upgrade", workspace.path(), "alva work", &alva)
+            .prepare_new_turn(
+                "product-upgrade",
+                workspace.path(),
+                "alva work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .record_engine_session(&first, "expired-native")
@@ -3276,6 +3478,7 @@ mod tests {
                 workspace.path(),
                 "start work",
                 &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         let first = store
@@ -3301,6 +3504,7 @@ mod tests {
                 workspace.path(),
                 "start another",
                 &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         let later = store.get_session("product-policy-new").unwrap().unwrap();
@@ -3315,7 +3519,13 @@ mod tests {
         let alva = EngineTarget::for_engine("alva").unwrap();
         let claude = EngineTarget::for_engine("claude").unwrap();
         let prepared = store
-            .prepare_new_turn("product-policy-auth", workspace.path(), "work", &alva)
+            .prepare_new_turn(
+                "product-policy-auth",
+                workspace.path(),
+                "work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .finish_turn(&prepared, None, Some("done"), None, None)
@@ -3371,6 +3581,7 @@ mod tests {
                 workspace.path(),
                 "work",
                 &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         store
@@ -3403,7 +3614,13 @@ mod tests {
         let mut claude = EngineTarget::for_engine("claude").unwrap();
         claude.automatic_use_authorized = true;
         let prepared = store
-            .prepare_new_turn("product-fallback", workspace.path(), "do the work", &alva)
+            .prepare_new_turn(
+                "product-fallback",
+                workspace.path(),
+                "do the work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .set_session_fallback_policy("product-fallback", vec![claude.clone()])
@@ -3470,7 +3687,13 @@ mod tests {
         let alva = EngineTarget::for_engine("alva").unwrap();
         let mut claude = EngineTarget::for_engine("claude").unwrap();
         let prepared = store
-            .prepare_new_turn("product-fallback-auth", workspace.path(), "work", &alva)
+            .prepare_new_turn(
+                "product-fallback-auth",
+                workspace.path(),
+                "work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .set_session_fallback_policy("product-fallback-auth", vec![claude.clone()])
@@ -3516,6 +3739,7 @@ mod tests {
                 workspace.path(),
                 "first task",
                 &alva,
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         store.record_engine_session(&first, "alva-native").unwrap();
@@ -3585,7 +3809,13 @@ mod tests {
         let mut claude = EngineTarget::for_engine("claude").unwrap();
         claude.automatic_use_authorized = true;
         store
-            .prepare_new_turn("product-chain", workspace.path(), "work", &alva)
+            .prepare_new_turn(
+                "product-chain",
+                workspace.path(),
+                "work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .set_session_fallback_policy("product-chain", vec![codex, claude.clone()])
@@ -3615,7 +3845,13 @@ mod tests {
         let mut claude_b = claude_a.clone();
         claude_b.provider_id = "claude-alt-provider".into();
         store
-            .prepare_new_turn("product-alt-provider", workspace.path(), "work", &alva)
+            .prepare_new_turn(
+                "product-alt-provider",
+                workspace.path(),
+                "work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .set_session_fallback_policy(
@@ -3654,7 +3890,13 @@ mod tests {
         assert_eq!(store.latest_attempt_outcome("alva").unwrap(), None);
 
         let failed = store
-            .prepare_new_turn("product-outcome", workspace.path(), "first", &alva)
+            .prepare_new_turn(
+                "product-outcome",
+                workspace.path(),
+                "first",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .finish_turn(&failed, None, None, Some("stream ended early"), None)

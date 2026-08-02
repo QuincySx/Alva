@@ -21,6 +21,8 @@
 11. fallback 候选按 policy 顺序、三元组去重、一 cycle 一次；health veto 或 required_capabilities 不满足 → skip + `engine_fallback_skipped` fact；链路耗尽 → `fallback_exhausted` fact 汇总全 cycle 终态。
 12. stall watchdog 仅在无 open tool、无 pending permission 时计时，任意事件重置 180s 窗口；确认 stall = `FailureClass::Stall` continuity failure + Failed TimelineEvent + best-effort cancel，走既有有界 fallback。
 13. `main` 维护 active engine registry（session→live adapter）；`stop_hub_attempt` 校验 running + native session 后落 `attempt_cancelled` fact 再 cancel 引擎，attempt 终态来自 cancelled stream 自然收敛，重启不重放；用户 Stop 不触发 fallback（Cancelled 归类 Other）。
+14. `permissions` 定义 session 级 PermissionProfile（interactive/workspace_write/unrestricted，随 hub_sessions 持久化、branch 切换不变）与三 engine adapter 映射契约：等价或更严格才可执行（alva=交互回调、claude=acceptEdits/bypassPermissions、codex=sandbox 档位），只能弱化的组合 ineligible 并带结构化原因；interactive 保证的是"raised request 由用户裁决"的路由（risk classifier 决定哪些调用 raise），不是每个副作用都询问。`alva::build_engine` 按映射装配并 fail-closed；fallback 候选先过资格闸门再过 health veto，skip 落 `engine_fallback_skipped` fact；手动 switch 同受此闸门（`request_engine_switch` 拒绝 weaken-only target，同 target 重选仍是 no-op）。
+15. PermissionRequest 事件携带 request_id + emitting EngineSessionId 投影为 `permission_required` TimelineEvent；`main` 的 `PermissionRouter` 把用户决定路由回发起请求的那个 engine session（单次使用，attempt 终态/fallback/用户 Stop 后清空），决定不会泄漏到后续 fallback engine。SessionStarted 之前到达的请求无路由身份：card 不带控件、watchdog 保持 armed，死等以有界 stall 收敛；attempt 已带 terminal error 时 watchdog 恒 armed，pending approval 不能让 drain 无限阻塞。
 
 ## 约束
 
@@ -39,6 +41,7 @@
 | Engine assembly | `alva.rs` | Alva provider/catalog、Claude light 与 Codex safe-default 装配 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
+| Permission contract | `permissions.rs` | PermissionProfile、adapter 映射资格契约、eligibility DTO 与 PermissionRouter |
 | Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
 | SQLite store | `store.rs` | identity、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Desktop entry | `main.rs` | Tauri plugin、运行/切换/policy/readiness command 和 event bridge |

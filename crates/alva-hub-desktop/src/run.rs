@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
 use crate::failure::{classify_failure, triggers_fallback, FailureClass};
+use crate::permissions::{enforcement_for, PermissionProfile};
 use crate::readiness::capability_labels;
 use crate::store::{EngineTarget, HubStore, PreparedTurn, SideEffectEvidence, StoredUsage};
 
@@ -31,6 +32,10 @@ pub struct RunRequest {
     pub engine_id: String,
     #[serde(default)]
     pub product_session_id: Option<String>,
+    /// Permission contract for a NEW session (defaults to workspace-write).
+    /// On resume it may only restate the stored profile — a mismatch fails.
+    #[serde(default)]
+    pub permission_profile: Option<PermissionProfile>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -42,6 +47,18 @@ pub enum TimelineStatus {
     Interrupted,
     Fallback,
     Exhausted,
+    PermissionRequired,
+}
+
+/// Routing identity of a pending engine permission request. The engine
+/// session id pins the approval to the exact native session that asked, so a
+/// decision can never leak into a later attempt or fallback engine.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PermissionRequestInfo {
+    pub request_id: String,
+    pub tool_name: String,
+    pub description: Option<String>,
+    pub engine_session_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -50,6 +67,8 @@ pub struct TimelineEvent {
     pub engine_id: String,
     pub product_session_id: String,
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_request: Option<PermissionRequestInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -113,7 +132,7 @@ pub async fn run_persisted<F, B, H>(
 ) -> Result<RunOutcome, String>
 where
     F: FnMut(TimelineEvent) + Send,
-    B: Fn(&EngineTarget, &str) -> Result<Arc<dyn EngineRuntime>, String>,
+    B: Fn(&EngineTarget, &str, PermissionProfile) -> Result<Arc<dyn EngineRuntime>, String>,
     H: Fn(&EngineTarget) -> Option<String>,
 {
     validate_prompt(&request.prompt)?;
@@ -129,6 +148,17 @@ where
                 detail.session.engine_id, request.engine_id
             ));
         }
+        // The profile is session-stable: a resume may restate it but never
+        // change it.
+        if let Some(requested) = request.permission_profile {
+            if requested != detail.session.permission_profile {
+                return Err(format!(
+                    "Hub session '{product_session_id}' uses permission profile '{}'; it cannot be changed to '{}' after creation",
+                    detail.session.permission_profile.as_str(),
+                    requested.as_str()
+                ));
+            }
+        }
         store.prepare_resumed_turn(product_session_id, &request.prompt)?
     } else {
         let workspace = canonical_workspace(&request.workspace)?;
@@ -139,11 +169,16 @@ where
             &workspace,
             &request.prompt,
             &target,
+            request.permission_profile.unwrap_or_default(),
         )?
     };
 
     let mut prepared = prepared;
-    let mut execution = match build_engine(&prepared.target, &prepared.product_session_id) {
+    let mut execution = match build_engine(
+        &prepared.target,
+        &prepared.product_session_id,
+        prepared.permission_profile,
+    ) {
         Ok(engine) => {
             execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
         }
@@ -160,7 +195,11 @@ where
             .as_deref()
             .expect("native resume failure was checked above");
         prepared = store.upgrade_failed_native_resume(&prepared, failure_reason)?;
-        execution = match build_engine(&prepared.target, &prepared.product_session_id) {
+        execution = match build_engine(
+            &prepared.target,
+            &prepared.product_session_id,
+            prepared.permission_profile,
+        ) {
             Ok(engine) => {
                 execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
             }
@@ -194,6 +233,24 @@ where
             store.next_authorized_fallback_target(&prepared.product_session_id, &considered)?
         {
             considered.push(candidate.clone());
+            // Permission contract first: continuity never runs a target that
+            // would weaken the session profile, no matter how healthy it is.
+            if let Err(reason) = enforcement_for(&candidate.engine_id, prepared.permission_profile)
+            {
+                store.record_fallback_skip(
+                    &prepared.product_session_id,
+                    &prepared.branch_id,
+                    &prepared.target.engine_id,
+                    &candidate,
+                    &reason,
+                )?;
+                cycle_log.push(format!(
+                    "{}: skipped — {}",
+                    candidate.engine_id,
+                    brief(&reason)
+                ));
+                continue;
+            }
             if let Some(veto) = health_veto(&candidate) {
                 store.record_fallback_skip(
                     &prepared.product_session_id,
@@ -209,7 +266,11 @@ where
                 ));
                 continue;
             }
-            let built = build_engine(&candidate, &prepared.product_session_id);
+            let built = build_engine(
+                &candidate,
+                &prepared.product_session_id,
+                prepared.permission_profile,
+            );
             if let Ok(engine) = &built {
                 let available = capability_labels(&engine.capabilities());
                 let missing: Vec<String> = candidate
@@ -257,6 +318,7 @@ where
                 "{source_engine_id} → {}\n\n{failure_reason}\n\nHandoff: {handoff_summary}",
                 target.engine_id
             )),
+            permission_request: None,
         });
         execution = match built {
             Ok(engine) => {
@@ -308,6 +370,7 @@ where
             engine_id: prepared.target.engine_id.clone(),
             product_session_id: prepared.product_session_id.clone(),
             message: Some(summary),
+            permission_request: None,
         });
     }
 
@@ -335,6 +398,7 @@ where
         engine_id: prepared.target.engine_id.clone(),
         product_session_id: prepared.product_session_id.clone(),
         message: Some(message.clone()),
+        permission_request: None,
     });
     ExecutedTurn {
         outcome: RunOutcome {
@@ -433,6 +497,7 @@ where
         engine_id: engine_id.to_string(),
         product_session_id: product_id.clone(),
         message: None,
+        permission_request: None,
     });
 
     let runtime_request = RuntimeRequest::new(prompt)
@@ -448,6 +513,7 @@ where
                 engine_id: engine_id.to_string(),
                 product_session_id: product_id.clone(),
                 message: Some(message.clone()),
+                permission_request: None,
             });
             return ExecutedTurn {
                 outcome: RunOutcome {
@@ -470,11 +536,14 @@ where
     let mut failure_class = None;
     // Stall watchdog state: the timer only runs while nothing is legitimately
     // in flight. Open tools and a pending user approval disarm it; every
-    // received event (including streamed deltas) resets the window.
+    // received event (including streamed deltas) resets the window. Once the
+    // attempt carries a terminal error the loop is only draining the stream,
+    // so the window always applies — a doomed attempt must not wait forever
+    // on an approval nobody can answer anymore.
     let mut open_tools: HashSet<String> = HashSet::new();
     let mut permission_pending = false;
     loop {
-        let armed = open_tools.is_empty() && !permission_pending;
+        let armed = terminal_error.is_some() || (open_tools.is_empty() && !permission_pending);
         let next = if armed {
             match tokio::time::timeout(STALL_WINDOW, stream.next()).await {
                 Ok(next) => next,
@@ -489,6 +558,7 @@ where
                             engine_id: engine_id.to_string(),
                             product_session_id: product_id.clone(),
                             message: Some(message.clone()),
+                            permission_request: None,
                         });
                         failure_class = Some(FailureClass::Stall);
                         terminal_error = Some(message);
@@ -525,8 +595,50 @@ where
             permission_pending = false;
         }
         match hub_event.event {
-            RuntimeEvent::PermissionRequest { .. } => {
-                permission_pending = true;
+            RuntimeEvent::PermissionRequest {
+                request_id,
+                tool_name,
+                description,
+                ..
+            } => {
+                // Surface the request with its engine-session routing identity
+                // so the Desktop layer can deliver the decision to the exact
+                // native session that asked — never to a later fallback engine.
+                // Without a native session id the request is unanswerable, so
+                // no controls are attached and the watchdog stays armed — the
+                // dead wait then resolves as a bounded stall instead of a hang.
+                match engine_session_id
+                    .clone()
+                    .filter(|id: &String| !id.is_empty())
+                {
+                    Some(routable_session_id) => {
+                        permission_pending = true;
+                        emit(TimelineEvent {
+                            status: TimelineStatus::PermissionRequired,
+                            engine_id: hub_event.engine_id.to_string(),
+                            product_session_id: product_id.clone(),
+                            message: Some(format!("'{tool_name}' is waiting for your approval")),
+                            permission_request: Some(PermissionRequestInfo {
+                                request_id,
+                                tool_name,
+                                description,
+                                engine_session_id: routable_session_id,
+                            }),
+                        });
+                    }
+                    None => {
+                        emit(TimelineEvent {
+                            status: TimelineStatus::PermissionRequired,
+                            engine_id: hub_event.engine_id.to_string(),
+                            product_session_id: product_id.clone(),
+                            message: Some(format!(
+                                "'{tool_name}' requested permission before its engine session \
+                                 started; the request cannot be answered"
+                            )),
+                            permission_request: None,
+                        });
+                    }
+                }
             }
             RuntimeEvent::SessionStarted { session_id, .. } => {
                 if let Some((store, prepared)) = persistence {
@@ -595,6 +707,7 @@ where
                         engine_id: hub_event.engine_id.to_string(),
                         product_session_id: product_id.clone(),
                         message: Some(message.clone()),
+                        permission_request: None,
                     });
                     failure_class = Some(classify_failure(&message));
                     terminal_error = Some(message);
@@ -615,6 +728,7 @@ where
                     engine_id: hub_event.engine_id.to_string(),
                     product_session_id: product_id.clone(),
                     message: result.clone(),
+                    permission_request: None,
                 });
                 break;
             }
@@ -663,6 +777,7 @@ fn capture_persistence_error<F>(
                 engine_id: engine_id.to_string(),
                 product_session_id: product_session_id.to_string(),
                 message: Some(message.clone()),
+                permission_request: None,
             });
             *terminal_error = Some(message);
         }
@@ -714,8 +829,9 @@ mod tests {
 
     fn single_engine<E: EngineRuntime + 'static>(
         engine: Arc<E>,
-    ) -> impl Fn(&EngineTarget, &str) -> Result<Arc<dyn EngineRuntime>, String> {
-        move |_, _| Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
+    ) -> impl Fn(&EngineTarget, &str, PermissionProfile) -> Result<Arc<dyn EngineRuntime>, String>
+    {
+        move |_, _, _| Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
     }
 
     fn healthy(_target: &EngineTarget) -> Option<String> {
@@ -849,6 +965,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |event| timeline.push(event),
         )
@@ -906,6 +1023,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |event| timeline.push(event),
         )
@@ -944,6 +1062,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |event| timeline.push(event),
         )
@@ -993,6 +1112,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1031,6 +1151,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: Some(first.product_session_id.clone()),
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1104,6 +1225,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1141,6 +1263,7 @@ mod tests {
                 workspace.path(),
                 "first",
                 &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         drop(store);
@@ -1169,6 +1292,7 @@ mod tests {
                 workspace: PathBuf::from("ignored-for-resume"),
                 engine_id: "alva".into(),
                 product_session_id: Some("product-before-start".into()),
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1215,6 +1339,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1250,6 +1375,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "claude".into(),
                 product_session_id: Some(first.product_session_id.clone()),
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1290,6 +1416,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: Some(first.product_session_id),
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1320,6 +1447,7 @@ mod tests {
                 workspace.path(),
                 "initial Alva work",
                 &alva,
+                PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         store
@@ -1360,6 +1488,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: Some("product-resume-upgrade".into()),
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1473,7 +1602,9 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let claude = Arc::clone(&claude);
-                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
                 {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
@@ -1486,6 +1617,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |event| timeline.push(event),
         )
@@ -1578,7 +1710,9 @@ mod tests {
                 let alva = Arc::clone(&alva);
                 let claude = Arc::clone(&claude);
                 let codex_engine = Arc::clone(&codex_engine);
-                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
                 {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
@@ -1592,6 +1726,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1625,7 +1760,13 @@ mod tests {
         let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
         let alva = crate::store::EngineTarget::for_engine("alva").unwrap();
         let first = store
-            .prepare_new_turn("product-upgrade-build", workspace.path(), "start", &alva)
+            .prepare_new_turn(
+                "product-upgrade-build",
+                workspace.path(),
+                "start",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
             .unwrap();
         store
             .record_engine_session(&first, "expired-native")
@@ -1639,7 +1780,7 @@ mod tests {
             &store,
             {
                 let builds = Arc::clone(&builds);
-                move |_target: &crate::store::EngineTarget, _: &str| {
+                move |_target: &crate::store::EngineTarget, _: &str, _| {
                     let mut builds = builds.lock().unwrap();
                     *builds += 1;
                     if *builds == 1 {
@@ -1657,6 +1798,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: Some("product-upgrade-build".into()),
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1686,7 +1828,7 @@ mod tests {
 
         let outcome = run_persisted(
             &store,
-            |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str() {
+            |target: &crate::store::EngineTarget, _: &str, _| match target.engine_id.as_str() {
                 "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
                 _ => Err("claude binary is missing".to_string()),
             },
@@ -1696,6 +1838,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1748,7 +1891,7 @@ mod tests {
 
         let outcome = run_persisted(
             &store,
-            |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str() {
+            |target: &crate::store::EngineTarget, _: &str, _| match target.engine_id.as_str() {
                 "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
                 other => Err(format!(
                     "engine '{other}' must not be built without authorization"
@@ -1760,6 +1903,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1843,7 +1987,9 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let codex_engine = Arc::clone(&codex_engine);
-                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
                 {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "codex" => Ok(Arc::clone(&codex_engine) as Arc<dyn EngineRuntime>),
@@ -1858,6 +2004,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1914,7 +2061,9 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let codex_engine = Arc::clone(&codex_engine);
-                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
                 {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::new(NoPermissionEngine) as Arc<dyn EngineRuntime>),
@@ -1928,6 +2077,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -1968,7 +2118,7 @@ mod tests {
         let mut timeline = Vec::new();
         let outcome = run_persisted(
             &store,
-            |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str() {
+            |target: &crate::store::EngineTarget, _: &str, _| match target.engine_id.as_str() {
                 "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
                 other => Err(format!("engine '{other}' must not be built when unhealthy")),
             },
@@ -1981,6 +2131,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |event| timeline.push(event),
         )
@@ -2039,7 +2190,7 @@ mod tests {
                 let claude = Arc::clone(&claude);
                 let claude_alt_engine = Arc::clone(&claude_alt_engine);
                 let calls = Arc::clone(&calls);
-                move |target: &crate::store::EngineTarget, _: &str| {
+                move |target: &crate::store::EngineTarget, _: &str, _| {
                     let mut calls = calls.lock().unwrap();
                     *calls += 1;
                     if target.provider_id == "claude-alt-provider" {
@@ -2055,6 +2206,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "claude".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -2103,7 +2255,9 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let claude = Arc::clone(&claude);
-                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
                 {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
@@ -2118,6 +2272,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |event| timeline.push(event),
         )
@@ -2246,7 +2401,9 @@ mod tests {
             &store,
             {
                 let claude = Arc::clone(&claude);
-                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
                 {
                     "alva" => Ok(Arc::new(ScriptedEngine {
                         script: vec![(0, session_started("alva-native"))],
@@ -2262,6 +2419,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |event| timeline.push(event),
         )
@@ -2339,6 +2497,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -2388,6 +2547,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -2449,6 +2609,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -2487,6 +2648,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -2588,7 +2750,7 @@ mod tests {
         let run = tokio::spawn(async move {
             run_persisted(
                 &run_store,
-                move |_: &crate::store::EngineTarget, _: &str| {
+                move |_: &crate::store::EngineTarget, _: &str, _| {
                     Ok(Arc::clone(&run_engine) as Arc<dyn EngineRuntime>)
                 },
                 healthy,
@@ -2597,6 +2759,7 @@ mod tests {
                     workspace: workspace.path().to_path_buf(),
                     engine_id: "alva".into(),
                     product_session_id: None,
+                    permission_profile: None,
                 },
                 |_| {},
             )
@@ -2685,6 +2848,7 @@ mod tests {
                 workspace: workspace.path().to_path_buf(),
                 engine_id: "alva".into(),
                 product_session_id: None,
+                permission_profile: None,
             },
             |_| {},
         )
@@ -2703,5 +2867,333 @@ mod tests {
                 && event.kind != "engine_fallback_skipped"
                 && event.kind != "fallback_exhausted"
         }));
+    }
+
+    /// Continuity never bypasses the permission contract: an authorized,
+    /// healthy fallback target that can only weaken the session profile is
+    /// skipped with the reason on record, and its engine is never even built.
+    #[tokio::test]
+    async fn fallback_skips_targets_that_would_weaken_the_permission_profile() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let mut codex = crate::store::EngineTarget::for_engine("codex").unwrap();
+        codex.automatic_use_authorized = true;
+        store
+            .set_global_fallback_policy(vec![authorized_claude(), codex])
+            .unwrap();
+
+        let alva = Arc::new(FakeEngine::new(vec![RuntimeEvent::Error {
+            message: "engine stream died mid-run".into(),
+            recoverable: false,
+        }]));
+
+        let outcome = run_persisted(
+            &store,
+            {
+                let alva = Arc::clone(&alva);
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
+                {
+                    "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
+                    other => Err(format!(
+                        "engine '{other}' must not be built for a weaken-only profile mapping"
+                    )),
+                }
+            },
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: Some(PermissionProfile::Interactive),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.failed);
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        // Only the source attempt exists — no fallback attempt ever started.
+        assert_eq!(detail.turns[0].attempts.len(), 1);
+        let skips: Vec<_> = detail
+            .timeline_events
+            .iter()
+            .filter(|event| event.kind == "engine_fallback_skipped")
+            .collect();
+        assert_eq!(
+            skips
+                .iter()
+                .map(|event| event.target_engine_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["claude", "codex"]
+        );
+        for skip in &skips {
+            assert!(
+                skip.reason.contains("cannot preserve or tighten")
+                    && skip.reason.contains("interactive"),
+                "skip reason must explain the permission ineligibility: {}",
+                skip.reason
+            );
+        }
+        let exhausted = detail
+            .timeline_events
+            .iter()
+            .find(|event| event.kind == "fallback_exhausted")
+            .expect("chain exhaustion card recorded");
+        assert!(exhausted.reason.contains("claude: skipped"));
+        assert!(exhausted.reason.contains("codex: skipped"));
+    }
+
+    #[tokio::test]
+    async fn permission_request_event_carries_engine_session_routing_identity() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "alva-native-7".into(),
+                model: None,
+                tools: vec![],
+            },
+            RuntimeEvent::PermissionRequest {
+                request_id: "req-42".into(),
+                tool_name: "bash".into(),
+                tool_input: serde_json::json!({"command": "rm -rf build"}),
+                description: Some("Run a shell command".into()),
+            },
+            RuntimeEvent::Completed {
+                session_id: "alva-native-7".into(),
+                result: Some("done".into()),
+                usage: None,
+            },
+        ]));
+
+        let mut events = Vec::new();
+        run_persisted(
+            &store,
+            single_engine(alva),
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: Some(PermissionProfile::Interactive),
+            },
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        let request_event = events
+            .iter()
+            .find(|event| event.status == TimelineStatus::PermissionRequired)
+            .expect("permission request surfaced on the timeline");
+        let info = request_event
+            .permission_request
+            .as_ref()
+            .expect("routing identity attached");
+        assert_eq!(info.request_id, "req-42");
+        assert_eq!(info.tool_name, "bash");
+        assert_eq!(info.description.as_deref(), Some("Run a shell command"));
+        // The identity pins the decision to the emitting native session.
+        assert_eq!(info.engine_session_id, "alva-native-7");
+        assert_eq!(request_event.engine_id, "alva");
+    }
+
+    /// A PermissionRequest that arrives before SessionStarted has no routing
+    /// identity: the card must carry no controls (nothing can answer it) and
+    /// must never substitute an empty engine session id.
+    #[tokio::test]
+    async fn premature_permission_request_surfaces_without_routing_controls() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::PermissionRequest {
+                request_id: "req-early".into(),
+                tool_name: "bash".into(),
+                tool_input: serde_json::json!({}),
+                description: None,
+            },
+            RuntimeEvent::SessionStarted {
+                session_id: "alva-native-1".into(),
+                model: None,
+                tools: vec![],
+            },
+            RuntimeEvent::Completed {
+                session_id: "alva-native-1".into(),
+                result: Some("done".into()),
+                usage: None,
+            },
+        ]));
+
+        let mut events = Vec::new();
+        run_persisted(
+            &store,
+            single_engine(alva),
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: Some(PermissionProfile::Interactive),
+            },
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        let request_event = events
+            .iter()
+            .find(|event| event.status == TimelineStatus::PermissionRequired)
+            .expect("the premature request still surfaces");
+        assert!(request_event.permission_request.is_none());
+        assert!(request_event
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("cannot be answered")));
+    }
+
+    /// Once an attempt carries a terminal error the stream is only being
+    /// drained — a pending approval must not disarm the watchdog forever.
+    #[tokio::test(start_paused = true)]
+    async fn doomed_attempt_with_pending_approval_drains_within_the_stall_window() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+
+        let outcome = run_persisted(
+            &store,
+            |_: &crate::store::EngineTarget, _: &str, _| {
+                Ok(Arc::new(ScriptedEngine {
+                    script: vec![
+                        (0, session_started("alva-native")),
+                        (
+                            0,
+                            RuntimeEvent::PermissionRequest {
+                                request_id: "req-1".into(),
+                                tool_name: "bash".into(),
+                                tool_input: serde_json::json!({}),
+                                description: None,
+                            },
+                        ),
+                        (
+                            0,
+                            RuntimeEvent::Error {
+                                message: "engine backend died".into(),
+                                recoverable: false,
+                            },
+                        ),
+                    ],
+                    hold_open_at_end: true,
+                }) as Arc<dyn EngineRuntime>)
+            },
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: Some(PermissionProfile::Interactive),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        // Completing at all proves the drain is bounded; the recorded failure
+        // stays the original terminal error, not a stall.
+        assert!(outcome.failed);
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert!(detail.turns[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("engine backend died")));
+    }
+
+    #[tokio::test]
+    async fn resume_rejects_a_changed_permission_profile_loudly() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "alva-native-1".into(),
+                model: None,
+                tools: vec![],
+            },
+            RuntimeEvent::Completed {
+                session_id: "alva-native-1".into(),
+                result: Some("done".into()),
+                usage: None,
+            },
+        ]));
+
+        let outcome = run_persisted(
+            &store,
+            single_engine(Arc::clone(&alva)),
+            healthy,
+            RunRequest {
+                prompt: "first".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: Some(PermissionProfile::Interactive),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        let error = run_persisted(
+            &store,
+            single_engine(alva),
+            healthy,
+            RunRequest {
+                prompt: "second".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some(outcome.product_session_id.clone()),
+                permission_profile: Some(PermissionProfile::Unrestricted),
+            },
+            |_| {},
+        )
+        .await
+        .expect_err("a session profile must not be changeable after creation");
+        assert!(error.contains("'interactive'"));
+        assert!(error.contains("'unrestricted'"));
+
+        // Restating the stored profile (or omitting it) still resumes.
+        run_persisted(
+            &store,
+            single_engine(Arc::new(FakeEngine::new(vec![RuntimeEvent::Completed {
+                session_id: "alva-native-1".into(),
+                result: Some("again".into()),
+                usage: None,
+            }]))),
+            healthy,
+            RunRequest {
+                prompt: "third".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some(outcome.product_session_id),
+                permission_profile: Some(PermissionProfile::Interactive),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
     }
 }

@@ -24,6 +24,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 12. fallback chain 按 policy 顺序有界执行：每个 EngineTarget（engine/model/provider 三元组）每 attempt cycle 最多考虑一次、不回环；不健康或能力不兼容 target 被跳过并落 `engine_fallback_skipped` fact；链路耗尽落 `fallback_exhausted` card，列出每次 attempt/skip 的终态与原因。
 13. stall watchdog：无 engine/tool/permission/stream 活动的 180s 可证明窗口后确认 stall 并分类为 continuity failure 进入有界 fallback；open tool、pending 审批与恢复中的输出暂停/重置计时。
 14. fallback card 提供可逆控制：View handoff 展示实际发送的结构化 HandoffPackage（delivered/pending 状态）；Switch back 走手动 switch 恢复 parked source（后续 run 遵守 delta/full resume 规则）；Stop 取消当前活动 Attempt 并落 `attempt_cancelled` fact，重启不重放。
+15. HubSession 持有稳定 PermissionProfile（interactive/workspace_write/unrestricted），branch 切换与 fallback 不改变；engine 只有能等价或更严格执行该 profile 才有资格（映射契约在 `permissions.rs`），只能弱化的 target 标记 ineligible 并显示原因，fallback、手动 switch 与 engine 装配三处都 fail-closed；PermissionRequest/Decision 按 request_id 路由到发起请求的那个 EngineSessionId，决定单次使用且 attempt 终态/Stop 后失效，无路由身份或已 doomed 的等待以有界 stall 收敛。
 
 ## 约束
 
@@ -40,6 +41,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Product seam | `src/run.rs` | 动态 engine Hub 运行、完整 handoff 注入与 timeline 投影 |
 | Engine assembly | `src/alva.rs` | 为 workspace 构造 Alva、Claude light 或 Codex adapter |
 | Engine readiness | `src/readiness.rs` | 只读 probe、结构化 readiness 分类与 dashboard DTO |
+| Permission contract | `src/permissions.rs` | session PermissionProfile、adapter 映射资格与 PermissionRouter |
 | Session store | `src/store.rs` | 私有 SQLite policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
 | Tauri entry | `src/main.rs` | 运行/切换 IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |

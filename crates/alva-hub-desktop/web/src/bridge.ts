@@ -15,7 +15,20 @@ export type TimelineStatus =
   | "switched"
   | "cancelled"
   | "fallback"
-  | "exhausted";
+  | "exhausted"
+  | "permission_required";
+
+export type PermissionProfile =
+  | "interactive"
+  | "workspace_write"
+  | "unrestricted";
+
+export interface PermissionRequestInfo {
+  request_id: string;
+  tool_name: string;
+  description: string | null;
+  engine_session_id: string;
+}
 
 export interface TimelineEvent {
   status: TimelineStatus;
@@ -23,6 +36,7 @@ export interface TimelineEvent {
   product_session_id: string;
   message: string | null;
   created_at?: number;
+  permission_request?: PermissionRequestInfo;
 }
 
 export interface RunRequest {
@@ -30,6 +44,7 @@ export interface RunRequest {
   workspace: string;
   engine_id: string;
   product_session_id: string | null;
+  permission_profile: PermissionProfile | null;
 }
 
 export interface RunOutcome {
@@ -50,6 +65,7 @@ export interface HubSessionSummary {
   updated_at: number;
   last_prompt: string | null;
   last_result: string | null;
+  permission_profile: PermissionProfile;
 }
 
 export interface StoredTurn {
@@ -288,6 +304,38 @@ export async function setSessionFallbackPolicy(
   return await invoke<FallbackPolicy>("set_session_fallback_policy", {
     productSessionId,
     targets,
+  });
+}
+
+export interface EngineEligibility {
+  engine_id: string;
+  eligible: boolean;
+  relation: "equivalent" | "stricter" | null;
+  detail: string;
+}
+
+export async function getPermissionEligibility(
+  profile: PermissionProfile,
+): Promise<EngineEligibility[]> {
+  if (!hasTauri) return [];
+  return await invoke<EngineEligibility[]>("get_permission_eligibility", {
+    profile,
+  });
+}
+
+export async function respondHubPermission(
+  productSessionId: string,
+  requestId: string,
+  allow: boolean,
+  message?: string,
+): Promise<void> {
+  if (!hasTauri) {
+    throw new Error(
+      "Answering a permission request requires the ALVA Hub desktop runtime.",
+    );
+  }
+  await invoke("respond_hub_permission", {
+    request: { productSessionId, requestId, allow, message: message ?? null },
   });
 }
 

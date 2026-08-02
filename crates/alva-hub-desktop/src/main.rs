@@ -11,11 +11,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use alva_engine_runtime::EngineRuntime;
+use alva_engine_runtime::{EngineRuntime, PermissionDecision};
 use alva_hub_desktop::{
-    build_engine, probe_readiness, run_persisted, EngineReadiness, EngineTarget, FallbackPolicy,
-    HubSessionDetail, HubSessionSummary, HubStore, RunOutcome, RunRequest, SwitchOutcome,
-    SystemProbe, TimelineEvent, TimelineStatus,
+    build_engine, permission_eligibility, probe_readiness, run_persisted, EngineEligibility,
+    EngineReadiness, EngineTarget, FallbackPolicy, HubSessionDetail, HubSessionSummary, HubStore,
+    PermissionProfile, PermissionRouter, RunOutcome, RunRequest, SwitchOutcome, SystemProbe,
+    TimelineEvent, TimelineStatus,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -26,6 +27,9 @@ struct DesktopState {
     /// Engine currently executing each product session, so a user Stop can
     /// reach the live adapter. Entries live only for the duration of a run.
     active_engines: Mutex<HashMap<String, Arc<dyn EngineRuntime>>>,
+    /// Pending engine permission requests keyed to the exact native session
+    /// that asked, so user decisions never leak into a fallback engine.
+    permission_router: PermissionRouter,
 }
 
 impl DesktopState {
@@ -59,10 +63,16 @@ async fn run_hub_prompt(
     let registry = Arc::new(Mutex::new(Vec::<String>::new()));
     let build_registry = Arc::clone(&registry);
     let engines = &state.active_engines;
+    let router = &state.permission_router;
     let outcome = run_persisted(
         &state.store,
-        move |target, product_session_id| {
-            let engine = build_engine(&target.engine_id, &workspace, &history_dir)?;
+        move |target, product_session_id, permission_profile| {
+            let engine = build_engine(
+                &target.engine_id,
+                permission_profile,
+                &workspace,
+                &history_dir,
+            )?;
             // Register the live engine so `stop_hub_attempt` can cancel it;
             // fallback replaces the entry with the newly active engine.
             engines
@@ -85,6 +95,41 @@ async fn run_hub_prompt(
         },
         request,
         move |event| {
+            if let Some(info) = &event.permission_request {
+                // The active-engines entry is the adapter currently streaming
+                // this session, i.e. the one that emitted the request.
+                let engine = engines
+                    .lock()
+                    .unwrap()
+                    .get(&event.product_session_id)
+                    .cloned();
+                match engine {
+                    Some(engine) => router.register(
+                        &event.product_session_id,
+                        &info.request_id,
+                        engine,
+                        &info.engine_session_id,
+                    ),
+                    None => tracing::warn!(
+                        product_session = %event.product_session_id,
+                        request = %info.request_id,
+                        "permission request arrived without a live engine registration; \
+                         the approval card will not be answerable"
+                    ),
+                }
+            }
+            if matches!(
+                event.status,
+                TimelineStatus::Completed
+                    | TimelineStatus::Failed
+                    | TimelineStatus::Interrupted
+                    | TimelineStatus::Fallback
+                    | TimelineStatus::Exhausted
+            ) {
+                // The emitting attempt reached a terminal state (or fell
+                // back); its approvals are dead and must not be answerable.
+                router.clear_session(&event.product_session_id);
+            }
             if let Err(error) = app.emit("hub_timeline", event) {
                 tracing::warn!(%error, "failed to emit Hub timeline event");
             }
@@ -94,9 +139,46 @@ async fn run_hub_prompt(
     let mut engines = state.active_engines.lock().unwrap();
     for product_session_id in registry.lock().unwrap().drain(..) {
         engines.remove(&product_session_id);
+        state.permission_router.clear_session(&product_session_id);
     }
     drop(engines);
     outcome
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PermissionDecisionRequest {
+    product_session_id: String,
+    request_id: String,
+    allow: bool,
+    message: Option<String>,
+}
+
+#[tauri::command]
+async fn respond_hub_permission(
+    state: State<'_, DesktopState>,
+    request: PermissionDecisionRequest,
+) -> Result<(), String> {
+    let decision = if request.allow {
+        PermissionDecision::Allow {
+            updated_input: None,
+        }
+    } else {
+        PermissionDecision::Deny {
+            message: request
+                .message
+                .unwrap_or_else(|| "Denied by the user".to_string()),
+        }
+    };
+    state
+        .permission_router
+        .respond(&request.product_session_id, &request.request_id, decision)
+        .await
+}
+
+#[tauri::command]
+fn get_permission_eligibility(profile: PermissionProfile) -> Vec<EngineEligibility> {
+    permission_eligibility(profile)
 }
 
 #[tauri::command]
@@ -126,6 +208,9 @@ async fn stop_hub_attempt(
     state
         .store
         .record_attempt_cancelled(&product_session_id, "User stopped the attempt")?;
+    // The stopped attempt's approvals die with it — clear them before the
+    // cancel so a stale Allow can no longer reach the cancelled session.
+    state.permission_router.clear_session(&product_session_id);
     engine
         .cancel(&engine_session_id)
         .await
@@ -137,6 +222,7 @@ async fn stop_hub_attempt(
             engine_id: detail.session.engine_id,
             product_session_id,
             message: Some("User stopped the attempt".to_string()),
+            permission_request: None,
         },
     ) {
         tracing::warn!(%error, "failed to emit Hub cancel event");
@@ -231,6 +317,7 @@ fn main() {
                 store,
                 history_dir: data_dir.join("alva-history"),
                 active_engines: Mutex::new(HashMap::new()),
+                permission_router: PermissionRouter::new(),
             });
             Ok(())
         })
@@ -243,7 +330,9 @@ fn main() {
             set_global_fallback_policy,
             set_session_fallback_policy,
             get_engine_readiness,
-            stop_hub_attempt
+            stop_hub_attempt,
+            respond_hub_permission,
+            get_permission_eligibility
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

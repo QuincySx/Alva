@@ -13,7 +13,9 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 3. `App` 的 Engines dashboard 展示每个 engine 的版本/能力/auth/stream health 与结构化不可用原因；composer 与 engine selector 同步显示不健康状态。
 4. 自动 fallback 以非阻塞 `fallback` timeline card 呈现 source→target、原因与 handoff 摘要；skip 复用 fallback 投影，链路耗尽以 `exhausted` card 展示全 cycle 终态（live event 与持久化 fact 同一投影）。
 5. fallback card 携带 Stop / Switch back / View handoff 控件：Stop 仅在运行中可用，Switch back 在已回源时禁用，View handoff 展开结构化 HandoffPackage；`attempt_cancelled` fact 投影为 cancelled card。
-6. `index.css` 提供两栏 Desktop walking-skeleton 布局。
+6. 新 session 在 composer 顶栏选择 PermissionProfile（默认 workspace_write），session 打开后只读；engine selector 按 `get_permission_eligibility` 把只能弱化 profile 的 engine 标记 ineligible（禁用 + 原因），可执行映射的等价/更严格摘要就地展示。
+7. `permission_required` timeline card 携带 Allow/Deny 控件，经 `respond_hub_permission` 按 request_id 路由决定；已回答的卡片本地锁定不可重发。
+8. `index.css` 提供两栏 Desktop walking-skeleton 布局。
 
 ## 约束
 
@@ -30,6 +32,6 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | 名称 | 文件 | 职责 |
 |---|---|---|
 | React entry | `main.tsx` | 挂载应用 |
-| Product UI | `App.tsx` | workspace、engine selector、readiness dashboard、fallback authorization、switch queue、composer、timeline |
-| IPC bridge | `bridge.ts` | run/switch/policy/readiness/session 的 Tauri invoke/listen/dialog 封装 |
+| Product UI | `App.tsx` | workspace、engine selector、permission profile 与 eligibility、readiness dashboard、fallback authorization、switch queue、composer、timeline 与 permission card |
+| IPC bridge | `bridge.ts` | run/switch/policy/readiness/session/permission 的 Tauri invoke/listen/dialog 封装 |
 | Styles | `index.css` | Desktop 多引擎状态视觉与响应式布局 |

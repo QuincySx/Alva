@@ -8,19 +8,23 @@ import {
   getEngineReadiness,
   getGlobalFallbackPolicy,
   getHubSession,
+  getPermissionEligibility,
   listHubSessions,
   listenTimeline,
+  respondHubPermission,
   runHubPrompt,
   setGlobalFallbackPolicy,
   setSessionFallbackPolicy,
   stopHubAttempt,
   switchHubEngine,
+  type EngineEligibility,
   type EngineReadiness,
   type EngineTarget,
   type FallbackPolicy,
   type HandoffPackage,
   type HubSessionDetail,
   type HubSessionSummary,
+  type PermissionProfile,
   type ReadinessReason,
   type TimelineEvent,
 } from "./bridge";
@@ -85,6 +89,12 @@ const readinessBadge: Record<EngineReadiness["status"], string> = {
   incompatible: "Incompatible",
   unauthenticated: "Sign-in needed",
   unhealthy: "Unhealthy",
+};
+
+const profileLabel: Record<PermissionProfile, string> = {
+  interactive: "Ask before risky actions",
+  workspace_write: "Workspace writes allowed",
+  unrestricted: "Everything allowed",
 };
 
 function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
@@ -152,6 +162,12 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
   const [pendingEngine, setPendingEngine] = useState<string | null>(null);
+  const [profile, setProfile] = useState<PermissionProfile>("workspace_write");
+  const [eligibility, setEligibility] = useState<EngineEligibility[]>([]);
+  // request_id → outcome, so an answered approval card cannot be re-sent.
+  const [answeredPermissions, setAnsweredPermissions] = useState<
+    Record<string, "allowed" | "denied">
+  >({});
   const [fallbackPolicy, setFallbackPolicy] = useState<FallbackPolicy>({
     targets: [],
     updated_at: 0,
@@ -194,6 +210,21 @@ export default function App() {
     void refreshReadiness(workspace || null);
   }, [workspace]);
 
+  useEffect(() => {
+    let active = true;
+    // On a failed fetch the previous report is kept: an empty report would
+    // silently re-enable ineligible engines (the backend still fails closed,
+    // but the selector would mislead).
+    void getPermissionEligibility(profile)
+      .then((report) => {
+        if (active) setEligibility(report);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [profile]);
+
   async function refreshReadiness(workspacePath: string | null) {
     const requestId = readinessRequestRef.current + 1;
     readinessRequestRef.current = requestId;
@@ -235,6 +266,8 @@ export default function App() {
         return "Automatic fallback";
       case "exhausted":
         return "Fallback exhausted";
+      case "permission_required":
+        return `${latest.engine_id} is waiting for your approval`;
       default:
         return "Ready";
     }
@@ -248,6 +281,8 @@ export default function App() {
         setActiveSessionId(null);
         setEngine("alva");
         setPendingEngine(null);
+        setProfile("workspace_write");
+        setAnsweredPermissions({});
         setTimeline([]);
         await loadGlobalFallbackPolicy();
       }
@@ -280,6 +315,8 @@ export default function App() {
     setActiveSessionId(detail.session.product_session_id);
     setWorkspace(detail.session.workspace);
     setEngine(detail.session.engine_id);
+    setProfile(detail.session.permission_profile);
+    setAnsweredPermissions({});
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
     setFallbackPolicy(detail.fallback_policy);
     setTimeline(projectTimeline(detail));
@@ -385,6 +422,22 @@ export default function App() {
     await selectEngine(sourceEngineId);
   }
 
+  async function answerPermission(
+    productSessionId: string,
+    requestId: string,
+    allow: boolean,
+  ) {
+    try {
+      await respondHubPermission(productSessionId, requestId, allow);
+      setAnsweredPermissions((current) => ({
+        ...current,
+        [requestId]: allow ? "allowed" : "denied",
+      }));
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const text = prompt.trim();
@@ -402,6 +455,8 @@ export default function App() {
         workspace,
         engine_id: engine,
         product_session_id: activeSessionId,
+        // The profile is fixed at session creation; resumes never restate it.
+        permission_profile: activeSessionId ? null : profile,
       });
       setActiveSessionId(outcome.product_session_id);
       await refreshSessions();
@@ -611,21 +666,68 @@ export default function App() {
                 const health = readiness.find(
                   (candidate) => candidate.engine_id === target.engine_id,
                 );
-                const suffix =
-                  health && health.status !== "healthy"
+                const engineEligibility = eligibility.find(
+                  (candidate) => candidate.engine_id === target.engine_id,
+                );
+                const ineligible = engineEligibility?.eligible === false;
+                const suffix = ineligible
+                  ? " — ineligible for this permission profile"
+                  : health && health.status !== "healthy"
                     ? ` — ${readinessBadge[health.status]}`
                     : "";
                 const label =
                   health?.display_name ??
                   `${target.engine_id.charAt(0).toUpperCase()}${target.engine_id.slice(1)}`;
                 return (
-                  <option key={target.engine_id} value={target.engine_id}>
+                  <option
+                    disabled={ineligible && target.engine_id !== engine}
+                    key={target.engine_id}
+                    value={target.engine_id}
+                  >
                     {`${label}${suffix}`}
                   </option>
                 );
               })}
             </select>
             {pendingEngine ? <small>Queued after the current run</small> : null}
+          </div>
+          <div>
+            <span className="eyebrow">Permissions</span>
+            <select
+              aria-label="Permission profile"
+              disabled={activeSessionId !== null}
+              value={profile}
+              onChange={(event) =>
+                setProfile(event.target.value as PermissionProfile)
+              }
+            >
+              {(Object.keys(profileLabel) as PermissionProfile[]).map(
+                (candidate) => (
+                  <option key={candidate} value={candidate}>
+                    {profileLabel[candidate]}
+                  </option>
+                ),
+              )}
+            </select>
+            {activeSessionId ? (
+              <small>Fixed for this session</small>
+            ) : (
+              (() => {
+                const selected = eligibility.find(
+                  (candidate) => candidate.engine_id === engine,
+                );
+                if (!selected) return null;
+                return (
+                  <small
+                    className={
+                      selected.eligible ? undefined : "eligibility-warning"
+                    }
+                  >
+                    {selected.detail}
+                  </small>
+                );
+              })()
+            )}
           </div>
           <div className={`status-pill status-${latest?.status ?? "ready"}`}>
             <span />
@@ -663,6 +765,49 @@ export default function App() {
                   <small className="timeline-hint">
                     The previous runtime is gone. Continue safely from the composer below.
                   </small>
+                ) : null}
+                {entry.permission_request ? (
+                  <div className="permission-card">
+                    {entry.permission_request.description ? (
+                      <small>{entry.permission_request.description}</small>
+                    ) : null}
+                    {answeredPermissions[entry.permission_request.request_id] ? (
+                      <small className="permission-answered">
+                        {answeredPermissions[
+                          entry.permission_request.request_id
+                        ] === "allowed"
+                          ? "You allowed this request."
+                          : "You denied this request."}
+                      </small>
+                    ) : (
+                      <div className="timeline-controls">
+                        <button
+                          onClick={() =>
+                            void answerPermission(
+                              entry.product_session_id,
+                              entry.permission_request?.request_id ?? "",
+                              true,
+                            )
+                          }
+                          type="button"
+                        >
+                          Allow
+                        </button>
+                        <button
+                          onClick={() =>
+                            void answerPermission(
+                              entry.product_session_id,
+                              entry.permission_request?.request_id ?? "",
+                              false,
+                            )
+                          }
+                          type="button"
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ) : null}
                 {entry.fallback ? (
                   <div className="timeline-controls">

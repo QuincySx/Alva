@@ -4,12 +4,17 @@
 
 mod alva;
 mod failure;
+mod permissions;
 mod readiness;
 mod run;
 mod store;
 
 pub use alva::build_engine;
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
+pub use permissions::{
+    enforcement_for, permission_eligibility, EnforcementPlan, EnforcementRelation,
+    EngineEligibility, EngineEnforcement, PermissionProfile, PermissionRouter,
+};
 pub use readiness::{
     capability_labels, classify_engine, probe_readiness, stream_health_from_outcome, EngineProbe,
     EngineProbeFacts, EngineReadiness, ReadinessReason, ReadinessStatus, StreamHealth, SystemProbe,
