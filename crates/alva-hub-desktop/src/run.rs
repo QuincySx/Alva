@@ -2,6 +2,7 @@
 // OUTPUT: multi-engine run seams, delta/full handoff injection, Attempt capture, timeline DTOs
 // POS:    Highest product seam for durable Hub Desktop branch execution and native-resume recovery.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,6 +14,10 @@ use tokio_stream::StreamExt;
 use crate::failure::{classify_failure, triggers_fallback, FailureClass};
 use crate::readiness::capability_labels;
 use crate::store::{EngineTarget, HubStore, PreparedTurn, SideEffectEvidence, StoredUsage};
+
+/// No-activity window after which an armed watchdog declares a stall. The
+/// timer never runs while a tool is open or a user approval is pending.
+const STALL_WINDOW: std::time::Duration = std::time::Duration::from_secs(180);
 
 fn default_engine_id() -> String {
     "alva".to_string()
@@ -463,8 +468,66 @@ where
     let mut engine_session_id = None;
     let mut usage = None;
     let mut failure_class = None;
-    while let Some(hub_event) = stream.next().await {
+    // Stall watchdog state: the timer only runs while nothing is legitimately
+    // in flight. Open tools and a pending user approval disarm it; every
+    // received event (including streamed deltas) resets the window.
+    let mut open_tools: HashSet<String> = HashSet::new();
+    let mut permission_pending = false;
+    loop {
+        let armed = open_tools.is_empty() && !permission_pending;
+        let next = if armed {
+            match tokio::time::timeout(STALL_WINDOW, stream.next()).await {
+                Ok(next) => next,
+                Err(_elapsed) => {
+                    let message = format!(
+                        "engine stalled: no activity for {}s",
+                        STALL_WINDOW.as_secs()
+                    );
+                    if terminal_error.is_none() {
+                        emit(TimelineEvent {
+                            status: TimelineStatus::Failed,
+                            engine_id: engine_id.to_string(),
+                            product_session_id: product_id.clone(),
+                            message: Some(message.clone()),
+                        });
+                        failure_class = Some(FailureClass::Stall);
+                        terminal_error = Some(message);
+                    }
+                    // Best-effort: ask the engine to stop the stalled run
+                    // before the branch is abandoned or fallback engages.
+                    if let Err(error) = hub
+                        .cancel(&ProductSessionId::from_existing(&product_id))
+                        .await
+                    {
+                        tracing::warn!(%error, "failed to cancel stalled Hub engine");
+                    }
+                    break;
+                }
+            }
+        } else {
+            stream.next().await
+        };
+        let Some(hub_event) = next else {
+            break;
+        };
+        // Only events that evidence the approval was resolved clear the
+        // pending flag — an unrelated ToolEnd or a streamed delta from a
+        // concurrent tool must not re-arm the watchdog while the user is
+        // still deciding.
+        if matches!(
+            &hub_event.event,
+            RuntimeEvent::SessionStarted { .. }
+                | RuntimeEvent::Message { .. }
+                | RuntimeEvent::ToolStart { .. }
+                | RuntimeEvent::Completed { .. }
+                | RuntimeEvent::Error { .. }
+        ) {
+            permission_pending = false;
+        }
         match hub_event.event {
+            RuntimeEvent::PermissionRequest { .. } => {
+                permission_pending = true;
+            }
             RuntimeEvent::SessionStarted { session_id, .. } => {
                 if let Some((store, prepared)) = persistence {
                     capture_persistence_error(
@@ -478,6 +541,7 @@ where
                 engine_session_id = Some(session_id);
             }
             RuntimeEvent::ToolStart { id, name, .. } => {
+                open_tools.insert(id.clone());
                 if let Some((store, prepared)) = persistence {
                     capture_persistence_error(
                         store.record_side_effect(
@@ -502,6 +566,7 @@ where
                 result: tool_result,
                 duration_ms,
             } => {
+                open_tools.remove(&id);
                 if let Some((store, prepared)) = persistence {
                     capture_persistence_error(
                         store.record_side_effect(
@@ -2075,6 +2140,360 @@ mod tests {
         assert!(message.contains("Fallback stopped"));
         assert!(message.contains("alva: transport failure"));
         assert!(message.contains("claude: unclassified failure — the answer refused to rhyme"));
+    }
+
+    /// Emits scripted events with paused-clock delays; optionally keeps the
+    /// stream open (never terminating) to simulate a stalled engine.
+    struct ScriptedEngine {
+        script: Vec<(u64, RuntimeEvent)>,
+        hold_open_at_end: bool,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for ScriptedEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            let script = self.script.clone();
+            let hold_open = self.hold_open_at_end;
+            let (sender, receiver) = tokio::sync::mpsc::channel(16);
+            tokio::spawn(async move {
+                for (delay_seconds, event) in script {
+                    tokio::time::sleep(std::time::Duration::from_secs(delay_seconds)).await;
+                    if sender.send(event).await.is_err() {
+                        return;
+                    }
+                }
+                if hold_open {
+                    tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+                }
+            });
+            Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(
+                receiver,
+            )))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: true,
+                permission_callback: true,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    fn session_started(session_id: &str) -> RuntimeEvent {
+        RuntimeEvent::SessionStarted {
+            session_id: session_id.into(),
+            model: None,
+            tools: Vec::new(),
+        }
+    }
+
+    fn completed(session_id: &str, result: &str) -> RuntimeEvent {
+        RuntimeEvent::Completed {
+            session_id: session_id.into(),
+            result: Some(result.into()),
+            usage: None,
+        }
+    }
+
+    fn text_delta(id: &str) -> RuntimeEvent {
+        serde_json::from_value(serde_json::json!({
+            "event_type": "MessageDelta",
+            "id": id,
+            "delta": {"TextDelta": {"text": "still thinking…"}}
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn confirmed_stall_classifies_stably_and_falls_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+
+        let claude = Arc::new(FakeEngine::new(vec![completed(
+            "claude-native",
+            "claude finished it",
+        )]));
+        let mut timeline = Vec::new();
+        let outcome = run_persisted(
+            &store,
+            {
+                let claude = Arc::clone(&claude);
+                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                    "alva" => Ok(Arc::new(ScriptedEngine {
+                        script: vec![(0, session_started("alva-native"))],
+                        hold_open_at_end: true,
+                    }) as Arc<dyn EngineRuntime>),
+                    "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
+                    other => Err(format!("unexpected engine '{other}'")),
+                }
+            },
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |event| timeline.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        assert_eq!(outcome.result.as_deref(), Some("claude finished it"));
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        let attempts = &detail.turns[0].attempts;
+        assert_eq!(attempts.len(), 2);
+        assert!(attempts[0]
+            .failure_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("stalled")));
+        assert!(timeline.iter().any(|event| {
+            event.status == TimelineStatus::Failed
+                && event
+                    .message
+                    .as_deref()
+                    .is_some_and(|message| message.contains("stalled"))
+        }));
+        assert!(timeline
+            .iter()
+            .any(|event| event.status == TimelineStatus::Fallback));
+        let fallback_fact = detail
+            .timeline_events
+            .iter()
+            .find(|event| event.kind == "engine_fallback")
+            .unwrap();
+        assert!(fallback_fact.reason.contains("stalled"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn long_running_tool_does_not_trip_the_watchdog() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+
+        let tool_end: RuntimeEvent = serde_json::from_value(serde_json::json!({
+            "event_type": "ToolEnd",
+            "id": "tool-1",
+            "name": "run_tests",
+            "result": {"content": [{"type": "text", "text": "ok"}], "is_error": false},
+            "duration_ms": 600_000
+        }))
+        .unwrap();
+        let engine = Arc::new(ScriptedEngine {
+            script: vec![
+                (0, session_started("alva-native")),
+                (
+                    0,
+                    RuntimeEvent::ToolStart {
+                        id: "tool-1".into(),
+                        name: "run_tests".into(),
+                        input: serde_json::json!({}),
+                    },
+                ),
+                // Far beyond the stall window, but the tool is open.
+                (600, tool_end),
+                (0, completed("alva-native", "took a long tool")),
+            ],
+            hold_open_at_end: false,
+        });
+
+        let outcome = run_persisted(
+            &store,
+            single_engine(engine),
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        assert_eq!(outcome.result.as_deref(), Some("took a long tool"));
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.turns[0].attempts.len(), 1);
+        assert_eq!(detail.turns[0].attempts[0].status, "completed");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pending_user_approval_does_not_trip_the_watchdog() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+
+        let engine = Arc::new(ScriptedEngine {
+            script: vec![
+                (0, session_started("alva-native")),
+                (
+                    0,
+                    RuntimeEvent::PermissionRequest {
+                        request_id: "perm-1".into(),
+                        tool_name: "write_file".into(),
+                        tool_input: serde_json::json!({}),
+                        description: None,
+                    },
+                ),
+                // The user takes far longer than the stall window to approve.
+                (600, completed("alva-native", "approved eventually")),
+            ],
+            hold_open_at_end: false,
+        });
+
+        let outcome = run_persisted(
+            &store,
+            single_engine(engine),
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        assert_eq!(outcome.result.as_deref(), Some("approved eventually"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_tool_finishing_does_not_rearm_watchdog_during_pending_approval() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+
+        let tool_end: RuntimeEvent = serde_json::from_value(serde_json::json!({
+            "event_type": "ToolEnd",
+            "id": "tool-1",
+            "name": "run_tests",
+            "result": {"content": [{"type": "text", "text": "ok"}], "is_error": false},
+            "duration_ms": 5
+        }))
+        .unwrap();
+        // A concurrent tool finishes AFTER the approval request; the user
+        // still takes far longer than the stall window to decide.
+        let engine = Arc::new(ScriptedEngine {
+            script: vec![
+                (0, session_started("alva-native")),
+                (
+                    0,
+                    RuntimeEvent::ToolStart {
+                        id: "tool-1".into(),
+                        name: "run_tests".into(),
+                        input: serde_json::json!({}),
+                    },
+                ),
+                (
+                    0,
+                    RuntimeEvent::PermissionRequest {
+                        request_id: "perm-1".into(),
+                        tool_name: "write_file".into(),
+                        tool_input: serde_json::json!({}),
+                        description: None,
+                    },
+                ),
+                (0, tool_end),
+                (600, completed("alva-native", "approved eventually")),
+            ],
+            hold_open_at_end: false,
+        });
+
+        let outcome = run_persisted(
+            &store,
+            single_engine(engine),
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        assert_eq!(outcome.result.as_deref(), Some("approved eventually"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_but_recovering_output_resets_the_watchdog() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+
+        // Deltas arrive every 100s: each gap is inside the 180s window, but
+        // the total run is far beyond it.
+        let engine = Arc::new(ScriptedEngine {
+            script: vec![
+                (0, session_started("alva-native")),
+                (100, text_delta("m1")),
+                (100, text_delta("m1")),
+                (100, text_delta("m1")),
+                (100, completed("alva-native", "streamed slowly")),
+            ],
+            hold_open_at_end: false,
+        });
+
+        let outcome = run_persisted(
+            &store,
+            single_engine(engine),
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        assert_eq!(outcome.result.as_deref(), Some("streamed slowly"));
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.turns[0].attempts.len(), 1);
     }
 
     #[tokio::test]

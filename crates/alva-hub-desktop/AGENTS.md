@@ -22,6 +22,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 11. terminal 失败先经稳定 FailureClass 矩阵分类（missing/incompatible/auth/model/rate-quota-billing/context/crash/transport/other）；仅分类到 operational continuity failure 才在同一 Turn 自动切换到 fallback chain 下一个授权 target：源 branch parked、handoff 先持久化再执行、串行新 Attempt、非阻塞 fallback timeline card。
 12. fallback chain 按 policy 顺序有界执行：每个 EngineTarget（engine/model/provider 三元组）每 attempt cycle 最多考虑一次、不回环；不健康或能力不兼容 target 被跳过并落 `engine_fallback_skipped` fact；链路耗尽落 `fallback_exhausted` card，列出每次 attempt/skip 的终态与原因。
+13. stall watchdog：无 engine/tool/permission/stream 活动的 180s 可证明窗口后确认 stall 并分类为 continuity failure 进入有界 fallback；open tool、pending 审批与恢复中的输出暂停/重置计时。
 
 ## 约束
 

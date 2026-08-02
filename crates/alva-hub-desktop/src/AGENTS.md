@@ -19,6 +19,7 @@
 9. `readiness` 用只读 `EngineProbe` facts（PATH 发现、`--version`、凭证存在性、attempt 历史）分类出结构化 EngineReadiness；`main` 以 `SystemProbe` 暴露 readiness IPC。
 10. `run` 以 engine factory + health veto 装配执行；`failure` 矩阵分类 terminal 失败，仅 operational continuity class 触发 `fallback_failed_attempt`：同一 Turn 原子转移到下一授权 target（parked source + 预持久化 full handoff + 串行 Attempt + `engine_fallback` fact），target 同步启动失败时全部状态可恢复。
 11. fallback 候选按 policy 顺序、三元组去重、一 cycle 一次；health veto 或 required_capabilities 不满足 → skip + `engine_fallback_skipped` fact；链路耗尽 → `fallback_exhausted` fact 汇总全 cycle 终态。
+12. stall watchdog 仅在无 open tool、无 pending permission 时计时，任意事件重置 180s 窗口；确认 stall = `FailureClass::Stall` continuity failure + Failed TimelineEvent + best-effort cancel，走既有有界 fallback。
 
 ## 约束
 

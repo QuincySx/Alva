@@ -18,6 +18,7 @@ pub enum FailureClass {
     Context,
     Crash,
     Transport,
+    Stall,
     Other,
 }
 
@@ -32,6 +33,7 @@ impl FailureClass {
             FailureClass::Context => "context overflow",
             FailureClass::Crash => "engine crash",
             FailureClass::Transport => "transport failure",
+            FailureClass::Stall => "stall (no progress)",
             FailureClass::Other => "unclassified failure",
         }
     }
@@ -130,6 +132,9 @@ pub fn classify_failure(message: &str) -> FailureClass {
         "engine process died",
     ]) {
         return FailureClass::Crash;
+    }
+    if has(&["stalled", "no progress", "watchdog"]) {
+        return FailureClass::Stall;
     }
     if has(&[
         "connection",
@@ -263,9 +268,18 @@ mod tests {
             FailureClass::Context,
             FailureClass::Crash,
             FailureClass::Transport,
+            FailureClass::Stall,
         ] {
             assert!(triggers_fallback(class), "{class:?} must trigger fallback");
         }
         assert!(!triggers_fallback(FailureClass::Other));
+    }
+
+    #[test]
+    fn stall_messages_classify_stably() {
+        assert_eq!(
+            classify_failure("engine stalled: no activity for 180s"),
+            FailureClass::Stall,
+        );
     }
 }
