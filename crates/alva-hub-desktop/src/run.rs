@@ -113,7 +113,7 @@ pub async fn run_persisted<F, B, H>(
 ) -> Result<RunOutcome, String>
 where
     F: FnMut(TimelineEvent) + Send,
-    B: Fn(&EngineTarget) -> Result<Arc<dyn EngineRuntime>, String>,
+    B: Fn(&EngineTarget, &str) -> Result<Arc<dyn EngineRuntime>, String>,
     H: Fn(&EngineTarget) -> Option<String>,
 {
     validate_prompt(&request.prompt)?;
@@ -143,7 +143,7 @@ where
     };
 
     let mut prepared = prepared;
-    let mut execution = match build_engine(&prepared.target) {
+    let mut execution = match build_engine(&prepared.target, &prepared.product_session_id) {
         Ok(engine) => {
             execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
         }
@@ -160,7 +160,7 @@ where
             .as_deref()
             .expect("native resume failure was checked above");
         prepared = store.upgrade_failed_native_resume(&prepared, failure_reason)?;
-        execution = match build_engine(&prepared.target) {
+        execution = match build_engine(&prepared.target, &prepared.product_session_id) {
             Ok(engine) => {
                 execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
             }
@@ -209,7 +209,7 @@ where
                 ));
                 continue;
             }
-            let built = build_engine(&candidate);
+            let built = build_engine(&candidate, &prepared.product_session_id);
             if let Ok(engine) = &built {
                 let available = capability_labels(&engine.capabilities());
                 let missing: Vec<String> = candidate
@@ -714,8 +714,8 @@ mod tests {
 
     fn single_engine<E: EngineRuntime + 'static>(
         engine: Arc<E>,
-    ) -> impl Fn(&EngineTarget) -> Result<Arc<dyn EngineRuntime>, String> {
-        move |_| Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
+    ) -> impl Fn(&EngineTarget, &str) -> Result<Arc<dyn EngineRuntime>, String> {
+        move |_, _| Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
     }
 
     fn healthy(_target: &EngineTarget) -> Option<String> {
@@ -1473,7 +1473,8 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let claude = Arc::clone(&claude);
-                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
                     other => Err(format!("unexpected engine '{other}'")),
@@ -1577,7 +1578,8 @@ mod tests {
                 let alva = Arc::clone(&alva);
                 let claude = Arc::clone(&claude);
                 let codex_engine = Arc::clone(&codex_engine);
-                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
                     "codex" => Ok(Arc::clone(&codex_engine) as Arc<dyn EngineRuntime>),
@@ -1637,7 +1639,7 @@ mod tests {
             &store,
             {
                 let builds = Arc::clone(&builds);
-                move |_target: &crate::store::EngineTarget| {
+                move |_target: &crate::store::EngineTarget, _: &str| {
                     let mut builds = builds.lock().unwrap();
                     *builds += 1;
                     if *builds == 1 {
@@ -1684,7 +1686,7 @@ mod tests {
 
         let outcome = run_persisted(
             &store,
-            |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+            |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str() {
                 "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
                 _ => Err("claude binary is missing".to_string()),
             },
@@ -1746,7 +1748,7 @@ mod tests {
 
         let outcome = run_persisted(
             &store,
-            |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+            |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str() {
                 "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
                 other => Err(format!(
                     "engine '{other}' must not be built without authorization"
@@ -1841,7 +1843,8 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let codex_engine = Arc::clone(&codex_engine);
-                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "codex" => Ok(Arc::clone(&codex_engine) as Arc<dyn EngineRuntime>),
                     other => Err(format!("engine '{other}' must not be built when unhealthy")),
@@ -1911,7 +1914,8 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let codex_engine = Arc::clone(&codex_engine);
-                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::new(NoPermissionEngine) as Arc<dyn EngineRuntime>),
                     "codex" => Ok(Arc::clone(&codex_engine) as Arc<dyn EngineRuntime>),
@@ -1964,7 +1968,7 @@ mod tests {
         let mut timeline = Vec::new();
         let outcome = run_persisted(
             &store,
-            |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+            |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str() {
                 "alva" => Ok(Arc::new(StartFailingEngine) as Arc<dyn EngineRuntime>),
                 other => Err(format!("engine '{other}' must not be built when unhealthy")),
             },
@@ -2035,7 +2039,7 @@ mod tests {
                 let claude = Arc::clone(&claude);
                 let claude_alt_engine = Arc::clone(&claude_alt_engine);
                 let calls = Arc::clone(&calls);
-                move |target: &crate::store::EngineTarget| {
+                move |target: &crate::store::EngineTarget, _: &str| {
                     let mut calls = calls.lock().unwrap();
                     *calls += 1;
                     if target.provider_id == "claude-alt-provider" {
@@ -2099,7 +2103,8 @@ mod tests {
             {
                 let alva = Arc::clone(&alva);
                 let claude = Arc::clone(&claude);
-                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                {
                     "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                     "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
                     other => Err(format!(
@@ -2241,7 +2246,8 @@ mod tests {
             &store,
             {
                 let claude = Arc::clone(&claude);
-                move |target: &crate::store::EngineTarget| match target.engine_id.as_str() {
+                move |target: &crate::store::EngineTarget, _: &str| match target.engine_id.as_str()
+                {
                     "alva" => Ok(Arc::new(ScriptedEngine {
                         script: vec![(0, session_started("alva-native"))],
                         hold_open_at_end: true,
@@ -2494,6 +2500,165 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(detail.turns[0].attempts.len(), 1);
+    }
+
+    /// Streams SessionStarted, then waits until `cancel` is called before
+    /// emitting its terminal events — the live-Stop shape of a real adapter.
+    struct CancellableEngine {
+        cancelled: Arc<tokio::sync::Notify>,
+        cancel_calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for CancellableEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            let cancelled = Arc::clone(&self.cancelled);
+            let (sender, receiver) = tokio::sync::mpsc::channel(4);
+            tokio::spawn(async move {
+                let _ = sender.send(session_started("cancel-native")).await;
+                cancelled.notified().await;
+                let _ = sender
+                    .send(RuntimeEvent::Error {
+                        message: "Cancelled by user".into(),
+                        recoverable: false,
+                    })
+                    .await;
+                let _ = sender
+                    .send(RuntimeEvent::Completed {
+                        session_id: "cancel-native".into(),
+                        result: None,
+                        usage: None,
+                    })
+                    .await;
+            });
+            Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(
+                receiver,
+            )))
+        }
+
+        async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
+            self.cancel_calls
+                .lock()
+                .unwrap()
+                .push(session_id.to_string());
+            self.cancelled.notify_one();
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: true,
+                permission_callback: true,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn user_stop_cancels_the_attempt_without_fallback_and_survives_restart() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = crate::HubStore::open(&database).unwrap();
+        // Claude is authorized — a user Stop must still never fall back.
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+
+        let engine = Arc::new(CancellableEngine {
+            cancelled: Arc::new(tokio::sync::Notify::new()),
+            cancel_calls: Arc::new(Mutex::new(Vec::new())),
+        });
+        let run_store = store.clone();
+        let run_engine = Arc::clone(&engine);
+        let run = tokio::spawn(async move {
+            run_persisted(
+                &run_store,
+                move |_: &crate::store::EngineTarget, _: &str| {
+                    Ok(Arc::clone(&run_engine) as Arc<dyn EngineRuntime>)
+                },
+                healthy,
+                RunRequest {
+                    prompt: "long work".into(),
+                    workspace: workspace.path().to_path_buf(),
+                    engine_id: "alva".into(),
+                    product_session_id: None,
+                },
+                |_| {},
+            )
+            .await
+        });
+
+        // Wait for the run to persist its session and native session id —
+        // the same facts the Stop IPC reads before cancelling.
+        let product_session_id = loop {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let sessions = store.list_sessions().unwrap();
+            if let Some(session) = sessions.first() {
+                if session.engine_session_id.is_some() && session.status == "running" {
+                    break session.product_session_id.clone();
+                }
+            }
+        };
+
+        // The Stop control: record the fact, then cancel the live engine.
+        store
+            .record_attempt_cancelled(&product_session_id, "User stopped the attempt")
+            .unwrap();
+        engine.cancel("cancel-native").await.unwrap();
+
+        let outcome = run.await.unwrap().unwrap();
+        assert!(outcome.failed);
+        assert_eq!(
+            engine.cancel_calls.lock().unwrap().as_slice(),
+            ["cancel-native"]
+        );
+
+        let detail = store.get_session(&product_session_id).unwrap().unwrap();
+        // Cancellation is not a continuity failure: exactly one attempt.
+        assert_eq!(detail.turns[0].attempts.len(), 1);
+        assert!(detail.turns[0].attempts[0]
+            .failure_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("Cancelled")));
+        let cancelled_facts = detail
+            .timeline_events
+            .iter()
+            .filter(|event| event.kind == "attempt_cancelled")
+            .count();
+        assert_eq!(cancelled_facts, 1);
+
+        // Restart: the recorded control action must not replay.
+        drop(store);
+        let reopened = crate::HubStore::open(&database).unwrap();
+        let detail = reopened.get_session(&product_session_id).unwrap().unwrap();
+        assert_eq!(
+            detail
+                .timeline_events
+                .iter()
+                .filter(|event| event.kind == "attempt_cancelled")
+                .count(),
+            1
+        );
+        assert_ne!(detail.session.status, "running");
+        // Stop against a terminal session is refused (no repeat execution).
+        assert!(reopened
+            .record_attempt_cancelled(&product_session_id, "again")
+            .is_err());
     }
 
     #[tokio::test]

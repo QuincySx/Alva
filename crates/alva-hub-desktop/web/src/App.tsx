@@ -13,15 +13,24 @@ import {
   runHubPrompt,
   setGlobalFallbackPolicy,
   setSessionFallbackPolicy,
+  stopHubAttempt,
   switchHubEngine,
   type EngineReadiness,
   type EngineTarget,
   type FallbackPolicy,
+  type HandoffPackage,
   type HubSessionDetail,
   type HubSessionSummary,
   type ReadinessReason,
   type TimelineEvent,
 } from "./bridge";
+
+interface FallbackControls {
+  source_engine_id: string;
+  handoff: HandoffPackage | null;
+}
+
+type ProjectedEvent = TimelineEvent & { fallback?: FallbackControls };
 
 const engineCatalog: EngineTarget[] = [
   {
@@ -78,7 +87,7 @@ const readinessBadge: Record<EngineReadiness["status"], string> = {
   unhealthy: "Unhealthy",
 };
 
-function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
+function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
   const turns = detail.turns.map((turn) => ({
     status:
       turn.status === "failed"
@@ -93,11 +102,12 @@ function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
     message: [turn.prompt, turn.result ?? turn.error].filter(Boolean).join("\n\n"),
     created_at: turn.created_at,
   }));
-  const switches = detail.timeline_events.map((event) => ({
+  const switches = detail.timeline_events.map((event): ProjectedEvent => ({
     status:
       event.kind === "engine_switch_queued"
         ? ("queued" as const)
-        : event.kind === "engine_switch_cancelled"
+        : event.kind === "engine_switch_cancelled" ||
+            event.kind === "attempt_cancelled"
           ? ("cancelled" as const)
           : event.kind === "engine_fallback" ||
               event.kind === "engine_fallback_skipped"
@@ -110,10 +120,23 @@ function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
     message:
       event.kind === "engine_fallback_skipped"
         ? `Skipped ${event.target_engine_id}\n\n${event.reason}`
-        : event.kind === "fallback_exhausted"
+        : event.kind === "fallback_exhausted" ||
+            event.kind === "attempt_cancelled"
           ? event.reason
           : `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
     created_at: event.created_at,
+    fallback:
+      event.kind === "engine_fallback"
+        ? {
+            source_engine_id: event.source_engine_id,
+            handoff:
+              detail.handoffs.find(
+                (handoff) =>
+                  handoff.target_branch_id === event.target_branch_id &&
+                  handoff.created_at === event.created_at,
+              ) ?? null,
+          }
+        : undefined,
   }));
   return [...turns, ...switches].sort(
     (left, right) => (left.created_at ?? 0) - (right.created_at ?? 0),
@@ -123,7 +146,8 @@ function projectTimeline(detail: HubSessionDetail): TimelineEvent[] {
 export default function App() {
   const [workspace, setWorkspace] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [timeline, setTimeline] = useState<ProjectedEvent[]>([]);
+  const [openHandoffs, setOpenHandoffs] = useState<Record<number, boolean>>({});
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
@@ -346,6 +370,19 @@ export default function App() {
         message: error instanceof Error ? error.message : String(error),
       },
     ]);
+  }
+
+  async function stopActiveAttempt() {
+    if (!activeSessionId) return;
+    try {
+      await stopHubAttempt(activeSessionId);
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function switchBack(sourceEngineId: string) {
+    await selectEngine(sourceEngineId);
   }
 
   async function submit(event: FormEvent) {
@@ -626,6 +663,78 @@ export default function App() {
                   <small className="timeline-hint">
                     The previous runtime is gone. Continue safely from the composer below.
                   </small>
+                ) : null}
+                {entry.fallback ? (
+                  <div className="timeline-controls">
+                    <button
+                      disabled={!busy || !activeSessionId}
+                      onClick={() => void stopActiveAttempt()}
+                      type="button"
+                    >
+                      Stop
+                    </button>
+                    <button
+                      disabled={engine === entry.fallback.source_engine_id}
+                      onClick={() =>
+                        void switchBack(entry.fallback?.source_engine_id ?? "")
+                      }
+                      type="button"
+                    >
+                      Switch back to {entry.fallback.source_engine_id}
+                    </button>
+                    <button
+                      disabled={!entry.fallback.handoff}
+                      onClick={() =>
+                        setOpenHandoffs((current) => ({
+                          ...current,
+                          [index]: !current[index],
+                        }))
+                      }
+                      type="button"
+                    >
+                      {openHandoffs[index] ? "Hide handoff" : "View handoff"}
+                    </button>
+                  </div>
+                ) : null}
+                {entry.fallback?.handoff && openHandoffs[index] ? (
+                  <div className="handoff-view">
+                    <strong>
+                      {entry.fallback.handoff.kind} handoff ·{" "}
+                      {entry.fallback.handoff.source.engine_id} →{" "}
+                      {entry.fallback.handoff.target.engine_id}
+                      {entry.fallback.handoff.used_at
+                        ? " · delivered"
+                        : " · pending"}
+                    </strong>
+                    <small>Reason: {entry.fallback.handoff.reason}</small>
+                    {entry.fallback.handoff.user_goal ? (
+                      <small>Goal: {entry.fallback.handoff.user_goal}</small>
+                    ) : null}
+                    {entry.fallback.handoff.latest_instruction ? (
+                      <small>
+                        Latest instruction:{" "}
+                        {entry.fallback.handoff.latest_instruction}
+                      </small>
+                    ) : null}
+                    {entry.fallback.handoff.completed_work.map((work, workIndex) => (
+                      <small key={`completed-${workIndex}`}>
+                        ✓ {work.prompt} — {work.result}
+                      </small>
+                    ))}
+                    {entry.fallback.handoff.pending_work.map((work, workIndex) => (
+                      <small key={`pending-${workIndex}`}>
+                        ⏳ {work.prompt} — {work.reason}
+                      </small>
+                    ))}
+                    {entry.fallback.handoff.changed_files.length > 0 ? (
+                      <small>
+                        Files: {entry.fallback.handoff.changed_files.join(", ")}
+                      </small>
+                    ) : null}
+                    {entry.fallback.handoff.workspace_summary ? (
+                      <small>{entry.fallback.handoff.workspace_summary}</small>
+                    ) : null}
+                  </div>
                 ) : null}
               </article>
             ))

@@ -1242,6 +1242,42 @@ impl HubStore {
         })
     }
 
+    /// Record a user Stop against the running attempt as a timeline fact.
+    /// The attempt itself reaches its terminal state through the engine's
+    /// cancelled stream, so nothing here mutates attempt rows — which also
+    /// makes the action naturally idempotent across app restarts.
+    pub fn record_attempt_cancelled(
+        &self,
+        product_session_id: &str,
+        reason: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub attempt cancel transaction: {error}"))?;
+        let session = query_session(&transaction, product_session_id)?
+            .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        if session.status != STATUS_RUNNING {
+            return Err("This Hub session has no running attempt to stop.".to_string());
+        }
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "attempt_cancelled",
+            &session.active_branch_id,
+            None,
+            &session.engine_id,
+            &session.engine_id,
+            reason,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub attempt cancel: {error}"))?;
+        Ok(())
+    }
+
     /// A handoff counts as delivered once its target engine actually starts
     /// executing with it; until then it stays pending for recovery.
     pub(crate) fn mark_handoff_used(&self, handoff_id: &str) -> Result<(), String> {

@@ -91,10 +91,43 @@ export interface StoredAttempt {
   completed_at: number | null;
 }
 
+export interface HandoffCompletedWork {
+  prompt: string;
+  result: string;
+}
+
+export interface HandoffPendingWork {
+  prompt: string;
+  reason: string;
+}
+
+export interface HandoffPackage {
+  handoff_id: string;
+  product_session_id: string;
+  source_branch_id: string;
+  target_branch_id: string;
+  source: EngineTarget;
+  target: EngineTarget;
+  kind: "full" | "delta";
+  reason: string;
+  user_goal: string | null;
+  latest_instruction: string | null;
+  accepted_decisions: string[];
+  completed_work: HandoffCompletedWork[];
+  pending_work: HandoffPendingWork[];
+  changed_files: string[];
+  recent_commands: string[];
+  verification_results: string[];
+  workspace_summary: string;
+  created_at: number;
+  used_at: number | null;
+}
+
 export interface HubSessionDetail {
   session: HubSessionSummary;
   turns: StoredTurn[];
   branches: StoredBranch[];
+  handoffs: HandoffPackage[];
   timeline_events: StoredTimelineEvent[];
   pending_switch: PendingSwitch | null;
   fallback_policy: FallbackPolicy;
@@ -256,6 +289,13 @@ export async function setSessionFallbackPolicy(
     productSessionId,
     targets,
   });
+}
+
+export async function stopHubAttempt(productSessionId: string): Promise<void> {
+  if (!hasTauri) {
+    throw new Error("Stopping an attempt requires the ALVA Hub desktop runtime.");
+  }
+  await invoke("stop_hub_attempt", { productSessionId });
 }
 
 export async function getEngineReadiness(

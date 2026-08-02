@@ -7,12 +7,15 @@
     windows_subsystem = "windows"
 )]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
+use alva_engine_runtime::EngineRuntime;
 use alva_hub_desktop::{
     build_engine, probe_readiness, run_persisted, EngineReadiness, EngineTarget, FallbackPolicy,
     HubSessionDetail, HubSessionSummary, HubStore, RunOutcome, RunRequest, SwitchOutcome,
-    SystemProbe,
+    SystemProbe, TimelineEvent, TimelineStatus,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -20,6 +23,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 struct DesktopState {
     store: HubStore,
     history_dir: PathBuf,
+    /// Engine currently executing each product session, so a user Stop can
+    /// reach the live adapter. Entries live only for the duration of a run.
+    active_engines: Mutex<HashMap<String, Arc<dyn EngineRuntime>>>,
 }
 
 impl DesktopState {
@@ -50,9 +56,25 @@ async fn run_hub_prompt(
     let history_dir = state.history_dir.clone();
     let health_store = state.store.clone();
     let health_workspace = workspace.clone();
-    run_persisted(
+    let registry = Arc::new(Mutex::new(Vec::<String>::new()));
+    let build_registry = Arc::clone(&registry);
+    let engines = &state.active_engines;
+    let outcome = run_persisted(
         &state.store,
-        move |target| build_engine(&target.engine_id, &workspace, &history_dir),
+        move |target, product_session_id| {
+            let engine = build_engine(&target.engine_id, &workspace, &history_dir)?;
+            // Register the live engine so `stop_hub_attempt` can cancel it;
+            // fallback replaces the entry with the newly active engine.
+            engines
+                .lock()
+                .unwrap()
+                .insert(product_session_id.to_string(), Arc::clone(&engine));
+            build_registry
+                .lock()
+                .unwrap()
+                .push(product_session_id.to_string());
+            Ok(engine)
+        },
         // Fast readiness veto for fallback candidates: missing binaries and
         // signed-out engines are skipped with the reason. quick_veto avoids
         // subprocess probes, so it never blocks the async runtime; version
@@ -68,7 +90,58 @@ async fn run_hub_prompt(
             }
         },
     )
-    .await
+    .await;
+    let mut engines = state.active_engines.lock().unwrap();
+    for product_session_id in registry.lock().unwrap().drain(..) {
+        engines.remove(&product_session_id);
+    }
+    drop(engines);
+    outcome
+}
+
+#[tauri::command]
+async fn stop_hub_attempt(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+) -> Result<(), String> {
+    let detail = state
+        .store
+        .get_session(&product_session_id)?
+        .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+    if detail.session.status != "running" {
+        return Err("This Hub session has no running attempt to stop.".to_string());
+    }
+    let engine = state
+        .active_engines
+        .lock()
+        .unwrap()
+        .get(&product_session_id)
+        .cloned()
+        .ok_or("The running attempt is not owned by this app instance.")?;
+    let engine_session_id = detail
+        .session
+        .engine_session_id
+        .ok_or("The engine has not started a native session yet; try again in a moment.")?;
+    state
+        .store
+        .record_attempt_cancelled(&product_session_id, "User stopped the attempt")?;
+    engine
+        .cancel(&engine_session_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = app.emit(
+        "hub_timeline",
+        TimelineEvent {
+            status: TimelineStatus::Interrupted,
+            engine_id: detail.session.engine_id,
+            product_session_id,
+            message: Some("User stopped the attempt".to_string()),
+        },
+    ) {
+        tracing::warn!(%error, "failed to emit Hub cancel event");
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -157,6 +230,7 @@ fn main() {
             app.manage(DesktopState {
                 store,
                 history_dir: data_dir.join("alva-history"),
+                active_engines: Mutex::new(HashMap::new()),
             });
             Ok(())
         })
@@ -168,7 +242,8 @@ fn main() {
             get_global_fallback_policy,
             set_global_fallback_policy,
             set_session_fallback_policy,
-            get_engine_readiness
+            get_engine_readiness,
+            stop_hub_attempt
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

@@ -12,7 +12,8 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 2. `App` 管理 session list、EngineBranch 选择、显式授权的有序 fallback chain、switch queue、历史 Turn/Attempt、interrupted 提示和用户输入。
 3. `App` 的 Engines dashboard 展示每个 engine 的版本/能力/auth/stream health 与结构化不可用原因；composer 与 engine selector 同步显示不健康状态。
 4. 自动 fallback 以非阻塞 `fallback` timeline card 呈现 source→target、原因与 handoff 摘要；skip 复用 fallback 投影，链路耗尽以 `exhausted` card 展示全 cycle 终态（live event 与持久化 fact 同一投影）。
-5. `index.css` 提供两栏 Desktop walking-skeleton 布局。
+5. fallback card 携带 Stop / Switch back / View handoff 控件：Stop 仅在运行中可用，Switch back 在已回源时禁用，View handoff 展开结构化 HandoffPackage；`attempt_cancelled` fact 投影为 cancelled card。
+6. `index.css` 提供两栏 Desktop walking-skeleton 布局。
 
 ## 约束
 
