@@ -36,6 +36,8 @@
 
 21. `worktree` 管理隔离 worker：`git worktree add` 在 Hub 私有 root（不在 shared workspace 内）建独立分支工作树，worker session 的 workspace 指向它，故其 claims 与共享 workspace 天然不争用（schema v11 存 worktree_path/branch）。隔离要求 workspace 正是 repo 根（worktree 覆盖整个 repo，而 `git apply` 从子目录会**静默丢弃**目录外的改动）。worker 完成不自动合并；`adoption_preview` 只读列出变更/与共享工作区并发编辑的冲突/patch 是否仍能干净应用/验证证据，`adopt_into_workspace` 是唯一写共享工作区的入口且先 `--check` 再 apply；`discard_worktree` 三重守卫（canonical 路径必须在 Hub worktree root 内、分支必须 `hub/worker-*`、不得等于 workspace）——`git worktree remove --force` 会连同未提交改动删除**任意**同 repo 的 linked worktree，包括用户自己的；丢弃后把 session workspace 指回共享 workspace，durable session 与历史保留；两种决定都落 lead timeline fact。**adoption 是共享 workspace 写入且不持 claim：因此要求 worker 空闲（无 running/queued 任务）才允许，patch 生成用一次性 GIT_INDEX_FILE 不动 worker 自己的 index，adopted 文件名取自 patch 而非 `git status`。**
 
+22. worker lifecycle（schema v12 `team_workers.lifecycle`）与 runtime 活性、任务终态、删除四者彼此独立：hibernate 释放 live runtime（cancel 在跑的 attempt + 摘 engine 注册 + 清 permission router）但保留 identity/history/queue，`claim_next_worker_task` 对非 active worker 返回 `TaskClaim::Dormant`（**不是 `Empty`**——pump 退出后按队列深度决定是否重启，若二者不可区分会对 hibernate 的 worker 无限重启形成热循环）；新任务自动唤醒 hibernated worker，archived 必须显式 restore；`complete_team_run` 结束时**归档**全部 worker 决不删除；`delete_worker` 是独立操作且只允许对 archived 执行，故"归档"永不被误当"删除"（注意它只删 worker_tasks/team_workers，session 与历史仍在，故未接入 IPC）。已结束的 run 拒绝再加 worker、拒绝重复 complete（否则会把用户 restore 过的 worker 又归档）。释放 runtime 时区分"本来就没在跑"（debug）与"cancel 真失败"（warn 且保留 engine 句柄，否则活着的进程再也停不掉）。重启只为 active 且有 queued 任务的 worker 恢复 pump。
+
 ## 约束
 
 - 产品测试从注入 `EngineRuntime` 的最高层 seam 进入。

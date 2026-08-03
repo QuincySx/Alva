@@ -377,8 +377,11 @@ export interface AdoptionPreview {
   verification: string[];
 }
 
+export type WorkerLifecycle = "active" | "hibernated" | "archived";
+
 export interface TeamWorker {
   worker_id: string;
+  lifecycle: WorkerLifecycle;
   worktree_path: string | null;
   worktree_branch: string | null;
   worker_session_id: string;
@@ -468,6 +471,36 @@ export async function addTeamWorker(
     workerEngineId,
     isolated,
   });
+}
+
+export async function hibernateWorker(workerId: string): Promise<TeamWorker> {
+  if (!hasTauri) {
+    throw new Error("Hibernating requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<TeamWorker>("hibernate_worker", { workerId });
+}
+
+export async function restoreWorker(workerId: string): Promise<TeamWorker> {
+  if (!hasTauri) {
+    throw new Error("Restoring requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<TeamWorker>("restore_worker", { workerId });
+}
+
+export async function archiveWorker(workerId: string): Promise<TeamWorker> {
+  if (!hasTauri) {
+    throw new Error("Archiving requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<TeamWorker>("archive_worker", { workerId });
+}
+
+export async function completeTeamRun(
+  teamRunId: string,
+): Promise<TeamRunDetail> {
+  if (!hasTauri) {
+    throw new Error("Ending a team run requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<TeamRunDetail>("complete_team_run", { teamRunId });
 }
 
 export async function previewWorkerAdoption(

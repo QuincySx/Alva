@@ -11,6 +11,10 @@ import {
   getPermissionEligibility,
   addTeamWorker,
   adoptWorkerWork,
+  archiveWorker,
+  completeTeamRun,
+  hibernateWorker,
+  restoreWorker,
   discardWorkerWorktree,
   previewWorkerAdoption,
   cancelWorkerTask,
@@ -244,6 +248,7 @@ export default function App() {
   const [dispatchWorkerId, setDispatchWorkerId] = useState<string | null>(null);
   const [teamClaims, setTeamClaims] = useState("");
   const [isolateWorker, setIsolateWorker] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [adoption, setAdoption] = useState<
     Record<string, AdoptionPreview | undefined>
   >({});
@@ -558,11 +563,19 @@ export default function App() {
     if (!teamRun || !scope) return;
     // Only a worker of THIS run is a valid target; a stale selection falls
     // back to the first worker rather than being sent and rejected.
-    const selected = teamRun.workers.find(
+    const dispatchable = teamRun.workers.filter(
+      (worker) => worker.lifecycle !== "archived",
+    );
+    const selected = dispatchable.find(
       (worker) => worker.worker_id === dispatchWorkerId,
     );
-    const workerId = selected?.worker_id ?? teamRun.workers[0]?.worker_id ?? null;
-    if (!workerId) return;
+    const workerId = selected?.worker_id ?? dispatchable[0]?.worker_id ?? null;
+    if (!workerId) {
+      appendLocalFailure(
+        new Error("Every worker in this run is archived. Restore one first."),
+      );
+      return;
+    }
     setTeamBusy(true);
     try {
       await dispatchWorkerTask(
@@ -598,6 +611,33 @@ export default function App() {
       setTeamRun(
         await addTeamWorker(teamRun.team_run_id, teamWorkerEngine, isolateWorker),
       );
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setTeamBusy(false);
+    }
+  }
+
+  async function changeWorkerLifecycle(
+    workerId: string,
+    action: "hibernate" | "restore" | "archive",
+  ) {
+    try {
+      if (action === "hibernate") await hibernateWorker(workerId);
+      else if (action === "restore") await restoreWorker(workerId);
+      else await archiveWorker(workerId);
+      await refreshTeam();
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function endTeamRun() {
+    if (!teamRun) return;
+    setTeamBusy(true);
+    try {
+      // Ending a run archives its workers; nothing is deleted.
+      setTeamRun(await completeTeamRun(teamRun.team_run_id));
     } catch (error) {
       appendLocalFailure(error);
     } finally {
@@ -983,8 +1023,16 @@ export default function App() {
             </>
           ) : (
             <>
-              <small className="team-worker-line">Lead: {engine}</small>
-              {teamRun.workers.map((worker) => {
+              <small className="team-worker-line">
+                Lead: {engine}
+                {teamRun.status !== "active" ? ` · run ${teamRun.status}` : ""}
+              </small>
+              {teamRun.workers
+                .filter(
+                  (worker) =>
+                    showArchived || worker.lifecycle !== "archived",
+                )
+                .map((worker) => {
                 const workerTasks = teamRun.tasks.filter(
                   (task) => task.worker_id === worker.worker_id,
                 );
@@ -999,6 +1047,11 @@ export default function App() {
                         {worker.worktree_path ? (
                           <span className="worker-isolated">isolated</span>
                         ) : null}
+                        {worker.lifecycle !== "active" ? (
+                          <span className="worker-lifecycle">
+                            {worker.lifecycle}
+                          </span>
+                        ) : null}
                       </strong>
                       <div className="team-worker-controls">
                         <button
@@ -1010,7 +1063,9 @@ export default function App() {
                           Focus
                         </button>
                         <button
-                          disabled={!workerRunning}
+                          disabled={
+                            !workerRunning || worker.lifecycle !== "active"
+                          }
                           onClick={() =>
                             void interruptWorkerNow(worker.worker_session_id)
                           }
@@ -1018,6 +1073,44 @@ export default function App() {
                         >
                           Interrupt
                         </button>
+                        {worker.lifecycle === "active" ? (
+                          <>
+                            <button
+                              onClick={() =>
+                                void changeWorkerLifecycle(
+                                  worker.worker_id,
+                                  "hibernate",
+                                )
+                              }
+                              type="button"
+                            >
+                              Hibernate
+                            </button>
+                            <button
+                              onClick={() =>
+                                void changeWorkerLifecycle(
+                                  worker.worker_id,
+                                  "archive",
+                                )
+                              }
+                              type="button"
+                            >
+                              Archive
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              void changeWorkerLifecycle(
+                                worker.worker_id,
+                                "restore",
+                              )
+                            }
+                            type="button"
+                          >
+                            Restore
+                          </button>
+                        )}
                       </div>
                     </div>
                     {worker.worktree_branch ? (
@@ -1144,18 +1237,25 @@ export default function App() {
                 aria-label="Dispatch target worker"
                 value={
                   teamRun.workers.some(
-                    (worker) => worker.worker_id === dispatchWorkerId,
+                    (worker) =>
+                      worker.worker_id === dispatchWorkerId &&
+                      worker.lifecycle !== "archived",
                   )
                     ? (dispatchWorkerId as string)
-                    : (teamRun.workers[0]?.worker_id ?? "")
+                    : (teamRun.workers.find(
+                        (worker) => worker.lifecycle !== "archived",
+                      )?.worker_id ?? "")
                 }
                 onChange={(event) => setDispatchWorkerId(event.target.value)}
               >
-                {teamRun.workers.map((worker) => (
-                  <option key={worker.worker_id} value={worker.worker_id}>
-                    To worker on {worker.engine_id}
-                  </option>
-                ))}
+                {teamRun.workers
+                  .filter((worker) => worker.lifecycle !== "archived")
+                  .map((worker) => (
+                    <option key={worker.worker_id} value={worker.worker_id}>
+                      To worker on {worker.engine_id}
+                      {worker.lifecycle === "hibernated" ? " (hibernated)" : ""}
+                    </option>
+                  ))}
               </select>
               <textarea
                 aria-label="Worker task scope"
@@ -1200,12 +1300,27 @@ export default function App() {
                   Isolated worktree
                 </label>
                 <button
-                  disabled={teamBusy}
+                  disabled={teamBusy || teamRun.status !== "active"}
                   onClick={() => void addWorker()}
                   type="button"
                 >
                   Add worker
                 </button>
+                <button
+                  disabled={teamBusy || teamRun.status !== "active"}
+                  onClick={() => void endTeamRun()}
+                  type="button"
+                >
+                  End run
+                </button>
+                <label className="transcript-toggle">
+                  <input
+                    checked={showArchived}
+                    onChange={(event) => setShowArchived(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Show archived
+                </label>
               </div>
             </>
           )}

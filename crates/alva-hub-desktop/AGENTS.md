@@ -38,6 +38,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 21. 高冲突/探索性/高风险任务可用 managed isolated worktree：worker 在独立工作树与分支上跑，UI 明确标注隔离状态与 worktree 身份；完成不自动改共享工作区，必须经展示变更/冲突/验证的显式 adoption 才进入；取消或丢弃隔离 worker 只删工作树，不碰共享数据。
 
+22. WorkerSession 的 durable identity、UI 可见性与 live runtime 三者独立：可 hibernate（释放 runtime，保留 identity/history/queue）、以新任务 resume、archive（移出活跃协作面但不删记录）；archive/hibernate/terminal/delete 在领域状态中互不相同；TeamRun 结束默认归档而非删除；重启恢复 Lead/Worker 关联、queue、branch、timeline 与 lifecycle。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

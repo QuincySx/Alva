@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -234,9 +234,46 @@ pub struct TeamRunDetail {
     pub created_at: i64,
 }
 
+/// Durable worker visibility. Orthogonal to runtime liveness and to task
+/// terminal state, and never a deletion: an archived worker keeps every
+/// persistent record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerLifecycle {
+    /// Participating in the collaboration surface; may run tasks.
+    Active,
+    /// Runtime released, identity/history/queue kept; a new task resumes it.
+    Hibernated,
+    /// Hidden from the active surface; needs an explicit restore.
+    Archived,
+}
+
+impl WorkerLifecycle {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WorkerLifecycle::Active => "active",
+            WorkerLifecycle::Hibernated => "hibernated",
+            WorkerLifecycle::Archived => "archived",
+        }
+    }
+
+    pub fn parse(text: &str) -> Result<Self, String> {
+        match text {
+            "active" => Ok(WorkerLifecycle::Active),
+            "hibernated" => Ok(WorkerLifecycle::Hibernated),
+            "archived" => Ok(WorkerLifecycle::Archived),
+            other => Err(format!("unknown Hub worker lifecycle '{other}'")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TeamWorker {
     pub worker_id: String,
+    /// Durable visibility state — independent of whether an engine is live
+    /// (that is runtime) and of whether its tasks finished (that is task
+    /// terminal state). Never implies deletion.
+    pub lifecycle: WorkerLifecycle,
     /// Managed worktree when this worker runs isolated; None means it works
     /// directly in the shared workspace.
     pub worktree_path: Option<String>,
@@ -257,6 +294,11 @@ pub enum TaskClaim {
         task_id: String,
         blocked_by: Vec<BlockedResource>,
     },
+    /// The worker is hibernated or archived: its queue is intact but must
+    /// not be consumed. Distinct from `Empty` so a queue-depth check can
+    /// never mistake "paused" for "drained" and respawn a pump forever.
+    Dormant,
+    /// Nothing queued.
     Empty,
 }
 
@@ -1499,6 +1541,18 @@ impl HubStore {
             .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
         let lead = query_session(&transaction, &lead_session_id)?
             .ok_or_else(|| format!("Hub session '{lead_session_id}' was not found"))?;
+        let run_status: String = transaction
+            .query_row(
+                "SELECT status FROM team_runs WHERE team_run_id = ?1",
+                [team_run_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("query Hub team run status: {error}"))?;
+        if run_status != "active" {
+            return Err(format!(
+                "team run '{team_run_id}' has ended; start a new run to add workers"
+            ));
+        }
         transaction
             .execute(
                 "INSERT INTO hub_sessions
@@ -1592,17 +1646,35 @@ impl HubStore {
         let connection = self.lock()?;
         let belongs: Option<String> = connection
             .query_row(
-                "SELECT worker_id FROM team_workers
+                "SELECT lifecycle FROM team_workers
                   WHERE team_run_id = ?1 AND worker_id = ?2",
                 params![team_run_id, worker_id],
                 |row| row.get(0),
             )
             .optional()
             .map_err(|error| format!("query Hub team worker: {error}"))?;
-        if belongs.is_none() {
+        let Some(lifecycle) = belongs else {
             return Err(format!(
                 "worker '{worker_id}' does not belong to team run '{team_run_id}'"
             ));
+        };
+        match WorkerLifecycle::parse(&lifecycle)? {
+            // New work wakes a hibernated worker.
+            WorkerLifecycle::Hibernated => {
+                connection
+                    .execute(
+                        "UPDATE team_workers SET lifecycle = ?2 WHERE worker_id = ?1",
+                        params![worker_id, WorkerLifecycle::Active.as_str()],
+                    )
+                    .map_err(|error| format!("resume Hub worker: {error}"))?;
+            }
+            // An archived worker must be restored deliberately.
+            WorkerLifecycle::Archived => {
+                return Err(
+                    "this worker is archived; restore it before queueing new work".to_string(),
+                )
+            }
+            WorkerLifecycle::Active => {}
         }
         connection
             .execute(
@@ -1642,6 +1714,18 @@ impl HubStore {
         let Some((task_id, claims_json, head_created_at, head_rowid)) = head else {
             return Ok(TaskClaim::Empty);
         };
+        // Hibernated and archived workers keep their queue but consume
+        // nothing: that is exactly what "released the runtime" means.
+        let lifecycle: String = transaction
+            .query_row(
+                "SELECT lifecycle FROM team_workers WHERE worker_id = ?1",
+                [worker_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("query Hub worker lifecycle: {error}"))?;
+        if WorkerLifecycle::parse(&lifecycle)? != WorkerLifecycle::Active {
+            return Ok(TaskClaim::Dormant);
+        }
         let wanted: Vec<ResourceClaim> = serde_json::from_str(&claims_json)
             .map_err(|error| format!("decode Hub task claims: {error}"))?;
 
@@ -1834,6 +1918,104 @@ impl HubStore {
         Ok(())
     }
 
+    /// Move a worker between lifecycle states. Hibernating and archiving
+    /// never touch identity, history, or queue — only visibility and
+    /// whether the queue may be consumed.
+    pub fn set_worker_lifecycle(
+        &self,
+        worker_id: &str,
+        lifecycle: WorkerLifecycle,
+    ) -> Result<TeamWorker, String> {
+        let connection = self.lock()?;
+        let changed = connection
+            .execute(
+                "UPDATE team_workers SET lifecycle = ?2 WHERE worker_id = ?1",
+                params![worker_id, lifecycle.as_str()],
+            )
+            .map_err(|error| format!("persist Hub worker lifecycle: {error}"))?;
+        if changed != 1 {
+            return Err(format!("worker '{worker_id}' was not found"));
+        }
+        drop(connection);
+        self.team_worker(worker_id)?
+            .ok_or_else(|| "worker vanished after lifecycle change".to_string())
+    }
+
+    pub fn team_worker(&self, worker_id: &str) -> Result<Option<TeamWorker>, String> {
+        Ok(self.team_run_for_worker(worker_id)?.and_then(|run| {
+            run.workers
+                .into_iter()
+                .find(|worker| worker.worker_id == worker_id)
+        }))
+    }
+
+    /// End a TeamRun: workers are ARCHIVED, never deleted, so every
+    /// persistent record survives.
+    pub fn complete_team_run(&self, team_run_id: &str) -> Result<TeamRunDetail, String> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub team completion transaction: {error}"))?;
+        let changed = transaction
+            .execute(
+                "UPDATE team_runs SET status = 'completed'
+                  WHERE team_run_id = ?1 AND status = 'active'",
+                [team_run_id],
+            )
+            .map_err(|error| format!("complete Hub team run: {error}"))?;
+        if changed != 1 {
+            // Re-completing would silently re-archive workers the user has
+            // since restored.
+            return Err(format!(
+                "team run '{team_run_id}' was not found or has already ended"
+            ));
+        }
+        transaction
+            .execute(
+                "UPDATE team_workers SET lifecycle = ?2 WHERE team_run_id = ?1",
+                params![team_run_id, WorkerLifecycle::Archived.as_str()],
+            )
+            .map_err(|error| format!("archive Hub team workers: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub team completion: {error}"))?;
+        drop(connection);
+        self.get_team_run(team_run_id)?
+            .ok_or_else(|| "team run vanished after completion".to_string())
+    }
+
+    /// Permanently remove a worker and its records. Deliberately separate
+    /// from archiving, and only reachable for an archived worker — so
+    /// "archived" can never be mistaken for "deleted".
+    pub fn delete_worker(&self, worker_id: &str) -> Result<(), String> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub worker delete transaction: {error}"))?;
+        let lifecycle: Option<String> = transaction
+            .query_row(
+                "SELECT lifecycle FROM team_workers WHERE worker_id = ?1",
+                [worker_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub worker lifecycle: {error}"))?;
+        let lifecycle = lifecycle.ok_or_else(|| format!("worker '{worker_id}' was not found"))?;
+        if WorkerLifecycle::parse(&lifecycle)? != WorkerLifecycle::Archived {
+            return Err("only an archived worker can be deleted".to_string());
+        }
+        transaction
+            .execute("DELETE FROM worker_tasks WHERE worker_id = ?1", [worker_id])
+            .map_err(|error| format!("delete Hub worker tasks: {error}"))?;
+        transaction
+            .execute("DELETE FROM team_workers WHERE worker_id = ?1", [worker_id])
+            .map_err(|error| format!("delete Hub team worker: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub worker delete: {error}"))?;
+        Ok(())
+    }
+
     /// Is this worker currently executing something?
     pub fn worker_has_active_task(&self, worker_id: &str) -> Result<bool, String> {
         let connection = self.lock()?;
@@ -1975,10 +2157,14 @@ impl HubStore {
 
     /// Workers with tasks still queued — the app restarts their pumps on
     /// launch so a durable queue survives a restart.
-    pub fn workers_with_queued_tasks(&self) -> Result<Vec<String>, String> {
+    pub fn active_workers_with_queued_tasks(&self) -> Result<Vec<String>, String> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare("SELECT DISTINCT worker_id FROM worker_tasks WHERE status = 'queued'")
+            .prepare(
+                "SELECT DISTINCT wt.worker_id FROM worker_tasks wt
+                   JOIN team_workers tw ON tw.worker_id = wt.worker_id
+                  WHERE wt.status = 'queued' AND tw.lifecycle = 'active'",
+            )
             .map_err(|error| format!("prepare Hub queued workers: {error}"))?;
         let workers = statement
             .query_map([], |row| row.get::<_, String>(0))
@@ -3297,7 +3483,7 @@ fn query_team_run(
     let mut worker_statement = connection
         .prepare(
             "SELECT tw.worker_id, tw.worker_session_id, eb.engine_id, tw.created_at,
-                    tw.worktree_path, tw.worktree_branch
+                    tw.worktree_path, tw.worktree_branch, tw.lifecycle
                FROM team_workers tw
                JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
                JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
@@ -3314,6 +3500,13 @@ fn query_team_run(
                 created_at: row.get(3)?,
                 worktree_path: row.get(4)?,
                 worktree_branch: row.get(5)?,
+                lifecycle: WorkerLifecycle::parse(&row.get::<_, String>(6)?).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        6,
+                        rusqlite::types::Type::Text,
+                        error.into(),
+                    )
+                })?,
             })
         })
         .map_err(|error| format!("query Hub team workers: {error}"))?
@@ -3709,6 +3902,17 @@ fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 11: {error}"))?;
     }
 
+    if schema_version < 12 {
+        // Worker lifecycle is independent of runtime liveness and of task
+        // terminal state: existing workers start active.
+        transaction
+            .execute_batch(
+                "ALTER TABLE team_workers
+                   ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active';",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 12: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -3945,6 +4149,24 @@ mod tests {
     use super::*;
     use crate::claims::ClaimMode;
 
+    /// Reopen a database after dropping its handle. Under parallel test load
+    /// the previous handle's instance-lock release can lag behind `drop`, so
+    /// the non-blocking acquisition briefly sees the file as still held.
+    /// Retries are bounded: a genuinely leaked handle still fails.
+    fn reopen(database: &Path) -> HubStore {
+        let mut last = String::new();
+        for _ in 0..50 {
+            match HubStore::open(database) {
+                Ok(store) => return store,
+                Err(error) => {
+                    last = error;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            }
+        }
+        panic!("could not reopen {}: {last}", database.display());
+    }
+
     #[cfg(unix)]
     #[test]
     fn database_and_parent_are_private() {
@@ -4088,7 +4310,7 @@ mod tests {
         assert_eq!(running.turns[0].attempts[0].status, STATUS_RUNNING);
         drop(store);
 
-        let reopened = HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         let recovered = reopened.get_session("product-crash").unwrap().unwrap();
         assert_eq!(recovered.session.status, STATUS_INTERRUPTED);
         assert_eq!(recovered.turns[0].status, STATUS_INTERRUPTED);
@@ -4231,7 +4453,7 @@ mod tests {
             .finish_turn(&resumed, None, Some("ok"), None, None)
             .unwrap();
         drop(store);
-        let reopened = HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         assert_eq!(
             reopened
                 .get_session("product-profile")
@@ -4326,7 +4548,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 12).unwrap();
+        connection.pragma_update(None, "user_version", 13).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -4338,7 +4560,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 12);
+        assert_eq!(version, 13);
     }
 
     #[test]
@@ -4412,7 +4634,7 @@ mod tests {
         assert_eq!(detail.timeline_events[0].kind, "engine_switched");
 
         drop(store);
-        let reopened = HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         let recovered = reopened.get_session("product-switch").unwrap().unwrap();
         assert_eq!(recovered.session.engine_id, "claude");
         assert_eq!(recovered.branches.len(), 2);
@@ -4513,7 +4735,7 @@ mod tests {
             .unwrap();
         drop(store);
 
-        let reopened = HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         let detail = reopened
             .get_session("product-crash-switch")
             .unwrap()
@@ -4649,7 +4871,7 @@ mod tests {
         assert_eq!(fresh.handoff.as_ref().unwrap().kind, HandoffKind::Full);
         drop(store);
 
-        let reopened = HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         let detail = reopened.get_session("product-upgrade").unwrap().unwrap();
         assert_eq!(detail.session.engine_session_id, None);
         assert_eq!(detail.turns.last().unwrap().status, STATUS_INTERRUPTED);
@@ -4797,7 +5019,7 @@ mod tests {
             .unwrap();
         drop(store);
 
-        let reopened = HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         let detail = reopened
             .get_session("product-policy-restart")
             .unwrap()
@@ -5254,7 +5476,7 @@ mod tests {
 
         // Everything survives a database reopen, fully associated.
         drop(store);
-        let reopened = HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         let run = reopened.team_run_for_lead("lead-session").unwrap().unwrap();
         assert_eq!(run.workers.len(), 1);
         assert_eq!(run.tasks.len(), 2);
@@ -5768,6 +5990,129 @@ mod tests {
             .unwrap();
         assert_eq!(session.session.workspace, shared);
         assert_ne!(session.session.workspace, handle.path);
+    }
+
+    #[test]
+    fn worker_lifecycle_survives_restart_and_never_conflates_archive_with_delete() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "life-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run("life-lead", &EngineTarget::for_engine("claude").unwrap())
+            .unwrap();
+        let worker = run.workers[0].clone();
+        assert_eq!(worker.lifecycle, WorkerLifecycle::Active);
+
+        // History and a pending queue entry to preserve across states.
+        store
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "done work", &[])
+            .unwrap();
+        let first = store.claim_for_test(&worker.worker_id).unwrap().unwrap();
+        store
+            .finish_worker_task(&first.task_id, true, Some("finished"))
+            .unwrap();
+        store
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "still queued", &[])
+            .unwrap();
+
+        // Hibernate: identity, history and queue all stay; nothing is
+        // consumed while the runtime is released.
+        store
+            .set_worker_lifecycle(&worker.worker_id, WorkerLifecycle::Hibernated)
+            .unwrap();
+        // "Dormant", never "Empty": the pump must be able to tell a parked
+        // queue from a drained one, or its respawn check spins forever.
+        assert!(matches!(
+            store.claim_next_worker_task(&worker.worker_id).unwrap(),
+            TaskClaim::Dormant
+        ));
+        assert!(store.claim_for_test(&worker.worker_id).unwrap().is_none());
+        // Restart resumes pumps only for ACTIVE workers with queued work.
+        assert!(!store
+            .active_workers_with_queued_tasks()
+            .unwrap()
+            .contains(&worker.worker_id));
+        let hibernated = store.get_team_run(&run.team_run_id).unwrap().unwrap();
+        assert_eq!(hibernated.workers[0].lifecycle, WorkerLifecycle::Hibernated);
+        assert_eq!(hibernated.tasks.len(), 2);
+        assert!(store
+            .get_session(&worker.worker_session_id)
+            .unwrap()
+            .is_some());
+        assert!(store.has_queued_task(&worker.worker_id).unwrap());
+
+        // A new task wakes it, and the older queued task is still first.
+        store
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "new work", &[])
+            .unwrap();
+        assert!(store
+            .active_workers_with_queued_tasks()
+            .unwrap()
+            .contains(&worker.worker_id));
+        let resumed = store.team_worker(&worker.worker_id).unwrap().unwrap();
+        assert_eq!(resumed.lifecycle, WorkerLifecycle::Active);
+        let claimed = store.claim_for_test(&worker.worker_id).unwrap().unwrap();
+        assert_eq!(claimed.scope, "still queued");
+
+        // Ending the run archives — never deletes.
+        let completed = store.complete_team_run(&run.team_run_id).unwrap();
+        assert_eq!(completed.status, "completed");
+        assert_eq!(completed.workers[0].lifecycle, WorkerLifecycle::Archived);
+        assert_eq!(completed.tasks.len(), 3);
+        // Archived workers need an explicit restore, not an implicit wake.
+        let refused = store
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "sneak in", &[])
+            .unwrap_err();
+        assert!(refused.contains("archived"));
+        // An ended run neither accepts new workers nor re-completes (which
+        // would silently re-archive anything the user restored).
+        let refused = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("codex").unwrap(),
+                None,
+            )
+            .unwrap_err();
+        assert!(refused.contains("has ended"));
+        assert!(store.complete_team_run(&run.team_run_id).is_err());
+
+        // Everything survives a restart: links, queue, history, lifecycle.
+        drop(store);
+        let reopened = reopen(&database);
+        let run = reopened.team_run_for_lead("life-lead").unwrap().unwrap();
+        assert_eq!(run.status, "completed");
+        assert_eq!(run.workers[0].lifecycle, WorkerLifecycle::Archived);
+        assert_eq!(run.workers[0].worker_id, worker.worker_id);
+        assert_eq!(run.tasks.len(), 3);
+        assert!(reopened
+            .get_session(&worker.worker_session_id)
+            .unwrap()
+            .is_some());
+
+        // Delete is a separate, explicit act — and only from archived.
+        reopened
+            .set_worker_lifecycle(&worker.worker_id, WorkerLifecycle::Active)
+            .unwrap();
+        assert!(reopened.delete_worker(&worker.worker_id).is_err());
+        reopened
+            .set_worker_lifecycle(&worker.worker_id, WorkerLifecycle::Archived)
+            .unwrap();
+        reopened.delete_worker(&worker.worker_id).unwrap();
+        assert!(reopened.team_worker(&worker.worker_id).unwrap().is_none());
     }
 
     #[test]

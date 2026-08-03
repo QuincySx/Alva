@@ -34,7 +34,7 @@ pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,
     StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim, TeamRunDetail,
-    TeamWorker, TranscriptTurn, WorkerTask,
+    TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };
 pub use worktree::{
     adopt_into_workspace, adoption_preview, create_worker_worktree, discard_worktree,

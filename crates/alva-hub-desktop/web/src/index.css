@@ -969,3 +969,14 @@ textarea::placeholder {
 .adoption-conflict {
   color: #ee6f79;
 }
+
+.worker-lifecycle {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #929db6;
+  background: rgba(111, 122, 146, 0.22);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

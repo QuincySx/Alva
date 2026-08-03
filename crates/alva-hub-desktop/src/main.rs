@@ -264,6 +264,125 @@ fn add_team_worker(
     }
 }
 
+/// Release a worker's live runtime while keeping identity, history and
+/// queue: cancel anything running, drop the engine registration, and let
+/// the pump drain out (a hibernated worker claims nothing).
+#[tauri::command]
+async fn hibernate_worker(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    worker_id: String,
+) -> Result<alva_hub_desktop::TeamWorker, String> {
+    let worker = state
+        .store
+        .team_worker(&worker_id)?
+        .ok_or("That worker was not found.")?;
+    // Flip the lifecycle FIRST so the pump stops claiming the next task the
+    // moment the current one ends.
+    let hibernated = state
+        .store
+        .set_worker_lifecycle(&worker_id, alva_hub_desktop::WorkerLifecycle::Hibernated)?;
+    // Best-effort: a worker with nothing running has no runtime to release.
+    if let Err(error) = stop_attempt_inner(&app, &state, worker.worker_session_id.clone()).await {
+        tracing::debug!(%error, worker = %worker_id, "no live worker runtime to release");
+    }
+    state
+        .active_engines
+        .lock()
+        .unwrap()
+        .remove(&worker.worker_session_id);
+    state
+        .permission_router
+        .clear_session(&worker.worker_session_id);
+    Ok(hibernated)
+}
+
+/// Restore an archived (or hibernated) worker to the active surface.
+#[tauri::command]
+fn restore_worker(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    worker_id: String,
+) -> Result<alva_hub_desktop::TeamWorker, String> {
+    let worker = state
+        .store
+        .set_worker_lifecycle(&worker_id, alva_hub_desktop::WorkerLifecycle::Active)?;
+    // Anything queued while it slept starts flowing again.
+    if state.store.has_queued_task(&worker_id).unwrap_or(false) {
+        ensure_worker_pump(app, worker_id);
+    }
+    Ok(worker)
+}
+
+#[tauri::command]
+async fn archive_worker(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    worker_id: String,
+) -> Result<alva_hub_desktop::TeamWorker, String> {
+    // ONE lifecycle write, before releasing the runtime: a two-step
+    // hibernate→archive would leave a window where an incoming task
+    // auto-resumes the worker and is then archived out from under the user.
+    let archived = state
+        .store
+        .set_worker_lifecycle(&worker_id, alva_hub_desktop::WorkerLifecycle::Archived)?;
+    release_worker_runtime(&app, &state, &archived.worker_session_id).await;
+    Ok(archived)
+}
+
+/// Cancel anything the worker session is running and drop its live handles.
+/// Distinguishes "nothing was running" (expected) from a genuine cancel
+/// failure, where dropping the engine registration would strand a live
+/// process with no way to stop it.
+async fn release_worker_runtime(app: &AppHandle, state: &DesktopState, worker_session_id: &str) {
+    match stop_attempt_inner(app, state, worker_session_id.to_string()).await {
+        Ok(()) => {}
+        Err(error) if error.contains("no running attempt") => {
+            tracing::debug!(%error, "no live worker runtime to release");
+        }
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                worker_session = %worker_session_id,
+                "failed to release worker runtime; keeping the engine handle so it stays stoppable"
+            );
+            state.permission_router.clear_session(worker_session_id);
+            return;
+        }
+    }
+    state
+        .active_engines
+        .lock()
+        .unwrap()
+        .remove(worker_session_id);
+    state.permission_router.clear_session(worker_session_id);
+}
+
+/// End a TeamRun. Workers are archived, never deleted.
+#[tauri::command]
+async fn complete_team_run(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    team_run_id: String,
+) -> Result<alva_hub_desktop::TeamRunDetail, String> {
+    let run = state
+        .store
+        .get_team_run(&team_run_id)?
+        .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
+    for worker in &run.workers {
+        if let Err(error) = stop_attempt_inner(&app, &state, worker.worker_session_id.clone()).await
+        {
+            tracing::debug!(%error, "no live runtime to release for worker");
+        }
+        state
+            .active_engines
+            .lock()
+            .unwrap()
+            .remove(&worker.worker_session_id);
+    }
+    state.store.complete_team_run(&team_run_id)
+}
+
 /// Read-only: what adopting this isolated worker would change.
 #[tauri::command]
 async fn preview_worker_adoption(
@@ -468,6 +587,7 @@ fn ensure_worker_pump(app: AppHandle, worker_id: String) {
         let mut announced_wait = false;
         let mut waiting_since: Option<std::time::Instant> = None;
         let mut errors_in_a_row = 0u32;
+        let mut dormant = false;
         loop {
             let claimed = {
                 let state = app.state::<DesktopState>();
@@ -540,6 +660,12 @@ fn ensure_worker_pump(app: AppHandle, worker_id: String) {
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 }
+                Ok(TaskClaim::Dormant) => {
+                    // Hibernated or archived: the queue stays, the pump goes
+                    // away, and the tail must NOT respawn it.
+                    dormant = true;
+                    break;
+                }
                 Ok(TaskClaim::Empty) => break,
                 Err(error) => {
                     // Back off before the tail re-spawns us, so a persistent
@@ -557,8 +683,9 @@ fn ensure_worker_pump(app: AppHandle, worker_id: String) {
         let state = app.state::<DesktopState>();
         state.worker_pumps.lock().unwrap().remove(&worker_id);
         // A task enqueued between the final empty claim and the removal
-        // above would otherwise sit unconsumed until the next dispatch.
-        if state.store.has_queued_task(&worker_id).unwrap_or(false) {
+        // above would otherwise sit unconsumed until the next dispatch. A
+        // dormant worker is skipped: its queue is intentionally parked.
+        if !dormant && state.store.has_queued_task(&worker_id).unwrap_or(false) {
             ensure_worker_pump(app.clone(), worker_id);
         }
     });
@@ -865,7 +992,7 @@ fn main() {
             let data_dir = app.path().app_data_dir()?;
             let store =
                 HubStore::open(data_dir.join("alva-hub.db")).map_err(std::io::Error::other)?;
-            let queued_workers = store.workers_with_queued_tasks().unwrap_or_default();
+            let queued_workers = store.active_workers_with_queued_tasks().unwrap_or_default();
             app.manage(DesktopState {
                 store,
                 history_dir: data_dir.join("alva-history"),
@@ -903,6 +1030,10 @@ fn main() {
             preview_worker_adoption,
             adopt_worker_work,
             discard_worker_worktree,
+            hibernate_worker,
+            restore_worker,
+            archive_worker,
+            complete_team_run,
             update_worker_task,
             cancel_worker_task,
             interrupt_worker
