@@ -57,6 +57,17 @@ async fn run_hub_prompt(
     request: RunRequest,
 ) -> Result<RunOutcome, String> {
     let (workspace, _engine_id) = state.execution_target(&request)?;
+    execute_session_run(app, &state, workspace, request).await
+}
+
+/// The one execution wiring both user prompts and team worker dispatches go
+/// through: engine registry, permission routing, health veto, event bridge.
+async fn execute_session_run(
+    app: AppHandle,
+    state: &DesktopState,
+    workspace: PathBuf,
+    request: RunRequest,
+) -> Result<RunOutcome, String> {
     let history_dir = state.history_dir.clone();
     let health_store = state.store.clone();
     let health_workspace = workspace.clone();
@@ -179,6 +190,91 @@ async fn respond_hub_permission(
 #[tauri::command]
 fn get_permission_eligibility(profile: PermissionProfile) -> Vec<EngineEligibility> {
     permission_eligibility(profile)
+}
+
+#[tauri::command]
+fn create_team_run(
+    state: State<'_, DesktopState>,
+    lead_session_id: String,
+    worker_engine_id: String,
+) -> Result<alva_hub_desktop::TeamRunDetail, String> {
+    let target = EngineTarget::for_engine(&worker_engine_id)?;
+    state.store.create_team_run(&lead_session_id, &target)
+}
+
+#[tauri::command]
+fn get_team_run_for_lead(
+    state: State<'_, DesktopState>,
+    lead_session_id: String,
+) -> Result<Option<alva_hub_desktop::TeamRunDetail>, String> {
+    state.store.team_run_for_lead(&lead_session_id)
+}
+
+#[tauri::command]
+async fn dispatch_worker_task(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    team_run_id: String,
+    scope: String,
+) -> Result<alva_hub_desktop::WorkerTask, String> {
+    let run = state
+        .store
+        .get_team_run(&team_run_id)?
+        .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
+    let worker = run
+        .workers
+        .first()
+        .cloned()
+        .ok_or("This team run has no worker.")?;
+    let worker_session = state
+        .store
+        .get_session(&worker.worker_session_id)?
+        .ok_or("The worker session no longer exists.")?;
+    let task = state.store.create_worker_task(&team_run_id, &scope)?;
+    let workspace = PathBuf::from(&worker_session.session.workspace);
+    let request = RunRequest {
+        prompt: scope,
+        workspace: workspace.clone(),
+        engine_id: worker_session.session.engine_id.clone(),
+        product_session_id: Some(worker.worker_session_id.clone()),
+        permission_profile: None,
+    };
+    let outcome = execute_session_run(app.clone(), &state, workspace, request).await;
+    let task = match outcome {
+        Ok(outcome) => state.store.finish_worker_task(
+            &task.task_id,
+            !outcome.failed,
+            outcome.result.as_deref(),
+        )?,
+        Err(error) => state
+            .store
+            .finish_worker_task(&task.task_id, false, Some(&error))?,
+    };
+    let summary = alva_hub_desktop::redact_text(&format!(
+        "Worker ({}) {}{}",
+        worker.engine_id,
+        task.status,
+        task.result
+            .as_deref()
+            .map(|result| {
+                let brief: String = result.chars().take(160).collect();
+                format!(": {brief}")
+            })
+            .unwrap_or_default()
+    ));
+    if let Err(error) = app.emit(
+        "hub_timeline",
+        TimelineEvent {
+            status: TimelineStatus::Worker,
+            engine_id: worker.engine_id.clone(),
+            product_session_id: run.lead_session_id.clone(),
+            message: Some(summary),
+            permission_request: None,
+        },
+    ) {
+        tracing::warn!(%error, "failed to emit Hub worker outcome event");
+    }
+    Ok(task)
 }
 
 #[derive(serde::Serialize)]
@@ -393,7 +489,10 @@ fn main() {
             get_permission_eligibility,
             set_transcript_sharing,
             get_repair_plan,
-            run_engine_repair
+            run_engine_repair,
+            create_team_run,
+            get_team_run_for_lead,
+            dispatch_worker_task
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

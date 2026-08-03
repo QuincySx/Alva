@@ -9,7 +9,10 @@ import {
   getGlobalFallbackPolicy,
   getHubSession,
   getPermissionEligibility,
+  createTeamRun,
+  dispatchWorkerTask,
   getRepairPlan,
+  getTeamRunForLead,
   listHubSessions,
   listenTimeline,
   respondHubPermission,
@@ -30,6 +33,7 @@ import {
   type PermissionProfile,
   type ReadinessReason,
   type RepairAction,
+  type TeamRunDetail,
   type RepairKind,
   type TimelineEvent,
 } from "./bridge";
@@ -129,14 +133,17 @@ function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
             ? ("fallback" as const)
             : event.kind === "fallback_exhausted"
               ? ("exhausted" as const)
-              : ("switched" as const),
+              : event.kind === "worker_outcome"
+                ? ("worker" as const)
+                : ("switched" as const),
     engine_id: event.target_engine_id,
     product_session_id: detail.session.product_session_id,
     message:
       event.kind === "engine_fallback_skipped"
         ? `Skipped ${event.target_engine_id}\n\n${event.reason}`
         : event.kind === "fallback_exhausted" ||
-            event.kind === "attempt_cancelled"
+            event.kind === "attempt_cancelled" ||
+            event.kind === "worker_outcome"
           ? event.reason
           : `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
     created_at: event.created_at,
@@ -184,6 +191,10 @@ export default function App() {
   const [readiness, setReadiness] = useState<EngineReadiness[]>([]);
   const [readinessBusy, setReadinessBusy] = useState(false);
   const [repairPlan, setRepairPlan] = useState<RepairAction[]>([]);
+  const [teamRun, setTeamRun] = useState<TeamRunDetail | null>(null);
+  const [teamScope, setTeamScope] = useState("");
+  const [teamWorkerEngine, setTeamWorkerEngine] = useState("codex");
+  const [teamBusy, setTeamBusy] = useState(false);
   const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
   const [repairLogs, setRepairLogs] = useState<Record<string, string>>({});
   // Logic value: identifies the newest in-flight readiness request so a stale
@@ -305,6 +316,8 @@ export default function App() {
         return "Fallback exhausted";
       case "permission_required":
         return `${latest.engine_id} is waiting for your approval`;
+      case "worker":
+        return "Worker outcome";
       default:
         return "Ready";
     }
@@ -358,6 +371,8 @@ export default function App() {
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
     setFallbackPolicy(detail.fallback_policy);
     setTimeline(projectTimeline(detail));
+    // Last: a failed team fetch must not leave the session view half-loaded.
+    setTeamRun(await getTeamRunForLead(detail.session.product_session_id));
   }
 
   async function loadGlobalFallbackPolicy() {
@@ -456,6 +471,37 @@ export default function App() {
       // it, or the next handoff would contradict the shown consent.
       setTranscriptSharingState(!enabled);
       appendLocalFailure(error);
+    }
+  }
+
+  async function createTeam() {
+    if (!activeSessionId) return;
+    setTeamBusy(true);
+    try {
+      setTeamRun(await createTeamRun(activeSessionId, teamWorkerEngine));
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setTeamBusy(false);
+    }
+  }
+
+  async function dispatchTask() {
+    const scope = teamScope.trim();
+    if (!teamRun || !scope) return;
+    setTeamBusy(true);
+    try {
+      await dispatchWorkerTask(teamRun.team_run_id, scope);
+      // Keep the typed scope on failure; clear only once dispatched.
+      setTeamScope("");
+      setTeamRun(await getTeamRunForLead(teamRun.lead_session_id));
+      if (activeSessionId) {
+        await loadSession(activeSessionId);
+      }
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setTeamBusy(false);
     }
   }
 
@@ -733,6 +779,76 @@ export default function App() {
           >
             {policySaving ? "Saving…" : activeSessionId ? "Save session chain" : "Save default chain"}
           </button>
+        </section>
+
+        <section className="team-panel">
+          <div className="session-heading">
+            <span className="eyebrow">Team</span>
+            <small>{teamRun ? `${teamRun.tasks.length} tasks` : ""}</small>
+          </div>
+          {!activeSessionId ? (
+            <small className="session-empty">
+              Open a session to lead a team run.
+            </small>
+          ) : !teamRun ? (
+            <>
+              <select
+                aria-label="Worker engine"
+                value={teamWorkerEngine}
+                onChange={(event) => setTeamWorkerEngine(event.target.value)}
+              >
+                {engineCatalog.map((target) => (
+                  <option key={target.engine_id} value={target.engine_id}>
+                    Worker on {target.engine_id}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="secondary-button"
+                disabled={teamBusy}
+                onClick={() => void createTeam()}
+                type="button"
+              >
+                {teamBusy ? "Creating…" : "Create team run"}
+              </button>
+            </>
+          ) : (
+            <>
+              <small className="team-worker-line">
+                Lead: {engine} · Worker: {teamRun.workers[0]?.engine_id ?? "?"}
+              </small>
+              {teamRun.tasks.map((task) => (
+                <div className="team-task" key={task.task_id}>
+                  <strong>{task.scope}</strong>
+                  <small>
+                    {task.status}
+                    {task.result ? ` — ${task.result}` : ""}
+                  </small>
+                  {task.changed_files.length > 0 ? (
+                    <small>Files: {task.changed_files.join(", ")}</small>
+                  ) : null}
+                  {task.verification.length > 0 ? (
+                    <small>{task.verification.length} evidence entries</small>
+                  ) : null}
+                </div>
+              ))}
+              <textarea
+                aria-label="Worker task scope"
+                className="team-scope"
+                placeholder="Describe the task to dispatch to the worker…"
+                value={teamScope}
+                onChange={(event) => setTeamScope(event.target.value)}
+              />
+              <button
+                className="secondary-button"
+                disabled={teamBusy || !teamScope.trim()}
+                onClick={() => void dispatchTask()}
+                type="button"
+              >
+                {teamBusy ? "Worker running…" : "Dispatch to worker"}
+              </button>
+            </>
+          )}
         </section>
 
         <div className="ticket-note">

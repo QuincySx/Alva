@@ -30,6 +30,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 17. readiness failure 提供修复入口：npm 分发 engine 一键 install/upgrade，其余最短官方指引；unauthenticated 有目标明确的认证修复指引；完成后重新探测恢复 eligibility；修复失败或取消不动任何 Hub 状态。
 
+18. TeamRun：lead session 可建团队并向不同 engine 的 Hub-owned durable WorkerSession 派发 WorkerTask（scope/status/result/changed files/验证证据），worker 终态经执行通道回 lead timeline 并在 UI 可见；全部关联在数据库重开后保持。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -155,6 +155,9 @@ pub struct SideEffectEvidence {
     pub tool_name: String,
     pub succeeded: Option<bool>,
     pub duration_ms: Option<u64>,
+    /// File the tool touched, when the adapter surfaced one in its input.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -217,6 +220,41 @@ pub struct HandoffPackage {
 pub struct TranscriptTurn {
     pub prompt: String,
     pub result: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TeamRunDetail {
+    pub team_run_id: String,
+    /// Exactly one lead per run — the HubSession the tech lead works in.
+    pub lead_session_id: String,
+    pub status: String,
+    pub workers: Vec<TeamWorker>,
+    pub tasks: Vec<WorkerTask>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TeamWorker {
+    pub worker_id: String,
+    /// A Hub-owned durable session — full branch/turn/attempt machinery, not
+    /// an engine-private subagent.
+    pub worker_session_id: String,
+    pub engine_id: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct WorkerTask {
+    pub task_id: String,
+    pub team_run_id: String,
+    pub worker_id: String,
+    pub scope: String,
+    pub status: String,
+    pub result: Option<String>,
+    pub changed_files: Vec<String>,
+    pub verification: Vec<SideEffectEvidence>,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
 }
 
 impl HandoffPackage {
@@ -1279,6 +1317,297 @@ impl HubStore {
         })
     }
 
+    /// Create a TeamRun on a lead session together with one Hub-owned durable
+    /// worker session on its own EngineTarget. The worker inherits the lead's
+    /// workspace and permission profile and snapshots the global fallback
+    /// policy like any other session.
+    pub fn create_team_run(
+        &self,
+        lead_session_id: &str,
+        worker_target: &EngineTarget,
+    ) -> Result<TeamRunDetail, String> {
+        validate_engine_target(worker_target)?;
+        let now = now_unix_ms();
+        let team_run_id = uuid::Uuid::new_v4().to_string();
+        let worker_id = uuid::Uuid::new_v4().to_string();
+        let worker_session_id = uuid::Uuid::new_v4().to_string();
+        let worker_branch_id = uuid::Uuid::new_v4().to_string();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub team run transaction: {error}"))?;
+        let lead = query_session(&transaction, lead_session_id)?
+            .ok_or_else(|| format!("Hub session '{lead_session_id}' was not found"))?;
+        transaction
+            .execute(
+                "INSERT INTO team_runs (team_run_id, lead_session_id, status, created_at)
+                 VALUES (?1, ?2, 'active', ?3)",
+                params![team_run_id, lead_session_id, now],
+            )
+            .map_err(|error| format!("insert Hub team run: {error}"))?;
+        transaction
+            .execute(
+                "INSERT INTO hub_sessions
+                   (product_session_id, workspace, active_branch_id, status,
+                    permission_profile, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params![
+                    worker_session_id,
+                    lead.workspace,
+                    worker_branch_id,
+                    STATUS_COMPLETED,
+                    lead.permission_profile.as_str(),
+                    now
+                ],
+            )
+            .map_err(|error| format!("insert Hub worker session: {error}"))?;
+        transaction
+            .execute(
+                "INSERT INTO engine_branches
+                   (branch_id, product_session_id, engine_id, model_id, provider_id,
+                    engine_session_id, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
+                params![
+                    worker_branch_id,
+                    worker_session_id,
+                    worker_target.engine_id,
+                    worker_target.model_id,
+                    worker_target.provider_id,
+                    now
+                ],
+            )
+            .map_err(|error| format!("insert Hub worker branch: {error}"))?;
+        let global_policy = query_fallback_policy(&transaction, None)?;
+        persist_fallback_policy(
+            &transaction,
+            Some(&worker_session_id),
+            &FallbackPolicy {
+                targets: global_policy.targets,
+                updated_at: now,
+            },
+        )?;
+        transaction
+            .execute(
+                "INSERT INTO team_workers (worker_id, team_run_id, worker_session_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![worker_id, team_run_id, worker_session_id, now],
+            )
+            .map_err(|error| format!("insert Hub team worker: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub team run: {error}"))?;
+        drop(connection);
+        self.get_team_run(&team_run_id)?
+            .ok_or_else(|| "team run vanished after creation".to_string())
+    }
+
+    pub fn get_team_run(&self, team_run_id: &str) -> Result<Option<TeamRunDetail>, String> {
+        let connection = self.lock()?;
+        query_team_run(&connection, team_run_id)
+    }
+
+    /// Latest team run whose lead is this session, if any.
+    pub fn team_run_for_lead(
+        &self,
+        lead_session_id: &str,
+    ) -> Result<Option<TeamRunDetail>, String> {
+        let connection = self.lock()?;
+        let team_run_id = connection
+            .query_row(
+                "SELECT team_run_id FROM team_runs
+                  WHERE lead_session_id = ?1
+                  ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                [lead_session_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub team run for lead: {error}"))?;
+        match team_run_id {
+            Some(team_run_id) => query_team_run(&connection, &team_run_id),
+            None => Ok(None),
+        }
+    }
+
+    /// Open a WorkerTask on the run's worker; execution follows separately.
+    pub fn create_worker_task(&self, team_run_id: &str, scope: &str) -> Result<WorkerTask, String> {
+        let scope = scope.trim();
+        if scope.is_empty() {
+            return Err("a worker task needs a non-empty scope".to_string());
+        }
+        let now = now_unix_ms();
+        let task_id = uuid::Uuid::new_v4().to_string();
+        let connection = self.lock()?;
+        let worker_id = connection
+            .query_row(
+                "SELECT worker_id FROM team_workers WHERE team_run_id = ?1
+                  ORDER BY created_at ASC LIMIT 1",
+                [team_run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub team worker: {error}"))?
+            .ok_or_else(|| format!("team run '{team_run_id}' has no worker"))?;
+        connection
+            .execute(
+                "INSERT INTO worker_tasks
+                   (task_id, team_run_id, worker_id, scope, status, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![task_id, team_run_id, worker_id, scope, STATUS_RUNNING, now],
+            )
+            .map_err(|error| format!("insert Hub worker task: {error}"))?;
+        drop(connection);
+        self.worker_task(&task_id)?
+            .ok_or_else(|| "worker task vanished after creation".to_string())
+    }
+
+    /// Close a WorkerTask with the worker's terminal outcome; evidence and
+    /// changed files come from the worker session's latest attempt, and the
+    /// structured outcome lands on the LEAD timeline as a `worker_outcome`
+    /// fact — the execution channel back to the lead.
+    pub fn finish_worker_task(
+        &self,
+        task_id: &str,
+        success: bool,
+        result: Option<&str>,
+    ) -> Result<WorkerTask, String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub worker task transaction: {error}"))?;
+        let (team_run_id, worker_id, task_created_at) = transaction
+            .query_row(
+                "SELECT team_run_id, worker_id, created_at
+                   FROM worker_tasks WHERE task_id = ?1",
+                [task_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|error| format!("query Hub worker task: {error}"))?
+            .ok_or_else(|| format!("worker task '{task_id}' was not found"))?;
+        let (worker_session_id,) = transaction
+            .query_row(
+                "SELECT worker_session_id FROM team_workers WHERE worker_id = ?1",
+                [&worker_id],
+                |row| Ok((row.get::<_, String>(0)?,)),
+            )
+            .map_err(|error| format!("query Hub team worker session: {error}"))?;
+        // Evidence from every attempt this task's run produced (fallback can
+        // create several), scoped by start time so an earlier task's in-flight
+        // attempt can never be misattributed.
+        let mut evidence_statement = transaction
+            .prepare(
+                "SELECT side_effects_json FROM engine_attempts
+                  WHERE product_session_id = ?1 AND started_at >= ?2
+                  ORDER BY started_at ASC, rowid ASC",
+            )
+            .map_err(|error| format!("prepare Hub worker evidence: {error}"))?;
+        let evidence_rows = evidence_statement
+            .query_map(params![worker_session_id, task_created_at], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| format!("query Hub worker evidence: {error}"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode Hub worker evidence: {error}"))?;
+        drop(evidence_statement);
+        let mut verification: Vec<SideEffectEvidence> = Vec::new();
+        for encoded in evidence_rows {
+            let mut entries: Vec<SideEffectEvidence> = serde_json::from_str(&encoded)
+                .map_err(|error| format!("decode Hub worker evidence: {error}"))?;
+            verification.append(&mut entries);
+        }
+        // Only tools that finished successfully count as changed files.
+        let mut changed_files: Vec<String> = verification
+            .iter()
+            .filter(|evidence| evidence.succeeded == Some(true))
+            .filter_map(|evidence| evidence.path.clone())
+            .collect();
+        changed_files.sort();
+        changed_files.dedup();
+        let status = if success {
+            STATUS_COMPLETED
+        } else {
+            STATUS_FAILED
+        };
+        let changed = transaction
+            .execute(
+                "UPDATE worker_tasks
+                    SET status = ?2, result = ?3, changed_files_json = ?4,
+                        verification_json = ?5, completed_at = ?6
+                  WHERE task_id = ?1 AND status = ?7",
+                params![
+                    task_id,
+                    status,
+                    result,
+                    serde_json::to_string(&changed_files)
+                        .map_err(|error| format!("serialize changed files: {error}"))?,
+                    serde_json::to_string(&verification)
+                        .map_err(|error| format!("serialize verification: {error}"))?,
+                    now,
+                    STATUS_RUNNING
+                ],
+            )
+            .map_err(|error| format!("complete Hub worker task: {error}"))?;
+        if changed != 1 {
+            return Err(format!("worker task '{task_id}' was not running"));
+        }
+        let lead = transaction
+            .query_row(
+                "SELECT lead_session_id FROM team_runs WHERE team_run_id = ?1",
+                [&team_run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| format!("query Hub team lead: {error}"))?;
+        let lead_session = query_session(&transaction, &lead)?
+            .ok_or_else(|| format!("Hub session '{lead}' was not found"))?;
+        let worker_session = query_session(&transaction, &worker_session_id)?
+            .ok_or_else(|| format!("Hub session '{worker_session_id}' was not found"))?;
+        // Char-based excerpt (byte slicing panics on multi-byte boundaries)
+        // and the same redaction the handoff channel applies — the outcome
+        // lands on the lead's durable timeline.
+        let summary = crate::redact::redact_text(&format!(
+            "Worker ({}) {}{} · {} files · {} evidence entries",
+            worker_session.engine_id,
+            status,
+            result
+                .map(|result| {
+                    let brief: String = result.chars().take(160).collect();
+                    format!(": {brief}")
+                })
+                .unwrap_or_default(),
+            changed_files.len(),
+            verification.len(),
+        ));
+        insert_switch_timeline(
+            &transaction,
+            &lead,
+            "worker_outcome",
+            &lead_session.active_branch_id,
+            None,
+            &lead_session.engine_id,
+            &worker_session.engine_id,
+            &summary,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub worker task: {error}"))?;
+        drop(connection);
+        self.worker_task(task_id)?
+            .ok_or_else(|| "worker task vanished after completion".to_string())
+    }
+
+    fn worker_task(&self, task_id: &str) -> Result<Option<WorkerTask>, String> {
+        let connection = self.lock()?;
+        query_worker_task(&connection, task_id)
+    }
+
     /// Toggle whether this session's future handoffs may attach the full
     /// (still filtered) transcript. Off by default; never retroactive.
     pub fn set_transcript_sharing(
@@ -1492,7 +1821,10 @@ impl HubStore {
             .iter_mut()
             .find(|item| item.tool_call_id == evidence.tool_call_id)
         {
+            // ToolEnd updates carry no input; keep the path ToolStart saw.
+            let path = evidence.path.clone().or_else(|| existing.path.take());
             *existing = evidence;
+            existing.path = path;
         } else {
             evidence_list.push(evidence);
         }
@@ -2345,6 +2677,134 @@ fn query_session(
         .map_err(|error| format!("query Hub session '{product_session_id}': {error}"))
 }
 
+fn query_team_run(
+    connection: &Connection,
+    team_run_id: &str,
+) -> Result<Option<TeamRunDetail>, String> {
+    let run = connection
+        .query_row(
+            "SELECT team_run_id, lead_session_id, status, created_at
+               FROM team_runs WHERE team_run_id = ?1",
+            [team_run_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| format!("query Hub team run: {error}"))?;
+    let Some((team_run_id, lead_session_id, status, created_at)) = run else {
+        return Ok(None);
+    };
+    let mut worker_statement = connection
+        .prepare(
+            "SELECT tw.worker_id, tw.worker_session_id, eb.engine_id, tw.created_at
+               FROM team_workers tw
+               JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+               JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
+              WHERE tw.team_run_id = ?1
+              ORDER BY tw.created_at ASC",
+        )
+        .map_err(|error| format!("prepare Hub team workers: {error}"))?;
+    let workers = worker_statement
+        .query_map([&team_run_id], |row| {
+            Ok(TeamWorker {
+                worker_id: row.get(0)?,
+                worker_session_id: row.get(1)?,
+                engine_id: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })
+        .map_err(|error| format!("query Hub team workers: {error}"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| format!("decode Hub team workers: {error}"))?;
+    let mut task_statement = connection
+        .prepare(
+            "SELECT task_id FROM worker_tasks WHERE team_run_id = ?1
+              ORDER BY created_at ASC, rowid ASC",
+        )
+        .map_err(|error| format!("prepare Hub worker tasks: {error}"))?;
+    let task_ids = task_statement
+        .query_map([&team_run_id], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("query Hub worker tasks: {error}"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| format!("decode Hub worker tasks: {error}"))?;
+    let mut tasks = Vec::new();
+    for task_id in task_ids {
+        if let Some(task) = query_worker_task(connection, &task_id)? {
+            tasks.push(task);
+        }
+    }
+    Ok(Some(TeamRunDetail {
+        team_run_id,
+        lead_session_id,
+        status,
+        workers,
+        tasks,
+        created_at,
+    }))
+}
+
+fn query_worker_task(connection: &Connection, task_id: &str) -> Result<Option<WorkerTask>, String> {
+    connection
+        .query_row(
+            "SELECT task_id, team_run_id, worker_id, scope, status, result,
+                    changed_files_json, verification_json, created_at, completed_at
+               FROM worker_tasks WHERE task_id = ?1",
+            [task_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| format!("query Hub worker task: {error}"))?
+        .map(
+            |(
+                task_id,
+                team_run_id,
+                worker_id,
+                scope,
+                status,
+                result,
+                changed_files_json,
+                verification_json,
+                created_at,
+                completed_at,
+            )| {
+                Ok(WorkerTask {
+                    task_id,
+                    team_run_id,
+                    worker_id,
+                    scope,
+                    status,
+                    result,
+                    changed_files: serde_json::from_str(&changed_files_json)
+                        .map_err(|error| format!("decode Hub task files: {error}"))?,
+                    verification: serde_json::from_str(&verification_json)
+                        .map_err(|error| format!("decode Hub task evidence: {error}"))?,
+                    created_at,
+                    completed_at,
+                })
+            },
+        )
+        .transpose()
+}
+
 fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSessionSummary> {
     let profile_text: String = row.get(11)?;
     Ok(HubSessionSummary {
@@ -2583,6 +3043,42 @@ fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 7: {error}"))?;
     }
 
+    if schema_version < 8 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE team_runs (
+                   team_run_id TEXT PRIMARY KEY,
+                   lead_session_id TEXT NOT NULL,
+                   status TEXT NOT NULL,
+                   created_at INTEGER NOT NULL,
+                   FOREIGN KEY(lead_session_id) REFERENCES hub_sessions(product_session_id)
+                 );
+                 CREATE TABLE team_workers (
+                   worker_id TEXT PRIMARY KEY,
+                   team_run_id TEXT NOT NULL,
+                   worker_session_id TEXT NOT NULL UNIQUE,
+                   created_at INTEGER NOT NULL,
+                   FOREIGN KEY(team_run_id) REFERENCES team_runs(team_run_id),
+                   FOREIGN KEY(worker_session_id) REFERENCES hub_sessions(product_session_id)
+                 );
+                 CREATE TABLE worker_tasks (
+                   task_id TEXT PRIMARY KEY,
+                   team_run_id TEXT NOT NULL,
+                   worker_id TEXT NOT NULL,
+                   scope TEXT NOT NULL,
+                   status TEXT NOT NULL,
+                   result TEXT,
+                   changed_files_json TEXT NOT NULL DEFAULT '[]',
+                   verification_json TEXT NOT NULL DEFAULT '[]',
+                   created_at INTEGER NOT NULL,
+                   completed_at INTEGER,
+                   FOREIGN KEY(team_run_id) REFERENCES team_runs(team_run_id),
+                   FOREIGN KEY(worker_id) REFERENCES team_workers(worker_id)
+                 );",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 8: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -2628,6 +3124,15 @@ fn repair_interrupted_attempts(transaction: &Transaction<'_>, now: i64) -> Resul
             params![STATUS_INTERRUPTED, now, STATUS_RUNNING],
         )
         .map_err(|error| format!("repair interrupted Hub sessions: {error}"))?;
+    transaction
+        .execute(
+            "UPDATE worker_tasks
+                SET status = ?1, result = COALESCE(result, ?2),
+                    completed_at = COALESCE(completed_at, ?3)
+              WHERE status = ?4",
+            params![STATUS_INTERRUPTED, RESTART_REASON, now, STATUS_RUNNING],
+        )
+        .map_err(|error| format!("repair interrupted Hub worker tasks: {error}"))?;
     Ok(())
 }
 
@@ -2941,6 +3446,7 @@ mod tests {
                     tool_name: "write_file".into(),
                     succeeded: None,
                     duration_ms: Some(12),
+                    path: Some("changed.txt".into()),
                 },
             )
             .unwrap();
@@ -3189,7 +3695,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 8).unwrap();
+        connection.pragma_update(None, "user_version", 9).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -3201,7 +3707,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -4000,6 +4506,118 @@ mod tests {
         let result = handoff.transcript[0].result.as_deref().unwrap();
         assert!(result.contains("[redacted]"));
         assert!(!result.contains("ghp_canarytoken99x"));
+    }
+
+    #[test]
+    fn team_run_walking_skeleton_survives_reopen_with_all_associations() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let claude = EngineTarget::for_engine("claude").unwrap();
+
+        // No lead session — refused.
+        assert!(store.create_team_run("missing-lead", &claude).is_err());
+
+        let lead = store
+            .prepare_new_turn(
+                "lead-session",
+                workspace.path(),
+                "plan the work",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+
+        let run = store.create_team_run("lead-session", &claude).unwrap();
+        assert_eq!(run.lead_session_id, "lead-session");
+        assert_eq!(run.workers.len(), 1);
+        assert_eq!(run.workers[0].engine_id, "claude");
+        // The worker is a Hub-owned durable session with its own branch and
+        // the lead's profile — not an engine-private subagent.
+        let worker_session = store
+            .get_session(&run.workers[0].worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(worker_session.session.engine_id, "claude");
+        assert_eq!(
+            worker_session.session.permission_profile,
+            PermissionProfile::WorkspaceWrite
+        );
+
+        let task = store
+            .create_worker_task(&run.team_run_id, "implement the parser")
+            .unwrap();
+        assert_eq!(task.status, "running");
+
+        // Worker executes a turn with evidence, then the task closes.
+        let worker_turn = store
+            .prepare_resumed_turn(&run.workers[0].worker_session_id, "implement the parser")
+            .unwrap();
+        store
+            .record_side_effect(
+                &worker_turn,
+                SideEffectEvidence {
+                    tool_call_id: "t1".into(),
+                    tool_name: "write_file".into(),
+                    succeeded: Some(true),
+                    duration_ms: Some(10),
+                    path: Some("src/parser.rs".into()),
+                },
+            )
+            .unwrap();
+        store
+            .finish_turn(&worker_turn, None, Some("parser implemented"), None, None)
+            .unwrap();
+        let finished = store
+            .finish_worker_task(&task.task_id, true, Some("parser implemented"))
+            .unwrap();
+        assert_eq!(finished.status, "completed");
+        assert_eq!(finished.changed_files, vec!["src/parser.rs".to_string()]);
+        assert_eq!(finished.verification.len(), 1);
+
+        // The outcome reached the lead's timeline.
+        let lead_detail = store.get_session("lead-session").unwrap().unwrap();
+        let outcome = lead_detail
+            .timeline_events
+            .iter()
+            .find(|event| event.kind == "worker_outcome")
+            .expect("worker outcome fact on lead timeline");
+        assert!(outcome.reason.contains("parser implemented"));
+        assert_eq!(outcome.target_engine_id, "claude");
+
+        // Multi-byte results must excerpt safely (chars, not bytes) — this
+        // used to poison the store mutex via a byte-boundary panic.
+        let second_task = store
+            .create_worker_task(&run.team_run_id, "写中文文档")
+            .unwrap();
+        let long_chinese =
+            "完成了所有的中文文档编写工作，包括安装指南、配置说明和常见问题解答".repeat(8);
+        let finished = store
+            .finish_worker_task(&second_task.task_id, true, Some(&long_chinese))
+            .unwrap();
+        assert_eq!(finished.status, "completed");
+
+        // Everything survives a database reopen, fully associated.
+        drop(store);
+        let reopened = HubStore::open(&database).unwrap();
+        let run = reopened.team_run_for_lead("lead-session").unwrap().unwrap();
+        assert_eq!(run.workers.len(), 1);
+        assert_eq!(run.tasks.len(), 2);
+        assert_eq!(run.tasks[0].status, "completed");
+        assert_eq!(
+            run.tasks[0].changed_files,
+            vec!["src/parser.rs".to_string()]
+        );
+        assert_eq!(run.tasks[1].status, "completed");
+        assert!(reopened
+            .get_session(&run.workers[0].worker_session_id)
+            .unwrap()
+            .is_some());
     }
 
     #[test]

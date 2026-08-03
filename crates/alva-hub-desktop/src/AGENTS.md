@@ -28,6 +28,8 @@
 
 17. `repair` 把 readiness failure 映射为结构化 RepairAction：npm 官方分发的 claude/codex 提供一键 install/upgrade（argv 由服务端按当前 readiness 重新生成，客户端只报 engine+kind）；认证/配置修复是最短官方指引不代跑；执行后重新探测恢复 eligibility；模块不接触 HubStore，pinned model/account/profile/binary 结构性不被改动。
 
+18. team walking skeleton（schema v8）：TeamRun 恰有一个 lead session；worker 是 Hub-owned durable hub_session（继承 lead workspace/profile、快照全局 policy、自选 EngineTarget），非 engine-private subagent；WorkerTask 记录 scope/status/result/changed files（来自 side-effect 证据 path，ToolEnd 合并保留 ToolStart 的 path）/verification；worker 终态经 `finish_worker_task` 落 lead timeline `worker_outcome` fact + live Worker card；`main::execute_session_run` 是用户 prompt 与 worker dispatch 共用的执行通道。
+
 ## 约束
 
 - 产品测试从注入 `EngineRuntime` 的最高层 seam 进入。

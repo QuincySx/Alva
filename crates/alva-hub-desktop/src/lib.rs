@@ -30,5 +30,6 @@ pub use run::{run_once, run_persisted, RunOutcome, RunRequest, TimelineEvent, Ti
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,
-    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TranscriptTurn,
+    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TeamRunDetail, TeamWorker,
+    TranscriptTurn, WorkerTask,
 };

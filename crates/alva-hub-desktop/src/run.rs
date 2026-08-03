@@ -48,6 +48,7 @@ pub enum TimelineStatus {
     Fallback,
     Exhausted,
     PermissionRequired,
+    Worker,
 }
 
 /// Routing identity of a pending engine permission request. The engine
@@ -413,6 +414,17 @@ where
     }
 }
 
+/// File path a tool call names in its input, across the field spellings the
+/// three adapters use.
+fn tool_input_path(input: &serde_json::Value) -> Option<String> {
+    for field in ["path", "file_path", "filePath", "filename"] {
+        if let Some(path) = input.get(field).and_then(serde_json::Value::as_str) {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
 /// Bounded excerpt for timeline log lines.
 fn brief(text: &str) -> String {
     let text = text.trim().replace('\n', " ");
@@ -652,7 +664,7 @@ where
                 }
                 engine_session_id = Some(session_id);
             }
-            RuntimeEvent::ToolStart { id, name, .. } => {
+            RuntimeEvent::ToolStart { id, name, input } => {
                 open_tools.insert(id.clone());
                 if let Some((store, prepared)) = persistence {
                     capture_persistence_error(
@@ -663,6 +675,7 @@ where
                                 tool_name: name,
                                 succeeded: None,
                                 duration_ms: None,
+                                path: tool_input_path(&input),
                             },
                         ),
                         &mut terminal_error,
@@ -688,6 +701,7 @@ where
                                 tool_name: name,
                                 succeeded: Some(!tool_result.is_error),
                                 duration_ms,
+                                path: None,
                             },
                         ),
                         &mut terminal_error,
@@ -2910,6 +2924,94 @@ mod tests {
             .expect("handoff JSON embedded in the prompt");
         let package: crate::store::HandoffPackage = serde_json::from_str(package_json).unwrap();
         assert!(package.transcript.is_empty());
+    }
+
+    #[tokio::test]
+    async fn team_worker_executes_on_its_own_engine_and_reports_to_the_lead() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = crate::store::EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "team-lead",
+                workspace.path(),
+                "plan the sprint",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+
+        // Lead runs on alva; the worker gets its own engine (codex).
+        let codex = crate::store::EngineTarget::for_engine("codex").unwrap();
+        let run = store.create_team_run("team-lead", &codex).unwrap();
+        let task = store
+            .create_worker_task(&run.team_run_id, "add integration tests")
+            .unwrap();
+
+        let worker_engine = Arc::new(FakeEngine::new(vec![
+            session_started("codex-native"),
+            RuntimeEvent::ToolStart {
+                id: "t1".into(),
+                name: "write_file".into(),
+                input: serde_json::json!({"path": "tests/integration.rs"}),
+            },
+            serde_json::from_value(serde_json::json!({
+                "event_type": "ToolEnd",
+                "id": "t1",
+                "name": "write_file",
+                "result": {"content": [{"type": "text", "text": "ok"}], "is_error": false},
+                "duration_ms": 4
+            }))
+            .unwrap(),
+            completed("codex-native", "integration tests added"),
+        ]));
+        let worker_session_id = run.workers[0].worker_session_id.clone();
+        let outcome = run_persisted(
+            &store,
+            single_engine(Arc::clone(&worker_engine)),
+            healthy,
+            RunRequest {
+                prompt: task.scope.clone(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "codex".into(),
+                product_session_id: Some(worker_session_id.clone()),
+                permission_profile: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert!(!outcome.failed);
+        let finished = store
+            .finish_worker_task(&task.task_id, !outcome.failed, outcome.result.as_deref())
+            .unwrap();
+
+        assert_eq!(finished.status, "completed");
+        assert_eq!(finished.result.as_deref(), Some("integration tests added"));
+        assert_eq!(
+            finished.changed_files,
+            vec!["tests/integration.rs".to_string()]
+        );
+        assert!(!finished.verification.is_empty());
+
+        // The worker is a durable Hub session with its own recorded turn.
+        let worker_detail = store.get_session(&worker_session_id).unwrap().unwrap();
+        assert_eq!(worker_detail.turns.len(), 1);
+        assert_eq!(worker_detail.session.engine_id, "codex");
+
+        // The outcome crossed the execution channel back to the lead.
+        let lead_detail = store.get_session("team-lead").unwrap().unwrap();
+        let outcome_fact = lead_detail
+            .timeline_events
+            .iter()
+            .find(|event| event.kind == "worker_outcome")
+            .expect("worker outcome visible on the lead timeline");
+        assert!(outcome_fact.reason.contains("integration tests added"));
+        assert_eq!(outcome_fact.target_engine_id, "codex");
     }
 
     #[tokio::test]

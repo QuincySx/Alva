@@ -16,7 +16,8 @@ export type TimelineStatus =
   | "cancelled"
   | "fallback"
   | "exhausted"
-  | "permission_required";
+  | "permission_required"
+  | "worker";
 
 export type PermissionProfile =
   | "interactive"
@@ -93,6 +94,7 @@ export interface SideEffectEvidence {
   tool_name: string;
   succeeded: boolean | null;
   duration_ms: number | null;
+  path: string | null;
 }
 
 export interface StoredAttempt {
@@ -361,6 +363,70 @@ export async function stopHubAttempt(productSessionId: string): Promise<void> {
     throw new Error("Stopping an attempt requires the ALVA Hub desktop runtime.");
   }
   await invoke("stop_hub_attempt", { productSessionId });
+}
+
+export interface TeamWorker {
+  worker_id: string;
+  worker_session_id: string;
+  engine_id: string;
+  created_at: number;
+}
+
+export interface WorkerTask {
+  task_id: string;
+  team_run_id: string;
+  worker_id: string;
+  scope: string;
+  status: string;
+  result: string | null;
+  changed_files: string[];
+  verification: SideEffectEvidence[];
+  created_at: number;
+  completed_at: number | null;
+}
+
+export interface TeamRunDetail {
+  team_run_id: string;
+  lead_session_id: string;
+  status: string;
+  workers: TeamWorker[];
+  tasks: WorkerTask[];
+  created_at: number;
+}
+
+export async function createTeamRun(
+  leadSessionId: string,
+  workerEngineId: string,
+): Promise<TeamRunDetail> {
+  if (!hasTauri) {
+    throw new Error("Team runs require the ALVA Hub desktop runtime.");
+  }
+  return await invoke<TeamRunDetail>("create_team_run", {
+    leadSessionId,
+    workerEngineId,
+  });
+}
+
+export async function getTeamRunForLead(
+  leadSessionId: string,
+): Promise<TeamRunDetail | null> {
+  if (!hasTauri) return null;
+  return await invoke<TeamRunDetail | null>("get_team_run_for_lead", {
+    leadSessionId,
+  });
+}
+
+export async function dispatchWorkerTask(
+  teamRunId: string,
+  scope: string,
+): Promise<WorkerTask> {
+  if (!hasTauri) {
+    throw new Error("Worker dispatch requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<WorkerTask>("dispatch_worker_task", {
+    teamRunId,
+    scope,
+  });
 }
 
 export type RepairKind = "install" | "upgrade" | "authenticate" | "configure";

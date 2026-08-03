@@ -806,3 +806,64 @@ textarea::placeholder {
     margin-left: 18px;
   }
 }
+
+.team-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(132, 145, 186, 0.15);
+  border-radius: 15px;
+  background: rgba(21, 27, 47, 0.52);
+}
+
+.team-panel select,
+.team-scope {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(130, 144, 195, 0.25);
+  border-radius: 8px;
+  color: #c6cee6;
+  background: #151b2f;
+  font-size: 11px;
+}
+
+.team-scope {
+  min-height: 52px;
+  resize: vertical;
+}
+
+.team-worker-line {
+  color: #8b96b3;
+  font-size: 10px;
+}
+
+.team-task {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid rgba(130, 144, 195, 0.16);
+  border-radius: 10px;
+  background: rgba(27, 34, 57, 0.6);
+}
+
+.team-task strong {
+  color: #d3daf1;
+  font-size: 11px;
+}
+
+.team-task small {
+  color: #78839b;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.status-worker span {
+  background: #50c8c0;
+  box-shadow: 0 0 10px #50c8c0;
+}
+
+.timeline-worker {
+  border-color: rgba(80, 200, 192, 0.45);
+  background: rgba(80, 200, 192, 0.06);
+}
