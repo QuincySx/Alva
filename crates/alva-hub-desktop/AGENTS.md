@@ -40,6 +40,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 22. WorkerSession 的 durable identity、UI 可见性与 live runtime 三者独立：可 hibernate（释放 runtime，保留 identity/history/queue）、以新任务 resume、archive（移出活跃协作面但不删记录）；archive/hibernate/terminal/delete 在领域状态中互不相同；TeamRun 结束默认归档而非删除；重启恢复 Lead/Worker 关联、queue、branch、timeline 与 lifecycle。
 
+23. Lead 或某个 Worker 遇到 continuity failure 时只有该 session 进入 fallback：TeamRun identity、其他 session 与 queue 全部保留，兄弟 Worker 不被取消（并发测试证明一个 Worker fallback 时另一个继续推进到完成）；fallback TimelineEvent 明确归属发生 fallback 的那个 session；lead/worker 的 handoff 各自携带 TeamRun / WorkerTask+queue+证据快照。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

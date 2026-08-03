@@ -3116,7 +3116,9 @@ fn build_handoff_package(
             "Workspace (authoritative; inspect it before trusting transcript evidence): {workspace}"
         ),
         known_side_effects,
-        team_snapshot: None,
+        // Team context travels with the handoff so a fallback engine knows
+        // it is a lead (with workers) or a worker (with a task and queue).
+        team_snapshot: build_team_snapshot(transaction, product_session_id)?,
         transcript,
         created_at: now,
         used_at: None,
@@ -3125,6 +3127,187 @@ fn build_handoff_package(
     // stored packages equal what the target adapter receives.
     crate::redact::redact_handoff(&mut package);
     Ok(package)
+}
+
+/// One line of collaboration context for whichever role this session plays
+/// in a TeamRun, or None for a solo session.
+fn build_team_snapshot(
+    transaction: &Transaction<'_>,
+    product_session_id: &str,
+) -> Result<Option<String>, String> {
+    // Lead of a run?
+    let mut lead_line: Option<String> = None;
+    let lead_run: Option<(String, String)> = transaction
+        .query_row(
+            "SELECT team_run_id, status FROM team_runs WHERE lead_session_id = ?1
+              ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            [product_session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|error| format!("query Hub lead team run: {error}"))?;
+    if let Some((team_run_id, status)) = lead_run {
+        let mut statement = transaction
+            .prepare(
+                "SELECT eb.engine_id, tw.lifecycle,
+                        (SELECT COUNT(*) FROM worker_tasks t
+                          WHERE t.worker_id = tw.worker_id AND t.status = 'queued'),
+                        (SELECT COUNT(*) FROM worker_tasks t
+                          WHERE t.worker_id = tw.worker_id AND t.status = ?2)
+                   FROM team_workers tw
+                   JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                   JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
+                  WHERE tw.team_run_id = ?1
+                  ORDER BY tw.created_at ASC, tw.rowid ASC",
+            )
+            .map_err(|error| format!("prepare Hub team snapshot: {error}"))?;
+        let workers = statement
+            .query_map(params![team_run_id, STATUS_RUNNING], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(|error| format!("query Hub team snapshot: {error}"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode Hub team snapshot: {error}"))?;
+        drop(statement);
+        let described = workers
+            .iter()
+            .map(|(engine, lifecycle, queued, running)| {
+                format!("{engine} ({lifecycle}, {queued} queued, {running} running)")
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let liveness = if status == "active" {
+            "Workers keep running independently; this handoff replaces only the lead engine."
+        } else {
+            "This run has ended; its workers are archived."
+        };
+        lead_line = Some(bounded_text(&format!(
+            "Lead of TeamRun {team_run_id} ({status}) with {} worker(s): {described}. {liveness}",
+            workers.len()
+        )));
+    }
+
+    // A worker of a run? (A session can be BOTH: a worker session may lead
+    // its own run, and then it needs both halves of the context.)
+    let worker: Option<(String, String, String)> = transaction
+        .query_row(
+            "SELECT tw.team_run_id, tw.worker_id, tw.lifecycle FROM team_workers tw
+              WHERE tw.worker_session_id = ?1",
+            [product_session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|error| format!("query Hub worker team run: {error}"))?;
+    let Some((team_run_id, worker_id, lifecycle)) = worker else {
+        return Ok(lead_line);
+    };
+    // A running task has no changed_files yet (those are derived when it
+    // finishes), so in-flight evidence must come from the live attempts.
+    let current: Option<(String, i64)> = transaction
+        .query_row(
+            "SELECT scope, COALESCE(started_at, created_at) FROM worker_tasks
+              WHERE worker_id = ?1 AND status = ?2
+              ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            params![worker_id, STATUS_RUNNING],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|error| format!("query Hub worker current task: {error}"))?;
+    let touched_files = match &current {
+        Some((_, started_at)) => {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT side_effects_json FROM engine_attempts
+                      WHERE product_session_id = ?1 AND started_at >= ?2",
+                )
+                .map_err(|error| format!("prepare Hub worker evidence snapshot: {error}"))?;
+            let rows = statement
+                .query_map(params![product_session_id, started_at], |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(|error| format!("query Hub worker evidence snapshot: {error}"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| format!("decode Hub worker evidence snapshot: {error}"))?;
+            drop(statement);
+            let mut files: Vec<String> = Vec::new();
+            for encoded in rows {
+                let entries: Vec<SideEffectEvidence> = serde_json::from_str(&encoded)
+                    .map_err(|error| format!("decode Hub worker evidence: {error}"))?;
+                files.extend(
+                    entries
+                        .into_iter()
+                        .filter(|evidence| evidence.succeeded == Some(true))
+                        .filter_map(|evidence| evidence.path),
+                );
+            }
+            files.sort();
+            files.dedup();
+            files
+        }
+        None => Vec::new(),
+    };
+    let mut queue_statement = transaction
+        .prepare(
+            "SELECT scope FROM worker_tasks
+              WHERE worker_id = ?1 AND status = 'queued'
+              ORDER BY created_at ASC, rowid ASC",
+        )
+        .map_err(|error| format!("prepare Hub worker queue snapshot: {error}"))?;
+    let queued = queue_statement
+        .query_map([&worker_id], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("query Hub worker queue snapshot: {error}"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| format!("decode Hub worker queue snapshot: {error}"))?;
+    drop(queue_statement);
+    let current_line = current
+        .as_ref()
+        .map(|(scope, _)| format!("current task: {}", bounded_text(scope)))
+        .unwrap_or_else(|| "no task in flight".to_string());
+    let evidence = if touched_files.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " · files touched so far: {}",
+            bounded_text(&touched_files.join(", "))
+        )
+    };
+    const QUEUE_PREVIEW: usize = 20;
+    let queue_line = if queued.is_empty() {
+        "queue empty".to_string()
+    } else {
+        let preview = queued
+            .iter()
+            .take(QUEUE_PREVIEW)
+            .map(|scope| bounded_text(scope))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let overflow = queued.len().saturating_sub(QUEUE_PREVIEW);
+        let suffix = if overflow > 0 {
+            format!(" … and {overflow} more")
+        } else {
+            String::new()
+        };
+        format!("{} queued: {preview}{suffix}", queued.len())
+    };
+    let worker_liveness = if lifecycle == "active" {
+        "The lead and sibling workers keep running; this handoff replaces only this worker's engine."
+    } else {
+        "This worker is not active; its queue is parked."
+    };
+    let worker_line = format!(
+        "Worker ({lifecycle}) of TeamRun {team_run_id} — {current_line}; {queue_line}{evidence}. {worker_liveness}"
+    );
+    // A session can be BOTH a worker and the lead of its own run; the target
+    // engine needs both halves, not whichever we happened to check first.
+    Ok(Some(bounded_text(&match lead_line {
+        Some(lead) => format!("{lead} {worker_line}"),
+        None => worker_line,
+    })))
 }
 
 fn persist_handoff_package(
@@ -6113,6 +6296,216 @@ mod tests {
             .unwrap();
         reopened.delete_worker(&worker.worker_id).unwrap();
         assert!(reopened.team_worker(&worker.worker_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn fallback_is_local_to_one_session_and_its_handoff_carries_team_context() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let mut claude = EngineTarget::for_engine("claude").unwrap();
+        claude.automatic_use_authorized = true;
+        let lead = store
+            .prepare_new_turn(
+                "local-lead",
+                workspace.path(),
+                "plan the sprint",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run("local-lead", &EngineTarget::for_engine("codex").unwrap())
+            .unwrap();
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("claude").unwrap(),
+                None,
+            )
+            .unwrap();
+        let (first_worker, second_worker) = (run.workers[0].clone(), run.workers[1].clone());
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &first_worker.worker_id,
+                "build parser",
+                &[],
+            )
+            .unwrap();
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &first_worker.worker_id,
+                "then docs with API_KEY=sk-live-scopecanary",
+                &[],
+            )
+            .unwrap();
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &second_worker.worker_id,
+                "sibling work",
+                &[],
+            )
+            .unwrap();
+        let first_task = store
+            .claim_for_test(&first_worker.worker_id)
+            .unwrap()
+            .unwrap();
+        // Evidence produced by the running task, before it finished.
+        let evidence_turn = store
+            .prepare_resumed_turn(&first_worker.worker_session_id, "build parser")
+            .unwrap();
+        store
+            .record_side_effect(
+                &evidence_turn,
+                SideEffectEvidence {
+                    tool_call_id: "t-live".into(),
+                    tool_name: "write_file".into(),
+                    succeeded: Some(true),
+                    duration_ms: Some(3),
+                    path: Some("src/parser.rs".into()),
+                },
+            )
+            .unwrap();
+        store
+            .finish_turn(&evidence_turn, None, Some("partial"), None, None)
+            .unwrap();
+        let sibling_task = store
+            .claim_for_test(&second_worker.worker_id)
+            .unwrap()
+            .unwrap();
+
+        // The LEAD falls back: the run, both workers and their queues stay.
+        store
+            .set_session_fallback_policy("local-lead", vec![claude.clone()])
+            .unwrap();
+        let lead_turn = store
+            .prepare_resumed_turn("local-lead", "keep planning")
+            .unwrap();
+        let lead_fallback = store
+            .fallback_failed_attempt(&lead_turn, "lead engine died", &claude)
+            .unwrap();
+        let run_after = store.get_team_run(&run.team_run_id).unwrap().unwrap();
+        assert_eq!(run_after.team_run_id, run.team_run_id);
+        assert_eq!(run_after.workers.len(), 2);
+        assert_eq!(run_after.tasks.len(), 3);
+        assert_eq!(run_after.tasks[0].status, "running");
+        assert!(store.has_queued_task(&first_worker.worker_id).unwrap());
+        // The lead's handoff tells the new engine it leads a live team.
+        let snapshot = lead_fallback
+            .handoff
+            .as_ref()
+            .unwrap()
+            .team_snapshot
+            .clone()
+            .unwrap();
+        assert!(snapshot.contains("Lead of TeamRun"));
+        assert!(snapshot.contains("2 worker(s)"));
+        assert!(snapshot.contains("Workers keep running independently"));
+        // The fallback fact belongs to the LEAD session, not a worker.
+        let lead_detail = store.get_session("local-lead").unwrap().unwrap();
+        assert!(lead_detail
+            .timeline_events
+            .iter()
+            .any(|event| event.kind == "engine_fallback"));
+        for worker in [&first_worker, &second_worker] {
+            let detail = store
+                .get_session(&worker.worker_session_id)
+                .unwrap()
+                .unwrap();
+            assert!(detail
+                .timeline_events
+                .iter()
+                .all(|event| event.kind != "engine_fallback"));
+        }
+
+        // Now a WORKER falls back: the lead and the sibling are untouched.
+        store
+            .set_session_fallback_policy(&first_worker.worker_session_id, vec![claude.clone()])
+            .unwrap();
+        let worker_turn = store
+            .prepare_resumed_turn(&first_worker.worker_session_id, &first_task.scope)
+            .unwrap();
+        let worker_fallback = store
+            .fallback_failed_attempt(&worker_turn, "worker engine died", &claude)
+            .unwrap();
+        let worker_snapshot = worker_fallback
+            .handoff
+            .as_ref()
+            .unwrap()
+            .team_snapshot
+            .clone()
+            .unwrap();
+        assert!(worker_snapshot.contains("Worker (active) of TeamRun"));
+        // Its own task and its remaining queue travel with the handoff.
+        assert!(worker_snapshot.contains("build parser"));
+        assert!(worker_snapshot.contains("1 queued: then docs"));
+        assert!(worker_snapshot.contains("sibling workers keep running"));
+        // In-flight evidence really travels (a running task has no
+        // changed_files yet, so this must come from the live attempts).
+        assert!(
+            worker_snapshot.contains("files touched so far: src/parser.rs"),
+            "{worker_snapshot}"
+        );
+        // A user-authored scope crossing an engine boundary is filtered.
+        assert!(!worker_snapshot.contains("sk-live-scopecanary"));
+        assert!(worker_snapshot.contains("[redacted]"));
+        // The sibling's task is still running and its session untouched.
+        let sibling = store
+            .worker_task_by_id(&sibling_task.task_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(sibling.status, "running");
+        let sibling_detail = store
+            .get_session(&second_worker.worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert!(sibling_detail
+            .timeline_events
+            .iter()
+            .all(|event| event.kind != "engine_fallback"));
+        assert_eq!(sibling_detail.session.engine_id, "claude");
+        // Only the falling-back worker changed engine.
+        let first_detail = store
+            .get_session(&first_worker.worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first_detail.session.engine_id, "claude");
+        assert!(first_detail
+            .timeline_events
+            .iter()
+            .any(|event| event.kind == "engine_fallback"));
+    }
+
+    #[test]
+    fn a_solo_session_handoff_carries_no_team_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                "solo",
+                workspace.path(),
+                "just me",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&prepared, None, Some("done"), None, None)
+            .unwrap();
+        store
+            .request_engine_switch("solo", &EngineTarget::for_engine("claude").unwrap(), "try")
+            .unwrap();
+        let detail = store.get_session("solo").unwrap().unwrap();
+        assert!(detail.handoffs.last().unwrap().team_snapshot.is_none());
     }
 
     #[test]

@@ -10,8 +10,9 @@ use crate::store::HandoffPackage;
 /// content. Covers:
 /// - credentials / tokens / key material in any free-text field,
 /// - environment-style `NAME=value` assignments for sensitive names,
-/// - adapter-private metadata (account/billing labels, team snapshot),
-///   which no target protocol currently requires.
+/// - adapter-private metadata (account/billing labels), which no target
+///   protocol requires. Team context is NOT stripped: a fallback engine has
+///   to know it is a lead with running workers, or a worker with a queue.
 ///
 /// Hidden reasoning and approval tokens are excluded structurally: neither is
 /// ever written to the store, so no handoff field can carry them.
@@ -47,7 +48,10 @@ pub fn redact_handoff(package: &mut HandoffPackage) {
     package.source.billing_route = String::new();
     package.target.account_source = String::new();
     package.target.billing_route = String::new();
-    package.team_snapshot = None;
+    // Team context IS product state the target engine needs (it must know it
+    // is a lead with running workers, or a worker with a queue), so it is
+    // filtered like any other field rather than dropped.
+    package.team_snapshot = package.team_snapshot.as_deref().map(redact_text);
 }
 
 const REDACTED: &str = "[redacted]";
@@ -374,7 +378,7 @@ mod tests {
             verification_results: vec![secret.into()],
             workspace_summary: secret.into(),
             known_side_effects: Vec::new(),
-            team_snapshot: Some("private board".into()),
+            team_snapshot: Some(format!("board note {secret}")),
             transcript: vec![TranscriptTurn {
                 prompt: secret.into(),
                 result: Some(secret.into()),
@@ -385,7 +389,12 @@ mod tests {
         redact_handoff(&mut package);
         let encoded = serde_json::to_string(&package).unwrap();
         assert!(!encoded.contains("sk-live-canary9999"), "{encoded}");
-        assert!(!encoded.contains("private board"));
+        // Team context survives, filtered — it is product state, not
+        // adapter-private metadata.
+        assert!(package
+            .team_snapshot
+            .as_deref()
+            .is_some_and(|snapshot| snapshot.contains("board note")));
         assert!(
             !encoded.contains("Workspace provider account")
                 && !encoded.contains("Anthropic account via Claude CLI"),
@@ -393,7 +402,6 @@ mod tests {
         );
         assert_eq!(package.source.account_source, "");
         assert_eq!(package.target.billing_route, "");
-        assert!(package.team_snapshot.is_none());
         // Non-sensitive structure survives.
         assert_eq!(package.changed_files, vec!["src/main.rs".to_string()]);
     }

@@ -3169,6 +3169,222 @@ mod tests {
         );
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn one_worker_falls_back_while_a_sibling_keeps_progressing() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = crate::store::EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "conc-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        // Both workers may fall back to claude.
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+        let run = store
+            .create_team_run(
+                "conc-lead",
+                &crate::store::EngineTarget::for_engine("alva").unwrap(),
+            )
+            .unwrap();
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &crate::store::EngineTarget::for_engine("codex").unwrap(),
+                None,
+            )
+            .unwrap();
+        let (failing, healthy_worker) = (run.workers[0].clone(), run.workers[1].clone());
+        let workspace_path = workspace.path().to_path_buf();
+        store
+            .enqueue_worker_task(&run.team_run_id, &failing.worker_id, "doomed work", &[])
+            .unwrap();
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &healthy_worker.worker_id,
+                "steady work",
+                &[],
+            )
+            .unwrap();
+
+        // Worker A's engine dies mid-run and falls back to claude.
+        let dying = Arc::new(ScriptedEngine {
+            script: vec![
+                (0, session_started("alva-native")),
+                (
+                    20,
+                    RuntimeEvent::Error {
+                        message: "engine stream died mid-run".into(),
+                        recoverable: false,
+                    },
+                ),
+            ],
+            hold_open_at_end: false,
+        });
+        let rescuer = Arc::new(FakeEngine::new(vec![completed(
+            "claude-native",
+            "claude rescued it",
+        )]));
+        // Worker B outlasts A's whole failure+fallback cycle (A fails at
+        // 20s) so it is provably still in flight while A falls back — but
+        // stays inside the 180s stall window so the watchdog stays out of it.
+        let sibling_engine = Arc::new(ScriptedEngine {
+            script: vec![
+                (0, session_started("codex-native")),
+                (120, completed("codex-native", "sibling finished")),
+            ],
+            hold_open_at_end: false,
+        });
+
+        // Observed AT the moment the fallback card is emitted, so the proof
+        // cannot be satisfied by serialized execution.
+        let sibling_state_at_fallback: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let fallback_session: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let sibling_task_id = store
+            .claim_for_test(&healthy_worker.worker_id)
+            .unwrap()
+            .unwrap()
+            .task_id;
+
+        let failing_run = {
+            let store = store.clone();
+            let worker = failing.clone();
+            let dying = Arc::clone(&dying);
+            let rescuer = Arc::clone(&rescuer);
+            let workspace_path = workspace_path.clone();
+            let observed = Arc::clone(&sibling_state_at_fallback);
+            let observed_session = Arc::clone(&fallback_session);
+            let observed_store = store.clone();
+            let sibling_session_id = healthy_worker.worker_session_id.clone();
+            async move {
+                let task = store.claim_for_test(&worker.worker_id).unwrap().unwrap();
+                let outcome = run_persisted(
+                    &store,
+                    move |target: &crate::store::EngineTarget, _: &str, _| {
+                        Ok(match target.engine_id.as_str() {
+                            "claude" => Arc::clone(&rescuer) as Arc<dyn EngineRuntime>,
+                            _ => Arc::clone(&dying) as Arc<dyn EngineRuntime>,
+                        })
+                    },
+                    healthy,
+                    RunRequest {
+                        prompt: task.scope.clone(),
+                        workspace: workspace_path.clone(),
+                        engine_id: "alva".into(),
+                        product_session_id: Some(worker.worker_session_id.clone()),
+                        permission_profile: None,
+                    },
+                    |event| {
+                        if event.status == TimelineStatus::Fallback {
+                            // The sibling SESSION being "running" means its
+                            // engine turn is actually in flight — a claimed
+                            // task row alone would prove nothing.
+                            *observed.lock().unwrap() = observed_store
+                                .get_session(&sibling_session_id)
+                                .unwrap()
+                                .map(|detail| detail.session.status);
+                            *observed_session.lock().unwrap() =
+                                Some(event.product_session_id.clone());
+                        }
+                    },
+                )
+                .await
+                .unwrap();
+                store
+                    .finish_worker_task(&task.task_id, !outcome.failed, outcome.result.as_deref())
+                    .unwrap()
+            }
+        };
+        let sibling_run = {
+            let store = store.clone();
+            let worker = healthy_worker.clone();
+            let engine = Arc::clone(&sibling_engine);
+            let workspace_path = workspace_path.clone();
+            let task_id = sibling_task_id.clone();
+            async move {
+                let task = store.worker_task_by_id(&task_id).unwrap().unwrap();
+                let outcome = run_persisted(
+                    &store,
+                    move |_: &crate::store::EngineTarget, _: &str, _| {
+                        Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
+                    },
+                    healthy,
+                    RunRequest {
+                        prompt: task.scope.clone(),
+                        workspace: workspace_path.clone(),
+                        engine_id: "codex".into(),
+                        product_session_id: Some(worker.worker_session_id.clone()),
+                        permission_profile: None,
+                    },
+                    |_| {},
+                )
+                .await
+                .unwrap();
+                store
+                    .finish_worker_task(&task.task_id, !outcome.failed, outcome.result.as_deref())
+                    .unwrap()
+            }
+        };
+
+        let (failed_over, sibling) = tokio::join!(failing_run, sibling_run);
+
+        // THE proof of overlap: when A's fallback landed, B's task was
+        // observed still running. Serialized execution could not produce
+        // this — B would have been "completed" (or not yet claimed).
+        assert_eq!(
+            sibling_state_at_fallback.lock().unwrap().as_deref(),
+            Some("running"),
+            "the sibling's engine turn must still be in flight when the fallback lands"
+        );
+        // And the fallback event was attributed to the failing worker.
+        assert_eq!(
+            fallback_session.lock().unwrap().as_deref(),
+            Some(failing.worker_session_id.as_str())
+        );
+
+        // A fell back and still completed its task on the rescue engine.
+        assert_eq!(failed_over.status, "completed");
+        assert_eq!(failed_over.result.as_deref(), Some("claude rescued it"));
+        let failing_detail = store
+            .get_session(&failing.worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(failing_detail.session.engine_id, "claude");
+        assert_eq!(failing_detail.turns[0].attempts.len(), 2);
+
+        // B was never cancelled: it finished its own work on its own engine.
+        assert_eq!(sibling.status, "completed");
+        assert_eq!(sibling.result.as_deref(), Some("sibling finished"));
+        let sibling_detail = store
+            .get_session(&healthy_worker.worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(sibling_detail.session.engine_id, "codex");
+        assert_eq!(sibling_detail.turns[0].attempts.len(), 1);
+        assert!(sibling_detail
+            .timeline_events
+            .iter()
+            .all(|event| event.kind != "engine_fallback"));
+
+        // The lead never fell back and still owns the run.
+        let lead_detail = store.get_session("conc-lead").unwrap().unwrap();
+        assert_eq!(lead_detail.session.engine_id, "alva");
+        let run = store.team_run_for_lead("conc-lead").unwrap().unwrap();
+        assert_eq!(run.workers.len(), 2);
+        assert!(run.tasks.iter().all(|task| task.status == "completed"));
+    }
+
     #[tokio::test]
     async fn poor_quality_success_never_triggers_fallback() {
         let workspace = tempfile::tempdir().unwrap();
