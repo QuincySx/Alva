@@ -920,3 +920,17 @@ textarea::placeholder {
   background: #151b2f;
   font-size: 10px;
 }
+
+.team-claims {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(130, 144, 195, 0.25);
+  border-radius: 8px;
+  color: #c6cee6;
+  background: #151b2f;
+  font-size: 10px;
+}
+
+.team-claim-list {
+  color: #8f9cff;
+}

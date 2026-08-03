@@ -17,6 +17,7 @@ alva-engine-adapter-claude = { path = "../alva-engine-adapter-claude" }
 alva-engine-adapter-codex = { path = "../alva-engine-adapter-codex" }
 alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-hub-core = { path = "../alva-hub-core" }
+alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

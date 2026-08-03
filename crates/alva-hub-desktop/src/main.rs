@@ -16,7 +16,7 @@ use alva_hub_desktop::{
     build_engine, permission_eligibility, probe_readiness, run_persisted, EngineEligibility,
     EngineReadiness, EngineTarget, FallbackPolicy, HubSessionDetail, HubSessionSummary, HubStore,
     PermissionProfile, PermissionRouter, RunOutcome, RunRequest, SwitchOutcome, SystemProbe,
-    TimelineEvent, TimelineStatus,
+    TaskClaim, TimelineEvent, TimelineStatus,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -233,10 +233,14 @@ async fn dispatch_worker_task(
     team_run_id: String,
     worker_id: String,
     scope: String,
+    claims: Option<Vec<alva_hub_desktop::ResourceClaim>>,
 ) -> Result<alva_hub_desktop::WorkerTask, String> {
-    let task = state
-        .store
-        .enqueue_worker_task(&team_run_id, &worker_id, &scope)?;
+    let task = state.store.enqueue_worker_task(
+        &team_run_id,
+        &worker_id,
+        &scope,
+        &claims.unwrap_or_default(),
+    )?;
     ensure_worker_pump(app, worker_id);
     Ok(task)
 }
@@ -268,6 +272,10 @@ async fn interrupt_worker(
     stop_attempt_inner(&app, &state, worker_session_id).await
 }
 
+/// How long a blocked worker waits before re-recording the wait, so a
+/// wedged holder surfaces instead of an invisible forever-wait.
+const RESOURCE_WAIT_REANNOUNCE: std::time::Duration = std::time::Duration::from_secs(60);
+
 fn ensure_worker_pump(app: AppHandle, worker_id: String) {
     {
         let state = app.state::<DesktopState>();
@@ -277,16 +285,91 @@ fn ensure_worker_pump(app: AppHandle, worker_id: String) {
         }
     }
     tauri::async_runtime::spawn(async move {
+        let mut announced_wait = false;
+        let mut waiting_since: Option<std::time::Instant> = None;
+        let mut errors_in_a_row = 0u32;
         loop {
             let claimed = {
                 let state = app.state::<DesktopState>();
                 state.store.claim_next_worker_task(&worker_id)
             };
             match claimed {
-                Ok(Some(task)) => run_worker_task(&app, task).await,
-                Ok(None) => break,
+                Ok(TaskClaim::Claimed(task)) => {
+                    announced_wait = false;
+                    waiting_since = None;
+                    errors_in_a_row = 0;
+                    run_worker_task(&app, *task).await;
+                }
+                Ok(TaskClaim::Blocked {
+                    task_id,
+                    blocked_by,
+                }) => {
+                    // The head of this queue wants resources another running
+                    // task holds. Wait — never reorder past it — and record
+                    // the wait once per blocked stretch.
+                    let waited = waiting_since.get_or_insert_with(std::time::Instant::now);
+                    // Re-announce periodically so a wedged holder is visible
+                    // rather than an invisible forever-wait.
+                    let overdue = waited.elapsed() >= RESOURCE_WAIT_REANNOUNCE;
+                    if !announced_wait || overdue {
+                        if overdue {
+                            waiting_since = Some(std::time::Instant::now());
+                        }
+                        let state = app.state::<DesktopState>();
+                        if let Ok(Some(task)) = state.store.worker_task_by_id(&task_id) {
+                            match state.store.record_resource_wait(
+                                &task.team_run_id,
+                                &worker_id,
+                                &blocked_by,
+                            ) {
+                                // Only a recorded wait counts as announced.
+                                Ok(()) => announced_wait = true,
+                                Err(error) => {
+                                    tracing::warn!(%error, "failed to record Hub resource wait")
+                                }
+                            }
+                            let summary = blocked_by
+                                .iter()
+                                .map(|blocked| {
+                                    format!(
+                                        "{} (held by worker {})",
+                                        blocked.resource, blocked.holder_worker_id
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            if let Ok(Some(run)) = state.store.get_team_run(&task.team_run_id) {
+                                let engine_id = run
+                                    .workers
+                                    .iter()
+                                    .find(|worker| worker.worker_id == worker_id)
+                                    .map(|worker| worker.engine_id.clone())
+                                    .unwrap_or_default();
+                                let _ = app.emit(
+                                    "hub_timeline",
+                                    TimelineEvent {
+                                        status: TimelineStatus::Worker,
+                                        engine_id,
+                                        product_session_id: run.lead_session_id.clone(),
+                                        message: Some(format!("Waiting on {summary}")),
+                                        permission_request: None,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+                Ok(TaskClaim::Empty) => break,
                 Err(error) => {
+                    // Back off before the tail re-spawns us, so a persistent
+                    // store error cannot become a hot respawn loop.
+                    errors_in_a_row += 1;
                     tracing::warn!(%error, worker = %worker_id, "worker queue pump stopped");
+                    let backoff = std::time::Duration::from_millis(
+                        500u64.saturating_mul(1 << errors_in_a_row.min(5)),
+                    );
+                    tokio::time::sleep(backoff).await;
                     break;
                 }
             }

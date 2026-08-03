@@ -10,9 +10,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
+use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -243,6 +244,25 @@ pub struct TeamWorker {
     pub created_at: i64,
 }
 
+/// Outcome of trying to take a worker's next queued task.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TaskClaim {
+    Claimed(Box<WorkerTask>),
+    /// The head of the queue cannot start yet; these resources are held.
+    Blocked {
+        task_id: String,
+        blocked_by: Vec<BlockedResource>,
+    },
+    Empty,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BlockedResource {
+    pub resource: String,
+    pub holder_task_id: String,
+    pub holder_worker_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct WorkerTask {
     pub task_id: String,
@@ -253,6 +273,8 @@ pub struct WorkerTask {
     pub result: Option<String>,
     pub changed_files: Vec<String>,
     pub verification: Vec<SideEffectEvidence>,
+    /// Resources this task declared before it may start.
+    pub claims: Vec<ResourceClaim>,
     pub created_at: i64,
     pub completed_at: Option<i64>,
 }
@@ -1519,11 +1541,17 @@ impl HubStore {
         team_run_id: &str,
         worker_id: &str,
         scope: &str,
+        claims: &[ResourceClaim],
     ) -> Result<WorkerTask, String> {
         let scope = scope.trim();
         if scope.is_empty() {
             return Err("a worker task needs a non-empty scope".to_string());
         }
+        for claim in claims {
+            claim.validate()?;
+        }
+        let claims_json = serde_json::to_string(claims)
+            .map_err(|error| format!("serialize Hub task claims: {error}"))?;
         let now = now_unix_ms();
         let task_id = uuid::Uuid::new_v4().to_string();
         let connection = self.lock()?;
@@ -1544,9 +1572,9 @@ impl HubStore {
         connection
             .execute(
                 "INSERT INTO worker_tasks
-                   (task_id, team_run_id, worker_id, scope, status, created_at)
-                 VALUES (?1, ?2, ?3, ?4, 'queued', ?5)",
-                params![task_id, team_run_id, worker_id, scope, now],
+                   (task_id, team_run_id, worker_id, scope, status, claims_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6)",
+                params![task_id, team_run_id, worker_id, scope, claims_json, now],
             )
             .map_err(|error| format!("insert Hub worker task: {error}"))?;
         drop(connection);
@@ -1554,27 +1582,133 @@ impl HubStore {
             .ok_or_else(|| "worker task vanished after creation".to_string())
     }
 
-    /// Atomically claim the oldest queued task of one worker for execution.
-    /// Cancelled tasks are never claimed; each worker's order is FIFO.
-    pub fn claim_next_worker_task(&self, worker_id: &str) -> Result<Option<WorkerTask>, String> {
+    /// Atomically claim the oldest queued task of one worker for execution,
+    /// but only if its ResourceClaims are compatible with everything already
+    /// running in the same workspace. Cancelled tasks are never claimed;
+    /// each worker's order is FIFO, and a blocked head-of-queue waits rather
+    /// than letting a later task jump it — that is what makes the ordering
+    /// deterministic.
+    pub fn claim_next_worker_task(&self, worker_id: &str) -> Result<TaskClaim, String> {
         let now = now_unix_ms();
         let mut connection = self.lock()?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| format!("begin Hub task claim transaction: {error}"))?;
-        let task_id: Option<String> = transaction
+        let head: Option<(String, String, i64, i64)> = transaction
             .query_row(
-                "SELECT task_id FROM worker_tasks
+                "SELECT task_id, claims_json, created_at, rowid FROM worker_tasks
                   WHERE worker_id = ?1 AND status = 'queued'
                   ORDER BY created_at ASC, rowid ASC LIMIT 1",
+                [worker_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub worker queue: {error}"))?;
+        let Some((task_id, claims_json, head_created_at, head_rowid)) = head else {
+            return Ok(TaskClaim::Empty);
+        };
+        let wanted: Vec<ResourceClaim> = serde_json::from_str(&claims_json)
+            .map_err(|error| format!("decode Hub task claims: {error}"))?;
+
+        // Everything currently running in this workspace holds its claims.
+        let workspace: String = transaction
+            .query_row(
+                "SELECT hs.workspace FROM team_workers tw
+                   JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                  WHERE tw.worker_id = ?1",
                 [worker_id],
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|error| format!("query Hub worker queue: {error}"))?;
-        let Some(task_id) = task_id else {
-            return Ok(None);
-        };
+            .map_err(|error| format!("query Hub worker workspace: {error}"))?
+            .ok_or_else(|| format!("worker '{worker_id}' has no session"))?;
+        let mut holder_statement = transaction
+            .prepare(
+                "SELECT wt.task_id, wt.worker_id, wt.claims_json FROM worker_tasks wt
+                   JOIN team_workers tw ON tw.worker_id = wt.worker_id
+                   JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                  WHERE wt.status = ?1 AND hs.workspace = ?2 AND wt.task_id <> ?3",
+            )
+            .map_err(|error| format!("prepare Hub claim holders: {error}"))?;
+        let holders = holder_statement
+            .query_map(params![STATUS_RUNNING, workspace, task_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|error| format!("query Hub claim holders: {error}"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode Hub claim holders: {error}"))?;
+        drop(holder_statement);
+        let mut blocked_by: Vec<BlockedResource> = Vec::new();
+        for (holder_task_id, holder_worker_id, holder_claims_json) in holders {
+            let held: Vec<ResourceClaim> = serde_json::from_str(&holder_claims_json)
+                .map_err(|error| format!("decode Hub holder claims: {error}"))?;
+            for conflict in crate::claims::conflicting_claims(&wanted, &held) {
+                blocked_by.push(BlockedResource {
+                    resource: conflict.describe(),
+                    holder_task_id: holder_task_id.clone(),
+                    holder_worker_id: holder_worker_id.clone(),
+                });
+            }
+        }
+        // Fairness: an older head-of-queue waiter in this workspace reserves
+        // its resources, so a stream of short conflicting tasks cannot starve
+        // it. Holders never wait, so the globally oldest waiter is always
+        // eventually grantable — reservations cannot deadlock.
+        if blocked_by.is_empty() {
+            let mut waiter_statement = transaction
+                .prepare(
+                    "SELECT wt.task_id, wt.worker_id, wt.claims_json FROM worker_tasks wt
+                       JOIN team_workers tw ON tw.worker_id = wt.worker_id
+                       JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                      WHERE wt.status = 'queued' AND hs.workspace = ?1
+                        AND wt.worker_id <> ?2
+                        AND (wt.created_at < ?3
+                             OR (wt.created_at = ?3 AND wt.rowid < ?4))
+                        AND wt.task_id = (
+                          SELECT head.task_id FROM worker_tasks head
+                           WHERE head.worker_id = wt.worker_id AND head.status = 'queued'
+                           ORDER BY head.created_at ASC, head.rowid ASC LIMIT 1
+                        )",
+                )
+                .map_err(|error| format!("prepare Hub claim waiters: {error}"))?;
+            let waiters = waiter_statement
+                .query_map(
+                    params![workspace, worker_id, head_created_at, head_rowid],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .map_err(|error| format!("query Hub claim waiters: {error}"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| format!("decode Hub claim waiters: {error}"))?;
+            drop(waiter_statement);
+            for (waiter_task_id, waiter_worker_id, waiter_claims_json) in waiters {
+                let reserved: Vec<ResourceClaim> = serde_json::from_str(&waiter_claims_json)
+                    .map_err(|error| format!("decode Hub waiter claims: {error}"))?;
+                for conflict in crate::claims::conflicting_claims(&wanted, &reserved) {
+                    blocked_by.push(BlockedResource {
+                        resource: conflict.describe(),
+                        holder_task_id: waiter_task_id.clone(),
+                        holder_worker_id: waiter_worker_id.clone(),
+                    });
+                }
+            }
+        }
+        if !blocked_by.is_empty() {
+            return Ok(TaskClaim::Blocked {
+                task_id,
+                blocked_by,
+            });
+        }
+
         let changed = transaction
             .execute(
                 "UPDATE worker_tasks SET status = ?2, started_at = ?3
@@ -1587,9 +1721,83 @@ impl HubStore {
             .map_err(|error| format!("commit Hub task claim: {error}"))?;
         drop(connection);
         if changed != 1 {
-            return Ok(None);
+            return Ok(TaskClaim::Empty);
         }
-        self.worker_task(&task_id)
+        match self.worker_task(&task_id)? {
+            Some(task) => Ok(TaskClaim::Claimed(Box::new(task))),
+            None => Ok(TaskClaim::Empty),
+        }
+    }
+
+    /// Test convenience: claim, flattening "blocked" and "empty" to None.
+    #[cfg(test)]
+    pub(crate) fn claim_for_test(&self, worker_id: &str) -> Result<Option<WorkerTask>, String> {
+        Ok(match self.claim_next_worker_task(worker_id)? {
+            TaskClaim::Claimed(task) => Some(*task),
+            _ => None,
+        })
+    }
+
+    /// Record that a task is waiting on resources another task holds, so the
+    /// lead timeline shows the wait and its holder.
+    pub fn record_resource_wait(
+        &self,
+        team_run_id: &str,
+        worker_id: &str,
+        blocked_by: &[BlockedResource],
+    ) -> Result<(), String> {
+        if blocked_by.is_empty() {
+            return Ok(());
+        }
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub resource wait transaction: {error}"))?;
+        let lead_session_id = transaction
+            .query_row(
+                "SELECT lead_session_id FROM team_runs WHERE team_run_id = ?1",
+                [team_run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| format!("query Hub team lead: {error}"))?;
+        let lead = query_session(&transaction, &lead_session_id)?
+            .ok_or_else(|| format!("Hub session '{lead_session_id}' was not found"))?;
+        let worker_engine: String = transaction
+            .query_row(
+                "SELECT eb.engine_id FROM team_workers tw
+                   JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                   JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
+                  WHERE tw.worker_id = ?1",
+                [worker_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("query Hub worker engine: {error}"))?;
+        let summary = blocked_by
+            .iter()
+            .map(|blocked| {
+                format!(
+                    "{} (held by worker {})",
+                    blocked.resource, blocked.holder_worker_id
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        insert_switch_timeline(
+            &transaction,
+            &lead_session_id,
+            "resource_wait",
+            &lead.active_branch_id,
+            None,
+            &lead.engine_id,
+            &worker_engine,
+            &format!("Waiting on {summary}"),
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub resource wait: {error}"))?;
+        Ok(())
     }
 
     /// Workers with tasks still queued — the app restarts their pumps on
@@ -1810,6 +2018,10 @@ impl HubStore {
         drop(connection);
         self.worker_task(task_id)?
             .ok_or_else(|| "worker task vanished after completion".to_string())
+    }
+
+    pub fn worker_task_by_id(&self, task_id: &str) -> Result<Option<WorkerTask>, String> {
+        self.worker_task(task_id)
     }
 
     fn worker_task(&self, task_id: &str) -> Result<Option<WorkerTask>, String> {
@@ -2962,7 +3174,8 @@ fn query_worker_task(connection: &Connection, task_id: &str) -> Result<Option<Wo
     connection
         .query_row(
             "SELECT task_id, team_run_id, worker_id, scope, status, result,
-                    changed_files_json, verification_json, created_at, completed_at
+                    changed_files_json, verification_json, claims_json,
+                    created_at, completed_at
                FROM worker_tasks WHERE task_id = ?1",
             [task_id],
             |row| {
@@ -2975,8 +3188,9 @@ fn query_worker_task(connection: &Connection, task_id: &str) -> Result<Option<Wo
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
-                    row.get::<_, i64>(8)?,
-                    row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, Option<i64>>(10)?,
                 ))
             },
         )
@@ -2992,6 +3206,7 @@ fn query_worker_task(connection: &Connection, task_id: &str) -> Result<Option<Wo
                 result,
                 changed_files_json,
                 verification_json,
+                claims_json,
                 created_at,
                 completed_at,
             )| {
@@ -3006,6 +3221,8 @@ fn query_worker_task(connection: &Connection, task_id: &str) -> Result<Option<Wo
                         .map_err(|error| format!("decode Hub task files: {error}"))?,
                     verification: serde_json::from_str(&verification_json)
                         .map_err(|error| format!("decode Hub task evidence: {error}"))?,
+                    claims: serde_json::from_str(&claims_json)
+                        .map_err(|error| format!("decode Hub task claims: {error}"))?,
                     created_at,
                     completed_at,
                 })
@@ -3296,6 +3513,15 @@ fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 9: {error}"))?;
     }
 
+    if schema_version < 10 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE worker_tasks
+                   ADD COLUMN claims_json TEXT NOT NULL DEFAULT '[]';",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 10: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -3530,6 +3756,7 @@ fn now_unix_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claims::ClaimMode;
 
     #[cfg(unix)]
     #[test]
@@ -3912,7 +4139,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 10).unwrap();
+        connection.pragma_update(None, "user_version", 11).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -3924,7 +4151,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
     }
 
     #[test]
@@ -4771,11 +4998,12 @@ mod tests {
                 &run.team_run_id,
                 &run.workers[0].worker_id,
                 "implement the parser",
+                &[],
             )
             .unwrap();
         assert_eq!(queued.status, "queued");
         let task = store
-            .claim_next_worker_task(&run.workers[0].worker_id)
+            .claim_for_test(&run.workers[0].worker_id)
             .unwrap()
             .unwrap();
         assert_eq!(task.status, "running");
@@ -4819,10 +5047,15 @@ mod tests {
         // Multi-byte results must excerpt safely (chars, not bytes) — this
         // used to poison the store mutex via a byte-boundary panic.
         store
-            .enqueue_worker_task(&run.team_run_id, &run.workers[0].worker_id, "写中文文档")
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &run.workers[0].worker_id,
+                "写中文文档",
+                &[],
+            )
             .unwrap();
         let second_task = store
-            .claim_next_worker_task(&run.workers[0].worker_id)
+            .claim_for_test(&run.workers[0].worker_id)
             .unwrap()
             .unwrap();
         let long_chinese =
@@ -4883,13 +5116,13 @@ mod tests {
         let codex_worker = run.workers[1].worker_id.clone();
 
         let first = store
-            .enqueue_worker_task(&run.team_run_id, &claude_worker, "first")
+            .enqueue_worker_task(&run.team_run_id, &claude_worker, "first", &[])
             .unwrap();
         let second = store
-            .enqueue_worker_task(&run.team_run_id, &claude_worker, "second")
+            .enqueue_worker_task(&run.team_run_id, &claude_worker, "second", &[])
             .unwrap();
         let other = store
-            .enqueue_worker_task(&run.team_run_id, &codex_worker, "codex work")
+            .enqueue_worker_task(&run.team_run_id, &codex_worker, "codex work", &[])
             .unwrap();
 
         // Pending tasks are editable and cancellable before consumption.
@@ -4901,20 +5134,11 @@ mod tests {
 
         // FIFO per worker; cancelled tasks are never claimed; queues are
         // independent between workers.
-        let claimed = store
-            .claim_next_worker_task(&claude_worker)
-            .unwrap()
-            .unwrap();
+        let claimed = store.claim_for_test(&claude_worker).unwrap().unwrap();
         assert_eq!(claimed.task_id, edited.task_id);
         assert_eq!(claimed.status, "running");
-        assert!(store
-            .claim_next_worker_task(&claude_worker)
-            .unwrap()
-            .is_none());
-        let codex_claimed = store
-            .claim_next_worker_task(&codex_worker)
-            .unwrap()
-            .unwrap();
+        assert!(store.claim_for_test(&claude_worker).unwrap().is_none());
+        let codex_claimed = store.claim_for_test(&codex_worker).unwrap().unwrap();
         assert_eq!(codex_claimed.task_id, other.task_id);
 
         // Consumed tasks are immutable and uncancellable.
@@ -4924,7 +5148,7 @@ mod tests {
         assert!(store.cancel_worker_task(&claimed.task_id).is_err());
         // Enqueue refuses foreign workers.
         assert!(store
-            .enqueue_worker_task(&run.team_run_id, "not-a-worker", "x")
+            .enqueue_worker_task(&run.team_run_id, "not-a-worker", "x", &[])
             .is_err());
         assert!(!store.has_queued_task(&claude_worker).unwrap());
     }
@@ -4955,16 +5179,13 @@ mod tests {
         // Both tasks are queued up front — the second's created_at predates
         // the first's execution, which used to sweep in the first's evidence.
         store
-            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "first")
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "first", &[])
             .unwrap();
         store
-            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "second")
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "second", &[])
             .unwrap();
 
-        let first = store
-            .claim_next_worker_task(&worker.worker_id)
-            .unwrap()
-            .unwrap();
+        let first = store.claim_for_test(&worker.worker_id).unwrap().unwrap();
         let first_turn = store
             .prepare_resumed_turn(&worker.worker_session_id, "first")
             .unwrap();
@@ -4988,10 +5209,7 @@ mod tests {
             .unwrap();
         assert_eq!(first.changed_files, vec!["first.rs".to_string()]);
 
-        let second = store
-            .claim_next_worker_task(&worker.worker_id)
-            .unwrap()
-            .unwrap();
+        let second = store.claim_for_test(&worker.worker_id).unwrap().unwrap();
         let second_turn = store
             .prepare_resumed_turn(&worker.worker_session_id, "second")
             .unwrap();
@@ -5016,6 +5234,277 @@ mod tests {
         // Only its own work — the first task's file must not appear here.
         assert_eq!(second.changed_files, vec!["second.rs".to_string()]);
         assert_eq!(second.verification.len(), 1);
+    }
+
+    #[test]
+    fn resource_claims_let_compatible_tasks_run_and_queue_conflicting_ones() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "claims-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        // Three workers sharing ONE workspace: the in-product Alva worker and
+        // two external engines all pass the same product-level gate.
+        let run = store
+            .create_team_run("claims-lead", &EngineTarget::for_engine("alva").unwrap())
+            .unwrap();
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("claude").unwrap(),
+            )
+            .unwrap();
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("codex").unwrap(),
+            )
+            .unwrap();
+        let (alva_worker, claude_worker, codex_worker) = (
+            run.workers[0].clone(),
+            run.workers[1].clone(),
+            run.workers[2].clone(),
+        );
+
+        let write_lib = ResourceClaim::Path {
+            path: "src/lib.rs".into(),
+            mode: ClaimMode::Write,
+        };
+        let write_docs = ResourceClaim::Path {
+            path: "docs/guide.md".into(),
+            mode: ClaimMode::Write,
+        };
+        let write_src_tree = ResourceClaim::Path {
+            path: "src".into(),
+            mode: ClaimMode::Write,
+        };
+
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &alva_worker.worker_id,
+                "edit lib",
+                std::slice::from_ref(&write_lib),
+            )
+            .unwrap();
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &claude_worker.worker_id,
+                "edit docs",
+                std::slice::from_ref(&write_docs),
+            )
+            .unwrap();
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &codex_worker.worker_id,
+                "refactor the whole src tree",
+                std::slice::from_ref(&write_src_tree),
+            )
+            .unwrap();
+
+        // The Alva worker takes src/lib.rs.
+        let alva_task = match store
+            .claim_next_worker_task(&alva_worker.worker_id)
+            .unwrap()
+        {
+            TaskClaim::Claimed(task) => *task,
+            other => panic!("expected a claim, got {other:?}"),
+        };
+        // Disjoint docs work runs concurrently — no waiting.
+        assert!(matches!(
+            store
+                .claim_next_worker_task(&claude_worker.worker_id)
+                .unwrap(),
+            TaskClaim::Claimed(_)
+        ));
+        // The src-tree refactor overlaps src/lib.rs, so it waits and names
+        // both the resource and its holder.
+        let blocked = store
+            .claim_next_worker_task(&codex_worker.worker_id)
+            .unwrap();
+        match blocked {
+            TaskClaim::Blocked { blocked_by, .. } => {
+                assert_eq!(blocked_by.len(), 1);
+                assert_eq!(blocked_by[0].resource, "write src");
+                assert_eq!(blocked_by[0].holder_worker_id, alva_worker.worker_id);
+                assert_eq!(blocked_by[0].holder_task_id, alva_task.task_id);
+                store
+                    .record_resource_wait(&run.team_run_id, &codex_worker.worker_id, &blocked_by)
+                    .unwrap();
+            }
+            other => panic!("expected a block, got {other:?}"),
+        }
+
+        // The wait and its holder are visible on the lead timeline.
+        let lead_detail = store.get_session("claims-lead").unwrap().unwrap();
+        let wait = lead_detail
+            .timeline_events
+            .iter()
+            .find(|event| event.kind == "resource_wait")
+            .expect("resource wait recorded");
+        assert!(wait.reason.contains("write src"));
+        assert!(wait.reason.contains(&alva_worker.worker_id));
+
+        // Once the holder finishes, the blocked task claims deterministically.
+        store
+            .finish_worker_task(&alva_task.task_id, true, Some("done"))
+            .unwrap();
+        let unblocked = store
+            .claim_next_worker_task(&codex_worker.worker_id)
+            .unwrap();
+        assert!(matches!(unblocked, TaskClaim::Claimed(_)));
+    }
+
+    #[test]
+    fn an_older_waiter_reserves_its_resources_against_a_stream_of_short_tasks() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "fair-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run("fair-lead", &EngineTarget::for_engine("alva").unwrap())
+            .unwrap();
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("claude").unwrap(),
+            )
+            .unwrap();
+        let (holder, waiter) = (run.workers[0].clone(), run.workers[1].clone());
+
+        let narrow = ResourceClaim::Path {
+            path: "src/a.rs".into(),
+            mode: ClaimMode::Write,
+        };
+        let broad = ResourceClaim::Path {
+            path: "src".into(),
+            mode: ClaimMode::Write,
+        };
+        // The holder is already running something narrow.
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &holder.worker_id,
+                "first narrow edit",
+                std::slice::from_ref(&narrow),
+            )
+            .unwrap();
+        let first = match store.claim_next_worker_task(&holder.worker_id).unwrap() {
+            TaskClaim::Claimed(task) => *task,
+            other => panic!("expected a claim, got {other:?}"),
+        };
+        // The broad waiter arrives and is blocked.
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &waiter.worker_id,
+                "refactor the tree",
+                std::slice::from_ref(&broad),
+            )
+            .unwrap();
+        assert!(matches!(
+            store.claim_next_worker_task(&waiter.worker_id).unwrap(),
+            TaskClaim::Blocked { .. }
+        ));
+        // A newer narrow task queues behind on the holder.
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &holder.worker_id,
+                "second narrow edit",
+                std::slice::from_ref(&narrow),
+            )
+            .unwrap();
+        store
+            .finish_worker_task(&first.task_id, true, Some("done"))
+            .unwrap();
+
+        // Without a reservation the newer narrow task would grab src/a.rs
+        // again and starve the waiter. The older waiter wins instead.
+        assert!(matches!(
+            store.claim_next_worker_task(&holder.worker_id).unwrap(),
+            TaskClaim::Blocked { .. }
+        ));
+        assert!(matches!(
+            store.claim_next_worker_task(&waiter.worker_id).unwrap(),
+            TaskClaim::Claimed(_)
+        ));
+    }
+
+    #[test]
+    fn tasks_in_different_workspaces_never_contend() {
+        let root = tempfile::tempdir().unwrap();
+        let first_workspace = tempfile::tempdir().unwrap();
+        let second_workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let same_file = ResourceClaim::Path {
+            path: "src/lib.rs".into(),
+            mode: ClaimMode::Write,
+        };
+        let mut workers = Vec::new();
+        for (index, workspace) in [first_workspace.path(), second_workspace.path()]
+            .into_iter()
+            .enumerate()
+        {
+            let lead_id = format!("ws-lead-{index}");
+            let lead = store
+                .prepare_new_turn(
+                    &lead_id,
+                    workspace,
+                    "plan",
+                    &alva,
+                    PermissionProfile::WorkspaceWrite,
+                )
+                .unwrap();
+            store
+                .finish_turn(&lead, None, Some("planned"), None, None)
+                .unwrap();
+            let run = store
+                .create_team_run(&lead_id, &EngineTarget::for_engine("claude").unwrap())
+                .unwrap();
+            store
+                .enqueue_worker_task(
+                    &run.team_run_id,
+                    &run.workers[0].worker_id,
+                    "edit lib",
+                    std::slice::from_ref(&same_file),
+                )
+                .unwrap();
+            workers.push(run.workers[0].worker_id.clone());
+        }
+        // Identical claims, different workspaces — both run.
+        for worker_id in workers {
+            assert!(matches!(
+                store.claim_next_worker_task(&worker_id).unwrap(),
+                TaskClaim::Claimed(_)
+            ));
+        }
     }
 
     #[test]

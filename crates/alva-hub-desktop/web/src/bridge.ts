@@ -372,6 +372,13 @@ export interface TeamWorker {
   created_at: number;
 }
 
+export type ClaimMode = "read" | "write";
+
+export type ResourceClaim =
+  | { kind: "path"; path: string; mode: ClaimMode }
+  | { kind: "facility"; name: string }
+  | { kind: "exclusive_tool"; tool: string };
+
 export interface WorkerTask {
   task_id: string;
   team_run_id: string;
@@ -381,6 +388,7 @@ export interface WorkerTask {
   result: string | null;
   changed_files: string[];
   verification: SideEffectEvidence[];
+  claims: ResourceClaim[];
   created_at: number;
   completed_at: number | null;
 }
@@ -420,6 +428,7 @@ export async function dispatchWorkerTask(
   teamRunId: string,
   workerId: string,
   scope: string,
+  claims: ResourceClaim[],
 ): Promise<WorkerTask> {
   if (!hasTauri) {
     throw new Error("Worker dispatch requires the ALVA Hub desktop runtime.");
@@ -428,6 +437,7 @@ export async function dispatchWorkerTask(
     teamRunId,
     workerId,
     scope,
+    claims,
   });
 }
 

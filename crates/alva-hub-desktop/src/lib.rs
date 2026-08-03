@@ -3,6 +3,7 @@
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
+mod claims;
 mod failure;
 mod permissions;
 mod readiness;
@@ -12,6 +13,7 @@ mod run;
 mod store;
 
 pub use alva::build_engine;
+pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use permissions::{
     enforcement_for, permission_eligibility, EnforcementPlan, EnforcementRelation,
@@ -30,6 +32,6 @@ pub use run::{run_once, run_persisted, RunOutcome, RunRequest, TimelineEvent, Ti
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,
-    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TeamRunDetail, TeamWorker,
-    TranscriptTurn, WorkerTask,
+    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim, TeamRunDetail,
+    TeamWorker, TranscriptTurn, WorkerTask,
 };

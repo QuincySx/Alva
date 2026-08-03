@@ -37,6 +37,7 @@ import {
   type PermissionProfile,
   type ReadinessReason,
   type RepairAction,
+  type ResourceClaim,
   type TeamRunDetail,
   type RepairKind,
   type TimelineEvent,
@@ -110,6 +111,37 @@ const profileLabel: Record<PermissionProfile, string> = {
   unrestricted: "Everything allowed",
 };
 
+function describeClaim(claim: ResourceClaim): string {
+  switch (claim.kind) {
+    case "path":
+      return `${claim.mode} ${claim.path}`;
+    case "facility":
+      return `facility ${claim.name}`;
+    case "exclusive_tool":
+      return `tool ${claim.tool}`;
+  }
+}
+
+/// `src/lib.rs, read:docs, facility:target-dir, tool:git` → claims.
+function parseClaims(input: string): ResourceClaim[] {
+  return input
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry): ResourceClaim => {
+      if (entry.startsWith("facility:")) {
+        return { kind: "facility", name: entry.slice("facility:".length) };
+      }
+      if (entry.startsWith("tool:")) {
+        return { kind: "exclusive_tool", tool: entry.slice("tool:".length) };
+      }
+      if (entry.startsWith("read:")) {
+        return { kind: "path", path: entry.slice("read:".length), mode: "read" };
+      }
+      return { kind: "path", path: entry, mode: "write" };
+    });
+}
+
 function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
   const turns = detail.turns.map((turn) => ({
     status:
@@ -137,7 +169,8 @@ function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
             ? ("fallback" as const)
             : event.kind === "fallback_exhausted"
               ? ("exhausted" as const)
-              : event.kind === "worker_outcome"
+              : event.kind === "worker_outcome" ||
+                  event.kind === "resource_wait"
                 ? ("worker" as const)
                 : ("switched" as const),
     engine_id: event.target_engine_id,
@@ -147,7 +180,8 @@ function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
         ? `Skipped ${event.target_engine_id}\n\n${event.reason}`
         : event.kind === "fallback_exhausted" ||
             event.kind === "attempt_cancelled" ||
-            event.kind === "worker_outcome"
+            event.kind === "worker_outcome" ||
+            event.kind === "resource_wait"
           ? event.reason
           : `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
     created_at: event.created_at,
@@ -200,6 +234,7 @@ export default function App() {
   const [teamWorkerEngine, setTeamWorkerEngine] = useState("codex");
   const [teamBusy, setTeamBusy] = useState(false);
   const [dispatchWorkerId, setDispatchWorkerId] = useState<string | null>(null);
+  const [teamClaims, setTeamClaims] = useState("");
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editingScope, setEditingScope] = useState("");
   const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
@@ -518,9 +553,15 @@ export default function App() {
     if (!workerId) return;
     setTeamBusy(true);
     try {
-      await dispatchWorkerTask(teamRun.team_run_id, workerId, scope);
+      await dispatchWorkerTask(
+        teamRun.team_run_id,
+        workerId,
+        scope,
+        parseClaims(teamClaims),
+      );
       // Keep the typed scope on failure; clear only once queued.
       setTeamScope("");
+      setTeamClaims("");
       setTeamRun(await getTeamRunForLead(teamRun.lead_session_id));
     } catch (error) {
       appendLocalFailure(error);
@@ -952,6 +993,11 @@ export default function App() {
                             {task.verification.length} evidence entries
                           </small>
                         ) : null}
+                        {task.claims.length > 0 ? (
+                          <small className="team-claim-list">
+                            Claims: {task.claims.map(describeClaim).join(", ")}
+                          </small>
+                        ) : null}
                         {task.status === "queued" ? (
                           <div className="team-worker-controls">
                             {editingTask === task.task_id ? (
@@ -1008,6 +1054,13 @@ export default function App() {
                 placeholder="Task to queue — or a message to the worker…"
                 value={teamScope}
                 onChange={(event) => setTeamScope(event.target.value)}
+              />
+              <input
+                aria-label="Resource claims"
+                className="team-claims"
+                placeholder="Claims: src/lib.rs, read:docs, facility:target-dir"
+                value={teamClaims}
+                onChange={(event) => setTeamClaims(event.target.value)}
               />
               <button
                 className="secondary-button"

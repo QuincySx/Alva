@@ -2953,10 +2953,11 @@ mod tests {
                 &run.team_run_id,
                 &run.workers[0].worker_id,
                 "add integration tests",
+                &[],
             )
             .unwrap();
         let task = store
-            .claim_next_worker_task(&run.workers[0].worker_id)
+            .claim_for_test(&run.workers[0].worker_id)
             .unwrap()
             .unwrap();
 
@@ -3056,10 +3057,15 @@ mod tests {
         let codex_worker = run.workers[1].clone();
 
         store
-            .enqueue_worker_task(&run.team_run_id, &claude_worker.worker_id, "claude job")
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &claude_worker.worker_id,
+                "claude job",
+                &[],
+            )
             .unwrap();
         store
-            .enqueue_worker_task(&run.team_run_id, &codex_worker.worker_id, "codex job")
+            .enqueue_worker_task(&run.team_run_id, &codex_worker.worker_id, "codex job", &[])
             .unwrap();
 
         // Each engine takes simulated wall time; the total-time bound proves
@@ -3081,10 +3087,7 @@ mod tests {
             let worker = claude_worker.clone();
             let engine = Arc::clone(&claude_engine);
             async move {
-                let task = store
-                    .claim_next_worker_task(&worker.worker_id)
-                    .unwrap()
-                    .unwrap();
+                let task = store.claim_for_test(&worker.worker_id).unwrap().unwrap();
                 let _started = tokio::time::Instant::now();
                 let outcome = run_persisted(
                     &store,
@@ -3113,10 +3116,7 @@ mod tests {
             let worker = codex_worker.clone();
             let engine = Arc::clone(&codex_engine);
             async move {
-                let task = store
-                    .claim_next_worker_task(&worker.worker_id)
-                    .unwrap()
-                    .unwrap();
+                let task = store.claim_for_test(&worker.worker_id).unwrap().unwrap();
                 let _started = tokio::time::Instant::now();
                 let outcome = run_persisted(
                     &store,

@@ -34,6 +34,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 19. Lead 可一批向多个不同 engine 的 worker 派发独立任务并行执行；每个 worker 有独立持久有序 queue，pending 任务消费前可查看/编辑/取消；用户可 focus/message/interrupt 指定 worker；outcome 保持 task/engine/验证归属。
 
+20. 共享工作区 ResourceClaims：mutating WorkerTask 启动前声明 path/facility/exclusive-tool claim，兼容的并行、冲突的确定性排队；in-product Alva worker 与外部 engine 受同一产品级调度（产品级排程，非 kernel tool lock）；更早的等待者预留资源防饿死；timeline 展示等待的资源及其持有者。claim 只约束 dispatch 的 WorkerTask，直接对 session 发 prompt 的路径不在闸门内。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

@@ -46,7 +46,7 @@ pub use phase::{Phase, PhaseEffect};
 pub use tool::execution::{
     MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput,
 };
-pub use tool::scheduler::{ExecutionMode, LockMode, ResourceKey};
+pub use tool::scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey};
 pub use tool::{
     SearchReadInfo, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult,
     ToolPermissionResult, ToolRegistry, ToolSchemaContext,
