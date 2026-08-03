@@ -66,6 +66,7 @@ export interface HubSessionSummary {
   last_prompt: string | null;
   last_result: string | null;
   permission_profile: PermissionProfile;
+  include_full_transcript: boolean;
 }
 
 export interface StoredTurn {
@@ -135,8 +136,14 @@ export interface HandoffPackage {
   recent_commands: string[];
   verification_results: string[];
   workspace_summary: string;
+  transcript: TranscriptTurn[];
   created_at: number;
   used_at: number | null;
+}
+
+export interface TranscriptTurn {
+  prompt: string;
+  result: string | null;
 }
 
 export interface HubSessionDetail {
@@ -337,6 +344,16 @@ export async function respondHubPermission(
   await invoke("respond_hub_permission", {
     request: { productSessionId, requestId, allow, message: message ?? null },
   });
+}
+
+export async function setTranscriptSharing(
+  productSessionId: string,
+  enabled: boolean,
+): Promise<void> {
+  if (!hasTauri) {
+    throw new Error("Transcript settings require the ALVA Hub desktop runtime.");
+  }
+  await invoke("set_transcript_sharing", { productSessionId, enabled });
 }
 
 export async function stopHubAttempt(productSessionId: string): Promise<void> {

@@ -6,6 +6,7 @@ mod alva;
 mod failure;
 mod permissions;
 mod readiness;
+mod redact;
 mod run;
 mod store;
 
@@ -20,9 +21,10 @@ pub use readiness::{
     EngineProbeFacts, EngineReadiness, ReadinessReason, ReadinessStatus, StreamHealth, SystemProbe,
     HUB_ENGINE_IDS,
 };
+pub use redact::{redact_handoff, redact_text};
 pub use run::{run_once, run_persisted, RunOutcome, RunRequest, TimelineEvent, TimelineStatus};
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,
-    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome,
+    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TranscriptTurn,
 };

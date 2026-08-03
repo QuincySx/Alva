@@ -26,9 +26,12 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 14. fallback card 提供可逆控制：View handoff 展示实际发送的结构化 HandoffPackage（delivered/pending 状态）；Switch back 走手动 switch 恢复 parked source（后续 run 遵守 delta/full resume 规则）；Stop 取消当前活动 Attempt 并落 `attempt_cancelled` fact，重启不重放。
 15. HubSession 持有稳定 PermissionProfile（interactive/workspace_write/unrestricted），branch 切换与 fallback 不改变；engine 只有能等价或更严格执行该 profile 才有资格（映射契约在 `permissions.rs`），只能弱化的 target 标记 ineligible 并显示原因，fallback、手动 switch 与 engine 装配三处都 fail-closed；PermissionRequest/Decision 按 request_id 路由到发起请求的那个 EngineSessionId，决定单次使用且 attempt 终态/Stop 后失效，无路由身份或已 doomed 的等待以有界 stall 收敛。
 
+16. HandoffPackage 跨 engine 前经统一过滤（credentials/env 值清洗、账号账单标签与 team snapshot 剥离），过滤在持久化前完成故 View handoff 即 adapter 实收内容；full transcript 每 session 显式开启（默认关），启用后仍过同一过滤。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。
+- canary 测试钉死敏感字段不达另一 EngineRuntime。
 - 未分类（Other）失败与成功但质量不佳的结果都不触发自动 fallback。
 - 不复用 `alva-app-tauri` 的 Rust backend 或 session database。
 - raw adapter stream 不直接泄露给 UI；先投影为产品 timeline vocabulary。

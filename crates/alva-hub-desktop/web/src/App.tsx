@@ -15,6 +15,7 @@ import {
   runHubPrompt,
   setGlobalFallbackPolicy,
   setSessionFallbackPolicy,
+  setTranscriptSharing,
   stopHubAttempt,
   switchHubEngine,
   type EngineEligibility,
@@ -163,6 +164,7 @@ export default function App() {
   const [engine, setEngine] = useState("alva");
   const [pendingEngine, setPendingEngine] = useState<string | null>(null);
   const [profile, setProfile] = useState<PermissionProfile>("workspace_write");
+  const [transcriptSharing, setTranscriptSharingState] = useState(false);
   const [eligibility, setEligibility] = useState<EngineEligibility[]>([]);
   // request_id → outcome, so an answered approval card cannot be re-sent.
   const [answeredPermissions, setAnsweredPermissions] = useState<
@@ -316,6 +318,7 @@ export default function App() {
     setWorkspace(detail.session.workspace);
     setEngine(detail.session.engine_id);
     setProfile(detail.session.permission_profile);
+    setTranscriptSharingState(detail.session.include_full_transcript);
     setAnsweredPermissions({});
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
     setFallbackPolicy(detail.fallback_policy);
@@ -407,6 +410,18 @@ export default function App() {
         message: error instanceof Error ? error.message : String(error),
       },
     ]);
+  }
+
+  async function setTranscriptSharing_backend(enabled: boolean) {
+    if (!activeSessionId) return;
+    try {
+      await setTranscriptSharing(activeSessionId, enabled);
+    } catch (error) {
+      // The store still holds the previous value — the display must follow
+      // it, or the next handoff would contradict the shown consent.
+      setTranscriptSharingState(!enabled);
+      appendLocalFailure(error);
+    }
   }
 
   async function stopActiveAttempt() {
@@ -710,6 +725,20 @@ export default function App() {
               )}
             </select>
             {activeSessionId ? (
+              <label className="transcript-toggle">
+                <input
+                  checked={transcriptSharing}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setTranscriptSharingState(enabled);
+                    void setTranscriptSharing_backend(enabled);
+                  }}
+                  type="checkbox"
+                />
+                Attach filtered full transcript to future handoffs
+              </label>
+            ) : null}
+            {activeSessionId ? (
               <small>Fixed for this session</small>
             ) : (
               (() => {
@@ -879,6 +908,24 @@ export default function App() {
                     {entry.fallback.handoff.workspace_summary ? (
                       <small>{entry.fallback.handoff.workspace_summary}</small>
                     ) : null}
+                    {entry.fallback.handoff.transcript.length > 0 ? (
+                      <>
+                        <strong>
+                          Filtered transcript (
+                          {entry.fallback.handoff.transcript.length} turns)
+                        </strong>
+                        {entry.fallback.handoff.transcript.map(
+                          (turn, turnIndex) => (
+                            <small key={`transcript-${turnIndex}`}>
+                              » {turn.prompt}
+                              {turn.result ? ` — ${turn.result}` : ""}
+                            </small>
+                          ),
+                        )}
+                      </>
+                    ) : (
+                      <small>Transcript not shared (default).</small>
+                    )}
                   </div>
                 ) : null}
               </article>

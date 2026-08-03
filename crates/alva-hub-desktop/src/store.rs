@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -103,6 +103,8 @@ pub struct HubSessionSummary {
     pub last_result: Option<String>,
     /// Session-stable permission contract; branch switches never change it.
     pub permission_profile: PermissionProfile,
+    /// Whether handoffs may attach the full (still filtered) transcript.
+    pub include_full_transcript: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -203,8 +205,18 @@ pub struct HandoffPackage {
     pub workspace_summary: String,
     pub known_side_effects: Vec<SideEffectEvidence>,
     pub team_snapshot: Option<String>,
+    /// Full filtered turn transcript — populated only when the user has
+    /// explicitly enabled transcript sharing for the session.
+    #[serde(default)]
+    pub transcript: Vec<TranscriptTurn>,
     pub created_at: i64,
     pub used_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TranscriptTurn {
+    pub prompt: String,
+    pub result: Option<String>,
 }
 
 impl HandoffPackage {
@@ -346,7 +358,7 @@ impl HubStore {
                         (SELECT final_result FROM turns t
                            WHERE t.product_session_id = hs.product_session_id
                            ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
-                        hs.permission_profile
+                        hs.permission_profile, hs.include_full_transcript
                    FROM hub_sessions hs
                    JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
                   ORDER BY hs.updated_at DESC, hs.product_session_id ASC",
@@ -1267,6 +1279,27 @@ impl HubStore {
         })
     }
 
+    /// Toggle whether this session's future handoffs may attach the full
+    /// (still filtered) transcript. Off by default; never retroactive.
+    pub fn set_transcript_sharing(
+        &self,
+        product_session_id: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let connection = self.lock()?;
+        let changed = connection
+            .execute(
+                "UPDATE hub_sessions SET include_full_transcript = ?2, updated_at = ?3
+                  WHERE product_session_id = ?1",
+                params![product_session_id, enabled, now_unix_ms()],
+            )
+            .map_err(|error| format!("persist Hub transcript sharing: {error}"))?;
+        if changed != 1 {
+            return Err(format!("Hub session '{product_session_id}' was not found"));
+        }
+        Ok(())
+    }
+
     /// Record a user Stop against the running attempt as a timeline fact.
     /// The attempt itself reaches its terminal state through the engine's
     /// cancelled stream, so nothing here mutates attempt rows — which also
@@ -1854,11 +1887,12 @@ fn build_handoff_package(
     kind: HandoffKind,
     watermark_turn_rowid: Option<i64>,
 ) -> Result<HandoffPackage, String> {
-    let workspace = transaction
+    let (workspace, include_full_transcript) = transaction
         .query_row(
-            "SELECT workspace FROM hub_sessions WHERE product_session_id = ?1",
+            "SELECT workspace, include_full_transcript
+               FROM hub_sessions WHERE product_session_id = ?1",
             [product_session_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
         )
         .map_err(|error| format!("read workspace for Hub handoff: {error}"))?;
     let mut statement = transaction
@@ -1935,8 +1969,21 @@ fn build_handoff_package(
             .map_err(|error| format!("decode side effects for Hub handoff: {error}"))?;
         known_side_effects.append(&mut evidence);
     }
+    // Full transcript is opt-in per session; when enabled it passes the same
+    // filter as every other field (redact_handoff below).
+    let transcript = if include_full_transcript {
+        history
+            .iter()
+            .map(|(_, prompt, result, error, _)| TranscriptTurn {
+                prompt: prompt.clone(),
+                result: result.clone().or_else(|| error.clone()),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-    Ok(HandoffPackage {
+    let mut package = HandoffPackage {
         handoff_id: uuid::Uuid::new_v4().to_string(),
         product_session_id: product_session_id.to_string(),
         source_branch_id: source_branch_id.to_string(),
@@ -1958,9 +2005,14 @@ fn build_handoff_package(
         ),
         known_side_effects,
         team_snapshot: None,
+        transcript,
         created_at: now,
         used_at: None,
-    })
+    };
+    // The one filter every cross-engine handoff passes, BEFORE persistence —
+    // stored packages equal what the target adapter receives.
+    crate::redact::redact_handoff(&mut package);
+    Ok(package)
 }
 
 fn persist_handoff_package(
@@ -2282,7 +2334,7 @@ fn query_session(
                     (SELECT final_result FROM turns t
                        WHERE t.product_session_id = hs.product_session_id
                        ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
-                    hs.permission_profile
+                    hs.permission_profile, hs.include_full_transcript
                FROM hub_sessions hs
                JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
               WHERE hs.product_session_id = ?1",
@@ -2310,6 +2362,7 @@ fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSessionSummary
         permission_profile: PermissionProfile::parse(&profile_text).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, error.into())
         })?,
+        include_full_transcript: row.get(12)?,
     })
 }
 
@@ -2518,6 +2571,16 @@ fn initialize_schema_and_recover(
                    ADD COLUMN permission_profile TEXT NOT NULL DEFAULT 'workspace_write';",
             )
             .map_err(|error| format!("migrate Hub database to schema 6: {error}"))?;
+    }
+
+    if schema_version < 7 {
+        // Transcript sharing is opt-in; existing sessions stay filtered-only.
+        transaction
+            .execute_batch(
+                "ALTER TABLE hub_sessions
+                   ADD COLUMN include_full_transcript INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 7: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -3126,7 +3189,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 7).unwrap();
+        connection.pragma_update(None, "user_version", 8).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -3138,7 +3201,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -3879,6 +3942,64 @@ mod tests {
             .next_authorized_fallback_target("product-alt-provider", &[alva, claude_a, claude_b])
             .unwrap();
         assert!(exhausted.is_none());
+    }
+
+    #[test]
+    fn transcript_is_opt_in_and_passes_the_same_filter() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let claude = EngineTarget::for_engine("claude").unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                "product-transcript",
+                workspace.path(),
+                "set things up",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(
+                &prepared,
+                None,
+                Some("done, used GITHUB_TOKEN=ghp_canarytoken99x"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        // Default: no transcript crosses engines.
+        store
+            .request_engine_switch("product-transcript", &claude, "try Claude")
+            .unwrap();
+        let detail = store.get_session("product-transcript").unwrap().unwrap();
+        assert!(!detail.session.include_full_transcript);
+        assert!(detail.handoffs.last().unwrap().transcript.is_empty());
+
+        // Opt in: transcript attaches, but through the same filter.
+        store
+            .set_transcript_sharing("product-transcript", true)
+            .unwrap();
+        store
+            .request_engine_switch(
+                "product-transcript",
+                &EngineTarget::for_engine("codex").unwrap(),
+                "try Codex",
+            )
+            .unwrap();
+        let detail = store.get_session("product-transcript").unwrap().unwrap();
+        assert!(detail.session.include_full_transcript);
+        let handoff = detail
+            .handoffs
+            .iter()
+            .find(|handoff| handoff.target.engine_id == "codex")
+            .unwrap();
+        assert_eq!(handoff.transcript.len(), 1);
+        let result = handoff.transcript[0].result.as_deref().unwrap();
+        assert!(result.contains("[redacted]"));
+        assert!(!result.contains("ghp_canarytoken99x"));
     }
 
     #[test]

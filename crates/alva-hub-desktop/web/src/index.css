@@ -666,6 +666,15 @@ select {
   overflow-wrap: anywhere;
 }
 
+.transcript-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: #8b96b3;
+  font-size: 10px;
+}
+
 .timeline-meta {
   display: flex;
   justify-content: space-between;

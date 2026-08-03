@@ -182,6 +182,17 @@ fn get_permission_eligibility(profile: PermissionProfile) -> Vec<EngineEligibili
 }
 
 #[tauri::command]
+fn set_transcript_sharing(
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .store
+        .set_transcript_sharing(&product_session_id, enabled)
+}
+
+#[tauri::command]
 async fn stop_hub_attempt(
     app: AppHandle,
     state: State<'_, DesktopState>,
@@ -332,7 +343,8 @@ fn main() {
             get_engine_readiness,
             stop_hub_attempt,
             respond_hub_permission,
-            get_permission_eligibility
+            get_permission_eligibility,
+            set_transcript_sharing
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

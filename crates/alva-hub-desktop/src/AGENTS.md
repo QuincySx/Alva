@@ -24,6 +24,8 @@
 14. `permissions` 定义 session 级 PermissionProfile（interactive/workspace_write/unrestricted，随 hub_sessions 持久化、branch 切换不变）与三 engine adapter 映射契约：等价或更严格才可执行（alva=交互回调、claude=acceptEdits/bypassPermissions、codex=sandbox 档位），只能弱化的组合 ineligible 并带结构化原因；interactive 保证的是"raised request 由用户裁决"的路由（risk classifier 决定哪些调用 raise），不是每个副作用都询问。`alva::build_engine` 按映射装配并 fail-closed；fallback 候选先过资格闸门再过 health veto，skip 落 `engine_fallback_skipped` fact；手动 switch 同受此闸门（`request_engine_switch` 拒绝 weaken-only target，同 target 重选仍是 no-op）。
 15. PermissionRequest 事件携带 request_id + emitting EngineSessionId 投影为 `permission_required` TimelineEvent；`main` 的 `PermissionRouter` 把用户决定路由回发起请求的那个 engine session（单次使用，attempt 终态/fallback/用户 Stop 后清空），决定不会泄漏到后续 fallback engine。SessionStarted 之前到达的请求无路由身份：card 不带控件、watchdog 保持 armed，死等以有界 stall 收敛；attempt 已带 terminal error 时 watchdog 恒 armed，pending approval 不能让 drain 无限阻塞。
 
+16. `redact` 是所有跨 engine handoff 的唯一过滤闸门（`build_handoff_package` 持久化前执行）：credentials/token/敏感 `NAME=value`/PEM 全字段清洗，账号与账单标签、team_snapshot 等 adapter-private 元数据不出境；hidden reasoning 与 approval token 结构性不入库。full transcript 按 session 开关（schema v7,默认关闭）附加且过同一过滤。
+
 ## 约束
 
 - 产品测试从注入 `EngineRuntime` 的最高层 seam 进入。
@@ -43,5 +45,6 @@
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
 | Permission contract | `permissions.rs` | PermissionProfile、adapter 映射资格契约、eligibility DTO 与 PermissionRouter |
 | Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
+| Handoff filter | `redact.rs` | 跨 engine 敏感内容过滤与 adapter-private 元数据剥离 |
 | SQLite store | `store.rs` | identity、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Desktop entry | `main.rs` | Tauri plugin、运行/切换/policy/readiness command 和 event bridge |

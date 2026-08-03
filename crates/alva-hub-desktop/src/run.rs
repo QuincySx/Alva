@@ -2825,6 +2825,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn canary_secrets_never_reach_the_fallback_engine() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+
+        // Seed a completed turn whose prompt and result both carry canaries.
+        let alva_target = crate::store::EngineTarget::for_engine("alva").unwrap();
+        let seeded = store
+            .prepare_new_turn(
+                "product-canary",
+                workspace.path(),
+                "deploy with API_KEY=sk-live-canary9999",
+                &alva_target,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(
+                &seeded,
+                Some("alva-native"),
+                Some("done; GITHUB_TOKEN=ghp_canarytoken99x worked"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        // The next turn dies on alva and falls back to claude.
+        let alva = Arc::new(FakeEngine::new(vec![RuntimeEvent::Error {
+            message: "engine stream died mid-run".into(),
+            recoverable: false,
+        }]));
+        let claude = Arc::new(FakeEngine::new(vec![completed(
+            "claude-native",
+            "claude finished it",
+        )]));
+        let claude_requests = Arc::clone(&claude.requests);
+        let outcome = run_persisted(
+            &store,
+            {
+                let alva = Arc::clone(&alva);
+                let claude = Arc::clone(&claude);
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
+                {
+                    "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
+                    "claude" => Ok(Arc::clone(&claude) as Arc<dyn EngineRuntime>),
+                    other => Err(format!("unexpected engine '{other}'")),
+                }
+            },
+            healthy,
+            RunRequest {
+                prompt: "continue the deployment".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some("product-canary".into()),
+                permission_profile: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        let claude_prompt = claude_requests.lock().unwrap()[0].prompt.clone();
+        // The handoff crossed engines — filtered.
+        assert!(claude_prompt.contains("<alva-hub-handoff"));
+        assert!(claude_prompt.contains("[redacted]"));
+        assert!(!claude_prompt.contains("sk-live-canary9999"));
+        assert!(!claude_prompt.contains("ghp_canarytoken99x"));
+        // Adapter-private billing metadata never crosses either.
+        assert!(!claude_prompt.contains("Workspace provider account"));
+        assert!(!claude_prompt.contains("Anthropic account via Claude CLI"));
+        // Transcript stays off by default — parse the actual package the
+        // adapter received rather than matching serde formatting.
+        let package_json = claude_prompt
+            .split_once(">\n")
+            .and_then(|(_, rest)| rest.rsplit_once("\n</alva-hub-handoff>"))
+            .map(|(json, _)| json)
+            .expect("handoff JSON embedded in the prompt");
+        let package: crate::store::HandoffPackage = serde_json::from_str(package_json).unwrap();
+        assert!(package.transcript.is_empty());
+    }
+
+    #[tokio::test]
     async fn poor_quality_success_never_triggers_fallback() {
         let workspace = tempfile::tempdir().unwrap();
         let data_dir = tempfile::tempdir().unwrap();
