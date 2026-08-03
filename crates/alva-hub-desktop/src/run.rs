@@ -2948,8 +2948,16 @@ mod tests {
         // Lead runs on alva; the worker gets its own engine (codex).
         let codex = crate::store::EngineTarget::for_engine("codex").unwrap();
         let run = store.create_team_run("team-lead", &codex).unwrap();
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &run.workers[0].worker_id,
+                "add integration tests",
+            )
+            .unwrap();
         let task = store
-            .create_worker_task(&run.team_run_id, "add integration tests")
+            .claim_next_worker_task(&run.workers[0].worker_id)
+            .unwrap()
             .unwrap();
 
         let worker_engine = Arc::new(FakeEngine::new(vec![
@@ -3012,6 +3020,152 @@ mod tests {
             .expect("worker outcome visible on the lead timeline");
         assert!(outcome_fact.reason.contains("integration tests added"));
         assert_eq!(outcome_fact.target_engine_id, "codex");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn parallel_worker_tasks_genuinely_overlap_and_keep_attribution() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = crate::store::EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "parallel-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run(
+                "parallel-lead",
+                &crate::store::EngineTarget::for_engine("claude").unwrap(),
+            )
+            .unwrap();
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &crate::store::EngineTarget::for_engine("codex").unwrap(),
+            )
+            .unwrap();
+        let claude_worker = run.workers[0].clone();
+        let codex_worker = run.workers[1].clone();
+
+        store
+            .enqueue_worker_task(&run.team_run_id, &claude_worker.worker_id, "claude job")
+            .unwrap();
+        store
+            .enqueue_worker_task(&run.team_run_id, &codex_worker.worker_id, "codex job")
+            .unwrap();
+
+        // Each engine takes simulated wall time; the total-time bound proves
+        // real overlap under the paused clock.
+        let make_engine = |name: &'static str, seconds: u64, result: &'static str| {
+            Arc::new(ScriptedEngine {
+                script: vec![
+                    (0, session_started(&format!("{name}-native"))),
+                    (seconds, completed(&format!("{name}-native"), result)),
+                ],
+                hold_open_at_end: false,
+            }) as Arc<dyn EngineRuntime>
+        };
+        let claude_engine = make_engine("claude", 100, "claude finished");
+        let codex_engine = make_engine("codex", 60, "codex finished");
+
+        let claude_run = {
+            let store = store.clone();
+            let worker = claude_worker.clone();
+            let engine = Arc::clone(&claude_engine);
+            async move {
+                let task = store
+                    .claim_next_worker_task(&worker.worker_id)
+                    .unwrap()
+                    .unwrap();
+                let _started = tokio::time::Instant::now();
+                let outcome = run_persisted(
+                    &store,
+                    move |_: &crate::store::EngineTarget, _: &str, _| {
+                        Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
+                    },
+                    healthy,
+                    RunRequest {
+                        prompt: task.scope.clone(),
+                        workspace: PathBuf::from(""),
+                        engine_id: "claude".into(),
+                        product_session_id: Some(worker.worker_session_id.clone()),
+                        permission_profile: None,
+                    },
+                    |_| {},
+                )
+                .await
+                .unwrap();
+                store
+                    .finish_worker_task(&task.task_id, !outcome.failed, outcome.result.as_deref())
+                    .unwrap()
+            }
+        };
+        let codex_run = {
+            let store = store.clone();
+            let worker = codex_worker.clone();
+            let engine = Arc::clone(&codex_engine);
+            async move {
+                let task = store
+                    .claim_next_worker_task(&worker.worker_id)
+                    .unwrap()
+                    .unwrap();
+                let _started = tokio::time::Instant::now();
+                let outcome = run_persisted(
+                    &store,
+                    move |_: &crate::store::EngineTarget, _: &str, _| {
+                        Ok(Arc::clone(&engine) as Arc<dyn EngineRuntime>)
+                    },
+                    healthy,
+                    RunRequest {
+                        prompt: task.scope.clone(),
+                        workspace: PathBuf::from(""),
+                        engine_id: "codex".into(),
+                        product_session_id: Some(worker.worker_session_id.clone()),
+                        permission_profile: None,
+                    },
+                    |_| {},
+                )
+                .await
+                .unwrap();
+                store
+                    .finish_worker_task(&task.task_id, !outcome.failed, outcome.result.as_deref())
+                    .unwrap()
+            }
+        };
+
+        let overall = tokio::time::Instant::now();
+        let (claude_task, codex_task) = tokio::join!(claude_run, codex_run);
+        let total = overall.elapsed().as_secs();
+
+        // Genuine overlap: serial execution would take ~160 simulated
+        // seconds; concurrent execution is bounded by the slower engine.
+        assert!(total < 160, "workers ran serially: {total}s");
+        assert!(total >= 100, "claude engine takes 100s: {total}s");
+
+        // Attribution: each outcome keeps its task, engine, and validation.
+        assert_eq!(claude_task.status, "completed");
+        assert_eq!(claude_task.result.as_deref(), Some("claude finished"));
+        assert_eq!(claude_task.worker_id, claude_worker.worker_id);
+        assert_eq!(codex_task.status, "completed");
+        assert_eq!(codex_task.result.as_deref(), Some("codex finished"));
+        assert_eq!(codex_task.worker_id, codex_worker.worker_id);
+        let lead_detail = store.get_session("parallel-lead").unwrap().unwrap();
+        assert_eq!(
+            lead_detail
+                .timeline_events
+                .iter()
+                .filter(|event| event.kind == "worker_outcome")
+                .count(),
+            2
+        );
     }
 
     #[tokio::test]

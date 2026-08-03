@@ -30,6 +30,9 @@ struct DesktopState {
     /// Pending engine permission requests keyed to the exact native session
     /// that asked, so user decisions never leak into a fallback engine.
     permission_router: PermissionRouter,
+    /// Worker ids whose queue pump is currently running, so each worker's
+    /// durable queue has at most one consumer.
+    worker_pumps: Mutex<std::collections::HashSet<String>>,
 }
 
 impl DesktopState {
@@ -211,70 +214,194 @@ fn get_team_run_for_lead(
 }
 
 #[tauri::command]
+fn add_team_worker(
+    state: State<'_, DesktopState>,
+    team_run_id: String,
+    worker_engine_id: String,
+) -> Result<alva_hub_desktop::TeamRunDetail, String> {
+    let target = EngineTarget::for_engine(&worker_engine_id)?;
+    state.store.add_team_worker(&team_run_id, &target)
+}
+
+/// Enqueue only — the per-worker pump consumes the durable FIFO queue, so
+/// tasks for different workers genuinely run in parallel while each worker
+/// stays serial.
+#[tauri::command]
 async fn dispatch_worker_task(
     app: AppHandle,
     state: State<'_, DesktopState>,
     team_run_id: String,
+    worker_id: String,
     scope: String,
 ) -> Result<alva_hub_desktop::WorkerTask, String> {
-    let run = state
+    let task = state
         .store
-        .get_team_run(&team_run_id)?
-        .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
-    let worker = run
-        .workers
-        .first()
-        .cloned()
-        .ok_or("This team run has no worker.")?;
-    let worker_session = state
-        .store
-        .get_session(&worker.worker_session_id)?
-        .ok_or("The worker session no longer exists.")?;
-    let task = state.store.create_worker_task(&team_run_id, &scope)?;
-    let workspace = PathBuf::from(&worker_session.session.workspace);
+        .enqueue_worker_task(&team_run_id, &worker_id, &scope)?;
+    ensure_worker_pump(app, worker_id);
+    Ok(task)
+}
+
+#[tauri::command]
+fn update_worker_task(
+    state: State<'_, DesktopState>,
+    task_id: String,
+    scope: String,
+) -> Result<alva_hub_desktop::WorkerTask, String> {
+    state.store.update_worker_task_scope(&task_id, &scope)
+}
+
+#[tauri::command]
+fn cancel_worker_task(
+    state: State<'_, DesktopState>,
+    task_id: String,
+) -> Result<alva_hub_desktop::WorkerTask, String> {
+    state.store.cancel_worker_task(&task_id)
+}
+
+/// Interrupt whatever the worker session is running right now.
+#[tauri::command]
+async fn interrupt_worker(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    worker_session_id: String,
+) -> Result<(), String> {
+    stop_attempt_inner(&app, &state, worker_session_id).await
+}
+
+fn ensure_worker_pump(app: AppHandle, worker_id: String) {
+    {
+        let state = app.state::<DesktopState>();
+        let mut pumps = state.worker_pumps.lock().unwrap();
+        if !pumps.insert(worker_id.clone()) {
+            return; // already pumping this worker's queue
+        }
+    }
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let claimed = {
+                let state = app.state::<DesktopState>();
+                state.store.claim_next_worker_task(&worker_id)
+            };
+            match claimed {
+                Ok(Some(task)) => run_worker_task(&app, task).await,
+                Ok(None) => break,
+                Err(error) => {
+                    tracing::warn!(%error, worker = %worker_id, "worker queue pump stopped");
+                    break;
+                }
+            }
+        }
+        let state = app.state::<DesktopState>();
+        state.worker_pumps.lock().unwrap().remove(&worker_id);
+        // A task enqueued between the final empty claim and the removal
+        // above would otherwise sit unconsumed until the next dispatch.
+        if state.store.has_queued_task(&worker_id).unwrap_or(false) {
+            ensure_worker_pump(app.clone(), worker_id);
+        }
+    });
+}
+
+async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
+    let state = app.state::<DesktopState>();
+    // Tell the UI the queue moved: the claimed task is running now, so its
+    // Interrupt control arms and Edit/Cancel disappear.
+    if let Ok(Some(run)) = state.store.get_team_run(&task.team_run_id) {
+        let engine_id = run
+            .workers
+            .iter()
+            .find(|worker| worker.worker_id == task.worker_id)
+            .map(|worker| worker.engine_id.clone())
+            .unwrap_or_default();
+        if let Err(error) = app.emit(
+            "hub_timeline",
+            TimelineEvent {
+                status: TimelineStatus::Worker,
+                engine_id,
+                product_session_id: run.lead_session_id.clone(),
+                message: None,
+                permission_request: None,
+            },
+        ) {
+            tracing::warn!(%error, "failed to emit Hub worker claim event");
+        }
+    }
+    let context = (|| -> Result<_, String> {
+        let run = state
+            .store
+            .get_team_run(&task.team_run_id)?
+            .ok_or("team run vanished")?;
+        let worker = run
+            .workers
+            .iter()
+            .find(|worker| worker.worker_id == task.worker_id)
+            .cloned()
+            .ok_or("worker vanished")?;
+        let session = state
+            .store
+            .get_session(&worker.worker_session_id)?
+            .ok_or("worker session vanished")?;
+        Ok((run, worker, session))
+    })();
+    let (run, worker, session) = match context {
+        Ok(context) => context,
+        Err(error) => {
+            tracing::warn!(%error, task = %task.task_id, "worker task context unavailable");
+            let _ = state
+                .store
+                .finish_worker_task(&task.task_id, false, Some(&error));
+            return;
+        }
+    };
+    let workspace = PathBuf::from(&session.session.workspace);
     let request = RunRequest {
-        prompt: scope,
+        prompt: task.scope.clone(),
         workspace: workspace.clone(),
-        engine_id: worker_session.session.engine_id.clone(),
+        engine_id: session.session.engine_id.clone(),
         product_session_id: Some(worker.worker_session_id.clone()),
         permission_profile: None,
     };
     let outcome = execute_session_run(app.clone(), &state, workspace, request).await;
-    let task = match outcome {
+    let finished = match outcome {
         Ok(outcome) => state.store.finish_worker_task(
             &task.task_id,
             !outcome.failed,
             outcome.result.as_deref(),
-        )?,
+        ),
         Err(error) => state
             .store
-            .finish_worker_task(&task.task_id, false, Some(&error))?,
+            .finish_worker_task(&task.task_id, false, Some(&error)),
     };
-    let summary = alva_hub_desktop::redact_text(&format!(
-        "Worker ({}) {}{}",
-        worker.engine_id,
-        task.status,
-        task.result
-            .as_deref()
-            .map(|result| {
-                let brief: String = result.chars().take(160).collect();
-                format!(": {brief}")
-            })
-            .unwrap_or_default()
-    ));
-    if let Err(error) = app.emit(
-        "hub_timeline",
-        TimelineEvent {
-            status: TimelineStatus::Worker,
-            engine_id: worker.engine_id.clone(),
-            product_session_id: run.lead_session_id.clone(),
-            message: Some(summary),
-            permission_request: None,
-        },
-    ) {
-        tracing::warn!(%error, "failed to emit Hub worker outcome event");
+    match finished {
+        Ok(task) => {
+            let summary = alva_hub_desktop::redact_text(&format!(
+                "Worker ({}) {}{}",
+                worker.engine_id,
+                task.status,
+                task.result
+                    .as_deref()
+                    .map(|result| {
+                        let brief: String = result.chars().take(160).collect();
+                        format!(": {brief}")
+                    })
+                    .unwrap_or_default()
+            ));
+            if let Err(error) = app.emit(
+                "hub_timeline",
+                TimelineEvent {
+                    status: TimelineStatus::Worker,
+                    engine_id: worker.engine_id.clone(),
+                    product_session_id: run.lead_session_id.clone(),
+                    message: Some(summary),
+                    permission_request: None,
+                },
+            ) {
+                tracing::warn!(%error, "failed to emit Hub worker outcome event");
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, task = %task.task_id, "failed to finish worker task");
+        }
     }
-    Ok(task)
 }
 
 #[derive(serde::Serialize)]
@@ -339,6 +466,14 @@ fn set_transcript_sharing(
 async fn stop_hub_attempt(
     app: AppHandle,
     state: State<'_, DesktopState>,
+    product_session_id: String,
+) -> Result<(), String> {
+    stop_attempt_inner(&app, &state, product_session_id).await
+}
+
+async fn stop_attempt_inner(
+    app: &AppHandle,
+    state: &DesktopState,
     product_session_id: String,
 ) -> Result<(), String> {
     let detail = state
@@ -467,12 +602,19 @@ fn main() {
             let data_dir = app.path().app_data_dir()?;
             let store =
                 HubStore::open(data_dir.join("alva-hub.db")).map_err(std::io::Error::other)?;
+            let queued_workers = store.workers_with_queued_tasks().unwrap_or_default();
             app.manage(DesktopState {
                 store,
                 history_dir: data_dir.join("alva-history"),
                 active_engines: Mutex::new(HashMap::new()),
+                worker_pumps: Mutex::new(std::collections::HashSet::new()),
                 permission_router: PermissionRouter::new(),
             });
+            // Durable queues survive restarts: resume a pump for every worker
+            // that still has queued work.
+            for worker_id in queued_workers {
+                ensure_worker_pump(app.handle().clone(), worker_id);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -492,7 +634,11 @@ fn main() {
             run_engine_repair,
             create_team_run,
             get_team_run_for_lead,
-            dispatch_worker_task
+            add_team_worker,
+            dispatch_worker_task,
+            update_worker_task,
+            cancel_worker_task,
+            interrupt_worker
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

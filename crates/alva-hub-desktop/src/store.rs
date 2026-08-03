@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -1428,8 +1428,98 @@ impl HubStore {
         }
     }
 
-    /// Open a WorkerTask on the run's worker; execution follows separately.
-    pub fn create_worker_task(&self, team_run_id: &str, scope: &str) -> Result<WorkerTask, String> {
+    /// Add another Hub-owned durable worker session (its own EngineTarget)
+    /// to an existing team run — the batch's parallel intent.
+    pub fn add_team_worker(
+        &self,
+        team_run_id: &str,
+        worker_target: &EngineTarget,
+    ) -> Result<TeamRunDetail, String> {
+        validate_engine_target(worker_target)?;
+        let now = now_unix_ms();
+        let worker_id = uuid::Uuid::new_v4().to_string();
+        let worker_session_id = uuid::Uuid::new_v4().to_string();
+        let worker_branch_id = uuid::Uuid::new_v4().to_string();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub add-worker transaction: {error}"))?;
+        let lead_session_id = transaction
+            .query_row(
+                "SELECT lead_session_id FROM team_runs WHERE team_run_id = ?1",
+                [team_run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub team run: {error}"))?
+            .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
+        let lead = query_session(&transaction, &lead_session_id)?
+            .ok_or_else(|| format!("Hub session '{lead_session_id}' was not found"))?;
+        transaction
+            .execute(
+                "INSERT INTO hub_sessions
+                   (product_session_id, workspace, active_branch_id, status,
+                    permission_profile, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params![
+                    worker_session_id,
+                    lead.workspace,
+                    worker_branch_id,
+                    STATUS_COMPLETED,
+                    lead.permission_profile.as_str(),
+                    now
+                ],
+            )
+            .map_err(|error| format!("insert Hub worker session: {error}"))?;
+        transaction
+            .execute(
+                "INSERT INTO engine_branches
+                   (branch_id, product_session_id, engine_id, model_id, provider_id,
+                    engine_session_id, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
+                params![
+                    worker_branch_id,
+                    worker_session_id,
+                    worker_target.engine_id,
+                    worker_target.model_id,
+                    worker_target.provider_id,
+                    now
+                ],
+            )
+            .map_err(|error| format!("insert Hub worker branch: {error}"))?;
+        let global_policy = query_fallback_policy(&transaction, None)?;
+        persist_fallback_policy(
+            &transaction,
+            Some(&worker_session_id),
+            &FallbackPolicy {
+                targets: global_policy.targets,
+                updated_at: now,
+            },
+        )?;
+        transaction
+            .execute(
+                "INSERT INTO team_workers (worker_id, team_run_id, worker_session_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![worker_id, team_run_id, worker_session_id, now],
+            )
+            .map_err(|error| format!("insert Hub team worker: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub add-worker: {error}"))?;
+        drop(connection);
+        self.get_team_run(team_run_id)?
+            .ok_or_else(|| "team run vanished after add-worker".to_string())
+    }
+
+    /// Append a task to one worker's durable FIFO queue. Nothing executes
+    /// until the queue pump claims it, so it stays viewable, editable, and
+    /// cancellable.
+    pub fn enqueue_worker_task(
+        &self,
+        team_run_id: &str,
+        worker_id: &str,
+        scope: &str,
+    ) -> Result<WorkerTask, String> {
         let scope = scope.trim();
         if scope.is_empty() {
             return Err("a worker task needs a non-empty scope".to_string());
@@ -1437,27 +1527,145 @@ impl HubStore {
         let now = now_unix_ms();
         let task_id = uuid::Uuid::new_v4().to_string();
         let connection = self.lock()?;
-        let worker_id = connection
+        let belongs: Option<String> = connection
             .query_row(
-                "SELECT worker_id FROM team_workers WHERE team_run_id = ?1
-                  ORDER BY created_at ASC LIMIT 1",
-                [team_run_id],
-                |row| row.get::<_, String>(0),
+                "SELECT worker_id FROM team_workers
+                  WHERE team_run_id = ?1 AND worker_id = ?2",
+                params![team_run_id, worker_id],
+                |row| row.get(0),
             )
             .optional()
-            .map_err(|error| format!("query Hub team worker: {error}"))?
-            .ok_or_else(|| format!("team run '{team_run_id}' has no worker"))?;
+            .map_err(|error| format!("query Hub team worker: {error}"))?;
+        if belongs.is_none() {
+            return Err(format!(
+                "worker '{worker_id}' does not belong to team run '{team_run_id}'"
+            ));
+        }
         connection
             .execute(
                 "INSERT INTO worker_tasks
                    (task_id, team_run_id, worker_id, scope, status, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![task_id, team_run_id, worker_id, scope, STATUS_RUNNING, now],
+                 VALUES (?1, ?2, ?3, ?4, 'queued', ?5)",
+                params![task_id, team_run_id, worker_id, scope, now],
             )
             .map_err(|error| format!("insert Hub worker task: {error}"))?;
         drop(connection);
         self.worker_task(&task_id)?
             .ok_or_else(|| "worker task vanished after creation".to_string())
+    }
+
+    /// Atomically claim the oldest queued task of one worker for execution.
+    /// Cancelled tasks are never claimed; each worker's order is FIFO.
+    pub fn claim_next_worker_task(&self, worker_id: &str) -> Result<Option<WorkerTask>, String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub task claim transaction: {error}"))?;
+        let task_id: Option<String> = transaction
+            .query_row(
+                "SELECT task_id FROM worker_tasks
+                  WHERE worker_id = ?1 AND status = 'queued'
+                  ORDER BY created_at ASC, rowid ASC LIMIT 1",
+                [worker_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub worker queue: {error}"))?;
+        let Some(task_id) = task_id else {
+            return Ok(None);
+        };
+        let changed = transaction
+            .execute(
+                "UPDATE worker_tasks SET status = ?2, started_at = ?3
+                  WHERE task_id = ?1 AND status = 'queued'",
+                params![task_id, STATUS_RUNNING, now],
+            )
+            .map_err(|error| format!("claim Hub worker task: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub task claim: {error}"))?;
+        drop(connection);
+        if changed != 1 {
+            return Ok(None);
+        }
+        self.worker_task(&task_id)
+    }
+
+    /// Workers with tasks still queued — the app restarts their pumps on
+    /// launch so a durable queue survives a restart.
+    pub fn workers_with_queued_tasks(&self) -> Result<Vec<String>, String> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare("SELECT DISTINCT worker_id FROM worker_tasks WHERE status = 'queued'")
+            .map_err(|error| format!("prepare Hub queued workers: {error}"))?;
+        let workers = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| format!("query Hub queued workers: {error}"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode Hub queued workers: {error}"))?;
+        Ok(workers)
+    }
+
+    /// Whether the worker has anything left in its queue.
+    pub fn has_queued_task(&self, worker_id: &str) -> Result<bool, String> {
+        let connection = self.lock()?;
+        let queued: Option<i64> = connection
+            .query_row(
+                "SELECT 1 FROM worker_tasks
+                  WHERE worker_id = ?1 AND status = 'queued' LIMIT 1",
+                [worker_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub worker queue depth: {error}"))?;
+        Ok(queued.is_some())
+    }
+
+    /// Edit a still-queued task's scope; consumed tasks are immutable.
+    pub fn update_worker_task_scope(
+        &self,
+        task_id: &str,
+        scope: &str,
+    ) -> Result<WorkerTask, String> {
+        let scope = scope.trim();
+        if scope.is_empty() {
+            return Err("a worker task needs a non-empty scope".to_string());
+        }
+        let connection = self.lock()?;
+        let changed = connection
+            .execute(
+                "UPDATE worker_tasks SET scope = ?2
+                  WHERE task_id = ?1 AND status = 'queued'",
+                params![task_id, scope],
+            )
+            .map_err(|error| format!("edit Hub worker task: {error}"))?;
+        drop(connection);
+        if changed != 1 {
+            return Err("only queued tasks can be edited".to_string());
+        }
+        self.worker_task(task_id)?
+            .ok_or_else(|| "worker task vanished after edit".to_string())
+    }
+
+    /// Cancel a still-queued task; running tasks are interrupted through the
+    /// worker's live attempt instead.
+    pub fn cancel_worker_task(&self, task_id: &str) -> Result<WorkerTask, String> {
+        let now = now_unix_ms();
+        let connection = self.lock()?;
+        let changed = connection
+            .execute(
+                "UPDATE worker_tasks SET status = 'cancelled', completed_at = ?2
+                  WHERE task_id = ?1 AND status = 'queued'",
+                params![task_id, now],
+            )
+            .map_err(|error| format!("cancel Hub worker task: {error}"))?;
+        drop(connection);
+        if changed != 1 {
+            return Err("only queued tasks can be cancelled".to_string());
+        }
+        self.worker_task(task_id)?
+            .ok_or_else(|| "worker task vanished after cancel".to_string())
     }
 
     /// Close a WorkerTask with the worker's terminal outcome; evidence and
@@ -1475,9 +1683,11 @@ impl HubStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| format!("begin Hub worker task transaction: {error}"))?;
-        let (team_run_id, worker_id, task_created_at) = transaction
+        // Evidence window opens when this task was CLAIMED — enqueue time
+        // would sweep in the attempts of tasks queued ahead of it.
+        let (team_run_id, worker_id, task_started_at) = transaction
             .query_row(
-                "SELECT team_run_id, worker_id, created_at
+                "SELECT team_run_id, worker_id, COALESCE(started_at, created_at)
                    FROM worker_tasks WHERE task_id = ?1",
                 [task_id],
                 |row| {
@@ -1498,9 +1708,8 @@ impl HubStore {
                 |row| Ok((row.get::<_, String>(0)?,)),
             )
             .map_err(|error| format!("query Hub team worker session: {error}"))?;
-        // Evidence from every attempt this task's run produced (fallback can
-        // create several), scoped by start time so an earlier task's in-flight
-        // attempt can never be misattributed.
+        // Every attempt this task's run produced (fallback can create
+        // several), scoped so another task's attempts never leak in.
         let mut evidence_statement = transaction
             .prepare(
                 "SELECT side_effects_json FROM engine_attempts
@@ -1509,7 +1718,7 @@ impl HubStore {
             )
             .map_err(|error| format!("prepare Hub worker evidence: {error}"))?;
         let evidence_rows = evidence_statement
-            .query_map(params![worker_session_id, task_created_at], |row| {
+            .query_map(params![worker_session_id, task_started_at], |row| {
                 row.get::<_, String>(0)
             })
             .map_err(|error| format!("query Hub worker evidence: {error}"))?
@@ -2707,7 +2916,7 @@ fn query_team_run(
                JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
                JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
               WHERE tw.team_run_id = ?1
-              ORDER BY tw.created_at ASC",
+              ORDER BY tw.created_at ASC, tw.rowid ASC",
         )
         .map_err(|error| format!("prepare Hub team workers: {error}"))?;
     let workers = worker_statement
@@ -3077,6 +3286,14 @@ fn initialize_schema_and_recover(
                  );",
             )
             .map_err(|error| format!("migrate Hub database to schema 8: {error}"))?;
+    }
+
+    if schema_version < 9 {
+        // Claim time, so a queued task's evidence window starts when it
+        // actually began running — not when it was enqueued behind others.
+        transaction
+            .execute_batch("ALTER TABLE worker_tasks ADD COLUMN started_at INTEGER;")
+            .map_err(|error| format!("migrate Hub database to schema 9: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -3695,7 +3912,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 9).unwrap();
+        connection.pragma_update(None, "user_version", 10).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -3707,7 +3924,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -4549,8 +4766,17 @@ mod tests {
             PermissionProfile::WorkspaceWrite
         );
 
+        let queued = store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &run.workers[0].worker_id,
+                "implement the parser",
+            )
+            .unwrap();
+        assert_eq!(queued.status, "queued");
         let task = store
-            .create_worker_task(&run.team_run_id, "implement the parser")
+            .claim_next_worker_task(&run.workers[0].worker_id)
+            .unwrap()
             .unwrap();
         assert_eq!(task.status, "running");
 
@@ -4592,8 +4818,12 @@ mod tests {
 
         // Multi-byte results must excerpt safely (chars, not bytes) — this
         // used to poison the store mutex via a byte-boundary panic.
+        store
+            .enqueue_worker_task(&run.team_run_id, &run.workers[0].worker_id, "写中文文档")
+            .unwrap();
         let second_task = store
-            .create_worker_task(&run.team_run_id, "写中文文档")
+            .claim_next_worker_task(&run.workers[0].worker_id)
+            .unwrap()
             .unwrap();
         let long_chinese =
             "完成了所有的中文文档编写工作，包括安装指南、配置说明和常见问题解答".repeat(8);
@@ -4618,6 +4848,174 @@ mod tests {
             .get_session(&run.workers[0].worker_session_id)
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn worker_queues_are_fifo_editable_and_cancellable_until_claimed() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "queue-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run("queue-lead", &EngineTarget::for_engine("claude").unwrap())
+            .unwrap();
+        // A second worker on a different engine — the batch's parallel intent.
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("codex").unwrap(),
+            )
+            .unwrap();
+        assert_eq!(run.workers.len(), 2);
+        let claude_worker = run.workers[0].worker_id.clone();
+        let codex_worker = run.workers[1].worker_id.clone();
+
+        let first = store
+            .enqueue_worker_task(&run.team_run_id, &claude_worker, "first")
+            .unwrap();
+        let second = store
+            .enqueue_worker_task(&run.team_run_id, &claude_worker, "second")
+            .unwrap();
+        let other = store
+            .enqueue_worker_task(&run.team_run_id, &codex_worker, "codex work")
+            .unwrap();
+
+        // Pending tasks are editable and cancellable before consumption.
+        let edited = store
+            .update_worker_task_scope(&second.task_id, "second, refined")
+            .unwrap();
+        assert_eq!(edited.scope, "second, refined");
+        store.cancel_worker_task(&first.task_id).unwrap();
+
+        // FIFO per worker; cancelled tasks are never claimed; queues are
+        // independent between workers.
+        let claimed = store
+            .claim_next_worker_task(&claude_worker)
+            .unwrap()
+            .unwrap();
+        assert_eq!(claimed.task_id, edited.task_id);
+        assert_eq!(claimed.status, "running");
+        assert!(store
+            .claim_next_worker_task(&claude_worker)
+            .unwrap()
+            .is_none());
+        let codex_claimed = store
+            .claim_next_worker_task(&codex_worker)
+            .unwrap()
+            .unwrap();
+        assert_eq!(codex_claimed.task_id, other.task_id);
+
+        // Consumed tasks are immutable and uncancellable.
+        assert!(store
+            .update_worker_task_scope(&claimed.task_id, "too late")
+            .is_err());
+        assert!(store.cancel_worker_task(&claimed.task_id).is_err());
+        // Enqueue refuses foreign workers.
+        assert!(store
+            .enqueue_worker_task(&run.team_run_id, "not-a-worker", "x")
+            .is_err());
+        assert!(!store.has_queued_task(&claude_worker).unwrap());
+    }
+
+    #[test]
+    fn queued_task_evidence_is_scoped_to_its_own_claim_not_the_queue() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "scope-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run("scope-lead", &EngineTarget::for_engine("claude").unwrap())
+            .unwrap();
+        let worker = run.workers[0].clone();
+
+        // Both tasks are queued up front — the second's created_at predates
+        // the first's execution, which used to sweep in the first's evidence.
+        store
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "first")
+            .unwrap();
+        store
+            .enqueue_worker_task(&run.team_run_id, &worker.worker_id, "second")
+            .unwrap();
+
+        let first = store
+            .claim_next_worker_task(&worker.worker_id)
+            .unwrap()
+            .unwrap();
+        let first_turn = store
+            .prepare_resumed_turn(&worker.worker_session_id, "first")
+            .unwrap();
+        store
+            .record_side_effect(
+                &first_turn,
+                SideEffectEvidence {
+                    tool_call_id: "t-first".into(),
+                    tool_name: "write_file".into(),
+                    succeeded: Some(true),
+                    duration_ms: Some(5),
+                    path: Some("first.rs".into()),
+                },
+            )
+            .unwrap();
+        store
+            .finish_turn(&first_turn, None, Some("first done"), None, None)
+            .unwrap();
+        let first = store
+            .finish_worker_task(&first.task_id, true, Some("first done"))
+            .unwrap();
+        assert_eq!(first.changed_files, vec!["first.rs".to_string()]);
+
+        let second = store
+            .claim_next_worker_task(&worker.worker_id)
+            .unwrap()
+            .unwrap();
+        let second_turn = store
+            .prepare_resumed_turn(&worker.worker_session_id, "second")
+            .unwrap();
+        store
+            .record_side_effect(
+                &second_turn,
+                SideEffectEvidence {
+                    tool_call_id: "t-second".into(),
+                    tool_name: "write_file".into(),
+                    succeeded: Some(true),
+                    duration_ms: Some(5),
+                    path: Some("second.rs".into()),
+                },
+            )
+            .unwrap();
+        store
+            .finish_turn(&second_turn, None, Some("second done"), None, None)
+            .unwrap();
+        let second = store
+            .finish_worker_task(&second.task_id, true, Some("second done"))
+            .unwrap();
+        // Only its own work — the first task's file must not appear here.
+        assert_eq!(second.changed_files, vec!["second.rs".to_string()]);
+        assert_eq!(second.verification.len(), 1);
     }
 
     #[test]

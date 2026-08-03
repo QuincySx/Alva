@@ -9,8 +9,12 @@ import {
   getGlobalFallbackPolicy,
   getHubSession,
   getPermissionEligibility,
+  addTeamWorker,
+  cancelWorkerTask,
   createTeamRun,
   dispatchWorkerTask,
+  interruptWorker,
+  updateWorkerTask,
   getRepairPlan,
   getTeamRunForLead,
   listHubSessions,
@@ -195,11 +199,17 @@ export default function App() {
   const [teamScope, setTeamScope] = useState("");
   const [teamWorkerEngine, setTeamWorkerEngine] = useState("codex");
   const [teamBusy, setTeamBusy] = useState(false);
+  const [dispatchWorkerId, setDispatchWorkerId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<string | null>(null);
+  const [editingScope, setEditingScope] = useState("");
   const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
   const [repairLogs, setRepairLogs] = useState<Record<string, string>>({});
   // Logic value: identifies the newest in-flight readiness request so a stale
   // response can never overwrite a fresher one.
   const readinessRequestRef = useRef(0);
+  // Logic value: the current lead session for team refreshes triggered from
+  // the long-lived timeline listener (state would be a stale closure there).
+  const teamLeadRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -207,6 +217,12 @@ export default function App() {
     void listenTimeline((event) => {
       if (active) {
         setTimeline((current) => [...current, event]);
+        // Worker pumps finish in the background — pull the fresh queue state.
+        if (event.status === "worker" && teamLeadRef.current) {
+          void getTeamRunForLead(teamLeadRef.current).then((run) => {
+            if (active) setTeamRun(run);
+          });
+        }
       }
     }).then((stop) => {
       if (active) {
@@ -372,6 +388,10 @@ export default function App() {
     setFallbackPolicy(detail.fallback_policy);
     setTimeline(projectTimeline(detail));
     // Last: a failed team fetch must not leave the session view half-loaded.
+    teamLeadRef.current = detail.session.product_session_id;
+    // A worker id from the previous run must never survive into this one.
+    setDispatchWorkerId(null);
+    setEditingTask(null);
     setTeamRun(await getTeamRunForLead(detail.session.product_session_id));
   }
 
@@ -489,19 +509,80 @@ export default function App() {
   async function dispatchTask() {
     const scope = teamScope.trim();
     if (!teamRun || !scope) return;
+    // Only a worker of THIS run is a valid target; a stale selection falls
+    // back to the first worker rather than being sent and rejected.
+    const selected = teamRun.workers.find(
+      (worker) => worker.worker_id === dispatchWorkerId,
+    );
+    const workerId = selected?.worker_id ?? teamRun.workers[0]?.worker_id ?? null;
+    if (!workerId) return;
     setTeamBusy(true);
     try {
-      await dispatchWorkerTask(teamRun.team_run_id, scope);
-      // Keep the typed scope on failure; clear only once dispatched.
+      await dispatchWorkerTask(teamRun.team_run_id, workerId, scope);
+      // Keep the typed scope on failure; clear only once queued.
       setTeamScope("");
       setTeamRun(await getTeamRunForLead(teamRun.lead_session_id));
-      if (activeSessionId) {
-        await loadSession(activeSessionId);
-      }
     } catch (error) {
       appendLocalFailure(error);
     } finally {
       setTeamBusy(false);
+    }
+  }
+
+  async function refreshTeam() {
+    if (!teamRun) return;
+    try {
+      setTeamRun(await getTeamRunForLead(teamRun.lead_session_id));
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function addWorker() {
+    if (!teamRun) return;
+    setTeamBusy(true);
+    try {
+      setTeamRun(await addTeamWorker(teamRun.team_run_id, teamWorkerEngine));
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setTeamBusy(false);
+    }
+  }
+
+  async function saveTaskEdit(taskId: string) {
+    try {
+      await updateWorkerTask(taskId, editingScope);
+      setEditingTask(null);
+      await refreshTeam();
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function cancelTask(taskId: string) {
+    try {
+      await cancelWorkerTask(taskId);
+      await refreshTeam();
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function openSessionById(productSessionId: string) {
+    try {
+      await loadSession(productSessionId);
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function interruptWorkerNow(workerSessionId: string) {
+    try {
+      await interruptWorker(workerSessionId);
+      await refreshTeam();
+    } catch (error) {
+      appendLocalFailure(error);
     }
   }
 
@@ -814,28 +895,117 @@ export default function App() {
             </>
           ) : (
             <>
-              <small className="team-worker-line">
-                Lead: {engine} · Worker: {teamRun.workers[0]?.engine_id ?? "?"}
-              </small>
-              {teamRun.tasks.map((task) => (
-                <div className="team-task" key={task.task_id}>
-                  <strong>{task.scope}</strong>
-                  <small>
-                    {task.status}
-                    {task.result ? ` — ${task.result}` : ""}
-                  </small>
-                  {task.changed_files.length > 0 ? (
-                    <small>Files: {task.changed_files.join(", ")}</small>
-                  ) : null}
-                  {task.verification.length > 0 ? (
-                    <small>{task.verification.length} evidence entries</small>
-                  ) : null}
-                </div>
-              ))}
+              <small className="team-worker-line">Lead: {engine}</small>
+              {teamRun.workers.map((worker) => {
+                const workerTasks = teamRun.tasks.filter(
+                  (task) => task.worker_id === worker.worker_id,
+                );
+                const workerRunning = workerTasks.some(
+                  (task) => task.status === "running",
+                );
+                return (
+                  <div className="team-worker" key={worker.worker_id}>
+                    <div className="team-worker-heading">
+                      <strong>Worker · {worker.engine_id}</strong>
+                      <div className="team-worker-controls">
+                        <button
+                          onClick={() =>
+                            void openSessionById(worker.worker_session_id)
+                          }
+                          type="button"
+                        >
+                          Focus
+                        </button>
+                        <button
+                          disabled={!workerRunning}
+                          onClick={() =>
+                            void interruptWorkerNow(worker.worker_session_id)
+                          }
+                          type="button"
+                        >
+                          Interrupt
+                        </button>
+                      </div>
+                    </div>
+                    {workerTasks.map((task) => (
+                      <div className="team-task" key={task.task_id}>
+                        {editingTask === task.task_id ? (
+                          <textarea
+                            className="team-scope"
+                            value={editingScope}
+                            onChange={(event) =>
+                              setEditingScope(event.target.value)
+                            }
+                          />
+                        ) : (
+                          <strong>{task.scope}</strong>
+                        )}
+                        <small>
+                          {task.status}
+                          {task.result ? ` — ${task.result}` : ""}
+                        </small>
+                        {task.changed_files.length > 0 ? (
+                          <small>Files: {task.changed_files.join(", ")}</small>
+                        ) : null}
+                        {task.verification.length > 0 ? (
+                          <small>
+                            {task.verification.length} evidence entries
+                          </small>
+                        ) : null}
+                        {task.status === "queued" ? (
+                          <div className="team-worker-controls">
+                            {editingTask === task.task_id ? (
+                              <button
+                                onClick={() => void saveTaskEdit(task.task_id)}
+                                type="button"
+                              >
+                                Save
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setEditingTask(task.task_id);
+                                  setEditingScope(task.scope);
+                                }}
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            <button
+                              onClick={() => void cancelTask(task.task_id)}
+                              type="button"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              <select
+                aria-label="Dispatch target worker"
+                value={
+                  teamRun.workers.some(
+                    (worker) => worker.worker_id === dispatchWorkerId,
+                  )
+                    ? (dispatchWorkerId as string)
+                    : (teamRun.workers[0]?.worker_id ?? "")
+                }
+                onChange={(event) => setDispatchWorkerId(event.target.value)}
+              >
+                {teamRun.workers.map((worker) => (
+                  <option key={worker.worker_id} value={worker.worker_id}>
+                    To worker on {worker.engine_id}
+                  </option>
+                ))}
+              </select>
               <textarea
                 aria-label="Worker task scope"
                 className="team-scope"
-                placeholder="Describe the task to dispatch to the worker…"
+                placeholder="Task to queue — or a message to the worker…"
                 value={teamScope}
                 onChange={(event) => setTeamScope(event.target.value)}
               />
@@ -845,8 +1015,28 @@ export default function App() {
                 onClick={() => void dispatchTask()}
                 type="button"
               >
-                {teamBusy ? "Worker running…" : "Dispatch to worker"}
+                {teamBusy ? "Queueing…" : "Queue for worker"}
               </button>
+              <div className="team-worker-controls">
+                <select
+                  aria-label="Additional worker engine"
+                  value={teamWorkerEngine}
+                  onChange={(event) => setTeamWorkerEngine(event.target.value)}
+                >
+                  {engineCatalog.map((target) => (
+                    <option key={target.engine_id} value={target.engine_id}>
+                      {target.engine_id}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  disabled={teamBusy}
+                  onClick={() => void addWorker()}
+                  type="button"
+                >
+                  Add worker
+                </button>
+              </div>
             </>
           )}
         </section>

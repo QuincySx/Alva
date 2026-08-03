@@ -418,6 +418,7 @@ export async function getTeamRunForLead(
 
 export async function dispatchWorkerTask(
   teamRunId: string,
+  workerId: string,
   scope: string,
 ): Promise<WorkerTask> {
   if (!hasTauri) {
@@ -425,8 +426,48 @@ export async function dispatchWorkerTask(
   }
   return await invoke<WorkerTask>("dispatch_worker_task", {
     teamRunId,
+    workerId,
     scope,
   });
+}
+
+export async function addTeamWorker(
+  teamRunId: string,
+  workerEngineId: string,
+): Promise<TeamRunDetail> {
+  if (!hasTauri) {
+    throw new Error("Team runs require the ALVA Hub desktop runtime.");
+  }
+  return await invoke<TeamRunDetail>("add_team_worker", {
+    teamRunId,
+    workerEngineId,
+  });
+}
+
+export async function updateWorkerTask(
+  taskId: string,
+  scope: string,
+): Promise<WorkerTask> {
+  if (!hasTauri) {
+    throw new Error("Task editing requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<WorkerTask>("update_worker_task", { taskId, scope });
+}
+
+export async function cancelWorkerTask(taskId: string): Promise<WorkerTask> {
+  if (!hasTauri) {
+    throw new Error("Task cancellation requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<WorkerTask>("cancel_worker_task", { taskId });
+}
+
+export async function interruptWorker(
+  workerSessionId: string,
+): Promise<void> {
+  if (!hasTauri) {
+    throw new Error("Worker interrupt requires the ALVA Hub desktop runtime.");
+  }
+  await invoke("interrupt_worker", { workerSessionId });
 }
 
 export type RepairKind = "install" | "upgrade" | "authenticate" | "configure";

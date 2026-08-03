@@ -30,6 +30,8 @@
 
 18. team walking skeleton（schema v8）：TeamRun 恰有一个 lead session；worker 是 Hub-owned durable hub_session（继承 lead workspace/profile、快照全局 policy、自选 EngineTarget），非 engine-private subagent；WorkerTask 记录 scope/status/result/changed files（来自 side-effect 证据 path，ToolEnd 合并保留 ToolStart 的 path）/verification；worker 终态经 `finish_worker_task` 落 lead timeline `worker_outcome` fact + live Worker card；`main::execute_session_run` 是用户 prompt 与 worker dispatch 共用的执行通道。
 
+19. 并行 worker 队列：每个 worker 独立持久 FIFO（status queued→running→终态/cancelled，`claim_next_worker_task` 原子领取并写 started_at，schema v9；证据窗口按 claim 时间而非入队时间，前一任务的 attempt 不会算进后一任务）；queued 任务可查看/编辑/取消，claim 后不可变；`add_team_worker` 支持多 engine 批次；`main` 每 worker 单 pump 消费（pumps set 防双泵，退出前 `has_queued_task` 复查防竞态遗漏），不同 worker 真并行、单 worker 串行；启动时为仍有 queued 任务的 worker 恢复 pump（重启不丢队列）；claim 时发 Worker 事件让 UI 及时看到 queued→running；interrupt = 对 worker session 复用 stop 机制（不清空队列，下一任务继续）。
+
 ## 约束
 
 - 产品测试从注入 `EngineRuntime` 的最高层 seam 进入。

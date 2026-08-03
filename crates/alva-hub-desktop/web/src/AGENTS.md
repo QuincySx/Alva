@@ -15,7 +15,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 5. fallback card 携带 Stop / Switch back / View handoff 控件：Stop 仅在运行中可用，Switch back 在已回源时禁用，View handoff 展开结构化 HandoffPackage；`attempt_cancelled` fact 投影为 cancelled card。
 6. 新 session 在 composer 顶栏选择 PermissionProfile（默认 workspace_write），session 打开后只读；engine selector 按 `get_permission_eligibility` 把只能弱化 profile 的 engine 标记 ineligible（禁用 + 原因），可执行映射的等价/更严格摘要就地展示。
 7. `permission_required` timeline card 携带 Allow/Deny 控件，经 `respond_hub_permission` 按 request_id 路由决定；已回答的卡片本地锁定不可重发。
-8. Team panel：为 active session 创建 TeamRun（选 worker engine）、向 worker 派发任务、展示 WorkerTask 状态/结果/文件/证据；`worker_outcome` fact 投影为 `worker` card。
+8. Team panel：为 active session 创建 TeamRun、Add worker（多 engine 并行批次）、按 worker 队列派发/Message；queued 任务就地 Edit/Cancel；每 worker Focus（打开其 durable session）与 Interrupt；`worker_outcome` fact 投影为 `worker` card，live worker 事件触发队列刷新（teamLeadRef 防 stale closure）。
 9. `index.css` 提供两栏 Desktop walking-skeleton 布局。
 
 ## 约束

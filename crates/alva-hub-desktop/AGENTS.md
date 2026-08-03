@@ -32,6 +32,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 18. TeamRun：lead session 可建团队并向不同 engine 的 Hub-owned durable WorkerSession 派发 WorkerTask（scope/status/result/changed files/验证证据），worker 终态经执行通道回 lead timeline 并在 UI 可见；全部关联在数据库重开后保持。
 
+19. Lead 可一批向多个不同 engine 的 worker 派发独立任务并行执行；每个 worker 有独立持久有序 queue，pending 任务消费前可查看/编辑/取消；用户可 focus/message/interrupt 指定 worker；outcome 保持 task/engine/验证归属。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。
