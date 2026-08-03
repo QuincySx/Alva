@@ -17,8 +17,9 @@ pub use alva::build_engine;
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use permissions::{
-    enforcement_for, permission_eligibility, EnforcementPlan, EnforcementRelation,
-    EngineEligibility, EngineEnforcement, PermissionProfile, PermissionRouter,
+    enforcement_for, permission_eligibility, permission_group_key, EnforcementPlan,
+    EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup, PermissionMember,
+    PermissionProfile, PermissionRouter,
 };
 pub use readiness::{
     capability_labels, classify_engine, probe_readiness, stream_health_from_outcome, EngineProbe,

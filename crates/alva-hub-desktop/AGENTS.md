@@ -42,6 +42,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 23. Lead 或某个 Worker 遇到 continuity failure 时只有该 session 进入 fallback：TeamRun identity、其他 session 与 queue 全部保留，兄弟 Worker 不被取消（并发测试证明一个 Worker fallback 时另一个继续推进到完成）；fallback TimelineEvent 明确归属发生 fallback 的那个 session；lead/worker 的 handoff 各自携带 TeamRun / WorkerTask+queue+证据快照。
 
+24. Lead 与 Worker 默认继承 HubSession PermissionProfile，建 Worker 不隐式放宽权限，每个 Worker 的 adapter mapping 都必须满足该 profile；autonomous TeamRun 需要独立、可见、持久化的用户选择；等价并发 PermissionRequest 合并为一张审批卡但逐条展示 Worker/操作/资源范围，一次 allow/deny 精确路由到全部被选请求并留审计记录。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

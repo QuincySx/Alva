@@ -29,7 +29,7 @@ struct DesktopState {
     active_engines: Mutex<HashMap<String, Arc<dyn EngineRuntime>>>,
     /// Pending engine permission requests keyed to the exact native session
     /// that asked, so user decisions never leak into a fallback engine.
-    permission_router: PermissionRouter,
+    permission_router: Arc<PermissionRouter>,
     /// Worker ids whose queue pump is currently running, so each worker's
     /// durable queue has at most one consumer.
     worker_pumps: Mutex<std::collections::HashSet<String>>,
@@ -80,7 +80,30 @@ async fn execute_session_run(
     let registry = Arc::new(Mutex::new(Vec::<String>::new()));
     let build_registry = Arc::clone(&registry);
     let engines = &state.active_engines;
-    let router = &state.permission_router;
+    let router: &Arc<PermissionRouter> = &state.permission_router;
+    let autonomy_store = state.store.clone();
+    // How this session shows up on a grouped approval card: aggregation must
+    // never hide WHICH worker is asking.
+    let session_key = request.product_session_id.clone().unwrap_or_default();
+    let requester_label = match state.store.team_worker_label(&session_key) {
+        Ok(Some(label)) => label,
+        Ok(None) => format!("{} session", request.engine_id),
+        Err(error) => {
+            tracing::warn!(%error, "failed to label the approval requester");
+            format!("{} session", request.engine_id)
+        }
+    };
+    // Approvals only ever merge within one collaboration scope.
+    let approval_scope = state
+        .store
+        .collaboration_scope(&session_key)
+        .unwrap_or_else(|_| session_key.clone());
+    // Autonomy is an explicit per-run choice; it decides whether a RAISED
+    // request still needs a human, never what the engine may attempt.
+    let autonomous_run = state
+        .store
+        .is_autonomous_scope(&session_key)
+        .unwrap_or(false);
     let outcome = run_persisted(
         &state.store,
         move |target, product_session_id, permission_profile| {
@@ -126,6 +149,14 @@ async fn execute_session_run(
                         &info.request_id,
                         engine,
                         &info.engine_session_id,
+                        alva_hub_desktop::PermissionMember {
+                            scope: approval_scope.clone(),
+                            product_session_id: event.product_session_id.clone(),
+                            request_id: info.request_id.clone(),
+                            requester: requester_label.clone(),
+                            tool_name: info.tool_name.clone(),
+                            resource: info.resource.clone(),
+                        },
                     ),
                     None => tracing::warn!(
                         product_session = %event.product_session_id,
@@ -133,6 +164,40 @@ async fn execute_session_run(
                         "permission request arrived without a live engine registration; \
                          the approval card will not be answerable"
                     ),
+                }
+                if autonomous_run {
+                    // The user opted this run out of per-request approval:
+                    // answer it here, and still leave an audit trail.
+                    let router = Arc::clone(router);
+                    let store = autonomy_store.clone();
+                    let session = event.product_session_id.clone();
+                    let request_id = info.request_id.clone();
+                    let tool_name = info.tool_name.clone();
+                    let resource = info.resource.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = router
+                            .respond(
+                                &session,
+                                &request_id,
+                                PermissionDecision::Allow {
+                                    updated_input: None,
+                                },
+                            )
+                            .await
+                        {
+                            tracing::warn!(%error, "autonomous approval could not be delivered");
+                            return;
+                        }
+                        let summary = format!(
+                            "Auto-allowed '{tool_name}'{} (autonomous TeamRun)",
+                            resource
+                                .map(|resource| format!(" on {resource}"))
+                                .unwrap_or_default()
+                        );
+                        if let Err(error) = store.record_permission_decision(&session, &summary) {
+                            tracing::warn!(%error, "failed to record autonomous approval");
+                        }
+                    });
                 }
             }
             if matches!(
@@ -191,6 +256,86 @@ async fn respond_hub_permission(
         .permission_router
         .respond(&request.product_session_id, &request.request_id, decision)
         .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GroupDecisionRequest {
+    group_key: String,
+    allow: bool,
+    message: Option<String>,
+    /// Optional subset: when present, only these request ids are answered,
+    /// so a user can approve some members of an equivalent group and leave
+    /// the rest pending.
+    request_ids: Option<Vec<String>>,
+}
+
+/// Pending approvals, merged by equivalence for a single card.
+#[tauri::command]
+fn get_permission_groups(state: State<'_, DesktopState>) -> Vec<alva_hub_desktop::PermissionGroup> {
+    state.permission_router.groups()
+}
+
+/// Answer every (selected) member of one equivalence group, and record what
+/// the decision covered.
+#[tauri::command]
+async fn respond_permission_group(
+    state: State<'_, DesktopState>,
+    request: GroupDecisionRequest,
+) -> Result<usize, String> {
+    let mut members = state.permission_router.group_members(&request.group_key);
+    if let Some(selected) = &request.request_ids {
+        members.retain(|member| selected.contains(&member.request_id));
+    }
+    if members.is_empty() {
+        return Err("those approval requests are no longer pending".to_string());
+    }
+    let outcome = state
+        .permission_router
+        .respond_many(&members, request.allow, request.message.clone())
+        .await?;
+    let answered = outcome.answered.clone();
+    // Audit on each covered session: a grouped decision must be traceable
+    // back to every request it actually answered.
+    for member in &answered {
+        let summary = format!(
+            "{} '{}'{} for {} (grouped decision covering {} request(s))",
+            if request.allow { "Allowed" } else { "Denied" },
+            member.tool_name,
+            member
+                .resource
+                .as_deref()
+                .map(|resource| format!(" on {resource}"))
+                .unwrap_or_default(),
+            member.requester,
+            answered.len()
+        );
+        if let Err(error) = state
+            .store
+            .record_permission_decision(&member.product_session_id, &summary)
+        {
+            tracing::warn!(%error, "failed to record Hub approval audit");
+        }
+    }
+    if !outcome.failures.is_empty() {
+        // Some engines were told and others were not — the user must see it.
+        return Err(format!(
+            "answered {} of {} request(s); the rest could not be delivered: {}",
+            answered.len(),
+            members.len(),
+            outcome.failures.join("; ")
+        ));
+    }
+    Ok(answered.len())
+}
+
+#[tauri::command]
+fn set_team_autonomy(
+    state: State<'_, DesktopState>,
+    team_run_id: String,
+    autonomous: bool,
+) -> Result<alva_hub_desktop::TeamRunDetail, String> {
+    state.store.set_team_autonomy(&team_run_id, autonomous)
 }
 
 #[tauri::command]
@@ -999,7 +1144,7 @@ fn main() {
                 active_engines: Mutex::new(HashMap::new()),
                 worker_pumps: Mutex::new(std::collections::HashSet::new()),
                 worktree_root: alva_hub_desktop::worktree_root(&data_dir),
-                permission_router: PermissionRouter::new(),
+                permission_router: Arc::new(PermissionRouter::new()),
             });
             // Durable queues survive restarts: resume a pump for every worker
             // that still has queued work.
@@ -1020,6 +1165,9 @@ fn main() {
             stop_hub_attempt,
             respond_hub_permission,
             get_permission_eligibility,
+            get_permission_groups,
+            respond_permission_group,
+            set_team_autonomy,
             set_transcript_sharing,
             get_repair_plan,
             run_engine_repair,

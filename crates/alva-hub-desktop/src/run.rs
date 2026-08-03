@@ -60,6 +60,10 @@ pub struct PermissionRequestInfo {
     pub tool_name: String,
     pub description: Option<String>,
     pub engine_session_id: String,
+    /// The resource the tool is asking to act on, when the adapter names
+    /// one. Two requests are only equivalent if this matches.
+    #[serde(default)]
+    pub resource: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -425,6 +429,21 @@ fn tool_input_path(input: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// What a permission request is asking to act ON — a path, or the command
+/// itself for shell-shaped tools. Approval grouping keys off this, so a
+/// missing value must mean "cannot be judged equivalent", never "same".
+fn permission_resource(input: &serde_json::Value) -> Option<String> {
+    if let Some(path) = tool_input_path(input) {
+        return Some(path);
+    }
+    for field in ["command", "cmd", "script", "query", "url"] {
+        if let Some(value) = input.get(field).and_then(serde_json::Value::as_str) {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
 /// Bounded excerpt for timeline log lines.
 fn brief(text: &str) -> String {
     let text = text.trim().replace('\n', " ");
@@ -611,7 +630,7 @@ where
                 request_id,
                 tool_name,
                 description,
-                ..
+                tool_input,
             } => {
                 // Surface the request with its engine-session routing identity
                 // so the Desktop layer can deliver the decision to the exact
@@ -635,6 +654,7 @@ where
                                 tool_name,
                                 description,
                                 engine_session_id: routable_session_id,
+                                resource: permission_resource(&tool_input),
                             }),
                         });
                     }

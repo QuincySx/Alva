@@ -9,6 +9,9 @@ import {
   getGlobalFallbackPolicy,
   getHubSession,
   getPermissionEligibility,
+  getPermissionGroups,
+  respondPermissionGroup,
+  setTeamAutonomy,
   addTeamWorker,
   adoptWorkerWork,
   archiveWorker,
@@ -41,6 +44,7 @@ import {
   type HandoffPackage,
   type HubSessionDetail,
   type HubSessionSummary,
+  type PermissionGroup,
   type PermissionProfile,
   type ReadinessReason,
   type RepairAction,
@@ -177,7 +181,9 @@ function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
             ? ("fallback" as const)
             : event.kind === "fallback_exhausted"
               ? ("exhausted" as const)
-              : event.kind === "worker_outcome" ||
+              : event.kind === "permission_decision"
+                ? ("permission_required" as const)
+                : event.kind === "worker_outcome" ||
                   event.kind === "resource_wait" ||
                   event.kind === "worktree_adopted" ||
                   event.kind === "worktree_discarded"
@@ -191,6 +197,7 @@ function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
         : event.kind === "fallback_exhausted" ||
             event.kind === "attempt_cancelled" ||
             event.kind === "worker_outcome" ||
+            event.kind === "permission_decision" ||
             event.kind === "resource_wait" ||
             event.kind === "worktree_adopted" ||
             event.kind === "worktree_discarded"
@@ -249,6 +256,7 @@ export default function App() {
   const [teamClaims, setTeamClaims] = useState("");
   const [isolateWorker, setIsolateWorker] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [approvalGroups, setApprovalGroups] = useState<PermissionGroup[]>([]);
   const [adoption, setAdoption] = useState<
     Record<string, AdoptionPreview | undefined>
   >({});
@@ -269,6 +277,12 @@ export default function App() {
     void listenTimeline((event) => {
       if (active) {
         setTimeline((current) => [...current, event]);
+        // A new approval request may merge with others: refresh the cards.
+        if (event.status === "permission_required") {
+          void getPermissionGroups().then((groups) => {
+            if (active) setApprovalGroups(groups);
+          });
+        }
         // Worker pumps finish in the background — pull the fresh queue state.
         if (event.status === "worker" && teamLeadRef.current) {
           void getTeamRunForLead(teamLeadRef.current).then((run) => {
@@ -290,6 +304,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    void getPermissionGroups().then(setApprovalGroups).catch(() => {});
     void refreshSessions();
     void loadGlobalFallbackPolicy().catch(appendLocalFailure);
   }, []);
@@ -618,6 +633,42 @@ export default function App() {
     }
   }
 
+  async function decideApprovalGroup(group: PermissionGroup, allow: boolean) {
+    try {
+      // Exactly the members this card displayed — never whatever happens to
+      // be pending by the time the click lands.
+      await respondPermissionGroup(
+        group.group_key,
+        allow,
+        group.members.map((member) => member.request_id),
+      );
+      setApprovalGroups(await getPermissionGroups());
+      // The individual cards for those members are answered too.
+      setAnsweredPermissions((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          group.members.map((member) => [
+            member.request_id,
+            allow ? ("allowed" as const) : ("denied" as const),
+          ]),
+        ),
+      }));
+    } catch (error) {
+      appendLocalFailure(error);
+      // A partial delivery still changed some engines: resync.
+      setApprovalGroups(await getPermissionGroups().catch(() => []));
+    }
+  }
+
+  async function toggleAutonomy(enabled: boolean) {
+    if (!teamRun) return;
+    try {
+      setTeamRun(await setTeamAutonomy(teamRun.team_run_id, enabled));
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
   async function changeWorkerLifecycle(
     workerId: string,
     action: "hibernate" | "restore" | "archive",
@@ -727,6 +778,14 @@ export default function App() {
     await selectEngine(sourceEngineId);
   }
 
+  async function refreshApprovalGroups() {
+    try {
+      setApprovalGroups(await getPermissionGroups());
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
   async function answerPermission(
     productSessionId: string,
     requestId: string,
@@ -738,6 +797,8 @@ export default function App() {
         ...current,
         [requestId]: allow ? "allowed" : "denied",
       }));
+      // A group card must not keep offering a request that is now answered.
+      await refreshApprovalGroups();
     } catch (error) {
       appendLocalFailure(error);
     }
@@ -1315,6 +1376,16 @@ export default function App() {
                 </button>
                 <label className="transcript-toggle">
                   <input
+                    checked={teamRun.autonomous}
+                    onChange={(event) =>
+                      void toggleAutonomy(event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  Autonomous run (no per-request approval)
+                </label>
+                <label className="transcript-toggle">
+                  <input
                     checked={showArchived}
                     onChange={(event) => setShowArchived(event.target.checked)}
                     type="checkbox"
@@ -1459,6 +1530,11 @@ export default function App() {
                     The previous runtime is gone. Continue safely from the composer below.
                   </small>
                 ) : null}
+                {entry.permission_request?.resource ? (
+                  <small className="timeline-hint">
+                    Resource: {entry.permission_request.resource}
+                  </small>
+                ) : null}
                 {entry.permission_request ? (
                   <div className="permission-card">
                     {entry.permission_request.description ? (
@@ -1596,6 +1672,40 @@ export default function App() {
             ))
           )}
         </section>
+
+        {approvalGroups
+          .filter((group) => group.members.length > 1)
+          .map((group) => (
+            <div className="approval-group" key={group.group_key} role="status">
+              <strong>
+                {group.members.length} workers want to run &apos;{group.tool_name}&apos;
+                {group.members[0]?.resource
+                  ? ` on ${group.members[0].resource}`
+                  : ""}
+              </strong>
+              {/* Aggregation must never hide who is asking for what. */}
+              {group.members.map((member) => (
+                <small key={member.request_id}>
+                  {member.requester} · {member.tool_name}
+                  {member.resource ? ` · ${member.resource}` : ""}
+                </small>
+              ))}
+              <div className="team-worker-controls">
+                <button
+                  onClick={() => void decideApprovalGroup(group, true)}
+                  type="button"
+                >
+                  Allow all {group.members.length}
+                </button>
+                <button
+                  onClick={() => void decideApprovalGroup(group, false)}
+                  type="button"
+                >
+                  Deny all
+                </button>
+              </div>
+            </div>
+          ))}
 
         {(() => {
           const selectedId = pendingEngine ?? engine;

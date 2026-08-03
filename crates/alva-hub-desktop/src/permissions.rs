@@ -185,6 +185,62 @@ pub fn permission_eligibility(profile: PermissionProfile) -> Vec<EngineEligibili
 struct PendingPermission {
     engine: Arc<dyn EngineRuntime>,
     engine_session_id: String,
+    /// What the request is asking for, so equivalent asks can be shown as
+    /// one card without hiding which worker wants what.
+    member: PermissionMember,
+}
+
+/// One request inside a (possibly grouped) approval card. Every field the
+/// user needs to judge it stays per-request: aggregation must never hide the
+/// worker, the action, or the resource scope.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PermissionMember {
+    /// Collaboration scope this request belongs to (team run id, or the
+    /// session id when solo). Requests from unrelated scopes must never
+    /// merge onto one card.
+    pub scope: String,
+    pub product_session_id: String,
+    pub request_id: String,
+    /// Human label for the requesting session (worker engine, or "lead").
+    pub requester: String,
+    pub tool_name: String,
+    pub resource: Option<String>,
+}
+
+/// What a grouped decision actually achieved.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GroupDecisionOutcome {
+    pub answered: Vec<PermissionMember>,
+    /// Members that could not be answered — surfaced, not logged away.
+    pub failures: Vec<String>,
+}
+
+/// Equivalent concurrent requests, merged for one decision.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PermissionGroup {
+    pub group_key: String,
+    pub tool_name: String,
+    pub members: Vec<PermissionMember>,
+}
+
+/// Two requests are equivalent when they come from the same collaboration
+/// scope and ask for the same action on the same resource — deliberately NOT
+/// "same tool", which would merge a write to one file with a write to
+/// another, or `rm -rf` with `ls`.
+///
+/// A request whose resource is unknown is NEVER equivalent to anything: it
+/// gets a key of its own, so an un-inspectable action can never ride along
+/// on someone else's approval.
+pub fn permission_group_key(
+    scope: &str,
+    tool_name: &str,
+    resource: Option<&str>,
+    request_id: &str,
+) -> String {
+    match resource {
+        Some(resource) => format!("{scope}::{tool_name}::{resource}"),
+        None => format!("{scope}::{tool_name}::unknown::{request_id}"),
+    }
 }
 
 /// Routes user permission decisions back to the exact engine session that
@@ -206,6 +262,7 @@ impl PermissionRouter {
         request_id: &str,
         engine: Arc<dyn EngineRuntime>,
         engine_session_id: &str,
+        member: PermissionMember,
     ) {
         self.pending
             .lock()
@@ -215,8 +272,51 @@ impl PermissionRouter {
                 PendingPermission {
                     engine,
                     engine_session_id: engine_session_id.to_string(),
+                    member,
                 },
             );
+    }
+
+    /// Pending requests, merged by equivalence. Ordering is stable so the
+    /// card does not reshuffle under the user's cursor.
+    pub fn groups(&self) -> Vec<PermissionGroup> {
+        let pending = self.pending.lock().expect("permission router poisoned");
+        let mut groups: Vec<PermissionGroup> = Vec::new();
+        let mut members: Vec<&PermissionMember> =
+            pending.values().map(|entry| &entry.member).collect();
+        members.sort_by(|left, right| {
+            left.tool_name
+                .cmp(&right.tool_name)
+                .then(left.resource.cmp(&right.resource))
+                .then(left.requester.cmp(&right.requester))
+                .then(left.request_id.cmp(&right.request_id))
+        });
+        for member in members {
+            let key = permission_group_key(
+                &member.scope,
+                &member.tool_name,
+                member.resource.as_deref(),
+                &member.request_id,
+            );
+            match groups.iter_mut().find(|group| group.group_key == key) {
+                Some(group) => group.members.push(member.clone()),
+                None => groups.push(PermissionGroup {
+                    group_key: key,
+                    tool_name: member.tool_name.clone(),
+                    members: vec![member.clone()],
+                }),
+            }
+        }
+        groups
+    }
+
+    /// Every pending request that belongs to one equivalence group.
+    pub fn group_members(&self, group_key: &str) -> Vec<PermissionMember> {
+        self.groups()
+            .into_iter()
+            .find(|group| group.group_key == group_key)
+            .map(|group| group.members)
+            .unwrap_or_default()
     }
 
     pub async fn respond(
@@ -241,6 +341,46 @@ impl PermissionRouter {
             .respond_permission(&pending.engine_session_id, request_id, decision)
             .await
             .map_err(|error| error.to_string())
+    }
+
+    /// Deliver one decision to several equivalent requests. Returns the
+    /// members it actually answered, so the caller can audit precisely what
+    /// the choice covered; a member that vanished mid-decision is reported
+    /// rather than silently dropped.
+    pub async fn respond_many(
+        &self,
+        members: &[PermissionMember],
+        allow: bool,
+        deny_message: Option<String>,
+    ) -> Result<GroupDecisionOutcome, String> {
+        let mut answered = Vec::new();
+        let mut failures = Vec::new();
+        for member in members {
+            let decision = if allow {
+                PermissionDecision::Allow {
+                    updated_input: None,
+                }
+            } else {
+                PermissionDecision::Deny {
+                    message: deny_message
+                        .clone()
+                        .unwrap_or_else(|| "Denied by the user".to_string()),
+                }
+            };
+            match self
+                .respond(&member.product_session_id, &member.request_id, decision)
+                .await
+            {
+                Ok(()) => answered.push(member.clone()),
+                Err(error) => failures.push(format!("{}: {error}", member.requester)),
+            }
+        }
+        if answered.is_empty() && !failures.is_empty() {
+            return Err(failures.join("; "));
+        }
+        // A partially-applied decision is reported, never swallowed: some
+        // engines were told and others were not.
+        Ok(GroupDecisionOutcome { answered, failures })
     }
 
     /// Drop every pending request of a session — the attempt reached a
@@ -270,6 +410,142 @@ mod tests {
     use futures_core::Stream;
 
     use super::*;
+
+    fn member(
+        session: &str,
+        request: &str,
+        requester: &str,
+        resource: Option<&str>,
+    ) -> PermissionMember {
+        PermissionMember {
+            scope: "run-1".into(),
+            product_session_id: session.into(),
+            request_id: request.into(),
+            requester: requester.into(),
+            tool_name: "write_file".into(),
+            resource: resource.map(String::from),
+        }
+    }
+
+    #[tokio::test]
+    async fn one_decision_routes_to_every_member_of_an_equivalence_group() {
+        let router = PermissionRouter::new();
+        let alva = Arc::new(RecordingEngine::new());
+        let codex = Arc::new(RecordingEngine::new());
+        // Two workers want to write the SAME file: equivalent.
+        router.register(
+            "worker-a",
+            "req-1",
+            Arc::clone(&alva) as Arc<dyn EngineRuntime>,
+            "alva-native",
+            member("worker-a", "req-1", "worker on alva", Some("src/lib.rs")),
+        );
+        router.register(
+            "worker-b",
+            "req-2",
+            Arc::clone(&codex) as Arc<dyn EngineRuntime>,
+            "codex-native",
+            member("worker-b", "req-2", "worker on codex", Some("src/lib.rs")),
+        );
+        // A third wants a different file: must NOT be merged in.
+        router.register(
+            "worker-c",
+            "req-3",
+            Arc::clone(&codex) as Arc<dyn EngineRuntime>,
+            "codex-native",
+            member("worker-c", "req-3", "worker on codex", Some("src/other.rs")),
+        );
+
+        let groups = router.groups();
+        assert_eq!(groups.len(), 2);
+        let shared = groups
+            .iter()
+            .find(|group| group.group_key.ends_with("::src/lib.rs"))
+            .unwrap();
+        assert_eq!(shared.members.len(), 2);
+        // The card can name every requester, action and resource.
+        let requesters: Vec<_> = shared
+            .members
+            .iter()
+            .map(|member| member.requester.as_str())
+            .collect();
+        assert!(requesters.contains(&"worker on alva"));
+        assert!(requesters.contains(&"worker on codex"));
+
+        // One allow answers both members, and only those.
+        let outcome = router
+            .respond_many(&shared.members.clone(), true, None)
+            .await
+            .unwrap();
+        assert_eq!(outcome.answered.len(), 2);
+        assert!(outcome.failures.is_empty());
+        assert_eq!(alva.responses.lock().unwrap().len(), 1);
+        assert_eq!(codex.responses.lock().unwrap().len(), 1);
+        // The unrelated request is still pending and answerable on its own.
+        assert_eq!(router.groups().len(), 1);
+        assert_eq!(router.group_members(&groups[0].group_key).len(), 0);
+
+        // Members are single-use: replaying the same group is refused.
+        let replay = router.respond_many(&shared.members, true, None).await;
+        assert!(replay.is_err());
+    }
+
+    #[test]
+    fn only_same_scope_same_action_same_resource_is_equivalent() {
+        assert_eq!(
+            permission_group_key("run-1", "write_file", Some("src/lib.rs"), "r1"),
+            permission_group_key("run-1", "write_file", Some("src/lib.rs"), "r2")
+        );
+        // Same tool, different resource: merging these would hide which file
+        // the user is approving.
+        assert_ne!(
+            permission_group_key("run-1", "write_file", Some("src/a.rs"), "r1"),
+            permission_group_key("run-1", "write_file", Some("src/b.rs"), "r2")
+        );
+        // Different tool, same resource.
+        assert_ne!(
+            permission_group_key("run-1", "write_file", Some("src/a.rs"), "r1"),
+            permission_group_key("run-1", "run_command", Some("src/a.rs"), "r2")
+        );
+        // Different collaboration scope never merges.
+        assert_ne!(
+            permission_group_key("run-1", "write_file", Some("src/a.rs"), "r1"),
+            permission_group_key("run-2", "write_file", Some("src/a.rs"), "r2")
+        );
+        // UNKNOWN resource is never equivalent to anything, including
+        // another unknown: `rm -rf` must not ride along on `ls`.
+        assert_ne!(
+            permission_group_key("run-1", "execute_shell", None, "r1"),
+            permission_group_key("run-1", "execute_shell", None, "r2")
+        );
+    }
+
+    #[tokio::test]
+    async fn requests_with_unknown_resources_never_merge_onto_one_card() {
+        let router = PermissionRouter::new();
+        let engine = Arc::new(RecordingEngine::new());
+        for (index, request) in ["req-rm", "req-ls"].iter().enumerate() {
+            router.register(
+                "worker-a",
+                request,
+                Arc::clone(&engine) as Arc<dyn EngineRuntime>,
+                "native",
+                PermissionMember {
+                    scope: "run-1".into(),
+                    product_session_id: "worker-a".into(),
+                    request_id: (*request).into(),
+                    requester: format!("worker {index}"),
+                    tool_name: "execute_shell".into(),
+                    // The adapter gave us no inspectable resource.
+                    resource: None,
+                },
+            );
+        }
+        // Two separate cards: one approval can never cover both commands.
+        let groups = router.groups();
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.members.len() == 1));
+    }
 
     type ContractRow = (
         &'static str,
@@ -459,6 +735,7 @@ mod tests {
             "req-1",
             Arc::clone(&source) as Arc<dyn EngineRuntime>,
             "engine-session-a",
+            member("product-1", "req-1", "session", None),
         );
         // A later attempt on another engine must not steal the decision.
         router.register(
@@ -466,6 +743,7 @@ mod tests {
             "req-2",
             Arc::clone(&fallback_engine) as Arc<dyn EngineRuntime>,
             "engine-session-b",
+            member("product-1", "req-2", "session", None),
         );
 
         router
@@ -495,6 +773,7 @@ mod tests {
             "req-1",
             Arc::clone(&engine) as Arc<dyn EngineRuntime>,
             "engine-session-a",
+            member("product-1", "req-1", "session", None),
         );
         router
             .respond(
@@ -530,12 +809,14 @@ mod tests {
             "req-1",
             Arc::clone(&engine) as Arc<dyn EngineRuntime>,
             "engine-session-a",
+            member("product-1", "req-1", "session", None),
         );
         router.register(
             "product-2",
             "req-1",
             Arc::clone(&engine) as Arc<dyn EngineRuntime>,
             "engine-session-b",
+            member("product-2", "req-1", "session", None),
         );
 
         router.clear_session("product-1");

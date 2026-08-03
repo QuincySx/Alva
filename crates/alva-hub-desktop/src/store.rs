@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -226,6 +226,9 @@ pub struct TranscriptTurn {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct TeamRunDetail {
     pub team_run_id: String,
+    /// Explicit, persisted user choice: may this run's workers proceed
+    /// without per-request approval? Never set implicitly.
+    pub autonomous: bool,
     /// Exactly one lead per run — the HubSession the tech lead works in.
     pub lead_session_id: String,
     pub status: String,
@@ -1406,6 +1409,12 @@ impl HubStore {
             .map_err(|error| format!("begin Hub team run transaction: {error}"))?;
         let lead = query_session(&transaction, lead_session_id)?
             .ok_or_else(|| format!("Hub session '{lead_session_id}' was not found"))?;
+        // A worker inherits the lead's profile and must be able to enforce
+        // it; creating a worker is never a route to weaker permissions.
+        crate::permissions::enforcement_for(&worker_target.engine_id, lead.permission_profile)
+            .map_err(|reason| {
+                format!("worker engine cannot honour this session's permissions: {reason}")
+            })?;
         transaction
             .execute(
                 "INSERT INTO team_runs (team_run_id, lead_session_id, status, created_at)
@@ -1541,6 +1550,10 @@ impl HubStore {
             .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
         let lead = query_session(&transaction, &lead_session_id)?
             .ok_or_else(|| format!("Hub session '{lead_session_id}' was not found"))?;
+        crate::permissions::enforcement_for(&worker_target.engine_id, lead.permission_profile)
+            .map_err(|reason| {
+                format!("worker engine cannot honour this session's permissions: {reason}")
+            })?;
         let run_status: String = transaction
             .query_row(
                 "SELECT status FROM team_runs WHERE team_run_id = ?1",
@@ -1916,6 +1929,135 @@ impl HubStore {
             .commit()
             .map_err(|error| format!("commit Hub worktree attach: {error}"))?;
         Ok(())
+    }
+
+    /// Human label for a session inside a team run ("worker on codex" /
+    /// "lead"), or None for a session that is not part of one.
+    pub fn team_worker_label(&self, product_session_id: &str) -> Result<Option<String>, String> {
+        if product_session_id.is_empty() {
+            return Ok(None);
+        }
+        let connection = self.lock()?;
+        let worker: Option<String> = connection
+            .query_row(
+                "SELECT eb.engine_id FROM team_workers tw
+                   JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                   JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
+                  WHERE tw.worker_session_id = ?1",
+                [product_session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub worker label: {error}"))?;
+        if let Some(engine) = worker {
+            return Ok(Some(format!("worker on {engine}")));
+        }
+        let lead: Option<i64> = connection
+            .query_row(
+                "SELECT 1 FROM team_runs WHERE lead_session_id = ?1 LIMIT 1",
+                [product_session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub lead label: {error}"))?;
+        Ok(lead.map(|_| "team lead".to_string()))
+    }
+
+    /// Collaboration scope of a session: its team run id when it belongs to
+    /// one, otherwise the session itself. Approvals only merge inside one.
+    pub fn collaboration_scope(&self, product_session_id: &str) -> Result<String, String> {
+        if product_session_id.is_empty() {
+            return Ok(String::new());
+        }
+        let connection = self.lock()?;
+        let run: Option<String> = connection
+            .query_row(
+                "SELECT team_run_id FROM team_workers WHERE worker_session_id = ?1
+                 UNION ALL
+                 SELECT team_run_id FROM team_runs WHERE lead_session_id = ?1
+                 LIMIT 1",
+                [product_session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub collaboration scope: {error}"))?;
+        Ok(run.unwrap_or_else(|| product_session_id.to_string()))
+    }
+
+    /// Is this session part of a run the user explicitly made autonomous?
+    pub fn is_autonomous_scope(&self, product_session_id: &str) -> Result<bool, String> {
+        if product_session_id.is_empty() {
+            return Ok(false);
+        }
+        let connection = self.lock()?;
+        let autonomous: Option<bool> = connection
+            .query_row(
+                "SELECT tr.autonomous FROM team_runs tr
+                  WHERE tr.lead_session_id = ?1
+                     OR tr.team_run_id = (
+                       SELECT team_run_id FROM team_workers WHERE worker_session_id = ?1
+                     )
+                  LIMIT 1",
+                [product_session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub autonomy: {error}"))?;
+        Ok(autonomous.unwrap_or(false))
+    }
+
+    /// Audit trail for an approval decision: which sessions it covered,
+    /// what was asked, and what the user chose.
+    pub fn record_permission_decision(
+        &self,
+        product_session_id: &str,
+        summary: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub approval audit transaction: {error}"))?;
+        let session = query_session(&transaction, product_session_id)?
+            .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "permission_decision",
+            &session.active_branch_id,
+            None,
+            &session.engine_id,
+            &session.engine_id,
+            &crate::redact::redact_text(summary),
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub approval audit: {error}"))?;
+        Ok(())
+    }
+
+    /// Turn autonomous execution on or off for a run. Independent of the
+    /// PermissionProfile: autonomy decides whether RAISED requests still
+    /// need a human, never what the engine is allowed to attempt.
+    pub fn set_team_autonomy(
+        &self,
+        team_run_id: &str,
+        autonomous: bool,
+    ) -> Result<TeamRunDetail, String> {
+        let connection = self.lock()?;
+        let changed = connection
+            .execute(
+                "UPDATE team_runs SET autonomous = ?2 WHERE team_run_id = ?1",
+                params![team_run_id, autonomous],
+            )
+            .map_err(|error| format!("persist Hub team autonomy: {error}"))?;
+        if changed != 1 {
+            return Err(format!("team run '{team_run_id}' was not found"));
+        }
+        drop(connection);
+        self.get_team_run(team_run_id)?
+            .ok_or_else(|| "team run vanished after autonomy change".to_string())
     }
 
     /// Move a worker between lifecycle states. Hibernating and archiving
@@ -3646,7 +3788,7 @@ fn query_team_run(
 ) -> Result<Option<TeamRunDetail>, String> {
     let run = connection
         .query_row(
-            "SELECT team_run_id, lead_session_id, status, created_at
+            "SELECT team_run_id, lead_session_id, status, created_at, autonomous
                FROM team_runs WHERE team_run_id = ?1",
             [team_run_id],
             |row| {
@@ -3655,12 +3797,13 @@ fn query_team_run(
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
+                    row.get::<_, bool>(4)?,
                 ))
             },
         )
         .optional()
         .map_err(|error| format!("query Hub team run: {error}"))?;
-    let Some((team_run_id, lead_session_id, status, created_at)) = run else {
+    let Some((team_run_id, lead_session_id, status, created_at, autonomous)) = run else {
         return Ok(None);
     };
     let mut worker_statement = connection
@@ -3714,6 +3857,7 @@ fn query_team_run(
     }
     Ok(Some(TeamRunDetail {
         team_run_id,
+        autonomous,
         lead_session_id,
         status,
         workers,
@@ -4094,6 +4238,16 @@ fn initialize_schema_and_recover(
                    ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active';",
             )
             .map_err(|error| format!("migrate Hub database to schema 12: {error}"))?;
+    }
+
+    if schema_version < 13 {
+        // Autonomy is a separate, explicit opt-in — never implied by
+        // creating a run or a worker.
+        transaction
+            .execute_batch(
+                "ALTER TABLE team_runs ADD COLUMN autonomous INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 13: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -4731,7 +4885,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 13).unwrap();
+        connection.pragma_update(None, "user_version", 14).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -4743,7 +4897,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
     }
 
     #[test]
@@ -6481,6 +6635,90 @@ mod tests {
             .timeline_events
             .iter()
             .any(|event| event.kind == "engine_fallback"));
+    }
+
+    #[test]
+    fn team_creation_inherits_permissions_and_never_widens_them() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        // An interactive session: only alva can honour it (claude/codex can
+        // merely weaken it), per the adapter mapping contract.
+        let lead = store
+            .prepare_new_turn(
+                "perm-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::Interactive,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+
+        // Creating a worker is NOT a way around the profile.
+        let refused = store
+            .create_team_run("perm-lead", &EngineTarget::for_engine("claude").unwrap())
+            .unwrap_err();
+        assert!(refused.contains("cannot honour"), "{refused}");
+
+        let run = store
+            .create_team_run("perm-lead", &EngineTarget::for_engine("alva").unwrap())
+            .unwrap();
+        // Autonomy is off until the user says otherwise.
+        assert!(!run.autonomous);
+        // The worker inherited the lead's profile verbatim.
+        let worker_session = store
+            .get_session(&run.workers[0].worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            worker_session.session.permission_profile,
+            PermissionProfile::Interactive
+        );
+        // Adding a weaker-only engine is refused too.
+        let refused = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("codex").unwrap(),
+                None,
+            )
+            .unwrap_err();
+        assert!(refused.contains("cannot honour"), "{refused}");
+
+        // Autonomy is an explicit, persisted, independently visible choice.
+        let autonomous = store.set_team_autonomy(&run.team_run_id, true).unwrap();
+        assert!(autonomous.autonomous);
+        // ...and it does not touch anyone's PermissionProfile.
+        assert_eq!(
+            store
+                .get_session(&run.workers[0].worker_session_id)
+                .unwrap()
+                .unwrap()
+                .session
+                .permission_profile,
+            PermissionProfile::Interactive
+        );
+        assert!(
+            !store
+                .set_team_autonomy(&run.team_run_id, false)
+                .unwrap()
+                .autonomous
+        );
+
+        // Decisions are auditable on the session they covered.
+        store
+            .record_permission_decision("perm-lead", "Allowed 'write_file' on src/lib.rs")
+            .unwrap();
+        let detail = store.get_session("perm-lead").unwrap().unwrap();
+        let audit = detail
+            .timeline_events
+            .iter()
+            .find(|event| event.kind == "permission_decision")
+            .expect("approval audit recorded");
+        assert!(audit.reason.contains("write_file"));
     }
 
     #[test]

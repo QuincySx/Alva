@@ -40,6 +40,8 @@
 
 23. fallback 天然局部于单个 session：`fallback_failed_attempt` 只动该 session 的 attempt/branch，TeamRun identity、其他 session 与全部 queue 不受影响，`engine_fallback` fact 落在真正 fallback 的那个 session（lead 或 worker）上。handoff 的 `team_snapshot` 携带协作上下文：lead 侧写"领导 TeamRun X、N 个 worker（各自 engine/lifecycle/队列深度）、worker 仍在独立运行"，worker 侧写"TeamRun X 的 worker、当前任务、剩余队列、已触碰文件、lead 与兄弟 worker 仍在运行"。故 `redact` **不再丢弃** team_snapshot（它是产品协作状态而非 adapter-private 元数据），改为与其他字段一样过滤。
 
+24. TeamRun 权限：worker 继承 lead 的 PermissionProfile，且 `create_team_run`/`add_team_worker` 都过 `enforcement_for` 资格闸门——建 worker 永远不是绕开 profile 的路径。autonomous 是独立、可见、持久化的显式选择（schema v13 `team_runs.autonomous`，默认关）：**真正接线**——该 scope 的 PermissionRequest 到达即自动 Allow 并落审计 fact；它只决定 raised request 是否仍需人裁决，**不改任何人的 PermissionProfile**。`PermissionRouter` 的等价键是 (scope, tool, resource)：跨 team run/session 不合并；**resource 未知的请求各自成组**（`rm -rf` 绝不能搭 `ls` 的顺风车），resource 取 path 或 command 等字段。聚合卡保留每个 member 的 requester/action/resource，UI 按渲染时的 request_id 列表作答（防止点击瞬间混入没见过的请求）；`respond_many` 返回 answered/failures，部分失败向用户报错而非静默，逐个 member 落 `permission_decision` 审计 fact，member 单次使用不可重放。
+
 ## 约束
 
 - 产品测试从注入 `EngineRuntime` 的最高层 seam 进入。

@@ -980,3 +980,24 @@ textarea::placeholder {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+.approval-group {
+  display: grid;
+  gap: 4px;
+  margin: 0 max(28px, calc((100% - 760px) / 2)) 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(120, 137, 247, 0.4);
+  border-radius: 12px;
+  background: rgba(67, 81, 172, 0.12);
+}
+
+.approval-group strong {
+  color: #d5dcff;
+  font-size: 11px;
+}
+
+.approval-group small {
+  color: #a4b0d6;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}

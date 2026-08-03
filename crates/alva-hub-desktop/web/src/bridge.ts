@@ -29,6 +29,7 @@ export interface PermissionRequestInfo {
   tool_name: string;
   description: string | null;
   engine_session_id: string;
+  resource?: string | null;
 }
 
 export interface TimelineEvent {
@@ -410,8 +411,24 @@ export interface WorkerTask {
   completed_at: number | null;
 }
 
+export interface PermissionMember {
+  scope: string;
+  product_session_id: string;
+  request_id: string;
+  requester: string;
+  tool_name: string;
+  resource: string | null;
+}
+
+export interface PermissionGroup {
+  group_key: string;
+  tool_name: string;
+  members: PermissionMember[];
+}
+
 export interface TeamRunDetail {
   team_run_id: string;
+  autonomous: boolean;
   lead_session_id: string;
   status: string;
   workers: TeamWorker[];
@@ -470,6 +487,37 @@ export async function addTeamWorker(
     teamRunId,
     workerEngineId,
     isolated,
+  });
+}
+
+export async function getPermissionGroups(): Promise<PermissionGroup[]> {
+  if (!hasTauri) return [];
+  return await invoke<PermissionGroup[]>("get_permission_groups");
+}
+
+export async function respondPermissionGroup(
+  groupKey: string,
+  allow: boolean,
+  requestIds?: string[],
+): Promise<number> {
+  if (!hasTauri) {
+    throw new Error("Approvals require the ALVA Hub desktop runtime.");
+  }
+  return await invoke<number>("respond_permission_group", {
+    request: { groupKey, allow, requestIds },
+  });
+}
+
+export async function setTeamAutonomy(
+  teamRunId: string,
+  autonomous: boolean,
+): Promise<TeamRunDetail> {
+  if (!hasTauri) {
+    throw new Error("Autonomy requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<TeamRunDetail>("set_team_autonomy", {
+    teamRunId,
+    autonomous,
   });
 }
 
