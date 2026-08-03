@@ -20,7 +20,11 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 10. Add worker 可勾选 Isolated worktree；隔离 worker 卡片带 isolated 徽标与 worktree 分支，提供 Review changes / Adopt / Discard worktree，预览展示变更、冲突与验证证据后才可 Adopt。
 11. worker 卡片按 lifecycle 提供 Hibernate/Archive（active 时）或 Restore（否则），非 active 带状态徽标；archived worker 默认不出现在活跃面，"Show archived" 可显示；"End run" 归档全部 worker。
 12. 等价并发审批合并为一张 approval-group 卡（逐条列出 requester/工具/资源），一次 Allow all / Deny all；Team panel 有独立的 Autonomous run 开关。
-13. `index.css` 提供两栏 Desktop walking-skeleton 布局。
+13. 左栏支持 New session、按 workspace/prompt/engine 搜索过滤；composer footer 一处集中 engine、model、PermissionProfile 与 fallback 链（含未授权标注）。
+14. Details 抽屉（顶栏 Details 开关）检视 EngineBranches、EngineAttempts（失败原因/用量/工具证据）、handoffs（含 team snapshot 与 delivered/pending）与 engine diagnostics；timeline 本身只渲染产品 TimelineEvent。
+15. 卡片控件按"本窗口正在跑 **或** store 说 session 在 running"启用（只看快照会在自己这轮运行期间把 Stop 关掉——sessionDetail 是运行后才刷新的）：终态时 Stop 禁用并显示"该 attempt 已结束"，Switch back / View handoff 仍可用；终态事件到达时回刷 sessionDetail，抽屉与闸门不会停留在旧状态。
+16. `resetSessionSurface` 是 New session 与切换 workspace 共用的清场：profile、engine、fallback 链、transcript 开关、已答审批、按索引存的 handoff 展开态一并复位——否则上一个 session 的 profile/链会被当成新 session 的默认值（甚至被存成全局默认）。
+17. `index.css` 提供两栏 Desktop walking-skeleton 布局。
 
 ## 约束
 

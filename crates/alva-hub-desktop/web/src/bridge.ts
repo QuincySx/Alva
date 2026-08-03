@@ -139,6 +139,8 @@ export interface HandoffPackage {
   recent_commands: string[];
   verification_results: string[];
   workspace_summary: string;
+  /// Collaboration context when this session leads or belongs to a TeamRun.
+  team_snapshot: string | null;
   transcript: TranscriptTurn[];
   created_at: number;
   used_at: number | null;

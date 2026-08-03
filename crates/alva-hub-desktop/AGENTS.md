@@ -44,6 +44,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 24. Lead 与 Worker 默认继承 HubSession PermissionProfile，建 Worker 不隐式放宽权限，每个 Worker 的 adapter mapping 都必须满足该 profile；autonomous TeamRun 需要独立、可见、持久化的用户选择；等价并发 PermissionRequest 合并为一张审批卡但逐条展示 Worker/操作/资源范围，一次 allow/deny 精确路由到全部被选请求并留审计记录。
 
+25. 两栏信息架构收口：左栏 HubSession 创建/选择/搜索，composer 集中 engine、model、PermissionProfile 与 FallbackPolicy，timeline 只用产品 TimelineEvent；可选 Details 抽屉完整检视 branches、attempts、handoff 与 engine diagnostics；collaboration surface 管理 Lead/Workers/queues/lifecycle；fallback、permission 与 Worker 卡片在重启后要么可操作要么明确终态。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

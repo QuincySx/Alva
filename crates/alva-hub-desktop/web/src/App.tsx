@@ -257,6 +257,11 @@ export default function App() {
   const [isolateWorker, setIsolateWorker] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [approvalGroups, setApprovalGroups] = useState<PermissionGroup[]>([]);
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [sessionDetail, setSessionDetail] = useState<HubSessionDetail | null>(
+    null,
+  );
   const [adoption, setAdoption] = useState<
     Record<string, AdoptionPreview | undefined>
   >({});
@@ -270,6 +275,9 @@ export default function App() {
   // Logic value: the current lead session for team refreshes triggered from
   // the long-lived timeline listener (state would be a stale closure there).
   const teamLeadRef = useRef<string | null>(null);
+  // Logic value: the session the long-lived timeline listener should refresh
+  // (reading state there would capture a stale closure).
+  const activeSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -281,6 +289,18 @@ export default function App() {
         if (event.status === "permission_required") {
           void getPermissionGroups().then((groups) => {
             if (active) setApprovalGroups(groups);
+          });
+        }
+        // Terminal events change what the store says about this session, and
+        // both the details drawer and the Stop gate read that.
+        if (
+          event.product_session_id === activeSessionRef.current &&
+          ["completed", "failed", "interrupted", "exhausted"].includes(
+            event.status,
+          )
+        ) {
+          void getHubSession(event.product_session_id).then((detail) => {
+            if (active && detail) setSessionDetail(detail);
           });
         }
         // Worker pumps finish in the background — pull the fresh queue state.
@@ -376,6 +396,20 @@ export default function App() {
     }
   }
 
+  const filteredSessions = useMemo(() => {
+    const query = sessionQuery.trim().toLowerCase();
+    if (!query) return sessions;
+    return sessions.filter((session) =>
+      [session.workspace, session.last_prompt ?? "", session.engine_id]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [sessions, sessionQuery]);
+
+  // A Stop control must be offered exactly when something can be stopped.
+  const attemptIsLive = busy || sessionDetail?.session.status === "running";
+
   const latest = timeline.at(-1);
   const statusLabel = useMemo(() => {
     switch (latest?.status) {
@@ -406,17 +440,35 @@ export default function App() {
     }
   }, [latest]);
 
+  /// Everything that describes "the session I am looking at". Both the New
+  /// session button and picking a workspace go through this, so neither can
+  /// leak the previous session's profile, fallback chain or details.
+  function resetSessionSurface() {
+    setActiveSessionId(null);
+    activeSessionRef.current = null;
+    setSessionDetail(null);
+    setTeamRun(null);
+    teamLeadRef.current = null;
+    setTimeline([]);
+    setPendingEngine(null);
+    setEngine("alva");
+    setProfile("workspace_write");
+    setTranscriptSharingState(false);
+    setAnsweredPermissions({});
+    // Keyed by timeline index, so a stale entry would re-expand an
+    // unrelated card once the timeline refills.
+    setOpenHandoffs({});
+    setDetailsOpen(false);
+    setDispatchWorkerId(null);
+    setEditingTask(null);
+  }
+
   async function selectWorkspace() {
     try {
       const selected = await chooseWorkspace();
       if (selected) {
         setWorkspace(selected);
-        setActiveSessionId(null);
-        setEngine("alva");
-        setPendingEngine(null);
-        setProfile("workspace_write");
-        setAnsweredPermissions({});
-        setTimeline([]);
+        resetSessionSurface();
         await loadGlobalFallbackPolicy();
       }
     } catch (error) {
@@ -446,6 +498,7 @@ export default function App() {
     const detail = await getHubSession(productSessionId);
     if (!detail) throw new Error("This Hub session no longer exists.");
     setActiveSessionId(detail.session.product_session_id);
+    activeSessionRef.current = detail.session.product_session_id;
     setWorkspace(detail.session.workspace);
     setEngine(detail.session.engine_id);
     setProfile(detail.session.permission_profile);
@@ -454,6 +507,7 @@ export default function App() {
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
     setFallbackPolicy(detail.fallback_policy);
     setTimeline(projectTimeline(detail));
+    setSessionDetail(detail);
     // Last: a failed team fetch must not leave the session view half-loaded.
     teamLeadRef.current = detail.session.product_session_id;
     // A worker id from the previous run must never survive into this one.
@@ -855,15 +909,44 @@ export default function App() {
         <section className="session-panel">
           <div className="session-heading">
             <span className="eyebrow">Sessions</span>
-            <small>{sessions.length}</small>
+            <small>
+              {sessionQuery.trim()
+                ? `${filteredSessions.length}/${sessions.length}`
+                : sessions.length}
+            </small>
           </div>
+          <input
+            aria-label="Search sessions"
+            className="session-search"
+            placeholder="Search workspace or prompt…"
+            value={sessionQuery}
+            onChange={(event) => setSessionQuery(event.target.value)}
+          />
+          <button
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => {
+              // A new session starts from a clean surface, not the last one —
+              // including the fallback chain, which would otherwise be shown
+              // as the default and could be saved as the global one.
+              resetSessionSurface();
+              void loadGlobalFallbackPolicy().catch(appendLocalFailure);
+            }}
+            type="button"
+          >
+            New session
+          </button>
           <div className="session-list">
             {sessionError ? (
               <small className="session-error">{sessionError}</small>
-            ) : sessions.length === 0 ? (
-              <small className="session-empty">Hub runs will appear here.</small>
+            ) : filteredSessions.length === 0 ? (
+              <small className="session-empty">
+                {sessionQuery.trim()
+                  ? "No sessions match that search."
+                  : "Hub runs will appear here."}
+              </small>
             ) : (
-              sessions.map((session) => (
+              filteredSessions.map((session) => (
                 <button
                   className={`session-item ${
                     activeSessionId === session.product_session_id ? "active" : ""
@@ -1493,6 +1576,14 @@ export default function App() {
               })()
             )}
           </div>
+          <button
+            className="details-toggle"
+            disabled={!sessionDetail}
+            onClick={() => setDetailsOpen((open) => !open)}
+            type="button"
+          >
+            {detailsOpen ? "Hide details" : "Details"}
+          </button>
           <div className={`status-pill status-${latest?.status ?? "ready"}`}>
             <span />
             {statusLabel}
@@ -1581,7 +1672,12 @@ export default function App() {
                 {entry.fallback ? (
                   <div className="timeline-controls">
                     <button
-                      disabled={!busy || !activeSessionId}
+                      // Either signal counts: this window's own in-flight run,
+                      // or the store saying the session is running (which is
+                      // what survives a restart). Using only the snapshot
+                      // would disable Stop for the whole of our own run,
+                      // since it is refreshed after the run, not during.
+                      disabled={!activeSessionId || !attemptIsLive}
                       onClick={() => void stopActiveAttempt()}
                       type="button"
                     >
@@ -1596,6 +1692,11 @@ export default function App() {
                     >
                       Switch back to {entry.fallback.source_engine_id}
                     </button>
+                    {!attemptIsLive ? (
+                      <small className="timeline-hint">
+                        This attempt has finished — Stop no longer applies.
+                      </small>
+                    ) : null}
                     <button
                       disabled={!entry.fallback.handoff}
                       onClick={() =>
@@ -1727,6 +1828,106 @@ export default function App() {
           );
         })()}
 
+        {detailsOpen && sessionDetail ? (
+          <aside className="details-drawer" aria-label="Session details">
+            <section>
+              <span className="eyebrow">Branches</span>
+              {sessionDetail.branches.length === 0 ? (
+                <small className="session-empty">No branches yet.</small>
+              ) : null}
+              {sessionDetail.branches.map((branch) => (
+                <div className="details-row" key={branch.branch_id}>
+                  <strong>
+                    {branch.engine_id} · {branch.status}
+                  </strong>
+                  <small>
+                    {branch.model_id} · {branch.provider_id}
+                    {branch.engine_session_id ? " · native session kept" : ""}
+                  </small>
+                </div>
+              ))}
+            </section>
+            <section>
+              <span className="eyebrow">Attempts</span>
+              {sessionDetail.turns.every((turn) => turn.attempts.length === 0) ? (
+                <small className="session-empty">No attempts yet.</small>
+              ) : null}
+              {sessionDetail.turns.flatMap((turn) =>
+                turn.attempts.map((attempt) => (
+                  <div className="details-row" key={attempt.attempt_id}>
+                    <strong>
+                      {attempt.engine_id} · {attempt.status}
+                    </strong>
+                    {attempt.failure_reason ? (
+                      <small>{attempt.failure_reason}</small>
+                    ) : null}
+                    {attempt.usage ? (
+                      <small>
+                        {attempt.usage.input_tokens}in/
+                        {attempt.usage.output_tokens}out ·{" "}
+                        {attempt.usage.duration_ms}ms
+                      </small>
+                    ) : null}
+                    {attempt.side_effects.length > 0 ? (
+                      <small>
+                        {attempt.side_effects.length} tool call(s)
+                        {attempt.side_effects
+                          .map((evidence) => evidence.path)
+                          .filter(Boolean).length > 0
+                          ? ` · ${attempt.side_effects
+                              .map((evidence) => evidence.path)
+                              .filter(Boolean)
+                              .join(", ")}`
+                          : ""}
+                      </small>
+                    ) : null}
+                  </div>
+                )),
+              )}
+            </section>
+            <section>
+              <span className="eyebrow">Handoffs</span>
+              {sessionDetail.handoffs.length === 0 ? (
+                <small className="session-empty">No handoffs yet.</small>
+              ) : (
+                sessionDetail.handoffs.map((handoff) => (
+                  <div className="details-row" key={handoff.handoff_id}>
+                    <strong>
+                      {handoff.kind} · {handoff.source.engine_id} →{" "}
+                      {handoff.target.engine_id}
+                      {handoff.used_at ? " · delivered" : " · pending"}
+                    </strong>
+                    <small>{handoff.reason}</small>
+                    {handoff.team_snapshot ? (
+                      <small>{handoff.team_snapshot}</small>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </section>
+            <section>
+              <span className="eyebrow">Engine diagnostics</span>
+              {readiness.map((engineReadiness) => (
+                <div className="details-row" key={engineReadiness.engine_id}>
+                  <strong>
+                    {engineReadiness.display_name} ·{" "}
+                    {readinessBadge[engineReadiness.status]}
+                  </strong>
+                  <small>
+                    {engineReadiness.version ?? "version unknown"} · stream{" "}
+                    {engineReadiness.stream_health}
+                  </small>
+                  {engineReadiness.reasons.map((reason, index) => (
+                    <small key={`${reason.code}-${index}`}>
+                      {describeReadinessReason(reason)}
+                    </small>
+                  ))}
+                </div>
+              ))}
+            </section>
+          </aside>
+        ) : null}
+
         <form className="composer" onSubmit={submit}>
           <textarea
             aria-label="Message"
@@ -1741,7 +1942,33 @@ export default function App() {
             }}
           />
           <div className="composer-footer">
-            <span>{workspace ? "Workspace ready" : "Select a workspace first"}</span>
+            <span
+              className="composer-summary"
+              title={`${engine}${
+                sessionDetail ? ` · ${sessionDetail.session.model_id}` : ""
+              } · ${profileLabel[profile]} · fallback: ${
+                fallbackPolicy.targets
+                  .map((target) => target.engine_id)
+                  .join(" → ") || "none"
+              }`}
+            >
+              {workspace ? "" : "Select a workspace first · "}
+              {engine}
+              {sessionDetail ? ` · ${sessionDetail.session.model_id}` : ""}
+              {` · ${profileLabel[profile]}`}
+              {` · fallback: ${
+                fallbackPolicy.targets.length === 0
+                  ? "none"
+                  : fallbackPolicy.targets
+                      .map(
+                        (target) =>
+                          `${target.engine_id}${
+                            target.automatic_use_authorized ? "" : " (unauthorized)"
+                          }`,
+                      )
+                      .join(" → ")
+              }`}
+            </span>
             <button
               className="primary-button"
               type="submit"
