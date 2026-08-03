@@ -6722,6 +6722,51 @@ mod tests {
     }
 
     #[test]
+    fn reopening_repairs_a_worker_task_left_running_by_a_crash() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "crash-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run("crash-lead", &EngineTarget::for_engine("claude").unwrap())
+            .unwrap();
+        store
+            .enqueue_worker_task(&run.team_run_id, &run.workers[0].worker_id, "work", &[])
+            .unwrap();
+        let claimed = store
+            .claim_for_test(&run.workers[0].worker_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(claimed.status, "running");
+        // Simulate a crash: the process dies with the task still running.
+        drop(store);
+
+        let reopened = reopen(&database);
+        let task = reopened
+            .worker_task_by_id(&claimed.task_id)
+            .unwrap()
+            .unwrap();
+        // A crashed task must not stay "running" forever — nothing would
+        // ever finish it, and the worker's queue would stall behind it.
+        assert_eq!(task.status, "interrupted");
+        assert!(task.completed_at.is_some());
+        assert!(task.result.is_some());
+    }
+
+    #[test]
     fn a_solo_session_handoff_carries_no_team_snapshot() {
         let root = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();

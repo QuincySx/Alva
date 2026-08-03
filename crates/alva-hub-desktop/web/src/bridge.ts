@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type TimelineStatus =
   | "running"
@@ -622,6 +623,27 @@ export interface RepairAction {
 export interface RepairResult {
   outcome: { success: boolean; log: string };
   readiness: EngineReadiness;
+}
+
+/// A bare <a target="_blank"> does nothing in a packaged wry webview, so
+/// official-guidance links go through the opener plugin.
+export async function openExternal(url: string): Promise<void> {
+  if (!url) return;
+  if (!hasTauri) {
+    // Browser-only mode must fail with a clear error, never an uncaught
+    // rejection (popup blockers make window.open return null).
+    if (!window.open(url, "_blank", "noreferrer")) {
+      throw new Error(`Could not open ${url}. Copy it into a browser instead.`);
+    }
+    return;
+  }
+  try {
+    await openUrl(url);
+  } catch (error) {
+    throw new Error(
+      `Could not open ${url}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export async function getRepairPlan(

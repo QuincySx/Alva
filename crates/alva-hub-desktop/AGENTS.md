@@ -46,6 +46,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 25. 两栏信息架构收口：左栏 HubSession 创建/选择/搜索，composer 集中 engine、model、PermissionProfile 与 FallbackPolicy，timeline 只用产品 TimelineEvent；可选 Details 抽屉完整检视 branches、attempts、handoff 与 engine diagnostics；collaboration surface 管理 Lead/Workers/queues/lifecycle；fallback、permission 与 Worker 卡片在重启后要么可操作要么明确终态。
 
+26. V1 验收矩阵在 `ACCEPTANCE.md`：18 条 scenario 逐条映射到可执行断言或明确标注为待打包运行时验证；外部链接经 `tauri-plugin-opener`（wry webview 里裸 `<a target="_blank">` 不生效）；worktree 隔离测试在缺 git 时**响亮失败**而非静默跳过（它们是"未 adopt 的工作不进共享 workspace"的唯一证据）。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。
@@ -69,3 +71,4 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Web frontend | `web/` | React/Vite/TypeScript workspace、composer 与 timeline |
 | Desktop config | `tauri.conf.json` / `capabilities/` | window、build 与最小权限配置 |
 | Presentation assets | `icons/` | walking-skeleton 暂用的 Alva 图标 |
+| Acceptance matrix | `ACCEPTANCE.md` | 18 条 V1 scenario → 证据映射与剩余缺口 |

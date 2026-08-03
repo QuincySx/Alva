@@ -320,12 +320,29 @@ pub fn worktree_root(data_dir: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
+    /// These tests ARE the proof that isolated work cannot silently reach
+    /// the shared workspace, so a machine without git must fail loudly
+    /// rather than report green with zero coverage. Set
+    /// `ALVA_ALLOW_SKIP_GIT_TESTS=1` for a deliberate local skip.
     fn git_available() -> bool {
-        Command::new("git")
+        let available = Command::new("git")
             .arg("--version")
             .output()
             .map(|output| output.status.success())
-            .unwrap_or(false)
+            .unwrap_or(false);
+        // Only an explicit opt-in skips; "0"/"false" must not silently
+        // disable the guarantee this panic exists to protect.
+        let opted_out = std::env::var("ALVA_ALLOW_SKIP_GIT_TESTS")
+            .map(|value| matches!(value.trim(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        if !available && !opted_out {
+            panic!(
+                "git is required for the worktree isolation tests; they are the \
+                 only proof that unadopted work stays out of the shared workspace. \
+                 Set ALVA_ALLOW_SKIP_GIT_TESTS=1 to skip deliberately."
+            );
+        }
+        available
     }
 
     fn repo() -> tempfile::TempDir {

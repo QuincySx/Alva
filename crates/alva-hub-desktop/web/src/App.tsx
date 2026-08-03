@@ -26,6 +26,7 @@ import {
   interruptWorker,
   updateWorkerTask,
   getRepairPlan,
+  openExternal,
   getTeamRunForLead,
   listHubSessions,
   listenTimeline,
@@ -1038,11 +1039,17 @@ export default function App() {
                           </>
                         )}
                         {action.url ? (
-                          <small>
-                            <a href={action.url} rel="noreferrer" target="_blank">
-                              Official guide
-                            </a>
-                          </small>
+                          <button
+                            className="repair-link"
+                            onClick={() =>
+                              void openExternal(action.url ?? "").catch(
+                                appendLocalFailure,
+                              )
+                            }
+                            type="button"
+                          >
+                            Official guide
+                          </button>
                         ) : null}
                       </div>
                     ))}

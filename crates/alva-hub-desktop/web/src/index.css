@@ -1067,3 +1067,13 @@ textarea::placeholder {
   font-size: 10px;
   overflow-wrap: anywhere;
 }
+
+.repair-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  color: #8f9cff;
+  background: none;
+  font-size: 10px;
+  text-decoration: underline;
+}

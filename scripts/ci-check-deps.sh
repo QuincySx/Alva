@@ -87,7 +87,13 @@ check_no_workspace_deps "alva-engine-adapter-alva" "alva-app-core|alva-engine-ru
 # those dependencies.
 check_no_workspace_deps "alva-hub-core" "alva-engine-runtime"
 check_no_workspace_deps "alva-hub-cli" "alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-runtime|alva-hub-core|alva-llm-provider"
-check_no_workspace_deps "alva-hub-desktop" "alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-runtime|alva-hub-core|alva-llm-provider"
+# alva-kernel-abi is allowed here for ONE reason: Hub's ResourceClaim path
+# normalization must agree byte-for-byte with the kernel tool lock's
+# `normalize_path_string`. Two copies of that would silently drift, and a
+# drifted path normalizer means two workers writing the same file are judged
+# non-conflicting. It is a foundational ABI crate already present
+# transitively (via alva-llm-provider); this only makes the use explicit.
+check_no_workspace_deps "alva-hub-desktop" "alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-runtime|alva-hub-core|alva-kernel-abi|alva-llm-provider"
 
 # Rule 12: alva-llm-provider only depends on alva-kernel-abi
 # (was `alva-provider` — a crate that does not exist; `cargo tree` failed,

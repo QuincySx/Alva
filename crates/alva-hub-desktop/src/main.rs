@@ -1133,6 +1133,9 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Official-guidance links must actually open from the packaged app:
+        // a bare <a target="_blank"> does nothing inside a wry webview.
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let store =
