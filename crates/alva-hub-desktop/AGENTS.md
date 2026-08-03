@@ -28,6 +28,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 16. HandoffPackage 跨 engine 前经统一过滤（credentials/env 值清洗、账号账单标签与 team snapshot 剥离），过滤在持久化前完成故 View handoff 即 adapter 实收内容；full transcript 每 session 显式开启（默认关），启用后仍过同一过滤。
 
+17. readiness failure 提供修复入口：npm 分发 engine 一键 install/upgrade，其余最短官方指引；unauthenticated 有目标明确的认证修复指引；完成后重新探测恢复 eligibility；修复失败或取消不动任何 Hub 状态。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

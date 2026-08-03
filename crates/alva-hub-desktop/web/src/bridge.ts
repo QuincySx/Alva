@@ -363,6 +363,44 @@ export async function stopHubAttempt(productSessionId: string): Promise<void> {
   await invoke("stop_hub_attempt", { productSessionId });
 }
 
+export type RepairKind = "install" | "upgrade" | "authenticate" | "configure";
+
+export interface RepairAction {
+  engine_id: string;
+  kind: RepairKind;
+  title: string;
+  command: string | null;
+  url: string | null;
+  one_click: boolean;
+}
+
+export interface RepairResult {
+  outcome: { success: boolean; log: string };
+  readiness: EngineReadiness;
+}
+
+export async function getRepairPlan(
+  workspace: string | null,
+): Promise<RepairAction[]> {
+  if (!hasTauri) return [];
+  return await invoke<RepairAction[]>("get_repair_plan", { workspace });
+}
+
+export async function runEngineRepair(
+  engineId: string,
+  kind: RepairKind,
+  workspace: string | null,
+): Promise<RepairResult> {
+  if (!hasTauri) {
+    throw new Error("Engine repair requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<RepairResult>("run_engine_repair", {
+    engineId,
+    kind,
+    workspace,
+  });
+}
+
 export async function getEngineReadiness(
   workspace: string | null,
 ): Promise<EngineReadiness[]> {

@@ -9,9 +9,11 @@ import {
   getGlobalFallbackPolicy,
   getHubSession,
   getPermissionEligibility,
+  getRepairPlan,
   listHubSessions,
   listenTimeline,
   respondHubPermission,
+  runEngineRepair,
   runHubPrompt,
   setGlobalFallbackPolicy,
   setSessionFallbackPolicy,
@@ -27,6 +29,8 @@ import {
   type HubSessionSummary,
   type PermissionProfile,
   type ReadinessReason,
+  type RepairAction,
+  type RepairKind,
   type TimelineEvent,
 } from "./bridge";
 
@@ -179,6 +183,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [readiness, setReadiness] = useState<EngineReadiness[]>([]);
   const [readinessBusy, setReadinessBusy] = useState(false);
+  const [repairPlan, setRepairPlan] = useState<RepairAction[]>([]);
+  const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
+  const [repairLogs, setRepairLogs] = useState<Record<string, string>>({});
   // Logic value: identifies the newest in-flight readiness request so a stale
   // response can never overwrite a fresher one.
   const readinessRequestRef = useRef(0);
@@ -232,9 +239,13 @@ export default function App() {
     readinessRequestRef.current = requestId;
     setReadinessBusy(true);
     try {
-      const report = await getEngineReadiness(workspacePath);
+      const [report, plan] = await Promise.all([
+        getEngineReadiness(workspacePath),
+        getRepairPlan(workspacePath),
+      ]);
       if (readinessRequestRef.current === requestId) {
         setReadiness(report);
+        setRepairPlan(plan);
       }
     } catch (error) {
       if (readinessRequestRef.current === requestId) {
@@ -244,6 +255,30 @@ export default function App() {
       if (readinessRequestRef.current === requestId) {
         setReadinessBusy(false);
       }
+    }
+  }
+
+  async function repairEngine(engineId: string, kind: RepairKind) {
+    setRepairingEngine(engineId);
+    try {
+      const result = await runEngineRepair(engineId, kind, workspace || null);
+      setRepairLogs((current) => ({
+        ...current,
+        [engineId]: result.outcome.success
+          ? `Repair finished. ${result.outcome.log.trim()}`.trim()
+          : `Repair failed. ${result.outcome.log.trim()}`.trim(),
+      }));
+    } catch (error) {
+      // A refused repair (e.g. stale plan) lands on the same card as any
+      // other outcome — never attributed to the selected engine.
+      setRepairLogs((current) => ({
+        ...current,
+        [engineId]: `Repair failed. ${error instanceof Error ? error.message : String(error)}`,
+      }));
+    } finally {
+      setRepairingEngine(null);
+      // Re-probe on every outcome so the plan never goes stale.
+      await refreshReadiness(workspace || null);
     }
   }
 
@@ -579,6 +614,44 @@ export default function App() {
                       {describeReadinessReason(reason)}
                     </small>
                   ))}
+                  {repairPlan
+                    .filter((action) => action.engine_id === engine.engine_id)
+                    .map((action) => (
+                      <div className="repair-action" key={`${action.engine_id}-${action.kind}`}>
+                        {action.one_click ? (
+                          <button
+                            disabled={repairingEngine !== null}
+                            onClick={() =>
+                              void repairEngine(action.engine_id, action.kind)
+                            }
+                            type="button"
+                          >
+                            {repairingEngine === action.engine_id
+                              ? "Working…"
+                              : action.title}
+                          </button>
+                        ) : (
+                          <>
+                            <small>{action.title}</small>
+                            {action.command ? (
+                              <code>{action.command}</code>
+                            ) : null}
+                          </>
+                        )}
+                        {action.url ? (
+                          <small>
+                            <a href={action.url} rel="noreferrer" target="_blank">
+                              Official guide
+                            </a>
+                          </small>
+                        ) : null}
+                      </div>
+                    ))}
+                  {repairLogs[engine.engine_id] ? (
+                    <small className="repair-log">
+                      {repairLogs[engine.engine_id]}
+                    </small>
+                  ) : null}
                 </div>
               ))
             )}

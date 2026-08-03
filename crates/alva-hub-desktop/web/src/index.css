@@ -666,6 +666,46 @@ select {
   overflow-wrap: anywhere;
 }
 
+.repair-action {
+  display: grid;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.repair-action button {
+  justify-self: start;
+  padding: 5px 10px;
+  border: 1px solid rgba(120, 137, 247, 0.4);
+  border-radius: 8px;
+  color: #d5dcff;
+  background: rgba(67, 81, 172, 0.42);
+  font-size: 11px;
+}
+
+.repair-action button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.repair-action code {
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: #b9c3dd;
+  background: rgba(15, 20, 36, 0.9);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.repair-action a {
+  color: #8f9cff;
+}
+
+.repair-log {
+  color: #78839b;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .transcript-toggle {
   display: flex;
   align-items: center;

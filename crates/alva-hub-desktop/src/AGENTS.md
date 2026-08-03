@@ -26,6 +26,8 @@
 
 16. `redact` 是所有跨 engine handoff 的唯一过滤闸门（`build_handoff_package` 持久化前执行）：credentials/token/敏感 `NAME=value`/PEM 全字段清洗，账号与账单标签、team_snapshot 等 adapter-private 元数据不出境；hidden reasoning 与 approval token 结构性不入库。full transcript 按 session 开关（schema v7,默认关闭）附加且过同一过滤。
 
+17. `repair` 把 readiness failure 映射为结构化 RepairAction：npm 官方分发的 claude/codex 提供一键 install/upgrade（argv 由服务端按当前 readiness 重新生成，客户端只报 engine+kind）；认证/配置修复是最短官方指引不代跑；执行后重新探测恢复 eligibility；模块不接触 HubStore，pinned model/account/profile/binary 结构性不被改动。
+
 ## 约束
 
 - 产品测试从注入 `EngineRuntime` 的最高层 seam 进入。
@@ -46,5 +48,6 @@
 | Permission contract | `permissions.rs` | PermissionProfile、adapter 映射资格契约、eligibility DTO 与 PermissionRouter |
 | Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
 | Handoff filter | `redact.rs` | 跨 engine 敏感内容过滤与 adapter-private 元数据剥离 |
+| Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
 | SQLite store | `store.rs` | identity、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Desktop entry | `main.rs` | Tauri plugin、运行/切换/policy/readiness command 和 event bridge |

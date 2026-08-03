@@ -181,6 +181,53 @@ fn get_permission_eligibility(profile: PermissionProfile) -> Vec<EngineEligibili
     permission_eligibility(profile)
 }
 
+#[derive(serde::Serialize)]
+struct RepairResult {
+    outcome: alva_hub_desktop::RepairOutcome,
+    readiness: EngineReadiness,
+}
+
+#[tauri::command]
+async fn get_repair_plan(
+    state: State<'_, DesktopState>,
+    workspace: Option<String>,
+) -> Result<Vec<alva_hub_desktop::RepairAction>, String> {
+    let probe = SystemProbe::new(Some(&state.store), workspace.map(PathBuf::from));
+    tauri::async_runtime::spawn_blocking(move || {
+        probe_readiness(&probe)
+            .iter()
+            .flat_map(alva_hub_desktop::repair_plan)
+            .collect()
+    })
+    .await
+    .map_err(|error| format!("repair planning task failed: {error}"))
+}
+
+#[tauri::command]
+async fn run_engine_repair(
+    state: State<'_, DesktopState>,
+    engine_id: String,
+    kind: alva_hub_desktop::RepairKind,
+    workspace: Option<String>,
+) -> Result<RepairResult, String> {
+    let workspace = workspace.map(PathBuf::from);
+    let probe = SystemProbe::new(Some(&state.store), workspace.clone());
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        use alva_hub_desktop::{classify_engine, EngineProbe};
+        // The argv comes from the engine's CURRENT readiness, server-side.
+        let readiness = classify_engine(&engine_id, probe.facts(&engine_id));
+        let argv = alva_hub_desktop::repair_argv(&readiness, kind)?;
+        let outcome = alva_hub_desktop::run_repair_command(&argv, None);
+        // Re-probe so the caller sees the post-repair version/auth/health.
+        let refreshed_probe = SystemProbe::new(Some(&store), workspace);
+        let readiness = classify_engine(&engine_id, refreshed_probe.facts(&engine_id));
+        Ok(RepairResult { outcome, readiness })
+    })
+    .await
+    .map_err(|error| format!("engine repair task failed: {error}"))?
+}
+
 #[tauri::command]
 fn set_transcript_sharing(
     state: State<'_, DesktopState>,
@@ -344,7 +391,9 @@ fn main() {
             stop_hub_attempt,
             respond_hub_permission,
             get_permission_eligibility,
-            set_transcript_sharing
+            set_transcript_sharing,
+            get_repair_plan,
+            run_engine_repair
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");

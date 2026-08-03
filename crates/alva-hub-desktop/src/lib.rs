@@ -7,6 +7,7 @@ mod failure;
 mod permissions;
 mod readiness;
 mod redact;
+mod repair;
 mod run;
 mod store;
 
@@ -22,6 +23,9 @@ pub use readiness::{
     HUB_ENGINE_IDS,
 };
 pub use redact::{redact_handoff, redact_text};
+pub use repair::{
+    repair_argv, repair_plan, run_repair_command, RepairAction, RepairKind, RepairOutcome,
+};
 pub use run::{run_once, run_persisted, RunOutcome, RunRequest, TimelineEvent, TimelineStatus};
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
