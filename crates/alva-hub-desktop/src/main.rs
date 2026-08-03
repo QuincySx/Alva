@@ -33,6 +33,9 @@ struct DesktopState {
     /// Worker ids whose queue pump is currently running, so each worker's
     /// durable queue has at most one consumer.
     worker_pumps: Mutex<std::collections::HashSet<String>>,
+    /// Root holding every Hub-managed worktree; the discard guard requires
+    /// a path under it before running any destructive git command.
+    worktree_root: PathBuf,
 }
 
 impl DesktopState {
@@ -218,9 +221,186 @@ fn add_team_worker(
     state: State<'_, DesktopState>,
     team_run_id: String,
     worker_engine_id: String,
+    isolated: Option<bool>,
 ) -> Result<alva_hub_desktop::TeamRunDetail, String> {
     let target = EngineTarget::for_engine(&worker_engine_id)?;
-    state.store.add_team_worker(&team_run_id, &target)
+    if !isolated.unwrap_or(false) {
+        return state.store.add_team_worker(&team_run_id, &target, None);
+    }
+    let run = state
+        .store
+        .get_team_run(&team_run_id)?
+        .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
+    let lead = state
+        .store
+        .get_session(&run.lead_session_id)?
+        .ok_or("The lead session no longer exists.")?;
+    // Register the worker first so the worktree carries its real id: an
+    // orphan left by a crash can then be correlated back to a worker.
+    let registered = state.store.add_team_worker(&team_run_id, &target, None)?;
+    let worker_id = registered
+        .workers
+        .last()
+        .map(|worker| worker.worker_id.clone())
+        .ok_or("the worker was not registered")?;
+    let workspace = PathBuf::from(&lead.session.workspace);
+    let worktree =
+        alva_hub_desktop::create_worker_worktree(&workspace, &state.worktree_root, &worker_id)?;
+    // If attaching the worktree fails, it must not leak.
+    match state.store.attach_worker_worktree(&worker_id, &worktree) {
+        Ok(()) => state
+            .store
+            .get_team_run(&team_run_id)?
+            .ok_or_else(|| format!("team run '{team_run_id}' was not found")),
+        Err(error) => {
+            let _ = alva_hub_desktop::discard_worktree(
+                &workspace,
+                &PathBuf::from(&worktree.path),
+                &worktree.branch,
+                &state.worktree_root,
+            );
+            Err(error)
+        }
+    }
+}
+
+/// Read-only: what adopting this isolated worker would change.
+#[tauri::command]
+async fn preview_worker_adoption(
+    state: State<'_, DesktopState>,
+    worker_id: String,
+) -> Result<alva_hub_desktop::AdoptionPreview, String> {
+    let (workspace, worktree, verification) = adoption_context(&state, &worker_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        alva_hub_desktop::adoption_preview(&workspace, &worktree, verification)
+    })
+    .await
+    .map_err(|error| format!("adoption preview task failed: {error}"))?
+}
+
+/// Apply an isolated worker's work to the shared workspace. Only reachable
+/// from an explicit user/lead adoption after previewing.
+#[tauri::command]
+async fn adopt_worker_work(
+    state: State<'_, DesktopState>,
+    team_run_id: String,
+    worker_id: String,
+) -> Result<Vec<String>, String> {
+    // Adopting a worktree that is still being written captures a torn
+    // snapshot; require the worker to be idle first.
+    if state.store.worker_has_active_task(&worker_id)? {
+        return Err(
+            "This worker is still working. Wait for it to finish (or interrupt it) before adopting."
+                .to_string(),
+        );
+    }
+    let (workspace, worktree, _) = adoption_context(&state, &worker_id)?;
+    let adopted = tauri::async_runtime::spawn_blocking(move || {
+        alva_hub_desktop::adopt_into_workspace(&workspace, &worktree)
+    })
+    .await
+    .map_err(|error| format!("adoption task failed: {error}"))??;
+    state.store.record_adoption(
+        &team_run_id,
+        &worker_id,
+        true,
+        &format!("Adopted {} file(s): {}", adopted.len(), adopted.join(", ")),
+    )?;
+    Ok(adopted)
+}
+
+/// Throw the isolated worker's worktree away. Never touches the shared
+/// workspace; the durable worker session and its history survive.
+#[tauri::command]
+async fn discard_worker_worktree(
+    state: State<'_, DesktopState>,
+    team_run_id: String,
+    worker_id: String,
+) -> Result<(), String> {
+    let run = state
+        .store
+        .get_team_run(&team_run_id)?
+        .ok_or_else(|| format!("team run '{team_run_id}' was not found"))?;
+    let worker = run
+        .workers
+        .iter()
+        .find(|worker| worker.worker_id == worker_id)
+        .ok_or("That worker is not part of this run.")?;
+    let (Some(path), Some(branch)) = (worker.worktree_path.clone(), worker.worktree_branch.clone())
+    else {
+        return Err("That worker is not isolated.".to_string());
+    };
+    let lead = state
+        .store
+        .get_session(&run.lead_session_id)?
+        .ok_or("The lead session no longer exists.")?;
+    let workspace = PathBuf::from(&lead.session.workspace);
+    let managed_root = state.worktree_root.clone();
+    let shared = workspace.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        alva_hub_desktop::discard_worktree(&shared, &PathBuf::from(&path), &branch, &managed_root)
+    })
+    .await
+    .map_err(|error| format!("discard task failed: {error}"))??;
+    // The session's workspace pointed at the now-deleted worktree; move it
+    // back to the shared workspace so the durable session stays usable.
+    state
+        .store
+        .clear_worker_worktree(&worker_id, &workspace.to_string_lossy())?;
+    state.store.record_adoption(
+        &team_run_id,
+        &worker_id,
+        false,
+        "Discarded the isolated worktree without adopting its changes",
+    )?;
+    Ok(())
+}
+
+/// (shared workspace, worktree, verification evidence) for an isolated worker.
+fn adoption_context(
+    state: &DesktopState,
+    worker_id: &str,
+) -> Result<(PathBuf, PathBuf, Vec<String>), String> {
+    let run = state
+        .store
+        .team_run_for_worker(worker_id)?
+        .ok_or("That worker is not part of any team run.")?;
+    let worker = run
+        .workers
+        .iter()
+        .find(|worker| worker.worker_id == worker_id)
+        .ok_or("That worker is not part of this run.")?;
+    let worktree = worker
+        .worktree_path
+        .clone()
+        .ok_or("That worker is not isolated.")?;
+    let lead = state
+        .store
+        .get_session(&run.lead_session_id)?
+        .ok_or("The lead session no longer exists.")?;
+    let verification = run
+        .tasks
+        .iter()
+        .filter(|task| task.worker_id == worker_id)
+        .flat_map(|task| {
+            task.verification.iter().map(|evidence| {
+                format!(
+                    "{} {}",
+                    evidence.tool_name,
+                    match evidence.succeeded {
+                        Some(true) => "ok",
+                        Some(false) => "failed",
+                        None => "ran",
+                    }
+                )
+            })
+        })
+        .collect();
+    Ok((
+        PathBuf::from(&lead.session.workspace),
+        PathBuf::from(worktree),
+        verification,
+    ))
 }
 
 /// Enqueue only — the per-worker pump consumes the durable FIFO queue, so
@@ -691,6 +871,7 @@ fn main() {
                 history_dir: data_dir.join("alva-history"),
                 active_engines: Mutex::new(HashMap::new()),
                 worker_pumps: Mutex::new(std::collections::HashSet::new()),
+                worktree_root: alva_hub_desktop::worktree_root(&data_dir),
                 permission_router: PermissionRouter::new(),
             });
             // Durable queues survive restarts: resume a pump for every worker
@@ -719,6 +900,9 @@ fn main() {
             get_team_run_for_lead,
             add_team_worker,
             dispatch_worker_task,
+            preview_worker_adoption,
+            adopt_worker_work,
+            discard_worker_worktree,
             update_worker_task,
             cancel_worker_task,
             interrupt_worker

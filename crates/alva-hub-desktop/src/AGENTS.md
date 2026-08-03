@@ -34,6 +34,8 @@
 
 20. `claims` 是共享工作区协调的冲突代数（path 含子树覆盖、read/read 不冲突、facility/exclusive_tool 全有全无、异类不争用）；mutating WorkerTask 入队时声明 ResourceClaims（schema v10 claims_json），`claim_next_worker_task` 在**任何 engine 启动之前**按同一 workspace 内 running 任务的持有集裁决：兼容并行、冲突则队首等待不重排（确定性顺序），blocked 时回报资源与持有者并落 `resource_wait` fact；in-product Alva worker 与外部 engine 走同一条闸门（是产品级调度，不是 kernel tool lock 本身——生产环境没有 provision `ToolLockRegistry`）。公平性：同 workspace 内更早的队首等待者会预留其资源，短任务流不能饿死它（holder 从不等待，故预留不会死锁）；claim 入队即校验（拒绝空/绝对路径/越界），路径归一用 kernel `normalize_path_string`。**已知边界：claim 只覆盖 dispatch 的 WorkerTask；用户在 lead 或 focus 到 worker session 后直接发 prompt 的那条路径不声明也不受闸门约束。**
 
+21. `worktree` 管理隔离 worker：`git worktree add` 在 Hub 私有 root（不在 shared workspace 内）建独立分支工作树，worker session 的 workspace 指向它，故其 claims 与共享 workspace 天然不争用（schema v11 存 worktree_path/branch）。隔离要求 workspace 正是 repo 根（worktree 覆盖整个 repo，而 `git apply` 从子目录会**静默丢弃**目录外的改动）。worker 完成不自动合并；`adoption_preview` 只读列出变更/与共享工作区并发编辑的冲突/patch 是否仍能干净应用/验证证据，`adopt_into_workspace` 是唯一写共享工作区的入口且先 `--check` 再 apply；`discard_worktree` 三重守卫（canonical 路径必须在 Hub worktree root 内、分支必须 `hub/worker-*`、不得等于 workspace）——`git worktree remove --force` 会连同未提交改动删除**任意**同 repo 的 linked worktree，包括用户自己的；丢弃后把 session workspace 指回共享 workspace，durable session 与历史保留；两种决定都落 lead timeline fact。**adoption 是共享 workspace 写入且不持 claim：因此要求 worker 空闲（无 running/queued 任务）才允许，patch 生成用一次性 GIT_INDEX_FILE 不动 worker 自己的 index，adopted 文件名取自 patch 而非 `git status`。**
+
 ## 约束
 
 - 产品测试从注入 `EngineRuntime` 的最高层 seam 进入。
@@ -55,6 +57,7 @@
 | Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
 | Handoff filter | `redact.rs` | 跨 engine 敏感内容过滤与 adapter-private 元数据剥离 |
 | Resource claims | `claims.rs` | 共享工作区 ResourceClaim 冲突代数 |
+| Worktree isolation | `worktree.rs` | 受管 git worktree、adoption 预览与丢弃 |
 | Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
 | SQLite store | `store.rs` | identity、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Desktop entry | `main.rs` | Tauri plugin、运行/切换/policy/readiness command 和 event bridge |

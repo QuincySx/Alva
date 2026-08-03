@@ -365,8 +365,22 @@ export async function stopHubAttempt(productSessionId: string): Promise<void> {
   await invoke("stop_hub_attempt", { productSessionId });
 }
 
+export interface WorktreeChange {
+  path: string;
+  status: string;
+}
+
+export interface AdoptionPreview {
+  changes: WorktreeChange[];
+  conflicts: string[];
+  applies_cleanly: boolean;
+  verification: string[];
+}
+
 export interface TeamWorker {
   worker_id: string;
+  worktree_path: string | null;
+  worktree_branch: string | null;
   worker_session_id: string;
   engine_id: string;
   created_at: number;
@@ -444,6 +458,7 @@ export async function dispatchWorkerTask(
 export async function addTeamWorker(
   teamRunId: string,
   workerEngineId: string,
+  isolated: boolean,
 ): Promise<TeamRunDetail> {
   if (!hasTauri) {
     throw new Error("Team runs require the ALVA Hub desktop runtime.");
@@ -451,7 +466,37 @@ export async function addTeamWorker(
   return await invoke<TeamRunDetail>("add_team_worker", {
     teamRunId,
     workerEngineId,
+    isolated,
   });
+}
+
+export async function previewWorkerAdoption(
+  workerId: string,
+): Promise<AdoptionPreview> {
+  if (!hasTauri) {
+    throw new Error("Adoption requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<AdoptionPreview>("preview_worker_adoption", { workerId });
+}
+
+export async function adoptWorkerWork(
+  teamRunId: string,
+  workerId: string,
+): Promise<string[]> {
+  if (!hasTauri) {
+    throw new Error("Adoption requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<string[]>("adopt_worker_work", { teamRunId, workerId });
+}
+
+export async function discardWorkerWorktree(
+  teamRunId: string,
+  workerId: string,
+): Promise<void> {
+  if (!hasTauri) {
+    throw new Error("Discarding requires the ALVA Hub desktop runtime.");
+  }
+  await invoke("discard_worker_worktree", { teamRunId, workerId });
 }
 
 export async function updateWorkerTask(

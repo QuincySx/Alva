@@ -17,7 +17,8 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 7. `permission_required` timeline card 携带 Allow/Deny 控件，经 `respond_hub_permission` 按 request_id 路由决定；已回答的卡片本地锁定不可重发。
 8. Team panel：为 active session 创建 TeamRun、Add worker（多 engine 并行批次）、按 worker 队列派发/Message；queued 任务就地 Edit/Cancel；每 worker Focus（打开其 durable session）与 Interrupt；`worker_outcome` fact 投影为 `worker` card，live worker 事件触发队列刷新（teamLeadRef 防 stale closure）。
 9. 派发任务可声明 ResourceClaims（`src/lib.rs` / `read:docs` / `facility:x` / `tool:git`），队列项展示各自 claim；`resource_wait` fact 投影为 worker card 显示等待资源与持有者。
-10. `index.css` 提供两栏 Desktop walking-skeleton 布局。
+10. Add worker 可勾选 Isolated worktree；隔离 worker 卡片带 isolated 徽标与 worktree 分支，提供 Review changes / Adopt / Discard worktree，预览展示变更、冲突与验证证据后才可 Adopt。
+11. `index.css` 提供两栏 Desktop walking-skeleton 布局。
 
 ## 约束
 

@@ -11,6 +11,7 @@ mod redact;
 mod repair;
 mod run;
 mod store;
+mod worktree;
 
 pub use alva::build_engine;
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
@@ -34,4 +35,9 @@ pub use store::{
     HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,
     StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim, TeamRunDetail,
     TeamWorker, TranscriptTurn, WorkerTask,
+};
+pub use worktree::{
+    adopt_into_workspace, adoption_preview, create_worker_worktree, discard_worktree,
+    supports_isolation, worktree_changes, worktree_root, AdoptionPreview, WorktreeChange,
+    WorktreeHandle,
 };

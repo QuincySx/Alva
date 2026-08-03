@@ -10,6 +10,9 @@ import {
   getHubSession,
   getPermissionEligibility,
   addTeamWorker,
+  adoptWorkerWork,
+  discardWorkerWorktree,
+  previewWorkerAdoption,
   cancelWorkerTask,
   createTeamRun,
   dispatchWorkerTask,
@@ -37,6 +40,7 @@ import {
   type PermissionProfile,
   type ReadinessReason,
   type RepairAction,
+  type AdoptionPreview,
   type ResourceClaim,
   type TeamRunDetail,
   type RepairKind,
@@ -170,7 +174,9 @@ function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
             : event.kind === "fallback_exhausted"
               ? ("exhausted" as const)
               : event.kind === "worker_outcome" ||
-                  event.kind === "resource_wait"
+                  event.kind === "resource_wait" ||
+                  event.kind === "worktree_adopted" ||
+                  event.kind === "worktree_discarded"
                 ? ("worker" as const)
                 : ("switched" as const),
     engine_id: event.target_engine_id,
@@ -181,7 +187,9 @@ function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
         : event.kind === "fallback_exhausted" ||
             event.kind === "attempt_cancelled" ||
             event.kind === "worker_outcome" ||
-            event.kind === "resource_wait"
+            event.kind === "resource_wait" ||
+            event.kind === "worktree_adopted" ||
+            event.kind === "worktree_discarded"
           ? event.reason
           : `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
     created_at: event.created_at,
@@ -235,6 +243,10 @@ export default function App() {
   const [teamBusy, setTeamBusy] = useState(false);
   const [dispatchWorkerId, setDispatchWorkerId] = useState<string | null>(null);
   const [teamClaims, setTeamClaims] = useState("");
+  const [isolateWorker, setIsolateWorker] = useState(false);
+  const [adoption, setAdoption] = useState<
+    Record<string, AdoptionPreview | undefined>
+  >({});
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editingScope, setEditingScope] = useState("");
   const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
@@ -583,11 +595,46 @@ export default function App() {
     if (!teamRun) return;
     setTeamBusy(true);
     try {
-      setTeamRun(await addTeamWorker(teamRun.team_run_id, teamWorkerEngine));
+      setTeamRun(
+        await addTeamWorker(teamRun.team_run_id, teamWorkerEngine, isolateWorker),
+      );
     } catch (error) {
       appendLocalFailure(error);
     } finally {
       setTeamBusy(false);
+    }
+  }
+
+  async function reviewAdoption(workerId: string) {
+    try {
+      const preview = await previewWorkerAdoption(workerId);
+      setAdoption((current) => ({ ...current, [workerId]: preview }));
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function confirmAdoption(workerId: string) {
+    if (!teamRun) return;
+    try {
+      await adoptWorkerWork(teamRun.team_run_id, workerId);
+      setAdoption((current) => ({ ...current, [workerId]: undefined }));
+      await refreshTeam();
+      if (activeSessionId) await loadSession(activeSessionId);
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function discardIsolatedWork(workerId: string) {
+    if (!teamRun) return;
+    try {
+      await discardWorkerWorktree(teamRun.team_run_id, workerId);
+      setAdoption((current) => ({ ...current, [workerId]: undefined }));
+      await refreshTeam();
+      if (activeSessionId) await loadSession(activeSessionId);
+    } catch (error) {
+      appendLocalFailure(error);
     }
   }
 
@@ -947,7 +994,12 @@ export default function App() {
                 return (
                   <div className="team-worker" key={worker.worker_id}>
                     <div className="team-worker-heading">
-                      <strong>Worker · {worker.engine_id}</strong>
+                      <strong>
+                        Worker · {worker.engine_id}
+                        {worker.worktree_path ? (
+                          <span className="worker-isolated">isolated</span>
+                        ) : null}
+                      </strong>
                       <div className="team-worker-controls">
                         <button
                           onClick={() =>
@@ -968,6 +1020,63 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+                    {worker.worktree_branch ? (
+                      <small className="team-worker-line">
+                        Worktree {worker.worktree_branch} — changes stay here
+                        until you adopt them.
+                      </small>
+                    ) : null}
+                    {worker.worktree_path ? (
+                      <div className="team-worker-controls">
+                        <button
+                          onClick={() => void reviewAdoption(worker.worker_id)}
+                          type="button"
+                        >
+                          Review changes
+                        </button>
+                        <button
+                          disabled={!adoption[worker.worker_id]}
+                          onClick={() => void confirmAdoption(worker.worker_id)}
+                          type="button"
+                        >
+                          Adopt
+                        </button>
+                        <button
+                          onClick={() =>
+                            void discardIsolatedWork(worker.worker_id)
+                          }
+                          type="button"
+                        >
+                          Discard worktree
+                        </button>
+                      </div>
+                    ) : null}
+                    {adoption[worker.worker_id] ? (
+                      <div className="adoption-preview">
+                        <strong>
+                          {adoption[worker.worker_id]!.changes.length} change(s)
+                          {adoption[worker.worker_id]!.applies_cleanly
+                            ? " · applies cleanly"
+                            : " · does NOT apply cleanly"}
+                        </strong>
+                        {adoption[worker.worker_id]!.changes.map((change) => (
+                          <small key={change.path}>
+                            {change.status} {change.path}
+                          </small>
+                        ))}
+                        {adoption[worker.worker_id]!.conflicts.length > 0 ? (
+                          <small className="adoption-conflict">
+                            Conflicts with your workspace edits:{" "}
+                            {adoption[worker.worker_id]!.conflicts.join(", ")}
+                          </small>
+                        ) : null}
+                        {adoption[worker.worker_id]!.verification.map(
+                          (entry, index) => (
+                            <small key={`verify-${index}`}>{entry}</small>
+                          ),
+                        )}
+                      </div>
+                    ) : null}
                     {workerTasks.map((task) => (
                       <div className="team-task" key={task.task_id}>
                         {editingTask === task.task_id ? (
@@ -1082,6 +1191,14 @@ export default function App() {
                     </option>
                   ))}
                 </select>
+                <label className="transcript-toggle">
+                  <input
+                    checked={isolateWorker}
+                    onChange={(event) => setIsolateWorker(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Isolated worktree
+                </label>
                 <button
                   disabled={teamBusy}
                   onClick={() => void addWorker()}

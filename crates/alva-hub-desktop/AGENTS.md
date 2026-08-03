@@ -36,6 +36,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 20. 共享工作区 ResourceClaims：mutating WorkerTask 启动前声明 path/facility/exclusive-tool claim，兼容的并行、冲突的确定性排队；in-product Alva worker 与外部 engine 受同一产品级调度（产品级排程，非 kernel tool lock）；更早的等待者预留资源防饿死；timeline 展示等待的资源及其持有者。claim 只约束 dispatch 的 WorkerTask，直接对 session 发 prompt 的路径不在闸门内。
 
+21. 高冲突/探索性/高风险任务可用 managed isolated worktree：worker 在独立工作树与分支上跑，UI 明确标注隔离状态与 worktree 身份；完成不自动改共享工作区，必须经展示变更/冲突/验证的显式 adoption 才进入；取消或丢弃隔离 worker 只删工作树，不碰共享数据。
+
 ## 约束
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。

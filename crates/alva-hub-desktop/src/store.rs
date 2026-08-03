@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -237,6 +237,10 @@ pub struct TeamRunDetail {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TeamWorker {
     pub worker_id: String,
+    /// Managed worktree when this worker runs isolated; None means it works
+    /// directly in the shared workspace.
+    pub worktree_path: Option<String>,
+    pub worktree_branch: Option<String>,
     /// A Hub-owned durable session — full branch/turn/attempt machinery, not
     /// an engine-private subagent.
     pub worker_session_id: String,
@@ -1428,6 +1432,23 @@ impl HubStore {
         query_team_run(&connection, team_run_id)
     }
 
+    /// The run a worker belongs to.
+    pub fn team_run_for_worker(&self, worker_id: &str) -> Result<Option<TeamRunDetail>, String> {
+        let connection = self.lock()?;
+        let team_run_id: Option<String> = connection
+            .query_row(
+                "SELECT team_run_id FROM team_workers WHERE worker_id = ?1",
+                [worker_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub run for worker: {error}"))?;
+        match team_run_id {
+            Some(team_run_id) => query_team_run(&connection, &team_run_id),
+            None => Ok(None),
+        }
+    }
+
     /// Latest team run whose lead is this session, if any.
     pub fn team_run_for_lead(
         &self,
@@ -1456,6 +1477,7 @@ impl HubStore {
         &self,
         team_run_id: &str,
         worker_target: &EngineTarget,
+        worktree: Option<&crate::worktree::WorktreeHandle>,
     ) -> Result<TeamRunDetail, String> {
         validate_engine_target(worker_target)?;
         let now = now_unix_ms();
@@ -1485,7 +1507,11 @@ impl HubStore {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
                 params![
                     worker_session_id,
-                    lead.workspace,
+                    // An isolated worker works in its managed worktree; a
+                    // shared worker in the lead's workspace.
+                    worktree
+                        .map(|handle| handle.path.clone())
+                        .unwrap_or_else(|| lead.workspace.clone()),
                     worker_branch_id,
                     STATUS_COMPLETED,
                     lead.permission_profile.as_str(),
@@ -1520,9 +1546,18 @@ impl HubStore {
         )?;
         transaction
             .execute(
-                "INSERT INTO team_workers (worker_id, team_run_id, worker_session_id, created_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![worker_id, team_run_id, worker_session_id, now],
+                "INSERT INTO team_workers
+                   (worker_id, team_run_id, worker_session_id, created_at,
+                    worktree_path, worktree_branch)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    worker_id,
+                    team_run_id,
+                    worker_session_id,
+                    now,
+                    worktree.map(|handle| handle.path.clone()),
+                    worktree.map(|handle| handle.branch.clone())
+                ],
             )
             .map_err(|error| format!("insert Hub team worker: {error}"))?;
         transaction
@@ -1727,6 +1762,144 @@ impl HubStore {
             Some(task) => Ok(TaskClaim::Claimed(Box::new(task))),
             None => Ok(TaskClaim::Empty),
         }
+    }
+
+    /// Detach an isolated worker's worktree identity after the worktree has
+    /// been discarded; the durable session and its history stay.
+    pub fn clear_worker_worktree(
+        &self,
+        worker_id: &str,
+        shared_workspace: &str,
+    ) -> Result<(), String> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub worktree clear transaction: {error}"))?;
+        // Point the durable session back at the shared workspace: leaving it
+        // on the deleted worktree would make every later run fail.
+        transaction
+            .execute(
+                "UPDATE hub_sessions SET workspace = ?2, updated_at = ?3
+                  WHERE product_session_id = (
+                    SELECT worker_session_id FROM team_workers WHERE worker_id = ?1
+                  )",
+                params![worker_id, shared_workspace, now_unix_ms()],
+            )
+            .map_err(|error| format!("repoint Hub worker workspace: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE team_workers SET worktree_path = NULL, worktree_branch = NULL
+                  WHERE worker_id = ?1",
+                [worker_id],
+            )
+            .map_err(|error| format!("clear Hub worker worktree: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub worktree clear: {error}"))?;
+        Ok(())
+    }
+
+    /// Attach a managed worktree to an already-registered worker.
+    pub fn attach_worker_worktree(
+        &self,
+        worker_id: &str,
+        worktree: &crate::worktree::WorktreeHandle,
+    ) -> Result<(), String> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub worktree attach transaction: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE hub_sessions SET workspace = ?2, updated_at = ?3
+                  WHERE product_session_id = (
+                    SELECT worker_session_id FROM team_workers WHERE worker_id = ?1
+                  )",
+                params![worker_id, worktree.path, now_unix_ms()],
+            )
+            .map_err(|error| format!("point Hub worker at worktree: {error}"))?;
+        let changed = transaction
+            .execute(
+                "UPDATE team_workers SET worktree_path = ?2, worktree_branch = ?3
+                  WHERE worker_id = ?1",
+                params![worker_id, worktree.path, worktree.branch],
+            )
+            .map_err(|error| format!("attach Hub worker worktree: {error}"))?;
+        if changed != 1 {
+            return Err(format!("worker '{worker_id}' was not found"));
+        }
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub worktree attach: {error}"))?;
+        Ok(())
+    }
+
+    /// Is this worker currently executing something?
+    pub fn worker_has_active_task(&self, worker_id: &str) -> Result<bool, String> {
+        let connection = self.lock()?;
+        let active: Option<i64> = connection
+            .query_row(
+                "SELECT 1 FROM worker_tasks
+                  WHERE worker_id = ?1 AND status IN (?2, 'queued') LIMIT 1",
+                params![worker_id, STATUS_RUNNING],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query Hub worker activity: {error}"))?;
+        Ok(active.is_some())
+    }
+
+    /// Record an adoption decision on the lead timeline.
+    pub fn record_adoption(
+        &self,
+        team_run_id: &str,
+        worker_id: &str,
+        adopted: bool,
+        summary: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub adoption transaction: {error}"))?;
+        let lead_session_id = transaction
+            .query_row(
+                "SELECT lead_session_id FROM team_runs WHERE team_run_id = ?1",
+                [team_run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| format!("query Hub team lead: {error}"))?;
+        let lead = query_session(&transaction, &lead_session_id)?
+            .ok_or_else(|| format!("Hub session '{lead_session_id}' was not found"))?;
+        let worker_engine: String = transaction
+            .query_row(
+                "SELECT eb.engine_id FROM team_workers tw
+                   JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                   JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
+                  WHERE tw.worker_id = ?1",
+                [worker_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("query Hub worker engine: {error}"))?;
+        insert_switch_timeline(
+            &transaction,
+            &lead_session_id,
+            if adopted {
+                "worktree_adopted"
+            } else {
+                "worktree_discarded"
+            },
+            &lead.active_branch_id,
+            None,
+            &lead.engine_id,
+            &worker_engine,
+            &crate::redact::redact_text(summary),
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub adoption: {error}"))?;
+        Ok(())
     }
 
     /// Test convenience: claim, flattening "blocked" and "empty" to None.
@@ -3123,7 +3296,8 @@ fn query_team_run(
     };
     let mut worker_statement = connection
         .prepare(
-            "SELECT tw.worker_id, tw.worker_session_id, eb.engine_id, tw.created_at
+            "SELECT tw.worker_id, tw.worker_session_id, eb.engine_id, tw.created_at,
+                    tw.worktree_path, tw.worktree_branch
                FROM team_workers tw
                JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
                JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
@@ -3138,6 +3312,8 @@ fn query_team_run(
                 worker_session_id: row.get(1)?,
                 engine_id: row.get(2)?,
                 created_at: row.get(3)?,
+                worktree_path: row.get(4)?,
+                worktree_branch: row.get(5)?,
             })
         })
         .map_err(|error| format!("query Hub team workers: {error}"))?
@@ -3520,6 +3696,17 @@ fn initialize_schema_and_recover(
                    ADD COLUMN claims_json TEXT NOT NULL DEFAULT '[]';",
             )
             .map_err(|error| format!("migrate Hub database to schema 10: {error}"))?;
+    }
+
+    if schema_version < 11 {
+        // Isolated workers keep their managed worktree identity here; NULL
+        // means the worker shares the session workspace.
+        transaction
+            .execute_batch(
+                "ALTER TABLE team_workers ADD COLUMN worktree_path TEXT;
+                 ALTER TABLE team_workers ADD COLUMN worktree_branch TEXT;",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 11: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -4139,7 +4326,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 11).unwrap();
+        connection.pragma_update(None, "user_version", 12).unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -4151,7 +4338,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, 12);
     }
 
     #[test]
@@ -5109,6 +5296,7 @@ mod tests {
             .add_team_worker(
                 &run.team_run_id,
                 &EngineTarget::for_engine("codex").unwrap(),
+                None,
             )
             .unwrap();
         assert_eq!(run.workers.len(), 2);
@@ -5263,12 +5451,14 @@ mod tests {
             .add_team_worker(
                 &run.team_run_id,
                 &EngineTarget::for_engine("claude").unwrap(),
+                None,
             )
             .unwrap();
         let run = store
             .add_team_worker(
                 &run.team_run_id,
                 &EngineTarget::for_engine("codex").unwrap(),
+                None,
             )
             .unwrap();
         let (alva_worker, claude_worker, codex_worker) = (
@@ -5393,6 +5583,7 @@ mod tests {
             .add_team_worker(
                 &run.team_run_id,
                 &EngineTarget::for_engine("claude").unwrap(),
+                None,
             )
             .unwrap();
         let (holder, waiter) = (run.workers[0].clone(), run.workers[1].clone());
@@ -5454,6 +5645,129 @@ mod tests {
             store.claim_next_worker_task(&waiter.worker_id).unwrap(),
             TaskClaim::Claimed(_)
         ));
+    }
+
+    #[test]
+    fn isolated_workers_carry_worktree_identity_and_a_separate_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let worktree = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "iso-lead",
+                workspace.path(),
+                "plan",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("planned"), None, None)
+            .unwrap();
+        let run = store
+            .create_team_run("iso-lead", &EngineTarget::for_engine("claude").unwrap())
+            .unwrap();
+        // The shared worker has no worktree identity.
+        assert!(run.workers[0].worktree_path.is_none());
+
+        let handle = crate::worktree::WorktreeHandle {
+            path: worktree.path().to_string_lossy().into_owned(),
+            branch: "hub/worker-abc".into(),
+        };
+        let run = store
+            .add_team_worker(
+                &run.team_run_id,
+                &EngineTarget::for_engine("codex").unwrap(),
+                Some(&handle),
+            )
+            .unwrap();
+        let isolated = run.workers[1].clone();
+        assert_eq!(
+            isolated.worktree_path.as_deref(),
+            Some(handle.path.as_str())
+        );
+        assert_eq!(isolated.worktree_branch.as_deref(), Some("hub/worker-abc"));
+        // Its durable session runs in the worktree, not the shared workspace.
+        let session = store
+            .get_session(&isolated.worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.session.workspace, handle.path);
+        assert_ne!(
+            session.session.workspace,
+            workspace.path().to_string_lossy()
+        );
+        // An isolated worker in its own workspace never contends with the
+        // shared workers' claims.
+        let claim = ResourceClaim::Path {
+            path: "src/lib.rs".into(),
+            mode: ClaimMode::Write,
+        };
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &run.workers[0].worker_id,
+                "shared edit",
+                std::slice::from_ref(&claim),
+            )
+            .unwrap();
+        store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &isolated.worker_id,
+                "isolated edit",
+                std::slice::from_ref(&claim),
+            )
+            .unwrap();
+        assert!(matches!(
+            store
+                .claim_next_worker_task(&run.workers[0].worker_id)
+                .unwrap(),
+            TaskClaim::Claimed(_)
+        ));
+        assert!(matches!(
+            store.claim_next_worker_task(&isolated.worker_id).unwrap(),
+            TaskClaim::Claimed(_)
+        ));
+
+        // Adoption and discard are recorded as lead-visible decisions.
+        store
+            .record_adoption(
+                &run.team_run_id,
+                &isolated.worker_id,
+                true,
+                "Adopted 2 files",
+            )
+            .unwrap();
+        store
+            .record_adoption(&run.team_run_id, &isolated.worker_id, false, "Discarded")
+            .unwrap();
+        let lead_detail = store.get_session("iso-lead").unwrap().unwrap();
+        assert!(lead_detail
+            .timeline_events
+            .iter()
+            .any(|event| event.kind == "worktree_adopted"));
+        assert!(lead_detail
+            .timeline_events
+            .iter()
+            .any(|event| event.kind == "worktree_discarded"));
+
+        // Discarding the worktree keeps the durable worker session AND
+        // repoints it at the shared workspace, so later runs still work.
+        let shared = workspace.path().to_string_lossy().into_owned();
+        store
+            .clear_worker_worktree(&isolated.worker_id, &shared)
+            .unwrap();
+        let run = store.get_team_run(&run.team_run_id).unwrap().unwrap();
+        assert!(run.workers[1].worktree_path.is_none());
+        let session = store
+            .get_session(&isolated.worker_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.session.workspace, shared);
+        assert_ne!(session.session.workspace, handle.path);
     }
 
     #[test]

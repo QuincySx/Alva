@@ -3051,6 +3051,7 @@ mod tests {
             .add_team_worker(
                 &run.team_run_id,
                 &crate::store::EngineTarget::for_engine("codex").unwrap(),
+                None,
             )
             .unwrap();
         let claude_worker = run.workers[0].clone();
