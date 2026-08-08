@@ -93,7 +93,7 @@ const engineCatalog: EngineTarget[] = [
   },
 ];
 
-function describeReadinessReason(reason: ReadinessReason): string {
+export function describeReadinessReason(reason: ReadinessReason): string {
   switch (reason.code) {
     case "binary_not_found":
       return `Not installed — searched ${reason.searched.join(", ") || "PATH"}.`;
@@ -124,7 +124,7 @@ const profileLabel: Record<PermissionProfile, string> = {
   unrestricted: "Everything allowed",
 };
 
-function describeClaim(claim: ResourceClaim): string {
+export function describeClaim(claim: ResourceClaim): string {
   switch (claim.kind) {
     case "path":
       return `${claim.mode} ${claim.path}`;
@@ -136,7 +136,7 @@ function describeClaim(claim: ResourceClaim): string {
 }
 
 /// `src/lib.rs, read:docs, facility:target-dir, tool:git` → claims.
-function parseClaims(input: string): ResourceClaim[] {
+export function parseClaims(input: string): ResourceClaim[] {
   return input
     .split(",")
     .map((entry) => entry.trim())
@@ -155,7 +155,7 @@ function parseClaims(input: string): ResourceClaim[] {
     });
 }
 
-function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
+export function projectTimeline(detail: HubSessionDetail): ProjectedEvent[] {
   const turns = detail.turns.map((turn) => ({
     status:
       turn.status === "failed"

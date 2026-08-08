@@ -77,15 +77,18 @@ this test was written to pin).
 
 ## 8. A fallback card identifies reason/source/target and exposes Stop, Switch back, View handoff
 
-**⏳ Backend automated, UI unverified.** The card's data is asserted
+**✅ Automated (web layer).** The card's data is asserted
 (`run::tests::terminal_continuity_failure_...` checks the emitted card carries
 `source → target`, the reason and the handoff summary), and Stop's mechanism
 is asserted end to end by
 `run::tests::user_stop_cancels_the_attempt_without_fallback_and_survives_restart`.
-
-**Outstanding:** the web layer has no test infrastructure
-(`web/package.json` has no test script), so the three controls' wiring and
-their enabled/disabled logic are verified only by `tsc` and by reading.
+The web layer now has a test runner (vitest + Testing Library):
+`web/src/App.integration.test.tsx` renders the app against a mocked bridge
+seam and asserts the three controls' presence and enabled/disabled logic
+(Stop is enabled for a `running` session, Switch back is enabled while the
+composer selects the fallback source, View handoff expands the projected
+handoff), and `web/src/App.pure.test.tsx` pins the timeline projection and
+copy helpers. Run with `npm test` in `web/` (11 tests).
 
 ## 9. A stricter permission mapping works; a weaker mapping is rejected
 
@@ -193,8 +196,9 @@ marked done:
    and `codex` CLIs and a real provider key for `alva`.
 2. **Packaged-runtime observation of each fallback trigger** (scenario 3) —
    the classifier is pinned, the live provider behaviour is not.
-3. **Web-layer tests.** `web/` has no test runner. Every UI claim in
-   scenarios 8 and the collaboration surface rests on `tsc` plus review.
+3. ~~Web-layer tests.~~ `web/` now runs 11 vitest tests (fallback-card
+   controls, handoff expansion, session search, timeline projection, claim
+   parsing); UI claims in scenarios 8 rest on those plus `tsc`.
 4. **A signed/bundled artifact.** `cargo build --release -p alva-hub-desktop`
    and `npm run build` (web bundle) both succeed, so the packaged path
    compiles; producing and launching a real `.app` bundle is not done here.

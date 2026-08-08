@@ -1,0 +1,287 @@
+// INPUT:  App.tsx + a fully mocked ./bridge seam
+// OUTPUT: renders App without a webview and asserts the fallback-card
+//         controls (ACCEPTANCE.md scenario 8: Stop / Switch back / View
+//         handoff), session search, and the empty-state surface.
+// POS:    Closes "the three controls' wiring and their enabled/disabled logic
+//         are verified only by tsc and by reading" from ACCEPTANCE.md.
+//
+// The live hub_timeline channel emits raw events (no fallback controls); the
+// control-bearing card is projected by projectTimeline(detail) when a session
+// is opened. These tests therefore drive the real openSession path instead of
+// injecting a synthetic payload through the listener.
+
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import App from "./App";
+import type { HandoffPackage, HubSessionDetail } from "./bridge";
+
+const bridge = vi.hoisted(() => {
+  const listeners: Array<(event: unknown) => void> = [];
+  const state = {
+    sessions: [] as Array<{
+      product_session_id: string;
+      workspace: string;
+      last_prompt: string | null;
+      engine_id: string;
+      status: string;
+    }>,
+    detail: null as HubSessionDetail | null,
+  };
+  return {
+    listeners,
+    state,
+    fns: {
+      chooseWorkspace: vi.fn(async () => null),
+      runHubPrompt: vi.fn(),
+      switchHubEngine: vi.fn(),
+      listHubSessions: vi.fn(async () => state.sessions),
+      getHubSession: vi.fn(async () => state.detail),
+      getGlobalFallbackPolicy: vi.fn(async () => ({
+        targets: [],
+        updated_at: 0,
+      })),
+      setGlobalFallbackPolicy: vi.fn(),
+      setSessionFallbackPolicy: vi.fn(),
+      getPermissionEligibility: vi.fn(async () => []),
+      respondHubPermission: vi.fn(),
+      setTranscriptSharing: vi.fn(),
+      stopHubAttempt: vi.fn(),
+      createTeamRun: vi.fn(),
+      getTeamRunForLead: vi.fn(async () => null),
+      dispatchWorkerTask: vi.fn(),
+      addTeamWorker: vi.fn(),
+      getPermissionGroups: vi.fn(async () => []),
+      respondPermissionGroup: vi.fn(),
+      setTeamAutonomy: vi.fn(),
+      hibernateWorker: vi.fn(),
+      restoreWorker: vi.fn(),
+      archiveWorker: vi.fn(),
+      completeTeamRun: vi.fn(),
+      previewWorkerAdoption: vi.fn(),
+      adoptWorkerWork: vi.fn(),
+      discardWorkerWorktree: vi.fn(),
+      updateWorkerTask: vi.fn(),
+      cancelWorkerTask: vi.fn(),
+      interruptWorker: vi.fn(),
+      openExternal: vi.fn(),
+      getRepairPlan: vi.fn(async () => []),
+      runEngineRepair: vi.fn(),
+      getEngineReadiness: vi.fn(async () => []),
+      listenTimeline: vi.fn(async (callback: (event: unknown) => void) => {
+        listeners.push(callback);
+        return () => {
+          const index = listeners.indexOf(callback);
+          if (index >= 0) listeners.splice(index, 1);
+        };
+      }),
+    },
+  };
+});
+
+vi.mock("./bridge", () => bridge.fns);
+
+function handoff(partial: Partial<HandoffPackage> = {}): HandoffPackage {
+  return {
+    handoff_id: "h-1",
+    product_session_id: "ps-1",
+    source_branch_id: "b-alva",
+    target_branch_id: "b-claude",
+    source: {
+      engine_id: "alva",
+      model_id: "workspace-config",
+      provider_id: "workspace-config",
+      account_source: "Workspace provider",
+      billing_route: "Workspace provider account",
+      automatic_use_authorized: true,
+      required_capabilities: [],
+    },
+    target: {
+      engine_id: "claude",
+      model_id: "engine-default",
+      provider_id: "claude-cli",
+      account_source: "Claude Code CLI account",
+      billing_route: "Anthropic account",
+      automatic_use_authorized: true,
+      required_capabilities: [],
+    },
+    kind: "full",
+    reason: "rate limited",
+    user_goal: "Fix the build",
+    latest_instruction: "Keep going",
+    accepted_decisions: [],
+    completed_work: [{ prompt: "Fix the build", result: "Done" }],
+    pending_work: [],
+    changed_files: ["src/main.rs"],
+    recent_commands: [],
+    verification_results: [],
+    workspace_summary: "Rust workspace",
+    team_snapshot: null,
+    transcript: [],
+    created_at: 108,
+    used_at: null,
+    ...partial,
+  };
+}
+
+function detailFixture(): HubSessionDetail {
+  return {
+    session: {
+      product_session_id: "ps-1",
+      workspace: "/tmp/proj",
+      active_branch_id: "b-claude",
+      engine_id: "claude",
+      model_id: "engine-default",
+      provider_id: "claude-cli",
+      engine_session_id: "ns-1",
+      status: "running",
+      updated_at: 115,
+      last_prompt: "Fix the build",
+      last_result: null,
+      permission_profile: "workspace_write",
+      include_full_transcript: false,
+    },
+    turns: [],
+    branches: [
+      {
+        branch_id: "b-alva",
+        engine_id: "alva",
+        model_id: "workspace-config",
+        provider_id: "workspace-config",
+        engine_session_id: "ns-alva",
+        status: "parked",
+        created_at: 100,
+        updated_at: 108,
+      },
+      {
+        branch_id: "b-claude",
+        engine_id: "claude",
+        model_id: "engine-default",
+        provider_id: "claude-cli",
+        engine_session_id: "ns-claude",
+        status: "active",
+        created_at: 108,
+        updated_at: 115,
+      },
+    ],
+    handoffs: [handoff()],
+    timeline_events: [
+      {
+        event_id: "e-1",
+        kind: "engine_fallback",
+        source_branch_id: "b-alva",
+        target_branch_id: "b-claude",
+        source_engine_id: "alva",
+        target_engine_id: "claude",
+        reason: "rate limited",
+        created_at: 108,
+      },
+    ],
+    pending_switch: null,
+    fallback_policy: { targets: [], updated_at: 0 },
+  };
+}
+
+describe("App integration", () => {
+  beforeEach(() => {
+    bridge.state.sessions = [];
+    bridge.state.detail = null;
+    bridge.listeners.length = 0;
+    vi.clearAllMocks();
+  });
+
+  it("renders the empty surface before any session or event", async () => {
+    render(<App />);
+    expect(
+      await screen.findByText("Start one continuous project session"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Not selected")).toBeInTheDocument();
+    expect(screen.getByText("Hub runs will appear here.")).toBeInTheDocument();
+  });
+
+  it("opens a running session and renders the fallback card with live controls", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "running",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+
+    // The card is projected from the session detail, not the live channel.
+    expect(await screen.findByText("Automatic fallback")).toBeInTheDocument();
+    expect(screen.getByText(/alva → claude/)).toBeInTheDocument();
+
+    const stop = screen.getByRole("button", { name: "Stop" });
+    // A running session means the attempt is live: Stop must be offered.
+    expect(stop).toBeEnabled();
+    // The composer follows the active engine (claude), so switching back to
+    // the parked alva branch is the meaningful control.
+    const switchBack = screen.getByRole("button", {
+      name: "Switch back to alva",
+    });
+    expect(switchBack).toBeEnabled();
+    expect(screen.getByRole("button", { name: "View handoff" })).toBeEnabled();
+  });
+
+  it("expands a handoff with reason, goal, completed work and transcript notice", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "running",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+    await user.click(await screen.findByRole("button", { name: "View handoff" }));
+
+    expect(screen.getByText(/full handoff · alva → claude/)).toBeInTheDocument();
+    expect(screen.getByText("Reason: rate limited")).toBeInTheDocument();
+    expect(screen.getByText("Goal: Fix the build")).toBeInTheDocument();
+    expect(screen.getByText("✓ Fix the build — Done")).toBeInTheDocument();
+    expect(screen.getByText("Transcript not shared (default).")).toBeInTheDocument();
+  });
+
+  it("filters sessions by workspace, prompt or engine", async () => {
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-a",
+        workspace: "/tmp/alpha",
+        last_prompt: "Ship the alpha release",
+        engine_id: "alva",
+        status: "active",
+      },
+      {
+        product_session_id: "ps-b",
+        workspace: "/tmp/beta",
+        last_prompt: "Port to codex",
+        engine_id: "claude",
+        status: "parked",
+      },
+    ];
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByText("Ship the alpha release")).toBeInTheDocument();
+    expect(screen.getByText("Port to codex")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Search sessions"), "codex");
+    expect(screen.getByText("Port to codex")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Ship the alpha release")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("1/2")).toBeInTheDocument();
+  });
+});
