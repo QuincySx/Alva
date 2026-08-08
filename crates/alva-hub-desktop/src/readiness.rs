@@ -599,6 +599,99 @@ mod tests {
         assert_eq!(ids, vec!["alva", "claude", "codex"]);
     }
 
+    /// Independent PATH lookup: the smoke test must not reuse SystemProbe's
+    /// own `locate` or it could agree with itself while both are wrong.
+    fn locate_on_path(command: &str) -> Option<std::path::PathBuf> {
+        std::env::var_os("PATH").and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|directory| directory.join(command))
+                .find(|candidate| candidate.is_file())
+        })
+    }
+
+    /// Real-machine smoke probe: exercises `SystemProbe` against the actual
+    /// environment (PATH, HOME, real CLI binaries). Unlike the FakeProbe
+    /// unit tests, this validates that binary discovery and version parsing
+    /// agree with reality and that the classification follows the documented
+    /// precedence. It passes on any machine: an installed engine is
+    /// cross-checked against its real `--version` output, and an absent one
+    /// must classify Missing. This closes the acceptance gap "the
+    /// classifier is pinned, the live environment is not" for the probe.
+    #[test]
+    fn system_probe_matches_the_real_machine() {
+        let probe = SystemProbe::new(None, None);
+        let report = probe_readiness(&probe);
+        assert_eq!(report.len(), HUB_ENGINE_IDS.len());
+
+        for entry in &report {
+            let spec = engine_spec(&entry.engine_id);
+            match entry.engine_id.as_str() {
+                "alva" => {
+                    // Built-in engine: never "missing", and with no provider
+                    // config in the temp workspace its auth (the provider
+                    // key) must classify as unauthenticated.
+                    assert!(entry.binary_path.is_some(), "alva is built-in");
+                    assert_eq!(
+                        entry.status,
+                        ReadinessStatus::Unauthenticated,
+                        "no provider config in the probe workspace: {:?}",
+                        entry.reasons
+                    );
+                }
+                id => {
+                    let located = locate_on_path(id);
+                    match (entry.binary_path.is_some(), located) {
+                        (false, None) => {
+                            assert_eq!(entry.status, ReadinessStatus::Missing);
+                        }
+                        (true, Some(path)) => {
+                            // Cross-check the version parser against the raw
+                            // CLI output: the probe must have run the same
+                            // binary it claims to have found.
+                            let raw = read_cli_version(&path)
+                                .unwrap_or_else(|error| {
+                                    panic!("real `{id} --version` failed: {error}")
+                                });
+                            let Some(version) = &entry.version else {
+                                panic!("probe found {id} but reported no version");
+                            };
+                            assert_eq!(
+                                version, &raw,
+                                "probe version parser disagrees with the real `{id} --version`"
+                            );
+                            let minimum = spec.minimum_version;
+                            if version_at_least(version, minimum) {
+                                if entry.authenticated == Some(false) {
+                                    assert_eq!(
+                                        entry.status,
+                                        ReadinessStatus::Unauthenticated,
+                                        "{id}: signed-out must not look healthy"
+                                    );
+                                } else {
+                                    assert_eq!(
+                                        entry.status,
+                                        ReadinessStatus::Healthy,
+                                        "{id}: installed, readable, not signed out; reasons: {:?}",
+                                        entry.reasons
+                                    );
+                                }
+                            } else {
+                                assert_eq!(
+                                    entry.status,
+                                    ReadinessStatus::Incompatible,
+                                    "{id} v{version} is below the minimum {minimum}"
+                                );
+                            }
+                        }
+                        _ => panic!(
+                            "probe and independent PATH lookup disagree about {id} "
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn missing_binary_reports_structured_search_locations() {
         let facts = EngineProbeFacts {
