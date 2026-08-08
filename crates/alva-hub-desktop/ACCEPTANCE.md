@@ -193,6 +193,24 @@ violated — the stale entry was the hub-desktop allowlist.
 `cargo test -p alva-hub-cli` — 24 tests green, covering one-shot, REPL,
 journal, resume and switch argument handling.
 
+## Beyond-V1 evolution (Cindy-inspired)
+
+Features added while evolving against `makecindy/cindy`, not part of the
+accepted V1 spec:
+
+- **Cross-engine session memory** (schema 14, `hub_memory`): corrections a
+  user teaches a session ride every handoff (`HandoffPackage.session_memory`)
+  so a fallback engine continues with accumulated knowledge, not from zero.
+  The live drawer list and the handoff snapshot come from the same query, and
+  memory passes the same secret filter as every user-typed field.
+- **Workspace skills across engines** (`HandoffPackage.available_skills`):
+  `<workspace>/.alva/skills/<name>/SKILL.md` entries are listed by name,
+  frontmatter description and path at handoff build time; the target engine
+  reads the file itself. Bounded to 20, never a handoff failure.
+
+Both were verified end to end: the packaged app migrated a real schema-13
+`alva-hub.db` to 14 on launch (creating `hub_memory`) and exited cleanly.
+
 ## Outstanding before calling V1 accepted
 
 These cannot be closed from the repository alone and are deliberately not
