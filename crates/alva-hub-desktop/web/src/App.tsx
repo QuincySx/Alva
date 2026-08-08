@@ -1778,6 +1778,17 @@ export default function App() {
                     {entry.fallback.handoff.workspace_summary ? (
                       <small>{entry.fallback.handoff.workspace_summary}</small>
                     ) : null}
+                    {entry.fallback.handoff.available_skills.length > 0 ? (
+                      <div className="handoff-skills">
+                        <strong>Workspace skills</strong>
+                        {entry.fallback.handoff.available_skills.map((skill) => (
+                          <small key={skill.path}>
+                            {skill.name} — {skill.description}{" "}
+                            <code>{skill.path}</code>
+                          </small>
+                        ))}
+                      </div>
+                    ) : null}
                     {entry.fallback.handoff.transcript.length > 0 ? (
                       <>
                         <strong>

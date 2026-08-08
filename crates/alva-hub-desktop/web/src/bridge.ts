@@ -144,6 +144,7 @@ export interface HandoffPackage {
   team_snapshot: string | null;
   transcript: TranscriptTurn[];
   session_memory: string[];
+  available_skills: SkillSnapshot[];
   created_at: number;
   used_at: number | null;
 }
@@ -151,6 +152,12 @@ export interface HandoffPackage {
 export interface TranscriptTurn {
   prompt: string;
   result: string | null;
+}
+
+export interface SkillSnapshot {
+  name: string;
+  description: string;
+  path: string;
 }
 
 export interface HubSessionDetail {

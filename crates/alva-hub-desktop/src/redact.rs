@@ -47,6 +47,11 @@ pub fn redact_handoff(package: &mut HandoffPackage) {
     for entry in &mut package.session_memory {
         *entry = redact_text(entry);
     }
+    // Skill descriptions are user-authored too — same filter.
+    for skill in &mut package.available_skills {
+        skill.name = redact_text(&skill.name);
+        skill.description = redact_text(&skill.description);
+    }
     // Adapter-private metadata: another engine needs to know WHICH engine the
     // work came from, never whose account paid for it.
     package.source.account_source = String::new();
@@ -389,6 +394,11 @@ mod tests {
                 result: Some(secret.into()),
             }],
             session_memory: vec![format!("always run tests — {secret}")],
+            available_skills: vec![crate::store::SkillSnapshot {
+                name: "review".to_string(),
+                description: format!("review everything, keep {secret}"),
+                path: ".alva/skills/review/SKILL.md".to_string(),
+            }],
             created_at: 0,
             used_at: None,
         };
@@ -402,6 +412,10 @@ mod tests {
             "memory content must survive: {:?}",
             package.session_memory[0]
         );
+        // Skills survive with name/description filtered, path intact.
+        assert_eq!(package.available_skills.len(), 1);
+        assert!(!package.available_skills[0].description.contains(secret));
+        assert_eq!(package.available_skills[0].path, ".alva/skills/review/SKILL.md");
         // Team context survives, filtered — it is product state, not
         // adapter-private metadata.
         assert!(package

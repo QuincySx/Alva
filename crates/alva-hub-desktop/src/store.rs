@@ -187,6 +187,72 @@ pub struct HandoffPendingWork {
     pub reason: String,
 }
 
+/// One discoverable workspace skill, name + description only — the body is
+/// a file the target engine reads on demand, so the handoff stays small.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillSnapshot {
+    pub name: String,
+    pub description: String,
+    /// Workspace-relative path to the SKILL.md, so the target engine can
+    /// open it without guessing.
+    pub path: String,
+}
+
+impl SkillSnapshot {
+    fn from_dir(skill_dir: &Path) -> Option<SkillSnapshot> {
+        let path = skill_dir.join("SKILL.md");
+        let content = std::fs::read_to_string(&path).ok()?;
+        let name = skill_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unnamed")
+            .to_string();
+        // Frontmatter description line if present, else the first non-blank
+        // line — enough for the target engine to decide whether to read it.
+        let description = content
+            .lines()
+            .find_map(|line| {
+                let line = line.trim();
+                (line.starts_with("description:") || line.starts_with("description :")).then(|| {
+                    bounded_text(line.split_once(':').map(|(_, value)| value).unwrap_or("").trim())
+                })
+            })
+            .or_else(|| {
+                content
+                    .lines()
+                    .find(|line| !line.trim().is_empty())
+                    .map(bounded_text)
+            })
+            .unwrap_or_default();
+        Some(SkillSnapshot {
+            name: name.clone(),
+            description,
+            path: format!(".alva/skills/{name}/SKILL.md"),
+        })
+    }
+}
+
+/// Scan `<workspace>/.alva/skills/<name>/SKILL.md` entries (bounded: the
+/// handoff lists skills, it does not ship their bodies). Missing directory
+/// or unreadable entries are silently skipped — skills are an enhancement,
+/// never a failure condition for a handoff.
+fn scan_workspace_skills(workspace: &Path) -> Vec<SkillSnapshot> {
+    const MAX_SKILLS: usize = 20;
+    let skills_root = workspace.join(".alva").join("skills");
+    let Ok(entries) = std::fs::read_dir(&skills_root) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            path.is_dir().then(|| SkillSnapshot::from_dir(&path)).flatten()
+        })
+        .take(MAX_SKILLS)
+        .collect()
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HandoffPackage {
     pub handoff_id: String,
@@ -221,6 +287,12 @@ pub struct HandoffPackage {
     /// harnesses.
     #[serde(default)]
     pub session_memory: Vec<String>,
+    /// Workspace skills the source session could follow: name, description
+    /// and the SKILL.md location. The target engine can read the files
+    /// itself — the handoff only has to point at them (Cindy's "teach a way
+    /// of working once, reuse it everywhere").
+    #[serde(default)]
+    pub available_skills: Vec<SkillSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -3312,6 +3384,9 @@ fn build_handoff_package(
     // The session's memory rides along so the target engine continues with
     // the accumulated corrections, not from zero.
     let session_memory = query_session_memory(transaction, product_session_id)?;
+    // Workspace skills point the target engine at the SKILL.md files it can
+    // read directly — discovery without shipping bodies.
+    let available_skills = scan_workspace_skills(Path::new(&workspace));
 
     let mut package = HandoffPackage {
         handoff_id: uuid::Uuid::new_v4().to_string(),
@@ -3339,6 +3414,7 @@ fn build_handoff_package(
         team_snapshot: build_team_snapshot(transaction, product_session_id)?,
         transcript,
         session_memory,
+        available_skills,
         created_at: now,
         used_at: None,
     };
@@ -7092,5 +7168,79 @@ mod tests {
         let encoded = package.render_for_engine();
         assert!(encoded.contains("session_memory"));
         assert!(!encoded.contains("sk-live-memory999"));
+    }
+
+    #[test]
+    fn handoff_lists_workspace_skills_without_shipping_bodies() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        // Two skills with frontmatter descriptions, one junk directory.
+        let skills = workspace.path().join(".alva").join("skills");
+        std::fs::create_dir_all(skills.join("review")).unwrap();
+        std::fs::write(
+            skills.join("review/SKILL.md"),
+            "---\ndescription: Review every change before landing\n---\n# Review\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(skills.join("wip")).unwrap();
+        std::fs::write(skills.join("wip/SKILL.md"), "no frontmatter, first line wins\n").unwrap();
+        std::fs::create_dir_all(skills.join("notes")).unwrap();
+        std::fs::write(skills.join("notes/README.txt"), "not a skill").unwrap();
+
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        store
+            .prepare_new_turn(
+                "skills-session",
+                workspace.path(),
+                "start",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+
+        let mut connection = store.lock().unwrap();
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let package = build_handoff_package(
+            &transaction,
+            "skills-session",
+            "b-alva",
+            "b-claude",
+            alva,
+            EngineTarget::for_engine("claude").unwrap(),
+            "switch",
+            now_unix_ms(),
+            HandoffKind::Full,
+            None,
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+
+        let mut names: Vec<_> = package
+            .available_skills
+            .iter()
+            .map(|skill| skill.name.as_str())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, vec!["review", "wip"]);
+        let review = package
+            .available_skills
+            .iter()
+            .find(|skill| skill.name == "review")
+            .unwrap();
+        assert_eq!(review.description, "Review every change before landing");
+        assert_eq!(review.path, ".alva/skills/review/SKILL.md");
+        let wip = package
+            .available_skills
+            .iter()
+            .find(|skill| skill.name == "wip")
+            .unwrap();
+        assert_eq!(wip.description, "no frontmatter, first line wins");
+        // The handoff renders the pointers, never the bodies.
+        let encoded = package.render_for_engine();
+        assert!(encoded.contains(".alva/skills/review/SKILL.md"));
+        assert!(!encoded.contains("Review every change before landing\n---"));
     }
 }

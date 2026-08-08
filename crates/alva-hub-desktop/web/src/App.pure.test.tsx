@@ -185,6 +185,7 @@ function sampleDetail(): HubSessionDetail {
         team_snapshot: null,
         transcript: [{ prompt: "Fix the build", result: "Done" }],
         session_memory: [],
+        available_skills: [],
         created_at: 108,
         used_at: null,
       },

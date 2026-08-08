@@ -127,6 +127,7 @@ function handoff(partial: Partial<HandoffPackage> = {}): HandoffPackage {
     team_snapshot: null,
     transcript: [],
     session_memory: [],
+    available_skills: [],
     created_at: 108,
     used_at: null,
     ...partial,
@@ -253,6 +254,17 @@ describe("App integration", () => {
       },
     ];
     bridge.state.detail = detailFixture();
+    bridge.state.detail.handoffs = [
+      handoff({
+        available_skills: [
+          {
+            name: "review",
+            description: "Review every change",
+            path: ".alva/skills/review/SKILL.md",
+          },
+        ],
+      }),
+    ];
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
@@ -263,6 +275,9 @@ describe("App integration", () => {
     expect(screen.getByText("Goal: Fix the build")).toBeInTheDocument();
     expect(screen.getByText("✓ Fix the build — Done")).toBeInTheDocument();
     expect(screen.getByText("Transcript not shared (default).")).toBeInTheDocument();
+    // Workspace skills render as pointers the target engine can read.
+    expect(screen.getByText("Workspace skills")).toBeInTheDocument();
+    expect(screen.getByText(".alva/skills/review/SKILL.md")).toBeInTheDocument();
   });
 
   it("teaches the session memory and refreshes the drawer list", async () => {
