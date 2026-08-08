@@ -178,6 +178,12 @@ violated — the stale entry was the hub-desktop allowlist.
 
 - `npm run build` in `web/` produces the bundle (index + assets).
 - `cargo build --release -p alva-hub-desktop` produces the binary.
+- `npm run tauri build` (from `web/`, or `./web/node_modules/.bin/tauri build`
+  from the crate root) produces a bundled
+  `target/release/bundle/macos/ALVA Hub.app` (Tauri 2, `bundle.targets =
+  ["app"]`). The bundle was launched and observed alive, created its private
+  `alva-hub.db` under `~/Library/Application Support/com.alva.hub`, and
+  exited cleanly.
 - External links go through `tauri-plugin-opener` (`opener:default` in the
   capability file); a bare `<a target="_blank">` does nothing in a wry
   webview, which was the outstanding gap from ticket 14.
@@ -199,6 +205,6 @@ marked done:
 3. ~~Web-layer tests.~~ `web/` now runs 11 vitest tests (fallback-card
    controls, handoff expansion, session search, timeline projection, claim
    parsing); UI claims in scenarios 8 rest on those plus `tsc`.
-4. **A signed/bundled artifact.** `cargo build --release -p alva-hub-desktop`
-   and `npm run build` (web bundle) both succeed, so the packaged path
-   compiles; producing and launching a real `.app` bundle is not done here.
+4. ~~A signed/bundled artifact.~~ `tauri build` produces
+   `target/release/bundle/macos/ALVA Hub.app`, which was launched, observed
+   alive with its private `alva-hub.db` initialised, and exited cleanly.

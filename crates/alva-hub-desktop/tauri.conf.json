@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "web/dist",
     "devUrl": "http://127.0.0.1:1421",
-    "beforeDevCommand": "npm --prefix web run dev",
-    "beforeBuildCommand": "npm --prefix web run build"
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
@@ -27,6 +27,12 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "One project. Every engine.",
+    "longDescription": "ALVA Hub keeps one local project session across the Alva, Claude and Codex engines with reversible fallback and parallel collaboration workers."
   }
 }
