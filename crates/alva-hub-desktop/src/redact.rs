@@ -42,6 +42,11 @@ pub fn redact_handoff(package: &mut HandoffPackage) {
         turn.prompt = redact_text(&turn.prompt);
         turn.result = turn.result.as_deref().map(redact_text);
     }
+    // Memory is user-curated but still user-typed: a pasted credential must
+    // not ride a handoff just because it lives in a memory entry.
+    for entry in &mut package.session_memory {
+        *entry = redact_text(entry);
+    }
     // Adapter-private metadata: another engine needs to know WHICH engine the
     // work came from, never whose account paid for it.
     package.source.account_source = String::new();
@@ -383,12 +388,20 @@ mod tests {
                 prompt: secret.into(),
                 result: Some(secret.into()),
             }],
+            session_memory: vec![format!("always run tests — {secret}")],
             created_at: 0,
             used_at: None,
         };
         redact_handoff(&mut package);
         let encoded = serde_json::to_string(&package).unwrap();
         assert!(!encoded.contains("sk-live-canary9999"), "{encoded}");
+        // Memory survives but is filtered like every other user-typed field.
+        assert_eq!(package.session_memory.len(), 1);
+        assert!(
+            package.session_memory[0].contains("always run tests"),
+            "memory content must survive: {:?}",
+            package.session_memory[0]
+        );
         // Team context survives, filtered — it is product state, not
         // adapter-private metadata.
         assert!(package

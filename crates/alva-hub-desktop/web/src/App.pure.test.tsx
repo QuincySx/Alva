@@ -184,11 +184,13 @@ function sampleDetail(): HubSessionDetail {
         workspace_summary: "Rust workspace",
         team_snapshot: null,
         transcript: [{ prompt: "Fix the build", result: "Done" }],
+        session_memory: [],
         created_at: 108,
         used_at: null,
       },
     ],
     branches: [],
+    memory: [],
   };
 }
 

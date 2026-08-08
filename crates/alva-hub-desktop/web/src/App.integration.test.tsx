@@ -37,6 +37,14 @@ const bridge = vi.hoisted(() => {
       switchHubEngine: vi.fn(),
       listHubSessions: vi.fn(async () => state.sessions),
       getHubSession: vi.fn(async () => state.detail),
+      addSessionMemory: vi.fn(
+        async (_productSessionId: string, entry: string) => {
+          if (state.detail) {
+            state.detail.memory = [...state.detail.memory, entry.trim()];
+          }
+          return state.detail?.memory ?? [];
+        },
+      ),
       getGlobalFallbackPolicy: vi.fn(async () => ({
         targets: [],
         updated_at: 0,
@@ -118,6 +126,7 @@ function handoff(partial: Partial<HandoffPackage> = {}): HandoffPackage {
     workspace_summary: "Rust workspace",
     team_snapshot: null,
     transcript: [],
+    session_memory: [],
     created_at: 108,
     used_at: null,
     ...partial,
@@ -179,6 +188,7 @@ function detailFixture(): HubSessionDetail {
     ],
     pending_switch: null,
     fallback_policy: { targets: [], updated_at: 0 },
+    memory: [],
   };
 }
 
@@ -253,6 +263,42 @@ describe("App integration", () => {
     expect(screen.getByText("Goal: Fix the build")).toBeInTheDocument();
     expect(screen.getByText("✓ Fix the build — Done")).toBeInTheDocument();
     expect(screen.getByText("Transcript not shared (default).")).toBeInTheDocument();
+  });
+
+  it("teaches the session memory and refreshes the drawer list", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = { ...detailFixture(), memory: ["always run tests"] };
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+    await user.click(screen.getByRole("button", { name: "Details" }));
+
+    // Existing entries render under the Memory heading.
+    expect(
+      await screen.findByText("always run tests"),
+    ).toBeInTheDocument();
+
+    // Teaching the session appends and refreshes via the returned list.
+    const input = screen.getByLabelText("Add session memory");
+    await user.type(input, "never force-push to main");
+    await user.click(screen.getByRole("button", { name: "Remember" }));
+
+    expect(await screen.findByText("never force-push to main")).toBeInTheDocument();
+    expect(bridge.fns.addSessionMemory).toHaveBeenCalledWith(
+      "ps-1",
+      "never force-push to main",
+    );
+    // The draft clears after a successful save.
+    await waitFor(() => expect(input).toHaveValue(""));
   });
 
   it("filters sessions by workspace, prompt or engine", async () => {

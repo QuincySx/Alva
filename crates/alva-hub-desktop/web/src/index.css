@@ -1068,6 +1068,27 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
+.memory-add {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.memory-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(132, 145, 186, 0.3);
+  background: rgba(10, 14, 28, 0.8);
+  color: #d3daf1;
+  font-size: 11px;
+}
+
+.memory-add input::placeholder {
+  color: #5b6683;
+}
+
 .repair-link {
   justify-self: start;
   padding: 0;

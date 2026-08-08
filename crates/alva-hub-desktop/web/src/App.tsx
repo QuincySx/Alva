@@ -4,6 +4,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  addSessionMemory,
   chooseWorkspace,
   getEngineReadiness,
   getGlobalFallbackPolicy,
@@ -268,6 +269,8 @@ export default function App() {
   >({});
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editingScope, setEditingScope] = useState("");
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [memorySaving, setMemorySaving] = useState(false);
   const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
   const [repairLogs, setRepairLogs] = useState<Record<string, string>>({});
   // Logic value: identifies the newest in-flight readiness request so a stale
@@ -514,7 +517,26 @@ export default function App() {
     // A worker id from the previous run must never survive into this one.
     setDispatchWorkerId(null);
     setEditingTask(null);
+    setMemoryDraft("");
     setTeamRun(await getTeamRunForLead(detail.session.product_session_id));
+  }
+
+  /// Append a memory entry and reflect the fresh list on the open session.
+  /// The backend returns the updated list, so the drawer never guesses.
+  async function addMemory(entry: string) {
+    if (!activeSessionId || !entry.trim() || memorySaving) return;
+    setMemorySaving(true);
+    try {
+      const memory = await addSessionMemory(activeSessionId, entry);
+      setSessionDetail((detail) =>
+        detail ? { ...detail, memory } : detail,
+      );
+      setMemoryDraft("");
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setMemorySaving(false);
+    }
   }
 
   async function loadGlobalFallbackPolicy() {
@@ -1837,6 +1859,45 @@ export default function App() {
 
         {detailsOpen && sessionDetail ? (
           <aside className="details-drawer" aria-label="Session details">
+            <section>
+              <span className="eyebrow">Memory</span>
+              <small className="timeline-hint">
+                Corrections every engine in this session carries across
+                fallbacks and handoffs.
+              </small>
+              {sessionDetail.memory.length === 0 ? (
+                <small className="session-empty">
+                  No memory yet. Teach the session once; every engine keeps it.
+                </small>
+              ) : (
+                sessionDetail.memory.map((entry, index) => (
+                  <div className="details-row" key={`memory-${index}`}>
+                    <small>{entry}</small>
+                  </div>
+                ))
+              )}
+              <div className="memory-add">
+                <input
+                  aria-label="Add session memory"
+                  placeholder="Always run cargo test before finishing…"
+                  value={memoryDraft}
+                  onChange={(event) => setMemoryDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      void addMemory(memoryDraft);
+                    }
+                  }}
+                />
+                <button
+                  className="secondary-button"
+                  disabled={memorySaving || !memoryDraft.trim()}
+                  onClick={() => void addMemory(memoryDraft)}
+                  type="button"
+                >
+                  {memorySaving ? "Saving…" : "Remember"}
+                </button>
+              </div>
+            </section>
             <section>
               <span className="eyebrow">Branches</span>
               {sessionDetail.branches.length === 0 ? (

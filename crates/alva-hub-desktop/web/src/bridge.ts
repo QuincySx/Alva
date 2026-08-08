@@ -143,6 +143,7 @@ export interface HandoffPackage {
   /// Collaboration context when this session leads or belongs to a TeamRun.
   team_snapshot: string | null;
   transcript: TranscriptTurn[];
+  session_memory: string[];
   created_at: number;
   used_at: number | null;
 }
@@ -160,6 +161,7 @@ export interface HubSessionDetail {
   timeline_events: StoredTimelineEvent[];
   pending_switch: PendingSwitch | null;
   fallback_policy: FallbackPolicy;
+  memory: string[];
 }
 
 export interface StoredBranch {
@@ -288,6 +290,17 @@ export async function getHubSession(
   if (!hasTauri) return null;
   return await invoke<HubSessionDetail | null>("get_hub_session", {
     productSessionId,
+  });
+}
+
+export async function addSessionMemory(
+  productSessionId: string,
+  entry: string,
+): Promise<string[]> {
+  if (!hasTauri) return [];
+  return await invoke<string[]>("add_session_memory", {
+    productSessionId,
+    entry,
   });
 }
 

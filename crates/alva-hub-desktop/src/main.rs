@@ -1087,6 +1087,17 @@ fn get_hub_session(
 }
 
 #[tauri::command]
+fn add_session_memory(
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+    entry: String,
+) -> Result<Vec<String>, String> {
+    state
+        .store
+        .add_session_memory(&product_session_id, &entry)
+}
+
+#[tauri::command]
 fn get_global_fallback_policy(state: State<'_, DesktopState>) -> Result<FallbackPolicy, String> {
     state.store.global_fallback_policy()
 }
@@ -1161,6 +1172,7 @@ fn main() {
             switch_hub_engine,
             list_hub_sessions,
             get_hub_session,
+            add_session_memory,
             get_global_fallback_policy,
             set_global_fallback_policy,
             set_session_fallback_policy,

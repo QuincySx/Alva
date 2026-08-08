@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -215,6 +215,12 @@ pub struct HandoffPackage {
     pub transcript: Vec<TranscriptTurn>,
     pub created_at: i64,
     pub used_at: Option<i64>,
+    /// User-curated session memory: corrections and preferences every engine
+    /// in this session should respect. Cross-engine by construction — it
+    /// travels with every handoff the way Cindy shares memory across
+    /// harnesses.
+    #[serde(default)]
+    pub session_memory: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -395,6 +401,9 @@ pub struct HubSessionDetail {
     pub timeline_events: Vec<StoredTimelineEvent>,
     pub pending_switch: Option<PendingSwitch>,
     pub fallback_policy: FallbackPolicy,
+    /// Session-scoped memory entries, oldest first. Separate from the
+    /// handoff snapshot so the drawer can render the live list.
+    pub memory: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -524,6 +533,7 @@ impl HubStore {
         let timeline_events = query_timeline_events(&connection, product_session_id)?;
         let pending_switch = query_pending_switch(&connection, product_session_id)?;
         let fallback_policy = query_fallback_policy(&connection, Some(product_session_id))?;
+        let memory = query_session_memory(&connection, product_session_id)?;
         Ok(Some(HubSessionDetail {
             session,
             turns,
@@ -532,7 +542,49 @@ impl HubStore {
             timeline_events,
             pending_switch,
             fallback_policy,
+            memory,
         }))
+    }
+
+    /// Append one memory entry to a session and return the updated list
+    /// (oldest first) so the caller can render the new state directly.
+    pub fn add_session_memory(
+        &self,
+        product_session_id: &str,
+        entry: &str,
+    ) -> Result<Vec<String>, String> {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            return Err("session memory entry must not be empty".to_string());
+        }
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin session memory transaction: {error}"))?;
+        let session_exists: bool = transaction
+            .query_row(
+                "SELECT 1 FROM hub_sessions WHERE product_session_id = ?1",
+                [product_session_id],
+                |_| Ok(true),
+            )
+            .optional()
+            .map_err(|error| format!("check session before adding memory: {error}"))?
+            .unwrap_or(false);
+        if !session_exists {
+            return Err(format!("Hub session '{product_session_id}' does not exist"));
+        }
+        transaction
+            .execute(
+                "INSERT INTO hub_memory (product_session_id, entry, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![product_session_id, entry, now_unix_ms()],
+            )
+            .map_err(|error| format!("insert session memory: {error}"))?;
+        let memory = query_session_memory(&transaction, product_session_id)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit session memory: {error}"))?;
+        Ok(memory)
     }
 
     pub fn global_fallback_policy(&self) -> Result<FallbackPolicy, String> {
@@ -3129,6 +3181,27 @@ fn insert_switch_timeline(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Session memory entries in insertion order. Used by both the session
+/// detail projection and handoff construction, so the live drawer and the
+/// cross-engine snapshot can never disagree.
+fn query_session_memory(
+    connection: &Connection,
+    product_session_id: &str,
+) -> Result<Vec<String>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT entry FROM hub_memory
+              WHERE product_session_id = ?1
+              ORDER BY memory_id ASC",
+        )
+        .map_err(|error| format!("prepare session memory query: {error}"))?;
+    let rows = statement
+        .query_map([product_session_id], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("query session memory: {error}"))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| format!("decode session memory: {error}"))
+}
+
 fn build_handoff_package(
     transaction: &Transaction<'_>,
     product_session_id: &str,
@@ -3236,6 +3309,9 @@ fn build_handoff_package(
     } else {
         Vec::new()
     };
+    // The session's memory rides along so the target engine continues with
+    // the accumulated corrections, not from zero.
+    let session_memory = query_session_memory(transaction, product_session_id)?;
 
     let mut package = HandoffPackage {
         handoff_id: uuid::Uuid::new_v4().to_string(),
@@ -3262,6 +3338,7 @@ fn build_handoff_package(
         // it is a lead (with workers) or a worker (with a task and queue).
         team_snapshot: build_team_snapshot(transaction, product_session_id)?,
         transcript,
+        session_memory,
         created_at: now,
         used_at: None,
     };
@@ -4250,6 +4327,26 @@ fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 13: {error}"))?;
     }
 
+    if schema_version < 14 {
+        // Cross-engine session memory: corrections and preferences a user
+        // wants every engine in this session to respect. It travels with
+        // every handoff so a fallback engine starts with the accumulated
+        // memory, not from zero.
+        transaction
+            .execute_batch(
+                "CREATE TABLE hub_memory (
+                   memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   product_session_id TEXT NOT NULL,
+                   entry TEXT NOT NULL,
+                   created_at INTEGER NOT NULL,
+                   FOREIGN KEY(product_session_id) REFERENCES hub_sessions(product_session_id)
+                 );
+                 CREATE INDEX idx_hub_memory_session
+                   ON hub_memory(product_session_id, memory_id);",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 14: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -4885,7 +4982,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let connection = Connection::open(&database).unwrap();
-        connection.pragma_update(None, "user_version", 14).unwrap();
+        connection
+            .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+            .unwrap();
         drop(connection);
 
         let error = HubStore::open(&database)
@@ -4897,7 +4996,7 @@ mod tests {
         let version = connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
-        assert_eq!(version, 14);
+        assert_eq!(version, SCHEMA_VERSION + 1);
     }
 
     #[test]
@@ -6878,5 +6977,120 @@ mod tests {
             Some(("completed".to_string(), None))
         );
         assert_eq!(store.latest_attempt_outcome("claude").unwrap(), None);
+    }
+
+    #[test]
+    fn session_memory_persists_across_reopen_and_never_crosses_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        store
+            .prepare_new_turn(
+                "memory-a",
+                workspace.path(),
+                "start",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .prepare_new_turn(
+                "memory-b",
+                workspace.path(),
+                "start",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+
+        // Empty until taught; entries land in insertion order.
+        assert_eq!(
+            store.get_session("memory-a").unwrap().unwrap().memory,
+            Vec::<String>::new()
+        );
+        let updated = store
+            .add_session_memory("memory-a", "always run cargo test before finishing")
+            .unwrap();
+        assert_eq!(
+            updated,
+            vec!["always run cargo test before finishing".to_string()]
+        );
+        store
+            .add_session_memory("memory-a", "never force-push to main")
+            .unwrap();
+
+        // The sibling session stays untouched — memory is per-session.
+        assert_eq!(
+            store.get_session("memory-b").unwrap().unwrap().memory,
+            Vec::<String>::new()
+        );
+        // Whitespace-only entries are rejected.
+        assert!(store.add_session_memory("memory-a", "   ").is_err());
+        // Unknown sessions are rejected, not silently created.
+        assert!(store.add_session_memory("memory-ghost", "x").is_err());
+
+        // Reopen: memory survives restart (it must, to ride future handoffs).
+        drop(store);
+        let reopened = reopen(&database);
+        assert_eq!(
+            reopened.get_session("memory-a").unwrap().unwrap().memory,
+            vec![
+                "always run cargo test before finishing".to_string(),
+                "never force-push to main".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn handoff_snapshot_carries_session_memory_and_filters_it() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        store
+            .prepare_new_turn(
+                "memory-handoff",
+                workspace.path(),
+                "start",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .add_session_memory(
+                "memory-handoff",
+                "always run tests; never touch API_KEY=sk-live-memory999",
+            )
+            .unwrap();
+
+        let mut connection = store.lock().unwrap();
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let package = build_handoff_package(
+            &transaction,
+            "memory-handoff",
+            "b-alva",
+            "b-claude",
+            alva,
+            EngineTarget::for_engine("claude").unwrap(),
+            "test reason",
+            now_unix_ms(),
+            HandoffKind::Full,
+            None,
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+
+        // The memory entry rode the handoff, secret filtered.
+        assert_eq!(package.session_memory.len(), 1);
+        assert!(package.session_memory[0].contains("always run tests"));
+        assert!(!package.session_memory[0].contains("sk-live-memory999"));
+        // And the persisted handoff is what the target adapter receives.
+        let encoded = package.render_for_engine();
+        assert!(encoded.contains("session_memory"));
+        assert!(!encoded.contains("sk-live-memory999"));
     }
 }
