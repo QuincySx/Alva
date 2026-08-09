@@ -809,7 +809,47 @@ fn build_selected_engine(
 ) -> Result<Arc<dyn EngineRuntime>, String> {
     match engine {
         Engine::Alva => {
-            let config = alva_llm_provider::ProviderConfig::load(workspace)?;
+            // The shared config uses the providers{} map (see `alva providers
+            // list`), which the SDK-level ProviderConfig::load cannot see —
+            // it only reads top-level legacy fields and would report "no API
+            // key" for a valid profile. Resolution mirrors the Alva CLI:
+            // explicit env key first, then the shared active profile, then
+            // project/default layers.
+            let env_key = std::env::var("ALVA_API_KEY")
+                .ok()
+                .filter(|key| !key.is_empty());
+            let config = if env_key.is_some() {
+                alva_llm_provider::ProviderConfig::load(workspace)?
+            } else if let Some(shared) = alva_app_core::config::load() {
+                match shared.active_provider() {
+                    Some((name, entry)) => {
+                        let kind = entry.effective_kind(name);
+                        alva_llm_provider::ProviderConfig {
+                            api_key: entry.api_key.clone(),
+                            model: entry.model.clone().unwrap_or_else(|| {
+                                // Mirrors the Alva CLI default table until it
+                                // moves into alva-llm-provider as the single
+                                // canonical source.
+                                match kind {
+                                    "anthropic" => "claude-opus-4-7",
+                                    "gemini" => "gemini-2.5-pro",
+                                    _ => "gpt-4o",
+                                }
+                                .to_string()
+                            }),
+                            base_url: entry.base_url.clone().unwrap_or_else(|| {
+                                alva_llm_provider::default_base_url(Some(kind)).to_string()
+                            }),
+                            max_tokens: 32_000,
+                            custom_headers: Default::default(),
+                            kind: Some(kind.to_string()),
+                        }
+                    }
+                    None => alva_llm_provider::ProviderConfig::load(workspace)?,
+                }
+            } else {
+                alva_llm_provider::ProviderConfig::load(workspace)?
+            };
             if config.api_key.is_empty() {
                 return Err("no Alva provider API key configured (set ALVA_API_KEY)".into());
             }

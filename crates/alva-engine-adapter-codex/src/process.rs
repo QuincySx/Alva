@@ -32,19 +32,9 @@ impl CodexProcess {
             });
 
         let mut cmd = Command::new(&config.codex_path);
-        // Fresh: `codex exec --json … PROMPT`
-        // Resume: `codex exec resume <SESSION_ID> --json … PROMPT`
-        // (Codex CLI 0.14x+; session ids come from thread.started / Hub journal.)
-        cmd.arg("exec");
-        if let Some(session) = &request.resume_session {
-            cmd.arg("resume").arg(session);
-        }
-        cmd.arg("--json")
-            .arg("--skip-git-repo-check")
-            .arg("-C")
-            .arg(&cwd)
-            .arg("-s")
-            .arg(config.sandbox.as_cli_str())
+        cmd.args(codex_cli_args(config, request, &cwd));
+        // Resume carries no -C flag, so the child must start IN the workspace.
+        cmd.current_dir(&cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -116,4 +106,80 @@ fn monitor_stderr(stderr: Option<tokio::process::ChildStderr>) {
             }
         }
     });
+}
+
+/// CLI arguments for `codex exec` / `codex exec resume`, excluding the
+/// trailing prompt. Extracted so the fresh-vs-resume shape is testable:
+/// `resume` has no `-C`/`-s` flags — the resumed session carries its own
+/// cwd and sandbox, and passing `-C` makes the CLI exit with an argument
+/// error (the empty-stream soft-warning bug this fixes).
+fn codex_cli_args(
+    config: &CodexAdapterConfig,
+    request: &RuntimeRequest,
+    cwd: &std::path::Path,
+) -> Vec<String> {
+    let mut args = vec!["exec".to_string()];
+    if let Some(session) = &request.resume_session {
+        args.push("resume".to_string());
+        args.push(session.clone());
+    }
+    args.push("--json".to_string());
+    args.push("--skip-git-repo-check".to_string());
+    if request.resume_session.is_none() {
+        args.push("-C".to_string());
+        args.push(cwd.display().to_string());
+        args.push("-s".to_string());
+        args.push(config.sandbox.as_cli_str().to_string());
+    }
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    use super::*;
+    use alva_engine_runtime::RuntimeOptions;
+
+    fn config() -> CodexAdapterConfig {
+        CodexAdapterConfig::default()
+    }
+
+    fn request(resume: Option<&str>) -> RuntimeRequest {
+        RuntimeRequest {
+            prompt: "do the thing".to_string(),
+            resume_session: resume.map(str::to_string),
+            system_prompt: None,
+            working_directory: Some(PathBuf::from("/tmp/ws")),
+            options: RuntimeOptions {
+                streaming: false,
+                max_turns: None,
+                extra: HashMap::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn fresh_exec_keeps_cwd_and_sandbox_flags() {
+        let args = codex_cli_args(&config(), &request(None), std::path::Path::new("/tmp/ws"));
+        assert_eq!(args[0], "exec");
+        assert!(args.contains(&"-C".to_string()));
+        assert!(args.contains(&"/tmp/ws".to_string()));
+        assert!(args.contains(&"-s".to_string()));
+        assert!(!args.iter().any(|arg| arg == "resume"));
+    }
+
+    #[test]
+    fn resume_drops_cwd_and_sandbox_flags_and_keeps_session_id() {
+        let args = codex_cli_args(
+            &config(),
+            &request(Some("sess-123")),
+            std::path::Path::new("/tmp/ws"),
+        );
+        assert_eq!(&args[0..3], &["exec", "resume", "sess-123"]);
+        assert!(!args.contains(&"-C".to_string()), "resume has no -C flag: {args:?}");
+        assert!(!args.contains(&"-s".to_string()), "resume has no -s flag: {args:?}");
+        assert!(args.contains(&"--skip-git-repo-check".to_string()));
+    }
 }

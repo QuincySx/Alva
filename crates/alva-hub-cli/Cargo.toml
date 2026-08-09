@@ -9,6 +9,7 @@ name = "alva-hub"
 path = "src/main.rs"
 
 [dependencies]
+alva-app-core = { path = "../alva-app-core" }
 alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
 alva-engine-adapter-claude = { path = "../alva-engine-adapter-claude" }

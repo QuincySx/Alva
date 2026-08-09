@@ -16,17 +16,44 @@ account, or a GUI interaction is marked ⏳ with what remains.
 
 ## 1. A new session runs on each supported engine
 
-**⏳ Partly automated.** The product seam is engine-agnostic and is exercised
-with injected `EngineRuntime` doubles for all three engine ids
+**✅ Automated + packaged-runtime evidence (codex, alva).** The product
+seam is engine-agnostic and is exercised with injected `EngineRuntime`
+doubles for all three engine ids
 (`run::tests::persists_reopens_and_resumes_a_product_session`,
 `terminal_continuity_failure_falls_back_to_next_authorized_engine_in_same_turn`
 covers alva→claude, `team_worker_executes_on_its_own_engine_and_reports_to_the_lead`
 covers codex). Engine assembly is asserted too
 (`alva::tests::eligible_cli_engines_assemble_with_profile_mapping`,
-`build_engine_fails_closed_for_weaken_only_combinations`), but no test spawns
-a real `claude`/`codex` binary or talks to a real provider.
+`build_engine_fails_closed_for_weaken_only_combinations`).
 
-**Outstanding:** one packaged run per engine against the real CLI.
+Real-CLI runs through `alva-hub-cli` against this machine's binaries
+(mise node/24 claude, npm-openai-codex codex, built-in alva with the
+shared `~/.alva/config.json` anthropic profile):
+
+- `--engine codex --permission deny` executed a real `codex exec --json`
+  run ("2+2 is 4.") and persisted a product session; `--session <id>`
+  resumed the native codex session ("3+3 is 6.") after the resume
+  argument bug below was fixed.
+- `--engine alva --permission deny` executed a real Alva harness run
+  through the shared anthropic provider profile ("4").
+- Cross-engine handoff: `--session <alva-id> --engine codex` restored the
+  alva branch, switched to a fresh codex native session, injected the
+  handoff context, and codex continued ("3+3 equals 6.").
+
+**Two real-engine bugs found and fixed by these runs:**
+
+1. `codex exec resume` has no `-C`/`-s` flags (only fresh `exec` does);
+   the adapter appended them unconditionally, so every resume exited with
+   an argument error and reported an empty stream. Fix: fresh uses
+   `-C -s`, resume uses `current_dir`; pinned by
+   `process::tests::fresh_exec_keeps_cwd_and_sandbox_flags` and
+   `resume_drops_cwd_and_sandbox_flags_and_keeps_session_id`.
+2. The shared `~/.alva/config.json` `providers{}` map is invisible to the
+   SDK-level `ProviderConfig::load` (top-level legacy fields only), so
+   `--engine alva` reported "no API key" despite a valid active profile.
+   Fix: hub-cli resolves env key → shared active profile (via
+   `alva_app_core::config`) → project/default layers, mirroring the Alva
+   CLI; `alva-hub-cli` allowlist updated for the new `alva-app-core` dep.
 
 ## 2. A persisted session resumes after app restart
 
@@ -216,8 +243,10 @@ Both were verified end to end: the packaged app migrated a real schema-13
 These cannot be closed from the repository alone and are deliberately not
 marked done:
 
-1. **A packaged desktop run per engine** (scenario 1) against real `claude`
-   and `codex` CLIs and a real provider key for `alva`.
+1. ~~A packaged desktop run per engine~~ (scenario 1): `alva-hub-cli` ran
+   real `codex` (fresh + resume) and `alva` (shared anthropic profile)
+   sessions plus an alva→codex handoff — see §1 above. The Desktop GUI
+   path itself still needs a human-driven session.
 2. **Packaged-runtime observation of each fallback trigger** (scenario 3) —
    the classifier is pinned, the live provider behaviour is not.
 3. ~~Web-layer tests.~~ `web/` now runs 11 vitest tests (fallback-card
