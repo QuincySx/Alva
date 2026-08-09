@@ -558,6 +558,12 @@ describe("App integration", () => {
       "tr-1",
       "w-alva",
     );
+    // Discarding isolated work is explicit and scoped to the worktree.
+    await user.click(screen.getByRole("button", { name: "Discard worktree" }));
+    expect(bridge.fns.discardWorkerWorktree).toHaveBeenCalledWith(
+      "tr-1",
+      "w-alva",
+    );
 
     // Dispatch: scope + claims parse into declared resources, and the stale
     // selection falls back to the first dispatchable worker of THIS run.
