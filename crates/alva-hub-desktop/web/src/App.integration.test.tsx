@@ -23,6 +23,7 @@ import type {
   PermissionGroup,
   RepairAction,
   RepairResult,
+  TeamRunDetail,
 } from "./bridge";
 
 const bridge = vi.hoisted(() => {
@@ -72,7 +73,9 @@ const bridge = vi.hoisted(() => {
       setTranscriptSharing: vi.fn(),
       stopHubAttempt: vi.fn(),
       createTeamRun: vi.fn(),
-      getTeamRunForLead: vi.fn(async () => null),
+      getTeamRunForLead: vi.fn(
+        async (): Promise<TeamRunDetail | null> => null,
+      ),
       dispatchWorkerTask: vi.fn(),
       addTeamWorker: vi.fn(),
       getPermissionGroups: vi.fn(
@@ -391,6 +394,93 @@ describe("App integration", () => {
     expect(
       await screen.findByText(/Repair finished/),
     ).toBeInTheDocument();
+  });
+
+  it("renders team workers with lifecycle controls and dispatches actions", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "codex",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+    bridge.fns.getTeamRunForLead.mockResolvedValue({
+      team_run_id: "tr-1",
+      autonomous: false,
+      lead_session_id: "ps-1",
+      status: "active",
+      created_at: 100,
+      workers: [
+        {
+          worker_id: "w-codex",
+          lifecycle: "active",
+          worktree_path: null,
+          worktree_branch: null,
+          worker_session_id: "ws-codex",
+          engine_id: "codex",
+          created_at: 101,
+        },
+        {
+          worker_id: "w-alva",
+          lifecycle: "hibernated",
+          worktree_path: "/tmp/proj/.alva-worktrees/w-alva",
+          worktree_branch: "worker/w-alva",
+          worker_session_id: "ws-alva",
+          engine_id: "alva",
+          created_at: 102,
+        },
+      ],
+      tasks: [
+        {
+          task_id: "t-1",
+          team_run_id: "tr-1",
+          worker_id: "w-codex",
+          scope: "implement parser",
+          status: "running",
+          result: null,
+          changed_files: [],
+          verification: [],
+          claims: [],
+          created_at: 103,
+          completed_at: null,
+        },
+      ],
+    });
+    bridge.fns.hibernateWorker.mockResolvedValue({
+      worker_id: "w-codex",
+      lifecycle: "hibernated",
+      worktree_path: null,
+      worktree_branch: null,
+      worker_session_id: "ws-codex",
+      engine_id: "codex",
+      created_at: 101,
+    });
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+
+    // Durable workers render with engine, lifecycle and isolation markers.
+    expect(await screen.findByText("Worker · codex")).toBeInTheDocument();
+    expect(screen.getByText("Worker · alva")).toBeInTheDocument();
+    expect(screen.getByText("hibernated")).toBeInTheDocument();
+    expect(screen.getByText("isolated")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Worktree worker/w-alva — changes stay here until you adopt them.",
+      ),
+    ).toBeInTheDocument();
+    // A running task arms the Interrupt control on its worker.
+    expect(
+      screen.getAllByRole("button", { name: "Interrupt" })[0],
+    ).toBeEnabled();
+
+    // Hibernate dispatches the lifecycle action, not a silent state guess.
+    await user.click(screen.getByRole("button", { name: "Hibernate" }));
+    expect(bridge.fns.hibernateWorker).toHaveBeenCalledWith("w-codex");
   });
 
   it("renders a grouped approval and decides it as one card", async () => {
