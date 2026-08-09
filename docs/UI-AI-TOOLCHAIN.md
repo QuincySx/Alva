@@ -49,3 +49,17 @@
 - [ ] A. 接受现状：wireframe + CDP 已是够用的"AI 可读 UI 界面"，继续迭代。
 - [ ] B. 引入方案 B：一次性用 anthropic key 跑截图审查闭环，验证价值后固化脚本。
 - [ ] C. 评估 playwright-mcp：为 dev server 加自动化 QA（重依赖，需 npm 安全 gate）。
+
+## 本地模型方案（零成本，2026-08-09 落地）
+
+`scripts/ui-review.sh`：线稿（文本）→ 任意 OpenAI 兼容模型 → 结构化 UI 审查。
+不需要 vision（布局/密度/对齐/可访问性/一致性都从线稿可推断）。
+
+```bash
+ollama serve &                      # 本地 runtime（或任意 OpenAI 兼容端点）
+./scripts/ui-review.sh --model=qwen3:8b --size=1180x760
+# 端点可配：OLLAMA_URL=http://host:11434（默认 localhost）
+```
+
+注：本机当前未探测到 Ollama 服务/模型目录（`/api/tags` 无响应）。
+模型就绪后该脚本直接可用。
