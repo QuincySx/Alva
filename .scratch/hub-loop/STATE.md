@@ -59,3 +59,17 @@ UI 反馈已回应：视觉系统重写(中性深色/单一 accent/去渐变/排
 全量绿：hub-desktop 138 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 25 / ci 46
 恢复指令：读本文件 → iter44 续；先 cargo test -p alva-hub-desktop --lib + npm test(web/)
 剩余队列：watchdog stall 真实观察；cindy 演进深化；UI 主区 IA(三列/tab) 候选
+- iter44 | 完成: UI 线稿工具(wireframe.js+ui-wireframe.mjs, CDP 零依赖)+用它发现并修 2 个布局 bug(composer-model 撑高 topbar; sidebar 5 面板溢出→fallback/team 默认收起) | 验证: 25 web, tsc | 清理: 无 | 下一步: iter45
+- iter45 | 完成: wireframe 工具支持真实窗口尺寸(--size=1180x760 Emulation 覆盖) | 验证: 布局健康(5 面板全首屏) | 清理: 无 | 下一步: iter46
+- iter46 | 完成: wireframe 工作流文档化(ACCEPTANCE 新增 UI wireframe review 节) | 验证: 文档 | 清理: 无 | 下一步: iter47
+- iter47 | 完成: wireframe 交互后检查(--click)+收尾质量门 | 验证: 138+25+21 lib, 25 web, tsc | 清理: cargo clean | 会话 checkpoint: iter47
+- iter48 | 完成: 一键 wireframe 脚本(scripts/ui-wireframe.sh 仓库根可用) | 验证: 运行正常 | 清理: 无 | 下一步: iter49
+- iter49 | 完成: End run/autonomy toggle 测试 | 验证: 26 web, tsc | 清理: 无 | 下一步: iter50
+- iter50 | 完成: team run 收尾交互测试(autonomy/add worker/end run) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter51
+- iter50 | 完成: team run 收尾交互测试(修正: addTeamWorker mock 返回增长列表) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter51
+
+## 会话 checkpoint 3（iter51 末）
+全量绿：hub-desktop 138 / hub-cli 25 / hub-core 21 / adapters 21 / web 26 / ci-deps 46
+新增工具：web/scripts/wireframe.js + ui-wireframe.mjs + scripts/ui-wireframe.sh（UI 线稿，CDP 零依赖）
+UI 反馈已闭环：视觉重写 + sidebar 折叠(默认收起 fallback/team) + 线稿发现修 2 个布局 bug
+恢复指令：读本文件 → iter52 续；UI 改动后用 scripts/ui-wireframe.sh 线稿复核
