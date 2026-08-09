@@ -7432,4 +7432,54 @@ mod tests {
         assert!(!encoded.contains("sk-secret-never-shown"));
         assert!(encoded.contains("sse: https://mcp.example.com/sse"));
     }
+
+    #[test]
+    fn session_list_is_ordered_most_recent_first() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+
+        let first = store
+            .prepare_new_turn(
+                "list-a",
+                workspace.path(),
+                "oldest",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let second = store
+            .prepare_new_turn(
+                "list-b",
+                workspace.path(),
+                "middle",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let third = store
+            .prepare_new_turn(
+                "list-c",
+                workspace.path(),
+                "newest",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store.finish_turn(&third, None, None, None, None).unwrap();
+
+        let sessions = store.list_sessions().unwrap();
+        let ids: Vec<_> = sessions
+            .iter()
+            .map(|session| session.product_session_id.as_str())
+            .collect();
+        // The finished session is the newest by updated_at — it must lead.
+        assert_eq!(ids[0], "list-c");
+        assert_eq!(ids[1], "list-b");
+        assert_eq!(ids[2], "list-a");
+        let _ = (first, second);
+    }
 }
