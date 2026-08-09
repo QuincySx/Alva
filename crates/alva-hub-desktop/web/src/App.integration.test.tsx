@@ -327,6 +327,8 @@ describe("App integration", () => {
 
     await user.clear(modelInput);
     await user.type(modelInput, "claude-sonnet-4-5");
+    // The composer reflects the edited model immediately.
+    expect(screen.getByText("claude-sonnet-4-5 · claude-cli")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save default chain" }));
 
     expect(bridge.fns.setGlobalFallbackPolicy).toHaveBeenCalledWith([

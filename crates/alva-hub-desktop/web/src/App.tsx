@@ -1578,6 +1578,24 @@ export default function App() {
               })}
             </select>
             {pendingEngine ? <small>Queued after the current run</small> : null}
+            {(() => {
+              const selectedId = pendingEngine ?? engine;
+              // Prefer the edited policy target (user-set model/provider),
+              // fall back to the catalog default for an unconfigured engine.
+              const target =
+                fallbackPolicy.targets.find(
+                  (candidate) => candidate.engine_id === selectedId,
+                ) ??
+                engineCatalog.find(
+                  (candidate) => candidate.engine_id === selectedId,
+                );
+              if (!target) return null;
+              return (
+                <small className="composer-model">
+                  {target.model_id} · {target.provider_id}
+                </small>
+              );
+            })()}
           </div>
           <div>
             <span className="eyebrow">Permissions</span>
