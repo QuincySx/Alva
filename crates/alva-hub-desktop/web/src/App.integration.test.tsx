@@ -459,6 +459,13 @@ describe("App integration", () => {
       engine_id: "codex",
       created_at: 101,
     });
+    bridge.fns.previewWorkerAdoption.mockResolvedValue({
+      changes: [{ path: "src/parser.rs", status: "modified" }],
+      conflicts: ["src/lib.rs"],
+      applies_cleanly: false,
+      verification: ["cargo test passes"],
+    });
+    bridge.fns.adoptWorkerWork.mockResolvedValue(undefined);
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
@@ -481,6 +488,25 @@ describe("App integration", () => {
     // Hibernate dispatches the lifecycle action, not a silent state guess.
     await user.click(screen.getByRole("button", { name: "Hibernate" }));
     expect(bridge.fns.hibernateWorker).toHaveBeenCalledWith("w-codex");
+
+    // Adoption is explicit and surfaced: preview first, conflicts shown,
+    // then the adopt action carries the run + worker ids.
+    await user.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(
+      await screen.findByText(/1 change\(s\) · does NOT apply cleanly/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("modified src/parser.rs")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Conflicts with your workspace edits: src/lib.rs",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("cargo test passes")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Adopt" }));
+    expect(bridge.fns.adoptWorkerWork).toHaveBeenCalledWith(
+      "tr-1",
+      "w-alva",
+    );
   });
 
   it("renders a grouped approval and decides it as one card", async () => {
