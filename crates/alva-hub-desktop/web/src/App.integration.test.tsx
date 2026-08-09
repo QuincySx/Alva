@@ -690,6 +690,28 @@ describe("App integration", () => {
     expect(bridge.fns.stopHubAttempt).toHaveBeenCalledWith("ps-1");
   });
 
+  it("surfaces a vanished session when its detail no longer loads", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-ghost",
+        workspace: "/tmp/proj",
+        last_prompt: "Ghost session",
+        engine_id: "alva",
+        status: "parked",
+      },
+    ];
+    // The store says it exists but the detail fetch finds nothing: the
+    // sidebar row must not silently stay clickable into a void.
+    bridge.state.detail = null;
+
+    render(<App />);
+    await user.click(await screen.findByText("Ghost session"));
+    expect(
+      await screen.findByText("This Hub session no longer exists."),
+    ).toBeInTheDocument();
+  });
+
   it("guards the composer without a workspace and surfaces the failure", async () => {
     const user = userEvent.setup();
     render(<App />);
