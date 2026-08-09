@@ -765,6 +765,14 @@ describe("App integration", () => {
       "codex",
       false,
     );
+    // Checking 'Isolated worktree' flips the isolation flag on the call.
+    await user.click(screen.getByLabelText("Isolated worktree"));
+    await user.click(screen.getByRole("button", { name: "Add worker" }));
+    expect(bridge.fns.addTeamWorker).toHaveBeenLastCalledWith(
+      "tr-1",
+      "codex",
+      true,
+    );
 
     // Ending the run archives workers; nothing is deleted.
     await user.click(screen.getByRole("button", { name: "End run" }));
