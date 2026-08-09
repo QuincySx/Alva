@@ -320,7 +320,7 @@ button {
 .readiness-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   padding: 10px 11px;
   border-radius: var(--radius-sm);
   background: var(--surface-1);
@@ -374,7 +374,10 @@ button {
 }
 
 .readiness-capabilities {
+  overflow: hidden;
   color: var(--text-2) !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .readiness-reason {
