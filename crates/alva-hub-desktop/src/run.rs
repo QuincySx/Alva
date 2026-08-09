@@ -3916,4 +3916,87 @@ mod tests {
         );
     }
 
+    /// Worker queue → REAL engine execution → result write-back: the
+    /// worker session runs run_persisted on the real codex CLI and the
+    /// queued task closes with the real result (the Lead channel then sees
+    /// it). Same gate as the other real-engine tests.
+    #[tokio::test]
+    async fn real_codex_worker_task_executes_and_closes_with_result() {
+        if !real_codex_available() {
+            return;
+        }
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let alva = crate::store::EngineTarget::for_engine("alva").unwrap();
+        let lead = store
+            .prepare_new_turn(
+                "worker-lead",
+                workspace.path(),
+                "lead plans",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&lead, None, Some("plan done"), None, None)
+            .unwrap();
+
+        let run = store
+            .create_team_run("worker-lead", &authorized_codex())
+            .unwrap();
+        let queued = store
+            .enqueue_worker_task(
+                &run.team_run_id,
+                &run.workers[0].worker_id,
+                "Answer in one short sentence: what is 2+2?",
+                &[],
+            )
+            .unwrap();
+        assert_eq!(queued.status, "queued");
+        let claimed = store
+            .claim_for_test(&run.workers[0].worker_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(claimed.status, "running");
+
+        // The worker session runs its task on the REAL codex CLI.
+        let workspace_path = workspace.path().to_path_buf();
+        let workspace_for_build = workspace_path.clone();
+        let worker_session_id = run.workers[0].worker_session_id.clone();
+        let outcome = run_persisted(
+            &store,
+            move |target: &crate::store::EngineTarget, _: &str, _| {
+                assert_eq!(target.engine_id, "codex");
+                Ok(real_codex_adapter(&workspace_for_build))
+            },
+            healthy,
+            RunRequest {
+                prompt: claimed.scope.clone(),
+                workspace: workspace_path,
+                engine_id: "codex".into(),
+                product_session_id: Some(worker_session_id.clone()),
+                permission_profile: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert!(!outcome.failed, "real worker turn must not fail");
+
+        // The task closes with the real result for the Lead channel.
+        let finished = store
+            .finish_worker_task(&claimed.task_id, !outcome.failed, outcome.result.as_deref())
+            .unwrap();
+        assert_eq!(finished.status, "completed");
+        let result = finished.result.unwrap_or_default();
+        assert!(
+            result.contains('4'),
+            "worker result reached the queue: {result}"
+        );
+        // The worker session persisted its turn evidence too.
+        let detail = store.get_session(&worker_session_id).unwrap().unwrap();
+        assert_eq!(detail.turns.len(), 1);
+        assert_eq!(detail.turns[0].status, "completed");
+    }
 }
