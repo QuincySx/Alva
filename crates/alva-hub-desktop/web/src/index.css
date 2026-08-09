@@ -63,8 +63,8 @@ button {
   display: flex;
   overflow-y: auto;
   flex-direction: column;
-  gap: 18px;
-  padding: 20px 16px;
+  gap: 12px;
+  padding: 16px 14px;
   background: #171b23;
   border-right: 1px solid var(--border);
 }
@@ -170,8 +170,8 @@ button {
 .team-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 6px;
+  padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
