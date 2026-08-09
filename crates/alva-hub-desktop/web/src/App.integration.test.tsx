@@ -532,6 +532,9 @@ describe("App integration", () => {
     // The hibernated worker offers Restore; a running task arms Interrupt.
     await user.click(screen.getByRole("button", { name: "Restore" }));
     expect(bridge.fns.restoreWorker).toHaveBeenCalledWith("w-alva");
+    // Archive is a lifecycle end, never a deletion.
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(bridge.fns.archiveWorker).toHaveBeenCalledWith("w-codex");
     await user.click(
       screen.getAllByRole("button", { name: "Interrupt" })[0],
     );
@@ -920,6 +923,41 @@ describe("App integration", () => {
     expect(screen.getByText("You allowed this request.")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Deny" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("denies a permission request and locks the card", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Start one continuous project session");
+
+    act(() => {
+      bridge.listeners.forEach((callback) =>
+        callback({
+          product_session_id: "ps-1",
+          status: "permission_required",
+          engine_id: "claude",
+          message: null,
+          created_at: 200,
+          permission_request: {
+            request_id: "rq-2",
+            tool_name: "bash",
+            description: "Run a shell command",
+            engine_session_id: "ns-1",
+          },
+        }),
+      );
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Deny" }));
+    expect(bridge.fns.respondHubPermission).toHaveBeenCalledWith(
+      "ps-1",
+      "rq-2",
+      false,
+    );
+    expect(screen.getByText("You denied this request.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Allow" }),
     ).not.toBeInTheDocument();
   });
 
