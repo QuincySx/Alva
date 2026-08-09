@@ -325,10 +325,16 @@ describe("App integration", () => {
     const modelInput = await screen.findByLabelText("Model for claude");
     expect(modelInput).toHaveValue("engine-default");
 
+    // The composer must show the selected engine's effective config, so
+    // pick claude (the engine whose model this test edits).
+    await user.selectOptions(screen.getByLabelText("Engine"), "claude");
+
     await user.clear(modelInput);
     await user.type(modelInput, "claude-sonnet-4-5");
     // The composer reflects the edited model immediately.
-    expect(screen.getByText("claude-sonnet-4-5 · claude-cli")).toBeInTheDocument();
+    expect(
+      await screen.findByText("claude-sonnet-4-5 · claude-cli"),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save default chain" }));
 
     expect(bridge.fns.setGlobalFallbackPolicy).toHaveBeenCalledWith([
