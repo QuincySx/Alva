@@ -652,6 +652,44 @@ describe("App integration", () => {
     );
   });
 
+  it("dispatches switch-back and stop from the fallback card", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "running",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+    bridge.fns.switchHubEngine.mockResolvedValue({
+      disposition: "applied",
+      active_branch_id: "b-alva",
+      active_engine_id: "alva",
+      target_engine_id: "alva",
+    });
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+
+    // Switch back to the parked source branch is explicit and carries the
+    // user-selection reason.
+    await user.click(
+      await screen.findByRole("button", { name: "Switch back to alva" }),
+    );
+    expect(bridge.fns.switchHubEngine).toHaveBeenCalledWith(
+      "ps-1",
+      "alva",
+      "User explicitly selected alva",
+    );
+
+    // Stop is offered while the attempt is live and dispatches the cancel.
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    expect(bridge.fns.stopHubAttempt).toHaveBeenCalledWith("ps-1");
+  });
+
   it("expands a handoff envelope in the details drawer", async () => {
     const user = userEvent.setup();
     bridge.state.sessions = [
