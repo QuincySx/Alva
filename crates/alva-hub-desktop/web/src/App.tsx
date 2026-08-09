@@ -1686,7 +1686,10 @@ export default function App() {
           >
             {detailsOpen ? "Hide details" : "Details"}
           </button>
-          <div className={`status-pill status-${latest?.status ?? "ready"}`}>
+          <div
+            aria-live="polite"
+            className={`status-pill status-${latest?.status ?? "ready"}`}
+          >
             <span />
             {statusLabel}
           </div>
