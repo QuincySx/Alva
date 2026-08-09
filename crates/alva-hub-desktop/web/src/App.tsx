@@ -235,9 +235,11 @@ export default function App() {
     Record<string, boolean>
   >({});
   // Sidebar sections the user can collapse to reclaim space for sessions.
+  // Fallback chain and team start collapsed: session work is the primary
+  // surface; advanced engine/team config is one chevron away.
   const [collapsedSections, setCollapsedSections] = useState<
     Record<string, boolean>
-  >({});
+  >({ fallback: true, team: true });
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
@@ -1621,24 +1623,6 @@ export default function App() {
               })}
             </select>
             {pendingEngine ? <small>Queued after the current run</small> : null}
-            {(() => {
-              const selectedId = pendingEngine ?? engine;
-              // Prefer the edited policy target (user-set model/provider),
-              // fall back to the catalog default for an unconfigured engine.
-              const target =
-                fallbackPolicy.targets.find(
-                  (candidate) => candidate.engine_id === selectedId,
-                ) ??
-                engineCatalog.find(
-                  (candidate) => candidate.engine_id === selectedId,
-                );
-              if (!target) return null;
-              return (
-                <small className="composer-model">
-                  {target.model_id} · {target.provider_id}
-                </small>
-              );
-            })()}
           </div>
           <div>
             <span className="eyebrow">Permissions</span>
@@ -2193,6 +2177,24 @@ export default function App() {
               }
             }}
           />
+          {(() => {
+            const selectedId = pendingEngine ?? engine;
+            // Prefer the edited policy target (user-set model/provider),
+            // fall back to the catalog default for an unconfigured engine.
+            const target =
+              fallbackPolicy.targets.find(
+                (candidate) => candidate.engine_id === selectedId,
+              ) ??
+              engineCatalog.find(
+                (candidate) => candidate.engine_id === selectedId,
+              );
+            if (!target) return null;
+            return (
+              <small className="composer-model">
+                Running {selectedId} on {target.model_id} · {target.provider_id}
+              </small>
+            );
+          })()}
           <div className="composer-footer">
             <span
               className="composer-summary"

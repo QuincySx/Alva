@@ -506,6 +506,9 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
+        await user.click(
+      screen.getByRole("button", { name: "Toggle team panel" }),
+    );
 
     // Durable workers render with engine, lifecycle and isolation markers.
     expect(await screen.findByText("Worker · codex")).toBeInTheDocument();
@@ -663,6 +666,9 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
+        await user.click(
+      screen.getByRole("button", { name: "Toggle team panel" }),
+    );
     // Default worker engine is codex; create dispatches lead + engine.
     await user.click(
       await screen.findByRole("button", { name: "Create team run" }),
@@ -937,6 +943,9 @@ describe("App integration", () => {
     });
 
     render(<App />);
+        await user.click(
+      screen.getByRole("button", { name: "Toggle fallback chain" }),
+    );
     const modelInput = await screen.findByLabelText("Model for claude");
     expect(modelInput).toHaveValue("engine-default");
 
@@ -948,7 +957,7 @@ describe("App integration", () => {
     await user.type(modelInput, "claude-sonnet-4-5");
     // The composer reflects the edited model immediately.
     expect(
-      await screen.findByText("claude-sonnet-4-5 · claude-cli"),
+      await screen.findByText("Running claude on claude-sonnet-4-5 · claude-cli"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save default chain" }));
 
@@ -964,13 +973,13 @@ describe("App integration", () => {
   it("collapses and expands the fallback chain panel", async () => {
     const user = userEvent.setup();
     render(<App />);
-    // The chain content is visible by default…
+    // The chain is collapsed by default so the session list owns the rail…
+    expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
+    // …expanding reveals the chain, collapsing hides it again.
+    await user.click(screen.getByRole("button", { name: "Toggle fallback chain" }));
     expect(await screen.findByText("+ alva")).toBeInTheDocument();
-    // …collapsing hides it and expanding restores it.
     await user.click(screen.getByRole("button", { name: "Toggle fallback chain" }));
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Toggle fallback chain" }));
-    expect(await screen.findByText("+ alva")).toBeInTheDocument();
   });
 
   it("teaches the session memory and refreshes the drawer list", async () => {
