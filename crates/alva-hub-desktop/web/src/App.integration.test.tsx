@@ -575,6 +575,57 @@ describe("App integration", () => {
     );
   });
 
+  it("expands a handoff envelope in the details drawer", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = {
+      ...detailFixture(),
+      handoffs: [
+        handoff({
+          session_memory: ["always run tests"],
+          available_skills: [
+            {
+              name: "review",
+              description: "Review every change",
+              path: ".alva/skills/review/SKILL.md",
+            },
+          ],
+          available_mcp: [
+            {
+              id: "filesystem",
+              display_name: "Filesystem",
+              transport: "stdio: npx -y @modelcontextprotocol/server-filesystem",
+            },
+          ],
+          transcript: [{ prompt: "Fix the build", result: "Done" }],
+        }),
+      ],
+    };
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+    await user.click(screen.getByRole("button", { name: "Details" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Show envelope" }),
+    );
+
+    expect(screen.getByText("Memory carried")).toBeInTheDocument();
+    expect(screen.getByText("always run tests")).toBeInTheDocument();
+    expect(screen.getByText("Skills pointed")).toBeInTheDocument();
+    expect(screen.getByText("MCP servers")).toBeInTheDocument();
+    expect(screen.getByText("Filesystem")).toBeInTheDocument();
+    expect(screen.getByText(/Filtered transcript \(1 turns\)/)).toBeInTheDocument();
+    expect(screen.getByText(/» Fix the build — Done/)).toBeInTheDocument();
+  });
+
   it("edits the fallback target model and saves the chain", async () => {
     const user = userEvent.setup();
     bridge.fns.getGlobalFallbackPolicy.mockResolvedValue({

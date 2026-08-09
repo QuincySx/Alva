@@ -229,6 +229,11 @@ export default function App() {
   const [prompt, setPrompt] = useState("");
   const [timeline, setTimeline] = useState<ProjectedEvent[]>([]);
   const [openHandoffs, setOpenHandoffs] = useState<Record<number, boolean>>({});
+  // Drawer handoff expansion (by handoff_id) for the full cross-engine
+  // envelope: memory, skills, MCP pointers and filtered transcript.
+  const [openDrawerHandoffs, setOpenDrawerHandoffs] = useState<
+    Record<string, boolean>
+  >({});
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
@@ -2043,6 +2048,72 @@ export default function App() {
                         {handoff.available_skills.length} skills ·{" "}
                         {handoff.available_mcp.length} MCP
                       </small>
+                    ) : null}
+                    <button
+                      className="secondary-button"
+                      onClick={() =>
+                        setOpenDrawerHandoffs((current) => ({
+                          ...current,
+                          [handoff.handoff_id]: !current[handoff.handoff_id],
+                        }))
+                      }
+                      type="button"
+                    >
+                      {openDrawerHandoffs[handoff.handoff_id]
+                        ? "Hide envelope"
+                        : "Show envelope"}
+                    </button>
+                    {openDrawerHandoffs[handoff.handoff_id] ? (
+                      <div className="handoff-view">
+                        {handoff.session_memory.length > 0 ? (
+                          <>
+                            <strong>Memory carried</strong>
+                            {handoff.session_memory.map((entry, index) => (
+                              <small key={`dm-${index}`}>{entry}</small>
+                            ))}
+                          </>
+                        ) : null}
+                        {handoff.available_skills.length > 0 ? (
+                          <>
+                            <strong>Skills pointed</strong>
+                            {handoff.available_skills.map((skill) => (
+                              <small key={skill.path}>
+                                {skill.name} — {skill.description}{" "}
+                                <code>{skill.path}</code>
+                              </small>
+                            ))}
+                          </>
+                        ) : null}
+                        {handoff.available_mcp.length > 0 ? (
+                          <>
+                            <strong>MCP servers</strong>
+                            {handoff.available_mcp.map((server) => (
+                              <small key={server.id}>
+                                {server.display_name}{" "}
+                                <code>{server.transport}</code>
+                              </small>
+                            ))}
+                          </>
+                        ) : null}
+                        {handoff.transcript.length > 0 ? (
+                          <>
+                            <strong>
+                              Filtered transcript ({handoff.transcript.length}{" "}
+                              turns)
+                            </strong>
+                            {handoff.transcript.map((turn, index) => (
+                              <small key={`dt-${index}`}>
+                                » {turn.prompt}
+                                {turn.result ? ` — ${turn.result}` : ""}
+                              </small>
+                            ))}
+                          </>
+                        ) : (
+                          <small>
+                            Transcript not shared (default).
+                          </small>
+                        )}
+                      </div>
                     ) : null}
                   </div>
                 ))
