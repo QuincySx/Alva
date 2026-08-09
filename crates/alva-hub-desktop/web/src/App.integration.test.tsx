@@ -128,6 +128,7 @@ function handoff(partial: Partial<HandoffPackage> = {}): HandoffPackage {
     transcript: [],
     session_memory: [],
     available_skills: [],
+    available_mcp: [],
     created_at: 108,
     used_at: null,
     ...partial,
@@ -263,6 +264,13 @@ describe("App integration", () => {
             path: ".alva/skills/review/SKILL.md",
           },
         ],
+        available_mcp: [
+          {
+            id: "filesystem",
+            display_name: "Filesystem",
+            transport: "stdio: npx -y @modelcontextprotocol/server-filesystem",
+          },
+        ],
       }),
     ];
 
@@ -278,6 +286,11 @@ describe("App integration", () => {
     // Workspace skills render as pointers the target engine can read.
     expect(screen.getByText("Workspace skills")).toBeInTheDocument();
     expect(screen.getByText(".alva/skills/review/SKILL.md")).toBeInTheDocument();
+    // MCP servers render metadata only.
+    expect(screen.getByText("MCP servers")).toBeInTheDocument();
+    expect(
+      screen.getByText("stdio: npx -y @modelcontextprotocol/server-filesystem"),
+    ).toBeInTheDocument();
   });
 
   it("teaches the session memory and refreshes the drawer list", async () => {

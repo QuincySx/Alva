@@ -186,6 +186,7 @@ function sampleDetail(): HubSessionDetail {
         transcript: [{ prompt: "Fix the build", result: "Done" }],
         session_memory: [],
         available_skills: [],
+    available_mcp: [],
         created_at: 108,
         used_at: null,
       },

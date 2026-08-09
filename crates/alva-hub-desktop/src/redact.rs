@@ -52,6 +52,13 @@ pub fn redact_handoff(package: &mut HandoffPackage) {
         skill.name = redact_text(&skill.name);
         skill.description = redact_text(&skill.description);
     }
+    // MCP transport lines are user-config: a URL query token must not ride
+    // a handoff even though env/headers are already excluded.
+    for server in &mut package.available_mcp {
+        server.id = redact_text(&server.id);
+        server.display_name = redact_text(&server.display_name);
+        server.transport = redact_text(&server.transport);
+    }
     // Adapter-private metadata: another engine needs to know WHICH engine the
     // work came from, never whose account paid for it.
     package.source.account_source = String::new();
@@ -399,6 +406,11 @@ mod tests {
                 description: format!("review everything, keep {secret}"),
                 path: ".alva/skills/review/SKILL.md".to_string(),
             }],
+            available_mcp: vec![crate::store::McpSnapshot {
+                id: "filesystem".to_string(),
+                display_name: "Filesystem".to_string(),
+                transport: format!("stdio: npx -y @modelcontextprotocol/server-filesystem {secret}"),
+            }],
             created_at: 0,
             used_at: None,
         };
@@ -416,6 +428,10 @@ mod tests {
         assert_eq!(package.available_skills.len(), 1);
         assert!(!package.available_skills[0].description.contains(secret));
         assert_eq!(package.available_skills[0].path, ".alva/skills/review/SKILL.md");
+        // MCP metadata survives with the secret filtered out of transport.
+        assert_eq!(package.available_mcp.len(), 1);
+        assert!(package.available_mcp[0].transport.contains("server-filesystem"));
+        assert!(!package.available_mcp[0].transport.contains(secret));
         // Team context survives, filtered — it is product state, not
         // adapter-private metadata.
         assert!(package

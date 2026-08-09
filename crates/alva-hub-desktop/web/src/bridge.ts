@@ -145,6 +145,7 @@ export interface HandoffPackage {
   transcript: TranscriptTurn[];
   session_memory: string[];
   available_skills: SkillSnapshot[];
+  available_mcp: McpSnapshot[];
   created_at: number;
   used_at: number | null;
 }
@@ -158,6 +159,12 @@ export interface SkillSnapshot {
   name: string;
   description: string;
   path: string;
+}
+
+export interface McpSnapshot {
+  id: string;
+  display_name: string;
+  transport: string;
 }
 
 export interface HubSessionDetail {

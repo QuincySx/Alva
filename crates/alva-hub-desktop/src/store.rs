@@ -232,6 +232,96 @@ impl SkillSnapshot {
     }
 }
 
+/// One discoverable MCP server, metadata only. env/headers are deliberately
+/// never read into the snapshot — a handoff pointing at an MCP server must
+/// not carry its credentials; the target engine reconnects with its own
+/// config (same principle as skills: point, don't ship).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpSnapshot {
+    pub id: String,
+    pub display_name: String,
+    /// Human line like "stdio: npx -y @x/y" or "sse: https://host/path"
+    pub transport: String,
+}
+
+/// Scan workspace `.mcp.json` / `mcp.json` for MCP servers, accepting both
+/// the Alva `{servers: {id: {transport: …}}}` and ecosystem
+/// `{mcpServers: {id: {command, args, url}}}` shapes. Bounded; malformed
+/// files are skipped — MCP discovery is an enhancement, never a handoff
+/// failure.
+fn scan_workspace_mcp(workspace: &Path) -> Vec<McpSnapshot> {
+    const MAX_MCP: usize = 20;
+    let mut out = Vec::new();
+    for file in [workspace.join(".mcp.json"), workspace.join("mcp.json")] {
+        let Ok(content) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        let Some(servers) = value
+            .get("servers")
+            .or_else(|| value.get("mcpServers"))
+            .and_then(|servers| servers.as_object())
+        else {
+            continue;
+        };
+        for (id, entry) in servers {
+            if out.len() >= MAX_MCP {
+                break;
+            }
+            let transport = match entry.get("transport") {
+                Some(transport) => match transport.get("type").and_then(|kind| kind.as_str()) {
+                    Some("stdio") => {
+                        let command =
+                            transport.get("command").and_then(|value| value.as_str()).unwrap_or("?");
+                        let args: Vec<&str> = transport
+                            .get("args")
+                            .and_then(|value| value.as_array())
+                            .map(|array| {
+                                array
+                                    .iter()
+                                    .filter_map(|value| value.as_str())
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        if args.is_empty() {
+                            format!("stdio: {command}")
+                        } else {
+                            format!("stdio: {command} {}", args.join(" "))
+                        }
+                    }
+                    Some("sse") => {
+                        let url = transport.get("url").and_then(|value| value.as_str()).unwrap_or("?");
+                        format!("sse: {url}")
+                    }
+                    _ => "unknown transport".to_string(),
+                },
+                // Ecosystem shape: entry fields are the transport directly.
+                None => {
+                    if let Some(command) = entry.get("command").and_then(|value| value.as_str()) {
+                        format!("stdio: {command}")
+                    } else if let Some(url) = entry.get("url").and_then(|value| value.as_str()) {
+                        format!("sse: {url}")
+                    } else {
+                        "unknown transport".to_string()
+                    }
+                }
+            };
+            out.push(McpSnapshot {
+                id: id.clone(),
+                display_name: entry
+                    .get("display_name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(id)
+                    .to_string(),
+                transport,
+            });
+        }
+    }
+    out
+}
+
 /// Scan `<workspace>/.alva/skills/<name>/SKILL.md` entries (bounded: the
 /// handoff lists skills, it does not ship their bodies). Missing directory
 /// or unreadable entries are silently skipped — skills are an enhancement,
@@ -293,6 +383,10 @@ pub struct HandoffPackage {
     /// of working once, reuse it everywhere").
     #[serde(default)]
     pub available_skills: Vec<SkillSnapshot>,
+    /// Workspace MCP servers (metadata only; credentials never leave the
+    /// machine, let alone cross engines).
+    #[serde(default)]
+    pub available_mcp: Vec<McpSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -3387,6 +3481,9 @@ fn build_handoff_package(
     // Workspace skills point the target engine at the SKILL.md files it can
     // read directly — discovery without shipping bodies.
     let available_skills = scan_workspace_skills(Path::new(&workspace));
+    // Workspace MCP servers, metadata only — the target engine reconnects
+    // with its own credentials.
+    let available_mcp = scan_workspace_mcp(Path::new(&workspace));
 
     let mut package = HandoffPackage {
         handoff_id: uuid::Uuid::new_v4().to_string(),
@@ -3415,6 +3512,7 @@ fn build_handoff_package(
         transcript,
         session_memory,
         available_skills,
+        available_mcp,
         created_at: now,
         used_at: None,
     };
@@ -7242,5 +7340,96 @@ mod tests {
         let encoded = package.render_for_engine();
         assert!(encoded.contains(".alva/skills/review/SKILL.md"));
         assert!(!encoded.contains("Review every change before landing\n---"));
+    }
+
+    #[test]
+    fn handoff_lists_workspace_mcp_servers_without_credentials() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        // Alva shape: {servers: {id: {transport: {type, command, args, env}}}}
+        std::fs::write(
+            workspace.path().join(".mcp.json"),
+            r#"{
+              "servers": {
+                "filesystem": {
+                  "display_name": "Filesystem",
+                  "transport": {
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+                    "env": {"TOKEN": "sk-secret-never-shown"}
+                  }
+                },
+                "remote": {
+                  "transport": {
+                    "type": "sse",
+                    "url": "https://mcp.example.com/sse",
+                    "headers": {"Authorization": "Bearer sk-secret-never-shown"}
+                  }
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+        // Ecosystem shape in mcp.json: entries are the transport directly.
+        std::fs::write(
+            workspace.path().join("mcp.json"),
+            r#"{"mcpServers": {"github": {"command": "npx", "args": ["-y", "@x/github-mcp"]}}}"#,
+        )
+        .unwrap();
+
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        store
+            .prepare_new_turn(
+                "mcp-session",
+                workspace.path(),
+                "start",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+
+        let mut connection = store.lock().unwrap();
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let package = build_handoff_package(
+            &transaction,
+            "mcp-session",
+            "b-alva",
+            "b-claude",
+            alva,
+            EngineTarget::for_engine("claude").unwrap(),
+            "switch",
+            now_unix_ms(),
+            HandoffKind::Full,
+            None,
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+
+        let mut ids: Vec<_> = package
+            .available_mcp
+            .iter()
+            .map(|server| server.id.as_str())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec!["filesystem", "github", "remote"]);
+        let filesystem = package
+            .available_mcp
+            .iter()
+            .find(|server| server.id == "filesystem")
+            .unwrap();
+        assert_eq!(filesystem.display_name, "Filesystem");
+        assert_eq!(
+            filesystem.transport,
+            "stdio: npx -y @modelcontextprotocol/server-filesystem"
+        );
+        // env/headers never cross: the rendered handoff has no secret, and
+        // the transport lines carry no credential material.
+        let encoded = package.render_for_engine();
+        assert!(!encoded.contains("sk-secret-never-shown"));
+        assert!(encoded.contains("sse: https://mcp.example.com/sse"));
     }
 }

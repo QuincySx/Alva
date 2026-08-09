@@ -1789,6 +1789,17 @@ export default function App() {
                         ))}
                       </div>
                     ) : null}
+                    {entry.fallback.handoff.available_mcp.length > 0 ? (
+                      <div className="handoff-skills">
+                        <strong>MCP servers</strong>
+                        {entry.fallback.handoff.available_mcp.map((server) => (
+                          <small key={server.id}>
+                            {server.display_name}{" "}
+                            <code>{server.transport}</code>
+                          </small>
+                        ))}
+                      </div>
+                    ) : null}
                     {entry.fallback.handoff.transcript.length > 0 ? (
                       <>
                         <strong>
