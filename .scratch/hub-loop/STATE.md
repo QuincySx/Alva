@@ -78,3 +78,24 @@ UI 反馈已闭环：视觉重写 + sidebar 折叠(默认收起 fallback/team) +
 - iter55 | 完成: 新模型(mxfp4)验证通过+视觉审查扩展 --click+展开态第3轮审查修复(占位符可读性/composer footer 层级) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter56
 - iter56 | 完成: 密集态视觉审查(fallback+team 全展开, mxfp4 模型)→结论: 折叠机制正确(9B 建议已实现), 无新 bug, P3 已修 | 验证: 审查完成 | 清理: 无 | 下一步: 数据态审查需造数据
 - iter57 | 完成: 全量质量门(lib 138+25+21, ci 46, web 26, tsc)+打包冒烟(schema14, 干净退出) | 验证: 全绿 | 清理: 5.4GiB | 下一步: iter58
+- iter59 | 完成: ?demo=1 数据态(demo-data.ts, 3 sessions+handoff+team run+readiness) | 验证: 26 web, tsc, DOM 确认 | 清理: 无 | 下一步: 模型恢复后审数据态
+- iter60 | 完成: 数据态视觉审查首战(demo 页 mxfp4)+readiness 卡片密度修复(能力单行截断) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter61
+- iter62 | 完成: session 态 fallback 链保存测试 | 验证: 27 web | 清理: 无 | 下一步: iter63
+- iter63/64 | 完成: permission Deny 路径 + archive worker 点击测试 | 验证: 28 web, tsc | 清理: 无 | 下一步: iter65
+- iter65 | 完成: discard worktree 测试 | 验证: 28 web, tsc | 清理: 无 | 下一步: iter66
+- iter66 | 完成: eligibility 警告渲染测试(修正 mock 类型) | 验证: 29 web, tsc | 清理: 无 | 下一步: iter67
+- iter66b | 完成: eligibility 测试泄漏修复(mock 恢复默认) | 验证: 29 web | 清理: 无 | 下一步: iter67
+- iter67 | 完成: approval 分组 Deny all 测试 | 验证: 29 web, tsc | 清理: 无 | 下一步: iter68
+- iter68 | 完成: session 列表排序契约测试(updated_at DESC) | 验证: 139 lib | 清理: cargo clean | 下一步: iter69
+- iter68 | 完成: session 列表排序契约测试(修正 E0716) | 验证: 139 lib | 清理: 无 | 下一步: iter69
+- iter69 | 完成: wireframe 抓 session-panel h=0 真 bug(flex 压缩→min-height:96px) | 验证: 29 web, tsc, DOM 确认修复 | 清理: 无 | 下一步: iter70
+- iter70 | 完成: sidebar 紧凑化(数据态折叠开关进视口) | 验证: 29 web, wireframe 复验 | 清理: 无 | 下一步: iter71
+- iter71 | 完成: ui-review.sh 分步审查模式(--steps 绕长输出 bug) | 验证: 语法 ok, 模型待恢复 | 清理: 无 | 下一步: 模型恢复后验证
+
+## 会话 checkpoint 4（iter71 末）
+全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
+工具链完整：wireframe(线稿) + ui-review.sh(文本, 含 --steps) + ui-review-vision.sh(视觉, --click) + model-verify.sh + ?demo=1 数据态
+模型：mxfp4 视觉可用(长输出不稳)；MLX-4bit 文本待恢复(SSD 清理后)；2B 兜底
+模型相关待办：MLX-4bit 恢复后跑 ui-review.sh --steps 验证；mxfp4 稳定后审数据态
+UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI 审查驱动)
+恢复指令：读本文件 → iter72 续；先 npm test(web/) + cargo test -p alva-hub-desktop --lib
