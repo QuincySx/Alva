@@ -3818,6 +3818,82 @@ mod tests {
         codex
     }
 
+    /// Real-CLI gate for the claude light (print) mode: binary on PATH plus
+    /// either a credentials file or an oauthAccount in ~/.claude.json — the
+    /// same detection the readiness probe uses.
+    fn real_claude_available() -> bool {
+        use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
+        let on_path = std::env::var_os("PATH")
+            .map(|paths| {
+                std::env::split_paths(&paths)
+                    .any(|directory| directory.join("claude").is_file())
+            })
+            .unwrap_or(false);
+        let authed = std::env::var_os("HOME")
+            .map(|home| {
+                let home = PathBuf::from(home);
+                home.join(".claude/.credentials.json").is_file()
+                    || std::fs::read_to_string(home.join(".claude.json"))
+                        .map(|config| config.contains("oauthAccount"))
+                        .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        let opted_out = std::env::var("ALVA_ALLOW_SKIP_REAL_ENGINE_TESTS")
+            .map(|value| matches!(value.trim(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        if (!on_path || !authed) && !opted_out {
+            panic!(
+                "real-claude tests need the claude CLI on PATH with credentials; \
+                 set ALVA_ALLOW_SKIP_REAL_ENGINE_TESTS=1 to skip deliberately."
+            );
+        }
+        let _ = ClaudePrintAdapter::new(ClaudePrintConfig::default());
+        on_path && authed
+    }
+
+    #[tokio::test]
+    async fn real_claude_runs_and_completes_a_turn() {
+        if !real_claude_available() {
+            return;
+        }
+        use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let mut timeline = Vec::new();
+        let outcome = run_persisted(
+            &store,
+            {
+                let workspace = workspace.path().to_path_buf();
+                move |target: &crate::store::EngineTarget, _: &str, _| {
+                    assert_eq!(target.engine_id, "claude");
+                    Ok(Arc::new(ClaudePrintAdapter::new(ClaudePrintConfig {
+                        default_cwd: Some(workspace.clone()),
+                        permission_mode: alva_engine_adapter_claude::ClaudePrintPermissionMode::DontAsk,
+                        ..Default::default()
+                    })) as Arc<dyn EngineRuntime>)
+                }
+            },
+            healthy,
+            RunRequest {
+                prompt: "Answer in one short sentence: what is 7+7?".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "claude".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            |event| timeline.push(event),
+        )
+        .await
+        .unwrap();
+        assert!(!outcome.failed, "real claude turn must not fail: {timeline:?}");
+        let result = outcome.result.unwrap_or_default();
+        assert!(
+            result.contains('1') && result.contains('4'),
+            "real claude answered 14: {result}"
+        );
+    }
+
     #[tokio::test]
     async fn real_codex_runs_and_completes_a_turn() {
         if !real_codex_available() {
