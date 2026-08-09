@@ -853,6 +853,7 @@ mod tests {
     use std::pin::Pin;
     use std::sync::Mutex;
 
+    use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
     use alva_engine_runtime::{
         PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent, RuntimeRequest,
     };
@@ -3777,4 +3778,142 @@ mod tests {
         .await
         .unwrap();
     }
+    /// Real-CLI smoke gate: the codex binary on PATH plus a signed-in
+    /// `~/.codex/auth.json`. Like the worktree git gate, a missing engine
+    /// panics with an explanation instead of silently skipping — these tests
+    /// are the only packaged-runtime observation of a real fallback target.
+    fn real_codex_available() -> bool {
+        let on_path = std::env::var_os("PATH")
+            .map(|paths| {
+                std::env::split_paths(&paths)
+                    .any(|directory| directory.join("codex").is_file())
+            })
+            .unwrap_or(false);
+        let authed = std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".codex/auth.json").is_file())
+            .unwrap_or(false);
+        let opted_out = std::env::var("ALVA_ALLOW_SKIP_REAL_ENGINE_TESTS")
+            .map(|value| matches!(value.trim(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        if (!on_path || !authed) && !opted_out {
+            panic!(
+                "real-engine tests need the codex CLI on PATH with ~/.codex/auth.json; \
+                 they are the only packaged-runtime observation of a real fallback target. \
+                 Set ALVA_ALLOW_SKIP_REAL_ENGINE_TESTS=1 to skip deliberately."
+            );
+        }
+        on_path && authed
+    }
+
+    fn real_codex_adapter(workspace: &std::path::Path) -> Arc<dyn EngineRuntime> {
+        Arc::new(CodexAdapter::new(CodexAdapterConfig {
+            default_cwd: Some(workspace.to_path_buf()),
+            ..Default::default()
+        }))
+    }
+
+    fn authorized_codex() -> crate::store::EngineTarget {
+        let mut codex = crate::store::EngineTarget::for_engine("codex").unwrap();
+        codex.automatic_use_authorized = true;
+        codex
+    }
+
+    #[tokio::test]
+    async fn real_codex_runs_and_completes_a_turn() {
+        if !real_codex_available() {
+            return;
+        }
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let mut timeline = Vec::new();
+        let outcome = run_persisted(
+            &store,
+            {
+                let workspace = workspace.path().to_path_buf();
+                move |target: &crate::store::EngineTarget, _: &str, _| {
+                    assert_eq!(target.engine_id, "codex");
+                    Ok(real_codex_adapter(&workspace))
+                }
+            },
+            healthy,
+            RunRequest {
+                prompt: "Answer in one short sentence: what is 2+2?".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "codex".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            |event| timeline.push(event),
+        )
+        .await
+        .unwrap();
+        assert!(!outcome.failed, "real codex turn must not fail: {timeline:?}");
+        let result = outcome.result.unwrap_or_default();
+        assert!(
+            result.contains('4'),
+            "real codex answered the arithmetic: {result}"
+        );
+    }
+
+    /// Acceptance scenario 3, packaged-runtime half: a failing engine falls
+    /// back onto the REAL codex CLI, and the real binary completes the turn.
+    #[tokio::test]
+    async fn real_codex_receives_a_fallback_after_engine_failure() {
+        if !real_codex_available() {
+            return;
+        }
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        store
+            .set_global_fallback_policy(vec![authorized_codex()])
+            .unwrap();
+
+        let alva = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "alva-native".into(),
+                model: None,
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Error {
+                message: "engine stream died mid-run".into(),
+                recoverable: false,
+            },
+        ]));
+        let workspace_path = workspace.path().to_path_buf();
+        let mut timeline = Vec::new();
+        let outcome = run_persisted(
+            &store,
+            move |target: &crate::store::EngineTarget, _: &str, _| match target
+                .engine_id
+                .as_str()
+            {
+                "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
+                "codex" => Ok(real_codex_adapter(&workspace_path)),
+                other => Err(format!("unexpected engine '{other}'")),
+            },
+            healthy,
+            RunRequest {
+                prompt: "Answer in one short sentence: what is 2+2?".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            |event| timeline.push(event),
+        )
+        .await
+        .unwrap();
+        assert!(
+            !outcome.failed,
+            "fallback to the real codex CLI must complete: {timeline:?}"
+        );
+        let result = outcome.result.unwrap_or_default();
+        assert!(
+            result.contains('4'),
+            "real codex answered after fallback: {result}"
+        );
+    }
+
 }

@@ -77,7 +77,14 @@ and `confirmed_stall_classifies_stably_and_falls_back` prove the selection
 path for a stream failure and for a watchdog stall.
 
 **Note:** the categories are asserted through the classifier, not by
-provoking a real 429 from a live provider.
+provoking a real 429 from a live provider. The real-fallback-target half
+IS observed at packaged-runtime level:
+`run::tests::real_codex_receives_a_fallback_after_engine_failure` fails a
+scripted engine and completes the turn on the REAL codex CLI (gate:
+codex on PATH + `~/.codex/auth.json`; `ALVA_ALLOW_SKIP_REAL_ENGINE_TESTS=1`
+to skip deliberately), and
+`run::tests::real_codex_runs_and_completes_a_turn` runs a full real-codex
+turn. Live-provider rate-limit provocation remains outstanding.
 
 ## 4. One target is not attempted twice automatically in one Turn
 
