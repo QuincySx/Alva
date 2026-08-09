@@ -100,3 +100,5 @@ UI 反馈已闭环：视觉重写 + sidebar 折叠(默认收起 fallback/team) +
 UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI 审查驱动)
 恢复指令：读本文件 → iter72 续；先 npm test(web/) + cargo test -p alva-hub-desktop --lib
 - iter72 | 完成: 前端 bridge 函数覆盖盘点 → 100%(51 调用点/32 直接断言, 余 3 间接覆盖) | 验证: 盘点 | 清理: 无 | 下一步: iter73
+- iter73 | 完成: isolate 勾选传递测试(模型仍卡转本地) | 验证: 29 web, tsc | 清理: 无 | 下一步: iter74
+- iter74 | 完成: 最小窗口 860x600 布局检查(健康, 控件单行) | 验证: wireframe | 清理: 无 | 下一步: iter75
