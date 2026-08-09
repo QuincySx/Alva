@@ -36,6 +36,8 @@ shared `~/.alva/config.json` anthropic profile):
   argument bug below was fixed.
 - `--engine alva --permission deny` executed a real Alva harness run
   through the shared anthropic provider profile ("4").
+- `--engine claude --claude-mode light --permission deny` executed a real
+  Claude Code print run ("14.").
 - Cross-engine handoff: `--session <alva-id> --engine codex` restored the
   alva branch, switched to a fresh codex native session, injected the
   handoff context, and codex continued ("3+3 equals 6.").
