@@ -1027,4 +1027,68 @@ mod tests {
             PermissionDecision::Allow { .. }
         ));
     }
+
+    /// The shared config uses the providers{} map, which the SDK-level
+    /// ProviderConfig::load cannot see. Regression guard for the alva
+    /// provider resolution fix: an active profile in ALVA_CONFIG_DIR must
+    /// assemble, and a missing key must fail loudly.
+    #[test]
+    fn alva_assembles_from_shared_active_profile_and_fails_without_key() {
+        // env vars are process-global; serialize so parallel tests cannot
+        // race the ALVA_CONFIG_DIR override.
+        use std::sync::OnceLock;
+        static ENV_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        let _guard = ENV_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();        // Profile config with the active marker the CLI expects.
+        std::fs::write(
+            root.path().join("config.json"),
+            r#"{
+              "providers": {
+                "anthropic": {
+                  "kind": "anthropic",
+                  "api_key": "sk-test-not-real",
+                  "model": "claude-opus-4-7",
+                  "base_url": "https://api.anthropic.com"
+                }
+              },
+              "active": "anthropic"
+            }"#,
+        )
+        .unwrap();
+
+        std::env::set_var("ALVA_CONFIG_DIR", root.path());
+        build_selected_engine(
+            Engine::Alva,
+            ClaudeMode::Light,
+            PermissionPolicy::Deny,
+            workspace.path(),
+        )
+        .expect("active shared profile must assemble Alva");
+        std::env::remove_var("ALVA_CONFIG_DIR");
+
+        // Same config without a usable key fails loudly with the classic
+        // guidance, not a silent fall-through.
+        std::fs::write(
+            root.path().join("config.json"),
+            r#"{"providers": {"anthropic": {"kind": "anthropic", "api_key": ""}}, "active": "anthropic"}"#,
+        )
+        .unwrap();
+        std::env::set_var("ALVA_CONFIG_DIR", root.path());
+        let error = match build_selected_engine(
+            Engine::Alva,
+            ClaudeMode::Light,
+            PermissionPolicy::Deny,
+            workspace.path(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("an empty key must fail loudly"),
+        };
+        std::env::remove_var("ALVA_CONFIG_DIR");
+        assert!(error.contains("ALVA_API_KEY"), "guidance names the env var: {error}");
+    }
 }
