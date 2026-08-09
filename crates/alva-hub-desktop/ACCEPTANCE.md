@@ -276,3 +276,30 @@ marked done:
 4. ~~A signed/bundled artifact.~~ `tauri build` produces
    `target/release/bundle/macos/ALVA Hub.app`, which was launched, observed
    alive with its private `alva-hub.db` initialised, and exited cleanly.
+
+## UI wireframe review workflow
+
+Screenshot review is not always possible (headless agents cannot read
+images); the wireframe tool exists so any UI change can be verified from
+text. It walks the live DOM of ANY web frontend — no framework hooks.
+
+```bash
+# 1. dev server running (or `npm run dev` in web/)
+cd web && npm run dev &
+
+# 2. headless Chrome with CDP
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --remote-debugging-port=9223 --user-data-dir=/tmp/chrome-wire about:blank &
+
+# 3. print the wireframe (real Tauri window size by default)
+node scripts/ui-wireframe.mjs http://127.0.0.1:1421 --port=9223
+```
+
+Or paste `scripts/wireframe.js` into any page console and call
+`wireframe()` (returns layout-tree + ASCII blueprint + node count).
+
+This tool already caught real layout regressions: a composer-model line
+stretched the topbar to 153px, and five sidebar panels overflowed a
+469px viewport (now collapsed-by-default + all first-screen visible).
+Any UI commit should include a wireframe pass showing the affected
+region.
