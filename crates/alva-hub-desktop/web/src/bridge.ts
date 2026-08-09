@@ -260,8 +260,23 @@ export interface SwitchOutcome {
   target_engine_id: string;
 }
 
+import {
+  demoDetail,
+  demoFallbackPolicy,
+  demoReadiness,
+  demoSessions,
+  demoTeamRun,
+} from "./demo-data";
+
 const hasTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+// Dev-only: ?demo=1 shows deterministic data so wireframe/vision review
+// can inspect a DATA state without the Tauri runtime. Never active in
+// production (hasTauri bypasses every branch).
+const DEMO =
+  !hasTauri &&
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("demo");
 
 export async function chooseWorkspace(): Promise<string | null> {
   if (!hasTauri) {
@@ -294,6 +309,7 @@ export async function switchHubEngine(
 }
 
 export async function listHubSessions(): Promise<HubSessionSummary[]> {
+  if (DEMO) return demoSessions;
   if (!hasTauri) return [];
   return await invoke<HubSessionSummary[]>("list_hub_sessions");
 }
@@ -301,6 +317,7 @@ export async function listHubSessions(): Promise<HubSessionSummary[]> {
 export async function getHubSession(
   productSessionId: string,
 ): Promise<HubSessionDetail | null> {
+  if (DEMO) return demoDetail();
   if (!hasTauri) return null;
   return await invoke<HubSessionDetail | null>("get_hub_session", {
     productSessionId,
@@ -319,6 +336,7 @@ export async function addSessionMemory(
 }
 
 export async function getGlobalFallbackPolicy(): Promise<FallbackPolicy> {
+  if (DEMO) return demoFallbackPolicy();
   if (!hasTauri) {
     return { targets: [], updated_at: 0 };
   }
@@ -482,6 +500,7 @@ export async function createTeamRun(
 export async function getTeamRunForLead(
   leadSessionId: string,
 ): Promise<TeamRunDetail | null> {
+  if (DEMO) return demoTeamRun();
   if (!hasTauri) return null;
   return await invoke<TeamRunDetail | null>("get_team_run_for_lead", {
     leadSessionId,
@@ -698,6 +717,7 @@ export async function runEngineRepair(
 export async function getEngineReadiness(
   workspace: string | null,
 ): Promise<EngineReadiness[]> {
+  if (DEMO) return demoReadiness();
   if (!hasTauri) return [];
   return await invoke<EngineReadiness[]>("get_engine_readiness", { workspace });
 }
