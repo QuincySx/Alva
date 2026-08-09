@@ -19,6 +19,10 @@ const args = process.argv.slice(2);
 const url = args.find((a) => a.startsWith("http")) ?? "http://127.0.0.1:1421";
 const portArg = args.find((a) => a.startsWith("--port="));
 const port = portArg ? Number(portArg.split("=")[1]) : 9223;
+const sizeArg = args.find((a) => a.startsWith("--size="));
+const [sw = 1180, sh = 760] = sizeArg
+  ? sizeArg.split("=")[1].split("x").map(Number)
+  : [1180, 760];
 
 async function httpJson(path, opts) {
   const res = await fetch(`http://127.0.0.1:${port}${path}`, opts);
@@ -54,6 +58,13 @@ ws.onmessage = (ev) => {
 ws.onopen = async () => {
   try {
     await send("Runtime.enable");
+    // Match the real Tauri window (1180x760) unless overridden.
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: sw,
+      height: sh,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
     // Wait for the SPA to settle, then inject the wireframer.
     await send("Runtime.evaluate", {
       expression: `new Promise(r => setTimeout(r, 1500))`,
