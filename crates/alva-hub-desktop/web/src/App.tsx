@@ -234,6 +234,10 @@ export default function App() {
   const [openDrawerHandoffs, setOpenDrawerHandoffs] = useState<
     Record<string, boolean>
   >({});
+  // Sidebar sections the user can collapse to reclaim space for sessions.
+  const [collapsedSections, setCollapsedSections] = useState<
+    Record<string, boolean>
+  >({});
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
@@ -1093,11 +1097,26 @@ export default function App() {
 
         <section className="fallback-panel">
           <div className="session-heading">
+            <button
+              aria-label="Toggle fallback chain"
+              className="section-collapse"
+              onClick={() =>
+                setCollapsedSections((current) => ({
+                  ...current,
+                  fallback: !current.fallback,
+                }))
+              }
+              type="button"
+            >
+              {collapsedSections.fallback ? "▸" : "▾"}
+            </button>
             <span className="eyebrow">
               {activeSessionId ? "Session fallback chain" : "Default fallback chain"}
             </span>
             <small>{fallbackPolicy.targets.length}</small>
           </div>
+          {collapsedSections.fallback ? null : (
+          <>
           <p className="policy-note">
             Only checked targets may run automatically. Manual engine switching is always explicit.
           </p>
@@ -1192,13 +1211,30 @@ export default function App() {
           >
             {policySaving ? "Saving…" : activeSessionId ? "Save session chain" : "Save default chain"}
           </button>
+          </>
+          )}
         </section>
 
         <section className="team-panel">
           <div className="session-heading">
+            <button
+              aria-label="Toggle team panel"
+              className="section-collapse"
+              onClick={() =>
+                setCollapsedSections((current) => ({
+                  ...current,
+                  team: !current.team,
+                }))
+              }
+              type="button"
+            >
+              {collapsedSections.team ? "▸" : "▾"}
+            </button>
             <span className="eyebrow">Team</span>
             <small>{teamRun ? `${teamRun.tasks.length} tasks` : ""}</small>
           </div>
+          {collapsedSections.team ? null : (
+          <>
           {!activeSessionId ? (
             <small className="session-empty">
               Open a session to lead a team run.
@@ -1537,6 +1573,8 @@ export default function App() {
                 </label>
               </div>
             </>
+          )}
+          </>
           )}
         </section>
 

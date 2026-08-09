@@ -961,6 +961,18 @@ describe("App integration", () => {
     ]);
   });
 
+  it("collapses and expands the fallback chain panel", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    // The chain content is visible by default…
+    expect(await screen.findByText("+ alva")).toBeInTheDocument();
+    // …collapsing hides it and expanding restores it.
+    await user.click(screen.getByRole("button", { name: "Toggle fallback chain" }));
+    expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Toggle fallback chain" }));
+    expect(await screen.findByText("+ alva")).toBeInTheDocument();
+  });
+
   it("teaches the session memory and refreshes the drawer list", async () => {
     const user = userEvent.setup();
     bridge.state.sessions = [
