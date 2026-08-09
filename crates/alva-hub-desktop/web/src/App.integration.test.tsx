@@ -690,6 +690,34 @@ describe("App integration", () => {
     expect(bridge.fns.stopHubAttempt).toHaveBeenCalledWith("ps-1");
   });
 
+  it("persists transcript sharing consent from the composer toggle", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+
+    const toggle = screen.getByLabelText(
+      "Attach filtered full transcript to future handoffs",
+    );
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    expect(bridge.fns.setTranscriptSharing).toHaveBeenCalledWith(
+      "ps-1",
+      true,
+    );
+    expect(toggle).toBeChecked();
+  });
+
   it("expands a handoff envelope in the details drawer", async () => {
     const user = userEvent.setup();
     bridge.state.sessions = [
