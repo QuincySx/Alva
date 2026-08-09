@@ -396,6 +396,26 @@ describe("App integration", () => {
     expect(
       await screen.findByText(/Repair finished/),
     ).toBeInTheDocument();
+
+    // A guided action opens the official docs through the opener plugin.
+    bridge.fns.getRepairPlan.mockResolvedValue([
+      {
+        engine_id: "claude",
+        kind: "install",
+        title: "Install Codex CLI",
+        command: null,
+        url: "https://developers.openai.com/codex",
+        one_click: false,
+      },
+    ]);
+    // The plan is fetched on refresh; re-probe so the new action appears.
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Official guide" }),
+    );
+    expect(bridge.fns.openExternal).toHaveBeenCalledWith(
+      "https://developers.openai.com/codex",
+    );
   });
 
   it("renders team workers with lifecycle controls and dispatches actions", async () => {
