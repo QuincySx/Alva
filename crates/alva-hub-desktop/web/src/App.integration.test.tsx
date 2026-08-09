@@ -15,6 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type {
+  EngineEligibility,
   EngineReadiness,
   EngineTarget,
   FallbackPolicy,
@@ -71,7 +72,9 @@ const bridge = vi.hoisted(() => {
         }),
       ),
       setSessionFallbackPolicy: vi.fn(),
-      getPermissionEligibility: vi.fn(async () => []),
+      getPermissionEligibility: vi.fn(
+        async (): Promise<EngineEligibility[]> => [],
+      ),
       respondHubPermission: vi.fn(),
       setTranscriptSharing: vi.fn(),
       stopHubAttempt: vi.fn(),
@@ -766,6 +769,34 @@ describe("App integration", () => {
     // Ending the run archives workers; nothing is deleted.
     await user.click(screen.getByRole("button", { name: "End run" }));
     expect(bridge.fns.completeTeamRun).toHaveBeenCalledWith("tr-1");
+  });
+
+  it("warns when the selected engine cannot honor the permission profile", async () => {
+    bridge.fns.getPermissionEligibility.mockResolvedValue([
+      {
+        engine_id: "alva",
+        eligible: true,
+        relation: "equivalent",
+        detail: "Matches the profile",
+      },
+      {
+        engine_id: "claude",
+        eligible: false,
+        relation: null,
+        detail: "Claude light cannot enforce workspace_write",
+      },
+    ]);
+
+    render(<App />);
+    // alva is eligible → no warning; switch to claude → the warning shows.
+    expect(screen.queryByText(/cannot enforce/)).not.toBeInTheDocument();
+    const engine = screen.getByLabelText("Engine");
+    await userEvent.setup().selectOptions(engine, "claude");
+    expect(
+      await screen.findByText("Claude light cannot enforce workspace_write"),
+    ).toBeInTheDocument();
+    // Restore the default so later tests don't inherit an ineligible claude.
+    bridge.fns.getPermissionEligibility.mockImplementation(async () => []);
   });
 
   it("renders a grouped approval and decides it as one card", async () => {
