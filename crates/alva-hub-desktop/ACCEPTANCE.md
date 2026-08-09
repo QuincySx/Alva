@@ -236,6 +236,18 @@ accepted V1 spec:
   `<workspace>/.alva/skills/<name>/SKILL.md` entries are listed by name,
   frontmatter description and path at handoff build time; the target engine
   reads the file itself. Bounded to 20, never a handoff failure.
+- **Workspace MCP discovery** (`HandoffPackage.available_mcp`): scans
+  `.mcp.json` / `mcp.json` (Alva `servers` and ecosystem `mcpServers`
+  shapes) into metadata-only snapshots. env/headers are never read, so
+  credentials cannot cross engines; the target reconnects with its own
+  config.
+- **Editable fallback-chain model/provider**: the policy targets' model_id
+  and provider_id are editable inputs saved through the existing policy
+  seams (no backend change).
+- **Long-session middleware pinned**: a factory-level test asserts every
+  Hub Alva session carries compaction, checkpoint and the enforced
+  tool-timeout middleware (they were already default-on via the shared
+  components table; nothing asserted it before).
 
 Both were verified end to end: the packaged app migrated a real schema-13
 `alva-hub.db` to 14 on launch (creating `hub_memory`) and exited cleanly.
