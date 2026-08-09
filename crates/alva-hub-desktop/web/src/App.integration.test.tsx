@@ -42,7 +42,9 @@ const bridge = vi.hoisted(() => {
     listeners,
     state,
     fns: {
-      chooseWorkspace: vi.fn(async () => null),
+      chooseWorkspace: vi.fn(
+        async (): Promise<string | null> => null,
+      ),
       runHubPrompt: vi.fn(),
       switchHubEngine: vi.fn(),
       listHubSessions: vi.fn(async () => state.sessions),
@@ -554,6 +556,47 @@ describe("App integration", () => {
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(bridge.fns.cancelWorkerTask).toHaveBeenCalledWith("t-2");
+  });
+
+  it("runs a prompt through the composer once a workspace is chosen", async () => {
+    const user = userEvent.setup();
+    bridge.fns.chooseWorkspace.mockResolvedValue("/tmp/proj");
+    bridge.fns.runHubPrompt.mockResolvedValue({
+      product_session_id: "ps-new",
+      result: "4",
+      failed: false,
+    });
+    // The fresh session is served by the shared fixture (no mock override,
+    // so later tests cannot inherit a stale implementation).
+    bridge.state.detail = {
+      ...detailFixture(),
+      session: {
+        ...detailFixture().session,
+        product_session_id: "ps-new",
+      },
+    };
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Choose workspace" }));
+    expect(
+      await screen.findByText((text) => text === "proj"),
+    ).toBeInTheDocument();
+
+    const composer = screen.getByLabelText("Message");
+    await user.type(composer, "what is 2+2?");
+    await user.click(screen.getByRole("button", { name: "Run with alva" }));
+
+    expect(bridge.fns.runHubPrompt).toHaveBeenCalledWith({
+      prompt: "what is 2+2?",
+      workspace: "/tmp/proj",
+      engine_id: "alva",
+      product_session_id: null,
+      permission_profile: "workspace_write",
+    });
+    // The fresh session surface loads after the run.
+    await waitFor(() =>
+      expect(bridge.fns.getHubSession).toHaveBeenCalledWith("ps-new"),
+    );
   });
 
   it("renders a grouped approval and decides it as one card", async () => {
