@@ -282,3 +282,53 @@ fn append_context_file(
         }
     ));
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use alva_engine_runtime::RuntimeOptions;
+    use alva_test::mock_provider::MockLanguageModel;
+
+    /// The Hub Alva engine session must carry the same long-session
+    /// middleware as the CLI/Tauri components table: context compaction
+    /// (long conversations stay inside the window) and auto-checkpoint
+    /// (edited files are archived). Regression guard for the Catalog
+    /// factory silently drifting from `apply_components`.
+    #[tokio::test]
+    async fn catalog_factory_wires_compaction_and_checkpoint_middleware() {
+        let factory = CatalogBaseAgentFactory::new(
+            Arc::new(MockLanguageModel::new()),
+            std::env::temp_dir(),
+        );
+        let request = RuntimeRequest {
+            prompt: "do the thing".to_string(),
+            resume_session: None,
+            system_prompt: None,
+            working_directory: None,
+            options: RuntimeOptions {
+                streaming: false,
+                max_turns: None,
+                extra: HashMap::new(),
+            },
+        };
+        let built = factory.build(&request).await.expect("catalog agent builds");
+        let snapshot = built.agent.assembly_snapshot();
+        let middleware = snapshot.middleware_names.clone();
+        assert!(
+            middleware.iter().any(|name| name.contains("compaction")),
+            "long-session context compaction missing: {middleware:?}"
+        );
+        assert!(
+            middleware.iter().any(|name| name.contains("checkpoint")),
+            "auto-checkpoint missing: {middleware:?}"
+        );
+        // The tool-timeout middleware must use the real TokioSleeper so the
+        // 120s per-tool cap is actually enforced (a NoopSleeper is dead).
+        assert!(
+            middleware.iter().any(|name| name.contains("tool_timeout")),
+            "enforced tool timeout missing: {middleware:?}"
+        );
+    }
+}
