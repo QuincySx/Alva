@@ -19,7 +19,7 @@
   --border-strong: rgba(255, 255, 255, 0.12);
   --text-1: #e7e9ee;
   --text-2: #a2a9b5;
-  --text-3: #6d7480;
+  --text-3: #848c9c;
   --accent: #5f8ef5;
   --accent-soft: rgba(95, 142, 245, 0.13);
   --green: #4ade80;
@@ -65,7 +65,7 @@ button {
   flex-direction: column;
   gap: 18px;
   padding: 20px 16px;
-  background: var(--surface-1);
+  background: #171b23;
   border-right: 1px solid var(--border);
 }
 
@@ -82,7 +82,7 @@ button {
   gap: 10px;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-1);
+  background: #171b23;
 }
 
 /* ── Brand ──────────────────────────────────────────────── */
@@ -939,6 +939,12 @@ button {
   height: 7px;
   border-radius: 50%;
   background: currentColor;
+}
+
+/* Ready is a semantic state: the dot carries it. */
+.status-pill.status-ready {
+  color: var(--green);
+  background: rgba(74, 222, 128, 0.1);
 }
 
 .composer {
