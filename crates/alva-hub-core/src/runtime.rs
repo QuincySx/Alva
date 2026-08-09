@@ -1646,4 +1646,62 @@ mod tests {
         assert_eq!(session.stream_soft_warnings, 0);
         assert!(session.last_stream_violation.is_none());
     }
+
+    #[tokio::test]
+    async fn switch_engine_to_unregistered_engine_fails() {
+        let hub = HubRuntime::new();
+        let alva = Arc::new(FakeEngine::new());
+        hub.register_engine("alva", alva).unwrap();
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("on alva")))
+            .unwrap()
+            .collect()
+            .await;
+        let product_id = first[0].product_session_id.clone();
+
+        let error = hub
+            .switch_engine(&product_id, "codex")
+            .expect_err("switching to an unregistered engine must fail");
+        assert!(
+            error.to_string().contains("codex"),
+            "error names the missing engine: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn switch_engine_refuses_a_running_session() {
+        let hub = HubRuntime::new();
+        let engine = Arc::new(FakeEngine::new());
+        hub.register_engine("alva", engine).unwrap();
+        let product_id = ProductSessionId::new();
+        hub.restore_session(
+            product_id.clone(),
+            "alva",
+            "native-running",
+            HubSessionStatus::Running,
+        )
+        .unwrap();
+
+        let error = hub
+            .switch_engine(&product_id, "alva")
+            .expect_err("a running session must not be switched");
+        assert!(
+            error.to_string().contains("already running"),
+            "busy error names the state: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn register_engine_rejects_duplicate_ids() {
+        let hub = HubRuntime::new();
+        let engine = Arc::new(FakeEngine::new());
+        hub.register_engine("alva", engine).unwrap();
+        let error = hub
+            .register_engine("alva", Arc::new(FakeEngine::new()))
+            .expect_err("a duplicate engine id must be rejected");
+        assert!(
+            error.to_string().contains("already registered"),
+            "duplicate error names the id: {error}"
+        );
+    }
 }
