@@ -5,3 +5,46 @@
 - iter4 | 完成: 打包真实 .app(tauri build, 修 CWD 与版本对齐, 启动冒烟: 存活11s+db初始化+干净退出) | 验证: bundle 启动通过 | 清理: cargo clean | 下一步: iter5 跨引擎 memory
 - iter5 | 完成: 跨引擎 memory(schema14 hub_memory 表+HandoffPackage.session_memory+redact 过滤+drawer Memory 面板) | 验证: 132 lib + 12 web, tsc clean | 清理: cargo clean | 下一步: iter6 跨引擎 skills
 - iter6 | 完成: 跨引擎 skills(扫描 .alva/skills/*/SKILL.md 进 HandoffPackage.available_skills+redact+handoff 视图) | 验证: 133 lib + 12 web, tsc clean, ci-deps exit0 | 清理: cargo clean | 下一步: iter7 engine model 选择器/提供商状态
+- iter7 | 完成: 全量回归(hub-cli 24)+真实 .app 重建+真实库 13→14 迁移冒烟(hub_memory 创建) | 验证: 全绿+端到端迁移通过 | 清理: cargo clean | 下一步: 待用户决定是否继续 iter8+(候选: model 选择器/提供商标态, MCP 跨引擎)
+- iter8 | 完成: 真实引擎打包运行(codex fresh+resume+alva+alva→codex handoff); 修2个真bug: codex resume -C/-s 参数+alva providers 解析 | 验证: hub-cli 24+codex-adapter 9, ci-deps 46 OK, 真实运行全通 | 清理: cargo clean | 下一步: claude 真实跑+desktop GUI 会话, fallback 真实触发观察
+- iter8b | 完成: claude light 真实跑通(14.), 三引擎全部真实验证+alva→codex handoff | 验证: ACCEPTANCE 场景1 CLI 路径闭环 | 清理: 无新残留 | 下一步: desktop GUI 会话, 真实 fallback 触发(场景3)需人工/注入
+- iter9 | 完成: 跨引擎 MCP(扫描 .mcp.json/mcp.json 两形状进 HandoffPackage.available_mcp, env/headers 绝不入快照) | 验证: 134 lib + 12 web, tsc clean | 清理: cargo clean | 下一步: iter10 model 选择器/提供商状态 UX
+- iter10 | 完成: fallback chain model/provider 可编辑(纯前端, 抓到一个 React key 含可编辑字段致键入丢失的真 bug) | 验证: 13 web, tsc clean | 清理: 无 Rust 残留 | 下一步: iter11
+- iter11 | 完成: 验证+固化 Hub Alva 会话长会话 middleware(compaction/checkpoint/tool_timeout 在栈中) | 验证: adapter-alva 12 tests | 清理: cargo clean | 下一步: iter12
+- iter12 | 完成: details drawer handoff 列表显示跨引擎信封摘要(memory/skills/MCP 计数) | 验证: 13 web, tsc | 清理: 无 | 下一步: iter13
+- iter13 | 完成: ACCEPTANCE Beyond-V1 补全(MCP/可编辑 policy/长会话 middleware)+最终质量门 | 验证: ci-deps 46 OK, 134+24+12+9 lib, 13 web, tsc | 清理: cargo clean | 下一步: 待续
+- iter14 | 完成: 真实 fallback 目标观察(real_codex_runs + real_codex_receives_a_fallback, gate 模式) | 验证: 136 lib tests | 清理: cargo clean | 下一步: iter15
+- iter15 | 完成: composer 显示当前 engine 生效 model/provider(优先 policy 编辑值) | 验证: 13 web, tsc | 清理: 无 | 下一步: iter16
+- iter16 | 完成: 最终打包重建+.app 启动冒烟(schema14 无回归, 干净退出) | 验证: ci-deps 46 OK, 136 lib + 13 web 全绿 | 清理: cargo clean | 下一步: 恢复点已就绪
+- iter17 | 完成: worker 队列→真实引擎链路测试(lead→create_team_run→enqueue→claim→real codex run→finish→turn 持久化) | 验证: 137 lib tests | 清理: cargo clean | 下一步: iter18
+- iter18 | 完成: grouped approval 卡片前端测试(全员可见+exactly 显示的 request ids) | 验证: 14 web, tsc | 清理: 无 | 下一步: iter19
+- iter19 | 完成: readiness/repair 面板前端测试(徽章+版本行+remedy+one-click repair 分发) | 验证: 15 web, tsc | 清理: 无 | 下一步: iter20
+- iter20 | 完成: Team 面板前端测试(worker 卡片+lifecycle 徽章+isolated+worktree 提示+Interrupt 武装+Hibernate 分发) | 验证: 16 web, tsc | 清理: 无 | 下一步: iter21
+- iter21 | 完成: worktree adoption 前端流程(Review→preview 渲染冲突/证据→Adopt 分发 run+worker ids) | 验证: 16 web, tsc | 清理: 无 | 下一步: iter22
+- iter22 | 完成: worker 派发表单测试(scope+claims 解析+stale 选择回退) | 验证: 16 web, tsc | 清理: 无 | 下一步: iter23
+- iter23 | 完成: 最终全量验证+打包冒烟(schema14 无回归)+恢复点加固 | 验证: 137+24+9+12 lib, ci-deps 46 OK, 16 web, .app 启动干净退出 | 清理: cargo clean | 下一步: 恢复点完整, 待续
+- iter24 | 完成: drawer handoff 信封展开(Show envelope: memory/skills/MCP/transcript 全渲染) | 验证: 17 web, tsc | 清理: 无 | 下一步: iter25
+- iter25 | 完成: queued task 编辑/取消前端测试(updateWorkerTask+cancelWorkerTask 精确分发) | 验证: 17 web, tsc | 清理: 无 | 下一步: iter26
+- iter26 | 完成: composer 提交链路测试(choose→runHubPrompt 参数→fresh session reload)+修复 mock 泄漏(clearAllMocks 不清实现) | 验证: 18 web, tsc | 清理: 无 | 下一步: iter27
+- iter27 | 完成: worker Interrupt/Restore 前端测试 | 验证: 18 web, tsc | 清理: 无 | 下一步: iter28
+- iter28 | 完成: Switch back/Stop 点击分发测试(switchHubEngine 带 reason, stopHubAttempt) | 验证: 19 web, tsc | 清理: 无 | 下一步: iter29
+- iter29 | 完成: hub-core 契约测试(未注册引擎切换/busy 拒绝/重复注册拒绝) | 验证: 21 hub-core tests | 清理: cargo clean | 下一步: iter30
+- iter30 | 完成: alva shared active profile 装配测试(ALVA_CONFIG_DIR 隔离+静态锁防 env 竞争) | 验证: 25 hub-cli tests | 清理: cargo clean | 下一步: iter31
+- iter31 | 完成: transcript sharing toggle 持久化测试 | 验证: 20 web, tsc | 清理: 无 | 下一步: iter32
+- iter32 | 完成: stall 分类变体补强(no activity/not responding/hung) | 验证: hub-desktop lib | 清理: 无 | 下一步: iter33
+- iter33 | 完成: composer 无 workspace 前置校验测试(不调后端+失败卡片渲染) | 验证: 21 web, tsc | 清理: 无 | 下一步: iter34
+- iter33 | 完成: composer 无 workspace 守卫测试(按钮 disabled+Enter 路径错误卡片, 修正为双路径) | 验证: 21 web, tsc | 清理: 无 | 下一步: iter34
+- iter34 | 完成: session 消失路径测试(detail null→错误卡片) | 验证: 22 web, tsc | 清理: 无 | 下一步: iter35
+- iter35 | 完成: 质量门(全量 lib+ci-deps+打包+.app 冒烟 schema14) | 验证: 137+25+21+9+12 lib, ci 46 OK, 22 web | 清理: cargo clean | 下一步: iter36
+- iter36 | 完成: 真实 claude light 集成测试(print adapter 完整 turn) | 验证: 138 lib tests | 清理: cargo clean | 下一步: iter37
+- iter37 | 完成: permission 卡片 Allow 生命周期测试(respondHubPermission 精确分发+卡片锁定) | 验证: 23 web, tsc | 清理: 无 | 下一步: iter38
+- iter38 | 完成: repair 引导链接测试(Refresh 后 Official guide→openExternal) | 验证: 23 web, tsc | 清理: 无 | 下一步: iter39
+- iter38 | 完成: repair 引导链接测试(修正: action 挂载到已渲染引擎) | 验证: 23 web, tsc | 清理: 无 | 下一步: iter39
+
+## 会话 checkpoint（iter38 末，压缩恢复点）
+全量绿：hub-desktop 138 lib / hub-cli 25 / hub-core 21 / adapter-codex 9 / adapter-alva 12 / web 23 / ci-deps 46
+真实引擎打包运行全覆盖：alva(4) codex(fresh+resume+fallback+worker) claude light(14) alva→codex handoff
+修复清单：codex resume -C/-s；alva providers{} 解析；React key 含可编辑字段；clearAllMocks 不清实现(mock 泄漏)
+剩余队列(iter39+)：watchdog stall 真实观察；cindy 演进(浏览器驱动/MCP 深化/automation 评估)；worker 中断真实引擎观察
+恢复：读本文件续跑；每轮先 cargo test -p alva-hub-desktop --lib -p alva-hub-cli -p alva-hub-core + npm test(web/)
+磁盘纪律：每轮 cargo clean；当前 48Gi 可用
