@@ -18,10 +18,12 @@ AUTH_KEY="${AUTH_KEY:-}"
 MODEL="qwen3:8b"
 SIZE="1180x760"
 URL=""
+STEPS=""
 for arg in "$@"; do
   case "$arg" in
     --model=*) MODEL="${arg#--model=}" ;;
     --size=*) SIZE="${arg#--size=}" ;;
+    --steps) STEPS="1" ;;
     *) [ -z "$URL" ] && URL="$arg" ;;
   esac
 done
@@ -59,8 +61,34 @@ if ! curl -s -m 2 ${AUTH_KEY:+-H "Authorization: Bearer $AUTH_KEY"} "$OLLAMA_URL
   exit 1
 fi
 
-echo "# AI UI review ($URL) — model $MODEL"
+echo "# AI UI review ($URL)${STEPS:+ — stepwise} — model $MODEL"
 echo
+post() { # post <body-file>
+  curl -s --max-time 240 "$OLLAMA_URL/v1/chat/completions" \
+    ${AUTH_KEY:+-H "Authorization: Bearer $AUTH_KEY"} \
+    -H "Content-Type: application/json" \
+    -d @"$1" | node -e '
+let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
+  try{const j=JSON.parse(d);if(j.error){console.error("ERR:",JSON.stringify(j.error).slice(0,200));process.exit(1)}
+  console.log(j.choices?.[0]?.message?.content||"(empty)")}
+  catch(e){console.error("BAD:",d.slice(0,150));process.exit(1)}});'
+}
+if [ -n "$STEPS" ]; then
+  # Stepwise: one aspect per call (short outputs) — avoids models whose
+  # long-generation path hangs (e.g. mlx-vlm quantizations).
+  for step in "布局：结构、空白、对齐、溢出、密度。给出发现和改法。"               "交互：控件可发现性、层级、状态可见。给出发现和改法。"               "可访问性：对比度、目标尺寸、aria 缺口（只基于线稿）。"               "一致性：间距、圆角、配色是否统一。"               "优先级修复清单：按影响排序，每条：问题→位置→改法（CSS/Tailwind 级）。"; do
+    node -e '
+      const fs = require("fs");
+      const [prompt, wire, model, step] = process.argv.slice(1);
+      fs.writeFileSync("/tmp/ui-review-body.json", JSON.stringify({ model, stream: false, temperature: 0.2,
+        messages: [{ role: "user", content: "你是资深 UI 工程师。审查这份线稿的【" + step + "】只回答这一方面，简洁。\n\n" + wire }] }));
+    ' "$PROMPT" "$WIRE" "$MODEL" "$step"
+    echo "## ${step%%：*}"
+    post /tmp/ui-review-body.json || true
+    echo
+  done
+  exit 0
+fi
 curl -s --max-time 560 "$OLLAMA_URL/v1/chat/completions" \
   ${AUTH_KEY:+-H "Authorization: Bearer $AUTH_KEY"} \
   -H "Content-Type: application/json" \
