@@ -15,11 +15,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type {
+  EngineReadiness,
   EngineTarget,
   FallbackPolicy,
   HandoffPackage,
   HubSessionDetail,
   PermissionGroup,
+  RepairAction,
+  RepairResult,
 } from "./bridge";
 
 const bridge = vi.hoisted(() => {
@@ -88,9 +91,25 @@ const bridge = vi.hoisted(() => {
       cancelWorkerTask: vi.fn(),
       interruptWorker: vi.fn(),
       openExternal: vi.fn(),
-      getRepairPlan: vi.fn(async () => []),
-      runEngineRepair: vi.fn(),
-      getEngineReadiness: vi.fn(async () => []),
+      getRepairPlan: vi.fn(async (): Promise<RepairAction[]> => []),
+      runEngineRepair: vi.fn(
+        async (): Promise<RepairResult> => ({
+          outcome: { success: false, log: "unused" },
+          readiness: {
+            engine_id: "alva",
+            display_name: "Alva",
+            status: "healthy",
+            binary_path: null,
+            version: null,
+            minimum_version: "0.1.0",
+            capabilities: [],
+            authenticated: null,
+            stream_health: "untested",
+            reasons: [],
+          },
+        }),
+      ),
+      getEngineReadiness: vi.fn(async (): Promise<EngineReadiness[]> => []),
       listenTimeline: vi.fn(async (callback: (event: unknown) => void) => {
         listeners.push(callback);
         return () => {
@@ -305,6 +324,72 @@ describe("App integration", () => {
     expect(screen.getByText("MCP servers")).toBeInTheDocument();
     expect(
       screen.getByText("stdio: npx -y @modelcontextprotocol/server-filesystem"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders engine readiness with status, reasons and repair actions", async () => {
+    const user = userEvent.setup();
+    bridge.fns.getEngineReadiness.mockResolvedValue([
+      {
+        engine_id: "alva",
+        display_name: "Alva",
+        status: "healthy",
+        binary_path: "built-in",
+        version: "0.1.0",
+        minimum_version: "0.1.0",
+        capabilities: ["streaming"],
+        authenticated: true,
+        stream_health: "ok",
+        reasons: [],
+      },
+      {
+        engine_id: "claude",
+        display_name: "Claude Code",
+        status: "unauthenticated",
+        binary_path: "/usr/local/bin/claude",
+        version: "2.1.226",
+        minimum_version: "1.0.0",
+        capabilities: [],
+        authenticated: false,
+        stream_health: "untested",
+        reasons: [
+          { code: "unauthenticated", remedy: "Run claude once to sign in." },
+        ],
+      },
+    ]);
+    bridge.fns.getRepairPlan.mockResolvedValue([
+      {
+        engine_id: "alva",
+        kind: "configure",
+        title: "Configure provider key",
+        command: null,
+        url: null,
+        one_click: true,
+      },
+    ]);
+    bridge.fns.runEngineRepair.mockResolvedValue({
+      outcome: { success: true, log: "ok" },
+      readiness: null as unknown as EngineReadiness,
+    });
+
+    render(<App />);
+    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect(screen.getByText("Sign-in needed")).toBeInTheDocument();
+    expect(screen.getByText("Run claude once to sign in.")).toBeInTheDocument();
+    expect(screen.getByText(/v2.1.226 · requires ≥ 1.0.0/)).toBeInTheDocument();
+
+    // One-click repair dispatches with the engine and kind.
+    await user.click(
+      screen.getByRole("button", { name: "Configure provider key" }),
+    );
+    expect(bridge.fns.runEngineRepair).toHaveBeenCalledWith(
+      "alva",
+      "configure",
+      null,
+    );
+    // The repair log lands on the card.
+    expect(
+      await screen.findByText(/Repair finished/),
     ).toBeInTheDocument();
   });
 
