@@ -1057,10 +1057,17 @@ describe("App integration", () => {
     // The chain is collapsed by default so the session list owns the rail…
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
     // …expanding reveals the chain, collapsing hides it again.
-    await user.click(screen.getByRole("button", { name: "Toggle fallback chain" }));
+    const toggle = screen.getByRole("button", {
+      name: "Toggle fallback chain",
+    });
+    // The expand state is announced, not just shown as a chevron.
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
     expect(await screen.findByText("+ alva")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Toggle fallback chain" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(toggle);
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
   it("teaches the session memory and refreshes the drawer list", async () => {

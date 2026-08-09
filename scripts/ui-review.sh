@@ -9,19 +9,23 @@
 #   ollama serve &                      # start the local runtime first
 #   scripts/ui-review.sh [url] [--model qwen3:8b] [--size=1180x760]
 #
-# Env:    OLLAMA_URL (default http://localhost:11434)
+# Env:    OLLAMA_URL (OpenAI-compatible base, default http://localhost:11434)
+#         AUTH_KEY (Bearer token; empty = no auth)
 
 set -euo pipefail
-URL="${1:-http://127.0.0.1:1421}"
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+AUTH_KEY="${AUTH_KEY:-}"
 MODEL="qwen3:8b"
 SIZE="1180x760"
-for arg in "${@:2}"; do
+URL=""
+for arg in "$@"; do
   case "$arg" in
     --model=*) MODEL="${arg#--model=}" ;;
     --size=*) SIZE="${arg#--size=}" ;;
+    *) [ -z "$URL" ] && URL="$arg" ;;
   esac
 done
+[ -z "$URL" ] && URL="http://127.0.0.1:1421"
 
 # 1. blueprint the page (layout tree + ASCII) through the existing tool
 PORT=9223
@@ -50,14 +54,15 @@ EOF
 )
 
 # 3. ask the LOCAL model (OpenAI-compatible /v1/chat/completions)
-if ! curl -s -m 2 "$OLLAMA_URL/api/tags" >/dev/null; then
-  echo "ERROR: no model runtime at $OLLAMA_URL — start it (e.g. 'ollama serve' then 'ollama pull $MODEL')" >&2
+if ! curl -s -m 2 ${AUTH_KEY:+-H "Authorization: Bearer $AUTH_KEY"} "$OLLAMA_URL/v1/models" >/dev/null; then
+  echo "ERROR: no model runtime at $OLLAMA_URL (or bad AUTH_KEY)" >&2
   exit 1
 fi
 
 echo "# AI UI review ($URL) — model $MODEL"
 echo
-curl -s "$OLLAMA_URL/v1/chat/completions" \
+curl -s --max-time 560 "$OLLAMA_URL/v1/chat/completions" \
+  ${AUTH_KEY:+-H "Authorization: Bearer $AUTH_KEY"} \
   -H "Content-Type: application/json" \
   -d "$(node -e '
 const [prompt, model] = process.argv.slice(1);

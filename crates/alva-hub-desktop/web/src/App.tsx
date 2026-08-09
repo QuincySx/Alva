@@ -1100,6 +1100,7 @@ export default function App() {
         <section className="fallback-panel">
           <div className="session-heading">
             <button
+              aria-expanded={!collapsedSections.fallback}
               aria-label="Toggle fallback chain"
               className="section-collapse"
               onClick={() =>
@@ -1220,6 +1221,7 @@ export default function App() {
         <section className="team-panel">
           <div className="session-heading">
             <button
+              aria-expanded={!collapsedSections.team}
               aria-label="Toggle team panel"
               className="section-collapse"
               onClick={() =>
