@@ -14,7 +14,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { EngineTarget, FallbackPolicy, HandoffPackage, HubSessionDetail } from "./bridge";
+import type {
+  EngineTarget,
+  FallbackPolicy,
+  HandoffPackage,
+  HubSessionDetail,
+  PermissionGroup,
+} from "./bridge";
 
 const bridge = vi.hoisted(() => {
   const listeners: Array<(event: unknown) => void> = [];
@@ -66,7 +72,9 @@ const bridge = vi.hoisted(() => {
       getTeamRunForLead: vi.fn(async () => null),
       dispatchWorkerTask: vi.fn(),
       addTeamWorker: vi.fn(),
-      getPermissionGroups: vi.fn(async () => []),
+      getPermissionGroups: vi.fn(
+        async (): Promise<PermissionGroup[]> => [],
+      ),
       respondPermissionGroup: vi.fn(),
       setTeamAutonomy: vi.fn(),
       hibernateWorker: vi.fn(),
@@ -298,6 +306,51 @@ describe("App integration", () => {
     expect(
       screen.getByText("stdio: npx -y @modelcontextprotocol/server-filesystem"),
     ).toBeInTheDocument();
+  });
+
+  it("renders a grouped approval and decides it as one card", async () => {
+    const user = userEvent.setup();
+    bridge.fns.getPermissionGroups.mockResolvedValue([
+      {
+        group_key: "g-bash",
+        tool_name: "bash",
+        members: [
+          {
+            scope: "team-run-1",
+            product_session_id: "ps-a",
+            request_id: "r1",
+            requester: "worker-a",
+            tool_name: "bash",
+            resource: "src/",
+          },
+          {
+            scope: "team-run-1",
+            product_session_id: "ps-b",
+            request_id: "r2",
+            requester: "worker-b",
+            tool_name: "bash",
+            resource: "src/",
+          },
+        ],
+      },
+    ]);
+    bridge.fns.respondPermissionGroup.mockResolvedValue(0);
+
+    render(<App />);
+    // Aggregation must never hide who is asking for what.
+    expect(
+      await screen.findByText(/2 workers want to run 'bash'/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/worker-a/)).toBeInTheDocument();
+    expect(screen.getByText(/worker-b/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Allow all 2" }));
+    // Exactly the displayed request ids travel — never a re-fetch guess.
+    expect(bridge.fns.respondPermissionGroup).toHaveBeenCalledWith(
+      "g-bash",
+      true,
+      ["r1", "r2"],
+    );
   });
 
   it("edits the fallback target model and saves the chain", async () => {
