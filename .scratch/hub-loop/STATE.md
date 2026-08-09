@@ -99,3 +99,4 @@ UI 反馈已闭环：视觉重写 + sidebar 折叠(默认收起 fallback/team) +
 模型相关待办：MLX-4bit 恢复后跑 ui-review.sh --steps 验证；mxfp4 稳定后审数据态
 UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI 审查驱动)
 恢复指令：读本文件 → iter72 续；先 npm test(web/) + cargo test -p alva-hub-desktop --lib
+- iter72 | 完成: 前端 bridge 函数覆盖盘点 → 100%(51 调用点/32 直接断言, 余 3 间接覆盖) | 验证: 盘点 | 清理: 无 | 下一步: iter73
