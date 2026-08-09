@@ -1051,6 +1051,40 @@ describe("App integration", () => {
     ]);
   });
 
+  it("saves the fallback chain to the open session, not the global default", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+    bridge.fns.setSessionFallbackPolicy.mockResolvedValue({
+      targets: [],
+      updated_at: 0,
+    });
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+    await user.click(
+      screen.getByRole("button", { name: "Toggle fallback chain" }),
+    );
+
+    // Session open → Save writes to the session, never the global default.
+    await user.click(
+      screen.getByRole("button", { name: "Save session chain" }),
+    );
+    expect(bridge.fns.setSessionFallbackPolicy).toHaveBeenCalledWith(
+      "ps-1",
+      expect.any(Array),
+    );
+    expect(bridge.fns.setGlobalFallbackPolicy).not.toHaveBeenCalled();
+  });
+
   it("collapses and expands the fallback chain panel", async () => {
     const user = userEvent.setup();
     render(<App />);
