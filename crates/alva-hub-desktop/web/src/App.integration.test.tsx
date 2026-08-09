@@ -10,7 +10,7 @@
 // is opened. These tests therefore drive the real openSession path instead of
 // injecting a synthetic payload through the listener.
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -730,6 +730,45 @@ describe("App integration", () => {
       ),
     ).toBeInTheDocument();
     expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
+  });
+
+  it("answers a permission request and locks the card", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Start one continuous project session");
+
+    act(() => {
+      bridge.listeners.forEach((callback) =>
+        callback({
+          product_session_id: "ps-1",
+          status: "permission_required",
+          engine_id: "claude",
+          message: null,
+          created_at: 200,
+          permission_request: {
+            request_id: "rq-1",
+            tool_name: "bash",
+            description: "Run a shell command",
+            engine_session_id: "ns-1",
+            resource: "src/",
+          },
+        }),
+      );
+    });
+
+    expect(await screen.findByText("Run a shell command")).toBeInTheDocument();
+    expect(screen.getByText(/Resource: src\//)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Allow" }));
+    expect(bridge.fns.respondHubPermission).toHaveBeenCalledWith(
+      "ps-1",
+      "rq-1",
+      true,
+    );
+    // An answered card cannot be re-sent.
+    expect(screen.getByText("You allowed this request.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Deny" }),
+    ).not.toBeInTheDocument();
   });
 
   it("persists transcript sharing consent from the composer toggle", async () => {
