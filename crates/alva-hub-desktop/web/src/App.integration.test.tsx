@@ -448,6 +448,19 @@ describe("App integration", () => {
           created_at: 103,
           completed_at: null,
         },
+        {
+          task_id: "t-2",
+          team_run_id: "tr-1",
+          worker_id: "w-alva",
+          scope: "write docs",
+          status: "queued",
+          result: null,
+          changed_files: [],
+          verification: [],
+          claims: [],
+          created_at: 104,
+          completed_at: null,
+        },
       ],
     });
     bridge.fns.hibernateWorker.mockResolvedValue({
@@ -528,6 +541,19 @@ describe("App integration", () => {
         { kind: "path", path: "docs", mode: "read" },
       ],
     );
+
+    // Queued tasks are intervenable: edit the scope then cancel.
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const scopeEditor = screen.getByRole("textbox", { name: "" });
+    await user.clear(scopeEditor);
+    await user.type(scopeEditor, "write docs v2");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(bridge.fns.updateWorkerTask).toHaveBeenCalledWith(
+      "t-2",
+      "write docs v2",
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(bridge.fns.cancelWorkerTask).toHaveBeenCalledWith("t-2");
   });
 
   it("renders a grouped approval and decides it as one card", async () => {
