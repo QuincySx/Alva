@@ -95,3 +95,8 @@ ollama serve &                      # 本地 runtime（或任意 OpenAI 兼容�
 session-panel 被 flex 压缩到 h=0、折叠按钮 WCAG 尺寸、aria-expanded 缺失、对比度不足、
 readiness 密度、占位符可读性、status-pill aria-live、最小窗口健康等 10+ 真实问题。
 规则：AI 审查结论必须经量化/代码验证后才采纳（模型有误判倾向，如混淆 sidebar/timeline）。
+
+## 模型质量门槛（实测）
+- 9B 级：可用（能理解线稿布局语义，虽有误判但可甄别）。
+- 2B 级：**不可用**——把 y 排序的并列面板误判为嵌套、把 flex 并列误判为覆盖。
+  审查模型的模型下限约在 9B 档；`--steps` 工具本身已验证工作。
