@@ -507,6 +507,27 @@ describe("App integration", () => {
       "tr-1",
       "w-alva",
     );
+
+    // Dispatch: scope + claims parse into declared resources, and the stale
+    // selection falls back to the first dispatchable worker of THIS run.
+    await user.type(
+      screen.getByLabelText("Worker task scope"),
+      "implement the parser",
+    );
+    await user.type(
+      screen.getByLabelText("Resource claims"),
+      "src/lib.rs, read:docs",
+    );
+    await user.click(screen.getByRole("button", { name: "Queue for worker" }));
+    expect(bridge.fns.dispatchWorkerTask).toHaveBeenCalledWith(
+      "tr-1",
+      "w-codex",
+      "implement the parser",
+      [
+        { kind: "path", path: "src/lib.rs", mode: "write" },
+        { kind: "path", path: "docs", mode: "read" },
+      ],
+    );
   });
 
   it("renders a grouped approval and decides it as one card", async () => {
