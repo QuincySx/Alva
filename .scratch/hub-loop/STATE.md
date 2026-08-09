@@ -73,3 +73,7 @@ UI 反馈已回应：视觉系统重写(中性深色/单一 accent/去渐变/排
 新增工具：web/scripts/wireframe.js + ui-wireframe.mjs + scripts/ui-wireframe.sh（UI 线稿，CDP 零依赖）
 UI 反馈已闭环：视觉重写 + sidebar 折叠(默认收起 fallback/team) + 线稿发现修 2 个布局 bug
 恢复指令：读本文件 → iter52 续；UI 改动后用 scripts/ui-wireframe.sh 线稿复核
+- iter52 | 完成: 本地模型 AI UI 审查闭环跑通(Qwen3.5-9B @10.10.1.100:10443, key 123123)+修复其发现(折叠按钮 28px+aria-expanded) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter53
+- iter53/54 | 完成: 9B 视觉审查闭环(VL-4B 服务端坏但 9B 是多模态!)+两轮审查修复(对比度 3.5→4.88, sidebar 分色, ready 语义色) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter55
+- iter55 | 完成: 新模型(mxfp4)验证通过+视觉审查扩展 --click+展开态第3轮审查修复(占位符可读性/composer footer 层级) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter56
+- iter56 | 完成: 密集态视觉审查(fallback+team 全展开, mxfp4 模型)→结论: 折叠机制正确(9B 建议已实现), 无新 bug, P3 已修 | 验证: 审查完成 | 清理: 无 | 下一步: 数据态审查需造数据
