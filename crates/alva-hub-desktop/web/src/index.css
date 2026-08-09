@@ -285,14 +285,14 @@ button {
   font-size: 11px;
 }
 
-.session-empty,
-.session-error {
-  color: var(--text-3);
+.session-empty {
+  color: var(--text-2);
   font-size: 12px;
 }
 
 .session-error {
   color: var(--red);
+  font-size: 12px;
 }
 
 /* ── Readiness ──────────────────────────────────────────── */
@@ -983,12 +983,14 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding-top: 2px;
 }
 
 .composer-summary {
   overflow: hidden;
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 12px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
