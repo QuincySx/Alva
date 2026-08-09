@@ -87,3 +87,11 @@ ollama serve &                      # 本地 runtime（或任意 OpenAI 兼容�
   一个模型覆盖文字+视觉审查。建议删除旧 9B 释放 ~6.5GB（27B 或可复活）。
 - 规避清单（omlx issue 实证）：Qwen3-VL(#2374)、GLM-5.2(#2099/#2347)、
   MiniCPM-o-4.5(#2387)、DeepSeek-V4(#2469)、Mistral tekken(#1992)。
+
+## 开发循环（AI 审查驱动，2026-08-10 固化）
+
+每个 UI 改动走：**改 → wireframe 线稿复核（结构）→ 视觉审查（配色/密度）→ 修复 → 复验**。
+实测此循环在 iter44-74 抓到并修复：topbar 被 composer-model 撑高、sidebar 5 面板溢出、
+session-panel 被 flex 压缩到 h=0、折叠按钮 WCAG 尺寸、aria-expanded 缺失、对比度不足、
+readiness 密度、占位符可读性、status-pill aria-live、最小窗口健康等 10+ 真实问题。
+规则：AI 审查结论必须经量化/代码验证后才采纳（模型有误判倾向，如混淆 sidebar/timeline）。
