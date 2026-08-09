@@ -842,6 +842,13 @@ describe("App integration", () => {
       true,
       ["r1", "r2"],
     );
+    // Deny all carries the same exact scope, opposite decision.
+    await user.click(screen.getByRole("button", { name: "Deny all" }));
+    expect(bridge.fns.respondPermissionGroup).toHaveBeenLastCalledWith(
+      "g-bash",
+      false,
+      ["r1", "r2"],
+    );
   });
 
   it("dispatches switch-back and stop from the fallback card", async () => {
