@@ -717,6 +717,21 @@ describe("App integration", () => {
       ...bridge.state.teamRun,
       status: "completed",
     });
+    bridge.fns.addTeamWorker.mockResolvedValue({
+      ...bridge.state.teamRun!,
+      workers: [
+        ...bridge.state.teamRun!.workers,
+        {
+          worker_id: "w-alva",
+          lifecycle: "active",
+          worktree_path: null,
+          worktree_branch: null,
+          worker_session_id: "ws-alva",
+          engine_id: "alva",
+          created_at: 102,
+        },
+      ],
+    });
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
@@ -729,6 +744,15 @@ describe("App integration", () => {
     expect(autonomy).not.toBeChecked();
     await user.click(autonomy);
     expect(bridge.fns.setTeamAutonomy).toHaveBeenCalledWith("tr-1", true);
+
+    // Add worker carries the engine choice AND the isolation request —
+    // before the run ends (workers can only join an active run).
+    await user.click(screen.getByRole("button", { name: "Add worker" }));
+    expect(bridge.fns.addTeamWorker).toHaveBeenCalledWith(
+      "tr-1",
+      "codex",
+      false,
+    );
 
     // Ending the run archives workers; nothing is deleted.
     await user.click(screen.getByRole("button", { name: "End run" }));
