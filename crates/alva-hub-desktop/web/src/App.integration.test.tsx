@@ -504,6 +504,14 @@ describe("App integration", () => {
     await user.click(screen.getByRole("button", { name: "Hibernate" }));
     expect(bridge.fns.hibernateWorker).toHaveBeenCalledWith("w-codex");
 
+    // The hibernated worker offers Restore; a running task arms Interrupt.
+    await user.click(screen.getByRole("button", { name: "Restore" }));
+    expect(bridge.fns.restoreWorker).toHaveBeenCalledWith("w-alva");
+    await user.click(
+      screen.getAllByRole("button", { name: "Interrupt" })[0],
+    );
+    expect(bridge.fns.interruptWorker).toHaveBeenCalled();
+
     // Adoption is explicit and surfaced: preview first, conflicts shown,
     // then the adopt action carries the run + worker ids.
     await user.click(screen.getByRole("button", { name: "Review changes" }));
