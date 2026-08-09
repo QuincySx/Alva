@@ -37,6 +37,7 @@ const bridge = vi.hoisted(() => {
       status: string;
     }>,
     detail: null as HubSessionDetail | null,
+    teamRun: null as TeamRunDetail | null,
   };
   return {
     listeners,
@@ -76,7 +77,7 @@ const bridge = vi.hoisted(() => {
       stopHubAttempt: vi.fn(),
       createTeamRun: vi.fn(),
       getTeamRunForLead: vi.fn(
-        async (): Promise<TeamRunDetail | null> => null,
+        async (): Promise<TeamRunDetail | null> => state.teamRun,
       ),
       dispatchWorkerTask: vi.fn(),
       addTeamWorker: vi.fn(),
@@ -237,6 +238,7 @@ describe("App integration", () => {
   beforeEach(() => {
     bridge.state.sessions = [];
     bridge.state.detail = null;
+    bridge.state.teamRun = null;
     bridge.listeners.length = 0;
     vi.clearAllMocks();
   });
@@ -430,7 +432,7 @@ describe("App integration", () => {
       },
     ];
     bridge.state.detail = detailFixture();
-    bridge.fns.getTeamRunForLead.mockResolvedValue({
+    bridge.state.teamRun = {
       team_run_id: "tr-1",
       autonomous: false,
       lead_session_id: "ps-1",
@@ -484,7 +486,7 @@ describe("App integration", () => {
           completed_at: null,
         },
       ],
-    });
+    };
     bridge.fns.hibernateWorker.mockResolvedValue({
       worker_id: "w-codex",
       lifecycle: "hibernated",
@@ -625,6 +627,49 @@ describe("App integration", () => {
     await waitFor(() =>
       expect(bridge.fns.getHubSession).toHaveBeenCalledWith("ps-new"),
     );
+  });
+
+  it("creates a team run on the selected worker engine", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "alva",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+    bridge.fns.createTeamRun.mockResolvedValue({
+      team_run_id: "tr-1",
+      autonomous: false,
+      lead_session_id: "ps-1",
+      status: "active",
+      created_at: 100,
+      workers: [
+        {
+          worker_id: "w-codex",
+          lifecycle: "active",
+          worktree_path: null,
+          worktree_branch: null,
+          worker_session_id: "ws-codex",
+          engine_id: "codex",
+          created_at: 101,
+        },
+      ],
+      tasks: [],
+    });
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+    // Default worker engine is codex; create dispatches lead + engine.
+    await user.click(
+      await screen.findByRole("button", { name: "Create team run" }),
+    );
+    expect(bridge.fns.createTeamRun).toHaveBeenCalledWith("ps-1", "codex");
+    // The created run renders with its durable worker.
+    expect(await screen.findByText("Worker · codex")).toBeInTheDocument();
   });
 
   it("renders a grouped approval and decides it as one card", async () => {
