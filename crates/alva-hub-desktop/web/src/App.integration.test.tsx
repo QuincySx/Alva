@@ -690,6 +690,26 @@ describe("App integration", () => {
     expect(bridge.fns.stopHubAttempt).toHaveBeenCalledWith("ps-1");
   });
 
+  it("guards the composer without a workspace and surfaces the failure", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    // No workspace: the Run button is disabled outright…
+    const runButton = screen.getByRole("button", { name: "Run with alva" });
+    expect(runButton).toBeDisabled();
+    await user.type(screen.getByLabelText("Message"), "do the thing");
+    expect(runButton).toBeDisabled();
+    expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
+    // …but the Enter path (form.requestSubmit) still hits the guard and
+    // surfaces the failure card instead of silently no-op'ing.
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByText(
+        "Choose a workspace before running an engine.",
+      ),
+    ).toBeInTheDocument();
+    expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
+  });
+
   it("persists transcript sharing consent from the composer toggle", async () => {
     const user = userEvent.setup();
     bridge.state.sessions = [
