@@ -133,7 +133,14 @@ pub fn classify_failure(message: &str) -> FailureClass {
     ]) {
         return FailureClass::Crash;
     }
-    if has(&["stalled", "no progress", "watchdog"]) {
+    if has(&[
+        "stalled",
+        "no progress",
+        "no activity",
+        "not responding",
+        "watchdog",
+        "hung",
+    ]) {
         return FailureClass::Stall;
     }
     if has(&[
@@ -279,6 +286,15 @@ mod tests {
     fn stall_messages_classify_stably() {
         assert_eq!(
             classify_failure("engine stalled: no activity for 180s"),
+            FailureClass::Stall,
+        );
+        // Real-CLI phrasing variants across engines.
+        assert_eq!(
+            classify_failure("claude: no activity detected; process may be hung"),
+            FailureClass::Stall,
+        );
+        assert_eq!(
+            classify_failure("codex exec made no progress and is not responding"),
             FailureClass::Stall,
         );
     }
