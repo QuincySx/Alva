@@ -197,7 +197,9 @@ button {
 .session-panel {
   display: flex;
   overflow: hidden;
-  min-height: 0;
+  /* flex:1 takes the rail's remaining space, but never to zero — a dense
+     rail must not compress the session list out of existence. */
+  min-height: 96px;
   flex: 1;
   flex-direction: column;
   gap: 8px;
