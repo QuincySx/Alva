@@ -77,3 +77,13 @@ ollama serve &                      # 本地 runtime（或任意 OpenAI 兼容�
 - **Qwen3.5-4B-DFlash** ❌ 加载失败（58 参数不匹配，模型文件问题）。
 
 结论：文本闭环用 9B（稳定）；视觉闭环待 VL-4B 服务端修复。
+
+## 模型迁移完成（2026-08-09）
+
+主力审查模型：**Qwen3.5-9B-mlx-vlm-mxfp4**（RepublicOfKorokke，5.6GB）
+- 验证：model-verify.sh 双探针通过（VISION 识别 6 面板 / TEXT 292px 正确）；
+  完整视觉审查稳定生成。
+- 替代 Qwen3.5-9B-MLX-4bit（mlx-community 格式，可能踩 omlx #2385 类型误判），
+  一个模型覆盖文字+视觉审查。建议删除旧 9B 释放 ~6.5GB（27B 或可复活）。
+- 规避清单（omlx issue 实证）：Qwen3-VL(#2374)、GLM-5.2(#2099/#2347)、
+  MiniCPM-o-4.5(#2387)、DeepSeek-V4(#2469)、Mistral tekken(#1992)。
