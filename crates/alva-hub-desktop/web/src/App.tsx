@@ -2017,6 +2017,15 @@ export default function App() {
                     {handoff.team_snapshot ? (
                       <small>{handoff.team_snapshot}</small>
                     ) : null}
+                    {handoff.session_memory.length > 0 ||
+                    handoff.available_skills.length > 0 ||
+                    handoff.available_mcp.length > 0 ? (
+                      <small>
+                        envelope: {handoff.session_memory.length} memory ·{" "}
+                        {handoff.available_skills.length} skills ·{" "}
+                        {handoff.available_mcp.length} MCP
+                      </small>
+                    ) : null}
                   </div>
                 ))
               )}
