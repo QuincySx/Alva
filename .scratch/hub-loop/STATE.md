@@ -102,3 +102,9 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 - iter72 | 完成: 前端 bridge 函数覆盖盘点 → 100%(51 调用点/32 直接断言, 余 3 间接覆盖) | 验证: 盘点 | 清理: 无 | 下一步: iter73
 - iter73 | 完成: isolate 勾选传递测试(模型仍卡转本地) | 验证: 29 web, tsc | 清理: 无 | 下一步: iter74
 - iter74 | 完成: 最小窗口 860x600 布局检查(健康, 控件单行) | 验证: wireframe | 清理: 无 | 下一步: iter75
+
+## 会话 checkpoint 5（iter74 末）
+全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
+本轮本地完成：bridge 100% 覆盖盘点、isolate 传递测试、最小窗口布局检查、ui-review --steps、demo 数据态、session-panel h=0 修复、sidebar 紧凑化
+模型阻塞（外部依赖）：两个 9B 文本仍卡（服务器任务占用/omlx 状态），mxfp4 视觉不稳
+恢复指令：读本文件 → iter75 续；模型恢复后优先跑 ui-review.sh --steps 验证 + 数据态视觉复审
