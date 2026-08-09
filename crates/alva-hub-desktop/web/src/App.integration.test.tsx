@@ -14,7 +14,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { HandoffPackage, HubSessionDetail } from "./bridge";
+import type { EngineTarget, FallbackPolicy, HandoffPackage, HubSessionDetail } from "./bridge";
 
 const bridge = vi.hoisted(() => {
   const listeners: Array<(event: unknown) => void> = [];
@@ -45,11 +45,18 @@ const bridge = vi.hoisted(() => {
           return state.detail?.memory ?? [];
         },
       ),
-      getGlobalFallbackPolicy: vi.fn(async () => ({
-        targets: [],
-        updated_at: 0,
-      })),
-      setGlobalFallbackPolicy: vi.fn(),
+      getGlobalFallbackPolicy: vi.fn(
+        async (): Promise<FallbackPolicy> => ({
+          targets: [],
+          updated_at: 0,
+        }),
+      ),
+      setGlobalFallbackPolicy: vi.fn(
+        async (_targets: EngineTarget[]): Promise<FallbackPolicy> => ({
+          targets: [],
+          updated_at: 0,
+        }),
+      ),
       setSessionFallbackPolicy: vi.fn(),
       getPermissionEligibility: vi.fn(async () => []),
       respondHubPermission: vi.fn(),
@@ -291,6 +298,44 @@ describe("App integration", () => {
     expect(
       screen.getByText("stdio: npx -y @modelcontextprotocol/server-filesystem"),
     ).toBeInTheDocument();
+  });
+
+  it("edits the fallback target model and saves the chain", async () => {
+    const user = userEvent.setup();
+    bridge.fns.getGlobalFallbackPolicy.mockResolvedValue({
+      targets: [
+        {
+          engine_id: "claude",
+          model_id: "engine-default",
+          provider_id: "claude-cli",
+          account_source: "Claude Code CLI account",
+          billing_route: "Anthropic account via Claude CLI",
+          automatic_use_authorized: true,
+          required_capabilities: [],
+        },
+      ],
+      updated_at: 0,
+    });
+    bridge.fns.setGlobalFallbackPolicy.mockResolvedValue({
+      targets: [],
+      updated_at: 0,
+    });
+
+    render(<App />);
+    const modelInput = await screen.findByLabelText("Model for claude");
+    expect(modelInput).toHaveValue("engine-default");
+
+    await user.clear(modelInput);
+    await user.type(modelInput, "claude-sonnet-4-5");
+    await user.click(screen.getByRole("button", { name: "Save default chain" }));
+
+    expect(bridge.fns.setGlobalFallbackPolicy).toHaveBeenCalledWith([
+      expect.objectContaining({
+        engine_id: "claude",
+        model_id: "claude-sonnet-4-5",
+        provider_id: "claude-cli",
+      }),
+    ]);
   });
 
   it("teaches the session memory and refreshes the drawer list", async () => {

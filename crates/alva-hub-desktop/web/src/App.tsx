@@ -1114,10 +1114,36 @@ export default function App() {
             })}
           </div>
           {fallbackPolicy.targets.map((target, index) => (
-            <div className="policy-target" key={`${target.engine_id}-${target.model_id}`}>
+            // key must not include editable fields: changing model_id would
+            // remount the inputs mid-typing and drop keystrokes.
+            <div
+              className="policy-target"
+              key={`${target.engine_id}-${index}`}
+            >
               <div>
                 <strong>{index + 1}. {target.engine_id}</strong>
-                <small>{target.model_id} · {target.provider_id}</small>
+                <input
+                  aria-label={`Model for ${target.engine_id}`}
+                  className="policy-model-input"
+                  placeholder="engine-default"
+                  value={target.model_id}
+                  onChange={(event) =>
+                    updateFallbackTarget(index, {
+                      model_id: event.target.value,
+                    })
+                  }
+                />
+                <input
+                  aria-label={`Provider for ${target.engine_id}`}
+                  className="policy-model-input"
+                  placeholder="provider id"
+                  value={target.provider_id}
+                  onChange={(event) =>
+                    updateFallbackTarget(index, {
+                      provider_id: event.target.value,
+                    })
+                  }
+                />
               </div>
               <small>{target.account_source}</small>
               <small>{target.billing_route}</small>
