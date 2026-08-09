@@ -23,6 +23,8 @@ const sizeArg = args.find((a) => a.startsWith("--size="));
 const [sw = 1180, sh = 760] = sizeArg
   ? sizeArg.split("=")[1].split("x").map(Number)
   : [1180, 760];
+// Optional interaction before blueprinting: --click="[aria-label=...]"
+const clickSel = args.find((a) => a.startsWith("--click="))?.split("=").slice(1).join("=");
 
 async function httpJson(path, opts) {
   const res = await fetch(`http://127.0.0.1:${port}${path}`, opts);
@@ -70,12 +72,21 @@ ws.onopen = async () => {
       expression: `new Promise(r => setTimeout(r, 1500))`,
       awaitPromise: true,
     });
+    if (clickSel) {
+      await send("Runtime.evaluate", {
+        expression: `document.querySelector(${JSON.stringify(clickSel)})?.click()`,
+      });
+      await send("Runtime.evaluate", {
+        expression: `new Promise(r => setTimeout(r, 400))`,
+        awaitPromise: true,
+      });
+    }
     const r = await send("Runtime.evaluate", {
       expression: `(${WIREFRAME})()`,
       returnByValue: true,
     });
     const wf = r.result.value;
-    console.log(`# wireframe ${url}  (viewport ${wf.viewport}, ${wf.nodeCount} nodes)\n`);
+    console.log(`# wireframe ${url}${clickSel ? " after click " + clickSel : ""}  (viewport ${wf.viewport}, ${wf.nodeCount} nodes)\n`);
     console.log("## Layout tree\n");
     console.log(wf.tree);
     console.log("\n## ASCII blueprint\n");
