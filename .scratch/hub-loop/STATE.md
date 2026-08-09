@@ -48,3 +48,5 @@
 剩余队列(iter39+)：watchdog stall 真实观察；cindy 演进(浏览器驱动/MCP 深化/automation 评估)；worker 中断真实引擎观察
 恢复：读本文件续跑；每轮先 cargo test -p alva-hub-desktop --lib -p alva-hub-cli -p alva-hub-core + npm test(web/)
 磁盘纪律：每轮 cargo clean；当前 48Gi 可用
+- iter39 | 完成: createTeamRun 分发测试(lead+engine 参数, 返回 run 渲染) | 验证: 24 web, tsc | 清理: 无 | 下一步: iter40
+- iter40 | 完成: 会话收尾质量门(全量绿) | 验证: hub-desktop 138+hub-cli 25+hub-core 21 lib, ci 46 OK, 24 web | 清理: cargo clean | 恢复: 下会话从 iter41 续
