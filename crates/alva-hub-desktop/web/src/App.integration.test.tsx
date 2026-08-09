@@ -678,6 +678,63 @@ describe("App integration", () => {
     expect(await screen.findByText("Worker · codex")).toBeInTheDocument();
   });
 
+  it("ends the team run and toggles autonomy explicitly", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "alva",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+    bridge.state.teamRun = {
+      team_run_id: "tr-1",
+      autonomous: false,
+      lead_session_id: "ps-1",
+      status: "active",
+      created_at: 100,
+      workers: [
+        {
+          worker_id: "w-codex",
+          lifecycle: "active",
+          worktree_path: null,
+          worktree_branch: null,
+          worker_session_id: "ws-codex",
+          engine_id: "codex",
+          created_at: 101,
+        },
+      ],
+      tasks: [],
+    };
+    bridge.fns.setTeamAutonomy.mockResolvedValue({
+      ...bridge.state.teamRun,
+      autonomous: true,
+    });
+    bridge.fns.completeTeamRun.mockResolvedValue({
+      ...bridge.state.teamRun,
+      status: "completed",
+    });
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+    await user.click(screen.getByRole("button", { name: "Toggle team panel" }));
+
+    // Autonomy is an explicit opt-in, never implied by the run existing.
+    const autonomy = screen.getByLabelText(
+      "Autonomous run (no per-request approval)",
+    );
+    expect(autonomy).not.toBeChecked();
+    await user.click(autonomy);
+    expect(bridge.fns.setTeamAutonomy).toHaveBeenCalledWith("tr-1", true);
+
+    // Ending the run archives workers; nothing is deleted.
+    await user.click(screen.getByRole("button", { name: "End run" }));
+    expect(bridge.fns.completeTeamRun).toHaveBeenCalledWith("tr-1");
+  });
+
   it("renders a grouped approval and decides it as one card", async () => {
     const user = userEvent.setup();
     bridge.fns.getPermissionGroups.mockResolvedValue([
