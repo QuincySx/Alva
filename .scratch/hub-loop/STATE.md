@@ -50,3 +50,12 @@
 磁盘纪律：每轮 cargo clean；当前 48Gi 可用
 - iter39 | 完成: createTeamRun 分发测试(lead+engine 参数, 返回 run 渲染) | 验证: 24 web, tsc | 清理: 无 | 下一步: iter40
 - iter40 | 完成: 会话收尾质量门(全量绿) | 验证: hub-desktop 138+hub-cli 25+hub-core 21 lib, ci 46 OK, 24 web | 清理: cargo clean | 恢复: 下会话从 iter41 续
+- iter41 | 完成: UI 全面重设计(中性深色+单一 accent+去渐变+排版提升, 用户反馈驱动) | 验证: 24 web, tsc, vite hmr, .app 冒烟 | 清理: cargo clean | 下一步: iter42
+- iter42 | 完成: UI 重写后全量回归质量门 | 验证: 138+25+21+9+12 lib, ci 46 OK, 24 web | 清理: cargo clean | 下一步: iter43
+- iter43 | 完成: sidebar fallback/team 面板可折叠(默认展开, ▾ 收起) | 验证: 25 web, tsc | 清理: 无 | 下一步: iter44
+
+## 会话 checkpoint 2（iter43 末）
+UI 反馈已回应：视觉系统重写(中性深色/单一 accent/去渐变/排版提升) + sidebar 可折叠
+全量绿：hub-desktop 138 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 25 / ci 46
+恢复指令：读本文件 → iter44 续；先 cargo test -p alva-hub-desktop --lib + npm test(web/)
+剩余队列：watchdog stall 真实观察；cindy 演进深化；UI 主区 IA(三列/tab) 候选
