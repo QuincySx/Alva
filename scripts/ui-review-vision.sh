@@ -13,11 +13,15 @@ OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
 AUTH_KEY="${AUTH_KEY:-}"
 MODEL="Qwen3-VL-4B-Instruct-MLX-8bit"
 SIZE="1180x760"
+CLICK=""
+STEPS=""
 URL=""
 for arg in "$@"; do
   case "$arg" in
     --model=*) MODEL="${arg#--model=}" ;;
     --size=*) SIZE="${arg#--size=}" ;;
+    --click=*) CLICK="${arg#--click=}" ;;
+    --steps) STEPS="1" ;;
     *) [ -z "$URL" ] && URL="$arg" ;;
   esac
 done
@@ -25,15 +29,32 @@ done
 
 PORT=9223
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-SHOT="/tmp/hub-ui-review.png"
-rm -f "$SHOT"
-"$CHROME" --headless=new --disable-gpu --screenshot="$SHOT" \
-  --window-size="$SIZE" --hide-scrollbars --virtual-time-budget=4000 \
-  "$URL" >/dev/null 2>&1 &
+"$CHROME" --headless=new --remote-debugging-port=$PORT --user-data-dir=/tmp/chrome-wire about:blank >/dev/null 2>&1 &
 CHROME_PID=$!
 trap 'kill $CHROME_PID 2>/dev/null || true' EXIT
-wait $CHROME_PID 2>/dev/null || true
-[ -s "$SHOT" ] || { echo "ERROR: screenshot failed" >&2; exit 1; }
+sleep 2
+B64=$(node -e '
+const url = process.argv[1], size = process.argv[2], click = process.argv[3] || "";
+(async () => {
+  const target = await (await fetch("http://127.0.0.1:9223/json/new?" + encodeURIComponent(url), { method: "PUT" })).json();
+  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  let id = 0; const pending = new Map();
+  const send = (m, p={}) => new Promise((res, rej) => { const i = ++id; pending.set(i, {res, rej}); ws.send(JSON.stringify({id:i, method:m, params:p})); });
+  ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.rej(new Error(m.error.message)) : p.res(m.result); } };
+  await new Promise((res) => ws.onopen = res);
+  const [w, h] = size.split("x").map(Number);
+  await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+  await send("Runtime.evaluate", { expression: "new Promise(r=>setTimeout(r,1500))", awaitPromise: true });
+  if (click) {
+    await send("Runtime.evaluate", { expression: "document.querySelector(" + JSON.stringify(click) + ")?.click()" });
+    await send("Runtime.evaluate", { expression: "new Promise(r=>setTimeout(r,400))", awaitPromise: true });
+  }
+  const shot = await send("Page.captureScreenshot", { format: "png" });
+  process.stdout.write(shot.data);
+  ws.close();
+})().catch(e => { console.error(e.message); process.exit(1); });
+' "$URL" "$SIZE" "$CLICK" 2>/dev/null | base64 -d | base64 -i - 2>/dev/null) || B64=""
+[ -n "$B64" ] || { echo "ERROR: CDP screenshot failed" >&2; exit 1; }
 
 if ! curl -s -m 2 ${AUTH_KEY:+-H "Authorization: Bearer $AUTH_KEY"} "$OLLAMA_URL/v1/models" >/dev/null; then
   echo "ERROR: no model runtime at $OLLAMA_URL (or bad AUTH_KEY)" >&2
@@ -53,7 +74,6 @@ PROMPT=$(cat <<EOF
 EOF
 )
 
-B64=$(base64 -i "$SHOT")
 echo "# AI visual review ($URL) — model $MODEL"
 echo
 curl -s --max-time 560 "$OLLAMA_URL/v1/chat/completions" \
