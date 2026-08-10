@@ -108,3 +108,12 @@ readiness 密度、占位符可读性、status-pill aria-live、最小窗口健�
   视觉审查（截图），结构问题用文本审查（线稿），分工明确。
 - 模型"长输出卡死"可能是 oMLX 内存守卫中止（`process memory limit exceeded`）而非模型
   bug——先查服务器内存/任务占用，再怀疑模型。
+
+## 审查循环收敛记录（iter150）
+- 三维度正向：一致性(Consistent) / 布局(经典模式) / 可访问性(尺寸达标无缺口) 均获模型明确通过。
+- 主观波动：同一 UI 偶现"割裂/拼凑"负面反馈——与正向审查矛盾；代码层 token（圆角两级/
+  扁平/字体层级/单一 accent）统一，判定为模型主观波动，非 bug。甄别原则：**负反馈须与
+  代码事实核对，与既有正向审查矛盾的优先信代码**。
+- 修复沉淀：topbar 撑高 / sidebar 溢出 / session-panel h=0 / 折叠 WCAG+aria / 对比度 4.88 /
+  readiness 密度 / 占位符 / status aria-live / failed 红调 / 徽章 12px+border / summary 换行 /
+  footer 间距 / 面板 aria-labelledby / session 相对时间+结果 等 20+ 项。
