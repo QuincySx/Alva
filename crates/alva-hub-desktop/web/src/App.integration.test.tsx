@@ -36,6 +36,7 @@ const bridge = vi.hoisted(() => {
       last_prompt: string | null;
       engine_id: string;
       status: string;
+      updated_at?: number;
     }>,
     detail: null as HubSessionDetail | null,
     teamRun: null as TeamRunDetail | null,
@@ -1275,6 +1276,7 @@ describe("App integration", () => {
         last_prompt: "Ship the alpha release",
         engine_id: "alva",
         status: "active",
+        updated_at: Date.now() - 2 * 60_000,
       },
       {
         product_session_id: "ps-b",
@@ -1282,12 +1284,16 @@ describe("App integration", () => {
         last_prompt: "Port to codex",
         engine_id: "claude",
         status: "parked",
+        updated_at: Date.now() - 3 * 3600_000,
       },
     ];
     const user = userEvent.setup();
     render(<App />);
     expect(await screen.findByText("Ship the alpha release")).toBeInTheDocument();
     expect(screen.getByText("Port to codex")).toBeInTheDocument();
+    // Relative recency renders per session.
+    expect(screen.getByText(/2m ago/)).toBeInTheDocument();
+    expect(screen.getByText(/3h ago/)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Search sessions"), "codex");
     expect(screen.getByText("Port to codex")).toBeInTheDocument();
