@@ -6,7 +6,7 @@
 //         components, theme colors only, no hardcoded hex, snapshot fields
 //         in render callbacks, weak refs in closures.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -27,7 +27,7 @@ use alva_hub_gpui::{
     TimelineStatus,
 };
 
-use super::{profile_label, FallbackControls, ProjectedEvent};
+use super::{profile_label, FallbackControls, ProjectedEvent, WorkerOption};
 
 const ENGINE_OPTIONS: [&str; 3] = ["alva", "claude", "codex"];
 const PROFILE_OPTIONS: [&str; 3] = ["interactive", "workspace_write", "unrestricted"];
@@ -78,6 +78,20 @@ pub struct HubApp {
     /// Per-target model/provider inputs, aligned with `fallback_policy.targets`.
     pub policy_model_inputs: Vec<Entity<InputState>>,
     pub policy_provider_inputs: Vec<Entity<InputState>>,
+    // Team surface.
+    pub team_worker_engine: Entity<SelectState<SearchableVec<String>>>,
+    pub dispatch_worker: Entity<SelectState<SearchableVec<WorkerOption>>>,
+    pub team_scope: Entity<InputState>,
+    pub team_claims: Entity<InputState>,
+    pub editing_scope: Entity<InputState>,
+    pub isolate_worker: bool,
+    pub show_archived: bool,
+    pub editing_task: Option<String>,
+    pub adoption: HashMap<String, Option<alva_hub_gpui::AdoptionPreview>>,
+    /// Worker ids whose queue pump is currently running.
+    #[allow(dead_code)]
+    pub worker_pumps: Arc<Mutex<HashSet<String>>>,
+    pub worktree_root: PathBuf,
 }
 
 /// Run a closure against the window's root view (the HubApp) from any
@@ -102,6 +116,12 @@ impl HubApp {
             format!("{home}/Library/Application Support/com.alva.hub-gpui/alva-hub.db")
         });
         let store = Arc::new(HubStore::open(&store_path).expect("open Hub store"));
+        let worktree_root = alva_hub_gpui::worktree_root(
+            store
+                .path()
+                .parent()
+                .unwrap_or(std::path::Path::new("/tmp")),
+        );
         let sessions = store.list_sessions().unwrap_or_default();
         let fallback_policy = store
             .global_fallback_policy()
@@ -140,6 +160,36 @@ impl HubApp {
             collapsed: HashMap::from([("fallback".to_string(), true), ("team".to_string(), true)]),
             policy_model_inputs: Vec::new(),
             policy_provider_inputs: Vec::new(),
+            team_worker_engine: cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(vec![
+                        "codex".to_string(),
+                        "alva".to_string(),
+                        "claude".to_string(),
+                    ]),
+                    Some(IndexPath::new(0)),
+                    window,
+                    cx,
+                )
+            }),
+            dispatch_worker: cx
+                .new(|cx| SelectState::new(SearchableVec::new(Vec::new()), None, window, cx)),
+            team_scope: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .multi_line(true)
+                    .placeholder("Task to queue — or a message to the worker…")
+            }),
+            team_claims: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("Claims: src/lib.rs, read:docs, facility:target-dir")
+            }),
+            editing_scope: cx.new(|cx| InputState::new(window, cx).multi_line(true)),
+            isolate_worker: false,
+            show_archived: false,
+            editing_task: None,
+            adoption: HashMap::new(),
+            worker_pumps: Arc::new(Mutex::new(HashSet::new())),
+            worktree_root,
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(ENGINE_OPTIONS.to_vec()),

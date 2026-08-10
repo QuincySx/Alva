@@ -110,11 +110,32 @@ pub fn describe_claim(claim: &alva_hub_gpui::ResourceClaim) -> String {
     }
 }
 
+/// One dispatch target: value is the worker id, label is "To worker on …".
+#[derive(Clone, PartialEq)]
+pub struct WorkerOption {
+    pub worker_id: String,
+    pub label: String,
+}
+
+impl gpui_component::searchable_list::SearchableListItem for WorkerOption {
+    type Value = String;
+
+    fn title(&self) -> gpui::SharedString {
+        self.label.clone().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.worker_id
+    }
+}
+
 pub mod actions;
 pub mod app;
 pub mod fallback;
+pub mod pump;
 pub mod readiness;
 pub mod sidebar;
 pub mod team;
+pub mod team_actions;
 pub mod timeline;
 pub mod topbar;

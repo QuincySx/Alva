@@ -81,6 +81,37 @@ impl ResourceClaim {
     }
 }
 
+/// Parse a comma-separated claim list like `src/lib.rs, read:docs,
+/// facility:target-dir, tool:git`, matching the React `parseClaims`.
+pub fn parse_claims(input: &str) -> Vec<ResourceClaim> {
+    input
+        .split(',')
+        .map(|entry| entry.trim())
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            if let Some(name) = entry.strip_prefix("facility:") {
+                ResourceClaim::Facility {
+                    name: name.to_string(),
+                }
+            } else if let Some(tool) = entry.strip_prefix("tool:") {
+                ResourceClaim::ExclusiveTool {
+                    tool: tool.to_string(),
+                }
+            } else if let Some(path) = entry.strip_prefix("read:") {
+                ResourceClaim::Path {
+                    path: path.to_string(),
+                    mode: ClaimMode::Read,
+                }
+            } else {
+                ResourceClaim::Path {
+                    path: entry.to_string(),
+                    mode: ClaimMode::Write,
+                }
+            }
+        })
+        .collect()
+}
+
 /// Do two individual claims conflict?
 pub fn claims_conflict(left: &ResourceClaim, right: &ResourceClaim) -> bool {
     match (left, right) {

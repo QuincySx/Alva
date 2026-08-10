@@ -14,7 +14,7 @@ mod store;
 mod worktree;
 
 pub use alva::build_engine;
-pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
+pub use claims::{claims_conflict, conflicting_claims, parse_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use permissions::{
     enforcement_for, permission_eligibility, permission_group_key, EnforcementPlan,
