@@ -280,3 +280,13 @@ demo 覆盖：3 sessions + fallback/handoff + team run + approval 组 + readines
 审查闭环：三维度正向 + 主观波动甄别原则（docs/UI-AI-TOOLCHAIN.md）
 修复沉淀 20+ 项；工具链/模型/产品全就绪
 恢复：iter154 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter154/155 | 完成: 一致性审查(误判: 高度差当间距差, 信代码 gap 10px) + 质量门 | 验证: 139+25 lib, 32 web | 清理: cargo clean | 下一步: iter156
+- iter156 | 完成: 周期打包冒烟 | 验证: .app 启动+schema14 | 清理: cargo clean | 下一步: iter157
+- iter157 | 完成: 会话成果总结文档(docs/HUB-LOOP-SUMMARY.md) | 验证: 文档 | 清理: 无 | 下一步: iter158
+- iter158 | 完成: 全量质量门 | 验证: 139+25 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter159
+- iter159/160 | 完成: 数据态视觉审查(主观波动, 无新修复) + 质量门 | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter161
+
+## 会话 checkpoint 13（iter160 末）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 919 commits
+状态：审查收敛（主观波动甄别原则生效）；文档齐全（HUB-LOOP-SUMMARY/UI-AI-TOOLCHAIN）
+恢复：iter161 续；npm test + cargo test -p alva-hub-desktop --lib
