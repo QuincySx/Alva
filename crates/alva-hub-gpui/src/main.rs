@@ -224,13 +224,17 @@ impl HubApp {
             .iter()
             .enumerate()
             .map(|(i, event)| {
-                let status = match event.status {
-                    TimelineStatus::Completed => "completed",
-                    TimelineStatus::Failed => "failed",
-                    TimelineStatus::Fallback => "fallback",
-                    TimelineStatus::Interrupted => "interrupted",
-                    TimelineStatus::Running => "running",
-                    _ => "event",
+                let (status, color) = match event.status {
+                    TimelineStatus::Completed => ("completed", cx.theme().colors.success),
+                    TimelineStatus::Failed => ("failed", cx.theme().colors.danger),
+                    TimelineStatus::Fallback => ("fallback", cx.theme().colors.warning),
+                    TimelineStatus::Exhausted => ("exhausted", cx.theme().colors.danger),
+                    TimelineStatus::PermissionRequired => ("permission", cx.theme().colors.accent),
+                    TimelineStatus::Worker => ("worker", cx.theme().colors.accent),
+                    TimelineStatus::Interrupted => {
+                        ("interrupted", cx.theme().colors.muted_foreground)
+                    }
+                    TimelineStatus::Running => ("running", cx.theme().colors.accent),
                 };
                 let message = event
                     .message
@@ -245,7 +249,7 @@ impl HubApp {
                     .rounded_md()
                     .bg(cx.theme().colors.background)
                     .border_1()
-                    .border_color(cx.theme().colors.border)
+                    .border_color(color)
                     .child(
                         h_flex()
                             .gap_2()
@@ -257,8 +261,11 @@ impl HubApp {
                             )
                             .child(
                                 div()
+                                    .px_1()
+                                    .py_1()
+                                    .rounded_full()
                                     .text_xs()
-                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .text_color(color)
                                     .child(status),
                             ),
                     )
