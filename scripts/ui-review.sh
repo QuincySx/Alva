@@ -43,6 +43,10 @@ PROMPT=$(cat <<EOF
 你是资深 UI 工程师。下面是一份 Web 应用（Tauri + React + Tailwind，深色主题）
 的运行时线稿：布局树（[类型] x,y 宽x高 .class "标签"）和 ASCII 蓝图。
 
+注意：线稿按 y 坐标排序，**同 y 区域内的 x 决定列**（x<292 是左侧 sidebar，
+x>=292 是右侧主区）。列表**不代表嵌套关系**——.readiness-panel/.fallback-panel
+在 sidebar，.timeline/.composer 在右侧，它们不是父子。
+
 请做一次严肃的 UI 审查，输出 markdown：
 ## 布局（结构、空白、对齐、溢出、密度）
 ## 交互（控件可发现性、层级、状态可见）
@@ -81,7 +85,7 @@ if [ -n "$STEPS" ]; then
       const fs = require("fs");
       const [prompt, wire, model, step] = process.argv.slice(1);
       fs.writeFileSync("/tmp/ui-review-body.json", JSON.stringify({ model, stream: false, temperature: 0.2,
-        messages: [{ role: "user", content: "你是资深 UI 工程师。审查这份线稿的【" + step + "】只回答这一方面，简洁。\n\n" + wire }] }));
+        messages: [{ role: "user", content: "你是资深 UI 工程师。线稿按 y 排序，x<292 是左侧 sidebar，x>=292 是右侧主区，列表不代表嵌套。审查这份线稿的【" + step + "】只回答这一方面，简洁。\n\n" + wire }] }));
     ' "$PROMPT" "$WIRE" "$MODEL" "$step"
     echo "## ${step%%：*}"
     post /tmp/ui-review-body.json || true
