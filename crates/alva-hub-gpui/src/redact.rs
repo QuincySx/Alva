@@ -409,7 +409,9 @@ mod tests {
             available_mcp: vec![crate::store::McpSnapshot {
                 id: "filesystem".to_string(),
                 display_name: "Filesystem".to_string(),
-                transport: format!("stdio: npx -y @modelcontextprotocol/server-filesystem {secret}"),
+                transport: format!(
+                    "stdio: npx -y @modelcontextprotocol/server-filesystem {secret}"
+                ),
             }],
             created_at: 0,
             used_at: None,
@@ -427,10 +429,15 @@ mod tests {
         // Skills survive with name/description filtered, path intact.
         assert_eq!(package.available_skills.len(), 1);
         assert!(!package.available_skills[0].description.contains(secret));
-        assert_eq!(package.available_skills[0].path, ".alva/skills/review/SKILL.md");
+        assert_eq!(
+            package.available_skills[0].path,
+            ".alva/skills/review/SKILL.md"
+        );
         // MCP metadata survives with the secret filtered out of transport.
         assert_eq!(package.available_mcp.len(), 1);
-        assert!(package.available_mcp[0].transport.contains("server-filesystem"));
+        assert!(package.available_mcp[0]
+            .transport
+            .contains("server-filesystem"));
         assert!(!package.available_mcp[0].transport.contains(secret));
         // Team context survives, filtered — it is product state, not
         // adapter-private metadata.

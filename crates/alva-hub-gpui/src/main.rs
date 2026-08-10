@@ -4,9 +4,7 @@
 //         Follows crates/alva-hub-gpui/AGENTS.md: Entity<State> for
 //         stateful components, theme colors only, no hardcoded hex.
 
-use alva_hub_gpui::{
-    HubSessionSummary, HubStore,
-};
+use alva_hub_gpui::{HubSessionSummary, HubStore};
 use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -19,6 +17,7 @@ use gpui_component::{
 
 pub struct HubApp {
     store: HubStore,
+    workspace: Option<String>,
     engine: Entity<SelectState<SearchableVec<&'static str>>>,
     permission: Entity<SelectState<SearchableVec<&'static str>>>,
     prompt: Entity<InputState>,
@@ -35,6 +34,7 @@ impl HubApp {
         let store = HubStore::open(&store_path).expect("open Hub store");
         Self {
             store,
+            workspace: None,
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(vec!["alva", "claude", "codex"]),
@@ -58,7 +58,11 @@ impl HubApp {
         }
     }
 
-    fn sidebar_menu(sessions: &[HubSessionSummary]) -> SidebarMenu {
+    fn sidebar_menu(
+        sessions: &[HubSessionSummary],
+        workspace: Option<&str>,
+        cx: &Context<Self>,
+    ) -> SidebarMenu {
         let session_items: Vec<SidebarMenuItem> = if sessions.is_empty() {
             vec![SidebarMenuItem::new("(no sessions yet)")]
         } else {
@@ -75,11 +79,38 @@ impl HubApp {
                 })
                 .collect()
         };
+        let weak = cx.entity().downgrade();
+        let workspace_label = workspace
+            .map(|w| w.split('/').next_back().unwrap_or(w).to_string())
+            .unwrap_or_else(|| "Not selected".to_string());
         SidebarMenu::new().children([
-            SidebarMenuItem::new("Workspace")
+            SidebarMenuItem::new(workspace_label)
                 .icon(IconName::Folder)
-                .click_to_toggle(true)
-                .children([SidebarMenuItem::new("Choose a local project to begin")]),
+                .on_click(move |_, _window, app| {
+                    let weak = weak.clone();
+                    let pick = app.prompt_for_paths(gpui::PathPromptOptions {
+                        files: false,
+                        directories: true,
+                        multiple: false,
+                        prompt: Some("Choose a local project".into()),
+                    });
+                    app.spawn(|cx: &mut AsyncApp| {
+                        let mut cx = cx.clone();
+                        async move {
+                            if let Ok(Ok(Some(paths))) = pick.await {
+                                if let Some(path) = paths.first() {
+                                    if let Some(entity) = weak.upgrade() {
+                                        cx.update_entity(&entity, |hub, cx| {
+                                            hub.workspace = Some(path.display().to_string());
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .detach();
+                }),
             SidebarMenuItem::new("Sessions")
                 .icon(IconName::SquareTerminal)
                 .click_to_toggle(true)
@@ -112,10 +143,14 @@ impl HubApp {
         self.store.list_sessions().unwrap_or_default()
     }
 
-    fn sidebar(&self) -> Sidebar<SidebarMenu> {
+    fn sidebar(&self, cx: &Context<Self>) -> Sidebar<SidebarMenu> {
         Sidebar::new("hub-sidebar")
             .header(SidebarHeader::new().child("ALVA Hub"))
-            .child(Self::sidebar_menu(&self.sessions()))
+            .child(Self::sidebar_menu(
+                &self.sessions(),
+                self.workspace.as_deref(),
+                cx,
+            ))
             .footer(
                 SidebarFooter::new().child(
                     div()
@@ -150,6 +185,12 @@ impl HubApp {
                     .child(Select::new(&self.permission).small()),
             )
             .child(div().flex_1())
+            .child(
+                Button::new("details")
+                    .ghost()
+                    .label("Details")
+                    .on_click(|_, _, _| { /* P5: open sheet */ }),
+            )
             .child(
                 h_flex()
                     .gap_1()
@@ -240,7 +281,7 @@ impl Render for HubApp {
         h_flex()
             .size_full()
             .bg(cx.theme().colors.background)
-            .child(self.sidebar())
+            .child(self.sidebar(cx))
             .child(self.main_column(cx))
     }
 }

@@ -214,7 +214,12 @@ impl SkillSnapshot {
             .find_map(|line| {
                 let line = line.trim();
                 (line.starts_with("description:") || line.starts_with("description :")).then(|| {
-                    bounded_text(line.split_once(':').map(|(_, value)| value).unwrap_or("").trim())
+                    bounded_text(
+                        line.split_once(':')
+                            .map(|(_, value)| value)
+                            .unwrap_or("")
+                            .trim(),
+                    )
                 })
             })
             .or_else(|| {
@@ -273,17 +278,14 @@ fn scan_workspace_mcp(workspace: &Path) -> Vec<McpSnapshot> {
             let transport = match entry.get("transport") {
                 Some(transport) => match transport.get("type").and_then(|kind| kind.as_str()) {
                     Some("stdio") => {
-                        let command =
-                            transport.get("command").and_then(|value| value.as_str()).unwrap_or("?");
+                        let command = transport
+                            .get("command")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("?");
                         let args: Vec<&str> = transport
                             .get("args")
                             .and_then(|value| value.as_array())
-                            .map(|array| {
-                                array
-                                    .iter()
-                                    .filter_map(|value| value.as_str())
-                                    .collect()
-                            })
+                            .map(|array| array.iter().filter_map(|value| value.as_str()).collect())
                             .unwrap_or_default();
                         if args.is_empty() {
                             format!("stdio: {command}")
@@ -292,7 +294,10 @@ fn scan_workspace_mcp(workspace: &Path) -> Vec<McpSnapshot> {
                         }
                     }
                     Some("sse") => {
-                        let url = transport.get("url").and_then(|value| value.as_str()).unwrap_or("?");
+                        let url = transport
+                            .get("url")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("?");
                         format!("sse: {url}")
                     }
                     _ => "unknown transport".to_string(),
@@ -336,12 +341,13 @@ fn scan_workspace_skills(workspace: &Path) -> Vec<SkillSnapshot> {
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let path = entry.path();
-            path.is_dir().then(|| SkillSnapshot::from_dir(&path)).flatten()
+            path.is_dir()
+                .then(|| SkillSnapshot::from_dir(&path))
+                .flatten()
         })
         .take(MAX_SKILLS)
         .collect()
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HandoffPackage {
@@ -7282,7 +7288,11 @@ mod tests {
         )
         .unwrap();
         std::fs::create_dir_all(skills.join("wip")).unwrap();
-        std::fs::write(skills.join("wip/SKILL.md"), "no frontmatter, first line wins\n").unwrap();
+        std::fs::write(
+            skills.join("wip/SKILL.md"),
+            "no frontmatter, first line wins\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(skills.join("notes")).unwrap();
         std::fs::write(skills.join("notes/README.txt"), "not a skill").unwrap();
 

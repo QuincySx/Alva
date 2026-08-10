@@ -3803,8 +3803,7 @@ mod tests {
     fn real_codex_available() -> bool {
         let on_path = std::env::var_os("PATH")
             .map(|paths| {
-                std::env::split_paths(&paths)
-                    .any(|directory| directory.join("codex").is_file())
+                std::env::split_paths(&paths).any(|directory| directory.join("codex").is_file())
             })
             .unwrap_or(false);
         let authed = std::env::var_os("HOME")
@@ -3843,8 +3842,7 @@ mod tests {
         use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
         let on_path = std::env::var_os("PATH")
             .map(|paths| {
-                std::env::split_paths(&paths)
-                    .any(|directory| directory.join("claude").is_file())
+                std::env::split_paths(&paths).any(|directory| directory.join("claude").is_file())
             })
             .unwrap_or(false);
         let authed = std::env::var_os("HOME")
@@ -3887,7 +3885,8 @@ mod tests {
                     assert_eq!(target.engine_id, "claude");
                     Ok(Arc::new(ClaudePrintAdapter::new(ClaudePrintConfig {
                         default_cwd: Some(workspace.clone()),
-                        permission_mode: alva_engine_adapter_claude::ClaudePrintPermissionMode::DontAsk,
+                        permission_mode:
+                            alva_engine_adapter_claude::ClaudePrintPermissionMode::DontAsk,
                         ..Default::default()
                     })) as Arc<dyn EngineRuntime>)
                 }
@@ -3904,7 +3903,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(!outcome.failed, "real claude turn must not fail: {timeline:?}");
+        assert!(
+            !outcome.failed,
+            "real claude turn must not fail: {timeline:?}"
+        );
         let result = outcome.result.unwrap_or_default();
         assert!(
             result.contains('1') && result.contains('4'),
@@ -3942,7 +3944,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(!outcome.failed, "real codex turn must not fail: {timeline:?}");
+        assert!(
+            !outcome.failed,
+            "real codex turn must not fail: {timeline:?}"
+        );
         let result = outcome.result.unwrap_or_default();
         assert!(
             result.contains('4'),
@@ -3979,10 +3984,7 @@ mod tests {
         let mut timeline = Vec::new();
         let outcome = run_persisted(
             &store,
-            move |target: &crate::store::EngineTarget, _: &str, _| match target
-                .engine_id
-                .as_str()
-            {
+            move |target: &crate::store::EngineTarget, _: &str, _| match target.engine_id.as_str() {
                 "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
                 "codex" => Ok(real_codex_adapter(&workspace_path)),
                 other => Err(format!("unexpected engine '{other}'")),
