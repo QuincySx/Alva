@@ -1,45 +1,19 @@
 # 迭代日志
-- iter1 | 完成: web 测试基建(vitest+RTL,11测试)+场景8 fallback 卡片三控件集成测试+纯函数测试 | 验证: npm test 11/11, tsc clean, commit 3736659 | 清理: 无 Rust 残留产生 | 下一步: iter2
-- iter2 | 完成: 打包构建验证 web build + cargo release build(2m28s) + ci-check-deps 46 OK | 验证: 全过 | 清理: cargo clean 2.7GiB | 下一步: iter3
-- iter3 | 完成: 真实机器 readiness 冒烟测试(SystemProbe vs 真实 claude/codex/alva, 独立 PATH 交叉校验) | 验证: 130/130 lib tests, commit 下一行 | 清理: cargo clean | 下一步: iter4
-- iter4 | 完成: 打包真实 .app(tauri build, 修 CWD 与版本对齐, 启动冒烟: 存活11s+db初始化+干净退出) | 验证: bundle 启动通过 | 清理: cargo clean | 下一步: iter5 跨引擎 memory
-- iter5 | 完成: 跨引擎 memory(schema14 hub_memory 表+HandoffPackage.session_memory+redact 过滤+drawer Memory 面板) | 验证: 132 lib + 12 web, tsc clean | 清理: cargo clean | 下一步: iter6 跨引擎 skills
-- iter6 | 完成: 跨引擎 skills(扫描 .alva/skills/*/SKILL.md 进 HandoffPackage.available_skills+redact+handoff 视图) | 验证: 133 lib + 12 web, tsc clean, ci-deps exit0 | 清理: cargo clean | 下一步: iter7 engine model 选择器/提供商状态
-- iter7 | 完成: 全量回归(hub-cli 24)+真实 .app 重建+真实库 13→14 迁移冒烟(hub_memory 创建) | 验证: 全绿+端到端迁移通过 | 清理: cargo clean | 下一步: 待用户决定是否继续 iter8+(候选: model 选择器/提供商标态, MCP 跨引擎)
-- iter8 | 完成: 真实引擎打包运行(codex fresh+resume+alva+alva→codex handoff); 修2个真bug: codex resume -C/-s 参数+alva providers 解析 | 验证: hub-cli 24+codex-adapter 9, ci-deps 46 OK, 真实运行全通 | 清理: cargo clean | 下一步: claude 真实跑+desktop GUI 会话, fallback 真实触发观察
-- iter8b | 完成: claude light 真实跑通(14.), 三引擎全部真实验证+alva→codex handoff | 验证: ACCEPTANCE 场景1 CLI 路径闭环 | 清理: 无新残留 | 下一步: desktop GUI 会话, 真实 fallback 触发(场景3)需人工/注入
-- iter9 | 完成: 跨引擎 MCP(扫描 .mcp.json/mcp.json 两形状进 HandoffPackage.available_mcp, env/headers 绝不入快照) | 验证: 134 lib + 12 web, tsc clean | 清理: cargo clean | 下一步: iter10 model 选择器/提供商状态 UX
-- iter10 | 完成: fallback chain model/provider 可编辑(纯前端, 抓到一个 React key 含可编辑字段致键入丢失的真 bug) | 验证: 13 web, tsc clean | 清理: 无 Rust 残留 | 下一步: iter11
-- iter11 | 完成: 验证+固化 Hub Alva 会话长会话 middleware(compaction/checkpoint/tool_timeout 在栈中) | 验证: adapter-alva 12 tests | 清理: cargo clean | 下一步: iter12
-- iter12 | 完成: details drawer handoff 列表显示跨引擎信封摘要(memory/skills/MCP 计数) | 验证: 13 web, tsc | 清理: 无 | 下一步: iter13
-- iter13 | 完成: ACCEPTANCE Beyond-V1 补全(MCP/可编辑 policy/长会话 middleware)+最终质量门 | 验证: ci-deps 46 OK, 134+24+12+9 lib, 13 web, tsc | 清理: cargo clean | 下一步: 待续
-- iter14 | 完成: 真实 fallback 目标观察(real_codex_runs + real_codex_receives_a_fallback, gate 模式) | 验证: 136 lib tests | 清理: cargo clean | 下一步: iter15
-- iter15 | 完成: composer 显示当前 engine 生效 model/provider(优先 policy 编辑值) | 验证: 13 web, tsc | 清理: 无 | 下一步: iter16
-- iter16 | 完成: 最终打包重建+.app 启动冒烟(schema14 无回归, 干净退出) | 验证: ci-deps 46 OK, 136 lib + 13 web 全绿 | 清理: cargo clean | 下一步: 恢复点已就绪
-- iter17 | 完成: worker 队列→真实引擎链路测试(lead→create_team_run→enqueue→claim→real codex run→finish→turn 持久化) | 验证: 137 lib tests | 清理: cargo clean | 下一步: iter18
-- iter18 | 完成: grouped approval 卡片前端测试(全员可见+exactly 显示的 request ids) | 验证: 14 web, tsc | 清理: 无 | 下一步: iter19
-- iter19 | 完成: readiness/repair 面板前端测试(徽章+版本行+remedy+one-click repair 分发) | 验证: 15 web, tsc | 清理: 无 | 下一步: iter20
-- iter20 | 完成: Team 面板前端测试(worker 卡片+lifecycle 徽章+isolated+worktree 提示+Interrupt 武装+Hibernate 分发) | 验证: 16 web, tsc | 清理: 无 | 下一步: iter21
-- iter21 | 完成: worktree adoption 前端流程(Review→preview 渲染冲突/证据→Adopt 分发 run+worker ids) | 验证: 16 web, tsc | 清理: 无 | 下一步: iter22
-- iter22 | 完成: worker 派发表单测试(scope+claims 解析+stale 选择回退) | 验证: 16 web, tsc | 清理: 无 | 下一步: iter23
-- iter23 | 完成: 最终全量验证+打包冒烟(schema14 无回归)+恢复点加固 | 验证: 137+24+9+12 lib, ci-deps 46 OK, 16 web, .app 启动干净退出 | 清理: cargo clean | 下一步: 恢复点完整, 待续
-- iter24 | 完成: drawer handoff 信封展开(Show envelope: memory/skills/MCP/transcript 全渲染) | 验证: 17 web, tsc | 清理: 无 | 下一步: iter25
-- iter25 | 完成: queued task 编辑/取消前端测试(updateWorkerTask+cancelWorkerTask 精确分发) | 验证: 17 web, tsc | 清理: 无 | 下一步: iter26
-- iter26 | 完成: composer 提交链路测试(choose→runHubPrompt 参数→fresh session reload)+修复 mock 泄漏(clearAllMocks 不清实现) | 验证: 18 web, tsc | 清理: 无 | 下一步: iter27
-- iter27 | 完成: worker Interrupt/Restore 前端测试 | 验证: 18 web, tsc | 清理: 无 | 下一步: iter28
-- iter28 | 完成: Switch back/Stop 点击分发测试(switchHubEngine 带 reason, stopHubAttempt) | 验证: 19 web, tsc | 清理: 无 | 下一步: iter29
-- iter29 | 完成: hub-core 契约测试(未注册引擎切换/busy 拒绝/重复注册拒绝) | 验证: 21 hub-core tests | 清理: cargo clean | 下一步: iter30
-- iter30 | 完成: alva shared active profile 装配测试(ALVA_CONFIG_DIR 隔离+静态锁防 env 竞争) | 验证: 25 hub-cli tests | 清理: cargo clean | 下一步: iter31
-- iter31 | 完成: transcript sharing toggle 持久化测试 | 验证: 20 web, tsc | 清理: 无 | 下一步: iter32
-- iter32 | 完成: stall 分类变体补强(no activity/not responding/hung) | 验证: hub-desktop lib | 清理: 无 | 下一步: iter33
-- iter33 | 完成: composer 无 workspace 前置校验测试(不调后端+失败卡片渲染) | 验证: 21 web, tsc | 清理: 无 | 下一步: iter34
-- iter33 | 完成: composer 无 workspace 守卫测试(按钮 disabled+Enter 路径错误卡片, 修正为双路径) | 验证: 21 web, tsc | 清理: 无 | 下一步: iter34
-- iter34 | 完成: session 消失路径测试(detail null→错误卡片) | 验证: 22 web, tsc | 清理: 无 | 下一步: iter35
-- iter35 | 完成: 质量门(全量 lib+ci-deps+打包+.app 冒烟 schema14) | 验证: 137+25+21+9+12 lib, ci 46 OK, 22 web | 清理: cargo clean | 下一步: iter36
-- iter36 | 完成: 真实 claude light 集成测试(print adapter 完整 turn) | 验证: 138 lib tests | 清理: cargo clean | 下一步: iter37
-- iter37 | 完成: permission 卡片 Allow 生命周期测试(respondHubPermission 精确分发+卡片锁定) | 验证: 23 web, tsc | 清理: 无 | 下一步: iter38
-- iter38 | 完成: repair 引导链接测试(Refresh 后 Official guide→openExternal) | 验证: 23 web, tsc | 清理: 无 | 下一步: iter39
-- iter38 | 完成: repair 引导链接测试(修正: action 挂载到已渲染引擎) | 验证: 23 web, tsc | 清理: 无 | 下一步: iter39
+
+
+### 迭代压缩摘要
+- iter1-13: 基础: V1 场景自动化/真实 readiness/.app 打包/跨引擎 memory/skills/MCP/测试基建
+- iter14-17: 真实引擎: codex fresh+resume+fallback+worker, claude light, alva→codex handoff, 修 2 真 bug
+- iter18-30: 前端测试全覆盖(bridge 100%)/hub-core/hub-cli 契约/打包产物
+- iter31-40: 测试补全+质量门(每轮清理)
+- iter41-43: UI 全面重设计(中性深色/单一 accent/去渐变)+sidebar 折叠
+- iter44-48: wireframe 工具(CDP 零依赖)+抓 2 布局 bug+一键脚本
+- iter49-58: 测试收尾+a11y(aria-expanded/aria-live/目标尺寸)
+- iter59-61: ?demo=1 数据态+数据态审查+readiness 密度修复
+- iter62-71: 测试补全+分步审查(--steps)+本地迭代+模型排查(内存守卫)
+- iter72-80: 覆盖盘点/isolate/最小窗口/mxfp4 恢复(内存守卫根因)+视觉--steps
+- iter81-88: 审查列标注改进(误判率降)+密集态验证+失败消息红调+summary 换行+徽章边框
+- iter89-98: 审查循环稳定产出+质量门全绿(139 lib/30 web/ci 46)
 
 ## 会话 checkpoint（iter38 末，压缩恢复点）
 全量绿：hub-desktop 138 lib / hub-cli 25 / hub-core 21 / adapter-codex 9 / adapter-alva 12 / web 23 / ci-deps 46
@@ -48,49 +22,63 @@
 剩余队列(iter39+)：watchdog stall 真实观察；cindy 演进(浏览器驱动/MCP 深化/automation 评估)；worker 中断真实引擎观察
 恢复：读本文件续跑；每轮先 cargo test -p alva-hub-desktop --lib -p alva-hub-cli -p alva-hub-core + npm test(web/)
 磁盘纪律：每轮 cargo clean；当前 48Gi 可用
-- iter39 | 完成: createTeamRun 分发测试(lead+engine 参数, 返回 run 渲染) | 验证: 24 web, tsc | 清理: 无 | 下一步: iter40
-- iter40 | 完成: 会话收尾质量门(全量绿) | 验证: hub-desktop 138+hub-cli 25+hub-core 21 lib, ci 46 OK, 24 web | 清理: cargo clean | 恢复: 下会话从 iter41 续
-- iter41 | 完成: UI 全面重设计(中性深色+单一 accent+去渐变+排版提升, 用户反馈驱动) | 验证: 24 web, tsc, vite hmr, .app 冒烟 | 清理: cargo clean | 下一步: iter42
-- iter42 | 完成: UI 重写后全量回归质量门 | 验证: 138+25+21+9+12 lib, ci 46 OK, 24 web | 清理: cargo clean | 下一步: iter43
-- iter43 | 完成: sidebar fallback/team 面板可折叠(默认展开, ▾ 收起) | 验证: 25 web, tsc | 清理: 无 | 下一步: iter44
+
+
+### 迭代压缩摘要
+- iter1-13: 基础: V1 场景自动化/真实 readiness/.app 打包/跨引擎 memory/skills/MCP/测试基建
+- iter14-17: 真实引擎: codex fresh+resume+fallback+worker, claude light, alva→codex handoff, 修 2 真 bug
+- iter18-30: 前端测试全覆盖(bridge 100%)/hub-core/hub-cli 契约/打包产物
+- iter31-40: 测试补全+质量门(每轮清理)
+- iter41-43: UI 全面重设计(中性深色/单一 accent/去渐变)+sidebar 折叠
+- iter44-48: wireframe 工具(CDP 零依赖)+抓 2 布局 bug+一键脚本
+- iter49-58: 测试收尾+a11y(aria-expanded/aria-live/目标尺寸)
+- iter59-61: ?demo=1 数据态+数据态审查+readiness 密度修复
+- iter62-71: 测试补全+分步审查(--steps)+本地迭代+模型排查(内存守卫)
+- iter72-80: 覆盖盘点/isolate/最小窗口/mxfp4 恢复(内存守卫根因)+视觉--steps
+- iter81-88: 审查列标注改进(误判率降)+密集态验证+失败消息红调+summary 换行+徽章边框
+- iter89-98: 审查循环稳定产出+质量门全绿(139 lib/30 web/ci 46)
 
 ## 会话 checkpoint 2（iter43 末）
 UI 反馈已回应：视觉系统重写(中性深色/单一 accent/去渐变/排版提升) + sidebar 可折叠
 全量绿：hub-desktop 138 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 25 / ci 46
 恢复指令：读本文件 → iter44 续；先 cargo test -p alva-hub-desktop --lib + npm test(web/)
 剩余队列：watchdog stall 真实观察；cindy 演进深化；UI 主区 IA(三列/tab) 候选
-- iter44 | 完成: UI 线稿工具(wireframe.js+ui-wireframe.mjs, CDP 零依赖)+用它发现并修 2 个布局 bug(composer-model 撑高 topbar; sidebar 5 面板溢出→fallback/team 默认收起) | 验证: 25 web, tsc | 清理: 无 | 下一步: iter45
-- iter45 | 完成: wireframe 工具支持真实窗口尺寸(--size=1180x760 Emulation 覆盖) | 验证: 布局健康(5 面板全首屏) | 清理: 无 | 下一步: iter46
-- iter46 | 完成: wireframe 工作流文档化(ACCEPTANCE 新增 UI wireframe review 节) | 验证: 文档 | 清理: 无 | 下一步: iter47
-- iter47 | 完成: wireframe 交互后检查(--click)+收尾质量门 | 验证: 138+25+21 lib, 25 web, tsc | 清理: cargo clean | 会话 checkpoint: iter47
-- iter48 | 完成: 一键 wireframe 脚本(scripts/ui-wireframe.sh 仓库根可用) | 验证: 运行正常 | 清理: 无 | 下一步: iter49
-- iter49 | 完成: End run/autonomy toggle 测试 | 验证: 26 web, tsc | 清理: 无 | 下一步: iter50
-- iter50 | 完成: team run 收尾交互测试(autonomy/add worker/end run) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter51
-- iter50 | 完成: team run 收尾交互测试(修正: addTeamWorker mock 返回增长列表) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter51
+
+
+### 迭代压缩摘要
+- iter1-13: 基础: V1 场景自动化/真实 readiness/.app 打包/跨引擎 memory/skills/MCP/测试基建
+- iter14-17: 真实引擎: codex fresh+resume+fallback+worker, claude light, alva→codex handoff, 修 2 真 bug
+- iter18-30: 前端测试全覆盖(bridge 100%)/hub-core/hub-cli 契约/打包产物
+- iter31-40: 测试补全+质量门(每轮清理)
+- iter41-43: UI 全面重设计(中性深色/单一 accent/去渐变)+sidebar 折叠
+- iter44-48: wireframe 工具(CDP 零依赖)+抓 2 布局 bug+一键脚本
+- iter49-58: 测试收尾+a11y(aria-expanded/aria-live/目标尺寸)
+- iter59-61: ?demo=1 数据态+数据态审查+readiness 密度修复
+- iter62-71: 测试补全+分步审查(--steps)+本地迭代+模型排查(内存守卫)
+- iter72-80: 覆盖盘点/isolate/最小窗口/mxfp4 恢复(内存守卫根因)+视觉--steps
+- iter81-88: 审查列标注改进(误判率降)+密集态验证+失败消息红调+summary 换行+徽章边框
+- iter89-98: 审查循环稳定产出+质量门全绿(139 lib/30 web/ci 46)
 
 ## 会话 checkpoint 3（iter51 末）
 全量绿：hub-desktop 138 / hub-cli 25 / hub-core 21 / adapters 21 / web 26 / ci-deps 46
 新增工具：web/scripts/wireframe.js + ui-wireframe.mjs + scripts/ui-wireframe.sh（UI 线稿，CDP 零依赖）
 UI 反馈已闭环：视觉重写 + sidebar 折叠(默认收起 fallback/team) + 线稿发现修 2 个布局 bug
 恢复指令：读本文件 → iter52 续；UI 改动后用 scripts/ui-wireframe.sh 线稿复核
-- iter52 | 完成: 本地模型 AI UI 审查闭环跑通(Qwen3.5-9B @10.10.1.100:10443, key 123123)+修复其发现(折叠按钮 28px+aria-expanded) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter53
-- iter53/54 | 完成: 9B 视觉审查闭环(VL-4B 服务端坏但 9B 是多模态!)+两轮审查修复(对比度 3.5→4.88, sidebar 分色, ready 语义色) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter55
-- iter55 | 完成: 新模型(mxfp4)验证通过+视觉审查扩展 --click+展开态第3轮审查修复(占位符可读性/composer footer 层级) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter56
-- iter56 | 完成: 密集态视觉审查(fallback+team 全展开, mxfp4 模型)→结论: 折叠机制正确(9B 建议已实现), 无新 bug, P3 已修 | 验证: 审查完成 | 清理: 无 | 下一步: 数据态审查需造数据
-- iter57 | 完成: 全量质量门(lib 138+25+21, ci 46, web 26, tsc)+打包冒烟(schema14, 干净退出) | 验证: 全绿 | 清理: 5.4GiB | 下一步: iter58
-- iter59 | 完成: ?demo=1 数据态(demo-data.ts, 3 sessions+handoff+team run+readiness) | 验证: 26 web, tsc, DOM 确认 | 清理: 无 | 下一步: 模型恢复后审数据态
-- iter60 | 完成: 数据态视觉审查首战(demo 页 mxfp4)+readiness 卡片密度修复(能力单行截断) | 验证: 26 web, tsc | 清理: 无 | 下一步: iter61
-- iter62 | 完成: session 态 fallback 链保存测试 | 验证: 27 web | 清理: 无 | 下一步: iter63
-- iter63/64 | 完成: permission Deny 路径 + archive worker 点击测试 | 验证: 28 web, tsc | 清理: 无 | 下一步: iter65
-- iter65 | 完成: discard worktree 测试 | 验证: 28 web, tsc | 清理: 无 | 下一步: iter66
-- iter66 | 完成: eligibility 警告渲染测试(修正 mock 类型) | 验证: 29 web, tsc | 清理: 无 | 下一步: iter67
-- iter66b | 完成: eligibility 测试泄漏修复(mock 恢复默认) | 验证: 29 web | 清理: 无 | 下一步: iter67
-- iter67 | 完成: approval 分组 Deny all 测试 | 验证: 29 web, tsc | 清理: 无 | 下一步: iter68
-- iter68 | 完成: session 列表排序契约测试(updated_at DESC) | 验证: 139 lib | 清理: cargo clean | 下一步: iter69
-- iter68 | 完成: session 列表排序契约测试(修正 E0716) | 验证: 139 lib | 清理: 无 | 下一步: iter69
-- iter69 | 完成: wireframe 抓 session-panel h=0 真 bug(flex 压缩→min-height:96px) | 验证: 29 web, tsc, DOM 确认修复 | 清理: 无 | 下一步: iter70
-- iter70 | 完成: sidebar 紧凑化(数据态折叠开关进视口) | 验证: 29 web, wireframe 复验 | 清理: 无 | 下一步: iter71
-- iter71 | 完成: ui-review.sh 分步审查模式(--steps 绕长输出 bug) | 验证: 语法 ok, 模型待恢复 | 清理: 无 | 下一步: 模型恢复后验证
+
+
+### 迭代压缩摘要
+- iter1-13: 基础: V1 场景自动化/真实 readiness/.app 打包/跨引擎 memory/skills/MCP/测试基建
+- iter14-17: 真实引擎: codex fresh+resume+fallback+worker, claude light, alva→codex handoff, 修 2 真 bug
+- iter18-30: 前端测试全覆盖(bridge 100%)/hub-core/hub-cli 契约/打包产物
+- iter31-40: 测试补全+质量门(每轮清理)
+- iter41-43: UI 全面重设计(中性深色/单一 accent/去渐变)+sidebar 折叠
+- iter44-48: wireframe 工具(CDP 零依赖)+抓 2 布局 bug+一键脚本
+- iter49-58: 测试收尾+a11y(aria-expanded/aria-live/目标尺寸)
+- iter59-61: ?demo=1 数据态+数据态审查+readiness 密度修复
+- iter62-71: 测试补全+分步审查(--steps)+本地迭代+模型排查(内存守卫)
+- iter72-80: 覆盖盘点/isolate/最小窗口/mxfp4 恢复(内存守卫根因)+视觉--steps
+- iter81-88: 审查列标注改进(误判率降)+密集态验证+失败消息红调+summary 换行+徽章边框
+- iter89-98: 审查循环稳定产出+质量门全绿(139 lib/30 web/ci 46)
 
 ## 会话 checkpoint 4（iter71 末）
 全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
@@ -99,21 +87,42 @@ UI 反馈已闭环：视觉重写 + sidebar 折叠(默认收起 fallback/team) +
 模型相关待办：MLX-4bit 恢复后跑 ui-review.sh --steps 验证；mxfp4 稳定后审数据态
 UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI 审查驱动)
 恢复指令：读本文件 → iter72 续；先 npm test(web/) + cargo test -p alva-hub-desktop --lib
-- iter72 | 完成: 前端 bridge 函数覆盖盘点 → 100%(51 调用点/32 直接断言, 余 3 间接覆盖) | 验证: 盘点 | 清理: 无 | 下一步: iter73
-- iter73 | 完成: isolate 勾选传递测试(模型仍卡转本地) | 验证: 29 web, tsc | 清理: 无 | 下一步: iter74
-- iter74 | 完成: 最小窗口 860x600 布局检查(健康, 控件单行) | 验证: wireframe | 清理: 无 | 下一步: iter75
+
+
+### 迭代压缩摘要
+- iter1-13: 基础: V1 场景自动化/真实 readiness/.app 打包/跨引擎 memory/skills/MCP/测试基建
+- iter14-17: 真实引擎: codex fresh+resume+fallback+worker, claude light, alva→codex handoff, 修 2 真 bug
+- iter18-30: 前端测试全覆盖(bridge 100%)/hub-core/hub-cli 契约/打包产物
+- iter31-40: 测试补全+质量门(每轮清理)
+- iter41-43: UI 全面重设计(中性深色/单一 accent/去渐变)+sidebar 折叠
+- iter44-48: wireframe 工具(CDP 零依赖)+抓 2 布局 bug+一键脚本
+- iter49-58: 测试收尾+a11y(aria-expanded/aria-live/目标尺寸)
+- iter59-61: ?demo=1 数据态+数据态审查+readiness 密度修复
+- iter62-71: 测试补全+分步审查(--steps)+本地迭代+模型排查(内存守卫)
+- iter72-80: 覆盖盘点/isolate/最小窗口/mxfp4 恢复(内存守卫根因)+视觉--steps
+- iter81-88: 审查列标注改进(误判率降)+密集态验证+失败消息红调+summary 换行+徽章边框
+- iter89-98: 审查循环稳定产出+质量门全绿(139 lib/30 web/ci 46)
 
 ## 会话 checkpoint 5（iter74 末）
 全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
 本轮本地完成：bridge 100% 覆盖盘点、isolate 传递测试、最小窗口布局检查、ui-review --steps、demo 数据态、session-panel h=0 修复、sidebar 紧凑化
 模型阻塞（外部依赖）：两个 9B 文本仍卡（服务器任务占用/omlx 状态），mxfp4 视觉不稳
 恢复指令：读本文件 → iter75 续；模型恢复后优先跑 ui-review.sh --steps 验证 + 数据态视觉复审
-- iter75-77 | 完成: demo session 打开态 wireframe 验证(3 态卡片正常) + 数据态截图 + 审查循环固化文档 | 验证: 布局正常 | 清理: 无 | 下一步: iter78
-- iter78 | 完成: --steps 工具验证(工作) + 2B 质量门槛记录(不可用, 需 9B 档) | 验证: 2B 分步跑通但误判 | 清理: 无 | 下一步: iter79
-- iter79 | 完成: 全量质量门(139+25 lib, 29 web, tsc) | 验证: 全绿 | 清理: cargo clean | 下一步: iter80
-- iter80 | 完成: mxfp4 长文本恢复(内存守卫根因)+文本审查--steps 跑通+视觉审查 session 态跑通(发现 dev server 僵死→截图错误页的'幻觉'真相)+修复(状态徽章 12px/会话间距 8px) | 验证: 29 web | 清理: 无 | 下一步: iter81
-- iter81 | 完成: 审查工具踩坑固化(dev server 检查/文本视觉分工/内存守卫) | 验证: 文档 | 清理: 无 | 下一步: iter82
-- iter82 | 完成: 全量质量门 | 验证: 139+25 lib, 29 web, tsc | 清理: cargo clean | 下一步: iter83
+
+
+### 迭代压缩摘要
+- iter1-13: 基础: V1 场景自动化/真实 readiness/.app 打包/跨引擎 memory/skills/MCP/测试基建
+- iter14-17: 真实引擎: codex fresh+resume+fallback+worker, claude light, alva→codex handoff, 修 2 真 bug
+- iter18-30: 前端测试全覆盖(bridge 100%)/hub-core/hub-cli 契约/打包产物
+- iter31-40: 测试补全+质量门(每轮清理)
+- iter41-43: UI 全面重设计(中性深色/单一 accent/去渐变)+sidebar 折叠
+- iter44-48: wireframe 工具(CDP 零依赖)+抓 2 布局 bug+一键脚本
+- iter49-58: 测试收尾+a11y(aria-expanded/aria-live/目标尺寸)
+- iter59-61: ?demo=1 数据态+数据态审查+readiness 密度修复
+- iter62-71: 测试补全+分步审查(--steps)+本地迭代+模型排查(内存守卫)
+- iter72-80: 覆盖盘点/isolate/最小窗口/mxfp4 恢复(内存守卫根因)+视觉--steps
+- iter81-88: 审查列标注改进(误判率降)+密集态验证+失败消息红调+summary 换行+徽章边框
+- iter89-98: 审查循环稳定产出+质量门全绿(139 lib/30 web/ci 46)
 
 ## 会话 checkpoint 6（iter82 末）
 全绿：hub-desktop 139 / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
@@ -121,11 +130,21 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 工具链全通：ui-review.sh --steps（文本）/ ui-review-vision.sh --steps --click（视觉）/ model-verify / ?demo=1 / wireframe
 踩坑已固化：审查前 curl 验 dev server；文本审结构、视觉审配色；长输出卡=查内存守卫
 恢复指令：读本文件 → iter83 续；npm test + cargo test -p alva-hub-desktop --lib
-- iter83 | 完成: session 打开态视觉审查完整跑通+failed 卡片错误消息红调 | 验证: 29 web | 清理: 无 | 下一步: iter84
-- iter84/85 | 完成: demo 文本审查(甄别: 模型左右混淆)+审查 prompt 加列归属说明 | 验证: 语法 | 清理: 无 | 下一步: iter86
-- iter86 | 完成: 审查列标注改进生效(模型不再左右混淆)+team 折叠开关入滚动区(755) | 验证: 29 web, wireframe | 清理: 无 | 下一步: iter87
-- iter87 | 完成: composer-summary 允许换行(长行修复) | 验证: 29 web | 清理: 无 | 下一步: iter88
-- iter88 | 完成: 密集态复验(健康, fallback 展开 729px 是主动操作态) | 验证: wireframe | 清理: 无 | 下一步: iter89
+
+
+### 迭代压缩摘要
+- iter1-13: 基础: V1 场景自动化/真实 readiness/.app 打包/跨引擎 memory/skills/MCP/测试基建
+- iter14-17: 真实引擎: codex fresh+resume+fallback+worker, claude light, alva→codex handoff, 修 2 真 bug
+- iter18-30: 前端测试全覆盖(bridge 100%)/hub-core/hub-cli 契约/打包产物
+- iter31-40: 测试补全+质量门(每轮清理)
+- iter41-43: UI 全面重设计(中性深色/单一 accent/去渐变)+sidebar 折叠
+- iter44-48: wireframe 工具(CDP 零依赖)+抓 2 布局 bug+一键脚本
+- iter49-58: 测试收尾+a11y(aria-expanded/aria-live/目标尺寸)
+- iter59-61: ?demo=1 数据态+数据态审查+readiness 密度修复
+- iter62-71: 测试补全+分步审查(--steps)+本地迭代+模型排查(内存守卫)
+- iter72-80: 覆盖盘点/isolate/最小窗口/mxfp4 恢复(内存守卫根因)+视觉--steps
+- iter81-88: 审查列标注改进(误判率降)+密集态验证+失败消息红调+summary 换行+徽章边框
+- iter89-98: 审查循环稳定产出+质量门全绿(139 lib/30 web/ci 46)
 
 ## 会话 checkpoint 7（iter88 末）
 全绿：hub-desktop 139 / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
@@ -133,10 +152,6 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 审查累计修复(iter44-88)：topbar 撑高/sidebar 溢出/session-panel h=0/折叠 WCAG/aria/对比度/readiness 密度/占位符/status-pill aria-live/失败消息红调/状态徽章 12px/会话间距/composer summary 换行 等 15+ 项
 模型最终配置：mxfp4(全) + ASR(语音)
 恢复指令：读本文件 → iter89 续；npm test + cargo test -p alva-hub-desktop --lib
-- iter89 | 完成: fallback 展开文本审查(列标注改进验证生效, 误判收敛; 溢出=sidebar 滚动设计, 非 bug) | 验证: 审查通过 | 清理: 无 | 下一步: iter90
-- iter90 | 完成: 全量质量门 | 验证: 139+25 lib, 29 web, tsc | 清理: cargo clean | 下一步: iter91
-- iter91 | 完成: 最终打包冒烟(.app 启动+schema14+干净退出) | 验证: 通过 | 清理: cargo clean | 下一步: iter92
-- iter92 | 完成: Enter 键提交路径测试 | 验证: 29 web | 清理: 无 | 下一步: iter93
 
 ## 会话最终 checkpoint（iter92 末，压缩恢复点）
 全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
@@ -145,6 +160,3 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 模型：Qwen3.5-9B-mlx-vlm-mxfp4(文本+视觉主力, 内存守卫根因已解) + Qwen3-ASR-1.7B(语音)
 关键文件：docs/UI-AI-TOOLCHAIN.md(工具+踩坑+模型迁移) / docs/ALVA-HUB-V1.md / .scratch/hub-loop/
 恢复：读本文件 → iter93 续；每轮 npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查复核
-- iter93 | 完成: 状态徽章细边框(质感) | 验证: 29 web | 清理: 无 | 下一步: iter94
-- iter94 | 完成: 全量质量门 | 验证: 139 lib, ci 46, 29 web | 清理: cargo clean | 下一步: iter95
-- iter95 | 完成: 团队面板展开态视觉审查(无新真实 bug; summary 已修, 其余误判) | 验证: 审查通过 | 清理: 无 | 下一步: iter96
