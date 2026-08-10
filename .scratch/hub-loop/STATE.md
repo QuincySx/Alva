@@ -301,3 +301,8 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 - iter165 | 完成: 全量质量门 | 验证: 139+25 lib, 32 web | 清理: cargo clean | 下一步: iter166
 - iter165b | 完成: 修复偶发 flake 根因(reopen 重试, 消除并行锁竞争) | 验证: 139 lib 绿 | 清理: cargo clean | 下一步: iter166
 - iter166 | 完成: 偶发修复稳定性验证(3 连跑全绿) | 验证: 139 lib x3 | 清理: 无 | 下一步: iter167
+
+## 会话最终 checkpoint（iter167 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 924 commits / 偶发 flake 根治(3连绿)
+产品/工具/模型/审查闭环全部收敛；文档齐全（HUB-LOOP-SUMMARY / UI-AI-TOOLCHAIN）
+恢复：iter168 续；npm test + cargo test -p alva-hub-desktop --lib
