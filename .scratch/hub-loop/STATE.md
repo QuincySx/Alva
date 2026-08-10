@@ -373,3 +373,4 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 - iter202 | 完成: GPUI 开发规范 AGENTS.md(唯一权威: 初始化/组件/实体陷阱/布局/主题/测试/迁移映射/自查清单) + 骨架过 clippy/fmt | 验证: 骨架全绿 | 清理: 无 | 下一步: P1(按规范写主壳)
 - iter203 | 完成: 迁移策略=替换删除(不共存, Web 走 GPUI wasm) 固化 | 验证: 文档 | 清理: 无 | 下一步: P1
 - iter204 | 完成: P1 主壳(引擎/权限 Select+空状态+composer, 按 AGENTS 规范, clippy 0 错) | 验证: clippy/fmt/build 绿 | 清理: 无 | 下一步: P2 后端直连
+- iter206 | 完成: P2 后端核直接迁移(11 模块零修改入 GPUI 版, 139 测试全绿, 用户方向: 不抽中间层) | 验证: 139 lib tests | 清理: 无 | 下一步: P3 数据打通(GPUI UI 调 store)
