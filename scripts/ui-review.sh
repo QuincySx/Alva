@@ -80,7 +80,7 @@ let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
 if [ -n "$STEPS" ]; then
   # Stepwise: one aspect per call (short outputs) — avoids models whose
   # long-generation path hangs (e.g. mlx-vlm quantizations).
-  for step in "布局：结构、空白、对齐、溢出、密度。给出发现和改法。"               "交互：控件可发现性、层级、状态可见。给出发现和改法。"               "可访问性：对比度、目标尺寸、aria 缺口（只基于线稿）。"               "一致性：间距、圆角、配色是否统一。"               "优先级修复清单：按影响排序，每条：问题→位置→改法（CSS/Tailwind 级）。"; do
+  for step in "布局：结构、空白、对齐、溢出、密度。给出发现和改法。"               "交互：控件可发现性、层级、状态可见。给出发现和改法。"               "可访问性：目标尺寸（纯显示 badge 非交互不算）、语义。线稿不显示 aria-label，不要假设缺失，只报告线稿可推断的。"               "一致性：间距、圆角、配色是否统一。"               "优先级修复清单：按影响排序，每条：问题→位置→改法（CSS/Tailwind 级）。"; do
     node -e '
       const fs = require("fs");
       const [prompt, wire, model, step] = process.argv.slice(1);
