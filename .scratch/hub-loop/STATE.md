@@ -177,3 +177,14 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 - iter106 | 完成: 全量质量门 | 验证: 139 lib, ci 46, 30 web | 清理: cargo clean | 下一步: iter107
 - iter107 | 完成: 周期打包冒烟 | 验证: .app 启动+schema14 | 清理: cargo clean | 下一步: iter108
 - iter108 | 完成: 修复综合复验(无新真实 bug, 状态色层级已合理, 剩余主观审美) | 验证: 审查通过 | 清理: 无 | 下一步: iter109
+- iter109 | 完成: 全量质量门 | 验证: 139+25 lib, 30 web, tsc | 清理: cargo clean | 下一步: iter110
+- iter109b | 完成: 偶发失败定位(recovered_attempt... 并行时序, 单跑3连绿, 非新 bug) | 验证: 139 lib 绿 | 清理: 无 | 下一步: iter110
+
+## 会话最终 checkpoint（iter110 末，压缩恢复点）
+全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 30 / ci 46
+累计：iter1-110 全记录（STATE.md 压缩版 7 个 checkpoint + 范围摘要）
+产品：V1 18 场景全自动化；UI 重设计 + AI 审查驱动 18+ 修复；a11y 全落地(aria-current/expanded/live/对比度4.88)
+工具链：wireframe / ui-review(--steps) / ui-review-vision(--steps --click) / model-verify / ?demo=1
+模型：Qwen3.5-9B-mlx-vlm-mxfp4(主力全通) + ASR(语音)；内存守卫根因已解
+已知偶发：recovered_attempt_without_native... 并行时序（单跑稳定，非 bug）
+恢复：读本文件 → iter111 续；npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查
