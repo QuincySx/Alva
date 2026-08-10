@@ -219,3 +219,11 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc
 里程碑：一致性审查通过（120 轮修复收敛）；审查循环稳定；UI 截图存档
 恢复：iter126 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter126/127 | 完成: session 打开态审查(主观审美反馈, 无 bug) + 全量质量门 | 验证: 139+25 lib, ci 46, 32 web | 清理: cargo clean | 下一步: iter128
+- iter128 | 完成: session 项悬停全路径 tooltip | 验证: 32 web | 清理: 无 | 下一步: iter129
+- iter129 | 完成: 全量质量门 + checkpoint | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter130
+
+## 会话 checkpoint 9（iter129 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 904 commits
+状态：审查循环收敛（一致性通过）；主观审美反馈为设计决策候选；UI 截图 /tmp/hub-current.png
+工具/模型/产品全就绪；恢复：iter130 续（npm test + cargo test -p alva-hub-desktop --lib）
