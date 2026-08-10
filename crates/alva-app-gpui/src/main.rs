@@ -8,6 +8,7 @@ mod mcp;
 mod service;
 mod skills;
 mod sqlite_session;
+mod tools;
 
 use alva_kernel_abi::agent_session::AgentSession as _;
 
@@ -71,6 +72,10 @@ struct ChatApp {
     view: View,
     skills_list: Vec<crate::skills::SkillInfo>,
     mcp_list: Vec<crate::mcp::McpServerInfo>,
+    // P4: tool picker.
+    tools_open: bool,
+    tool_catalog: Vec<crate::tools::PluginToolInfo>,
+    selected_tools: std::collections::HashSet<String>,
 }
 
 impl ChatApp {
@@ -130,6 +135,9 @@ impl ChatApp {
             view: View::Chat,
             skills_list: Vec::new(),
             mcp_list: Vec::new(),
+            tools_open: false,
+            tool_catalog: crate::tools::all_default_tools(),
+            selected_tools: std::collections::HashSet::new(),
         }
     }
 
@@ -248,6 +256,11 @@ impl ChatApp {
             system_prompt: None,
             workspace: None,
             reasoning_effort: None,
+            tool_names: if self.selected_tools.is_empty() {
+                None
+            } else {
+                Some(self.selected_tools.iter().cloned().collect())
+            },
         }
     }
 
@@ -440,6 +453,69 @@ impl ChatApp {
             )
     }
 
+    fn tool_picker(&self, cx: &Context<Self>) -> impl IntoElement {
+        let catalog = self.tool_catalog.clone();
+        let weak = cx.entity().downgrade();
+        let mut rows = v_flex().gap_1().max_h(px(240.)).overflow_y_scrollbar();
+        for tool in &catalog {
+            let name = tool.name.clone();
+            let description = tool.description.clone();
+            let checked = self.selected_tools.contains(&name);
+            let weak = weak.clone();
+            rows = rows.child(
+                div()
+                    .id(SharedString::from(format!("tool-{name}")))
+                    .v_flex()
+                    .gap_0()
+                    .cursor_pointer()
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .size_3()
+                                    .rounded_sm()
+                                    .when(checked, |this| this.bg(cx.theme().colors.primary))
+                                    .border_1()
+                                    .border_color(cx.theme().colors.border),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight(600.))
+                                    .child(name.clone()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(description),
+                    )
+                    .on_click(move |_, window, cx| {
+                        if weak.upgrade().is_some() {
+                            let handle = window.window_handle();
+                            let _ = handle.update(cx, |root, _window, cx| {
+                                if let Ok(view) = root.downcast::<ChatApp>() {
+                                    view.update(cx, |hub, cx| {
+                                        if !hub.selected_tools.insert(name.clone()) {
+                                            hub.selected_tools.remove(&name);
+                                        }
+                                        cx.notify();
+                                    });
+                                }
+                            });
+                        }
+                    }),
+            );
+        }
+        rows
+    }
+
     fn chat_area(&self, cx: &Context<Self>) -> impl IntoElement {
         let messages = self.messages.clone();
         div()
@@ -504,6 +580,37 @@ impl ChatApp {
             .py_3()
             .border_t_1()
             .border_color(cx.theme().colors.border)
+            .child(
+                h_flex().gap_2().items_center().child(
+                    Button::new("tools-toggle")
+                        .ghost()
+                        .small()
+                        .label(if self.tools_open {
+                            "Hide tools".to_string()
+                        } else {
+                            format!(
+                                "Tools{}",
+                                if self.selected_tools.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" ({})", self.selected_tools.len())
+                                }
+                            )
+                        })
+                        .on_click({
+                            let weak = cx.entity().downgrade();
+                            move |_, _, cx| {
+                                if let Some(entity) = weak.upgrade() {
+                                    entity.update(cx, |hub, cx| {
+                                        hub.tools_open = !hub.tools_open;
+                                        cx.notify();
+                                    });
+                                }
+                            }
+                        }),
+                ),
+            )
+            .when(self.tools_open, |this| this.child(self.tool_picker(cx)))
             .child(Input::new(&self.prompt))
             .child(
                 h_flex()

@@ -21,6 +21,8 @@ pub struct SendRequest {
     pub system_prompt: Option<String>,
     pub workspace: Option<String>,
     pub reasoning_effort: Option<String>,
+    /// Manual tool allow-list; None = auto mode (all agent tools).
+    pub tool_names: Option<Vec<String>>,
 }
 
 pub struct AgentService {
@@ -243,6 +245,7 @@ impl AgentService {
             .as_deref()
             .and_then(alva_kernel_abi::ReasoningEffort::parse);
         agent.set_reasoning_effort(effort).await;
+        agent.set_allowed_tools(req.tool_names.clone()).await;
         Ok(agent.prompt_text(text).await)
     }
 }
