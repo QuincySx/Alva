@@ -322,3 +322,9 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 工具链六件套：ui-wireframe / ui-review(--steps) / ui-review-vision(--steps --click) / model-verify / ui-a11y-audit / ?demo=1
 审查闭环收敛 + 甄别原则；产品/模型/文档齐全
 恢复：iter177 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter177/178 | 完成: 团队态配色正向确认 + 质量门 | 验证: 139+25 lib, 32 web | 清理: cargo clean | 下一步: iter179
+
+## 会话 checkpoint 16（iter179 末）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 931 commits
+审查闭环：多状态多轮，正向确认 + 主观甄别；工具链六件套齐全
+恢复：iter180 续
