@@ -270,3 +270,11 @@ cargo clippy -- -D warnings
 cargo fmt --check
 cargo test           # gpui::test
 ```
+
+## 10. 替换目标与 Web 策略
+
+- **最终形态**：`alva-hub-gpui` 是唯一产品入口。功能对齐后，旧 Tauri 版
+  （alva-hub-desktop / alva-app-tauri）**整体删除**，不并存（用户决策）。
+- **Web 场景**：gpui 支持 wasm32 目标（gpui-component 的 `story-web` 是生产先例）。
+  未来要 Web 端，编译 GPUI 到 wasm——不保留任何 web 前端代码。
+- 迁移期间旧版留在仓库作功能参考；**不向旧版添加新功能**，新功能只进 GPUI 版。
