@@ -52,6 +52,12 @@ struct ChatApp {
     messages: Vec<ChatMessage>,
     busy: bool,
     error: Option<String>,
+    // Settings surface.
+    settings_open: bool,
+    settings_model: Entity<InputState>,
+    settings_key: Entity<InputState>,
+    settings_base_url: Entity<InputState>,
+    settings_status: Option<String>,
 }
 
 impl ChatApp {
@@ -98,7 +104,74 @@ impl ChatApp {
             messages: Vec::new(),
             busy: false,
             error: None,
+            settings_open: false,
+            settings_model: cx.new(|cx| InputState::new(window, cx).placeholder("default model")),
+            settings_key: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("api key")
+                    .masked(true)
+            }),
+            settings_base_url: cx
+                .new(|cx| InputState::new(window, cx).placeholder("base url (optional)")),
+            settings_status: None,
         }
+    }
+
+    fn load_settings_into_inputs(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let provider = self
+            .provider
+            .read(cx)
+            .selected_value()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "anthropic".into());
+        let entry =
+            alva_app_core::config::load().and_then(|cfg| cfg.providers.get(&provider).cloned());
+        let (model, key, base_url) = match entry {
+            Some(entry) => (
+                entry.model.clone().unwrap_or_default(),
+                entry.api_key.clone(),
+                entry.base_url.clone().unwrap_or_default(),
+            ),
+            None => (String::new(), String::new(), String::new()),
+        };
+        self.settings_model.update(cx, |state, cx| {
+            state.set_value(model, window, cx);
+        });
+        self.settings_key.update(cx, |state, cx| {
+            state.set_value(key, window, cx);
+        });
+        self.settings_base_url.update(cx, |state, cx| {
+            state.set_value(base_url, window, cx);
+        });
+    }
+
+    fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let provider = self
+            .provider
+            .read(cx)
+            .selected_value()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "anthropic".into());
+        let model = self.settings_model.read(cx).value().to_string();
+        let key = self.settings_key.read(cx).value().to_string();
+        let base_url = self.settings_base_url.read(cx).value().to_string();
+        let mut cfg = alva_app_core::config::load().unwrap_or_default();
+        cfg.providers.insert(
+            provider.clone(),
+            alva_app_core::config::ProviderEntry {
+                api_key: key,
+                model: Some(model),
+                base_url: Some(base_url),
+                kind: None,
+            },
+        );
+        cfg.active = Some(provider.clone());
+        self.settings_status = match alva_app_core::config::save(&cfg) {
+            Ok(path) => Some(format!("Saved to {}", path.display())),
+            Err(error) => Some(format!("Save failed: {error}")),
+        };
+        let _ = window;
+        cx.notify();
     }
 
     fn subscribe_prompt(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -243,6 +316,85 @@ impl ChatApp {
         } else {
             self.messages.push(message);
         }
+    }
+
+    fn settings_panel(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let status = self.settings_status.clone();
+        let weak = cx.entity().downgrade();
+        v_flex()
+            .gap_2()
+            .px_4()
+            .py_3()
+            .border_b_1()
+            .border_color(cx.theme().colors.border)
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight(600.))
+                    .child("Provider settings"),
+            )
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child("Model"),
+                    )
+                    .child(Input::new(&self.settings_model).small()),
+            )
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child("API key"),
+                    )
+                    .child(Input::new(&self.settings_key).small()),
+            )
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child("Base URL (optional)"),
+                    )
+                    .child(Input::new(&self.settings_base_url).small()),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        Button::new("save-settings")
+                            .primary()
+                            .small()
+                            .label("Save")
+                            .on_click(move |_, window, cx| {
+                                if weak.upgrade().is_some() {
+                                    let handle = window.window_handle();
+                                    let _ = handle.update(cx, |root, window, cx| {
+                                        if let Ok(view) = root.downcast::<ChatApp>() {
+                                            view.update(cx, |hub, cx| {
+                                                hub.save_settings(window, cx);
+                                            });
+                                        }
+                                    });
+                                }
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(status.unwrap_or_default()),
+                    ),
+            )
     }
 
     fn chat_area(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -390,7 +542,35 @@ impl ChatApp {
                             )
                             .child(Input::new(&self.api_key).small()),
                     )
-                    .child(div().flex_1()),
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("settings")
+                            .ghost()
+                            .label(if self.settings_open {
+                                "Close settings"
+                            } else {
+                                "Settings"
+                            })
+                            .on_click({
+                                let weak = cx.entity().downgrade();
+                                move |_, window, cx| {
+                                    if weak.upgrade().is_some() {
+                                        let handle = window.window_handle();
+                                        let _ = handle.update(cx, |root, window, cx| {
+                                            if let Ok(view) = root.downcast::<ChatApp>() {
+                                                view.update(cx, |hub, cx| {
+                                                    hub.settings_open = !hub.settings_open;
+                                                    if hub.settings_open {
+                                                        hub.load_settings_into_inputs(window, cx);
+                                                    }
+                                                    cx.notify();
+                                                });
+                                            }
+                                        });
+                                    }
+                                }
+                            }),
+                    ),
             )
     }
 }
@@ -559,6 +739,9 @@ impl Render for ChatApp {
                     .flex_1()
                     .size_full()
                     .child(self.topbar(window, cx))
+                    .when(self.settings_open, |this| {
+                        this.child(self.settings_panel(window, cx))
+                    })
                     .child(self.chat_area(cx))
                     .child(self.composer(window, cx)),
             )
