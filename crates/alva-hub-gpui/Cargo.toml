@@ -12,7 +12,4 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 serde = { version = "1", features = ["derive"] }
 
-# P0: standalone UI skeleton (workspace deps arrive in P1 with a lockfile
-# strategy that avoids the wasm-bindgen conflict).
-
-[workspace]
+# Main-workspace member (wasm-bindgen upgraded to 0.2.127 to satisfy gpui).
