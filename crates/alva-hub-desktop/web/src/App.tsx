@@ -1009,7 +1009,9 @@ export default function App() {
                   type="button"
                   onClick={() => void openSession(session)}
                 >
-                  <strong>{session.workspace.split("/").at(-1)}</strong>
+                  <strong title={session.workspace}>
+                    {session.workspace.split("/").at(-1)}
+                  </strong>
                   <span>{session.last_prompt ?? "Untitled session"}</span>
                   <small>
                     {session.engine_id} · {session.status} ·{" "}
