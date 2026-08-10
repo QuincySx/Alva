@@ -946,7 +946,7 @@ export default function App() {
           <p>One project. Every engine.</p>
         </div>
 
-        <section className="workspace-panel">
+        <section className="workspace-panel" aria-labelledby="workspace-panel-title">
           <span className="eyebrow">Workspace</span>
           <strong>{workspace ? workspace.split("/").at(-1) : "Not selected"}</strong>
           <small>{workspace || "Choose a local project to begin."}</small>
@@ -955,9 +955,9 @@ export default function App() {
           </button>
         </section>
 
-        <section className="session-panel">
+        <section className="session-panel" aria-labelledby="session-panel-title">
           <div className="session-heading">
-            <span className="eyebrow">Sessions</span>
+            <span className="eyebrow" id="session-panel-title">Sessions</span>
             <small>
               {sessionQuery.trim()
                 ? `${filteredSessions.length}/${sessions.length}`
@@ -1028,9 +1028,9 @@ export default function App() {
           </div>
         </section>
 
-        <section className="readiness-panel">
+        <section className="readiness-panel" aria-labelledby="readiness-panel-title">
           <div className="session-heading">
-            <span className="eyebrow">Engines</span>
+            <span className="eyebrow" id="readiness-panel-title">Engines</span>
             <button
               className="readiness-refresh"
               disabled={readinessBusy}
@@ -1127,7 +1127,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="fallback-panel">
+        <section className="fallback-panel" aria-labelledby="fallback-panel-title">
           <div className="session-heading">
             <button
               aria-expanded={!collapsedSections.fallback}
@@ -1248,7 +1248,7 @@ export default function App() {
           )}
         </section>
 
-        <section className="team-panel">
+        <section className="team-panel" aria-labelledby="team-panel-title">
           <div className="session-heading">
             <button
               aria-expanded={!collapsedSections.team}
