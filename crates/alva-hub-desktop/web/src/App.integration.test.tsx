@@ -642,6 +642,12 @@ describe("App integration", () => {
     await waitFor(() =>
       expect(bridge.fns.getHubSession).toHaveBeenCalledWith("ps-new"),
     );
+    // Enter (without Shift) submits the same request.
+    bridge.fns.runHubPrompt.mockClear();
+    await user.type(screen.getByLabelText("Message"), "second prompt{Enter}");
+    expect(bridge.fns.runHubPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "second prompt" }),
+    );
   });
 
   it("creates a team run on the selected worker engine", async () => {
