@@ -79,6 +79,10 @@ struct ChatApp {
     selected_tools: std::collections::HashSet<String>,
     // Inspector.
     inspector_record: Option<alva_app_core::session_projection::RunRecord>,
+    // Gateway.
+    gateway_port: Entity<InputState>,
+    gateway_abort: Option<tokio::task::AbortHandle>,
+    gateway_status: Option<String>,
 }
 
 impl ChatApp {
@@ -142,6 +146,9 @@ impl ChatApp {
             tool_catalog: crate::tools::all_default_tools(),
             selected_tools: std::collections::HashSet::new(),
             inspector_record: None,
+            gateway_port: cx.new(|cx| InputState::new(window, cx).placeholder("8080")),
+            gateway_abort: None,
+            gateway_status: None,
         }
     }
 
@@ -170,6 +177,74 @@ impl ChatApp {
             }
         })
         .detach();
+    }
+
+    fn start_gateway(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let req = self.request(cx);
+        let port: u16 = self
+            .gateway_port
+            .read(cx)
+            .value()
+            .trim()
+            .parse()
+            .unwrap_or(8080);
+        if let Some(old) = self.gateway_abort.take() {
+            old.abort();
+        }
+        let handle = self.tokio.clone();
+        let handle_inner = handle.clone();
+        let weak = cx.entity().downgrade();
+        let (tx, mut rx) =
+            tokio::sync::mpsc::unbounded_channel::<Result<tokio::task::AbortHandle, String>>();
+        handle.spawn(async move {
+            match service::build_provider_config(&req) {
+                Ok(config) => {
+                    let alias = config.model.clone();
+                    let mut router = alva_llm_provider::AliasRouter::new();
+                    router.insert(alias, config);
+                    let addr = format!("127.0.0.1:{port}");
+                    let join = handle_inner.spawn(async move {
+                        if let Err(e) = alva_app_gateway::serve(router, &addr).await {
+                            tracing::error!(error = %e, "embedded gateway exited with error");
+                        }
+                    });
+                    let _ = tx.send(Ok(join.abort_handle()));
+                }
+                Err(error) => {
+                    let _ = tx.send(Err(error));
+                }
+            }
+        });
+        cx.spawn(async move |_this, cx| {
+            while let Some(result) = rx.recv().await {
+                if let Some(hub) = weak.upgrade() {
+                    hub.update(cx, |hub, cx| {
+                        match result {
+                            Ok(abort) => {
+                                hub.gateway_abort = Some(abort);
+                                hub.gateway_status =
+                                    Some(format!("Gateway running at http://127.0.0.1:{port}"));
+                            }
+                            Err(error) => {
+                                hub.gateway_status = Some(format!("Gateway failed: {error}"));
+                            }
+                        }
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+        self.gateway_status = Some(format!("Starting gateway on 127.0.0.1:{port}…"));
+        cx.notify();
+    }
+
+    fn stop_gateway(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.gateway_abort.take() {
+            handle.abort();
+        }
+        self.gateway_status = Some("Gateway stopped".to_string());
+        cx.notify();
     }
 
     fn load_settings_into_inputs(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -454,6 +529,63 @@ impl ChatApp {
                             .text_color(cx.theme().colors.muted_foreground)
                             .child(status.unwrap_or_default()),
                     ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight(600.))
+                            .child("Gateway"),
+                    )
+                    .child(Input::new(&self.gateway_port).small())
+                    .child(
+                        Button::new("start-gateway")
+                            .secondary()
+                            .small()
+                            .label("Start")
+                            .on_click({
+                                let weak = cx.entity().downgrade();
+                                move |_, window, cx| {
+                                    if weak.upgrade().is_some() {
+                                        let handle = window.window_handle();
+                                        let _ = handle.update(cx, |root, window, cx| {
+                                            if let Ok(view) = root.downcast::<ChatApp>() {
+                                                view.update(cx, |hub, cx| {
+                                                    hub.start_gateway(window, cx);
+                                                });
+                                            }
+                                        });
+                                    }
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new("stop-gateway")
+                            .ghost()
+                            .small()
+                            .label("Stop")
+                            .on_click({
+                                let weak = cx.entity().downgrade();
+                                move |_, _, cx| {
+                                    if let Some(entity) = weak.upgrade() {
+                                        entity.update(cx, |hub, cx| {
+                                            hub.stop_gateway(cx);
+                                        });
+                                    }
+                                }
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().colors.muted_foreground)
+                    .child(self.gateway_status.clone().unwrap_or_else(|| {
+                        "Exposes the configured provider via OpenAI-compatible routes.".to_string()
+                    })),
             )
     }
 

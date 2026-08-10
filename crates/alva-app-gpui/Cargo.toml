@@ -21,6 +21,7 @@ alva-agent-extension-builtin = { path = "../alva-agent-extension-builtin" }
 alva-app-extension-browser = { path = "../alva-app-extension-browser" }
 alva-app-extension-memory = { path = "../alva-app-extension-memory" }
 alva-app-extension-loader = { path = "../alva-app-extension-loader" }
+alva-app-gateway = { path = "../alva-app-gateway" }
 
 async-trait = "0.1"
 chrono = "0.4"
