@@ -367,3 +367,6 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 200 轮迭代（iter1-200）全记录；审查闭环收敛；偶发根治；工具六件套；文档齐全
 最终 UI 截图：/tmp/hub-final.png
 恢复：iter199 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter199 | 完成: 审查终审汇总文档(docs/UI-FINAL-REVIEW.md) | 验证: 文档 | 清理: 无 | 下一步: iter200
+- iter200 | 完成: 全量质量门 — 200 轮里程碑达成 | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter201
+- iter201 | 完成: GPUI 迁移 P0 骨架(编译通过, 独立 crate 避 wasm-bindgen 冲突, Sidebar 骨架) | 验证: cargo build green | 清理: 无 | 下一步: P1 主壳
