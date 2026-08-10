@@ -108,3 +108,16 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 本轮本地完成：bridge 100% 覆盖盘点、isolate 传递测试、最小窗口布局检查、ui-review --steps、demo 数据态、session-panel h=0 修复、sidebar 紧凑化
 模型阻塞（外部依赖）：两个 9B 文本仍卡（服务器任务占用/omlx 状态），mxfp4 视觉不稳
 恢复指令：读本文件 → iter75 续；模型恢复后优先跑 ui-review.sh --steps 验证 + 数据态视觉复审
+- iter75-77 | 完成: demo session 打开态 wireframe 验证(3 态卡片正常) + 数据态截图 + 审查循环固化文档 | 验证: 布局正常 | 清理: 无 | 下一步: iter78
+- iter78 | 完成: --steps 工具验证(工作) + 2B 质量门槛记录(不可用, 需 9B 档) | 验证: 2B 分步跑通但误判 | 清理: 无 | 下一步: iter79
+- iter79 | 完成: 全量质量门(139+25 lib, 29 web, tsc) | 验证: 全绿 | 清理: cargo clean | 下一步: iter80
+- iter80 | 完成: mxfp4 长文本恢复(内存守卫根因)+文本审查--steps 跑通+视觉审查 session 态跑通(发现 dev server 僵死→截图错误页的'幻觉'真相)+修复(状态徽章 12px/会话间距 8px) | 验证: 29 web | 清理: 无 | 下一步: iter81
+- iter81 | 完成: 审查工具踩坑固化(dev server 检查/文本视觉分工/内存守卫) | 验证: 文档 | 清理: 无 | 下一步: iter82
+- iter82 | 完成: 全量质量门 | 验证: 139+25 lib, 29 web, tsc | 清理: cargo clean | 下一步: iter83
+
+## 会话 checkpoint 6（iter82 末）
+全绿：hub-desktop 139 / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
+模型：mxfp4 文本+视觉全恢复（根因=内存守卫，非模型 bug）；最终配置 mxfp4+ASR
+工具链全通：ui-review.sh --steps（文本）/ ui-review-vision.sh --steps --click（视觉）/ model-verify / ?demo=1 / wireframe
+踩坑已固化：审查前 curl 验 dev server；文本审结构、视觉审配色；长输出卡=查内存守卫
+恢复指令：读本文件 → iter83 续；npm test + cargo test -p alva-hub-desktop --lib
