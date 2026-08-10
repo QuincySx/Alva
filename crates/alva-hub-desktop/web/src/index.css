@@ -994,8 +994,8 @@ button {
 .composer-footer {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-top: 2px;
+  gap: 12px;
+  padding-top: 4px;
 }
 
 .composer-summary {
