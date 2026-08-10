@@ -18,6 +18,31 @@ impl HubApp {
         self.details_open
     }
 
+    /// Append a memory entry and reflect the fresh list on the open
+    /// session; the store returns the updated list so the drawer never
+    /// guesses (React `addMemory`).
+    pub fn add_memory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pid) = self.active_session_id.clone() else {
+            return;
+        };
+        let entry = self.memory_draft.read(cx).value().to_string();
+        if entry.trim().is_empty() {
+            return;
+        }
+        match self.store.add_session_memory(&pid, &entry) {
+            Ok(memory) => {
+                if let Some(detail) = &mut self.session_detail {
+                    detail.memory = memory;
+                }
+                self.memory_draft.update(cx, |state, cx| {
+                    state.set_value("", window, cx);
+                });
+            }
+            Err(error) => self.push_local_failure(&error, cx),
+        }
+        cx.notify();
+    }
+
     pub fn toggle_details(&mut self, cx: &mut Context<Self>) {
         self.details_open = !self.details_open;
         cx.notify();

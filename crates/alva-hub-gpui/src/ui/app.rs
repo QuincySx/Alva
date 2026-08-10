@@ -92,6 +92,10 @@ pub struct HubApp {
     #[allow(dead_code)]
     pub worker_pumps: Arc<Mutex<HashSet<String>>>,
     pub worktree_root: PathBuf,
+    /// Details drawer surface.
+    pub memory_draft: Entity<InputState>,
+    /// Drawer handoff envelopes expanded by handoff id.
+    pub open_drawer_handoffs: HashMap<String, bool>,
 }
 
 /// Run a closure against the window's root view (the HubApp) from any
@@ -190,6 +194,10 @@ impl HubApp {
             adoption: HashMap::new(),
             worker_pumps: Arc::new(Mutex::new(HashSet::new())),
             worktree_root,
+            memory_draft: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Always run cargo test before finishing…")
+            }),
+            open_drawer_handoffs: HashMap::new(),
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(ENGINE_OPTIONS.to_vec()),

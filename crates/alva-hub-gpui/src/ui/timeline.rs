@@ -19,13 +19,21 @@ use super::{FallbackControls, ProjectedEvent};
 
 impl HubApp {
     pub fn main_column(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
+        let drawer = self.details_open && self.session_detail.is_some();
+        h_flex()
             .flex_1()
             .size_full()
             .min_w_0()
-            .child(self.topbar(window, cx))
-            .child(self.timeline_area(cx))
-            .child(self.composer(window, cx))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .size_full()
+                    .min_w_0()
+                    .child(self.topbar(window, cx))
+                    .child(self.timeline_area(cx))
+                    .child(self.composer(window, cx)),
+            )
+            .when(drawer, |this| this.child(self.details_drawer(window, cx)))
     }
 
     fn timeline_area(&self, cx: &Context<Self>) -> impl IntoElement {
