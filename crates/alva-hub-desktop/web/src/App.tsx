@@ -1950,6 +1950,7 @@ export default function App() {
               ))}
               <div className="team-worker-controls">
                 <button
+                  className="approval-allow"
                   onClick={() => void decideApprovalGroup(group, true)}
                   type="button"
                 >

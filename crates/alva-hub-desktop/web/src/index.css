@@ -1184,3 +1184,11 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Grouped approval is a consequential action: the allow path is primary. */
+.approval-group .approval-allow {
+  border-color: var(--accent);
+  color: #0d0f12;
+  background: var(--accent);
+  font-weight: 700;
+}
