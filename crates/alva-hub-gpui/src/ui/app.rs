@@ -73,6 +73,11 @@ pub struct HubApp {
     pub details_open: bool,
     /// Active team run for the open lead session.
     pub team_run: Option<alva_hub_gpui::TeamRunDetail>,
+    /// Sidebar sections the user can collapse (fallback/team start collapsed).
+    pub collapsed: HashMap<String, bool>,
+    /// Per-target model/provider inputs, aligned with `fallback_policy.targets`.
+    pub policy_model_inputs: Vec<Entity<InputState>>,
+    pub policy_provider_inputs: Vec<Entity<InputState>>,
 }
 
 /// Run a closure against the window's root view (the HubApp) from any
@@ -132,6 +137,9 @@ impl HubApp {
             policy_saving: false,
             details_open: false,
             team_run: None,
+            collapsed: HashMap::from([("fallback".to_string(), true), ("team".to_string(), true)]),
+            policy_model_inputs: Vec::new(),
+            policy_provider_inputs: Vec::new(),
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(ENGINE_OPTIONS.to_vec()),
@@ -157,6 +165,7 @@ impl HubApp {
         app.subscribe_sessions(window, cx);
         app.subscribe_engine(window, cx);
         app.subscribe_prompt(window, cx);
+        app.sync_policy_inputs(window, cx);
         app.refresh_readiness(cx);
         app
     }
@@ -407,6 +416,7 @@ impl HubApp {
             .team_run_for_lead(product_session_id)
             .ok()
             .flatten();
+        self.sync_policy_inputs(window, cx);
         Ok(())
     }
 

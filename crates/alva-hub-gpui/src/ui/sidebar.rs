@@ -19,7 +19,7 @@ use super::app::HubApp;
 use super::format_relative_time;
 
 impl HubApp {
-    pub fn sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub fn sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("hub-sidebar")
             .flex_col()
@@ -130,6 +130,12 @@ impl HubApp {
                                                 view.update(cx, |hub, cx| {
                                                     hub.workspace = Some(path.clone());
                                                     hub.reset_session_surface(window, cx);
+                                                    if let Ok(policy) =
+                                                        hub.store.global_fallback_policy()
+                                                    {
+                                                        hub.fallback_policy = policy;
+                                                    }
+                                                    hub.sync_policy_inputs(window, cx);
                                                     hub.refresh_readiness(cx);
                                                     cx.notify();
                                                 });
