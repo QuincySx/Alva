@@ -188,3 +188,7 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 模型：Qwen3.5-9B-mlx-vlm-mxfp4(主力全通) + ASR(语音)；内存守卫根因已解
 已知偶发：recovered_attempt_without_native... 并行时序（单跑稳定，非 bug）
 恢复：读本文件 → iter111 续；npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查
+- iter111 | 完成: session 项相对时间(纯函数+测试) | 验证: 32 web | 清理: 无 | 下一步: iter112
+- iter111 | 完成: session 相对时间(修正: 非有限输入守卫, 防 React 崩溃) | 验证: 32 web | 清理: 无 | 下一步: iter112
+- iter112 | 完成: 全量质量门 | 验证: 139+25+21 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter113
+- iter113 | 完成: session 相对时间渲染验证(2024 数据→日期显示) | 验证: DOM | 清理: 无 | 下一步: iter114
