@@ -1047,6 +1047,33 @@ describe("App integration", () => {
     expect(toggle).toBeChecked();
   });
 
+  it("toggles the details drawer open and closed", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "parked",
+      },
+    ];
+    bridge.state.detail = detailFixture();
+
+    render(<App />);
+    await user.click(await screen.findByText("Fix the build"));
+    const toggle = screen.getByRole("button", { name: "Details" });
+    await user.click(toggle);
+    expect(
+      await screen.findByRole("complementary", { name: "Session details" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Hide details")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(
+      screen.queryByRole("complementary", { name: "Session details" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("expands a handoff envelope in the details drawer", async () => {
     const user = userEvent.setup();
     bridge.state.sessions = [
