@@ -261,3 +261,10 @@ session 里不会出现 Steering 变体，这个 match 分支永远不会命中�
 3. 验证状态，pass/fail
 4. 未解决的 TODO 和回滚笔记
 5. 工具输出，可删，只保留 pass/fail 结论
+
+## GPUI 迁移（alva-hub-gpui）
+
+Hub Desktop 正在迁移到 Rust 原生 GPUI（参考 longbridge/gpui-component）。
+**GPUI 开发规范（唯一权威）在 `crates/alva-hub-gpui/AGENTS.md`**——技术较新，
+写任何 GPUI 代码前先读它（初始化/组件写法/实体重入陷阱/测试/自查清单）。
+迁移评估：`docs/GPUI-MIGRATION.md`。

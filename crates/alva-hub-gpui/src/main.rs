@@ -5,11 +5,8 @@
 
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IconName,
-    sidebar::{
-        Sidebar, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuItem,
-    },
-    *,
+    sidebar::{Sidebar, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuItem},
+    ActiveTheme, Icon, IconName, *,
 };
 
 /// P0 state: placeholders that P1 replaces with HubStore-backed data.
@@ -30,9 +27,7 @@ impl HubApp {
                 .icon(IconName::SquareTerminal)
                 .click_to_toggle(true)
                 .default_open(true)
-                .children([
-                    SidebarMenuItem::new("(no sessions yet)"),
-                ]),
+                .children([SidebarMenuItem::new("(no sessions yet)")]),
             SidebarMenuItem::new("Engines")
                 .icon(IconName::Cpu)
                 .click_to_toggle(true)
@@ -87,7 +82,11 @@ impl Render for HubApp {
                     .justify_center()
                     .gap_2()
                     .child(Icon::new(IconName::ArrowRight).size_5())
-                    .child(div().text_lg().child("Start one continuous project session"))
+                    .child(
+                        div()
+                            .text_lg()
+                            .child("Start one continuous project session"),
+                    )
                     .child(
                         div()
                             .text_color(cx.theme().muted_foreground)
@@ -104,9 +103,7 @@ fn main() {
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
                 let view = cx.new(|_| HubApp::new());
-                cx.new(|cx| {
-                    Root::new(view, window, cx).bg(cx.theme().background)
-                })
+                cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
             })
             .expect("Failed to open window");
         })
