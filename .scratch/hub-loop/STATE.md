@@ -134,3 +134,14 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 模型最终配置：mxfp4(全) + ASR(语音)
 恢复指令：读本文件 → iter89 续；npm test + cargo test -p alva-hub-desktop --lib
 - iter89 | 完成: fallback 展开文本审查(列标注改进验证生效, 误判收敛; 溢出=sidebar 滚动设计, 非 bug) | 验证: 审查通过 | 清理: 无 | 下一步: iter90
+- iter90 | 完成: 全量质量门 | 验证: 139+25 lib, 29 web, tsc | 清理: cargo clean | 下一步: iter91
+- iter91 | 完成: 最终打包冒烟(.app 启动+schema14+干净退出) | 验证: 通过 | 清理: cargo clean | 下一步: iter92
+- iter92 | 完成: Enter 键提交路径测试 | 验证: 29 web | 清理: 无 | 下一步: iter93
+
+## 会话最终 checkpoint（iter92 末，压缩恢复点）
+全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
+产品：V1 18 场景全自动化 + UI 全面重设计 + AI 审查驱动修复 15+ 项
+工具链（全部验证可用）：scripts/ui-wireframe.sh / ui-review.sh(--steps) / ui-review-vision.sh(--steps --click) / model-verify.sh / web ?demo=1
+模型：Qwen3.5-9B-mlx-vlm-mxfp4(文本+视觉主力, 内存守卫根因已解) + Qwen3-ASR-1.7B(语音)
+关键文件：docs/UI-AI-TOOLCHAIN.md(工具+踩坑+模型迁移) / docs/ALVA-HUB-V1.md / .scratch/hub-loop/
+恢复：读本文件 → iter93 续；每轮 npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查复核
