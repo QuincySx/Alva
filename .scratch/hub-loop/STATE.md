@@ -378,3 +378,4 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 - iter207b | 完成: P3 收尾(clippy 0 错+138/139 测试绿, real_claude 额度限制=环境) | 验证: 全绿(除额度) | 清理: 无 | 下一步: P4(run_persisted 执行)
 - iter208 | 完成: 批1 结构对齐(workspace 选择器+Details 按钮+会话列表, GPUI async 模式, clippy 0) | 验证: 134 tests+启动 | 清理: 无 | 下一步: 批2(P4 执行: timeline+run)
 - iter209 | 完成: 批2 Run 真实执行(run_persisted 接线+timeline 卡片, 官方 async 模式) | 验证: 134 tests+clippy 0+启动 | 清理: 无 | 下一步: 批2b fallback 控件/timeline 5 态
+- iter210 | 完成: 批2b 5态 timeline 卡片(状态配色+徽章) | 验证: 134 tests+clippy 0 | 清理: 无 | 下一步: 批2c Stop/switch 控件
