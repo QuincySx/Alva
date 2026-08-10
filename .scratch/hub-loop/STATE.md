@@ -133,3 +133,4 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 审查累计修复(iter44-88)：topbar 撑高/sidebar 溢出/session-panel h=0/折叠 WCAG/aria/对比度/readiness 密度/占位符/status-pill aria-live/失败消息红调/状态徽章 12px/会话间距/composer summary 换行 等 15+ 项
 模型最终配置：mxfp4(全) + ASR(语音)
 恢复指令：读本文件 → iter89 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter89 | 完成: fallback 展开文本审查(列标注改进验证生效, 误判收敛; 溢出=sidebar 滚动设计, 非 bug) | 验证: 审查通过 | 清理: 无 | 下一步: iter90
