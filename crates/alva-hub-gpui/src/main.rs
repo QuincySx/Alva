@@ -4,6 +4,9 @@
 //         Follows crates/alva-hub-gpui/AGENTS.md: Entity<State> for
 //         stateful components, theme colors only, no hardcoded hex.
 
+use alva_hub_gpui::{
+    HubSessionSummary, HubStore,
+};
 use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -15,6 +18,7 @@ use gpui_component::{
 };
 
 pub struct HubApp {
+    store: HubStore,
     engine: Entity<SelectState<SearchableVec<&'static str>>>,
     permission: Entity<SelectState<SearchableVec<&'static str>>>,
     prompt: Entity<InputState>,
@@ -22,7 +26,15 @@ pub struct HubApp {
 
 impl HubApp {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // P3: backend store opened directly (dev db, own instance lock so it
+        // coexists with the Tauri build during migration).
+        let store_path = std::env::var("ALVA_HUB_DB").unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+            format!("{home}/Library/Application Support/com.alva.hub-gpui/alva-hub.db")
+        });
+        let store = HubStore::open(&store_path).expect("open Hub store");
         Self {
+            store,
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(vec!["alva", "claude", "codex"]),
@@ -46,7 +58,23 @@ impl HubApp {
         }
     }
 
-    fn sidebar_menu() -> SidebarMenu {
+    fn sidebar_menu(sessions: &[HubSessionSummary]) -> SidebarMenu {
+        let session_items: Vec<SidebarMenuItem> = if sessions.is_empty() {
+            vec![SidebarMenuItem::new("(no sessions yet)")]
+        } else {
+            sessions
+                .iter()
+                .map(|s| {
+                    let label = format!(
+                        "{} · {} · {}",
+                        s.workspace.split('/').next_back().unwrap_or(&s.workspace),
+                        s.engine_id,
+                        s.status
+                    );
+                    SidebarMenuItem::new(label)
+                })
+                .collect()
+        };
         SidebarMenu::new().children([
             SidebarMenuItem::new("Workspace")
                 .icon(IconName::Folder)
@@ -56,7 +84,7 @@ impl HubApp {
                 .icon(IconName::SquareTerminal)
                 .click_to_toggle(true)
                 .default_open(true)
-                .children([SidebarMenuItem::new("(no sessions yet)")]),
+                .children(session_items),
             SidebarMenuItem::new("Engines")
                 .icon(IconName::Cpu)
                 .click_to_toggle(true)
@@ -80,10 +108,14 @@ impl HubApp {
         ])
     }
 
+    fn sessions(&self) -> Vec<HubSessionSummary> {
+        self.store.list_sessions().unwrap_or_default()
+    }
+
     fn sidebar(&self) -> Sidebar<SidebarMenu> {
         Sidebar::new("hub-sidebar")
             .header(SidebarHeader::new().child("ALVA Hub"))
-            .child(Self::sidebar_menu())
+            .child(Self::sidebar_menu(&self.sessions()))
             .footer(
                 SidebarFooter::new().child(
                     div()
