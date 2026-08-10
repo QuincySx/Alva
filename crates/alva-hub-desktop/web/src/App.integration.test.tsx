@@ -1294,6 +1294,8 @@ describe("App integration", () => {
     // Relative recency renders per session.
     expect(screen.getByText(/2m ago/)).toBeInTheDocument();
     expect(screen.getByText(/3h ago/)).toBeInTheDocument();
+    // Hover reveals the full workspace path, not just the last segment.
+    expect(screen.getByTitle("/tmp/alpha")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Search sessions"), "codex");
     expect(screen.getByText("Port to codex")).toBeInTheDocument();
