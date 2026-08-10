@@ -4,7 +4,9 @@
 // POS:    GPUI port of alva-app-tauri (React Home.tsx). Later batches add
 //         sessions (SQLite), settings, skills/mcp, tools and inspector.
 
+mod mcp;
 mod service;
+mod skills;
 mod sqlite_session;
 
 use alva_kernel_abi::agent_session::AgentSession as _;
@@ -37,6 +39,13 @@ struct ChatMessage {
     text: String,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum View {
+    Chat,
+    Skills,
+    Mcp,
+}
+
 const PROVIDERS: [&str; 3] = ["anthropic", "openai-responses", "gemini"];
 
 struct ChatApp {
@@ -58,6 +67,10 @@ struct ChatApp {
     settings_key: Entity<InputState>,
     settings_base_url: Entity<InputState>,
     settings_status: Option<String>,
+    // P3 surfaces.
+    view: View,
+    skills_list: Vec<crate::skills::SkillInfo>,
+    mcp_list: Vec<crate::mcp::McpServerInfo>,
 }
 
 impl ChatApp {
@@ -114,7 +127,37 @@ impl ChatApp {
             settings_base_url: cx
                 .new(|cx| InputState::new(window, cx).placeholder("base url (optional)")),
             settings_status: None,
+            view: View::Chat,
+            skills_list: Vec::new(),
+            mcp_list: Vec::new(),
         }
+    }
+
+    fn refresh_catalog(&mut self, cx: &mut Context<Self>) {
+        self.mcp_list = crate::mcp::load_mcp_servers();
+        let sources = crate::skills::discover_skill_sources();
+        let weak = cx.entity().downgrade();
+        let handle = self.tokio.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<crate::skills::SkillInfo>>();
+        handle.spawn(async move {
+            let mut all = Vec::new();
+            for source in sources {
+                let infos = crate::skills::scan_skills(std::path::Path::new(&source.path)).await;
+                all.extend(infos);
+            }
+            let _ = tx.send(all);
+        });
+        cx.spawn(async move |_this, cx| {
+            while let Some(skills) = rx.recv().await {
+                if let Some(hub) = weak.upgrade() {
+                    hub.update(cx, |hub, cx| {
+                        hub.skills_list = skills;
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
     }
 
     fn load_settings_into_inputs(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -623,6 +666,20 @@ impl ChatApp {
                             }),
                     ),
             )
+            .child(
+                h_flex()
+                    .gap_1()
+                    .child(self.nav_button("Chat", View::Chat, cx))
+                    .child(self.nav_button("Skills", View::Skills, cx))
+                    .child(self.nav_button("MCP", View::Mcp, cx)),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight(650.))
+                    .text_color(cx.theme().colors.muted_foreground)
+                    .child("Sessions"),
+            )
             .child(div().flex_col().gap_1().children(if sessions.is_empty() {
                 vec![div()
                     .text_xs()
@@ -669,6 +726,158 @@ impl ChatApp {
                     })
                     .collect::<Vec<_>>()
             }))
+    }
+
+    fn nav_button(&self, label: &str, view: View, cx: &Context<Self>) -> impl IntoElement {
+        let weak = cx.entity().downgrade();
+        let view_key = view;
+        Button::new(SharedString::from(format!("nav-{label}")))
+            .ghost()
+            .small()
+            .label(label)
+            .selected(self.view == view_key)
+            .on_click(move |_, window, cx| {
+                if weak.upgrade().is_some() {
+                    let handle = window.window_handle();
+                    let _ = handle.update(cx, |root, _window, cx| {
+                        if let Ok(view) = root.downcast::<ChatApp>() {
+                            view.update(cx, |hub, cx| {
+                                hub.view = view_key;
+                                if hub.view != View::Chat {
+                                    hub.refresh_catalog(cx);
+                                }
+                                cx.notify();
+                            });
+                        }
+                    });
+                }
+            })
+    }
+
+    fn skills_view(&self, cx: &Context<Self>) -> impl IntoElement {
+        let skills = self.skills_list.clone();
+        div()
+            .flex_1()
+            .size_full()
+            .v_flex()
+            .overflow_y_scrollbar()
+            .px_4()
+            .py_3()
+            .gap_2()
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight(600.))
+                    .child("Skills"),
+            )
+            .children(if skills.is_empty() {
+                vec![div()
+                    .text_xs()
+                    .text_color(cx.theme().colors.muted_foreground)
+                    .child("No skills discovered yet.")
+                    .into_any_element()]
+            } else {
+                skills
+                    .iter()
+                    .map(|skill| {
+                        v_flex()
+                            .gap_1()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(cx.theme().colors.border)
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight(600.))
+                                    .child(skill.name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(skill.description.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(format!(
+                                        "{} · {}",
+                                        skill.kind,
+                                        if skill.enabled { "enabled" } else { "disabled" }
+                                    )),
+                            )
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            })
+    }
+
+    fn mcp_view(&self, cx: &Context<Self>) -> impl IntoElement {
+        let servers = self.mcp_list.clone();
+        div()
+            .flex_1()
+            .size_full()
+            .v_flex()
+            .overflow_y_scrollbar()
+            .px_4()
+            .py_3()
+            .gap_2()
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight(600.))
+                    .child("MCP servers"),
+            )
+            .children(if servers.is_empty() {
+                vec![div()
+                    .text_xs()
+                    .text_color(cx.theme().colors.muted_foreground)
+                    .child("No MCP servers configured.")
+                    .into_any_element()]
+            } else {
+                servers
+                    .iter()
+                    .map(|server| {
+                        v_flex()
+                            .gap_1()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(cx.theme().colors.border)
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight(600.))
+                                    .child(server.name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(format!(
+                                        "{} · {}",
+                                        server.kind,
+                                        if server.enabled {
+                                            "enabled"
+                                        } else {
+                                            "disabled"
+                                        }
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(server.command_or_url.clone()),
+                            )
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            })
     }
 
     fn refresh_sessions(&mut self) {
@@ -742,8 +951,18 @@ impl Render for ChatApp {
                     .when(self.settings_open, |this| {
                         this.child(self.settings_panel(window, cx))
                     })
-                    .child(self.chat_area(cx))
-                    .child(self.composer(window, cx)),
+                    .child(if self.view == View::Skills {
+                        self.skills_view(cx).into_any_element()
+                    } else if self.view == View::Mcp {
+                        self.mcp_view(cx).into_any_element()
+                    } else {
+                        v_flex()
+                            .flex_1()
+                            .size_full()
+                            .child(self.chat_area(cx))
+                            .child(self.composer(window, cx))
+                            .into_any_element()
+                    }),
             )
     }
 }
