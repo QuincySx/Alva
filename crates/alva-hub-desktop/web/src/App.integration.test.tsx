@@ -1291,5 +1291,13 @@ describe("App integration", () => {
       expect(screen.queryByText("Ship the alpha release")).not.toBeInTheDocument();
     });
     expect(screen.getByText("1/2")).toBeInTheDocument();
+
+    // No match surfaces the empty-search message, not a blank list.
+    await user.clear(screen.getByLabelText("Search sessions"));
+    await user.type(screen.getByLabelText("Search sessions"), "zzz");
+    expect(
+      await screen.findByText("No sessions match that search."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("0/2")).toBeInTheDocument();
   });
 });
