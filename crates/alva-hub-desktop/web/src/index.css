@@ -63,8 +63,8 @@ button {
   display: flex;
   overflow-y: auto;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 14px;
+  gap: 10px;
+  padding: 14px 12px;
   background: #171b23;
   border-right: 1px solid var(--border);
 }
@@ -316,7 +316,7 @@ button {
 .readiness-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .readiness-card {
