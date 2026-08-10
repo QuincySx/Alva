@@ -255,3 +255,11 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 demo 覆盖：3 sessions + fallback/handoff + team run + approval 组 + readiness
 恢复：iter143 续；npm test + cargo test -p alva-hub-desktop --lib
 - iter143 | 完成: 空态审查受阻(服务器内存守卫 usage 20.4G, 共享瓶颈再现) | 验证: 已知问题 | 清理: 无 | 下一步: 本地迭代
+- iter144/145 | 完成: session_store 覆盖确认(无缺口) + 最终 UI 截图(/tmp/hub-current-v2.png) | 验证: 截图 | 清理: 无 | 下一步: iter146
+- iter146 | 完成: 全量质量门 | 验证: 139+25 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter147
+
+## 会话 checkpoint 10（iter146 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 912 commits
+状态：审查闭环收敛（三维度正向）；服务器内存守卫间歇（任务并发时）
+截图：/tmp/hub-current-v2.png（最新 UI）
+恢复：iter147 续；npm test + cargo test -p alva-hub-desktop --lib
