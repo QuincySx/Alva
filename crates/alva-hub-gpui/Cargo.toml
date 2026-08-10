@@ -1,0 +1,18 @@
+[package]
+name = "alva-hub-gpui"
+version = "0.1.0"
+edition = "2021"
+description = "ALVA Hub Desktop — Rust-native GPUI build (P0 skeleton)"
+license = "MIT"
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+serde = { version = "1", features = ["derive"] }
+
+# P0: standalone UI skeleton (workspace deps arrive in P1 with a lockfile
+# strategy that avoids the wasm-bindgen conflict).
+
+[workspace]
