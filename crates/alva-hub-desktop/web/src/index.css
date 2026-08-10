@@ -342,6 +342,7 @@ button {
 
 .readiness-badge {
   padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
@@ -744,6 +745,7 @@ button {
 
 .timeline-meta span:last-child {
   padding: 2px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
