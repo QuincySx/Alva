@@ -212,3 +212,10 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 - iter120 | 完成: composer footer 间距(动作行透气) | 验证: 32 web | 清理: 无 | 下一步: iter121
 - iter121 | 完成: 全量质量门 | 验证: 139+25 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter122
 - iter122 | 完成: 一致性审查通过(模型判定 Consistent: 对齐/间距统一) — 120 轮修复的里程碑 | 验证: 审查通过 | 清理: 无 | 下一步: iter123
+- iter123 | 完成: 全量质量门 | 验证: 139+25 lib, 32 web | 清理: cargo clean | 下一步: iter124
+- iter124/125 | 完成: 最新 UI 截图存档(/tmp/hub-current.png) + checkpoint
+
+## 会话最终 checkpoint（iter125 末）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc
+里程碑：一致性审查通过（120 轮修复收敛）；审查循环稳定；UI 截图存档
+恢复：iter126 续；npm test + cargo test -p alva-hub-desktop --lib
