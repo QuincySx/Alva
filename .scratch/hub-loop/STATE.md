@@ -271,3 +271,12 @@ demo 覆盖：3 sessions + fallback/handoff + team run + approval 组 + readines
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc
 状态：审查循环持续（甄别模型主观波动）；服务器内存间歇恢复
 恢复：iter150 续
+- iter150 | 完成: 审查循环收敛记录(甄别主观波动原则) | 验证: 文档 | 清理: 无 | 下一步: iter151
+- iter151 | 完成: 全量质量门 | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter152
+- iter152 | 完成: session 相对时间集成断言(可选 updated_at 类型) | 验证: 32 web | 清理: 无 | 下一步: iter153
+
+## 会话 checkpoint 12（iter153 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 917 commits
+审查闭环：三维度正向 + 主观波动甄别原则（docs/UI-AI-TOOLCHAIN.md）
+修复沉淀 20+ 项；工具链/模型/产品全就绪
+恢复：iter154 续；npm test + cargo test -p alva-hub-desktop --lib
