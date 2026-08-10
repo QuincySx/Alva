@@ -5,8 +5,8 @@
 //         stateful components, theme colors only, no hardcoded hex.
 
 use alva_hub_gpui::{
-    build_engine, run_persisted, HubSessionSummary, HubStore, RunRequest, TimelineEvent,
-    TimelineStatus,
+    build_engine, run_persisted, HandoffPackage, HubSessionSummary, HubStore, RunRequest,
+    TimelineEvent, TimelineStatus,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,6 +30,8 @@ pub struct HubApp {
     prompt: Entity<InputState>,
     /// Timeline events projected by the last run (batch 2).
     timeline: Vec<TimelineEvent>,
+    /// Handoff expanded from a fallback card (batch 2c).
+    open_handoff: Option<HandoffPackage>,
 }
 
 impl HubApp {
@@ -45,6 +47,7 @@ impl HubApp {
             store,
             workspace: None,
             timeline: Vec::new(),
+            open_handoff: None,
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(vec!["alva", "claude", "codex"]),
@@ -240,6 +243,9 @@ impl HubApp {
                     .message
                     .clone()
                     .unwrap_or_else(|| "Run finished.".into());
+                let is_fallback = matches!(event.status, TimelineStatus::Fallback);
+                let handoff_open = self.open_handoff.is_some();
+                let show_handoff = self.open_handoff.clone();
                 div()
                     .id(SharedString::from(format!("tl-{i}")))
                     .v_flex()
@@ -270,6 +276,61 @@ impl HubApp {
                             ),
                     )
                     .child(div().text_sm().child(message))
+                    .when(is_fallback && !handoff_open, |this| {
+                        this.child(
+                            h_flex().gap_2().mt_1().child(
+                                Button::new(format!("handoff-{i}"))
+                                    .ghost()
+                                    .small()
+                                    .label("View handoff")
+                                    .on_click({
+                                        let store = Arc::clone(&self.store);
+                                        let pid = event.product_session_id.clone();
+                                        let weak = cx.entity().downgrade();
+                                        move |_, _, app| {
+                                            let store = Arc::clone(&store);
+                                            if let Ok(Some(detail)) = store.get_session(&pid) {
+                                                if let Some(entity) = weak.upgrade() {
+                                                    let _ =
+                                                        app.update_entity(&entity, |hub, cx| {
+                                                            hub.open_handoff =
+                                                                detail.handoffs.into_iter().next();
+                                                            cx.notify();
+                                                        });
+                                                }
+                                            }
+                                        }
+                                    }),
+                            ),
+                        )
+                    })
+                    .when(show_handoff.is_some(), |this| {
+                        let handoff = show_handoff.clone().unwrap();
+                        this.child(
+                            div()
+                                .v_flex()
+                                .gap_1()
+                                .mt_1()
+                                .px_2()
+                                .py_2()
+                                .rounded_md()
+                                .bg(cx.theme().colors.button)
+                                .child(div().text_xs().font_weight(FontWeight(600.0)).child(
+                                    format!(
+                                        "{} handoff · {} → {}",
+                                        match handoff.kind {
+                                            alva_hub_gpui::HandoffKind::Full => "full",
+                                            alva_hub_gpui::HandoffKind::Delta => "delta",
+                                        },
+                                        handoff.source.engine_id,
+                                        handoff.target.engine_id
+                                    ),
+                                ))
+                                .child(
+                                    div().text_xs().child(format!("Reason: {}", handoff.reason)),
+                                ),
+                        )
+                    })
                     .into_any()
             })
             .collect();
