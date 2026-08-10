@@ -307,3 +307,66 @@ impl Default for AgentService {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req(provider: &str) -> SendRequest {
+        SendRequest {
+            provider: provider.to_string(),
+            model: "test-model".to_string(),
+            api_key: Some("sk-test".to_string()),
+            base_url: None,
+            system_prompt: None,
+            workspace: None,
+            reasoning_effort: None,
+            tool_names: None,
+        }
+    }
+
+    fn isolated_env() -> tempfile::TempDir {
+        // Point shared config away from the real ~/.alva so tests never see
+        // the developer's provider keys/models.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("ALVA_CONFIG_DIR", dir.path());
+        dir
+    }
+
+    #[test]
+    fn builds_provider_config_with_key_and_model() {
+        let _dir = isolated_env();
+        let config = build_provider_config(&req("anthropic")).unwrap();
+        assert_eq!(config.api_key, "sk-test");
+        assert_eq!(config.model, "test-model");
+        assert_eq!(config.kind.as_deref(), Some("anthropic"));
+    }
+
+    #[test]
+    fn missing_key_fails_loudly() {
+        let _dir = isolated_env();
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        let mut r = req("anthropic");
+        r.api_key = Some(String::new());
+        let error = build_provider_config(&r).unwrap_err();
+        assert!(error.contains("missing api_key"), "{error}");
+    }
+
+    #[test]
+    fn empty_model_fails_with_clear_message() {
+        let _dir = isolated_env();
+        let mut r = req("openai-responses");
+        r.model.clear();
+        r.api_key = Some("sk-x".to_string());
+        let error = build_provider_config(&r).unwrap_err();
+        assert!(error.contains("missing model"), "{error}");
+    }
+
+    #[test]
+    fn custom_base_url_wins_over_default() {
+        let mut r = req("gemini");
+        r.base_url = Some("http://127.0.0.1:11434".to_string());
+        let config = build_provider_config(&r).unwrap();
+        assert_eq!(config.base_url, "http://127.0.0.1:11434");
+    }
+}
