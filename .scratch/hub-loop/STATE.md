@@ -297,3 +297,4 @@ demo 覆盖：3 sessions + fallback/handoff + team run + approval 组 + readines
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 920 commits
 demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) 全完整
 审查收敛 + 甄别原则生效；恢复：iter164 续
+- iter164 | 完成: drawer 打开态视觉审查(清晰, 密集=滚动设计) | 验证: 审查 | 清理: 无 | 下一步: iter165
