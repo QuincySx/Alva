@@ -60,6 +60,9 @@ impl ChatApp {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
             format!("{home}/Library/Application Support/com.alva.app-gpui/alva.db")
         });
+        if let Some(parent) = std::path::Path::new(&db_path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let session_manager = Arc::new(
             SqliteEvalSessionManager::open(std::path::PathBuf::from(db_path))
                 .expect("open session db"),
