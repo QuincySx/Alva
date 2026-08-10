@@ -783,6 +783,11 @@ button {
   background: rgba(248, 113, 113, 0.12);
 }
 
+/* Error messages on failed cards deserve to read as errors. */
+.timeline-failed p {
+  color: #f0a5a5;
+}
+
 .timeline-completed .timeline-meta span:last-child,
 .status-completed {
   color: var(--green);
