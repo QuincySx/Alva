@@ -352,3 +352,10 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 935 commits
 偶发 flake 根治（reopen 重试）；审查闭环持续；工具六件套
 恢复：iter191 续
+- iter191/192 | 完成: 新功能测试覆盖盘点(全) + 质量门 | 验证: 139+25 lib, ci 46, 32 web | 清理: cargo clean | 下一步: iter193
+- iter193 | 完成: 周期打包冒烟 | 验证: .app 启动+schema14 | 清理: cargo clean | 下一步: iter194
+
+## 会话最终 checkpoint（iter194 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 937 commits
+193 轮迭代全记录；审查闭环收敛（正向+甄别原则）；偶发根治；工具六件套；覆盖全
+恢复：iter195 续；npm test + cargo test -p alva-hub-desktop --lib
