@@ -1,0 +1,425 @@
+// INPUT:  gpui + gpui-component, AgentService (service.rs)
+// OUTPUT: ALVA Desktop Rust-native shell — P0: chat view with streaming
+//         responses and provider/model/key inputs.
+// POS:    GPUI port of alva-app-tauri (React Home.tsx). Later batches add
+//         sessions (SQLite), settings, skills/mcp, tools and inspector.
+
+mod service;
+
+use std::sync::Arc;
+
+use gpui::prelude::FluentBuilder as _;
+use gpui::*;
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    input::{Input, InputEvent, InputState},
+    scroll::ScrollableElement,
+    searchable_list::SearchableVec,
+    select::{Select, SelectState},
+    ActiveTheme, *,
+};
+
+use service::{AgentService, SendRequest};
+
+#[derive(Clone)]
+enum ChatRole {
+    User,
+    Assistant,
+}
+
+#[derive(Clone)]
+struct ChatMessage {
+    role: ChatRole,
+    text: String,
+}
+
+const PROVIDERS: [&str; 3] = ["anthropic", "openai-responses", "gemini"];
+
+struct ChatApp {
+    service: Arc<tokio::sync::Mutex<AgentService>>,
+    tokio: tokio::runtime::Handle,
+    provider: Entity<SelectState<SearchableVec<&'static str>>>,
+    model: Entity<InputState>,
+    api_key: Entity<InputState>,
+    prompt: Entity<InputState>,
+    messages: Vec<ChatMessage>,
+    busy: bool,
+    error: Option<String>,
+}
+
+impl ChatApp {
+    fn new(tokio: tokio::runtime::Handle, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self {
+            service: Arc::new(tokio::sync::Mutex::new(AgentService::new())),
+            tokio,
+            provider: cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(PROVIDERS.to_vec()),
+                    Some(IndexPath::new(0)),
+                    window,
+                    cx,
+                )
+            }),
+            model: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("model (e.g. claude-sonnet-4-5)")
+            }),
+            api_key: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("API key (or leave empty for env)")
+                    .masked(true)
+            }),
+            prompt: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .multi_line(true)
+                    .placeholder("Ask Alva to inspect, change, or explain this project…")
+            }),
+            messages: Vec::new(),
+            busy: false,
+            error: None,
+        }
+    }
+
+    fn subscribe_prompt(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let weak = cx.entity().downgrade();
+        let _subscription = cx.subscribe_in(
+            &self.prompt,
+            window,
+            move |_view, _state, event, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    if let Some(entity) = weak.upgrade() {
+                        entity.update(cx, |hub, cx| {
+                            hub.send(window, cx);
+                        });
+                    }
+                }
+            },
+        );
+    }
+
+    fn request(&self, cx: &Context<Self>) -> SendRequest {
+        SendRequest {
+            provider: self
+                .provider
+                .read(cx)
+                .selected_value()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "anthropic".into()),
+            model: self.model.read(cx).value().to_string(),
+            api_key: Some(self.api_key.read(cx).value().to_string()),
+            base_url: None,
+            system_prompt: None,
+            workspace: None,
+            reasoning_effort: None,
+        }
+    }
+
+    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let text = self.prompt.read(cx).value().to_string();
+        if text.trim().is_empty() {
+            return;
+        }
+        let req = self.request(cx);
+        self.prompt.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+        });
+        self.messages.push(ChatMessage {
+            role: ChatRole::User,
+            text: text.clone(),
+        });
+        self.busy = true;
+        self.error = None;
+        cx.notify();
+
+        let service = Arc::clone(&self.service);
+        let weak = cx.entity().downgrade();
+        let handle = self.tokio.clone();
+        let (ui_tx, mut ui_rx) = tokio::sync::mpsc::unbounded_channel::<ChatMessage>();
+        handle.spawn(async move {
+            let mut service = service.lock().await;
+            let result = service.send(req, "session-1", &text).await;
+            let mut receiver = match result {
+                Ok(rx) => rx,
+                Err(error) => {
+                    let _ = ui_tx.send(ChatMessage {
+                        role: ChatRole::Assistant,
+                        text: format!("Error: {error}"),
+                    });
+                    return;
+                }
+            };
+            while let Some(event) = receiver.recv().await {
+                use alva_kernel_core::event::AgentEvent;
+                match event {
+                    AgentEvent::MessageStart { message } => {
+                        let text = extract_text(&message);
+                        let _ = ui_tx.send(ChatMessage {
+                            role: ChatRole::Assistant,
+                            text,
+                        });
+                    }
+                    AgentEvent::MessageUpdate { message, .. } => {
+                        let text = extract_text(&message);
+                        let _ = ui_tx.send(ChatMessage {
+                            role: ChatRole::Assistant,
+                            text,
+                        });
+                    }
+                    AgentEvent::MessageEnd { message } => {
+                        let text = extract_text(&message);
+                        let _ = ui_tx.send(ChatMessage {
+                            role: ChatRole::Assistant,
+                            text,
+                        });
+                    }
+                    AgentEvent::AgentEnd { error: Some(error) } => {
+                        let _ = ui_tx.send(ChatMessage {
+                            role: ChatRole::Assistant,
+                            text: format!("Error: {error}"),
+                        });
+                    }
+                    AgentEvent::AgentEnd { error: None } => {}
+                    _ => {}
+                }
+            }
+        });
+        cx.spawn(async move |_this, cx| {
+            while let Some(message) = ui_rx.recv().await {
+                if let Some(hub) = weak.upgrade() {
+                    hub.update(cx, |hub, cx| {
+                        hub.upsert_assistant(message);
+                        cx.notify();
+                    });
+                }
+            }
+            if let Some(hub) = weak.upgrade() {
+                hub.update(cx, |hub, cx| {
+                    hub.busy = false;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Streaming assistant messages upsert the last assistant card until a
+    /// new user turn or completion replaces it.
+    fn upsert_assistant(&mut self, message: ChatMessage) {
+        if matches!(
+            self.messages.last().map(|m| &m.role),
+            Some(ChatRole::Assistant)
+        ) {
+            if let Some(last) = self.messages.last_mut() {
+                last.text = message.text;
+            }
+        } else {
+            self.messages.push(message);
+        }
+    }
+
+    fn chat_area(&self, cx: &Context<Self>) -> impl IntoElement {
+        let messages = self.messages.clone();
+        div()
+            .flex_1()
+            .size_full()
+            .v_flex()
+            .overflow_y_scrollbar()
+            .px_4()
+            .py_3()
+            .gap_2()
+            .children(if messages.is_empty() {
+                vec![v_flex()
+                    .flex_1()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .child(div().text_lg().font_weight(FontWeight(700.)).child("ALVA"))
+                    .child(
+                        div()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child("A helpful coding assistant, running natively."),
+                    )
+                    .into_any_element()]
+            } else {
+                messages
+                    .iter()
+                    .map(|message| {
+                        let is_user = matches!(message.role, ChatRole::User);
+                        let role_label = if is_user { "You" } else { "Alva" };
+                        let card = div()
+                            .id(SharedString::from(format!(
+                                "msg-{}-{}",
+                                if is_user { "u" } else { "a" },
+                                message.text.len()
+                            )))
+                            .v_flex()
+                            .gap_1()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .when(is_user, |this| this.bg(cx.theme().colors.button))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight(600.))
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(role_label),
+                            )
+                            .child(div().text_sm().child(message.text.clone()));
+                        card.into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            })
+    }
+
+    fn composer(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let busy = self.busy;
+        let weak = cx.entity().downgrade();
+        v_flex()
+            .gap_2()
+            .px_4()
+            .py_3()
+            .border_t_1()
+            .border_color(cx.theme().colors.border)
+            .child(Input::new(&self.prompt))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(if busy {
+                                "Alva is working…"
+                            } else {
+                                "Enter to send"
+                            }),
+                    )
+                    .child(
+                        Button::new("send")
+                            .primary()
+                            .label(if busy { "Running…" } else { "Send" })
+                            .disabled(busy)
+                            .on_click(move |_, window, cx| {
+                                if weak.upgrade().is_some() {
+                                    let handle = window.window_handle();
+                                    let _ = handle.update(cx, |root, window, cx| {
+                                        if let Ok(view) = root.downcast::<ChatApp>() {
+                                            view.update(cx, |hub, cx| {
+                                                hub.send(window, cx);
+                                            });
+                                        }
+                                    });
+                                }
+                            }),
+                    ),
+            )
+    }
+
+    fn topbar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .gap_2()
+            .px_4()
+            .py_3()
+            .border_b_1()
+            .border_color(cx.theme().colors.border)
+            .child(
+                h_flex()
+                    .gap_3()
+                    .items_center()
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("Provider"),
+                            )
+                            .child(Select::new(&self.provider).small()),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("Model"),
+                            )
+                            .child(Input::new(&self.model).small()),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("API key"),
+                            )
+                            .child(Input::new(&self.api_key).small()),
+                    )
+                    .child(div().flex_1()),
+            )
+    }
+}
+
+fn extract_text(message: &alva_kernel_abi::AgentMessage) -> String {
+    match message {
+        alva_kernel_abi::AgentMessage::Standard(message) => message.text_content(),
+        _ => String::new(),
+    }
+}
+
+impl Render for ChatApp {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .bg(cx.theme().colors.background)
+            .child(self.topbar(window, cx))
+            .child(self.chat_area(cx))
+            .child(self.composer(window, cx))
+    }
+}
+
+fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .init();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let tokio_handle = runtime.handle().clone();
+    let _guard = runtime.enter();
+    gpui_platform::application()
+        .with_assets(gpui_component_assets::Assets)
+        .run(move |cx| {
+            gpui_component::init(cx);
+            cx.spawn(async move |cx| {
+                let options = WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                        point(px(80.), px(60.)),
+                        size(px(1100.), px(760.)),
+                    ))),
+                    ..WindowOptions::default()
+                };
+                cx.open_window(options, |window, cx| {
+                    let view = cx.new(|cx| ChatApp::new(tokio_handle.clone(), window, cx));
+                    view.update(cx, |app, cx| {
+                        app.subscribe_prompt(window, cx);
+                    });
+                    cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().colors.background))
+                })
+                .expect("Failed to open window");
+            })
+            .detach();
+        });
+}

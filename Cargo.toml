@@ -37,6 +37,7 @@ members = [
     "crates/alva-worker-wasm",
     "crates/alva-app-extension-browser",
     "crates/alva-app-extension-memory",
+    "crates/alva-app-gpui",
     "crates/alva-app-extension-loader",
     "crates/alva-app-gateway",
 ]
