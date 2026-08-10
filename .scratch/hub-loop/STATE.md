@@ -376,3 +376,4 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 - iter206 | 完成: P2 后端核直接迁移(11 模块零修改入 GPUI 版, 139 测试全绿, 用户方向: 不抽中间层) | 验证: 139 lib tests | 清理: 无 | 下一步: P3 数据打通(GPUI UI 调 store)
 - iter207 | 完成: P3 UI↔store 打通(Sessions 菜单读真实会话+计数, 独立 dev db 实例锁) | 验证: build+clippy 绿 | 清理: 无 | 下一步: P4(引擎选择→run_persisted)
 - iter207b | 完成: P3 收尾(clippy 0 错+138/139 测试绿, real_claude 额度限制=环境) | 验证: 全绿(除额度) | 清理: 无 | 下一步: P4(run_persisted 执行)
+- iter208 | 完成: 批1 结构对齐(workspace 选择器+Details 按钮+会话列表, GPUI async 模式, clippy 0) | 验证: 134 tests+启动 | 清理: 无 | 下一步: 批2(P4 执行: timeline+run)
