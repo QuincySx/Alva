@@ -263,3 +263,11 @@ demo 覆盖：3 sessions + fallback/handoff + team run + approval 组 + readines
 状态：审查闭环收敛（三维度正向）；服务器内存守卫间歇（任务并发时）
 截图：/tmp/hub-current-v2.png（最新 UI）
 恢复：iter147 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter147 | 完成: mxfp4 恢复+空态审查+面板 aria-labelledby(5 面板) | 验证: 32 web | 清理: 无 | 下一步: iter148
+- iter148 | 完成: 全量质量门 | 验证: 139+25 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter149
+- iter149 | 完成: 视觉审查(模型主观波动: 与 Consistent 矛盾, 代码层 token 统一, 无 bug) | 验证: 甄别 | 清理: 无 | 下一步: iter150
+
+## 会话 checkpoint 11（iter149 末）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc
+状态：审查循环持续（甄别模型主观波动）；服务器内存间歇恢复
+恢复：iter150 续
