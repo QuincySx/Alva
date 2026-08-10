@@ -379,3 +379,4 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 - iter208 | 完成: 批1 结构对齐(workspace 选择器+Details 按钮+会话列表, GPUI async 模式, clippy 0) | 验证: 134 tests+启动 | 清理: 无 | 下一步: 批2(P4 执行: timeline+run)
 - iter209 | 完成: 批2 Run 真实执行(run_persisted 接线+timeline 卡片, 官方 async 模式) | 验证: 134 tests+clippy 0+启动 | 清理: 无 | 下一步: 批2b fallback 控件/timeline 5 态
 - iter210 | 完成: 批2b 5态 timeline 卡片(状态配色+徽章) | 验证: 134 tests+clippy 0 | 清理: 无 | 下一步: 批2c Stop/switch 控件
+- iter211 | 完成: 批2c fallback 卡片 View handoff(store 查+内联展开) | 验证: 134 tests+clippy 0 | 清理: 无 | 下一步: 批2d Stop/switch(HubRuntime)

@@ -291,12 +291,11 @@ impl HubApp {
                                             let store = Arc::clone(&store);
                                             if let Ok(Some(detail)) = store.get_session(&pid) {
                                                 if let Some(entity) = weak.upgrade() {
-                                                    let _ =
-                                                        app.update_entity(&entity, |hub, cx| {
-                                                            hub.open_handoff =
-                                                                detail.handoffs.into_iter().next();
-                                                            cx.notify();
-                                                        });
+                                                    app.update_entity(&entity, |hub, cx| {
+                                                        hub.open_handoff =
+                                                            detail.handoffs.into_iter().next();
+                                                        cx.notify();
+                                                    });
                                                 }
                                             }
                                         }
