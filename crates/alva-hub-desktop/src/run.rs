@@ -862,6 +862,22 @@ mod tests {
 
     use super::*;
 
+    /// Reopen with retry: the previous handle's instance-lock release can
+    /// lag behind drop under parallel load (source of a known flake).
+    fn reopen(database: &std::path::Path) -> crate::HubStore {
+        let mut last = String::new();
+        for _ in 0..50 {
+            match crate::HubStore::open(database) {
+                Ok(store) => return store,
+                Err(error) => {
+                    last = error;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            }
+        }
+        panic!("could not reopen {}: {last}", database.display());
+    }
+
     fn single_engine<E: EngineRuntime + 'static>(
         engine: Arc<E>,
     ) -> impl Fn(&EngineTarget, &str, PermissionProfile) -> Result<Arc<dyn EngineRuntime>, String>
@@ -1157,7 +1173,9 @@ mod tests {
         assert_ne!(first.product_session_id, "native-1");
         drop(store);
 
-        let reopened = crate::HubStore::open(&database).unwrap();
+        // Reopen with retry: under parallel load the previous handle's
+        // instance-lock release can lag behind drop (the flake this fixes).
+        let reopened = reopen(&database);
         let sessions = reopened.list_sessions().unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].product_session_id, first.product_session_id);
