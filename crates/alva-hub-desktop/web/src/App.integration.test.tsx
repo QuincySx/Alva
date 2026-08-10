@@ -1062,6 +1062,10 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
+    // The active session announces itself to screen readers.
+    expect(
+      screen.getByRole("button", { name: /Fix the build/ }),
+    ).toHaveAttribute("aria-current", "true");
     const toggle = screen.getByRole("button", { name: "Details" });
     await user.click(toggle);
     expect(
