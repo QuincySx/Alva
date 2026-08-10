@@ -540,6 +540,31 @@ export async function addTeamWorker(
 }
 
 export async function getPermissionGroups(): Promise<PermissionGroup[]> {
+  if (DEMO)
+    return [
+      {
+        group_key: "g-demo-bash",
+        tool_name: "bash",
+        members: [
+          {
+            scope: "tr-demo-1",
+            product_session_id: "ps-worker-1",
+            request_id: "rq-demo-1",
+            requester: "worker-demo-1",
+            tool_name: "bash",
+            resource: "src/queue.rs",
+          },
+          {
+            scope: "tr-demo-1",
+            product_session_id: "ps-worker-2",
+            request_id: "rq-demo-2",
+            requester: "worker-demo-2",
+            tool_name: "bash",
+            resource: "docs/",
+          },
+        ],
+      },
+    ];
   if (!hasTauri) return [];
   return await invoke<PermissionGroup[]>("get_permission_groups");
 }
