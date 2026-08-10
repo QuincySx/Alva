@@ -160,3 +160,4 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 模型：Qwen3.5-9B-mlx-vlm-mxfp4(文本+视觉主力, 内存守卫根因已解) + Qwen3-ASR-1.7B(语音)
 关键文件：docs/UI-AI-TOOLCHAIN.md(工具+踩坑+模型迁移) / docs/ALVA-HUB-V1.md / .scratch/hub-loop/
 恢复：读本文件 → iter93 续；每轮 npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查复核
+- iter99 | 完成: 迭代日志压缩(7 checkpoint + 范围摘要保留) | 验证: 162 行 | 清理: 无 | 下一步: iter100
