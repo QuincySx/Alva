@@ -207,3 +207,8 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 全绿：139+25+21 lib / 32 web / ci 46 / tsc
 累计 iter1-117 全记录；审查循环稳定(误判可甄别)
 恢复：iter118 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter118b | 完成: 补提交 vision --click/--steps(漏提交) + a11y prompt 改进 | 验证: 语法 | 清理: 无 | 下一步: iter119
+- iter119 | 完成: 全量质量门 | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter120
+- iter120 | 完成: composer footer 间距(动作行透气) | 验证: 32 web | 清理: 无 | 下一步: iter121
+- iter121 | 完成: 全量质量门 | 验证: 139+25 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter122
+- iter122 | 完成: 一致性审查通过(模型判定 Consistent: 对齐/间距统一) — 120 轮修复的里程碑 | 验证: 审查通过 | 清理: 无 | 下一步: iter123
