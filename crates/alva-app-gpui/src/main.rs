@@ -45,6 +45,7 @@ enum View {
     Chat,
     Skills,
     Mcp,
+    Inspector,
 }
 
 const PROVIDERS: [&str; 3] = ["anthropic", "openai-responses", "gemini"];
@@ -76,6 +77,8 @@ struct ChatApp {
     tools_open: bool,
     tool_catalog: Vec<crate::tools::PluginToolInfo>,
     selected_tools: std::collections::HashSet<String>,
+    // Inspector.
+    inspector_record: Option<alva_app_core::session_projection::RunRecord>,
 }
 
 impl ChatApp {
@@ -138,6 +141,7 @@ impl ChatApp {
             tools_open: false,
             tool_catalog: crate::tools::all_default_tools(),
             selected_tools: std::collections::HashSet::new(),
+            inspector_record: None,
         }
     }
 
@@ -778,7 +782,8 @@ impl ChatApp {
                     .gap_1()
                     .child(self.nav_button("Chat", View::Chat, cx))
                     .child(self.nav_button("Skills", View::Skills, cx))
-                    .child(self.nav_button("MCP", View::Mcp, cx)),
+                    .child(self.nav_button("MCP", View::Mcp, cx))
+                    .child(self.nav_button("Inspector", View::Inspector, cx)),
             )
             .child(
                 div()
@@ -987,6 +992,198 @@ impl ChatApp {
             })
     }
 
+    fn load_inspector_record(&mut self, session_id: &str, cx: &mut Context<Self>) {
+        let manager = Arc::clone(&self.session_manager);
+        let weak = cx.entity().downgrade();
+        let handle = self.tokio.clone();
+        let (tx, mut rx) =
+            tokio::sync::mpsc::unbounded_channel::<alva_app_core::session_projection::RunRecord>();
+        let session_id = session_id.to_string();
+        handle.spawn(async move {
+            use alva_kernel_abi::agent_session::{AgentSession as _, EventQuery};
+            if let Some(session) = manager.load_session(&session_id).await {
+                let events: Vec<alva_kernel_abi::agent_session::SessionEvent> = session
+                    .query(&EventQuery {
+                        limit: usize::MAX,
+                        ..Default::default()
+                    })
+                    .await
+                    .into_iter()
+                    .map(|m| m.event)
+                    .collect();
+                let record = alva_app_core::session_projection::build_run_record(&events);
+                let _ = tx.send(record);
+            }
+        });
+        cx.spawn(async move |_this, cx| {
+            while let Some(record) = rx.recv().await {
+                if let Some(hub) = weak.upgrade() {
+                    hub.update(cx, |hub, cx| {
+                        hub.inspector_record = Some(record);
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn inspector_view(&self, cx: &Context<Self>) -> impl IntoElement {
+        let record = self.inspector_record.clone();
+        let sessions = self.sessions.clone();
+        let active = self.active_session_id.clone();
+        let weak = cx.entity().downgrade();
+        div()
+            .flex_1()
+            .size_full()
+            .v_flex()
+            .overflow_y_scrollbar()
+            .px_4()
+            .py_3()
+            .gap_2()
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight(600.))
+                    .child("Inspector"),
+            )
+            .children(sessions.iter().map(|session| {
+                let weak = weak.clone();
+                let id = session.session_id.clone();
+                let preview = session.preview.clone();
+                let is_active = active.as_deref() == Some(id.as_str());
+                Button::new(SharedString::from(format!("inspect-{id}")))
+                    .ghost()
+                    .small()
+                    .label(if is_active {
+                        format!("{preview} (active)")
+                    } else {
+                        preview
+                    })
+                    .selected(is_active)
+                    .on_click(move |_, window, cx| {
+                        if weak.upgrade().is_some() {
+                            let handle = window.window_handle();
+                            let _ = handle.update(cx, |root, _window, cx| {
+                                if let Ok(view) = root.downcast::<ChatApp>() {
+                                    view.update(cx, |hub, cx| {
+                                        hub.load_inspector_record(&id, cx);
+                                        cx.notify();
+                                    });
+                                }
+                            });
+                        }
+                    })
+                    .into_any_element()
+            }))
+            .child(if let Some(record) = record {
+                v_flex()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(format!("model: {}", record.config_snapshot.model_id)),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(format!("{} turns", record.turns.len())),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(format!(
+                                        "{}in/{}out tokens",
+                                        record.total_input_tokens, record.total_output_tokens
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(format!("{} ms", record.total_duration_ms)),
+                            ),
+                    )
+                    .children(record.turns.iter().map(|turn| {
+                        let stop = turn.llm_call.stop_reason.clone();
+                        let input = turn.llm_call.input_tokens;
+                        let output = turn.llm_call.output_tokens;
+                        let tools = turn
+                            .tool_calls
+                            .iter()
+                            .map(|tc| tc.tool_call.name.clone())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let prompt_text = turn
+                            .llm_call
+                            .messages_sent
+                            .last()
+                            .map(|m| m.text_content())
+                            .unwrap_or_default();
+                        let response = turn
+                            .llm_call
+                            .response
+                            .as_ref()
+                            .map(|m| m.text_content())
+                            .unwrap_or_default();
+                        v_flex()
+                            .gap_1()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(cx.theme().colors.border)
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight(600.))
+                                            .child(format!("Turn {}", turn.turn_number)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().colors.muted_foreground)
+                                            .child(format!("{stop} · {input}in/{output}out")),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(prompt_text),
+                            )
+                            .when(!response.is_empty(), |this| {
+                                this.child(div().text_sm().child(response))
+                            })
+                            .when(!tools.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().colors.muted_foreground)
+                                        .child(format!("tools: {tools}")),
+                                )
+                            })
+                            .into_any_element()
+                    }))
+                    .into_any_element()
+            } else {
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().colors.muted_foreground)
+                    .child("Select a session above to inspect its run record.")
+                    .into_any_element()
+            })
+    }
+
     fn refresh_sessions(&mut self) {
         self.sessions = self.session_manager.list_sessions();
     }
@@ -1062,6 +1259,8 @@ impl Render for ChatApp {
                         self.skills_view(cx).into_any_element()
                     } else if self.view == View::Mcp {
                         self.mcp_view(cx).into_any_element()
+                    } else if self.view == View::Inspector {
+                        self.inspector_view(cx).into_any_element()
                     } else {
                         v_flex()
                             .flex_1()
