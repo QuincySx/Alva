@@ -298,3 +298,6 @@ demo 覆盖：3 sessions + fallback/handoff + team run + approval 组 + readines
 demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) 全完整
 审查收敛 + 甄别原则生效；恢复：iter164 续
 - iter164 | 完成: drawer 打开态视觉审查(清晰, 密集=滚动设计) | 验证: 审查 | 清理: 无 | 下一步: iter165
+- iter165 | 完成: 全量质量门 | 验证: 139+25 lib, 32 web | 清理: cargo clean | 下一步: iter166
+- iter165b | 完成: 修复偶发 flake 根因(reopen 重试, 消除并行锁竞争) | 验证: 139 lib 绿 | 清理: cargo clean | 下一步: iter166
+- iter166 | 完成: 偶发修复稳定性验证(3 连跑全绿) | 验证: 139 lib x3 | 清理: 无 | 下一步: iter167
