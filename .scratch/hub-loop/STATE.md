@@ -306,3 +306,10 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 924 commits / 偶发 flake 根治(3连绿)
 产品/工具/模型/审查闭环全部收敛；文档齐全（HUB-LOOP-SUMMARY / UI-AI-TOOLCHAIN）
 恢复：iter168 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter168/169 | 完成: mxfp4 通道复测(健康) + 全量质量门 | 验证: 139+25+21 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter170
+- iter170 | 完成: 空态视觉审查(更正面, 显灰=深色主题固有, 对比已达标) | 验证: 审查 | 清理: 无 | 下一步: iter171
+
+## 会话 checkpoint 15（iter170 末）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc
+状态稳定：审查循环收敛、偶发根治、工具/模型/文档齐全
+恢复：iter171 续
