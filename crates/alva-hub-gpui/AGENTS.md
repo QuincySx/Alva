@@ -10,9 +10,11 @@
 
 ## 0. 硬性前提（必须先做）
 
-1. **独立 workspace**：`alva-hub-gpui` 自带 `[workspace]` 表，**不进主 workspace**
-   ——gpui 需要 wasm-bindgen ≥0.2.120，与主 workspace 的 alva-host-wasm（锁 0.2.114）
-   冲突。命令：`cd crates/alva-hub-gpui && cargo build`（在 crate 内跑）。
+1. **主 workspace 成员**：`alva-hub-gpui` 在主 workspace 里（与其他 crate 统一管理）。
+   gpui 需要 wasm-bindgen ≥0.2.120，与旧锁的 0.2.114 冲突——**解法是升级
+   wasm-bindgen + wasm-bindgen-futures**（`cargo update -p wasm-bindgen-futures -p
+   wasm-bindgen`，现锁 0.2.127/0.4.77），已验证 alva-host-wasm 与全 workspace 编译通过。
+   命令：`cargo check -p alva-hub-gpui`（workspace 根跑）。
 2. **初始化顺序**（入口必须如此）：
    ```rust
    fn main() {
