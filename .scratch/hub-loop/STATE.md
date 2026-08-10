@@ -145,3 +145,6 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 模型：Qwen3.5-9B-mlx-vlm-mxfp4(文本+视觉主力, 内存守卫根因已解) + Qwen3-ASR-1.7B(语音)
 关键文件：docs/UI-AI-TOOLCHAIN.md(工具+踩坑+模型迁移) / docs/ALVA-HUB-V1.md / .scratch/hub-loop/
 恢复：读本文件 → iter93 续；每轮 npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查复核
+- iter93 | 完成: 状态徽章细边框(质感) | 验证: 29 web | 清理: 无 | 下一步: iter94
+- iter94 | 完成: 全量质量门 | 验证: 139 lib, ci 46, 29 web | 清理: cargo clean | 下一步: iter95
+- iter95 | 完成: 团队面板展开态视觉审查(无新真实 bug; summary 已修, 其余误判) | 验证: 审查通过 | 清理: 无 | 下一步: iter96
