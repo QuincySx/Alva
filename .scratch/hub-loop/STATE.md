@@ -192,3 +192,10 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 - iter111 | 完成: session 相对时间(修正: 非有限输入守卫, 防 React 崩溃) | 验证: 32 web | 清理: 无 | 下一步: iter112
 - iter112 | 完成: 全量质量门 | 验证: 139+25+21 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter113
 - iter113 | 完成: session 相对时间渲染验证(2024 数据→日期显示) | 验证: DOM | 清理: 无 | 下一步: iter114
+- iter114 | 完成: demo 布局审查(甄别: 模型坐标读法不准, 无新 bug) | 验证: 审查 | 清理: 无 | 下一步: iter115
+
+## 会话最终 checkpoint（iter114 末）
+全量绿：139+25+21 lib / 32 web / ci 46
+累计 114 轮迭代全记录（STATE.md + 8 checkpoint）
+产品/工具/模型全部就绪；审查循环稳定（误判可甄别，修复持续）
+恢复：iter115 续；npm test + cargo test -p alva-hub-desktop --lib；UI 走 wireframe+审查
