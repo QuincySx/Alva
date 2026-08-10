@@ -5,6 +5,9 @@
 //         sessions (SQLite), settings, skills/mcp, tools and inspector.
 
 mod service;
+mod sqlite_session;
+
+use alva_kernel_abi::agent_session::AgentSession as _;
 
 use std::sync::Arc;
 
@@ -20,6 +23,7 @@ use gpui_component::{
 };
 
 use service::{AgentService, SendRequest};
+use sqlite_session::{SessionSummary, SqliteEvalSessionManager};
 
 #[derive(Clone)]
 enum ChatRole {
@@ -37,6 +41,9 @@ const PROVIDERS: [&str; 3] = ["anthropic", "openai-responses", "gemini"];
 
 struct ChatApp {
     service: Arc<tokio::sync::Mutex<AgentService>>,
+    session_manager: Arc<SqliteEvalSessionManager>,
+    sessions: Vec<SessionSummary>,
+    active_session_id: Option<String>,
     tokio: tokio::runtime::Handle,
     provider: Entity<SelectState<SearchableVec<&'static str>>>,
     model: Entity<InputState>,
@@ -49,8 +56,20 @@ struct ChatApp {
 
 impl ChatApp {
     fn new(tokio: tokio::runtime::Handle, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let db_path = std::env::var("ALVA_APP_DB").unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+            format!("{home}/Library/Application Support/com.alva.app-gpui/alva.db")
+        });
+        let session_manager = Arc::new(
+            SqliteEvalSessionManager::open(std::path::PathBuf::from(db_path))
+                .expect("open session db"),
+        );
+        let sessions = session_manager.list_sessions();
         Self {
             service: Arc::new(tokio::sync::Mutex::new(AgentService::new())),
+            session_manager,
+            sessions,
+            active_session_id: None,
             tokio,
             provider: cx.new(|cx| {
                 SelectState::new(
@@ -133,13 +152,17 @@ impl ChatApp {
         self.error = None;
         cx.notify();
 
+        let session_id = self
+            .active_session_id
+            .clone()
+            .unwrap_or_else(|| "session-1".to_string());
         let service = Arc::clone(&self.service);
         let weak = cx.entity().downgrade();
         let handle = self.tokio.clone();
         let (ui_tx, mut ui_rx) = tokio::sync::mpsc::unbounded_channel::<ChatMessage>();
         handle.spawn(async move {
             let mut service = service.lock().await;
-            let result = service.send(req, "session-1", &text).await;
+            let result = service.send(req, &session_id, &text).await;
             let mut receiver = match result {
                 Ok(rx) => rx,
                 Err(error) => {
@@ -376,14 +399,166 @@ fn extract_text(message: &alva_kernel_abi::AgentMessage) -> String {
     }
 }
 
+impl ChatApp {
+    fn sidebar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let sessions = self.sessions.clone();
+        let active = self.active_session_id.clone();
+        let weak_new = cx.entity().downgrade();
+        let weak = cx.entity().downgrade();
+        v_flex()
+            .id("app-sidebar")
+            .flex_col()
+            .gap_2()
+            .px_3()
+            .py_3()
+            .w(px(240.))
+            .bg(cx.theme().colors.sidebar)
+            .border_r_1()
+            .border_color(cx.theme().colors.border)
+            .overflow_y_scrollbar()
+            .child(
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_lg().font_weight(FontWeight(700.)).child("ALVA"))
+                    .child(
+                        Button::new("new-session")
+                            .secondary()
+                            .xsmall()
+                            .label("New")
+                            .on_click(move |_, window, app| {
+                                if weak_new.upgrade().is_some() {
+                                    let handle = window.window_handle();
+                                    let _ = handle.update(app, |root, window, cx| {
+                                        if let Ok(view) = root.downcast::<ChatApp>() {
+                                            view.update(cx, |hub, cx| {
+                                                hub.new_session(window, cx);
+                                            });
+                                        }
+                                    });
+                                }
+                            }),
+                    ),
+            )
+            .child(div().flex_col().gap_1().children(if sessions.is_empty() {
+                vec![div()
+                    .text_xs()
+                    .text_color(cx.theme().colors.muted_foreground)
+                    .child("No sessions yet.")
+                    .into_any_element()]
+            } else {
+                sessions
+                    .iter()
+                    .map(|session| {
+                        let weak = weak.clone();
+                        let id = session.session_id.clone();
+                        let preview = session.preview.clone();
+                        let is_active = active.as_deref() == Some(session.session_id.as_str());
+                        div()
+                            .id(SharedString::from(format!("session-{id}")))
+                            .v_flex()
+                            .gap_1()
+                            .px_2()
+                            .py_1_5()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .when(is_active, |this| this.bg(cx.theme().colors.button))
+                            .child(div().text_sm().font_weight(FontWeight(600.)).child(preview))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(id.chars().take(8).collect::<String>()),
+                            )
+                            .on_click(move |_, window, cx| {
+                                if weak.upgrade().is_some() {
+                                    let handle = window.window_handle();
+                                    let _ = handle.update(cx, |root, window, cx| {
+                                        if let Ok(view) = root.downcast::<ChatApp>() {
+                                            view.update(cx, |hub, cx| {
+                                                hub.switch_session(&id, window, cx);
+                                            });
+                                        }
+                                    });
+                                }
+                            })
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            }))
+    }
+
+    fn refresh_sessions(&mut self) {
+        self.sessions = self.session_manager.list_sessions();
+    }
+
+    fn new_session(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let manager = Arc::clone(&self.session_manager);
+        let weak = cx.entity().downgrade();
+        let handle = self.tokio.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        handle.spawn(async move {
+            let session = manager.create_session("New session").await;
+            let _ = tx.send(session.session_id().to_string());
+        });
+        cx.spawn(async move |_this, cx| {
+            while let Some(id) = rx.recv().await {
+                if let Some(hub) = weak.upgrade() {
+                    hub.update(cx, |hub, cx| {
+                        hub.refresh_sessions();
+                        hub.active_session_id = Some(id);
+                        hub.messages.clear();
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn switch_session(&mut self, id: &str, _window: &mut Window, cx: &mut Context<Self>) {
+        let id = id.to_string();
+        self.active_session_id = Some(id.clone());
+        self.messages.clear();
+        let manager = Arc::clone(&self.session_manager);
+        let weak = cx.entity().downgrade();
+        let handle = self.tokio.clone();
+        let service = Arc::clone(&self.service);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let id_spawn = id.clone();
+        handle.spawn(async move {
+            let _loaded = manager.load_session(&id_spawn).await;
+            let _ = service;
+            let _ = tx.send(());
+        });
+        cx.spawn(async move |_this, cx| {
+            while rx.recv().await.is_some() {
+                if let Some(hub) = weak.upgrade() {
+                    hub.update(cx, |hub, cx| {
+                        hub.refresh_sessions();
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+}
+
 impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
+        h_flex()
             .size_full()
             .bg(cx.theme().colors.background)
-            .child(self.topbar(window, cx))
-            .child(self.chat_area(cx))
-            .child(self.composer(window, cx))
+            .child(self.sidebar(window, cx))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .size_full()
+                    .child(self.topbar(window, cx))
+                    .child(self.chat_area(cx))
+                    .child(self.composer(window, cx)),
+            )
     }
 }
 
