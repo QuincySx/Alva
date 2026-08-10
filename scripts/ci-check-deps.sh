@@ -180,7 +180,7 @@ echo "Checking native products do not depend on alva-engine-* (Rule 18)..."
 
 NATIVE_PRODUCTS=(
     alva-app-cli
-    alva-app-tauri
+    alva-app-gpui
 )
 
 for crate in "${NATIVE_PRODUCTS[@]}"; do

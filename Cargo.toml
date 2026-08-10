@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/alva-app-tauri",
     "crates/alva-app-core",
     "crates/alva-app-cli",
     "crates/alva-app-debug",
