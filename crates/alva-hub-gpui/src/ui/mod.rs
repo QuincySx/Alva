@@ -87,6 +87,31 @@ pub fn describe_claim(claim: &alva_hub_gpui::ResourceClaim) -> String {
     }
 }
 
+/// One engine selector option: value is the engine id, label carries the
+/// readiness/eligibility suffix like the React option text.
+#[derive(Clone, PartialEq)]
+pub struct EngineOption {
+    pub engine_id: String,
+    pub label: String,
+    pub enabled: bool,
+}
+
+impl gpui_component::searchable_list::SearchableListItem for EngineOption {
+    type Value = String;
+
+    fn title(&self) -> gpui::SharedString {
+        self.label.clone().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.engine_id
+    }
+
+    fn disabled(&self) -> bool {
+        !self.enabled
+    }
+}
+
 /// One dispatch target: value is the worker id, label is "To worker on …".
 #[derive(Clone, PartialEq)]
 pub struct WorkerOption {

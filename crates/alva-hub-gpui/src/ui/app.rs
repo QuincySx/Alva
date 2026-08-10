@@ -27,7 +27,7 @@ use alva_hub_gpui::{
     TimelineStatus,
 };
 
-use super::{profile_label, WorkerOption};
+use super::{EngineOption, WorkerOption, profile_label};
 use alva_hub_gpui::{project_timeline, ProjectedEvent};
 
 const ENGINE_OPTIONS: [&str; 3] = ["alva", "claude", "codex"];
@@ -44,7 +44,7 @@ pub struct HubApp {
     /// window for stateful-component updates.
     pub window_handle: AnyWindowHandle,
     pub workspace: Option<String>,
-    pub engine: Entity<SelectState<SearchableVec<&'static str>>>,
+    pub engine: Entity<SelectState<SearchableVec<EngineOption>>>,
     pub permission: Entity<SelectState<SearchableVec<&'static str>>>,
     pub prompt: Entity<InputState>,
     pub timeline: Vec<ProjectedEvent>,
@@ -207,7 +207,7 @@ impl HubApp {
             answered_permissions: HashMap::new(),
             engine: cx.new(|cx| {
                 SelectState::new(
-                    SearchableVec::new(ENGINE_OPTIONS.to_vec()),
+                    SearchableVec::new(Self::engine_options(&[])),
                     Some(IndexPath::new(0)),
                     window,
                     cx,
@@ -233,6 +233,53 @@ impl HubApp {
         app.sync_policy_inputs(window, cx);
         app.refresh_readiness(cx);
         app
+    }
+
+    fn engine_options(readiness: &[EngineReadiness]) -> Vec<EngineOption> {
+        ENGINE_OPTIONS
+            .iter()
+            .map(|id| {
+                let display = match *id {
+                    "alva" => "Alva",
+                    "claude" => "Claude",
+                    "codex" => "Codex",
+                    _ => id,
+                };
+                let suffix = readiness
+                    .iter()
+                    .find(|report| report.engine_id == *id)
+                    .map(|report| match report.status {
+                        alva_hub_gpui::ReadinessStatus::Healthy => String::new(),
+                        alva_hub_gpui::ReadinessStatus::Missing => {
+                            " — Not installed".to_string()
+                        }
+                        alva_hub_gpui::ReadinessStatus::Incompatible => {
+                            " — Incompatible".to_string()
+                        }
+                        alva_hub_gpui::ReadinessStatus::Unauthenticated => {
+                            " — Sign-in needed".to_string()
+                        }
+                        alva_hub_gpui::ReadinessStatus::Unhealthy => " — Unhealthy".to_string(),
+                    })
+                    .unwrap_or_default();
+                EngineOption {
+                    engine_id: (*id).to_string(),
+                    label: format!("{display}{suffix}"),
+                    enabled: true,
+                }
+            })
+            .collect()
+    }
+
+    /// Rebuild the engine selector options after readiness changes.
+    pub fn sync_engine_options(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let options = Self::engine_options(&self.readiness);
+        let current = self.selected_engine(cx);
+        self.engine.update(cx, |state, cx| {
+            state.set_items(SearchableVec::new(options.clone()), window, cx);
+            let index = options.iter().position(|option| option.engine_id == current);
+            state.set_selected_index(index.map(IndexPath::new), window, cx);
+        });
     }
 
     pub fn selected_engine(&self, cx: &App) -> String {
@@ -414,6 +461,9 @@ impl HubApp {
                     hub.readiness = readiness;
                     hub.repair_plan = plan;
                     hub.readiness_busy = false;
+                    with_window(cx, hub.window_handle, |hub, window, cx| {
+                        hub.sync_engine_options(window, cx);
+                    });
                     cx.notify();
                 });
             }
