@@ -199,3 +199,11 @@ a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1
 累计 114 轮迭代全记录（STATE.md + 8 checkpoint）
 产品/工具/模型全部就绪；审查循环稳定（误判可甄别，修复持续）
 恢复：iter115 续；npm test + cargo test -p alva-hub-desktop --lib；UI 走 wireframe+审查
+- iter115 | 完成: 折叠按钮展开态 accent 色(视觉状态) | 验证: 32 web | 清理: 无 | 下一步: iter116
+- iter116 | 完成: 全量质量门 | 验证: 139 lib, ci 46, 32 web | 清理: cargo clean | 下一步: iter117
+- iter117 | 完成: 配色复验(绿色统一/对比达标/警告色合理, 误判为主) | 验证: 审查 | 清理: 无 | 下一步: iter118
+
+## 会话 checkpoint 8（iter117 末）
+全绿：139+25+21 lib / 32 web / ci 46 / tsc
+累计 iter1-117 全记录；审查循环稳定(误判可甄别)
+恢复：iter118 续；npm test + cargo test -p alva-hub-desktop --lib
