@@ -12,7 +12,9 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 
 # Core agent stack (same as alva-app-tauri, minus tauri).
+alva-agent-security = { path = "../alva-agent-security" }
 alva-app-core = { path = "../alva-app-core" }
+alva-host-native = { path = "../alva-host-native" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }

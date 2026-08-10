@@ -40,6 +40,11 @@ struct ChatMessage {
     text: String,
 }
 
+enum UiEvent {
+    Message(ChatMessage),
+    Approval(alva_host_native::middleware::ApprovalRequest),
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum View {
     Chat,
@@ -83,6 +88,8 @@ struct ChatApp {
     gateway_port: Entity<InputState>,
     gateway_abort: Option<tokio::task::AbortHandle>,
     gateway_status: Option<String>,
+    // Approvals.
+    pending_approvals: Vec<alva_host_native::middleware::ApprovalRequest>,
 }
 
 impl ChatApp {
@@ -149,6 +156,7 @@ impl ChatApp {
             gateway_port: cx.new(|cx| InputState::new(window, cx).placeholder("8080")),
             gateway_abort: None,
             gateway_status: None,
+            pending_approvals: Vec::new(),
         }
     }
 
@@ -368,19 +376,35 @@ impl ChatApp {
             .clone()
             .unwrap_or_else(|| "session-1".to_string());
         let service = Arc::clone(&self.service);
+        let service_arc = Arc::clone(&self.service);
         let weak = cx.entity().downgrade();
         let handle = self.tokio.clone();
-        let (ui_tx, mut ui_rx) = tokio::sync::mpsc::unbounded_channel::<ChatMessage>();
+        let handle_inner = handle.clone();
+        let (ui_tx, mut ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
         handle.spawn(async move {
             let mut service = service.lock().await;
+            let drain_tx = ui_tx.clone();
+            let drain_service = Arc::clone(&service_arc);
+            handle_inner.spawn(async move {
+                let drain_svc = drain_service.lock().await;
+                let (approval_tx, mut approval_rx) = tokio::sync::mpsc::unbounded_channel::<
+                    alva_host_native::middleware::ApprovalRequest,
+                >();
+                drain_svc.drain_approvals(approval_tx).await;
+                while let Some(request) = approval_rx.recv().await {
+                    if drain_tx.send(UiEvent::Approval(request)).is_err() {
+                        break;
+                    }
+                }
+            });
             let result = service.send(req, &session_id, &text).await;
             let mut receiver = match result {
                 Ok(rx) => rx,
                 Err(error) => {
-                    let _ = ui_tx.send(ChatMessage {
+                    let _ = ui_tx.send(UiEvent::Message(ChatMessage {
                         role: ChatRole::Assistant,
                         text: format!("Error: {error}"),
-                    });
+                    }));
                     return;
                 }
             };
@@ -389,30 +413,30 @@ impl ChatApp {
                 match event {
                     AgentEvent::MessageStart { message } => {
                         let text = extract_text(&message);
-                        let _ = ui_tx.send(ChatMessage {
+                        let _ = ui_tx.send(UiEvent::Message(ChatMessage {
                             role: ChatRole::Assistant,
                             text,
-                        });
+                        }));
                     }
                     AgentEvent::MessageUpdate { message, .. } => {
                         let text = extract_text(&message);
-                        let _ = ui_tx.send(ChatMessage {
+                        let _ = ui_tx.send(UiEvent::Message(ChatMessage {
                             role: ChatRole::Assistant,
                             text,
-                        });
+                        }));
                     }
                     AgentEvent::MessageEnd { message } => {
                         let text = extract_text(&message);
-                        let _ = ui_tx.send(ChatMessage {
+                        let _ = ui_tx.send(UiEvent::Message(ChatMessage {
                             role: ChatRole::Assistant,
                             text,
-                        });
+                        }));
                     }
                     AgentEvent::AgentEnd { error: Some(error) } => {
-                        let _ = ui_tx.send(ChatMessage {
+                        let _ = ui_tx.send(UiEvent::Message(ChatMessage {
                             role: ChatRole::Assistant,
                             text: format!("Error: {error}"),
-                        });
+                        }));
                     }
                     AgentEvent::AgentEnd { error: None } => {}
                     _ => {}
@@ -420,10 +444,21 @@ impl ChatApp {
             }
         });
         cx.spawn(async move |_this, cx| {
-            while let Some(message) = ui_rx.recv().await {
+            while let Some(event) = ui_rx.recv().await {
                 if let Some(hub) = weak.upgrade() {
                     hub.update(cx, |hub, cx| {
-                        hub.upsert_assistant(message);
+                        match event {
+                            UiEvent::Message(message) => hub.upsert_assistant(message),
+                            UiEvent::Approval(request) => {
+                                if !hub
+                                    .pending_approvals
+                                    .iter()
+                                    .any(|p| p.request_id == request.request_id)
+                                {
+                                    hub.pending_approvals.push(request);
+                                }
+                            }
+                        }
                         cx.notify();
                     });
                 }
@@ -650,6 +685,104 @@ impl ChatApp {
             );
         }
         rows
+    }
+
+    fn resolve_approval(&mut self, request_id: &str, allow: bool, cx: &mut Context<Self>) {
+        let service = Arc::clone(&self.service);
+        let handle = self.tokio.clone();
+        let request_id = request_id.to_string();
+        let tool_name = self
+            .pending_approvals
+            .iter()
+            .find(|p| p.request_id == request_id)
+            .map(|p| p.tool_name.clone())
+            .unwrap_or_default();
+        self.pending_approvals
+            .retain(|p| p.request_id != request_id);
+        let weak = cx.entity().downgrade();
+        handle.spawn(async move {
+            let mut service = service.lock().await;
+            let _ = service.resolve(&request_id, &tool_name, allow).await;
+            if let Some(hub) = weak.upgrade() {
+                let _ = hub;
+            }
+        });
+        cx.notify();
+    }
+
+    fn approval_cards(&self, cx: &Context<Self>) -> impl IntoElement {
+        let approvals = self.pending_approvals.clone();
+        let weak = cx.entity().downgrade();
+        div()
+            .v_flex()
+            .gap_2()
+            .children(approvals.iter().map(|request| {
+                let weak = weak.clone();
+                let request_id = request.request_id.clone();
+                let tool_name = request.tool_name.clone();
+                let arguments = request
+                    .arguments
+                    .to_string()
+                    .chars()
+                    .take(120)
+                    .collect::<String>();
+                v_flex()
+                    .gap_1_5()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(cx.theme().colors.warning)
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight(600.))
+                            .child(format!("Approval needed: {tool_name}")),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(arguments),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new(SharedString::from(format!("allow-{request_id}")))
+                                    .small()
+                                    .label("Allow")
+                                    .on_click({
+                                        let weak = weak.clone();
+                                        let request_id = request_id.clone();
+                                        move |_, _, cx| {
+                                            if let Some(entity) = weak.upgrade() {
+                                                entity.update(cx, |hub, cx| {
+                                                    hub.resolve_approval(&request_id, true, cx);
+                                                });
+                                            }
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("deny-{request_id}")))
+                                    .small()
+                                    .label("Deny")
+                                    .on_click({
+                                        let weak = weak.clone();
+                                        let request_id = request_id.clone();
+                                        move |_, _, cx| {
+                                            if let Some(entity) = weak.upgrade() {
+                                                entity.update(cx, |hub, cx| {
+                                                    hub.resolve_approval(&request_id, false, cx);
+                                                });
+                                            }
+                                        }
+                                    }),
+                            ),
+                    )
+                    .into_any_element()
+            }))
     }
 
     fn chat_area(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -1397,6 +1530,7 @@ impl Render for ChatApp {
                         v_flex()
                             .flex_1()
                             .size_full()
+                            .child(self.approval_cards(cx))
                             .child(self.chat_area(cx))
                             .child(self.composer(window, cx))
                             .into_any_element()

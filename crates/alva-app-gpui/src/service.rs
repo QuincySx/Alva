@@ -28,6 +28,15 @@ pub struct SendRequest {
 pub struct AgentService {
     pub agent: Option<Arc<BaseAgent>>,
     agent_key: Option<String>,
+    /// Approval-request receiver from the built agent's ApprovalPlugin;
+    /// drained by the send loop and forwarded to the UI.
+    pub approval_rx: Arc<
+        tokio::sync::Mutex<
+            Option<
+                tokio::sync::mpsc::UnboundedReceiver<alva_host_native::middleware::ApprovalRequest>,
+            >,
+        >,
+    >,
 }
 
 fn default_plugin_state() -> HashMap<String, bool> {
@@ -145,6 +154,7 @@ impl AgentService {
         Self {
             agent: None,
             agent_key: None,
+            approval_rx: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -191,8 +201,9 @@ impl AgentService {
             .workspace(&workspace)
             .system_prompt(&system_prompt)
             .max_iterations(20);
-        let (approval_ext, _rx) = ApprovalPlugin::with_channel();
+        let (approval_ext, approval_rx) = ApprovalPlugin::with_channel();
         builder = builder.plugin(Box::new(approval_ext));
+        *self.approval_rx.lock().await = Some(approval_rx);
         let toggles: alva_app_core::components::ComponentToggles = plugin_config;
         let component_ctx = alva_app_core::components::ComponentContext {
             workspace: workspace.clone(),
@@ -247,6 +258,47 @@ impl AgentService {
         agent.set_reasoning_effort(effort).await;
         agent.set_allowed_tools(req.tool_names.clone()).await;
         Ok(agent.prompt_text(text).await)
+    }
+
+    /// Answer a pending approval through the current agent (AllowOnce /
+    /// RejectOnce UI decisions).
+    pub async fn resolve(
+        &mut self,
+        request_id: &str,
+        tool_name: &str,
+        allow: bool,
+    ) -> Result<(), String> {
+        let agent = self
+            .agent
+            .clone()
+            .ok_or_else(|| "no agent built yet".to_string())?;
+        let decision = if allow {
+            alva_agent_security::PermissionDecision::AllowOnce
+        } else {
+            alva_agent_security::PermissionDecision::RejectOnce
+        };
+        agent
+            .resolve_permission(request_id, tool_name, decision)
+            .await;
+        Ok(())
+    }
+
+    /// Drain pending approvals into the given channel (called alongside send).
+    pub async fn drain_approvals(
+        &self,
+        ui_tx: tokio::sync::mpsc::UnboundedSender<alva_host_native::middleware::ApprovalRequest>,
+    ) {
+        let rx = {
+            let mut guard = self.approval_rx.lock().await;
+            guard.take()
+        };
+        if let Some(mut rx) = rx {
+            while let Some(request) = rx.recv().await {
+                if ui_tx.send(request).is_err() {
+                    break;
+                }
+            }
+        }
     }
 }
 
