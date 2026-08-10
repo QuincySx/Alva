@@ -290,3 +290,4 @@ demo 覆盖：3 sessions + fallback/handoff + team run + approval 组 + readines
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 919 commits
 状态：审查收敛（主观波动甄别原则生效）；文档齐全（HUB-LOOP-SUMMARY/UI-AI-TOOLCHAIN）
 恢复：iter161 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter161 | 完成: demo drawer 完整渲染验证(10 rows/usage/fallback) | 验证: DOM | 清理: 无 | 下一步: iter162
