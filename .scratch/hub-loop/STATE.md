@@ -121,3 +121,15 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 工具链全通：ui-review.sh --steps（文本）/ ui-review-vision.sh --steps --click（视觉）/ model-verify / ?demo=1 / wireframe
 踩坑已固化：审查前 curl 验 dev server；文本审结构、视觉审配色；长输出卡=查内存守卫
 恢复指令：读本文件 → iter83 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter83 | 完成: session 打开态视觉审查完整跑通+failed 卡片错误消息红调 | 验证: 29 web | 清理: 无 | 下一步: iter84
+- iter84/85 | 完成: demo 文本审查(甄别: 模型左右混淆)+审查 prompt 加列归属说明 | 验证: 语法 | 清理: 无 | 下一步: iter86
+- iter86 | 完成: 审查列标注改进生效(模型不再左右混淆)+team 折叠开关入滚动区(755) | 验证: 29 web, wireframe | 清理: 无 | 下一步: iter87
+- iter87 | 完成: composer-summary 允许换行(长行修复) | 验证: 29 web | 清理: 无 | 下一步: iter88
+- iter88 | 完成: 密集态复验(健康, fallback 展开 729px 是主动操作态) | 验证: wireframe | 清理: 无 | 下一步: iter89
+
+## 会话 checkpoint 7（iter88 末）
+全绿：hub-desktop 139 / hub-cli 25 / hub-core 21 / adapters 21 / web 29 / ci 46
+审查闭环全通：mxfp4 文本+视觉(内存守卫根因已解)+列标注改进(误判率降)+--steps 双模式+?demo=1
+审查累计修复(iter44-88)：topbar 撑高/sidebar 溢出/session-panel h=0/折叠 WCAG/aria/对比度/readiness 密度/占位符/status-pill aria-live/失败消息红调/状态徽章 12px/会话间距/composer summary 换行 等 15+ 项
+模型最终配置：mxfp4(全) + ASR(语音)
+恢复指令：读本文件 → iter89 续；npm test + cargo test -p alva-hub-desktop --lib
