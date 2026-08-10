@@ -313,3 +313,12 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc
 状态稳定：审查循环收敛、偶发根治、工具/模型/文档齐全
 恢复：iter171 续
+- iter171/172 | 完成: 交互态配色审查(主观反馈, 已达标) + 质量门 | 验证: 139+25 lib, 32 web | 清理: cargo clean | 下一步: iter173
+- iter173/174 | 完成: aria audit(16 交互 0 无名称, 本地实证) + 质量门 | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter175
+- iter175 | 完成: ui-a11y-audit.sh 固化(零模型确定性 a11y 门) | 验证: PASS 16/16 | 清理: 无 | 下一步: iter176
+
+## 会话最终 checkpoint（iter176 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 930 commits / 偶发根治
+工具链六件套：ui-wireframe / ui-review(--steps) / ui-review-vision(--steps --click) / model-verify / ui-a11y-audit / ?demo=1
+审查闭环收敛 + 甄别原则；产品/模型/文档齐全
+恢复：iter177 续；npm test + cargo test -p alva-hub-desktop --lib
