@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeClaim,
   describeReadinessReason,
+  formatRelativeTime,
   parseClaims,
   projectTimeline,
 } from "./App";
@@ -234,5 +235,23 @@ describe("projectTimeline", () => {
       "cancelled",
       "completed",
     ]);
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const NOW = 1_000_000_000_000;
+
+  it("renders recency labels", () => {
+    expect(formatRelativeTime(NOW - 30_000, NOW)).toBe("just now");
+    expect(formatRelativeTime(NOW - 2 * 60_000, NOW)).toBe("2m ago");
+    expect(formatRelativeTime(NOW - 3 * 3600_000, NOW)).toBe("3h ago");
+    expect(formatRelativeTime(NOW - 2 * 86400_000, NOW)).toBe("2d ago");
+    expect(formatRelativeTime(NOW - 30 * 86400_000, NOW)).toBe(
+      new Date(NOW - 30 * 86400_000).toISOString().slice(0, 10),
+    );
+  });
+
+  it("never goes negative for future timestamps", () => {
+    expect(formatRelativeTime(NOW + 60_000, NOW)).toBe("just now");
   });
 });

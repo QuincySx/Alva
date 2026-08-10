@@ -137,6 +137,21 @@ export function describeClaim(claim: ResourceClaim): string {
 }
 
 /// `src/lib.rs, read:docs, facility:target-dir, tool:git` → claims.
+/// "now-relative" label for a session's updated_at (e.g. "2m ago",
+/// "3h ago", "2024-08-01"). Pure and testable.
+export function formatRelativeTime(updatedAt: number, now: number = Date.now()): string {
+  if (!Number.isFinite(updatedAt) || !Number.isFinite(now)) return "";
+  const delta = Math.max(0, now - updatedAt);
+  const min = Math.floor(delta / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(updatedAt).toISOString().slice(0, 10);
+}
+
 export function parseClaims(input: string): ResourceClaim[] {
   return input
     .split(",")
@@ -996,7 +1011,10 @@ export default function App() {
                 >
                   <strong>{session.workspace.split("/").at(-1)}</strong>
                   <span>{session.last_prompt ?? "Untitled session"}</span>
-                  <small>{session.engine_id} · {session.status}</small>
+                  <small>
+                    {session.engine_id} · {session.status} ·{" "}
+                    {formatRelativeTime(session.updated_at)}
+                  </small>
                 </button>
               ))
             )}
