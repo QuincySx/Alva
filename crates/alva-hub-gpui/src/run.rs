@@ -49,6 +49,12 @@ pub enum TimelineStatus {
     Exhausted,
     PermissionRequired,
     Worker,
+    /// Engine switch queued behind a running attempt (projected only).
+    Queued,
+    /// Engine switch or attempt cancelled (projected only).
+    Cancelled,
+    /// Manual switch applied (projected only).
+    Switched,
 }
 
 /// Routing identity of a pending engine permission request. The engine

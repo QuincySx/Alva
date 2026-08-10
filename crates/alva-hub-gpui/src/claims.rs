@@ -15,6 +15,15 @@ pub enum ClaimMode {
     Write,
 }
 
+impl ClaimMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ClaimMode::Read => "read",
+            ClaimMode::Write => "write",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ResourceClaim {
