@@ -3368,6 +3368,7 @@ fn query_session_memory(
         .map_err(|error| format!("decode session memory: {error}"))
 }
 
+#[allow(clippy::too_many_arguments)] // matches the other handoff builders
 fn build_handoff_package(
     transaction: &Transaction<'_>,
     product_session_id: &str,
