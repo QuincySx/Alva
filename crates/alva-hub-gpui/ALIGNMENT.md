@@ -53,3 +53,66 @@
 
 - 每个批次后：GPUI 版跑起来，与 React 版（dev server）逐项对照功能/位置/操作
 - 样式差异允许（组件库不同），**操作路径与信息展示必须一致**
+
+## 对齐状态矩阵（逐项核查，2026-08-10）
+
+> ✅=已对齐 ⏳=部分（结构有/内容缺） ❌=未对齐
+> 样式差异允许（组件库不同），功能/位置/操作必须一致。
+
+### 窗口 / 布局
+| 项 | React | GPUI | 状态 |
+|---|---|---|---|
+| 主窗口（两栏 sidebar+main） | ✓ | ✓ | ✅ |
+| 窗口尺寸/最小尺寸 | 1180×760 min 860×600 | WindowOptions 默认 | ⏳ 需对齐 |
+| Details 抽屉 | ✓ 右滑出 | 按钮在，内容未接 | ❌ |
+
+### Sidebar
+| 项 | React | GPUI | 状态 |
+|---|---|---|---|
+| 品牌区+tagline | ✓ | ✓ | ✅ |
+| Workspace：路径+Choose 按钮 | ✓ | 菜单项+目录选择器 | ⏳ 位置/交互形态不同 |
+| Sessions 空态 | ✓ "Hub runs will appear here." | "(no sessions yet)" | ⏳ 文案不同 |
+| Sessions 数据态 | ✓ 名称/引擎/状态/相对时间/结果 | 名称·引擎·状态 | ⏳ 缺相对时间/结果 |
+| Sessions 搜索过滤 | ✓ 即时过滤+计数 | ❌ | ❌ |
+| New session 按钮 | ✓ | ❌ | ❌ |
+| Engines readiness 卡片 | ✓ 版本/认证/stream/能力/reasons+Refresh+修复 | 静态占位 | ❌ |
+| Fallback 链编辑 | ✓ model/provider/authorize/排序+Save | 静态占位 | ❌ |
+| Team（worker/调度/生命周期） | ✓ | 静态占位 | ❌ |
+| 折叠（fallback/team） | ✓ aria-expanded | SidebarMenu 折叠 | ⏳ 需验证交互 |
+
+### Topbar
+| 项 | React | GPUI | 状态 |
+|---|---|---|---|
+| Engine 选择 | ✓ | ✓ | ✅ |
+| Permission 选择 | ✓ | ✓ | ✅ |
+| status pill 动态（running/completed/…） | ✓ | 静态 Ready | ❌ |
+| Details 按钮 | ✓ | ✓ | ✅（内容未接） |
+
+### Main
+| 项 | React | GPUI | 状态 |
+|---|---|---|---|
+| 空态（图标/标题/描述/会话数） | ✓ | ✓ | ✅ |
+| Timeline 卡片 5 态 | ✓ | ❌ | ❌ |
+| fallback 卡片控件（Stop/Switch back/View handoff） | ✓ | ❌ | ❌ |
+| permission Allow/Deny | ✓ | ❌ | ❌ |
+| Composer 输入 | ✓ | ✓ | ✅ |
+| Run with {engine} | ✓ | 静态 "Run with alva" | ⏳ 文案不随引擎 |
+| 提交→状态更新 | ✓ | ❌ | ❌ |
+
+### 逻辑（行为）
+| 项 | React/后端 | GPUI | 状态 |
+|---|---|---|---|
+| run_persisted（真实引擎执行） | ✓ 139 测试 | 后端迁入✓，UI 未接线 | ❌ |
+| 引擎切换/fallback 链 | ✓ | 未接线 | ❌ |
+| 审批路由/分组 | ✓ | 未接线 | ❌ |
+| 团队调度/资源声明 | ✓ | 未接线 | ❌ |
+| worktree 隔离 | ✓ | 后端迁入✓，UI 未接 | ❌ |
+| 崩溃恢复 | ✓ | 后端迁入✓ | ✅（store 层） |
+| 会话持久化/重启恢复 | ✓ | 后端迁入✓ | ✅（store 层） |
+
+### 结论
+- **结构骨架（布局/选择器/空态）约 1/3 对齐**；**功能与逻辑（timeline 事件流、
+  fallback/审批/团队/worktree UI、真实执行）绝大部分 ❌**——批 2（执行流）+ 批 3
+  （完整功能）尚未做。
+- 后端逻辑层（store/run/claims/…139 测试）已 100% 迁入 GPUI 版——**逻辑可用，只差 UI 接线**。
+- 诚实结论：**没有每一个都 OK**，批 2/批 3 是主要工作量。
