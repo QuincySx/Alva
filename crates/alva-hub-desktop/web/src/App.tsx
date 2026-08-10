@@ -985,6 +985,11 @@ export default function App() {
                   className={`session-item ${
                     activeSessionId === session.product_session_id ? "active" : ""
                   }`}
+                  aria-current={
+                    activeSessionId === session.product_session_id
+                      ? "true"
+                      : undefined
+                  }
                   key={session.product_session_id}
                   type="button"
                   onClick={() => void openSession(session)}
