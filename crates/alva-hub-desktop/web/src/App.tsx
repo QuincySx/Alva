@@ -1013,6 +1013,11 @@ export default function App() {
                     {session.workspace.split("/").at(-1)}
                   </strong>
                   <span>{session.last_prompt ?? "Untitled session"}</span>
+                  {session.last_result ? (
+                    <small className="session-result">
+                      {session.last_result}
+                    </small>
+                  ) : null}
                   <small>
                     {session.engine_id} · {session.status} ·{" "}
                     {formatRelativeTime(session.updated_at)}

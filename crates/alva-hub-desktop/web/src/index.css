@@ -1176,3 +1176,11 @@ button {
   color: var(--accent);
   background: var(--accent-soft);
 }
+
+.session-result {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
