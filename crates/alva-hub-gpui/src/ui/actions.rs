@@ -11,7 +11,6 @@ use gpui::*;
 use alva_hub_gpui::TimelineEvent;
 
 use super::app::{with_window, HubApp};
-use super::ProjectedEvent;
 
 impl HubApp {
     pub fn details_open(&self) -> bool {
@@ -140,13 +139,14 @@ impl HubApp {
             }
             if let Some(hub) = weak.upgrade() {
                 hub.update(cx, |hub, cx| {
-                    hub.timeline.push(ProjectedEvent::from_live(TimelineEvent {
-                        status: alva_hub_gpui::TimelineStatus::Interrupted,
-                        engine_id: engine_id.clone(),
-                        product_session_id: pid.clone(),
-                        message: Some("User stopped the attempt".to_string()),
-                        permission_request: None,
-                    }));
+                    hub.timeline
+                        .push(alva_hub_gpui::ProjectedEvent::from_live(TimelineEvent {
+                            status: alva_hub_gpui::TimelineStatus::Interrupted,
+                            engine_id: engine_id.clone(),
+                            product_session_id: pid.clone(),
+                            message: Some("User stopped the attempt".to_string()),
+                            permission_request: None,
+                        }));
                     hub.refresh_sessions();
                     let reload = hub.active_session_id.clone();
                     with_window(cx, handle, move |hub, window, cx| {

@@ -12,10 +12,9 @@ use gpui_component::{
     ActiveTheme, Icon, IconName, *,
 };
 
-use alva_hub_gpui::{EngineTarget, HandoffKind, TimelineStatus};
+use alva_hub_gpui::{EngineTarget, FallbackControls, HandoffKind, ProjectedEvent, TimelineStatus};
 
 use super::app::{status_color, HubApp};
-use super::{FallbackControls, ProjectedEvent};
 
 impl HubApp {
     pub fn main_column(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

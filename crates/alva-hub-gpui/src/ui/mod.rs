@@ -3,29 +3,6 @@
 // POS:    Mirrors the old React `ProjectedEvent` shape so the GPUI port can
 //         render the same cards 1:1. Pure value types, no gpui imports.
 
-use alva_hub_gpui::{HandoffPackage, PermissionRequestInfo, TimelineStatus};
-
-/// A fallback card's reversible controls: where it came from and the
-/// handoff it actually delivered (loaded from the store on demand).
-#[derive(Debug, Clone)]
-pub struct FallbackControls {
-    pub source_engine_id: String,
-    pub handoff: Option<HandoffPackage>,
-}
-
-/// One timeline card. `created_at` is absent for live run events (they are
-/// already in arrival order); persisted projections always carry it.
-#[derive(Debug, Clone)]
-pub struct ProjectedEvent {
-    pub status: TimelineStatus,
-    pub engine_id: String,
-    pub product_session_id: String,
-    pub message: Option<String>,
-    pub permission_request: Option<PermissionRequestInfo>,
-    pub created_at: Option<i64>,
-    pub fallback: Option<FallbackControls>,
-}
-
 /// "now-relative" label for a millisecond timestamp, matching the old
 /// React helper: "just now", "5m ago", "3h ago", "2d ago", else the date.
 pub fn format_relative_time(updated_at_ms: i64, now_ms: i64) -> String {
@@ -141,3 +118,67 @@ pub mod team;
 pub mod team_actions;
 pub mod timeline;
 pub mod topbar;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_time_labels() {
+        let now = 1_800_000_000_000;
+        assert_eq!(format_relative_time(now - 20_000, now), "just now");
+        assert_eq!(format_relative_time(now - 300_000, now), "5m ago");
+        assert_eq!(format_relative_time(now - 10_800_000, now), "3h ago");
+        assert_eq!(format_relative_time(now - 172_800_000, now), "2d ago");
+        assert_eq!(format_relative_time(now - 2_592_000_000, now), "2026-12-16");
+    }
+
+    #[test]
+    fn readiness_badge_labels() {
+        assert_eq!(readiness_badge("healthy"), "Healthy");
+        assert_eq!(readiness_badge("missing"), "Not installed");
+        assert_eq!(readiness_badge("incompatible"), "Incompatible");
+        assert_eq!(readiness_badge("unauthenticated"), "Sign-in needed");
+        assert_eq!(readiness_badge("unhealthy"), "Unhealthy");
+    }
+
+    #[test]
+    fn profile_labels() {
+        assert_eq!(profile_label("interactive"), "Ask before risky actions");
+        assert_eq!(profile_label("workspace_write"), "Workspace writes allowed");
+        assert_eq!(profile_label("unrestricted"), "Everything allowed");
+    }
+
+    #[test]
+    fn claim_descriptions() {
+        use alva_hub_gpui::{ClaimMode, ResourceClaim};
+        assert_eq!(
+            describe_claim(&ResourceClaim::Path {
+                path: "src/lib.rs".into(),
+                mode: ClaimMode::Write,
+            }),
+            "write src/lib.rs"
+        );
+        assert_eq!(
+            describe_claim(&ResourceClaim::Facility {
+                name: "target-dir".into()
+            }),
+            "facility target-dir"
+        );
+        assert_eq!(
+            describe_claim(&ResourceClaim::ExclusiveTool { tool: "git".into() }),
+            "tool git"
+        );
+    }
+
+    #[test]
+    fn worker_option_value_is_worker_id() {
+        let option = WorkerOption {
+            worker_id: "w-1".into(),
+            label: "To worker on codex".into(),
+        };
+        use gpui_component::searchable_list::SearchableListItem;
+        assert_eq!(option.value(), "w-1");
+        assert_eq!(option.title().to_string(), "To worker on codex");
+    }
+}

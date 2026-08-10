@@ -196,6 +196,39 @@ mod tests {
     }
 
     #[test]
+    fn parse_claims_splits_mixed_entries() {
+        let claims = parse_claims("src/lib.rs, read:docs, facility:target-dir, tool:git");
+        assert_eq!(claims.len(), 4);
+        assert!(matches!(
+            &claims[0],
+            ResourceClaim::Path {
+                mode: ClaimMode::Write,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &claims[1],
+            ResourceClaim::Path { mode: ClaimMode::Read, path } if path == "docs"
+        ));
+        assert!(matches!(
+            &claims[2],
+            ResourceClaim::Facility { name } if name == "target-dir"
+        ));
+        assert!(matches!(
+            &claims[3],
+            ResourceClaim::ExclusiveTool { tool } if tool == "git"
+        ));
+    }
+
+    #[test]
+    fn parse_claims_ignores_empty_entries_and_whitespace() {
+        let claims = parse_claims(" , src/a.rs,  ,read:x,");
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0].describe(), "write src/a.rs");
+        assert_eq!(claims[1].describe(), "read x");
+    }
+
+    #[test]
     fn disjoint_paths_and_shared_reads_run_concurrently() {
         assert!(!claims_conflict(&write("src/a.rs"), &write("src/b.rs")));
         assert!(!claims_conflict(&read("src/a.rs"), &read("src/a.rs")));

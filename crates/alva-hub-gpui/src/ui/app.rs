@@ -27,7 +27,8 @@ use alva_hub_gpui::{
     TimelineStatus,
 };
 
-use super::{profile_label, FallbackControls, ProjectedEvent, WorkerOption};
+use super::{profile_label, WorkerOption};
+use alva_hub_gpui::{project_timeline, ProjectedEvent};
 
 const ENGINE_OPTIONS: [&str; 3] = ["alva", "claude", "codex"];
 const PROFILE_OPTIONS: [&str; 3] = ["interactive", "workspace_write", "unrestricted"];
@@ -721,111 +722,6 @@ impl HubApp {
             fallback: None,
         });
         cx.notify();
-    }
-}
-
-/// Project a stored session detail into timeline cards, matching React
-/// `projectTimeline` (turns + timeline events, sorted by created_at).
-pub fn project_timeline(detail: &HubSessionDetail) -> Vec<ProjectedEvent> {
-    let mut events: Vec<ProjectedEvent> = Vec::new();
-    for turn in &detail.turns {
-        let status = match turn.status.as_str() {
-            "failed" => TimelineStatus::Failed,
-            "running" => TimelineStatus::Running,
-            "interrupted" => TimelineStatus::Interrupted,
-            _ => TimelineStatus::Completed,
-        };
-        let message = [turn.prompt.as_str(), turn.result.as_deref().unwrap_or("")]
-            .iter()
-            .filter(|part| !part.is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        events.push(ProjectedEvent {
-            status,
-            engine_id: turn
-                .attempts
-                .last()
-                .map(|attempt| attempt.engine_id.clone())
-                .unwrap_or_else(|| detail.session.engine_id.clone()),
-            product_session_id: detail.session.product_session_id.clone(),
-            message: Some(message),
-            permission_request: None,
-            created_at: Some(turn.created_at),
-            fallback: None,
-        });
-    }
-    for event in &detail.timeline_events {
-        let status = match event.kind.as_str() {
-            "engine_switch_queued" => TimelineStatus::Queued,
-            "engine_switch_cancelled" | "attempt_cancelled" => TimelineStatus::Cancelled,
-            "engine_fallback" | "engine_fallback_skipped" => TimelineStatus::Fallback,
-            "fallback_exhausted" => TimelineStatus::Exhausted,
-            "permission_decision" => TimelineStatus::PermissionRequired,
-            "worker_outcome" | "resource_wait" | "worktree_adopted" | "worktree_discarded" => {
-                TimelineStatus::Worker
-            }
-            _ => TimelineStatus::Switched,
-        };
-        let message = if event.kind == "engine_fallback_skipped" {
-            format!("Skipped {}\n\n{}", event.target_engine_id, event.reason)
-        } else if matches!(
-            event.kind.as_str(),
-            "fallback_exhausted"
-                | "attempt_cancelled"
-                | "worker_outcome"
-                | "permission_decision"
-                | "resource_wait"
-                | "worktree_adopted"
-                | "worktree_discarded"
-        ) {
-            event.reason.clone()
-        } else {
-            format!(
-                "{} → {}\n\n{}",
-                event.source_engine_id, event.target_engine_id, event.reason
-            )
-        };
-        let fallback = if event.kind == "engine_fallback" {
-            Some(FallbackControls {
-                source_engine_id: event.source_engine_id.clone(),
-                handoff: detail
-                    .handoffs
-                    .iter()
-                    .find(|handoff| {
-                        Some(handoff.target_branch_id.as_str()) == event.target_branch_id.as_deref()
-                            && handoff.created_at == event.created_at
-                    })
-                    .cloned(),
-            })
-        } else {
-            None
-        };
-        events.push(ProjectedEvent {
-            status,
-            engine_id: event.target_engine_id.clone(),
-            product_session_id: detail.session.product_session_id.clone(),
-            message: Some(message),
-            permission_request: None,
-            created_at: Some(event.created_at),
-            fallback,
-        });
-    }
-    events.sort_by_key(|event| event.created_at.unwrap_or(0));
-    events
-}
-
-impl ProjectedEvent {
-    pub fn from_live(event: TimelineEvent) -> Self {
-        Self {
-            status: event.status,
-            engine_id: event.engine_id,
-            product_session_id: event.product_session_id,
-            message: event.message,
-            permission_request: event.permission_request,
-            created_at: None,
-            fallback: None,
-        }
     }
 }
 
