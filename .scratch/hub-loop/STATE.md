@@ -328,3 +328,20 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 931 commits
 审查闭环：多状态多轮，正向确认 + 主观甄别；工具链六件套齐全
 恢复：iter180 续
+- iter180/181 | 完成: 数据态布局审查(未溢出确认, 滚动兜底) + 质量门 | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter182
+- iter182 | 完成: session hover title 断言 | 验证: 32 web | 清理: 无 | 下一步: iter183
+- iter182 | 完成: session hover title 断言(修正 getByTitle) | 验证: 32 web | 清理: 无 | 下一步: iter183
+
+## 会话 checkpoint 17（iter183 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 933 commits
+工具链六件套 + 审查闭环收敛 + 偶发根治 + 测试补全（hover title 等）
+恢复：iter184 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter184 | 完成: approval Allow-all 按钮 primary 化(重要 CTA 醒目) | 验证: 32 web | 清理: 无 | 下一步: iter185
+- iter185 | 完成: 全量质量门 | 验证: 139+25 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter186
+- iter186 | 完成: approval Allow-all primary 样式断言 | 验证: 32 web | 清理: 无 | 下一步: iter187
+
+## 会话 checkpoint 18（iter187 末，压缩恢复点）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 934 commits
+审查闭环持续产出（approval 按钮等）；偶发根治；工具六件套
+恢复：iter188 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter188 | 完成: 交互审查(面板堆叠=固有, 折叠已缓解; IA 重构为设计决策候选) | 验证: 审查 | 清理: 无 | 下一步: iter189
