@@ -345,3 +345,10 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 审查闭环持续产出（approval 按钮等）；偶发根治；工具六件套
 恢复：iter188 续；npm test + cargo test -p alva-hub-desktop --lib
 - iter188 | 完成: 交互审查(面板堆叠=固有, 折叠已缓解; IA 重构为设计决策候选) | 验证: 审查 | 清理: 无 | 下一步: iter189
+- iter189 | 完成: 全量质量门 | 验证: 139 lib, 32 web | 清理: cargo clean | 下一步: iter190
+- iter189b/190 | 完成: 偶发根治确认(2 连绿; 剩余 open 皆首开无竞争) + checkpoint | 验证: 139 lib 绿 | 清理: 无 | 下一步: iter191
+
+## 会话 checkpoint 19（iter190 末）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 935 commits
+偶发 flake 根治（reopen 重试）；审查闭环持续；工具六件套
+恢复：iter191 续
