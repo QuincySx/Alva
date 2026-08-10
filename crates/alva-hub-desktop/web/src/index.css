@@ -1170,3 +1170,9 @@ button {
   color: var(--text-1);
   background: var(--surface-3);
 }
+
+/* Expanded state is visible, not just announced. */
+.section-collapse[aria-expanded="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
