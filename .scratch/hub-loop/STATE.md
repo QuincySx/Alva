@@ -161,3 +161,15 @@ UI：重设计 + 折叠 + 对比度/可读性/密度/aria 系列修复(均由 AI
 关键文件：docs/UI-AI-TOOLCHAIN.md(工具+踩坑+模型迁移) / docs/ALVA-HUB-V1.md / .scratch/hub-loop/
 恢复：读本文件 → iter93 续；每轮 npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查复核
 - iter99 | 完成: 迭代日志压缩(7 checkpoint + 范围摘要保留) | 验证: 162 行 | 清理: 无 | 下一步: iter100
+- iter100 | 完成: 搜索无匹配态测试(里程碑: iter1-100 全记录) | 验证: 30 web | 清理: 无 | 下一步: iter101
+- iter101 | 完成: 里程碑质量门(百轮) | 验证: 139+25 lib, ci 46, 30 web, tsc | 清理: cargo clean | 下一步: iter102
+- iter102 | 完成: active session aria-current | 验证: 30 web | 清理: 无 | 下一步: iter103
+
+## 会话最终 checkpoint（iter102 末，压缩恢复点）
+全量绿：hub-desktop 139 lib / hub-cli 25 / hub-core 21 / adapters 21 / web 30 / ci 46
+产品：V1 18 场景全自动化；UI 全面重设计(中性深色/单一 accent/无渐变)；AI 审查驱动修复 18+ 项
+工具链：scripts/ui-wireframe.sh / ui-review.sh(--steps) / ui-review-vision.sh(--steps --click) / model-verify.sh / web ?demo=1 / docs/UI-AI-TOOLCHAIN.md
+模型：Qwen3.5-9B-mlx-vlm-mxfp4(主力, 内存守卫根因已解, 长文本已恢复) + Qwen3-ASR-1.7B(语音)
+审查覆盖：空态/交互态/数据态/密集态/团队态 全状态；列标注改进后误判率显著下降
+a11y：aria-expanded/aria-live/aria-current/目标尺寸/对比度(量化 4.88:1) 全落地
+恢复：读本文件 → iter103 续；npm test + cargo test -p alva-hub-desktop --lib；UI 改动走 wireframe+审查
