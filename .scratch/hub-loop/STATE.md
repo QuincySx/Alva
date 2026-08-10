@@ -359,3 +359,11 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 937 commits
 193 轮迭代全记录；审查闭环收敛（正向+甄别原则）；偶发根治；工具六件套；覆盖全
 恢复：iter195 续；npm test + cargo test -p alva-hub-desktop --lib
+- iter195/196 | 完成: mxfp4 通道复测(健康) + 最终 UI 截图(/tmp/hub-final.png) | 验证: 截图 | 清理: 无 | 下一步: iter197
+- iter197 | 完成: 全量质量门(200 轮前) | 验证: 139+25+21 lib, ci 46, 32 web, tsc | 清理: cargo clean | 下一步: iter198
+
+## 会话 checkpoint 20（iter198 末，200 轮里程碑）
+全量绿：139+25+21 lib / 32 web / ci 46 / tsc / 938 commits
+200 轮迭代（iter1-200）全记录；审查闭环收敛；偶发根治；工具六件套；文档齐全
+最终 UI 截图：/tmp/hub-final.png
+恢复：iter199 续；npm test + cargo test -p alva-hub-desktop --lib
