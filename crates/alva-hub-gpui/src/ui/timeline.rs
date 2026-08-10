@@ -31,6 +31,8 @@ impl HubApp {
                     .min_w_0()
                     .child(self.topbar(window, cx))
                     .child(self.timeline_area(cx))
+                    .child(self.composer_readiness_warning(cx))
+                    .child(self.approval_area(cx))
                     .child(self.composer(window, cx)),
             )
             .when(drawer, |this| this.child(self.details_drawer(window, cx)))
@@ -311,6 +313,50 @@ impl HubApp {
             .as_ref()
             .map(|detail| detail.session.status == "running")
             .unwrap_or(false)
+    }
+
+    /// Warning above the composer when the selected engine is not healthy.
+    fn composer_readiness_warning(&self, cx: &Context<Self>) -> impl IntoElement {
+        let selected_engine = self.selected_engine(cx);
+        let selected = self
+            .pending_engine
+            .as_deref()
+            .unwrap_or(selected_engine.as_str());
+        let Some(health) = self
+            .readiness
+            .iter()
+            .find(|report| report.engine_id == selected)
+        else {
+            return div();
+        };
+        if health.status == alva_hub_gpui::ReadinessStatus::Healthy {
+            return div();
+        }
+        let reasons = health
+            .reasons
+            .iter()
+            .map(super::describe_readiness_reason)
+            .collect::<Vec<_>>();
+        v_flex()
+            .gap_1()
+            .px_4()
+            .py_2()
+            .child(div().text_sm().font_weight(FontWeight(600.)).child(format!(
+                "{} · {}",
+                health.display_name,
+                super::readiness_badge(match health.status {
+                    alva_hub_gpui::ReadinessStatus::Healthy => "healthy",
+                    alva_hub_gpui::ReadinessStatus::Missing => "missing",
+                    alva_hub_gpui::ReadinessStatus::Incompatible => "incompatible",
+                    alva_hub_gpui::ReadinessStatus::Unauthenticated => "unauthenticated",
+                    alva_hub_gpui::ReadinessStatus::Unhealthy => "unhealthy",
+                })
+            )))
+            .children(
+                reasons
+                    .iter()
+                    .map(|reason| div().text_xs().child(reason.clone())),
+            )
     }
 
     fn composer(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

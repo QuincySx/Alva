@@ -96,6 +96,10 @@ pub struct HubApp {
     pub memory_draft: Entity<InputState>,
     /// Drawer handoff envelopes expanded by handoff id.
     pub open_drawer_handoffs: HashMap<String, bool>,
+    /// Merged approval cards (multi-member groups), refreshed on events.
+    pub approval_groups: Vec<alva_hub_gpui::PermissionGroup>,
+    /// request_id → answered, so an answered card can never re-send.
+    pub answered_permissions: HashMap<String, bool>,
 }
 
 /// Run a closure against the window's root view (the HubApp) from any
@@ -198,6 +202,8 @@ impl HubApp {
                 InputState::new(window, cx).placeholder("Always run cargo test before finishing…")
             }),
             open_drawer_handoffs: HashMap::new(),
+            approval_groups: Vec::new(),
+            answered_permissions: HashMap::new(),
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(ENGINE_OPTIONS.to_vec()),

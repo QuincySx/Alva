@@ -131,6 +131,7 @@ impl gpui_component::searchable_list::SearchableListItem for WorkerOption {
 
 pub mod actions;
 pub mod app;
+pub mod approval;
 pub mod details;
 pub mod fallback;
 pub mod pump;
