@@ -850,6 +850,10 @@ describe("App integration", () => {
     expect(screen.getByText(/worker-a/)).toBeInTheDocument();
     expect(screen.getByText(/worker-b/)).toBeInTheDocument();
 
+    // The allow action is primary-styled (consequential decision).
+    expect(screen.getByRole("button", { name: "Allow all 2" })).toHaveClass(
+      "approval-allow",
+    );
     await user.click(screen.getByRole("button", { name: "Allow all 2" }));
     // Exactly the displayed request ids travel — never a re-fetch guess.
     expect(bridge.fns.respondPermissionGroup).toHaveBeenCalledWith(
