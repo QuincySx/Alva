@@ -9,8 +9,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::{Input, InputEvent},
     sidebar::{
-        Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem as _,
-        SidebarMenu, SidebarMenuItem,
+        Sidebar, SidebarCollapsible, SidebarGroup, SidebarItem as _, SidebarMenu, SidebarMenuItem,
     },
     ActiveTheme, *,
 };
@@ -62,7 +61,7 @@ impl HubApp {
             .w(px(248.))
             .collapsible(SidebarCollapsible::None)
             .header(
-                SidebarHeader::new().child(
+                div().w_full().child(
                     v_flex()
                         .w_full()
                         .gap_1()
@@ -159,8 +158,9 @@ impl HubApp {
                     .child(SidebarMenu::new().children(session_items)),
             ])
             .footer(
-                SidebarFooter::new().child(
+                div().w_full().child(
                     v_flex()
+                        .w_full()
                         .gap_2()
                         .child(
                             h_flex()
