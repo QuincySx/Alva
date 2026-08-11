@@ -53,7 +53,7 @@
 | 项 | React | GPUI | 状态 |
 |---|---|---|---|
 | 主窗口（两栏 sidebar+main） | ✓ | ✓ | ✅ |
-| 窗口尺寸/最小尺寸 | 1180×760 min 860×600 | WindowOptions | ⚠️ 需按旧版设 bounds |
+| 窗口尺寸/最小尺寸 | 1180×760 min 860×600 | WindowOptions bounds ✓ | ✅ |
 | Details 抽屉 | ✓ 右滑出 | ✓ 右侧固定面板 | ✅ |
 
 ### Sidebar
@@ -104,4 +104,4 @@
 
 ### 结论
 - 功能/位置/操作路径与 React 版 1:1 对齐完成（批 1-7）。
-- 剩余：P4（GPUI 测试 + 打包）、样式微差（组件库不同，允许）、窗口尺寸按旧版设置。
+- 剩余：样式微差（组件库不同，允许）；打包已落地（scripts/package-gpui-app.sh → ALVA Hub.app 21MB，启动冒烟过）。
