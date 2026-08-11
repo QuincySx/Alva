@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, ScopedSession};
-use alva_kernel_abi::{AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock};
+use alva_kernel_abi::{
+    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ExecutionRecord,
+    RecordValue, SessionRecord,
+};
 use alva_kernel_abi::{Message, MessageRole, Tool, ToolCall, ToolOutput};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -9,7 +12,6 @@ use tokio::sync::mpsc;
 use crate::event::AgentEvent;
 use crate::middleware::{MiddlewareError, ToolCallFn};
 use crate::runtime_context::RuntimeExecutionContext;
-use crate::session_events::emit_runtime_event;
 use crate::state::{AgentConfig, AgentState};
 
 #[derive(Debug, Clone)]
@@ -43,21 +45,12 @@ impl ToolBatchCoordinator {
             if cancel.is_cancelled() {
                 let committed_cancelled = self
                     .commit_cancelled_tool_call(state, tool_call, llm_call_uuid.clone(), &event_tx)
-                    .await;
+                    .await?;
                 committed.push(committed_cancelled);
                 continue;
             }
 
-            let tool_use_uuid = emit_runtime_event(
-                &state.session,
-                "tool_use",
-                Some(llm_call_uuid.clone()),
-                Some(serde_json::json!({
-                    "tool_name": tool_call.name.clone(),
-                    "tool_call_id": tool_call.id.clone(),
-                })),
-            )
-            .await;
+            let tool_use_uuid = commit_tool_intent(state, tool_call, &llm_call_uuid).await?;
 
             let _ = event_tx.send(AgentEvent::ToolExecutionStart {
                 tool_call: tool_call.clone(),
@@ -160,7 +153,7 @@ impl ToolBatchCoordinator {
                         &error_text,
                         &event_tx,
                     )
-                    .await;
+                    .await?;
                     backfill_aborted_tool_results(
                         state,
                         &tool_calls[idx + 1..],
@@ -168,7 +161,7 @@ impl ToolBatchCoordinator {
                         &error_text,
                         &event_tx,
                     )
-                    .await;
+                    .await?;
                     return Err(agent_err);
                 }
             };
@@ -186,10 +179,8 @@ impl ToolBatchCoordinator {
                 timestamp: chrono::Utc::now().timestamp_millis(),
             };
             let tool_msg = AgentMessage::Standard(tool_message);
-            state
-                .session
-                .append_message(tool_msg.clone(), Some(tool_use_uuid.clone()))
-                .await;
+            commit_tool_outcome(state, tool_call, &result, tool_msg.clone(), &tool_use_uuid)
+                .await?;
 
             let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
             tracing::info!(
@@ -222,18 +213,8 @@ impl ToolBatchCoordinator {
         tool_call: &ToolCall,
         llm_call_uuid: String,
         event_tx: &mpsc::UnboundedSender<AgentEvent>,
-    ) -> CommittedToolCall {
-        let tool_use_uuid = emit_runtime_event(
-            &state.session,
-            "tool_use",
-            Some(llm_call_uuid),
-            Some(serde_json::json!({
-                "tool_name": tool_call.name.clone(),
-                "tool_call_id": tool_call.id.clone(),
-                "cancelled": true,
-            })),
-        )
-        .await;
+    ) -> Result<CommittedToolCall, AgentError> {
+        let tool_use_uuid = commit_tool_intent(state, tool_call, &llm_call_uuid).await?;
 
         let _ = event_tx.send(AgentEvent::ToolExecutionStart {
             tool_call: tool_call.clone(),
@@ -253,23 +234,74 @@ impl ToolBatchCoordinator {
             timestamp: chrono::Utc::now().timestamp_millis(),
         };
         let tool_msg = AgentMessage::Standard(tool_message);
-        state
-            .session
-            .append_message(tool_msg.clone(), Some(tool_use_uuid.clone()))
-            .await;
+        commit_tool_outcome(state, tool_call, &result, tool_msg.clone(), &tool_use_uuid).await?;
 
         let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
             tool_call: tool_call.clone(),
             result: result.clone(),
         });
 
-        CommittedToolCall {
+        Ok(CommittedToolCall {
             tool_call: tool_call.clone(),
             result,
             message: tool_msg,
             tool_use_uuid,
-        }
+        })
     }
+}
+
+async fn commit_tool_intent(
+    state: &mut AgentState,
+    tool_call: &ToolCall,
+    llm_call_uuid: &str,
+) -> Result<String, AgentError> {
+    let mut record = SessionRecord::execution(
+        "tool_use",
+        EventEmitter::runtime(),
+        ExecutionRecord::Intent {
+            operation_id: tool_call.id.clone(),
+            operation: tool_call.name.clone(),
+            input: RecordValue::Inline {
+                value: tool_call.arguments.clone(),
+            },
+        },
+    );
+    record.parent_record_id = Some(llm_call_uuid.to_string());
+    let record_id = record.record_id.clone();
+    state
+        .session
+        .append_records(vec![record])
+        .await
+        .map_err(|error| AgentError::Other(format!("commit tool intent: {error}")))?;
+    Ok(record_id)
+}
+
+async fn commit_tool_outcome(
+    state: &mut AgentState,
+    tool_call: &ToolCall,
+    result: &ToolOutput,
+    message: AgentMessage,
+    tool_use_uuid: &str,
+) -> Result<(), AgentError> {
+    let mut outcome = SessionRecord::execution(
+        "tool_outcome",
+        EventEmitter::runtime(),
+        ExecutionRecord::Outcome {
+            operation_id: tool_call.id.clone(),
+            success: !result.is_error,
+            output: RecordValue::Inline {
+                value: serde_json::to_value(result).unwrap_or(serde_json::Value::Null),
+            },
+        },
+    );
+    outcome.parent_record_id = Some(tool_use_uuid.to_string());
+    let conversation = SessionRecord::conversation(message, Some(tool_use_uuid.to_string()));
+    state
+        .session
+        .append_records(vec![outcome, conversation])
+        .await
+        .map_err(|error| AgentError::Other(format!("commit tool outcome: {error}")))?;
+    Ok(())
 }
 
 /// Append an error `ToolResult` for `tool_call` (paired to `parent_uuid`)
@@ -283,7 +315,7 @@ async fn append_error_tool_result(
     parent_uuid: Option<String>,
     error_text: &str,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
-) {
+) -> Result<(), AgentError> {
     let result = ToolOutput::error(error_text.to_string());
     let tool_message = Message {
         id: uuid::Uuid::new_v4().to_string(),
@@ -297,18 +329,21 @@ async fn append_error_tool_result(
         usage: None,
         timestamp: chrono::Utc::now().timestamp_millis(),
     };
-    state
-        .session
-        .append_message(AgentMessage::Standard(tool_message), parent_uuid)
-        .await;
+    let message = AgentMessage::Standard(tool_message);
+    if let Some(tool_use_uuid) = parent_uuid {
+        commit_tool_outcome(state, tool_call, &result, message, &tool_use_uuid).await?;
+    } else {
+        state.session.append_message(message, None).await;
+    }
     let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
         tool_call: tool_call.clone(),
         result,
     });
+    Ok(())
 }
 
 /// Close out every tool call that had not started yet (the ones after the
-/// aborting call) with a tool_use skeleton event + an error ToolResult, so
+/// aborting call) with a typed tool intent + an error ToolResult, so
 /// the whole batch's tool_use blocks stay paired even though execution
 /// stopped early.
 async fn backfill_aborted_tool_results(
@@ -317,21 +352,13 @@ async fn backfill_aborted_tool_results(
     llm_call_uuid: &str,
     error_text: &str,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,
-) {
+) -> Result<(), AgentError> {
     for tool_call in remaining {
-        let tool_use_uuid = emit_runtime_event(
-            &state.session,
-            "tool_use",
-            Some(llm_call_uuid.to_string()),
-            Some(serde_json::json!({
-                "tool_name": tool_call.name.clone(),
-                "tool_call_id": tool_call.id.clone(),
-                "aborted": true,
-            })),
-        )
-        .await;
-        append_error_tool_result(state, tool_call, Some(tool_use_uuid), error_text, event_tx).await;
+        let tool_use_uuid = commit_tool_intent(state, tool_call, llm_call_uuid).await?;
+        append_error_tool_result(state, tool_call, Some(tool_use_uuid), error_text, event_tx)
+            .await?;
     }
+    Ok(())
 }
 
 struct ActualToolCall {

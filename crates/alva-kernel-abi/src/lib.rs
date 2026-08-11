@@ -29,6 +29,7 @@ pub use provider::tests as provider_test;
 pub mod agent_session;
 pub mod runtime;
 pub mod scope;
+pub mod session_record;
 // tool_guard is now at tool::guard
 
 pub use analytics::{AnalyticsEvent, AnalyticsSink, NoopAnalyticsSink};
@@ -81,6 +82,11 @@ pub use scope::spawn::{
     SpawnCommunicationRegistry, SpawnResult,
 };
 pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
+pub use session_record::{
+    AppendReceipt, BlobReference, ConversationRecord, ExecutionRecord, ExtensionRecord,
+    RecordCategory, RecordValue, SessionRecord, SessionRecordPayload,
+    SESSION_RECORD_SCHEMA_VERSION,
+};
 pub use speech::{SpeechConfig, SpeechModel, SpeechResult};
 pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType};
 pub use token_estimation::{SimpleTokenEstimator, TokenEstimator};

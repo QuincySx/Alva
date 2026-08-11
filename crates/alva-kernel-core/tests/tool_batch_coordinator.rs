@@ -3,7 +3,10 @@ use std::sync::Arc;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
 use alva_kernel_abi::tool::Tool;
-use alva_kernel_abi::{CancellationToken, Message, ModelConfig, StreamEvent, ToolCall, ToolOutput};
+use alva_kernel_abi::{
+    CancellationToken, ExecutionRecord, Message, ModelConfig, SessionRecordPayload, StreamEvent,
+    ToolCall, ToolOutput,
+};
 use alva_kernel_core::agent_session::{AgentSession, EventQuery, InMemoryAgentSession};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
 use alva_kernel_core::shared::Extensions;
@@ -177,6 +180,27 @@ async fn coordinator_commits_tool_results_in_model_order() {
         .collect();
 
     assert_eq!(tool_result_ids, vec!["toolu_second", "toolu_first"]);
+    let records = session.records(0).await;
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| matches!(
+                &record.payload,
+                SessionRecordPayload::Execution(ExecutionRecord::Intent { .. })
+            ))
+            .count(),
+        2
+    );
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| matches!(
+                &record.payload,
+                SessionRecordPayload::Execution(ExecutionRecord::Outcome { .. })
+            ))
+            .count(),
+        2
+    );
 }
 
 #[tokio::test]

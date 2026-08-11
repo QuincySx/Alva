@@ -1,31 +1,19 @@
-// POS: ContextSystem container — bundles hooks, handle, and session.
+// POS: ContextSystem container — bundles context hooks and handle only.
 
 use std::sync::Arc;
 
-use super::{ContextHandle, ContextHooks, SessionAccess};
+use super::{ContextHandle, ContextHooks};
 
-/// Bundles the context management trio: hooks (strategy), handle (operations), session (persistence).
-///
-/// This prevents the mismatch bug where someone swaps `context_hooks` but forgets
-/// to update `context_handle`, or sets a session on the wrong agent.
+/// Bundles context hooks and handle. Durable state is wired through the
+/// authoritative AgentSession owned by AgentState.
 pub struct ContextSystem {
     hooks: Arc<dyn ContextHooks>,
     handle: Arc<dyn ContextHandle>,
-    session: Option<Arc<dyn SessionAccess>>,
 }
 
 impl ContextSystem {
     pub fn new(hooks: Arc<dyn ContextHooks>, handle: Arc<dyn ContextHandle>) -> Self {
-        Self {
-            hooks,
-            handle,
-            session: None,
-        }
-    }
-
-    pub fn with_session(mut self, session: Arc<dyn SessionAccess>) -> Self {
-        self.session = Some(session);
-        self
+        Self { hooks, handle }
     }
 
     pub fn hooks(&self) -> &dyn ContextHooks {
@@ -36,17 +24,8 @@ impl ContextSystem {
         self.handle.as_ref()
     }
 
-    pub fn session(&self) -> Option<&dyn SessionAccess> {
-        self.session.as_deref()
-    }
-
     /// Replace hooks (e.g., swap in a ContextHooksChain).
     pub fn set_hooks(&mut self, hooks: Arc<dyn ContextHooks>) {
         self.hooks = hooks;
-    }
-
-    /// Replace session.
-    pub fn set_session(&mut self, session: Arc<dyn SessionAccess>) {
-        self.session = Some(session);
     }
 }

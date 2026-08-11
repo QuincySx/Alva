@@ -10,7 +10,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory};
+use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory, SessionRepository};
 use alva_engine_adapter_claude::{
     ClaudeAdapter, ClaudeAdapterConfig, ClaudePrintAdapter, ClaudePrintConfig,
     ClaudePrintPermissionMode,
@@ -858,13 +858,12 @@ fn build_selected_engine(
             let model = alva_llm_provider::build_language_model(provider_kind.as_deref(), config);
             let factory = CatalogBaseAgentFactory::new(model, workspace)
                 .with_provider_registry(provider_registry);
-            // Durable message history next to the Hub session journal so
-            // `--session` can resume Alva across process restarts.
-            let history_dir = crate::session_store::SessionStore::default_path()
-                .and_then(|p| p.parent().map(|d| d.join("alva-history")));
+            // Durable typed records next to the Hub session journal let
+            // `--session` resume Alva across process restarts.
+            let repository_path = crate::handoff::alva_repository_path();
             let mut adapter = AlvaAdapter::new(Arc::new(factory));
-            if let Some(dir) = history_dir {
-                adapter = adapter.with_history_dir(dir);
+            if let Some(path) = repository_path {
+                adapter = adapter.with_session_repository(SessionRepository::open(path)?);
             }
             Ok(Arc::new(adapter))
         }
@@ -925,7 +924,7 @@ fn print_usage() {
          --help, -h                   Show this help\n\
          \n\
          Engines:\n  \
-         alva    Full Alva harness; history under ~/.config/alva/hub/alva-history for --session\n  \
+         alva    Full Alva harness; typed records under ~/.config/alva/hub/alva-history for --session\n  \
          claude  Claude Code (light/full); journal + native --resume\n  \
          codex   `codex exec --json` / `codex exec resume <id> --json`\n\
          \n\
@@ -1044,7 +1043,8 @@ mod tests {
             .unwrap();
 
         let root = tempfile::tempdir().unwrap();
-        let workspace = tempfile::tempdir().unwrap();        // Profile config with the active marker the CLI expects.
+        let workspace = tempfile::tempdir().unwrap();
+        // Profile config with the active marker the CLI expects.
         std::fs::write(
             root.path().join("config.json"),
             r#"{
@@ -1062,6 +1062,7 @@ mod tests {
         .unwrap();
 
         std::env::set_var("ALVA_CONFIG_DIR", root.path());
+        std::env::set_var("ALVA_HUB_HOME", root.path().join("hub"));
         build_selected_engine(
             Engine::Alva,
             ClaudeMode::Light,
@@ -1089,6 +1090,10 @@ mod tests {
             Ok(_) => panic!("an empty key must fail loudly"),
         };
         std::env::remove_var("ALVA_CONFIG_DIR");
-        assert!(error.contains("ALVA_API_KEY"), "guidance names the env var: {error}");
+        std::env::remove_var("ALVA_HUB_HOME");
+        assert!(
+            error.contains("ALVA_API_KEY"),
+            "guidance names the env var: {error}"
+        );
     }
 }

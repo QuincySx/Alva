@@ -36,3 +36,4 @@ Message ←── ContentBlock (text / tool_use / tool_result / image)
 | 取消令牌 | `cancel.rs` | CancellationToken（协作式取消） |
 | 错误 | `error.rs` | AgentError 统一错误枚举 |
 | Spawn Comm | `scope/spawn/communication.rs` | SpawnCommunication trait + SpawnCommContext + SpawnCommHandle + OnChildComplete + SpawnResult + SpawnCommunicationRegistry —— sub-agent 通信能力的插件契约 |
+| Durable records | `session_record.rs` | 版本化 SessionRecord、typed built-in/extension payload、blob 引用与 append receipt |

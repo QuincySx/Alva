@@ -1,4 +1,4 @@
-// POS: Context trait definitions — ContextHooks, ContextHandle, SessionAccess.
+// POS: Context trait definitions — ContextHooks and ContextHandle.
 
 use async_trait::async_trait;
 
@@ -6,8 +6,7 @@ use crate::AgentMessage;
 
 use super::{
     BudgetInfo, CompressAction, ContextEntry, ContextError, ContextLayer, ContextSnapshot,
-    EventMatch, EventQuery, IngestAction, Injection, MemoryFact, MessageRange, Priority,
-    SessionEvent, ToolPattern,
+    IngestAction, Injection, MemoryFact, MessageRange, Priority, ToolPattern,
 };
 
 // ===========================================================================
@@ -123,38 +122,4 @@ pub trait ContextHandle: Send + Sync {
     fn delete_memory(&self, fact_id: &str);
 }
 
-// ===========================================================================
-// Trait: SessionAccess
-// ===========================================================================
-
-/// The session storage interface.
-///
-/// Append-only event log with query and rollback support.
-/// Implementations: InMemorySession (testing), SQLite (desktop), file (CLI), remote (cloud).
-#[async_trait]
-pub trait SessionAccess: Send + Sync {
-    /// Session identifier.
-    fn session_id(&self) -> &str;
-
-    /// Append an event to the log.
-    async fn append(&self, event: SessionEvent);
-
-    /// Query events matching the filter. Storage layer does the filtering.
-    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>;
-
-    /// Count events matching the filter (without loading content).
-    async fn count(&self, filter: &EventQuery) -> usize;
-
-    /// Rollback: delete all events after the given uuid.
-    /// Returns the number of events removed.
-    async fn rollback_after(&self, uuid: &str) -> usize;
-
-    /// Save a context snapshot (binary, opaque to storage).
-    async fn save_snapshot(&self, data: &[u8]);
-
-    /// Load the last saved context snapshot.
-    async fn load_snapshot(&self) -> Option<Vec<u8>>;
-
-    /// Clear all events and snapshots.
-    async fn clear(&self);
-}
+// Durable persistence deliberately lives in crate::agent_session::AgentSession.

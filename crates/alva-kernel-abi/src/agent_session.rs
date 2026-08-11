@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::base::message::AgentMessage;
+use crate::session_record::{AppendReceipt, SessionRecord};
 
 // ===========================================================================
 // Errors
@@ -301,6 +302,17 @@ pub trait AgentSession: Send + Sync {
     /// Parent session id for sub-agents. `None` for root sessions.
     fn parent_session_id(&self) -> Option<&str>;
 
+    /// Create an independently persisted child session and commit its causal
+    /// link before the child performs external work. Backends without a
+    /// repository return `None`; callers may use an isolated in-memory child.
+    async fn create_child_session(
+        &self,
+        _parent_run_id: &str,
+        _spawn_tool_call_id: &str,
+    ) -> Result<Option<Arc<dyn AgentSession>>, SessionError> {
+        Ok(None)
+    }
+
     // --- Write ---
 
     /// Append a raw event. The backend assigns `event.seq` atomically and
@@ -318,6 +330,29 @@ pub trait AgentSession: Send + Sync {
     ///
     /// Same durability contract as `append`.
     async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>);
+
+    /// Commit one or more typed records as one visible state transition.
+    /// Persistent backends override this with a storage transaction; the
+    /// default deliberately rejects the operation rather than pretending a
+    /// sequence of individual appends is atomic.
+    async fn append_records(
+        &self,
+        _records: Vec<SessionRecord>,
+    ) -> Result<AppendReceipt, SessionError> {
+        Err(SessionError::Other(
+            "atomic typed record append is not implemented by this backend".to_string(),
+        ))
+    }
+
+    /// Read the canonical typed projection in total durable sequence order.
+    async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
+        self.query(&EventQuery::default())
+            .await
+            .into_iter()
+            .filter(|matched| matched.event.seq > from_seq)
+            .map(|matched| SessionRecord::from_event(matched.event))
+            .collect()
+    }
 
     // --- Read: event-level ---
 

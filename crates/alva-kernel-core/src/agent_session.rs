@@ -13,6 +13,7 @@ pub use alva_kernel_abi::agent_session::{
     ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionEventStream,
     SessionMessage,
 };
+use alva_kernel_abi::{AppendReceipt, SessionRecord, SessionRecordPayload};
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +50,7 @@ pub struct InMemoryAgentSession {
     parent_session_id: Option<String>,
     seq_counter: AtomicU64,
     events: RwLock<Vec<SessionEvent>>,
+    records: RwLock<Vec<SessionRecord>>,
     messages: RwLock<VecDeque<AgentMessage>>,
     snapshot: RwLock<Option<Vec<u8>>>,
 }
@@ -66,6 +68,7 @@ impl InMemoryAgentSession {
             parent_session_id: None,
             seq_counter: AtomicU64::new(1),
             events: RwLock::new(Vec::new()),
+            records: RwLock::new(Vec::new()),
             messages: RwLock::new(VecDeque::new()),
             snapshot: RwLock::new(None),
         }
@@ -78,6 +81,7 @@ impl InMemoryAgentSession {
             parent_session_id: Some(parent_session_id.into()),
             seq_counter: AtomicU64::new(1),
             events: RwLock::new(Vec::new()),
+            records: RwLock::new(Vec::new()),
             messages: RwLock::new(VecDeque::new()),
             snapshot: RwLock::new(None),
         }
@@ -127,6 +131,17 @@ impl InMemoryAgentSession {
         {
             let mut log = self.events.write().await;
             *log = events;
+        }
+        {
+            let records = self
+                .events
+                .read()
+                .await
+                .iter()
+                .cloned()
+                .map(SessionRecord::from_event)
+                .collect();
+            *self.records.write().await = records;
         }
         {
             let mut msgs = self.messages.write().await;
@@ -216,7 +231,9 @@ impl AgentSession for InMemoryAgentSession {
         // should use append_message so that both the log and the cache
         // stay consistent.
         let mut events = self.events.write().await;
+        let mut records = self.records.write().await;
         event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+        records.push(SessionRecord::from_event(event.clone()));
         events.push(event);
     }
 
@@ -233,10 +250,45 @@ impl AgentSession for InMemoryAgentSession {
         // cache, and seq order can never diverge. The cache holds the
         // original AgentMessage — no round-trip.
         let mut events = self.events.write().await;
+        let mut records = self.records.write().await;
         let mut messages = self.messages.write().await;
         event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+        records.push(SessionRecord::from_event(event.clone()));
         events.push(event);
         messages.push_back(msg);
+    }
+
+    async fn append_records(
+        &self,
+        records: Vec<SessionRecord>,
+    ) -> Result<AppendReceipt, SessionError> {
+        if records.is_empty() {
+            return Ok(AppendReceipt {
+                first_seq: 0,
+                last_seq: 0,
+                count: 0,
+            });
+        }
+        let mut events = self.events.write().await;
+        let mut stored_records = self.records.write().await;
+        let mut messages = self.messages.write().await;
+        let first_seq = self.seq_counter.load(Ordering::SeqCst);
+        for mut record in records {
+            record.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+            if let SessionRecordPayload::Conversation(conversation) = &record.payload {
+                if let Some(message) = &conversation.agent_message {
+                    messages.push_back(message.clone());
+                }
+            }
+            events.push(record.clone().into_event());
+            stored_records.push(record);
+        }
+        let last_seq = self.seq_counter.load(Ordering::SeqCst) - 1;
+        Ok(AppendReceipt {
+            first_seq,
+            last_seq,
+            count: (last_seq - first_seq + 1) as usize,
+        })
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
@@ -279,6 +331,16 @@ impl AgentSession for InMemoryAgentSession {
         events.iter().filter(|e| event_matches(e, filter)).count()
     }
 
+    async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
+        self.records
+            .read()
+            .await
+            .iter()
+            .filter(|record| record.seq > from_seq)
+            .cloned()
+            .collect()
+    }
+
     async fn messages(&self) -> Vec<AgentMessage> {
         let msgs = self.messages.read().await;
         msgs.iter().cloned().collect()
@@ -306,7 +368,12 @@ impl AgentSession for InMemoryAgentSession {
         // Clone the surviving events for cache rebuild, then drop the
         // events lock before acquiring the messages lock.
         let surviving: Vec<SessionEvent> = events.iter().cloned().collect();
+        let last_seq = surviving.last().map(|event| event.seq).unwrap_or(0);
         drop(events);
+        self.records
+            .write()
+            .await
+            .retain(|record| record.seq <= last_seq);
 
         // Rebuild the message cache by deserializing the AgentMessage
         // from each surviving event's `data` field. Events without a
@@ -350,6 +417,7 @@ impl AgentSession for InMemoryAgentSession {
 
     async fn clear(&self) -> Result<(), SessionError> {
         self.events.write().await.clear();
+        self.records.write().await.clear();
         self.messages.write().await.clear();
         *self.snapshot.write().await = None;
         self.seq_counter.store(1, Ordering::SeqCst);
@@ -404,6 +472,11 @@ impl ListenableInMemorySession {
         self.listeners.write().await.push(listener);
     }
 
+    /// Restore a durable snapshot before exposing the session to a runtime.
+    pub async fn restore_events(&self, events: Vec<SessionEvent>) {
+        self.inner.restore_events(events).await;
+    }
+
     /// Broadcast one event to every listener, then reap any that reported
     /// themselves inactive. The notify loop runs under a read guard (many
     /// appends can broadcast concurrently); the reap takes the write guard
@@ -453,7 +526,9 @@ impl AgentSession for ListenableInMemorySession {
         let mut e = event;
         {
             let mut events = self.inner.events.write().await;
+            let mut records = self.inner.records.write().await;
             e.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+            records.push(SessionRecord::from_event(e.clone()));
             events.push(e.clone());
         }
 
@@ -474,13 +549,58 @@ impl AgentSession for ListenableInMemorySession {
         // after release — listeners may read this session.
         {
             let mut events = self.inner.events.write().await;
+            let mut records = self.inner.records.write().await;
             let mut messages = self.inner.messages.write().await;
             event.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+            records.push(SessionRecord::from_event(event.clone()));
             events.push(event.clone());
             messages.push_back(msg);
         }
 
         self.broadcast(&event).await;
+    }
+
+    async fn append_records(
+        &self,
+        records: Vec<SessionRecord>,
+    ) -> Result<AppendReceipt, SessionError> {
+        if records.is_empty() {
+            return Ok(AppendReceipt {
+                first_seq: 0,
+                last_seq: 0,
+                count: 0,
+            });
+        }
+        let mut committed = Vec::with_capacity(records.len());
+        let first_seq;
+        let last_seq;
+        {
+            let mut events = self.inner.events.write().await;
+            let mut stored_records = self.inner.records.write().await;
+            let mut messages = self.inner.messages.write().await;
+            first_seq = self.inner.seq_counter.load(Ordering::SeqCst);
+            for mut record in records {
+                record.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+                if let SessionRecordPayload::Conversation(conversation) = &record.payload {
+                    if let Some(message) = &conversation.agent_message {
+                        messages.push_back(message.clone());
+                    }
+                }
+                let event = record.clone().into_event();
+                events.push(event.clone());
+                stored_records.push(record);
+                committed.push(event);
+            }
+            last_seq = self.inner.seq_counter.load(Ordering::SeqCst) - 1;
+        }
+        for event in &committed {
+            self.broadcast(event).await;
+        }
+        Ok(AppendReceipt {
+            first_seq,
+            last_seq,
+            count: committed.len(),
+        })
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
@@ -489,6 +609,10 @@ impl AgentSession for ListenableInMemorySession {
 
     async fn count(&self, filter: &EventQuery) -> usize {
         self.inner.count(filter).await
+    }
+
+    async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
+        self.inner.records(from_seq).await
     }
 
     async fn messages(&self) -> Vec<AgentMessage> {
@@ -1348,5 +1472,38 @@ mod tests {
             "parent should have received the child event"
         );
         assert_eq!(parent_events[0].event_type, "progress");
+    }
+
+    #[tokio::test]
+    async fn typed_batch_append_assigns_one_contiguous_commit_range() {
+        use alva_kernel_abi::{ExecutionRecord, SessionRecord};
+
+        let session = InMemoryAgentSession::with_id("typed".into());
+        let records = ["llm_intent", "tool_intent", "tool_outcome"]
+            .into_iter()
+            .map(|type_name| {
+                SessionRecord::execution(
+                    type_name,
+                    EventEmitter::runtime(),
+                    ExecutionRecord::Event {
+                        data: serde_json::json!({"type": type_name}),
+                    },
+                )
+            })
+            .collect();
+
+        let receipt = session.append_records(records).await.unwrap();
+        assert_eq!(receipt.first_seq, 1);
+        assert_eq!(receipt.last_seq, 3);
+        assert_eq!(receipt.count, 3);
+        assert_eq!(
+            session
+                .records(0)
+                .await
+                .into_iter()
+                .map(|record| record.seq)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 }

@@ -40,6 +40,7 @@ pub struct BaseAgentBuilder {
     pub(crate) max_iterations: u32,
     pub(crate) context_window: usize,
     pub(crate) bus_plugins: Vec<Box<dyn BusPlugin>>,
+    pub(crate) session: Option<Arc<dyn alva_kernel_abi::AgentSession>>,
 }
 
 impl BaseAgentBuilder {
@@ -55,6 +56,7 @@ impl BaseAgentBuilder {
             max_iterations: 100,
             context_window: 0,
             bus_plugins: Vec::new(),
+            session: None,
         }
     }
 
@@ -136,6 +138,12 @@ impl BaseAgentBuilder {
     /// Set the context window size (default: 0 = no limit).
     pub fn context_window(mut self, n: usize) -> Self {
         self.context_window = n;
+        self
+    }
+
+    /// Supply the authoritative durable session used by the agent loop.
+    pub fn session(mut self, session: Arc<dyn alva_kernel_abi::AgentSession>) -> Self {
+        self.session = Some(session);
         self
     }
 
@@ -227,6 +235,9 @@ impl BaseAgentBuilder {
             .max_iterations(self.max_iterations)
             .context_window(self.context_window)
             .with_bus_writer(bus_writer.clone());
+        if let Some(session) = self.session {
+            agent_builder = agent_builder.session(session);
+        }
 
         // 5a. Trace each plugin we hand off.
         for p in self.plugins {

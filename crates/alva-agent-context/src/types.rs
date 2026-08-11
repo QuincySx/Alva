@@ -5,7 +5,7 @@
 
 pub use alva_kernel_abi::context::{
     BudgetInfo, CompressAction, ContextEntry, ContextLayer, ContextMetadata, ContextSnapshot,
-    EntryOrigin, EntrySnapshot, EventMatch, EventQuery, IngestAction, Injection, InjectionContent,
-    LayerStats, MemoryCategory, MemoryFact, MessageRange, MessageSelector, Priority, PromptSection,
-    RuntimeContext, SessionEvent, SessionMessage, ToolPattern,
+    EntryOrigin, EntrySnapshot, IngestAction, Injection, InjectionContent, LayerStats,
+    MemoryCategory, MemoryFact, MessageRange, MessageSelector, Priority, PromptSection,
+    RuntimeContext, ToolPattern,
 };

@@ -1,5 +1,5 @@
-// INPUT:  plugin, sdk, sdk_impl, store, rules_plugin, default_plugin, session, types, chain, context_system
-// OUTPUT: re-exports ContextHooks, ContextHandle, ContextHandleImpl, ContextStore, RulesContextHooks, DefaultContextHooks, DefaultHooksConfig, SessionAccess, SessionEvent, SessionMessage, EventQuery, EventMatch, InMemorySession, ContextSystem, default_context_system
+// INPUT:  plugin, sdk, sdk_impl, store, rules_plugin, default_plugin, types, chain, context_system
+// OUTPUT: context hooks/handle/store implementations and default ContextSystem
 // POS:    Crate root that declares submodules and re-exports all public types for the context management system.
 //! alva-agent-context — Context management hooks, session storage, and plugin system.
 //!
@@ -15,13 +15,12 @@
 //! ├─────────────────────────────────────────────┤
 //! │  Storage Layer (data)                        │
 //! │  ContextStore — four-layer runtime context   │
-//! │  SessionAccess — append-only event log       │
 //! └─────────────────────────────────────────────┘
 //! ```
 //!
 //! Traits and value types are defined in `alva_kernel_abi::context`. This crate provides
 //! the concrete implementations: `RulesContextHooks`, `DefaultContextHooks`,
-//! `ContextHooksChain`, `ContextHandleImpl`, `ContextStore`, `InMemorySession`.
+//! `ContextHooksChain`, `ContextHandleImpl`, and `ContextStore`.
 
 pub mod chain;
 pub mod context_system;
@@ -30,7 +29,6 @@ pub mod plugin;
 pub mod rules_plugin;
 pub mod sdk;
 pub mod sdk_impl;
-pub mod session;
 pub mod store;
 pub mod types;
 // system_context scans git + CLAUDE.md from the real filesystem, which
@@ -53,8 +51,5 @@ pub use plugin::{ContextError, ContextHooks};
 pub use rules_plugin::RulesContextHooks;
 pub use sdk::ContextHandle;
 pub use sdk_impl::{ContextHandleImpl, MemoryBackend, SummarizeFn, Summarizer};
-pub use session::{
-    EventMatch, EventQuery, InMemorySession, SessionAccess, SessionEvent, SessionMessage,
-};
 pub use store::ContextStore;
 pub use types::*;

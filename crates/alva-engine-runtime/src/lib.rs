@@ -3,12 +3,18 @@
 // POS:    Crate root for alva-engine-runtime — re-exports error types, events, requests, the EngineRuntime trait, and stream-contract helpers
 pub mod error;
 pub mod event;
+pub mod inspector;
 pub mod request;
 pub mod runtime;
 pub mod stream_contract;
 
 pub use error::RuntimeError;
 pub use event::{PermissionDecision, RuntimeCapabilities, RuntimeEvent, RuntimeUsage};
+pub use inspector::{
+    encode_jsonl_bundle, ChildSessionLink, EngineInspector, InspectionCapabilities,
+    InspectionLevel, InspectionSnapshot, InspectionStream, InspectionUpdate,
+    InspectorBundleManifest,
+};
 pub use request::{RuntimeOptions, RuntimeRequest};
 pub use runtime::EngineRuntime;
 pub use stream_contract::{

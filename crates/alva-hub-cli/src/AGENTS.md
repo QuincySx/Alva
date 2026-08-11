@@ -23,7 +23,7 @@
 ## 约束
 
 - 不向 `alva-app-cli` / `alva-app-tauri` 添加 Hub 或 engine runtime 依赖。
-- Journal 保存 product→engine 路由；Alva 另存 `alva-history/{engine_session}.json` 消息 transcript 以支持跨进程 resume。
+- Journal 保存 product→engine 路由；Alva 另存 `alva-history/alva-agent-records.db` 类型记录以支持跨进程 resume 与 handoff 摘录。
 - Claude：`claude --resume`；Codex：`codex exec resume <id> --json`。
 - stdout 不混 tool 噪声；verbose / permission / journal 一律 stderr。
 

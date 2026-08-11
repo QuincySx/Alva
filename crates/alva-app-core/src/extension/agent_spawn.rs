@@ -11,11 +11,9 @@
 //! Orchestration lives in the LLM's reasoning, not in code-level graph
 //! definitions.
 //!
-//! Sub-agent events are recorded into the parent's session in real time
-//! via a `ListenableInMemorySession` + a `ForwardToSession` listener.
-//! Projection consumers (eval, debug) delimit each sub-run by matching
-//! `subagent_run_start` / `subagent_run_end` marker events tagged with
-//! the parent `tool_call_id`.
+//! Every sub-agent owns an independent AgentSession. The parent commits one
+//! typed child-session link before the child starts; Inspector follows links
+//! recursively instead of duplicating child records into the parent log.
 
 use std::sync::Arc;
 
@@ -31,12 +29,10 @@ use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
-    OnChildComplete, ProviderRegistry, Sleeper, SpawnCommContext, SpawnCommHandle,
-    SpawnCommunicationRegistry, SpawnResult,
+    EventEmitter, ExecutionRecord, OnChildComplete, ProviderRegistry, SessionRecord, Sleeper,
+    SpawnCommContext, SpawnCommHandle, SpawnCommunicationRegistry, SpawnResult,
 };
-use alva_kernel_core::agent_session::{
-    AgentSession, ListenableInMemorySession, SessionEvent, SessionEventListener,
-};
+use alva_kernel_core::agent_session::{AgentSession, ListenableInMemorySession};
 use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
 
 use alva_agent_context::scope::SpawnScopeImpl;
@@ -123,24 +119,6 @@ fn build_template_model(cfg: &AgentModelConfig) -> Arc<dyn LanguageModel> {
 
     // Single kind→provider switch lives in alva-llm-provider (PR-10).
     alva_llm_provider::build_language_model(cfg.provider_kind.as_deref(), provider_config)
-}
-
-// ---------------------------------------------------------------------------
-// ForwardToSession listener
-// ---------------------------------------------------------------------------
-
-/// `SessionEventListener` that mirrors each event into a target session.
-/// Used by `AgentSpawnTool` to forward child events into the parent session
-/// with their original emitter preserved.
-struct ForwardToSession {
-    target: Arc<dyn AgentSession>,
-}
-
-#[async_trait]
-impl SessionEventListener for ForwardToSession {
-    async fn on_event(&self, event: &SessionEvent) {
-        self.target.append(event.clone()).await;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -587,29 +565,45 @@ impl AgentSpawnTool {
             "sub-agent spawned"
         );
 
-        // Retrieve the raw parent session (bypassing emitter stamping) so we
-        // can write start/end markers and forward child events directly.
+        // Retrieve the raw parent session so the repository can create one
+        // independent child stream and commit the causal link first.
         let parent_raw: Option<Arc<dyn AgentSession>> = ctx.session().map(|s| s.inner());
-
-        // Write subagent_run_start marker into parent session.
         let tool_call_id = ctx.tool_call_id().unwrap_or("").to_string();
-        if let Some(ref raw) = parent_raw {
-            let mut start = SessionEvent::new_runtime("subagent_run_start");
-            start.data = Some(serde_json::json!({ "tool_call_id": tool_call_id.clone() }));
-            raw.append(start).await;
-        }
-
-        // Create a listenable child session and attach a forwarder to the parent.
-        let child_session = Arc::new(ListenableInMemorySession::with_parent(
-            self.scope.session_id(),
-        ));
-        if let Some(ref raw) = parent_raw {
-            child_session
-                .subscribe(Arc::new(ForwardToSession {
-                    target: raw.clone(),
-                }))
-                .await;
-        }
+        let parent_run_id = self.scope.id().to_string();
+        let child_session: Arc<dyn AgentSession> = if let Some(ref parent) = parent_raw {
+            match parent
+                .create_child_session(&parent_run_id, &tool_call_id)
+                .await
+            {
+                Ok(Some(child)) => child,
+                Ok(None) => {
+                    let child: Arc<dyn AgentSession> =
+                        Arc::new(ListenableInMemorySession::with_parent(parent.session_id()));
+                    let link = SessionRecord::execution(
+                        "child_session_linked",
+                        EventEmitter::runtime(),
+                        ExecutionRecord::ChildSessionLinked {
+                            child_session_id: child.session_id().to_string(),
+                            parent_run_id: parent_run_id.clone(),
+                            spawn_tool_call_id: tool_call_id.clone(),
+                        },
+                    );
+                    if let Err(error) = parent.append_records(vec![link]).await {
+                        tracing::warn!(%error, "parent backend cannot atomically persist child link");
+                    }
+                    child
+                }
+                Err(error) => {
+                    return Ok(ToolOutput::error(format!(
+                        "create child AgentSession failed: {error}"
+                    )));
+                }
+            }
+        } else {
+            Arc::new(ListenableInMemorySession::with_parent(
+                self.scope.session_id(),
+            ))
+        };
 
         // ── ContextSystem for hooks (only when any comm attached hooks) ─
         let context_system: Option<Arc<ContextSystem>> = if child_hooks.is_empty() {
@@ -697,21 +691,11 @@ impl AgentSpawnTool {
             // wall-clock budget actually fires; None would fall back to
             // NoopSleeper and let a runaway child run unbounded.
             sleeper: self.sleeper.clone(),
-            session: Some(child_session as Arc<dyn AgentSession>),
+            session: Some(child_session),
             context_system,
             middleware: child_middleware,
         })
         .await;
-
-        // Write subagent_run_end marker into parent session (always, even on error).
-        if let Some(ref raw) = parent_raw {
-            let mut end = SessionEvent::new_runtime("subagent_run_end");
-            end.data = Some(serde_json::json!({
-                "tool_call_id": tool_call_id.clone(),
-                "error": result.error.as_deref(),
-            }));
-            raw.append(end).await;
-        }
 
         tracing::info!(
             sub_agent_role = %role,

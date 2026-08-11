@@ -1,5 +1,5 @@
 // INPUT:  alva_kernel_abi types (AgentMessage, ContentBlock, Message, MessageRole), alva_kernel_bus::BusEvent, async_trait, serde, serde_json, thiserror, chrono, uuid, std
-// OUTPUT: ContextHooks, ContextHandle, SessionAccess, ContextSystem, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, value types
+// OUTPUT: ContextHooks, ContextHandle, ContextSystem, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, value types
 // POS:    Shared context management vocabulary — traits, value types, container, and bus events for context observability.
 //! Context management shared vocabulary.
 //!

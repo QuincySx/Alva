@@ -769,11 +769,13 @@ fn build_tool_call_records(iter_events: &[SessionEvent]) -> Vec<ToolCallRecord> 
 
         let tool_name = data
             .get("tool_name")
+            .or_else(|| data.get("operation"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
         let tool_call_id = data
             .get("tool_call_id")
+            .or_else(|| data.get("operation_id"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();

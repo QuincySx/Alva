@@ -155,6 +155,14 @@ impl BaseAgent {
         st.session.messages().await
     }
 
+    /// Clone the authoritative session handle for inspection/storage wiring.
+    /// The handle owns its own synchronization and remains valid after this
+    /// short state-lock scope ends.
+    pub async fn session_handle(&self) -> Arc<dyn alva_kernel_abi::agent_session::AgentSession> {
+        let st = self.inner.state().lock().await;
+        st.session.clone()
+    }
+
     /// Clear the current session's message history, starting fresh.
     pub async fn new_session(&self) {
         let st = self.inner.state().lock().await;

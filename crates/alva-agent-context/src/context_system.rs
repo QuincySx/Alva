@@ -29,7 +29,7 @@ mod tests {
     //! Tests for the `default_context_system()` factory.
     //!
     //! Silent changes to the budget numbers, the hooks plugin, or the
-    //! "no session set by default" contract would shift behavior for
+    //! default wiring contract would shift behavior for
     //! every caller of `default_context_system()` without compile-time
     //! signal — those callers are the recommended path for dev / test
     //! according to the docstring.
@@ -51,17 +51,6 @@ mod tests {
             system.hooks().name(),
             "rules-context-plugin",
             "default must wire RulesContextHooks (name 'rules-context-plugin')"
-        );
-    }
-
-    #[test]
-    fn session_is_none_by_default() {
-        // Pin: factory only wires hooks + handle. Callers wanting
-        // session persistence must `.with_session(...)` explicitly.
-        let system = default_context_system();
-        assert!(
-            system.session().is_none(),
-            "default ContextSystem must NOT pre-set a session"
         );
     }
 

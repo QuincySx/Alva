@@ -1,26 +1,26 @@
-// INPUT:  BaseAgentFactory, EventMapper, HistoryStore, alva_app_core::BaseAgent, alva_engine_runtime::*
-// OUTPUT: AlvaAdapter implementing EngineRuntime
+// INPUT:  BaseAgentFactory, EventMapper, SessionRepository, BaseAgent, engine contracts
+// OUTPUT: AlvaAdapter implementing EngineRuntime + EngineInspector
 // POS:    Runs one independently assembled BaseAgent per engine session and exposes it through the neutral engine contract.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use crate::factory::BaseAgentFactory;
+use crate::mapping::EventMapper;
+use crate::session_repository::{RepositoryInspector, SessionRepository};
 use alva_app_core::{ApprovalRequest, BaseAgent, PermissionDecision as AlvaPermissionDecision};
 use alva_engine_runtime::{
-    EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
-    RuntimeRequest,
+    ChildSessionLink, EngineInspector, EngineRuntime, InspectionCapabilities, InspectionSnapshot,
+    InspectionStream, InspectionUpdate, PermissionDecision, RuntimeCapabilities, RuntimeError,
+    RuntimeEvent, RuntimeRequest,
 };
+use alva_kernel_abi::{ExecutionRecord, SessionRecordPayload};
 use async_trait::async_trait;
 use futures_core::Stream;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::warn;
-
-use crate::factory::BaseAgentFactory;
-use crate::history::HistoryStore;
-use crate::mapping::EventMapper;
+use tokio_stream::StreamExt as _;
 
 struct RuntimeSession {
     agent: Option<Arc<BaseAgent>>,
@@ -31,13 +31,12 @@ struct RuntimeSession {
 /// Canonical Hub-facing Alva engine. Each engine session owns one independent
 /// BaseAgent, preserving app-core plugins, middleware, security and context.
 ///
-/// When [`HistoryStore`] is configured, message transcripts are written after
-/// each turn so a later process can `resume_session` by rebuilding the agent
-/// and calling [`BaseAgent::restore_messages`].
+/// When [`SessionRepository`] is configured, the AgentSession record stream is
+/// authoritative for both cross-process resume and Inspector.
 pub struct AlvaAdapter {
     factory: Arc<dyn BaseAgentFactory>,
     sessions: Arc<Mutex<HashMap<String, RuntimeSession>>>,
-    history: Option<HistoryStore>,
+    repository: Option<SessionRepository>,
 }
 
 impl AlvaAdapter {
@@ -45,19 +44,43 @@ impl AlvaAdapter {
         Self {
             factory,
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            history: None,
+            repository: None,
         }
     }
 
-    /// Persist/restore message history under `dir` for cross-process resume.
-    pub fn with_history_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.history = Some(HistoryStore::new(dir));
+    pub fn with_session_repository(mut self, repository: SessionRepository) -> Self {
+        self.repository = Some(repository);
         self
     }
 
-    pub fn with_history_store(mut self, store: HistoryStore) -> Self {
-        self.history = Some(store);
-        self
+    async fn inspection_session(
+        &self,
+        native_session_id: &str,
+    ) -> Result<Arc<dyn alva_kernel_abi::AgentSession>, RuntimeError> {
+        let active = self
+            .sessions
+            .lock()
+            .expect("Alva adapter session lock poisoned")
+            .get(native_session_id)
+            .and_then(|session| session.agent.clone());
+        if let Some(agent) = active {
+            return Ok(agent.session_handle().await);
+        }
+        let repository = self
+            .repository
+            .as_ref()
+            .ok_or_else(|| RuntimeError::SessionNotFound(native_session_id.to_string()))?;
+        if !repository
+            .contains(native_session_id)
+            .map_err(|error| RuntimeError::Other(error.to_string()))?
+        {
+            return Err(RuntimeError::SessionNotFound(native_session_id.to_string()));
+        }
+        repository
+            .open_session(native_session_id.to_string(), None)
+            .await
+            .map(|session| session as Arc<dyn alva_kernel_abi::AgentSession>)
+            .map_err(|error| RuntimeError::Other(error.to_string()))
     }
 }
 
@@ -92,7 +115,7 @@ impl EngineRuntime for AlvaAdapter {
                 session.running = true;
                 Some((agent, approval_rx))
             } else {
-                // Not in this process — may rehydrate from history below.
+                // Not in this process — may rehydrate from native records below.
                 sessions.insert(
                     session_id.clone(),
                     RuntimeSession {
@@ -120,17 +143,17 @@ impl EngineRuntime for AlvaAdapter {
 
         let factory = self.factory.clone();
         let sessions = self.sessions.clone();
-        let history = self.history.clone();
+        let repository = self.repository.clone();
         tokio::spawn(async move {
             let (agent, mut approval_rx) = match resumed_session {
                 Some(session) => session,
                 None => {
-                    // Cross-process resume requires durable history.
+                    // Cross-process resume requires the native record store.
                     if resume_id.is_some() {
-                        let Some(ref store) = history else {
+                        let Some(ref repository) = repository else {
                             let _ = event_tx.send(RuntimeEvent::Error {
                                 message: format!(
-                                    "Alva session '{session_id}' is not in this process and no history store is configured"
+                                    "Alva session '{session_id}' is not in this process and no native record store is configured"
                                 ),
                                 recoverable: false,
                             });
@@ -145,12 +168,12 @@ impl EngineRuntime for AlvaAdapter {
                                 .remove(&session_id);
                             return;
                         };
-                        match store.load(&session_id) {
-                            Ok(Some(_)) => {}
-                            Ok(None) => {
+                        match repository.contains(&session_id) {
+                            Ok(true) => {}
+                            Ok(false) => {
                                 let _ = event_tx.send(RuntimeEvent::Error {
                                     message: format!(
-                                        "Alva session '{session_id}' not found in memory or history store"
+                                        "Alva session '{session_id}' not found in memory or native record store"
                                     ),
                                     recoverable: false,
                                 });
@@ -165,9 +188,9 @@ impl EngineRuntime for AlvaAdapter {
                                     .remove(&session_id);
                                 return;
                             }
-                            Err(e) => {
+                            Err(error) => {
                                 let _ = event_tx.send(RuntimeEvent::Error {
-                                    message: format!("Alva history load failed: {e}"),
+                                    message: format!("Alva record lookup failed: {error}"),
                                     recoverable: false,
                                 });
                                 let _ = event_tx.send(RuntimeEvent::Completed {
@@ -184,22 +207,36 @@ impl EngineRuntime for AlvaAdapter {
                         }
                     }
 
-                    match factory.build(&request).await {
-                        Ok(built) => {
-                            let agent = Arc::new(built.agent);
-                            if resume_id.is_some() {
-                                if let Some(ref store) = history {
-                                    match store.load(&session_id) {
-                                        Ok(Some(msgs)) => {
-                                            agent.restore_messages(msgs).await;
-                                        }
-                                        Ok(None) => {}
-                                        Err(e) => {
-                                            warn!(%e, "alva history load after build failed");
-                                        }
-                                    }
+                    let durable_session: Arc<dyn alva_kernel_abi::AgentSession> =
+                        if let Some(repository) = &repository {
+                            match repository.open_session(session_id.clone(), None).await {
+                                Ok(session) => session,
+                                Err(error) => {
+                                    let _ = event_tx.send(RuntimeEvent::Error {
+                                        message: format!("Alva record store failed: {error}"),
+                                        recoverable: false,
+                                    });
+                                    let _ = event_tx.send(RuntimeEvent::Completed {
+                                        session_id: session_id.clone(),
+                                        result: None,
+                                        usage: None,
+                                    });
+                                    sessions
+                                        .lock()
+                                        .expect("Alva adapter session lock poisoned")
+                                        .remove(&session_id);
+                                    return;
                                 }
                             }
+                        } else {
+                            Arc::new(
+                                alva_kernel_core::agent_session::ListenableInMemorySession::new(),
+                            )
+                        };
+
+                    match factory.build(&request, durable_session).await {
+                        Ok(built) => {
+                            let agent = Arc::new(built.agent);
                             (agent, built.approval_rx)
                         }
                         Err(error) => {
@@ -287,13 +324,7 @@ impl EngineRuntime for AlvaAdapter {
                 }
             }
 
-            // Persist transcript for cross-process resume.
-            if let Some(ref store) = history {
-                let msgs = agent.messages().await;
-                if let Err(e) = store.save(&session_id, &msgs) {
-                    warn!(%e, session = %session_id, "failed to save Alva session history");
-                }
-            }
+            let _ = agent.session_handle().await.flush().await;
 
             if let Some(session) = sessions
                 .lock()
@@ -365,6 +396,91 @@ impl EngineRuntime for AlvaAdapter {
     }
 }
 
+#[async_trait]
+impl EngineInspector for AlvaAdapter {
+    fn inspection_capabilities(&self) -> InspectionCapabilities {
+        InspectionCapabilities::full()
+    }
+
+    async fn snapshot(&self, native_session_id: &str) -> Result<InspectionSnapshot, RuntimeError> {
+        if let Some(repository) = &self.repository {
+            return RepositoryInspector::new(repository.clone())
+                .snapshot(native_session_id)
+                .await;
+        }
+        let session = self.inspection_session(native_session_id).await?;
+        let parent_session_id = session.parent_session_id().map(str::to_string);
+        let records = session.records(0).await;
+        let high_water_seq = records.last().map(|record| record.seq).unwrap_or(0);
+        let children = records
+            .iter()
+            .filter_map(|record| match &record.payload {
+                SessionRecordPayload::Execution(ExecutionRecord::ChildSessionLinked {
+                    child_session_id,
+                    parent_run_id,
+                    spawn_tool_call_id,
+                }) => Some(ChildSessionLink {
+                    child_session_id: child_session_id.clone(),
+                    parent_session_id: native_session_id.to_string(),
+                    parent_run_id: parent_run_id.clone(),
+                    spawn_tool_call_id: spawn_tool_call_id.clone(),
+                }),
+                _ => None,
+            })
+            .collect();
+        Ok(InspectionSnapshot {
+            engine_id: "alva".to_string(),
+            native_session_id: native_session_id.to_string(),
+            parent_session_id,
+            high_water_seq,
+            records,
+            children,
+        })
+    }
+
+    async fn subscribe(
+        &self,
+        native_session_id: &str,
+        after_seq: u64,
+    ) -> Result<InspectionStream, RuntimeError> {
+        if let Some(repository) = &self.repository {
+            return RepositoryInspector::new(repository.clone())
+                .subscribe(native_session_id, after_seq)
+                .await;
+        }
+        let session = self.inspection_session(native_session_id).await?;
+        let stream =
+            session
+                .subscribe_events(after_seq)
+                .await
+                .map(|event| InspectionUpdate::Record {
+                    record: Box::new(alva_kernel_abi::SessionRecord::from_event(event)),
+                });
+        Ok(Box::pin(stream))
+    }
+
+    async fn delete_session(&self, native_session_id: &str) -> Result<(), RuntimeError> {
+        let session = self
+            .sessions
+            .lock()
+            .expect("Alva adapter session lock poisoned")
+            .remove(native_session_id);
+        if let Some(repository) = &self.repository {
+            repository
+                .delete(native_session_id)
+                .map_err(|error| RuntimeError::Other(error.to_string()))?;
+        } else if let Some(agent) = session.and_then(|session| session.agent) {
+            agent
+                .session_handle()
+                .await
+                .clear()
+                .await
+                .map_err(|error| RuntimeError::Other(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
 async fn receive_approval(
     approval_rx: &mut Option<mpsc::UnboundedReceiver<ApprovalRequest>>,
 ) -> Option<ApprovalRequest> {
@@ -381,6 +497,7 @@ mod tests {
 
     use alva_app_core::EngineError;
     use alva_engine_runtime::{validate_event_stream, EngineRuntime, RuntimeEvent, RuntimeRequest};
+    use alva_kernel_abi::AgentSession as _;
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
     use async_trait::async_trait;
@@ -400,8 +517,12 @@ mod tests {
 
     #[async_trait]
     impl BaseAgentFactory for ApprovalFactory {
-        async fn build(&self, request: &RuntimeRequest) -> Result<BuiltAgent, EngineError> {
-            let mut built = self.inner.build(request).await?;
+        async fn build(
+            &self,
+            request: &RuntimeRequest,
+            session: Arc<dyn alva_kernel_abi::AgentSession>,
+        ) -> Result<BuiltAgent, EngineError> {
+            let mut built = self.inner.build(request, session).await?;
             built.approval_rx = self
                 .approval_rx
                 .lock()
@@ -438,6 +559,34 @@ mod tests {
             validate_event_stream(&events).is_ok(),
             "Alva adapter stream must satisfy multi-engine contract: {events:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn exposes_full_typed_inspection_snapshot_from_authoritative_session() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("hub")));
+        let config = DefaultBaseAgentFactoryConfig::new(model, std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+        let events: Vec<_> = adapter
+            .execute(RuntimeRequest::new("inspect me"))
+            .unwrap()
+            .collect()
+            .await;
+        let session_id = match &events[0] {
+            RuntimeEvent::SessionStarted { session_id, .. } => session_id,
+            event => panic!("expected session start, got {event:?}"),
+        };
+
+        assert_eq!(
+            adapter.inspection_capabilities(),
+            InspectionCapabilities::full()
+        );
+        let snapshot = adapter.snapshot(session_id).await.unwrap();
+        assert_eq!(snapshot.native_session_id, *session_id);
+        assert!(snapshot.high_water_seq > 0);
+        assert!(snapshot
+            .records
+            .windows(2)
+            .all(|pair| pair[0].seq < pair[1].seq));
     }
 
     #[tokio::test]
@@ -548,7 +697,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resumes_from_disk_history_after_process_drop() {
+    async fn resumes_from_native_records_after_process_drop() {
         let dir = std::env::temp_dir().join(format!(
             "alva-adapter-hist-{}-{}",
             std::process::id(),
@@ -565,8 +714,9 @@ mod tests {
                 .with_response(make_assistant_message("second")),
         );
         let config = DefaultBaseAgentFactoryConfig::new(model.clone(), std::env::temp_dir());
+        let repository_path = dir.join("records.db");
         let adapter1 = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config.clone())))
-            .with_history_dir(&dir);
+            .with_session_repository(SessionRepository::open(&repository_path).unwrap());
 
         let first: Vec<_> = adapter1
             .execute(RuntimeRequest::new("first prompt"))
@@ -580,8 +730,8 @@ mod tests {
         drop(adapter1);
 
         // New adapter instance = "new process" (empty in-memory map).
-        let adapter2 =
-            AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config))).with_history_dir(&dir);
+        let adapter2 = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)))
+            .with_session_repository(SessionRepository::open(&repository_path).unwrap());
         let mut resumed = RuntimeRequest::new("second prompt");
         resumed.resume_session = Some(session_id);
         let second: Vec<_> = adapter2.execute(resumed).unwrap().collect().await;
@@ -593,9 +743,45 @@ mod tests {
                     ..
                 }) if text == "second"
             ),
-            "disk resume should complete with second answer: {second:?}"
+            "native record resume should complete with second answer: {second:?}"
         );
         assert_eq!(model.calls().len(), 2);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn deleting_an_active_repository_session_removes_recursive_children() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SessionRepository::open(directory.path().join("records.db")).unwrap();
+        let model =
+            Arc::new(MockLanguageModel::new().with_response(make_assistant_message("done")));
+        let config = DefaultBaseAgentFactoryConfig::new(model, directory.path());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)))
+            .with_session_repository(repository.clone());
+
+        let events: Vec<_> = adapter
+            .execute(RuntimeRequest::new("parent"))
+            .unwrap()
+            .collect()
+            .await;
+        let parent_id = match events.first() {
+            Some(RuntimeEvent::SessionStarted { session_id, .. }) => session_id.clone(),
+            other => panic!("expected SessionStarted, got {other:?}"),
+        };
+        let parent = repository
+            .open_session(parent_id.clone(), None)
+            .await
+            .unwrap();
+        let child = parent
+            .create_child_session("run-1", "spawn-1")
+            .await
+            .unwrap()
+            .unwrap();
+        let child_id = child.session_id().to_string();
+
+        adapter.delete_session(&parent_id).await.unwrap();
+
+        assert!(!repository.contains(&parent_id).unwrap());
+        assert!(!repository.contains(&child_id).unwrap());
     }
 }

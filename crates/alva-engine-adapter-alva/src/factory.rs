@@ -11,7 +11,7 @@ use alva_app_core::{
     AlvaPaths, ApprovalRequest, BaseAgent, BaseAgentBuilder, EngineError,
 };
 use alva_engine_runtime::RuntimeRequest;
-use alva_kernel_abi::LanguageModel;
+use alva_kernel_abi::{AgentSession, LanguageModel};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
@@ -27,7 +27,11 @@ pub struct BuiltAgent {
 /// Builds a fresh complete `BaseAgent` for each new engine session.
 #[async_trait]
 pub trait BaseAgentFactory: Send + Sync {
-    async fn build(&self, request: &RuntimeRequest) -> Result<BuiltAgent, EngineError>;
+    async fn build(
+        &self,
+        request: &RuntimeRequest,
+        session: Arc<dyn AgentSession>,
+    ) -> Result<BuiltAgent, EngineError>;
 }
 
 /// Minimal factory input (chat + default plugins only — no tool catalog).
@@ -66,7 +70,11 @@ impl DefaultBaseAgentFactory {
 
 #[async_trait]
 impl BaseAgentFactory for DefaultBaseAgentFactory {
-    async fn build(&self, request: &RuntimeRequest) -> Result<BuiltAgent, EngineError> {
+    async fn build(
+        &self,
+        request: &RuntimeRequest,
+        session: Arc<dyn AgentSession>,
+    ) -> Result<BuiltAgent, EngineError> {
         let workspace = request
             .working_directory
             .as_ref()
@@ -84,6 +92,7 @@ impl BaseAgentFactory for DefaultBaseAgentFactory {
             .workspace(workspace)
             .system_prompt(system_prompt)
             .max_iterations(max_iterations)
+            .session(session)
             .build(self.config.model.clone())
             .await?;
         Ok(BuiltAgent {
@@ -148,7 +157,11 @@ impl CatalogBaseAgentFactory {
 
 #[async_trait]
 impl BaseAgentFactory for CatalogBaseAgentFactory {
-    async fn build(&self, request: &RuntimeRequest) -> Result<BuiltAgent, EngineError> {
+    async fn build(
+        &self,
+        request: &RuntimeRequest,
+        session: Arc<dyn AgentSession>,
+    ) -> Result<BuiltAgent, EngineError> {
         let workspace = request
             .working_directory
             .clone()
@@ -187,6 +200,7 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
                 .workspace(&workspace)
                 .system_prompt(&system_prompt)
                 .max_iterations(max_iterations)
+                .session(session)
                 .plugin(Box::new(approval_ext)),
             &self.toggles,
             &ctx,
@@ -298,10 +312,8 @@ mod tests {
     /// factory silently drifting from `apply_components`.
     #[tokio::test]
     async fn catalog_factory_wires_compaction_and_checkpoint_middleware() {
-        let factory = CatalogBaseAgentFactory::new(
-            Arc::new(MockLanguageModel::new()),
-            std::env::temp_dir(),
-        );
+        let factory =
+            CatalogBaseAgentFactory::new(Arc::new(MockLanguageModel::new()), std::env::temp_dir());
         let request = RuntimeRequest {
             prompt: "do the thing".to_string(),
             resume_session: None,
@@ -313,7 +325,13 @@ mod tests {
                 extra: HashMap::new(),
             },
         };
-        let built = factory.build(&request).await.expect("catalog agent builds");
+        let built = factory
+            .build(
+                &request,
+                Arc::new(alva_kernel_core::agent_session::InMemoryAgentSession::new()),
+            )
+            .await
+            .expect("catalog agent builds");
         let snapshot = built.agent.assembly_snapshot();
         let middleware = snapshot.middleware_names.clone();
         assert!(

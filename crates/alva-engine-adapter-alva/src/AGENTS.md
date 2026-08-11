@@ -9,9 +9,10 @@
 2. **`CatalogBaseAgentFactory`（Hub 产品默认）**：`apply_components` 全量 catalog + `ApprovalPlugin` + Skills/MCP 双源路径 + AGENTS.md 注入，与 CLI/Tauri 深度对齐。
 3. **`DefaultBaseAgentFactory`**：仅 default plugins，供单测与极简场景。
 4. `execute()` 映射 `AgentEvent` → `RuntimeEvent`；`approval_rx` 由 session 持有，每 turn 暂借给当前事件流做 multiplex，结束后归还，避免旧 stream 长驻或截获新 turn 审批。
-5. 可选 **`HistoryStore`**：每 turn 结束后把 `BaseAgent::messages()` 以 0700 目录 / 0600 原子文件落盘；拒绝越界符号链接；跨进程 `resume_session` 时重建 agent + `restore_messages`。
-6. 同进程 idle BaseAgent 优先；running session 拒绝并发 execute。
-7. `cancel()` / `respond_permission()` 路由至对应 BaseAgent；修改 tool input 尚不支持。
+5. `EngineInspector` 直接读取同一个 AgentSession 的 typed record snapshot/live tail，不复制第二份 Inspector 日志。
+6. `SessionRepository` 是唯一持久化源：typed records 原子写入 SQLite，敏感字段写盘前脱敏，大载荷转内容寻址 zstd blob。
+7. 同进程 idle BaseAgent 优先；running session 拒绝并发 execute。
+8. `cancel()` / `respond_permission()` 路由至对应 BaseAgent；修改 tool input 尚不支持。
 
 ## 约束
 - 不得构造裸 `AgentState` 或直接调用 `run_agent`；必须通过 BaseAgent factory。
@@ -21,8 +22,8 @@
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| AlvaAdapter | adapter.rs | EngineRuntime：session 生命周期、turn-scoped approval 路由、history resume |
+| AlvaAdapter | adapter.rs | EngineRuntime + EngineInspector：session 生命周期、审批路由、typed snapshot/live tail |
 | BaseAgentFactory / BuiltAgent | factory.rs | 每 session 组装；Catalog vs Default 两档 |
-| HistoryStore | history.rs | 私有、原子、符号链接安全的消息 transcript 落盘 / 加载 |
+| SessionRepository | session_repository.rs | engine-native SQLite AgentSession records、atomic batch、resume/live tail |
 | EventMapper | mapping.rs | AgentEvent → RuntimeEvent；Completed 聚合最后一条助手消息的全部文本块 |
 | lib.rs | lib.rs | 重导出 adapter 与 factory API |
