@@ -6,67 +6,90 @@ use std::sync::Arc;
 
 use gpui::*;
 use gpui_component::{
-    avatar::Avatar,
     dock::{DockArea, DockItem, Panel, PanelControl, PanelEvent},
-    tag::Tag,
-    ActiveTheme, IconName, Sizable as _, *,
+    IconName,
 };
 
-use super::app::HubApp;
+use super::app::{HubApp, PrimarySurface};
+use super::components::HubToolPlaceholder;
 
-const DOCK_LAYOUT_VERSION: usize = 1;
+const DOCK_LAYOUT_VERSION: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkspaceTool {
-    Inspector,
+    Files,
+    Review,
     Agent,
-    Git,
+    Inspector,
+    Background,
+    Resources,
+    Browser,
     Terminal,
 }
 
 impl WorkspaceTool {
     pub const fn panel_name(self) -> &'static str {
         match self {
-            Self::Inspector => "hub-inspector",
+            Self::Files => "hub-files",
+            Self::Review => "hub-review",
             Self::Agent => "hub-agent",
-            Self::Git => "hub-git",
+            Self::Inspector => "hub-inspector",
+            Self::Background => "hub-background",
+            Self::Resources => "hub-resources",
+            Self::Browser => "hub-browser",
             Self::Terminal => "hub-terminal",
         }
     }
 
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Inspector => "Inspector",
+            Self::Files => "Files",
+            Self::Review => "Review",
             Self::Agent => "Agent",
-            Self::Git => "Git",
+            Self::Inspector => "Inspector",
+            Self::Background => "Background",
+            Self::Resources => "Resources",
+            Self::Browser => "Browser",
             Self::Terminal => "Terminal",
         }
     }
 
-    const fn icon(self) -> IconName {
+    pub(crate) const fn icon(self) -> IconName {
         match self {
-            Self::Inspector => IconName::Search,
+            Self::Files => IconName::Inbox,
+            Self::Review => IconName::Github,
             Self::Agent => IconName::Bot,
-            Self::Git => IconName::Github,
+            Self::Inspector => IconName::Search,
+            Self::Background => IconName::Info,
+            Self::Resources => IconName::PanelRightOpen,
+            Self::Browser => IconName::Search,
             Self::Terminal => IconName::SquareTerminal,
         }
     }
 
     const fn description(self) -> &'static str {
         match self {
-            Self::Inspector => "Inspect durable and live engine execution records.",
+            Self::Files => "Browse project files and preview them beside the conversation.",
+            Self::Review => "Review repository changes produced by the current Hub session.",
             Self::Agent => "Navigate child agents associated with this Hub session.",
-            Self::Git => "Review repository history and workspace changes.",
+            Self::Inspector => "Inspect durable and live engine execution records.",
+            Self::Background => "Track background jobs that belong to this Hub session.",
+            Self::Resources => "Inspect engine CPU, memory, and process health.",
+            Self::Browser => "Open project research without leaving the session.",
             Self::Terminal => "Run project commands without leaving the session.",
         }
     }
 }
 
-pub const fn default_workspace_tools() -> [WorkspaceTool; 4] {
+pub const fn default_workspace_tools() -> [WorkspaceTool; 8] {
     [
-        WorkspaceTool::Inspector,
+        WorkspaceTool::Files,
+        WorkspaceTool::Review,
         WorkspaceTool::Agent,
-        WorkspaceTool::Git,
+        WorkspaceTool::Inspector,
+        WorkspaceTool::Background,
+        WorkspaceTool::Resources,
+        WorkspaceTool::Browser,
         WorkspaceTool::Terminal,
     ]
 }
@@ -90,7 +113,7 @@ impl HubWorkspace {
         let weak_dock = dock_area.downgrade();
 
         let center = DockItem::panel(Arc::new(chat));
-        let left = DockItem::tab(navigation, &weak_dock, window, cx);
+        let left = DockItem::panel(Arc::new(navigation));
         let right = DockItem::tabs(
             tools
                 .into_iter()
@@ -104,8 +127,8 @@ impl HubWorkspace {
         dock_area.update(cx, |dock, cx| {
             dock.set_version(DOCK_LAYOUT_VERSION, window, cx);
             dock.set_center(center, window, cx);
-            dock.set_left_dock(left, Some(px(240.)), true, window, cx);
-            dock.set_right_dock(right, Some(px(320.)), true, window, cx);
+            dock.set_left_dock(left, Some(px(248.)), true, window, cx);
+            dock.set_right_dock(right, Some(px(520.)), false, window, cx);
             dock.set_dock_collapsible(
                 gpui::Edges {
                     right: true,
@@ -114,6 +137,9 @@ impl HubWorkspace {
                 window,
                 cx,
             );
+        });
+        hub.update(cx, |hub, _| {
+            hub.workspace_dock = Some(weak_dock);
         });
 
         Self { hub, dock_area }
@@ -227,8 +253,12 @@ impl Panel for ChatPanel {
 
 impl Render for ChatPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.hub
-            .update(cx, |hub, cx| hub.main_column(window, cx).into_any_element())
+        self.hub.update(cx, |hub, cx| match hub.primary_surface {
+            PrimarySurface::Chat => hub.main_column(window, cx).into_any_element(),
+            PrimarySurface::Automation => hub.automation_surface(cx).into_any_element(),
+            PrimarySurface::Plugins => hub.plugins_surface(cx).into_any_element(),
+            PrimarySurface::Settings => hub.settings_surface(window, cx).into_any_element(),
+        })
     }
 }
 
@@ -287,34 +317,19 @@ impl Render for ToolPanel {
             WorkspaceTool::Agent => self
                 .hub
                 .update(cx, |hub, cx| hub.agent_panel(cx).into_any_element()),
-            WorkspaceTool::Git | WorkspaceTool::Terminal => self.placeholder(cx).into_any_element(),
+            WorkspaceTool::Files
+            | WorkspaceTool::Review
+            | WorkspaceTool::Background
+            | WorkspaceTool::Resources
+            | WorkspaceTool::Browser
+            | WorkspaceTool::Terminal => self.placeholder(cx).into_any_element(),
         }
     }
 }
 
 impl ToolPanel {
-    fn placeholder(&self, cx: &Context<Self>) -> impl IntoElement {
-        v_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(Avatar::new().placeholder(self.tool.icon()).large())
-            .child(
-                div()
-                    .text_lg()
-                    .font_weight(FontWeight(600.))
-                    .child(self.tool.label()),
-            )
-            .child(
-                div()
-                    .max_w(px(280.))
-                    .text_center()
-                    .text_sm()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(self.tool.description()),
-            )
-            .child(Tag::secondary().small().child("Tool workspace"))
+    fn placeholder(&self, _: &Context<Self>) -> impl IntoElement {
+        HubToolPlaceholder::new(self.tool.icon(), self.tool.label(), self.tool.description())
     }
 }
 
@@ -325,14 +340,26 @@ mod tests {
     #[test]
     fn tool_workspace_keeps_agent_and_inspector_distinct() {
         let tools = default_workspace_tools();
-        assert_eq!(tools[0], WorkspaceTool::Inspector);
-        assert_eq!(tools[1], WorkspaceTool::Agent);
-        assert_ne!(tools[0].panel_name(), tools[1].panel_name());
+        assert_eq!(tools[2], WorkspaceTool::Agent);
+        assert_eq!(tools[3], WorkspaceTool::Inspector);
+        assert_ne!(tools[2].panel_name(), tools[3].panel_name());
     }
 
     #[test]
     fn default_tool_order_matches_product_navigation() {
         let labels = default_workspace_tools().map(WorkspaceTool::label);
-        assert_eq!(labels, ["Inspector", "Agent", "Git", "Terminal"]);
+        assert_eq!(
+            labels,
+            [
+                "Files",
+                "Review",
+                "Agent",
+                "Inspector",
+                "Background",
+                "Resources",
+                "Browser",
+                "Terminal",
+            ]
+        );
     }
 }

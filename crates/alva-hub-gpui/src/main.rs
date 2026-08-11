@@ -22,9 +22,9 @@ fn main() {
                 let options = WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(Bounds::new(
                         point(px(80.), px(60.)),
-                        size(px(1180.), px(760.)),
+                        size(px(1440.), px(900.)),
                     ))),
-                    window_min_size: Some(size(px(860.), px(600.))),
+                    window_min_size: Some(size(px(1024.), px(680.))),
                     ..WindowOptions::default()
                 };
                 cx.open_window(options, |window, cx| {

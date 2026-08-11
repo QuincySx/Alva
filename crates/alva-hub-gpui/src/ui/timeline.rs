@@ -6,10 +6,15 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
+    alert::Alert,
     avatar::Avatar,
     button::{Button, ButtonVariants as _},
-    input::Input,
+    dialog::DialogButtonProps,
+    group_box::GroupBoxVariant,
+    menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement,
+    setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    tab::{Tab, TabBar},
     tag::Tag,
     ActiveTheme, *,
 };
@@ -20,6 +25,10 @@ use alva_hub_gpui::{
 };
 
 use super::app::{status_color, with_window, HubApp};
+use super::components::{
+    HubActivityRow, HubAutomationForm, HubComposer, HubEmptyState, HubExtensionCard,
+    HubExtensionDetail, HubProjectPicker, HubQuickStartCard, HubSurfaceHeader, HubTemplateCard,
+};
 
 impl HubApp {
     pub fn main_column(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -28,10 +37,126 @@ impl HubApp {
             .size_full()
             .min_w_0()
             .child(self.topbar(window, cx))
-            .child(self.chat_area(cx))
-            .child(self.composer_readiness_warning(cx))
-            .child(self.approval_area(cx))
-            .child(self.composer(window, cx))
+            .child(if self.chat.is_empty() {
+                self.new_conversation(window, cx).into_any_element()
+            } else {
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.chat_area(cx))
+                    .child(self.composer_readiness_warning(cx))
+                    .child(self.approval_area(cx))
+                    .child(self.composer(window, cx))
+                    .into_any_element()
+            })
+    }
+
+    fn new_conversation(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let session_count = self.sessions.len();
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .px_6()
+            .py_6()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .w_full()
+                    .max_w(px(900.))
+                    .mx_auto()
+                    .justify_center()
+                    .gap_5()
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                Avatar::new()
+                                    .name("ALVA Hub")
+                                    .placeholder(IconName::Bot)
+                                    .large(),
+                            )
+                            .child(
+                                v_flex()
+                                    .gap_0p5()
+                                    .child(
+                                        div()
+                                            .text_2xl()
+                                            .font_weight(FontWeight(750.))
+                                            .child("ALVA Hub"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().colors.muted_foreground)
+                                            .child(format!(
+                                                "One conversation for every engine · {session_count} stored locally"
+                                            )),
+                                    ),
+                            ),
+                    )
+                    .child(self.composer_readiness_warning(cx))
+                    .child(self.approval_area(cx))
+                    .child(self.composer(window, cx))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight(600.))
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child("Quick start"),
+                    )
+                    .child(self.quick_start_cards(cx)),
+            )
+    }
+
+    fn quick_start_cards(&self, cx: &Context<Self>) -> impl IntoElement {
+        let cards = [
+            (
+                "quick-explore",
+                IconName::Search,
+                "Explore this project",
+                "Understand the codebase and its architecture.",
+                "Explore this project and explain its architecture.",
+            ),
+            (
+                "quick-build",
+                IconName::Bot,
+                "Build a feature",
+                "Plan and implement a focused product change.",
+                "Help me plan and build a new feature.",
+            ),
+            (
+                "quick-review",
+                IconName::Github,
+                "Review changes",
+                "Inspect the current diff and suggest improvements.",
+                "Review the current changes and identify problems.",
+            ),
+            (
+                "quick-fix",
+                IconName::Info,
+                "Fix a failure",
+                "Diagnose an error and verify the correction.",
+                "Diagnose and fix the current failure.",
+            ),
+        ];
+        h_flex().w_full().flex_wrap().gap_3().children(cards.map(
+            |(id, icon, title, description, prompt)| {
+                let weak = cx.entity().downgrade();
+                HubQuickStartCard::new(id, icon, title, description)
+                    .on_click(move |_, window, app| {
+                        if let Some(entity) = weak.upgrade() {
+                            entity.update(app, |hub, cx| {
+                                hub.prompt.update(cx, |input, cx| {
+                                    input.set_value(prompt, window, cx);
+                                });
+                            });
+                        }
+                    })
+                    .into_any_element()
+            },
+        ))
     }
 
     fn chat_area(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -52,34 +177,12 @@ impl HubApp {
             })
     }
 
-    fn empty_state(&self, session_count: usize, cx: &Context<Self>) -> impl IntoElement {
-        v_flex()
-            .flex_1()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(Avatar::new().name("ALVA Hub").large())
-            .child(
-                div()
-                    .text_lg()
-                    .font_weight(FontWeight(600.))
-                    .child("Start one continuous project session"),
-            )
-            .child(
-                div()
-                    .max_w(px(480.))
-                    .text_center()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(format!(
-                        "{session_count} persisted sessions · Hub keeps each engine branch in private local storage."
-                    )),
-            )
-            .child(
-                Tag::secondary()
-                    .small()
-                    .rounded_full()
-                    .child("Alva · Claude · Codex"),
-            )
+    fn empty_state(&self, _: usize, _: &Context<Self>) -> impl IntoElement {
+        HubEmptyState::new(
+            IconName::Bot,
+            "No messages yet",
+            "Start with the composer below.",
+        )
     }
 
     fn chat_rows(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -178,7 +281,7 @@ impl HubApp {
         event: &ProjectedEvent,
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        let (status, color) = status_color(&event.status, cx);
+        let (status, _) = status_color(&event.status, cx);
         let message = event.message.clone().unwrap_or_else(|| {
             if event.status == TimelineStatus::Running {
                 "Executing in the selected workspace…".to_string()
@@ -186,38 +289,48 @@ impl HubApp {
                 "Run finished.".to_string()
             }
         });
-        let mut card = div()
-            .id(SharedString::from(format!("tl-{index}")))
-            .v_flex()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .rounded_lg()
-            .bg(cx.theme().colors.muted)
-            .border_1()
-            .border_color(cx.theme().colors.border)
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight(600.))
-                            .child(event.engine_id.clone()),
-                    )
-                    .child(
-                        Tag::new()
-                            .with_variant(super::timeline_tag_variant(&event.status))
-                            .small()
-                            .rounded_full()
-                            .child(status),
-                    )
-                    .child(div().flex_1())
-                    .child(div().size_2().rounded_full().bg(color)),
-            )
-            .child(div().text_sm().child(message));
-        if event.status == TimelineStatus::Interrupted {
-            card = card.child(
+        let expanded = self.open_activities.contains(&index)
+            || matches!(
+                event.status,
+                TimelineStatus::PermissionRequired | TimelineStatus::Fallback
+            );
+        let weak = cx.entity().downgrade();
+        let summary = message.lines().next().unwrap_or("Activity").to_string();
+        let mut card = HubActivityRow::new(
+            event.engine_id.clone(),
+            status,
+            super::timeline_tag_variant(&event.status),
+            summary,
+        )
+        .open(expanded)
+        .trigger(
+            Button::new(SharedString::from(format!("activity-toggle-{index}")))
+                .ghost()
+                .xsmall()
+                .icon(if expanded {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                })
+                .tooltip(if expanded {
+                    "Collapse activity"
+                } else {
+                    "Expand activity"
+                })
+                .on_click(move |_, _, app| {
+                    if let Some(entity) = weak.upgrade() {
+                        entity.update(app, |hub, cx| {
+                            if !hub.open_activities.remove(&index) {
+                                hub.open_activities.insert(index);
+                            }
+                            cx.notify();
+                        });
+                    }
+                }),
+        )
+        .content(div().text_sm().child(message));
+        if expanded && event.status == TimelineStatus::Interrupted {
+            card = card.content(
                 div()
                     .text_xs()
                     .text_color(cx.theme().colors.muted_foreground)
@@ -226,19 +339,21 @@ impl HubApp {
                     ),
             );
         }
-        if let Some(request) = &event.permission_request {
-            if let Some(resource) = &request.resource {
-                card = card.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().colors.muted_foreground)
-                        .child(format!("Resource: {resource}")),
-                );
+        if expanded {
+            if let Some(request) = &event.permission_request {
+                if let Some(resource) = &request.resource {
+                    card = card.content(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(format!("Resource: {resource}")),
+                    );
+                }
+                card = card.content(self.permission_card(event, request, cx));
             }
-            card = card.child(self.permission_card(event, request, cx));
-        }
-        if let Some(fallback) = &event.fallback {
-            card = card.child(self.fallback_controls(index, event, fallback, cx));
+            if let Some(fallback) = &event.fallback {
+                card = card.content(self.fallback_controls(index, event, fallback, cx));
+            }
         }
         card
     }
@@ -382,7 +497,7 @@ impl HubApp {
     }
 
     /// Warning above the composer when the selected engine is not healthy.
-    fn composer_readiness_warning(&self, cx: &Context<Self>) -> impl IntoElement {
+    fn composer_readiness_warning(&self, cx: &Context<Self>) -> AnyElement {
         let selected_engine = self.selected_engine(cx);
         let selected = self
             .pending_engine
@@ -393,36 +508,34 @@ impl HubApp {
             .iter()
             .find(|report| report.engine_id == selected)
         else {
-            return div();
+            return div().into_any_element();
         };
         if health.status == alva_hub_gpui::ReadinessStatus::Healthy {
-            return div();
+            return div().into_any_element();
         }
         let reasons = health
             .reasons
             .iter()
             .map(super::describe_readiness_reason)
             .collect::<Vec<_>>();
-        v_flex()
-            .gap_1()
-            .px_4()
-            .py_2()
-            .child(div().text_sm().font_weight(FontWeight(600.)).child(format!(
-                "{} · {}",
-                health.display_name,
-                super::readiness_badge(match health.status {
-                    alva_hub_gpui::ReadinessStatus::Healthy => "healthy",
-                    alva_hub_gpui::ReadinessStatus::Missing => "missing",
-                    alva_hub_gpui::ReadinessStatus::Incompatible => "incompatible",
-                    alva_hub_gpui::ReadinessStatus::Unauthenticated => "unauthenticated",
-                    alva_hub_gpui::ReadinessStatus::Unhealthy => "unhealthy",
-                })
-            )))
-            .children(
-                reasons
-                    .iter()
-                    .map(|reason| div().text_xs().child(reason.clone())),
-            )
+        let status = super::readiness_badge(match health.status {
+            alva_hub_gpui::ReadinessStatus::Healthy => "healthy",
+            alva_hub_gpui::ReadinessStatus::Missing => "missing",
+            alva_hub_gpui::ReadinessStatus::Incompatible => "incompatible",
+            alva_hub_gpui::ReadinessStatus::Unauthenticated => "unauthenticated",
+            alva_hub_gpui::ReadinessStatus::Unhealthy => "unhealthy",
+        });
+        let alert = match health.status {
+            alva_hub_gpui::ReadinessStatus::Unhealthy => {
+                Alert::error("composer-readiness", reasons.join(" "))
+            }
+            _ => Alert::warning("composer-readiness", reasons.join(" ")),
+        };
+        alert
+            .small()
+            .mx_4()
+            .title(format!("{} · {status}", health.display_name))
+            .into_any_element()
     }
 
     fn composer(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -473,68 +586,830 @@ impl HubApp {
                 .join(" → ")
         };
         let weak = cx.entity().downgrade();
+        let weak_stop = cx.entity().downgrade();
+        let stop_session = self.active_session_id.clone();
+        let workspace_label = self
+            .workspace
+            .as_deref()
+            .and_then(|workspace| workspace.split('/').next_back().map(ToString::to_string));
+        let project_action = HubProjectPicker::new(cx.entity().downgrade(), workspace_label);
+        let submit_action = if busy {
+            Button::new("stop")
+                .danger()
+                .small()
+                .icon(IconName::SquareTerminal)
+                .tooltip("Stop the current attempt")
+                .on_click(move |_, _, app| {
+                    let Some(session_id) = stop_session.clone() else {
+                        return;
+                    };
+                    if let Some(entity) = weak_stop.upgrade() {
+                        entity.update(app, |hub, cx| {
+                            hub.stop_attempt(&session_id, cx);
+                        });
+                    }
+                })
+                .into_any_element()
+        } else {
+            Button::new("run")
+                .primary()
+                .small()
+                .icon(IconName::ArrowRight)
+                .tooltip("Send message")
+                .disabled(!workspace_set)
+                .on_click(move |_, window, app| {
+                    if weak.upgrade().is_some() {
+                        let handle = window.window_handle();
+                        with_window(app, handle, |hub, window, cx| {
+                            hub.run(window, cx);
+                        });
+                    }
+                })
+                .into_any_element()
+        };
+        let metadata = format!(
+            "{}{}{} · {} · fallback: {}",
+            if workspace_set {
+                ""
+            } else {
+                "Select a project first · "
+            },
+            engine_display,
+            if model_id.is_empty() {
+                String::new()
+            } else {
+                format!(" · {model_id}")
+            },
+            profile_label,
+            fallback_summary
+        );
+        let composer = HubComposer::new(
+            self.prompt.clone(),
+            self.permission.clone(),
+            self.engine.clone(),
+            metadata,
+        )
+        .permission_disabled(self.active_session_id.is_some())
+        .project_action(project_action)
+        .submit_action(submit_action);
+        if summary_line.is_empty() {
+            composer
+        } else {
+            composer.summary(summary_line)
+        }
+    }
+
+    pub fn automation_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let weak_header = cx.entity().downgrade();
+        let weak_empty = cx.entity().downgrade();
+        let weak_nightly = cx.entity().downgrade();
+        let weak_pr = cx.entity().downgrade();
+        let weak_research = cx.entity().downgrade();
+        let weak_docs = cx.entity().downgrade();
         v_flex()
-            .gap_2()
-            .px_4()
-            .py_3()
-            .border_t_1()
-            .border_color(cx.theme().colors.border)
-            .child(Input::new(&self.prompt))
-            .when(!summary_line.is_empty(), |this| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().colors.muted_foreground)
-                        .child(summary_line),
-                )
-            })
+            .size_full()
             .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .justify_between()
+                HubSurfaceHeader::new(
+                    "Automation",
+                    "Schedule repeatable agent work without leaving Hub.",
+                )
+                .action(
+                    Button::new("new-automation-header")
+                        .primary()
+                        .small()
+                        .icon(IconName::Plus)
+                        .label("New automation")
+                        .on_click(move |_, window, app| {
+                            if let Some(entity) = weak_header.upgrade() {
+                                entity.update(app, |hub, cx| {
+                                    hub.open_automation_dialog(None, window, cx);
+                                });
+                            }
+                        }),
+                ),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .overflow_y_scrollbar()
+                    .px_6()
+                    .py_6()
+                    .gap_5()
                     .child(
-                        div()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .whitespace_nowrap()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(format!(
-                                "{}{}{} · {} · fallback: {}",
-                                if workspace_set {
-                                    ""
-                                } else {
-                                    "Select a workspace first · "
-                                },
-                                engine_display,
-                                if model_id.is_empty() {
-                                    String::new()
-                                } else {
-                                    format!(" · {model_id}")
-                                },
-                                profile_label,
-                                fallback_summary
-                            )),
+                        HubEmptyState::new(
+                            IconName::Info,
+                            "No automations yet",
+                            "Create a scheduled prompt for Alva, Claude, or Codex.",
+                        )
+                        .action(
+                            Button::new("new-automation")
+                                .primary()
+                                .icon(IconName::Plus)
+                                .label("New automation")
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_empty.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_automation_dialog(None, window, cx);
+                                        });
+                                    }
+                                }),
+                        ),
                     )
                     .child(
-                        Button::new("run")
-                            .primary()
-                            .label("Run")
-                            .loading(busy)
-                            .disabled(busy || !workspace_set)
-                            .on_click(move |_, window, app| {
-                                if weak.upgrade().is_some() {
-                                    let handle = window.window_handle();
-                                    with_window(app, handle, |hub, window, cx| {
-                                        hub.run(window, cx);
-                                    });
-                                }
-                            }),
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight(650.))
+                            .child("Start from a template"),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(
+                                HubTemplateCard::new(
+                                    IconName::Asterisk,
+                                    "Nightly self-healing tests",
+                                    "Run tests in an isolated worktree and repair failures.",
+                                    "02:00 · isolated worktree",
+                                )
+                                .action(
+                                    Button::new("use-nightly-template")
+                                        .ghost()
+                                        .xsmall()
+                                        .label("Use template")
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak_nightly.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.open_automation_dialog(
+                                                        Some((
+                                                            "Nightly self-healing tests",
+                                                            "Run the test suite in an isolated worktree and repair failures with the smallest safe change.",
+                                                        )),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                ),
+                            )
+                            .child(
+                                HubTemplateCard::new(
+                                    IconName::Github,
+                                    "PR gatekeeper",
+                                    "Review new changes and report release risk.",
+                                    "Weekdays · pull requests",
+                                )
+                                .action(
+                                    Button::new("use-pr-template")
+                                        .ghost()
+                                        .xsmall()
+                                        .label("Use template")
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak_pr.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.open_automation_dialog(
+                                                        Some((
+                                                            "PR gatekeeper",
+                                                            "Review new pull request changes and report correctness, security, and release risks.",
+                                                        )),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                ),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(
+                                HubTemplateCard::new(
+                                    IconName::Search,
+                                    "Research radar",
+                                    "Collect important updates and produce a concise digest.",
+                                    "Daily · web research",
+                                )
+                                .action(
+                                    Button::new("use-research-template")
+                                        .ghost()
+                                        .xsmall()
+                                        .label("Use template")
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak_research.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.open_automation_dialog(
+                                                        Some((
+                                                            "Research radar",
+                                                            "Collect important updates for this project and produce a concise daily digest.",
+                                                        )),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                ),
+                            )
+                            .child(
+                                HubTemplateCard::new(
+                                    IconName::File,
+                                    "Documentation pulse",
+                                    "Find stale docs and propose focused improvements.",
+                                    "Weekly · project context",
+                                )
+                                .action(
+                                    Button::new("use-docs-template")
+                                        .ghost()
+                                        .xsmall()
+                                        .label("Use template")
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak_docs.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.open_automation_dialog(
+                                                        Some((
+                                                            "Documentation pulse",
+                                                            "Find stale project documentation and propose focused improvements.",
+                                                        )),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                ),
+                            ),
                     ),
             )
     }
+
+    fn open_automation_dialog(
+        &self,
+        template: Option<(&'static str, &'static str)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (name, prompt) = template.unwrap_or(("", ""));
+        self.automation_name
+            .update(cx, |input, cx| input.set_value(name, window, cx));
+        self.automation_prompt
+            .update(cx, |input, cx| input.set_value(prompt, window, cx));
+        let name_input = self.automation_name.clone();
+        let form_name = self.automation_name.clone();
+        let form_prompt = self.automation_prompt.clone();
+        let form_schedule = self.automation_schedule.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let name_input = name_input.clone();
+            dialog
+                .width(px(560.))
+                .title("New automation")
+                .child(HubAutomationForm::new(
+                    form_name.clone(),
+                    form_prompt.clone(),
+                    form_schedule.clone(),
+                ))
+                .button_props(
+                    DialogButtonProps::default()
+                        .show_cancel(true)
+                        .ok_text("Create automation")
+                        .on_ok(move |_, window, app| {
+                            let name = name_input.read(app).value().to_string();
+                            if name.trim().is_empty() {
+                                window.push_notification("Automation name is required.", app);
+                                return false;
+                            }
+                            window.push_notification(
+                                format!("Automation draft created: {name}"),
+                                app,
+                            );
+                            true
+                        }),
+                )
+        });
+    }
+
+    pub fn plugins_surface(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.extension_tab == 1 {
+            self.skills_catalog_surface(cx).into_any_element()
+        } else {
+            self.plugins_catalog_surface(cx).into_any_element()
+        }
+    }
+
+    fn plugins_catalog_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .child(
+                HubSurfaceHeader::new(
+                    "Plugins & skills",
+                    "Extend Hub with tools, integrations, and reusable instructions.",
+                )
+                .action(
+                    self.add_plugin_button(cx),
+                ),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .overflow_y_scrollbar()
+                    .px_6()
+                    .py_5()
+                    .gap_5()
+                    .child(
+                        self.extension_tabs(cx),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight(650.))
+                            .child("Installed"),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(
+                                HubExtensionCard::new(
+                                    IconName::Search,
+                                    "ALVA Inspector",
+                                    "Durable execution records and recursive agent inspection.",
+                                    "Built in",
+                                )
+                                .action({
+                                    let weak = cx.entity().downgrade();
+                                    Button::new("open-inspector-plugin")
+                                        .ghost()
+                                        .xsmall()
+                                        .label("Open")
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.open_workspace_tool(
+                                                        super::workspace::WorkspaceTool::Inspector,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        })
+                                }),
+                            )
+                            .child(
+                                HubExtensionCard::new(
+                                    IconName::Frame,
+                                    "MCP tools",
+                                    "Connect external tools through the Model Context Protocol.",
+                                    "Built in",
+                                )
+                                .action(self.extension_detail_button(
+                                    "open-mcp-plugin",
+                                    "Configure",
+                                    IconName::Frame,
+                                    "MCP tools",
+                                    "Connect and configure external Model Context Protocol servers.",
+                                    "Built in",
+                                    &["Tool discovery", "Server lifecycle", "Permission routing"],
+                                    cx,
+                                )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight(650.))
+                            .child("Available engines"),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(
+                                HubExtensionCard::new(
+                                    IconName::Bot,
+                                    "Alva",
+                                    "Full native session, plugin, memory, and Inspector support.",
+                                    "Connected",
+                                )
+                                .action(self.extension_detail_button(
+                                    "open-alva-engine",
+                                    "Details",
+                                    IconName::Bot,
+                                    "Alva",
+                                    "The native ALVA engine with complete Hub session and Inspector support.",
+                                    "Connected",
+                                    &["Streaming", "Permissions", "Recursive Inspector"],
+                                    cx,
+                                )),
+                            )
+                            .child(
+                                HubExtensionCard::new(
+                                    IconName::Bot,
+                                    "Claude Code",
+                                    "Use the installed Claude runtime through the Hub adapter.",
+                                    "Adapter",
+                                )
+                                .action(self.extension_detail_button(
+                                    "open-claude-engine",
+                                    "Details",
+                                    IconName::Bot,
+                                    "Claude Code",
+                                    "Claude Code adapter with capability-aware best-effort event projection.",
+                                    "Adapter",
+                                    &["Streaming", "Resume", "Best-effort inspection"],
+                                    cx,
+                                )),
+                            ),
+                    )
+                    .child(
+                        h_flex().flex_wrap().gap_3().child(
+                            HubExtensionCard::new(
+                                IconName::SquareTerminal,
+                                "Codex",
+                                "Use codex exec JSON events through the Hub adapter.",
+                                "Adapter",
+                            )
+                            .action(self.extension_detail_button(
+                                "open-codex-engine",
+                                "Details",
+                                IconName::SquareTerminal,
+                                "Codex",
+                                "Codex exec adapter with JSON event streaming and Hub session routing.",
+                                "Adapter",
+                                &["JSON events", "Resume", "Best-effort inspection"],
+                                cx,
+                            )),
+                        ),
+                    ),
+            )
+    }
+
+    fn skills_catalog_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .child(
+                HubSurfaceHeader::new(
+                    "Plugins & skills",
+                    "Extend Hub with tools, integrations, and reusable instructions.",
+                )
+                .action(self.add_plugin_button(cx)),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .overflow_y_scrollbar()
+                    .px_6()
+                    .py_5()
+                    .gap_5()
+                    .child(self.extension_tabs(cx))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight(650.))
+                            .child("Project skills"),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(
+                                HubExtensionCard::new(
+                                    IconName::File,
+                                    "Repository conventions",
+                                    "Project-specific architecture, style, and validation guidance.",
+                                    "Loaded",
+                                )
+                                .action(self.extension_detail_button(
+                                    "skill-repository",
+                                    "Details",
+                                    IconName::File,
+                                    "Repository conventions",
+                                    "Project-specific instructions loaded from the current workspace.",
+                                    "Loaded",
+                                    &["Architecture", "Code style", "Validation"],
+                                    cx,
+                                )),
+                            )
+                            .child(
+                                HubExtensionCard::new(
+                                    IconName::Asterisk,
+                                    "Planning workflows",
+                                    "Reusable planning and execution guidance for complex work.",
+                                    "Available",
+                                )
+                                .action(self.extension_detail_button(
+                                    "skill-planning",
+                                    "Details",
+                                    IconName::Asterisk,
+                                    "Planning workflows",
+                                    "Reusable skill instructions for planning and multi-step execution.",
+                                    "Available",
+                                    &["Planning", "Task tracking", "Handoffs"],
+                                    cx,
+                                )),
+                            ),
+                    )
+                    .child(
+                        h_flex().flex_wrap().gap_3().child(
+                            HubExtensionCard::new(
+                                IconName::CircleCheck,
+                                "Release checklist",
+                                "Focused checks for packaging, regression, and delivery readiness.",
+                                "Available",
+                            )
+                            .action(self.extension_detail_button(
+                                "skill-release",
+                                "Details",
+                                IconName::CircleCheck,
+                                "Release checklist",
+                                "A reusable release-readiness workflow for Hub sessions.",
+                                "Available",
+                                &["Tests", "Packaging", "Visual QA"],
+                                cx,
+                            )),
+                        ),
+                    ),
+            )
+    }
+
+    fn extension_tabs(&self, cx: &Context<Self>) -> TabBar {
+        let weak = cx.entity().downgrade();
+        TabBar::new("extension-tabs")
+            .segmented()
+            .small()
+            .selected_index(self.extension_tab)
+            .children([Tab::new().label("Plugins"), Tab::new().label("Skills")])
+            .on_click(move |index, _, app| {
+                if let Some(entity) = weak.upgrade() {
+                    entity.update(app, |hub, cx| {
+                        hub.extension_tab = *index;
+                        cx.notify();
+                    });
+                }
+            })
+    }
+
+    fn add_plugin_button(&self, _: &Context<Self>) -> impl IntoElement {
+        Button::new("add-plugin-header")
+            .secondary()
+            .small()
+            .icon(IconName::Plus)
+            .label("Add plugin")
+            .dropdown_menu(move |menu, _, _| {
+                menu.item(PopupMenuItem::label("Add to Hub"))
+                    .item(PopupMenuItem::new("Install from local folder…").icon(IconName::Folder))
+                    .item(PopupMenuItem::new("Connect MCP server…").icon(IconName::Frame))
+                    .item(PopupMenuItem::new("Browse integrations").icon(IconName::Search))
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn extension_detail_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        icon: IconName,
+        title: &'static str,
+        description: &'static str,
+        status: &'static str,
+        capabilities: &'static [&'static str],
+        cx: &Context<Self>,
+    ) -> Button {
+        let weak = cx.entity().downgrade();
+        Button::new(id)
+            .ghost()
+            .xsmall()
+            .label(label)
+            .on_click(move |_, window, app| {
+                if let Some(entity) = weak.upgrade() {
+                    let icon = icon.clone();
+                    entity.update(app, move |hub, cx| {
+                        hub.open_extension_sheet(
+                            icon,
+                            title,
+                            description,
+                            status,
+                            capabilities,
+                            window,
+                            cx,
+                        );
+                    });
+                }
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn open_extension_sheet(
+        &self,
+        icon: IconName,
+        title: &'static str,
+        description: &'static str,
+        status: &'static str,
+        capabilities: &'static [&'static str],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.open_sheet(cx, move |sheet, _, _| {
+            sheet.size(px(460.)).title(title).child(
+                HubExtensionDetail::new(icon.clone(), title, description, status)
+                    .capabilities(capabilities.iter().copied()),
+            )
+        });
+    }
+
+    pub fn settings_surface(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let weak_inspector = cx.entity().downgrade();
+        let weak_transcript = cx.entity().downgrade();
+        let weak_readiness = cx.entity().downgrade();
+        let weak_fallback = cx.entity().downgrade();
+        let weak_team = cx.entity().downgrade();
+        let transcript_sharing = self.transcript_sharing;
+        let inspector_enabled = self.inspector_enabled;
+        let has_session = self.active_session_id.is_some();
+        Settings::new("hub-settings")
+            .sidebar_width(px(220.))
+            .with_group_variant(GroupBoxVariant::Outline)
+            .pages(vec![
+                SettingPage::new("General")
+                    .icon(IconName::Settings2)
+                    .default_open(true)
+                    .description("Configure the Hub shell and session behavior.")
+                    .groups(vec![
+                        SettingGroup::new().title("Appearance").items(vec![
+                            static_setting("Theme", "Follow system"),
+                            static_setting("Interface font", "System UI · 14"),
+                            static_setting("Code font", "Monospace · 14"),
+                        ]),
+                        SettingGroup::new().title("Session behavior").items(vec![
+                            SettingItem::new(
+                                "Share filtered transcript on handoff",
+                                SettingField::switch(
+                                    move |_| transcript_sharing,
+                                    move |enabled, app| {
+                                        if let Some(entity) = weak_transcript.upgrade() {
+                                            entity.update(app, |hub, cx| {
+                                                hub.toggle_transcript_sharing(enabled, cx);
+                                            });
+                                        }
+                                    },
+                                ),
+                            )
+                            .description("Off by default and scoped to the current Hub session.")
+                            .disabled(!has_session),
+                        ]),
+                        SettingGroup::new()
+                            .title("Engine orchestration")
+                            .items(vec![
+                                SettingItem::new(
+                                    "Engine readiness",
+                                    SettingField::render(move |options, _, _| {
+                                        let weak_readiness = weak_readiness.clone();
+                                        Button::new("settings-readiness")
+                                            .secondary()
+                                            .label("Open")
+                                            .with_size(options.size)
+                                            .on_click(move |_, window, app| {
+                                                if let Some(entity) = weak_readiness.upgrade() {
+                                                    entity.update(app, |hub, cx| {
+                                                        hub.open_readiness_sheet(window, cx);
+                                                    });
+                                                }
+                                            })
+                                    }),
+                                )
+                                .description(
+                                    "Installation, authentication, and compatibility status.",
+                                ),
+                                SettingItem::new(
+                                    "Fallback policy",
+                                    SettingField::render(move |options, _, _| {
+                                        let weak_fallback = weak_fallback.clone();
+                                        Button::new("settings-fallback")
+                                            .secondary()
+                                            .label("Open")
+                                            .with_size(options.size)
+                                            .on_click(move |_, window, app| {
+                                                if let Some(entity) = weak_fallback.upgrade() {
+                                                    entity.update(app, |hub, cx| {
+                                                        hub.open_fallback_sheet(window, cx);
+                                                    });
+                                                }
+                                            })
+                                    }),
+                                )
+                                .description("Choose the ordered engine fallback chain."),
+                                SettingItem::new(
+                                    "Team workers",
+                                    SettingField::render(move |options, _, _| {
+                                        let weak_team = weak_team.clone();
+                                        Button::new("settings-team")
+                                            .secondary()
+                                            .label("Open")
+                                            .with_size(options.size)
+                                            .on_click(move |_, window, app| {
+                                                if let Some(entity) = weak_team.upgrade() {
+                                                    entity.update(app, |hub, cx| {
+                                                        hub.open_team_sheet(window, cx);
+                                                    });
+                                                }
+                                            })
+                                    }),
+                                )
+                                .description(
+                                    "Configure recursive HubSession worker collaboration.",
+                                ),
+                            ]),
+                    ]),
+                placeholder_setting_page(
+                    "Personalization",
+                    IconName::User,
+                    "Instructions, memory, and default agent behavior.",
+                ),
+                placeholder_setting_page(
+                    "Models & engines",
+                    IconName::Bot,
+                    "Provider order, model visibility, and engine defaults.",
+                ),
+                placeholder_setting_page(
+                    "Usage",
+                    IconName::ChartPie,
+                    "Session usage, limits, and local execution history.",
+                ),
+                placeholder_setting_page(
+                    "Keyboard shortcuts",
+                    IconName::Frame,
+                    "Navigation, composer, and workbench shortcuts.",
+                ),
+                placeholder_setting_page(
+                    "Tools",
+                    IconName::Settings2,
+                    "Built-in tools, MCP services, and permissions.",
+                ),
+                placeholder_setting_page(
+                    "Automation",
+                    IconName::Calendar,
+                    "Scheduling and background execution defaults.",
+                ),
+                SettingPage::new("Experiments")
+                    .icon(IconName::Asterisk)
+                    .description("Surfaces that are still evolving.")
+                    .group(
+                        SettingGroup::new().title("Debug tools").item(
+                            SettingItem::new(
+                                "Show Inspector",
+                                SettingField::switch(
+                                    move |_| inspector_enabled,
+                                    move |enabled, app| {
+                                        if let Some(entity) = weak_inspector.upgrade() {
+                                            entity.update(app, |hub, cx| {
+                                                hub.toggle_inspector(enabled, cx);
+                                            });
+                                        }
+                                    },
+                                ),
+                            )
+                            .description(
+                                "ALVA sessions expose full records; other engines are best effort.",
+                            ),
+                        ),
+                    ),
+                placeholder_setting_page(
+                    "About",
+                    IconName::Info,
+                    "Version, update channel, logs, and local storage.",
+                ),
+            ])
+    }
+}
+
+fn static_setting(title: &'static str, value: &'static str) -> SettingItem {
+    SettingItem::new(
+        title,
+        SettingField::render(move |options, _, _| {
+            Tag::secondary()
+                .small()
+                .rounded_full()
+                .with_size(options.size)
+                .child(value)
+        }),
+    )
+}
+
+fn placeholder_setting_page(
+    title: &'static str,
+    icon: IconName,
+    description: &'static str,
+) -> SettingPage {
+    SettingPage::new(title)
+        .icon(icon)
+        .description(description)
+        .group(SettingGroup::new().item(static_setting("Status", "Component shell ready")))
 }
 
 /// Full handoff envelope: kind, delivered/pending, reason, goal, work,

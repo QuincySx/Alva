@@ -34,6 +34,15 @@ use alva_hub_gpui::{project_chat, project_timeline, ProjectedChatItem, Projected
 const ENGINE_OPTIONS: [&str; 3] = ["alva", "claude", "codex"];
 const PROFILE_OPTIONS: [&str; 3] = ["interactive", "workspace_write", "unrestricted"];
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrimarySurface {
+    #[default]
+    Chat,
+    Automation,
+    Plugins,
+    Settings,
+}
+
 pub struct HubApp {
     pub store: Arc<HubStore>,
     /// Live engines keyed by product session id, so Stop can cancel the
@@ -45,10 +54,16 @@ pub struct HubApp {
     /// Handle of this app's single window, so async contexts can reach the
     /// window for stateful-component updates.
     pub window_handle: AnyWindowHandle,
+    pub workspace_dock: Option<WeakEntity<gpui_component::dock::DockArea>>,
+    pub primary_surface: PrimarySurface,
     pub workspace: Option<String>,
     pub engine: Entity<SelectState<SearchableVec<EngineOption>>>,
     pub permission: Entity<SelectState<SearchableVec<&'static str>>>,
     pub prompt: Entity<InputState>,
+    pub automation_name: Entity<InputState>,
+    pub automation_prompt: Entity<InputState>,
+    pub automation_schedule: Entity<SelectState<SearchableVec<&'static str>>>,
+    pub extension_tab: usize,
     pub timeline: Vec<ProjectedEvent>,
     pub chat: Vec<ProjectedChatItem>,
     pub inspector_enabled: bool,
@@ -60,6 +75,7 @@ pub struct HubApp {
     pub inspector_open_records: HashSet<u64>,
     /// Timeline index → handoff card expanded (keyed by index like React).
     pub open_handoffs: HashMap<usize, bool>,
+    pub open_activities: HashSet<usize>,
     // Sessions surface.
     pub sessions: Vec<HubSessionSummary>,
     pub session_query: Entity<InputState>,
@@ -157,6 +173,8 @@ impl HubApp {
             active_inspectors: Arc::new(Mutex::new(HashMap::new())),
             permission_router: Arc::new(PermissionRouter::new()),
             window_handle: window.window_handle(),
+            workspace_dock: None,
+            primary_surface: PrimarySurface::Chat,
             workspace: None,
             timeline: Vec::new(),
             chat: Vec::new(),
@@ -168,6 +186,7 @@ impl HubApp {
             inspector_session_stack: Vec::new(),
             inspector_open_records: HashSet::new(),
             open_handoffs: HashMap::new(),
+            open_activities: HashSet::new(),
             sessions,
             session_query: cx
                 .new(|cx| InputState::new(window, cx).placeholder("Search workspace or prompt…")),
@@ -243,9 +262,30 @@ impl HubApp {
             }),
             prompt: cx.new(|cx| {
                 InputState::new(window, cx)
-                    .multi_line(true)
+                    .auto_grow(3, 8)
                     .placeholder("Ask alva to inspect, change, or explain this project…")
             }),
+            automation_name: cx
+                .new(|cx| InputState::new(window, cx).placeholder("Nightly self-healing tests")),
+            automation_prompt: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .auto_grow(4, 10)
+                    .placeholder("Describe the work this automation should perform…")
+            }),
+            automation_schedule: cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(vec![
+                        "Every day at 09:00",
+                        "Weekdays at 09:00",
+                        "Every Monday at 09:00",
+                        "Custom schedule…",
+                    ]),
+                    Some(IndexPath::new(0)),
+                    window,
+                    cx,
+                )
+            }),
+            extension_tab: 0,
         };
         app.subscribe_sessions(window, cx);
         app.subscribe_engine(window, cx);
@@ -320,17 +360,6 @@ impl HubApp {
         PermissionProfile::parse(&value).unwrap_or(PermissionProfile::WorkspaceWrite)
     }
 
-    pub fn label_small(
-        &self,
-        text: impl Into<SharedString>,
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
-        div()
-            .text_xs()
-            .text_color(cx.theme().colors.muted_foreground)
-            .child(text.into())
-    }
-
     /// Status pill label, matching React `statusLabel`.
     pub fn status_label(&self) -> String {
         let last = self.timeline.last();
@@ -360,6 +389,7 @@ impl HubApp {
     /// together so a previous session's profile/policy/timeline can never
     /// leak into the next one (React `resetSessionSurface`).
     pub fn reset_session_surface(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.primary_surface = PrimarySurface::Chat;
         self.active_session_id = None;
         self.session_detail = None;
         self.team_run = None;
@@ -370,6 +400,7 @@ impl HubApp {
         self.inspector_session_stack.clear();
         self.inspector_open_records.clear();
         self.open_handoffs.clear();
+        self.open_activities.clear();
         self.pending_engine = None;
         self.transcript_sharing = false;
         self.set_selected_engine("alva", window, cx);
@@ -459,6 +490,37 @@ impl HubApp {
             .collect()
     }
 
+    pub fn set_primary_surface(&mut self, surface: PrimarySurface, cx: &mut Context<Self>) {
+        self.primary_surface = surface;
+        cx.notify();
+    }
+
+    pub fn open_workspace_tool(
+        &self,
+        tool: super::workspace::WorkspaceTool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(dock_area) = self.workspace_dock.as_ref().and_then(WeakEntity::upgrade) else {
+            return;
+        };
+        let Some(index) = super::workspace::default_workspace_tools()
+            .iter()
+            .position(|candidate| *candidate == tool)
+        else {
+            return;
+        };
+        let right_dock = dock_area.read(cx).right_dock().cloned();
+        let Some(right_dock) = right_dock else {
+            return;
+        };
+        right_dock.update(cx, |dock, cx| {
+            let panel = dock.panel().clone().active_index(index, cx);
+            dock.set_panel(panel, window, cx);
+            dock.set_open(true, window, cx);
+        });
+    }
+
     /// Store reads that must happen off the UI thread.
     pub fn refresh_sessions(&mut self) {
         self.session_error = None;
@@ -529,6 +591,7 @@ impl HubApp {
             .get_session(product_session_id)?
             .ok_or_else(|| "This Hub session no longer exists.".to_string())?;
         self.active_session_id = Some(product_session_id.to_string());
+        self.primary_surface = PrimarySurface::Chat;
         self.workspace = Some(detail.session.workspace.clone());
         self.pending_engine = detail
             .pending_switch
@@ -540,6 +603,7 @@ impl HubApp {
         self.chat = project_chat(&detail);
         self.session_detail = Some(detail);
         self.open_handoffs.clear();
+        self.open_activities.clear();
         self.set_selected_engine(
             &self.session_detail.as_ref().unwrap().session.engine_id,
             window,
