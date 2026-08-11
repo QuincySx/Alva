@@ -2,7 +2,7 @@
 // OUTPUT: multi-engine run seams, delta/full handoff injection, Attempt capture, timeline DTOs
 // POS:    Highest product seam for durable Hub Desktop branch execution and native-resume recovery.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -55,6 +55,12 @@ pub enum TimelineStatus {
     Cancelled,
     /// Manual switch applied (projected only).
     Switched,
+    /// Incremental assistant text; UI consumers replace the prior draft.
+    Streaming,
+    /// Tool invocation started; operational activity stays in the chat flow.
+    ToolRunning,
+    /// Tool invocation finished.
+    ToolCompleted,
 }
 
 /// Routing identity of a pending engine permission request. The engine
@@ -571,6 +577,7 @@ where
     let mut engine_session_id = None;
     let mut usage = None;
     let mut failure_class = None;
+    let mut assistant_drafts: HashMap<String, String> = HashMap::new();
     // Stall watchdog state: the timer only runs while nothing is legitimately
     // in flight. Open tools and a pending user approval disarm it; every
     // received event (including streamed deltas) resets the window. Once the
@@ -688,10 +695,54 @@ where
                         emit,
                     );
                 }
+                emit(TimelineEvent {
+                    status: TimelineStatus::Running,
+                    engine_id: hub_event.engine_id.to_string(),
+                    product_session_id: product_id.clone(),
+                    message: Some(format!("Native session {} connected", brief(&session_id))),
+                    permission_request: None,
+                });
                 engine_session_id = Some(session_id);
+            }
+            RuntimeEvent::MessageDelta { id, delta } => {
+                if let alva_kernel_abi::StreamEvent::TextDelta { text } = delta {
+                    let draft = assistant_drafts.entry(id).or_default();
+                    draft.push_str(&text);
+                    emit(TimelineEvent {
+                        status: TimelineStatus::Streaming,
+                        engine_id: hub_event.engine_id.to_string(),
+                        product_session_id: product_id.clone(),
+                        message: Some(draft.clone()),
+                        permission_request: None,
+                    });
+                }
+            }
+            RuntimeEvent::Message { id, content, .. } => {
+                let text = content
+                    .iter()
+                    .filter_map(|block| block.as_text())
+                    .collect::<Vec<_>>()
+                    .join("");
+                if !text.is_empty() {
+                    assistant_drafts.insert(id, text.clone());
+                    emit(TimelineEvent {
+                        status: TimelineStatus::Streaming,
+                        engine_id: hub_event.engine_id.to_string(),
+                        product_session_id: product_id.clone(),
+                        message: Some(text),
+                        permission_request: None,
+                    });
+                }
             }
             RuntimeEvent::ToolStart { id, name, input } => {
                 open_tools.insert(id.clone());
+                emit(TimelineEvent {
+                    status: TimelineStatus::ToolRunning,
+                    engine_id: hub_event.engine_id.to_string(),
+                    product_session_id: product_id.clone(),
+                    message: Some(format!("Running {name}")),
+                    permission_request: None,
+                });
                 if let Some((store, prepared)) = persistence {
                     capture_persistence_error(
                         store.record_side_effect(
@@ -718,6 +769,21 @@ where
                 duration_ms,
             } => {
                 open_tools.remove(&id);
+                emit(TimelineEvent {
+                    status: TimelineStatus::ToolCompleted,
+                    engine_id: hub_event.engine_id.to_string(),
+                    product_session_id: product_id.clone(),
+                    message: Some(format!(
+                        "{} {}",
+                        if tool_result.is_error {
+                            "Failed"
+                        } else {
+                            "Finished"
+                        },
+                        name
+                    )),
+                    permission_request: None,
+                });
                 if let Some((store, prepared)) = persistence {
                     capture_persistence_error(
                         store.record_side_effect(
@@ -753,6 +819,16 @@ where
                     terminal_error = Some(message);
                 }
             }
+            RuntimeEvent::Error {
+                message,
+                recoverable: true,
+            } => emit(TimelineEvent {
+                status: TimelineStatus::Worker,
+                engine_id: hub_event.engine_id.to_string(),
+                product_session_id: product_id.clone(),
+                message: Some(format!("Engine retry: {message}")),
+                permission_request: None,
+            }),
             RuntimeEvent::Completed {
                 session_id,
                 result: completed_result,
@@ -783,7 +859,6 @@ where
                 usage = completed_usage.as_ref().map(stored_usage);
                 break;
             }
-            _ => {}
         }
     }
 
@@ -1036,7 +1111,11 @@ mod tests {
                 .iter()
                 .map(|event| event.status)
                 .collect::<Vec<_>>(),
-            vec![TimelineStatus::Running, TimelineStatus::Completed]
+            vec![
+                TimelineStatus::Running,
+                TimelineStatus::Running,
+                TimelineStatus::Completed,
+            ]
         );
         assert!(timeline
             .iter()
@@ -1050,6 +1129,74 @@ mod tests {
             Some(workspace.path().canonicalize().unwrap().as_path())
         );
         assert!(requests[0].options.streaming);
+    }
+
+    #[tokio::test]
+    async fn projects_streaming_text_and_tool_activity_before_completion() {
+        let workspace = tempfile::tempdir().unwrap();
+        let engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "native-live".into(),
+                model: None,
+                tools: vec!["read".into()],
+            },
+            RuntimeEvent::MessageDelta {
+                id: "message-1".into(),
+                delta: alva_kernel_abi::StreamEvent::TextDelta { text: "Hel".into() },
+            },
+            RuntimeEvent::MessageDelta {
+                id: "message-1".into(),
+                delta: alva_kernel_abi::StreamEvent::TextDelta { text: "lo".into() },
+            },
+            RuntimeEvent::ToolStart {
+                id: "tool-1".into(),
+                name: "read".into(),
+                input: serde_json::json!({"path": "README.md"}),
+            },
+            RuntimeEvent::ToolEnd {
+                id: "tool-1".into(),
+                name: "read".into(),
+                result: alva_kernel_abi::ToolOutput::text("done"),
+                duration_ms: Some(5),
+            },
+            RuntimeEvent::Completed {
+                session_id: "native-live".into(),
+                result: Some("Hello".into()),
+                usage: None,
+            },
+        ]));
+        let mut timeline = Vec::new();
+
+        run_once(
+            engine,
+            RunRequest {
+                prompt: "show progress".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            |event| timeline.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            timeline
+                .iter()
+                .map(|event| event.status)
+                .collect::<Vec<_>>(),
+            vec![
+                TimelineStatus::Running,
+                TimelineStatus::Running,
+                TimelineStatus::Streaming,
+                TimelineStatus::Streaming,
+                TimelineStatus::ToolRunning,
+                TimelineStatus::ToolCompleted,
+                TimelineStatus::Completed,
+            ]
+        );
+        assert_eq!(timeline[3].message.as_deref(), Some("Hello"));
     }
 
     #[tokio::test]
@@ -1094,7 +1241,11 @@ mod tests {
                 .iter()
                 .map(|event| event.status)
                 .collect::<Vec<_>>(),
-            vec![TimelineStatus::Running, TimelineStatus::Failed]
+            vec![
+                TimelineStatus::Running,
+                TimelineStatus::Running,
+                TimelineStatus::Failed,
+            ]
         );
         assert_eq!(
             timeline.last().and_then(|event| event.message.as_deref()),
@@ -1133,7 +1284,11 @@ mod tests {
                 .iter()
                 .map(|event| event.status)
                 .collect::<Vec<_>>(),
-            vec![TimelineStatus::Running, TimelineStatus::Failed]
+            vec![
+                TimelineStatus::Running,
+                TimelineStatus::Running,
+                TimelineStatus::Failed,
+            ]
         );
         assert_eq!(
             timeline.last().and_then(|event| event.message.as_deref()),
@@ -1327,7 +1482,7 @@ mod tests {
             .unwrap();
         drop(store);
 
-        let reopened = crate::HubStore::open(&database).unwrap();
+        let reopened = reopen(&database);
         let engine = Arc::new(FakeEngine::new(vec![
             RuntimeEvent::SessionStarted {
                 session_id: "native-fresh".into(),

@@ -9,6 +9,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     select::Select,
+    switch::Switch,
     tab::{Tab, TabBar},
     tag::Tag,
     ActiveTheme, *,
@@ -35,6 +36,7 @@ impl HubApp {
         let weak_engine = cx.entity().downgrade();
         let weak_transcript = cx.entity().downgrade();
         let weak_details = cx.entity().downgrade();
+        let weak_inspector = cx.entity().downgrade();
         let status = self.status_label();
         let timeline_status = self
             .timeline
@@ -131,6 +133,20 @@ impl HubApp {
                                 }),
                         )
                     })
+                    .child(
+                        Switch::new("inspector-experiment")
+                            .small()
+                            .label("Inspector")
+                            .tooltip("Show the experimental execution Inspector")
+                            .checked(self.inspector_enabled)
+                            .on_click(move |enabled, _, app| {
+                                if let Some(entity) = weak_inspector.upgrade() {
+                                    entity.update(app, |hub, cx| {
+                                        hub.toggle_inspector(*enabled, cx);
+                                    });
+                                }
+                            }),
+                    )
                     .when(!has_session, |this| {
                         let detail = eligibility_detail.clone();
                         this.child(if let Some((eligible, detail)) = detail {

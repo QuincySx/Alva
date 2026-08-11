@@ -14,7 +14,7 @@ mod store;
 mod ui_projection;
 mod worktree;
 
-pub use alva::build_engine;
+pub use alva::{build_engine, build_engine_bundle, EngineBuild};
 pub use claims::{claims_conflict, conflicting_claims, parse_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use permissions::{
@@ -37,9 +37,9 @@ pub use run::{
 };
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
-    HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,
-    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim, TeamRunDetail,
-    TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
+    HubStore, NativeCleanupTask, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch,
+    StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,
+    TeamRunDetail, TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };
 pub use ui_projection::{
     project_chat, project_timeline, ChatItemKind, FallbackControls, ProjectedChatItem,

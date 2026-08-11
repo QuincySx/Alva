@@ -495,6 +495,10 @@ impl HubApp {
                     .justify_between()
                     .child(
                         div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
                             .text_xs()
                             .text_color(cx.theme().colors.muted_foreground)
                             .child(format!(
@@ -517,7 +521,7 @@ impl HubApp {
                     .child(
                         Button::new("run")
                             .primary()
-                            .label(format!("Run with {engine_display}"))
+                            .label("Run")
                             .loading(busy)
                             .disabled(busy || !workspace_set)
                             .on_click(move |_, window, app| {

@@ -6,12 +6,17 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory};
+use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory, SessionRepository};
 use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
 use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
-use alva_engine_runtime::EngineRuntime;
+use alva_engine_runtime::{EngineInspector, EngineRuntime};
 
 use crate::permissions::{enforcement_for, EngineEnforcement, PermissionProfile};
+
+pub struct EngineBuild {
+    pub runtime: Arc<dyn EngineRuntime>,
+    pub inspector: Option<Arc<dyn EngineInspector>>,
+}
 
 /// Assemble an engine that enforces `profile` equivalently or stricter.
 /// Fails closed when the engine can only weaken the session's permission
@@ -22,25 +27,36 @@ pub fn build_engine(
     workspace: &Path,
     history_dir: &Path,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
+    build_engine_bundle(engine_id, profile, workspace, history_dir).map(|built| built.runtime)
+}
+
+pub fn build_engine_bundle(
+    engine_id: &str,
+    profile: PermissionProfile,
+    workspace: &Path,
+    history_dir: &Path,
+) -> Result<EngineBuild, String> {
     let plan = enforcement_for(engine_id, profile)?;
     match (engine_id, plan.enforcement) {
         ("alva", EngineEnforcement::InteractiveCallbacks) => {
             build_alva_engine(workspace, history_dir)
         }
-        ("claude", EngineEnforcement::ClaudePrintMode(permission_mode)) => {
-            Ok(Arc::new(ClaudePrintAdapter::new(ClaudePrintConfig {
+        ("claude", EngineEnforcement::ClaudePrintMode(permission_mode)) => Ok(EngineBuild {
+            runtime: Arc::new(ClaudePrintAdapter::new(ClaudePrintConfig {
                 default_cwd: Some(workspace.to_path_buf()),
                 permission_mode,
                 ..ClaudePrintConfig::default()
-            })))
-        }
-        ("codex", EngineEnforcement::CodexSandbox(sandbox)) => {
-            Ok(Arc::new(CodexAdapter::new(CodexAdapterConfig {
+            })),
+            inspector: None,
+        }),
+        ("codex", EngineEnforcement::CodexSandbox(sandbox)) => Ok(EngineBuild {
+            runtime: Arc::new(CodexAdapter::new(CodexAdapterConfig {
                 default_cwd: Some(workspace.to_path_buf()),
                 sandbox,
                 ..CodexAdapterConfig::default()
-            })))
-        }
+            })),
+            inspector: None,
+        }),
         (other, enforcement) => Err(format!(
             "Hub permission mapping for engine '{other}' returned an enforcement \
              it cannot apply: {enforcement:?}"
@@ -48,10 +64,7 @@ pub fn build_engine(
     }
 }
 
-fn build_alva_engine(
-    workspace: &Path,
-    history_dir: &Path,
-) -> Result<Arc<dyn EngineRuntime>, String> {
+fn build_alva_engine(workspace: &Path, history_dir: &Path) -> Result<EngineBuild, String> {
     let config = alva_llm_provider::ProviderConfig::load(workspace)?;
     if config.api_key.is_empty() {
         return Err("no Alva provider API key configured".into());
@@ -63,9 +76,12 @@ fn build_alva_engine(
     let factory =
         CatalogBaseAgentFactory::new(model, workspace).with_provider_registry(provider_registry);
 
-    Ok(Arc::new(
-        AlvaAdapter::new(Arc::new(factory)).with_history_dir(history_dir),
-    ))
+    let repository = SessionRepository::open(history_dir.join("alva-agent-records.db"))?;
+    let adapter = Arc::new(AlvaAdapter::new(Arc::new(factory)).with_session_repository(repository));
+    Ok(EngineBuild {
+        runtime: adapter.clone(),
+        inspector: Some(adapter),
+    })
 }
 
 #[cfg(test)]

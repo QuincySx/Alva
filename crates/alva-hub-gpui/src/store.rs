@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 16;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -34,6 +34,13 @@ pub struct EngineTarget {
     pub automatic_use_authorized: bool,
     #[serde(default)]
     pub required_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeCleanupTask {
+    pub engine_id: String,
+    pub native_session_id: String,
+    pub attempts: u32,
 }
 
 fn default_account_source() -> String {
@@ -633,6 +640,100 @@ impl HubStore {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn preference_bool(&self, key: &str) -> Result<bool, String> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT value FROM hub_preferences WHERE key = ?1",
+                [key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map(|value| matches!(value.as_deref(), Some("true" | "1")))
+            .map_err(|error| format!("read Hub preference '{key}': {error}"))
+    }
+
+    pub fn set_preference_bool(&self, key: &str, enabled: bool) -> Result<(), String> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "INSERT INTO hub_preferences(key, value, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![key, if enabled { "true" } else { "false" }, now_unix_ms()],
+            )
+            .map_err(|error| format!("write Hub preference '{key}': {error}"))?;
+        Ok(())
+    }
+
+    pub fn enqueue_native_cleanup(&self, product_session_id: &str) -> Result<usize, String> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO native_cleanup_outbox
+                    (engine_id, native_session_id, requested_at, attempts)
+                 SELECT engine_id, native_session_id, ?2, 0
+                   FROM inspector_catalog WHERE product_session_id = ?1",
+                params![product_session_id, now_unix_ms()],
+            )
+            .map_err(|error| format!("queue native Inspector cleanup: {error}"))
+    }
+
+    pub fn pending_native_cleanups(&self) -> Result<Vec<NativeCleanupTask>, String> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT engine_id, native_session_id, attempts
+                   FROM native_cleanup_outbox ORDER BY requested_at, engine_id, native_session_id",
+            )
+            .map_err(|error| format!("prepare native Inspector cleanup queue: {error}"))?;
+        let tasks = statement
+            .query_map([], |row| {
+                Ok(NativeCleanupTask {
+                    engine_id: row.get(0)?,
+                    native_session_id: row.get(1)?,
+                    attempts: row.get::<_, i64>(2)? as u32,
+                })
+            })
+            .map_err(|error| format!("query native Inspector cleanup queue: {error}"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode native Inspector cleanup queue: {error}"))?;
+        Ok(tasks)
+    }
+
+    pub fn finish_native_cleanup(
+        &self,
+        engine_id: &str,
+        native_session_id: &str,
+    ) -> Result<(), String> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "DELETE FROM native_cleanup_outbox
+                  WHERE engine_id = ?1 AND native_session_id = ?2",
+                params![engine_id, native_session_id],
+            )
+            .map_err(|error| format!("finish native Inspector cleanup: {error}"))?;
+        Ok(())
+    }
+
+    pub fn fail_native_cleanup(
+        &self,
+        engine_id: &str,
+        native_session_id: &str,
+        error: &str,
+    ) -> Result<(), String> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "UPDATE native_cleanup_outbox
+                    SET attempts = attempts + 1, last_error = ?3
+                  WHERE engine_id = ?1 AND native_session_id = ?2",
+                params![engine_id, native_session_id, error],
+            )
+            .map_err(|error| format!("record native Inspector cleanup failure: {error}"))?;
+        Ok(())
     }
 
     pub fn list_sessions(&self) -> Result<Vec<HubSessionSummary>, String> {
@@ -2919,8 +3020,11 @@ impl HubStore {
         if engine_session_id.trim().is_empty() {
             return Ok(());
         }
-        let connection = self.lock()?;
-        let changed = connection
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin engine session catalog transaction: {error}"))?;
+        let changed = transaction
             .execute(
                 "UPDATE engine_branches
                     SET engine_session_id = ?2, updated_at = ?3
@@ -2934,6 +3038,34 @@ impl HubStore {
                 prepared.branch_id
             ));
         }
+        transaction
+            .execute(
+                "INSERT INTO inspector_catalog
+                    (product_session_id, branch_id, attempt_id, engine_id,
+                     native_session_id, inspection_level, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(branch_id, native_session_id) DO UPDATE SET
+                    attempt_id = excluded.attempt_id,
+                    inspection_level = excluded.inspection_level,
+                    updated_at = excluded.updated_at",
+                params![
+                    prepared.product_session_id.as_str(),
+                    prepared.branch_id.as_str(),
+                    prepared.attempt_id.as_str(),
+                    prepared.target.engine_id.as_str(),
+                    engine_session_id,
+                    if prepared.target.engine_id == "alva" {
+                        "full"
+                    } else {
+                        "unsupported"
+                    },
+                    now_unix_ms()
+                ],
+            )
+            .map_err(|error| format!("catalog native Inspector session: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit engine session catalog: {error}"))?;
         Ok(())
     }
 
@@ -4528,6 +4660,48 @@ fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 14: {error}"))?;
     }
 
+    if schema_version < 15 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE hub_preferences (
+                   key TEXT PRIMARY KEY,
+                   value TEXT NOT NULL,
+                   updated_at INTEGER NOT NULL
+                 );",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 15: {error}"))?;
+    }
+
+    if schema_version < 16 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE inspector_catalog (
+                   product_session_id TEXT NOT NULL,
+                   branch_id TEXT NOT NULL,
+                   attempt_id TEXT NOT NULL,
+                   engine_id TEXT NOT NULL,
+                   native_session_id TEXT NOT NULL,
+                   inspection_level TEXT NOT NULL,
+                   updated_at INTEGER NOT NULL,
+                   PRIMARY KEY(branch_id, native_session_id),
+                   FOREIGN KEY(product_session_id) REFERENCES hub_sessions(product_session_id),
+                   FOREIGN KEY(branch_id) REFERENCES engine_branches(branch_id),
+                   FOREIGN KEY(attempt_id) REFERENCES engine_attempts(attempt_id)
+                 );
+                 CREATE INDEX idx_inspector_catalog_product
+                   ON inspector_catalog(product_session_id, updated_at);
+                 CREATE TABLE native_cleanup_outbox (
+                   engine_id TEXT NOT NULL,
+                   native_session_id TEXT NOT NULL,
+                   requested_at INTEGER NOT NULL,
+                   attempts INTEGER NOT NULL DEFAULT 0,
+                   last_error TEXT,
+                   PRIMARY KEY(engine_id, native_session_id)
+                 );",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 16: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -4957,6 +5131,57 @@ mod tests {
             .err()
             .expect("a second live Desktop store must not repair active attempts");
         assert!(error.contains("already open"));
+    }
+
+    #[test]
+    fn engine_session_is_cataloged_for_truthful_inspector_discovery() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                "product-inspector",
+                workspace.path(),
+                "inspect this",
+                &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+
+        store
+            .record_engine_session(&prepared, "native-inspector")
+            .unwrap();
+
+        let catalog: (String, String, String) = store
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT engine_id, native_session_id, inspection_level
+                   FROM inspector_catalog WHERE product_session_id = ?1",
+                ["product-inspector"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            catalog,
+            ("alva".into(), "native-inspector".into(), "full".into())
+        );
+
+        assert_eq!(
+            store.enqueue_native_cleanup("product-inspector").unwrap(),
+            1
+        );
+        let queued = store.pending_native_cleanups().unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].native_session_id, "native-inspector");
+        store
+            .fail_native_cleanup("alva", "native-inspector", "busy")
+            .unwrap();
+        assert_eq!(store.pending_native_cleanups().unwrap()[0].attempts, 1);
+        store
+            .finish_native_cleanup("alva", "native-inspector")
+            .unwrap();
+        assert!(store.pending_native_cleanups().unwrap().is_empty());
     }
 
     #[test]

@@ -72,7 +72,11 @@ pub fn timeline_tag_variant(status: &TimelineStatus) -> TagVariant {
         TimelineStatus::PermissionRequired | TimelineStatus::Queued | TimelineStatus::Switched => {
             TagVariant::Info
         }
-        TimelineStatus::Worker | TimelineStatus::Running => TagVariant::Primary,
+        TimelineStatus::Worker
+        | TimelineStatus::Running
+        | TimelineStatus::Streaming
+        | TimelineStatus::ToolRunning => TagVariant::Primary,
+        TimelineStatus::ToolCompleted => TagVariant::Success,
         TimelineStatus::Interrupted | TimelineStatus::Cancelled => TagVariant::Secondary,
     }
 }
@@ -173,6 +177,7 @@ pub mod app;
 pub mod approval;
 pub mod details;
 pub mod fallback;
+pub mod inspector;
 pub mod pump;
 pub mod readiness;
 pub mod sidebar;

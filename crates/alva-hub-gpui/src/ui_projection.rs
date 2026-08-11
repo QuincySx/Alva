@@ -56,7 +56,11 @@ impl ProjectedChatItem {
     }
 
     pub fn from_live(event: &ProjectedEvent, timeline_index: usize) -> Self {
-        let kind = if event.status == TimelineStatus::Completed && event.message.is_some() {
+        let kind = if matches!(
+            event.status,
+            TimelineStatus::Completed | TimelineStatus::Streaming
+        ) && event.message.is_some()
+        {
             ChatItemKind::Assistant
         } else {
             ChatItemKind::Activity
@@ -71,7 +75,7 @@ impl ProjectedChatItem {
                     "Run finished.".to_string()
                 }
             }),
-            status: Some(event.status.clone()),
+            status: Some(event.status),
             timeline_index: Some(timeline_index),
             created_at: event.created_at,
         }

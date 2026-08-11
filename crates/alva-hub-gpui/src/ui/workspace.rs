@@ -104,8 +104,8 @@ impl HubWorkspace {
         dock_area.update(cx, |dock, cx| {
             dock.set_version(DOCK_LAYOUT_VERSION, window, cx);
             dock.set_center(center, window, cx);
-            dock.set_left_dock(left, Some(px(292.)), true, window, cx);
-            dock.set_right_dock(right, Some(px(380.)), true, window, cx);
+            dock.set_left_dock(left, Some(px(240.)), true, window, cx);
+            dock.set_right_dock(right, Some(px(320.)), true, window, cx);
             dock.set_dock_collapsible(
                 gpui::Edges {
                     right: true,
@@ -234,7 +234,6 @@ impl Render for ChatPanel {
 
 struct ToolPanel {
     tool: WorkspaceTool,
-    #[allow(dead_code)]
     hub: Entity<HubApp>,
     focus_handle: FocusHandle,
 }
@@ -281,6 +280,20 @@ impl Panel for ToolPanel {
 
 impl Render for ToolPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.tool {
+            WorkspaceTool::Inspector => self
+                .hub
+                .update(cx, |hub, cx| hub.inspector_panel(cx).into_any_element()),
+            WorkspaceTool::Agent => self
+                .hub
+                .update(cx, |hub, cx| hub.agent_panel(cx).into_any_element()),
+            WorkspaceTool::Git | WorkspaceTool::Terminal => self.placeholder(cx).into_any_element(),
+        }
+    }
+}
+
+impl ToolPanel {
+    fn placeholder(&self, cx: &Context<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
             .items_center()

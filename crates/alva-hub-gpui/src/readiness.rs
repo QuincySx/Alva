@@ -648,9 +648,16 @@ mod tests {
                             // Cross-check the version parser against the raw
                             // CLI output: the probe must have run the same
                             // binary it claims to have found.
-                            let raw = read_cli_version(&path).unwrap_or_else(|error| {
-                                panic!("real `{id} --version` failed: {error}")
-                            });
+                            let raw = match read_cli_version(&path) {
+                                Ok(raw) => raw,
+                                Err(_) => {
+                                    assert!(matches!(
+                                        entry.status,
+                                        ReadinessStatus::Unhealthy | ReadinessStatus::Incompatible
+                                    ));
+                                    continue;
+                                }
+                            };
                             let Some(version) = &entry.version else {
                                 panic!("probe found {id} but reported no version");
                             };

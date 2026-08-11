@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use alva_engine_runtime::EngineRuntime;
+use alva_engine_runtime::{EngineInspector, EngineRuntime, InspectionSnapshot};
 use gpui::*;
 use gpui_component::{
     input::{InputEvent, InputState},
@@ -20,11 +20,11 @@ use gpui_component::{
 };
 
 use alva_hub_gpui::{
-    build_engine, permission_eligibility, probe_readiness, repair_argv, repair_plan, run_persisted,
-    run_repair_command, EngineEligibility, EngineReadiness, EngineTarget, FallbackPolicy,
-    HubSessionDetail, HubSessionSummary, HubStore, PermissionProfile, PermissionRouter,
-    RepairAction, RepairKind, RunRequest, SwitchOutcome, SystemProbe, TimelineEvent,
-    TimelineStatus,
+    build_engine_bundle, permission_eligibility, probe_readiness, repair_argv, repair_plan,
+    run_persisted, run_repair_command, EngineEligibility, EngineReadiness, EngineTarget,
+    FallbackPolicy, HubSessionDetail, HubSessionSummary, HubStore, PermissionProfile,
+    PermissionRouter, RepairAction, RepairKind, RunRequest, SwitchOutcome, SystemProbe,
+    TimelineEvent, TimelineStatus,
 };
 
 use super::workspace::HubWorkspace;
@@ -39,6 +39,7 @@ pub struct HubApp {
     /// Live engines keyed by product session id, so Stop can cancel the
     /// adapter currently streaming (React/Tauri `active_engines`).
     pub active_engines: Arc<Mutex<HashMap<String, Arc<dyn EngineRuntime>>>>,
+    pub active_inspectors: Arc<Mutex<HashMap<String, Arc<dyn EngineInspector>>>>,
     /// Pending approval routing; run emits register requests here.
     pub permission_router: Arc<PermissionRouter>,
     /// Handle of this app's single window, so async contexts can reach the
@@ -50,6 +51,13 @@ pub struct HubApp {
     pub prompt: Entity<InputState>,
     pub timeline: Vec<ProjectedEvent>,
     pub chat: Vec<ProjectedChatItem>,
+    pub inspector_enabled: bool,
+    pub inspector_snapshot: Option<InspectionSnapshot>,
+    pub inspector_error: Option<String>,
+    pub inspector_loading: bool,
+    pub inspector_generation: u64,
+    pub inspector_session_stack: Vec<String>,
+    pub inspector_open_records: HashSet<u64>,
     /// Timeline index → handoff card expanded (keyed by index like React).
     pub open_handoffs: HashMap<usize, bool>,
     // Sessions surface.
@@ -141,15 +149,24 @@ impl HubApp {
                 targets: Vec::new(),
                 updated_at: 0,
             });
+        let inspector_enabled = store.preference_bool("inspector_enabled").unwrap_or(false);
         let eligibility = permission_eligibility(PermissionProfile::WorkspaceWrite);
         let mut app = Self {
             store,
             active_engines: Arc::new(Mutex::new(HashMap::new())),
+            active_inspectors: Arc::new(Mutex::new(HashMap::new())),
             permission_router: Arc::new(PermissionRouter::new()),
             window_handle: window.window_handle(),
             workspace: None,
             timeline: Vec::new(),
             chat: Vec::new(),
+            inspector_enabled,
+            inspector_snapshot: None,
+            inspector_error: None,
+            inspector_loading: false,
+            inspector_generation: 0,
+            inspector_session_stack: Vec::new(),
+            inspector_open_records: HashSet::new(),
             open_handoffs: HashMap::new(),
             sessions,
             session_query: cx
@@ -332,6 +349,9 @@ impl HubApp {
             Some(TimelineStatus::Queued) => "Engine switch queued".to_string(),
             Some(TimelineStatus::Cancelled) => "Engine switch cancelled".to_string(),
             Some(TimelineStatus::Switched) => "Engine switched".to_string(),
+            Some(TimelineStatus::Streaming) => format!("{engine_id} is responding"),
+            Some(TimelineStatus::ToolRunning) => format!("{engine_id} is using a tool"),
+            Some(TimelineStatus::ToolCompleted) => "Tool finished".to_string(),
             None => "Ready".to_string(),
         }
     }
@@ -345,6 +365,10 @@ impl HubApp {
         self.team_run = None;
         self.timeline.clear();
         self.chat.clear();
+        self.inspector_snapshot = None;
+        self.inspector_error = None;
+        self.inspector_session_stack.clear();
+        self.inspector_open_records.clear();
         self.open_handoffs.clear();
         self.pending_engine = None;
         self.transcript_sharing = false;
@@ -537,12 +561,74 @@ impl HubApp {
             .ok()
             .flatten();
         self.sync_policy_inputs(window, cx);
+        if self.inspector_enabled {
+            self.refresh_inspector(cx);
+        }
         Ok(())
     }
 
-    /// Batch 2+: wire Run to the migrated backend `run_persisted`. Emits are
-    /// collected locally and applied in one pass (the emit callback must be
-    /// Send, so it cannot touch UI state directly).
+    fn apply_live_event(&mut self, event: TimelineEvent, cx: &mut Context<Self>) {
+        let product_session_id = event.product_session_id.clone();
+        let engine_id = event.engine_id.clone();
+        let status = event.status;
+        let projected = ProjectedEvent::from_live(event);
+
+        if status == TimelineStatus::Streaming {
+            if let Some(existing) = self.timeline.iter_mut().rev().find(|existing| {
+                existing.status == TimelineStatus::Streaming
+                    && existing.engine_id == engine_id
+                    && existing.product_session_id == product_session_id
+            }) {
+                existing.message = projected.message.clone();
+            } else {
+                self.timeline.push(projected.clone());
+            }
+            if let Some(existing) = self.chat.iter_mut().rev().find(|existing| {
+                existing.status == Some(TimelineStatus::Streaming)
+                    && existing.engine_id == engine_id
+            }) {
+                existing.message = projected.message.clone().unwrap_or_default();
+            } else {
+                let timeline_index = self.timeline.len().saturating_sub(1);
+                self.chat
+                    .push(ProjectedChatItem::from_live(&projected, timeline_index));
+            }
+        } else {
+            if status == TimelineStatus::Completed {
+                self.timeline.retain(|existing| {
+                    !(existing.status == TimelineStatus::Streaming
+                        && existing.engine_id == engine_id
+                        && existing.product_session_id == product_session_id)
+                });
+                self.chat.retain(|existing| {
+                    !(existing.status == Some(TimelineStatus::Streaming)
+                        && existing.engine_id == engine_id)
+                });
+            }
+            let timeline_index = self.timeline.len();
+            self.chat
+                .push(ProjectedChatItem::from_live(&projected, timeline_index));
+            self.timeline.push(projected);
+        }
+
+        self.active_session_id = Some(product_session_id.clone());
+        if let Ok(Some(detail)) = self.store.get_session(&product_session_id) {
+            let inspector_needs_session = self.inspector_enabled
+                && detail.session.engine_session_id.is_some()
+                && self.inspector_snapshot.as_ref().is_none_or(|snapshot| {
+                    Some(snapshot.native_session_id.as_str())
+                        != detail.session.engine_session_id.as_deref()
+                });
+            self.session_detail = Some(detail);
+            if inspector_needs_session {
+                self.refresh_inspector(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Run through a channel so chat activity is applied as each engine event
+    /// arrives instead of after the whole attempt completes.
     pub fn run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(workspace) = self.workspace.clone() else {
             window.push_notification("Choose a workspace before running an engine.", cx);
@@ -557,6 +643,7 @@ impl HubApp {
         let product_session_id = self.active_session_id.clone();
         let store = Arc::clone(&self.store);
         let engines = Arc::clone(&self.active_engines);
+        let inspectors = Arc::clone(&self.active_inspectors);
         let handle = self.window_handle;
         let history_dir = store.path().parent().map(PathBuf::from);
         self.busy = true;
@@ -567,21 +654,29 @@ impl HubApp {
         cx.notify();
         let weak = cx.entity().downgrade();
         cx.spawn(async move |_this, cx: &mut AsyncApp| {
-            let mut events = Vec::new();
-            let outcome = run_persisted(
+            let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
+            let mut run = Box::pin(run_persisted(
                 &store,
                 {
                     let ws_path = PathBuf::from(&workspace);
                     let engines = Arc::clone(&engines);
                     move |target, product_session_id, profile| {
                         let hist = history_dir.clone().unwrap_or_else(|| ws_path.clone());
-                        let engine = build_engine(&target.engine_id, profile, &ws_path, &hist)?;
+                        let built =
+                            build_engine_bundle(&target.engine_id, profile, &ws_path, &hist)?;
+                        let engine = built.runtime;
                         // Register the live engine so Stop can cancel it;
                         // fallback replaces the entry with the new engine.
                         engines
                             .lock()
                             .unwrap()
                             .insert(product_session_id.to_string(), Arc::clone(&engine));
+                        if let Some(inspector) = built.inspector {
+                            inspectors
+                                .lock()
+                                .unwrap()
+                                .insert(product_session_id.to_string(), inspector);
+                        }
                         Ok(engine)
                     }
                 },
@@ -593,31 +688,31 @@ impl HubApp {
                     product_session_id,
                     permission_profile: Some(profile),
                 },
-                |event| events.push(event),
-            )
-            .await;
-            let outcome_session = outcome.as_ref().ok().map(|o| o.product_session_id.clone());
-            if let Ok(outcome) = outcome {
-                events.push(TimelineEvent {
-                    status: if outcome.failed {
-                        TimelineStatus::Failed
-                    } else {
-                        TimelineStatus::Completed
-                    },
-                    engine_id: engine_id.clone(),
-                    product_session_id: outcome.product_session_id.clone(),
-                    message: outcome.result.clone(),
-                    permission_request: None,
-                });
+                move |event| {
+                    let _ = event_sender.send(event);
+                },
+            ));
+            let outcome = loop {
+                tokio::select! {
+                    outcome = &mut run => break outcome,
+                    event = event_receiver.recv() => {
+                        let Some(event) = event else { continue };
+                        if let Some(hub) = weak.upgrade() {
+                            hub.update(cx, |hub, cx| hub.apply_live_event(event, cx));
+                        }
+                    }
+                }
+            };
+            while let Ok(event) = event_receiver.try_recv() {
+                if let Some(hub) = weak.upgrade() {
+                    hub.update(cx, |hub, cx| hub.apply_live_event(event, cx));
+                }
             }
+            let outcome_session = outcome.as_ref().ok().map(|o| o.product_session_id.clone());
             if let Some(hub) = weak.upgrade() {
                 hub.update(cx, |hub, cx| {
-                    for event in events {
-                        let event = ProjectedEvent::from_live(event);
-                        let timeline_index = hub.timeline.len();
-                        hub.chat
-                            .push(ProjectedChatItem::from_live(&event, timeline_index));
-                        hub.timeline.push(event);
+                    if let Err(error) = &outcome {
+                        hub.push_local_failure(error, cx);
                     }
                     hub.busy = false;
                     if let Some(pid) = outcome_session {
@@ -635,6 +730,9 @@ impl HubApp {
                             hub.timeline = project_timeline(&detail);
                             hub.chat = project_chat(&detail);
                             hub.open_handoffs.clear();
+                            if hub.inspector_enabled {
+                                hub.refresh_inspector(cx);
+                            }
                         }
                     }
                     cx.notify();
@@ -816,6 +914,9 @@ pub fn status_color(status: &TimelineStatus, cx: &App) -> (String, gpui::Hsla) {
         TimelineStatus::Cancelled => ("cancelled".to_string(), cx.theme().colors.muted_foreground),
         TimelineStatus::Switched => ("switched".to_string(), cx.theme().colors.accent),
         TimelineStatus::Running => ("running".to_string(), cx.theme().colors.accent),
+        TimelineStatus::Streaming => ("streaming".to_string(), cx.theme().colors.accent),
+        TimelineStatus::ToolRunning => ("tool".to_string(), cx.theme().colors.accent),
+        TimelineStatus::ToolCompleted => ("tool done".to_string(), cx.theme().colors.success),
     }
 }
 
