@@ -380,3 +380,4 @@ demo 覆盖：sessions/handoff/team/approval/readiness/drawer(usage/attempts) �
 - iter209 | 完成: 批2 Run 真实执行(run_persisted 接线+timeline 卡片, 官方 async 模式) | 验证: 134 tests+clippy 0+启动 | 清理: 无 | 下一步: 批2b fallback 控件/timeline 5 态
 - iter210 | 完成: 批2b 5态 timeline 卡片(状态配色+徽章) | 验证: 134 tests+clippy 0 | 清理: 无 | 下一步: 批2c Stop/switch 控件
 - iter211 | 完成: 批2c fallback 卡片 View handoff(store 查+内联展开) | 验证: 134 tests+clippy 0 | 清理: 无 | 下一步: 批2d Stop/switch(HubRuntime)
+- iter212 | 完成: 用户并行推进至 batch-8(功能 1:1 对齐, 138 测试); 我贡献 batch-9 P4 打包(.app 21MB 启动过) | 验证: 冒烟 | 清理: 无 | 下一步: 待用户方向(删 Tauri 版/样式微差)
