@@ -617,6 +617,8 @@ impl HubApp {
             self.prompt.clone(),
             self.permission.clone(),
             self.engine.clone(),
+            self.model.clone(),
+            self.effort.clone(),
             metadata,
         )
         .permission_disabled(self.active_session_id.is_some())

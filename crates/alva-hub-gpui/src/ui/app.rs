@@ -20,19 +20,23 @@ use gpui_component::{
 };
 
 use alva_hub_gpui::{
-    build_engine_bundle, permission_eligibility, probe_readiness, repair_argv, repair_plan,
-    run_persisted, run_repair_command, EngineEligibility, EngineReadiness, EngineTarget,
-    FallbackPolicy, HubSessionDetail, HubSessionSummary, HubStore, PermissionProfile,
-    PermissionRouter, RepairAction, RepairKind, RunRequest, SwitchOutcome, SystemProbe,
-    TimelineEvent, TimelineStatus,
+    build_engine_bundle_for_target, permission_eligibility, probe_readiness, repair_argv,
+    repair_plan, run_persisted_with_target, run_repair_command, AgentRuntime, EngineEligibility,
+    EngineReadiness, EngineTarget, FallbackPolicy, HubSessionDetail, HubSessionSummary, HubStore,
+    ModelCatalog, ModelRoute, PermissionProfile, PermissionRouter, ReasoningEffort, RepairAction,
+    RepairKind, RunRequest, SwitchOutcome, SystemProbe, TimelineEvent, TimelineStatus,
 };
 
 use super::workspace::{HubWorkspace, ToolPanel, WorkspaceTool};
-use super::{profile_label, EngineOption, WorkerOption};
+use super::{profile_label, EffortOption, EngineOption, ModelOption, WorkerOption};
 use alva_hub_gpui::{project_chat, project_timeline, ProjectedChatItem, ProjectedEvent};
 
-const ENGINE_OPTIONS: [&str; 3] = ["alva", "claude", "codex"];
+const ENGINE_OPTIONS: [&str; 4] = ["alva", "claude", "codex", "pi"];
 const PROFILE_OPTIONS: [&str; 3] = ["interactive", "workspace_write", "unrestricted"];
+
+fn route_key(route: &ModelRoute) -> String {
+    format!("{}::{}", route.provider_id, route.model_id)
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PrimarySurface {
@@ -60,7 +64,10 @@ pub struct HubApp {
     pub primary_surface: PrimarySurface,
     pub sidebar_search_open: bool,
     pub workspace: Option<String>,
+    pub model_catalog: ModelCatalog,
     pub engine: Entity<SelectState<SearchableVec<EngineOption>>>,
+    pub model: Entity<SelectState<SearchableVec<ModelOption>>>,
+    pub effort: Entity<SelectState<SearchableVec<EffortOption>>>,
     pub permission: Entity<SelectState<SearchableVec<&'static str>>>,
     pub prompt: Entity<InputState>,
     pub automation_name: Entity<InputState>,
@@ -162,6 +169,23 @@ impl HubApp {
                 .parent()
                 .unwrap_or(std::path::Path::new("/tmp")),
         );
+        let catalog_workspace = store
+            .path()
+            .parent()
+            .unwrap_or(std::path::Path::new("/tmp"));
+        let model_catalog = ModelCatalog::load(catalog_workspace, &[]);
+        let initial_route = model_catalog
+            .default_route(AgentRuntime::Alva)
+            .or_else(|| model_catalog.default_route(AgentRuntime::ClaudeCode))
+            .expect("built-in model catalog must expose at least one route");
+        let initial_models = Self::model_options(&model_catalog, initial_route.runtime);
+        let initial_model_index = initial_models
+            .iter()
+            .position(|option| option.route_key == route_key(&initial_route));
+        let initial_efforts = Self::effort_options(&model_catalog, &initial_route);
+        let initial_effort_index = initial_efforts
+            .iter()
+            .position(|option| option.effort == initial_route.reasoning_effort);
         let sessions = store.list_sessions().unwrap_or_default();
         let fallback_policy = store
             .global_fallback_policy()
@@ -183,6 +207,7 @@ impl HubApp {
             primary_surface: PrimarySurface::Chat,
             sidebar_search_open: false,
             workspace: None,
+            model_catalog,
             timeline: Vec::new(),
             chat: Vec::new(),
             inspector_enabled,
@@ -259,6 +284,22 @@ impl HubApp {
                     cx,
                 )
             }),
+            model: cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(initial_models),
+                    initial_model_index.map(IndexPath::new),
+                    window,
+                    cx,
+                )
+            }),
+            effort: cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(initial_efforts),
+                    initial_effort_index.map(IndexPath::new),
+                    window,
+                    cx,
+                )
+            }),
             permission: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(PROFILE_OPTIONS.to_vec()),
@@ -299,6 +340,8 @@ impl HubApp {
         app.subscribe_sessions(window, cx);
         app.subscribe_extension_query(window, cx);
         app.subscribe_engine(window, cx);
+        app.subscribe_model(window, cx);
+        app.subscribe_effort(window, cx);
         app.subscribe_prompt(window, cx);
         app.sync_policy_inputs(window, cx);
         app.refresh_readiness(cx);
@@ -311,32 +354,169 @@ impl HubApp {
             .map(|id| {
                 let display = match *id {
                     "alva" => "Alva",
-                    "claude" => "Claude",
+                    "claude" => "Claude Code",
                     "codex" => "Codex",
+                    "pi" => "Pi",
                     _ => id,
                 };
-                let suffix = readiness
-                    .iter()
-                    .find(|report| report.engine_id == *id)
-                    .map(|report| match report.status {
-                        alva_hub_gpui::ReadinessStatus::Healthy => String::new(),
-                        alva_hub_gpui::ReadinessStatus::Missing => " — Not installed".to_string(),
-                        alva_hub_gpui::ReadinessStatus::Incompatible => {
-                            " — Incompatible".to_string()
-                        }
-                        alva_hub_gpui::ReadinessStatus::Unauthenticated => {
-                            " — Sign-in needed".to_string()
-                        }
-                        alva_hub_gpui::ReadinessStatus::Unhealthy => " — Unhealthy".to_string(),
-                    })
-                    .unwrap_or_default();
+                let suffix = if *id == "pi" {
+                    " — Adapter planned".to_string()
+                } else {
+                    readiness
+                        .iter()
+                        .find(|report| report.engine_id == *id)
+                        .map(|report| match report.status {
+                            alva_hub_gpui::ReadinessStatus::Healthy => String::new(),
+                            alva_hub_gpui::ReadinessStatus::Missing => {
+                                " — Not installed".to_string()
+                            }
+                            alva_hub_gpui::ReadinessStatus::Incompatible => {
+                                " — Incompatible".to_string()
+                            }
+                            alva_hub_gpui::ReadinessStatus::Unauthenticated => {
+                                " — Sign-in needed".to_string()
+                            }
+                            alva_hub_gpui::ReadinessStatus::Unhealthy => " — Unhealthy".to_string(),
+                        })
+                        .unwrap_or_default()
+                };
                 EngineOption {
                     engine_id: (*id).to_string(),
                     label: format!("{display}{suffix}"),
-                    enabled: true,
+                    enabled: *id != "pi",
                 }
             })
             .collect()
+    }
+
+    fn model_options(catalog: &ModelCatalog, runtime: AgentRuntime) -> Vec<ModelOption> {
+        catalog
+            .models_for_runtime(runtime)
+            .into_iter()
+            .map(|model| {
+                let provider = catalog
+                    .provider(&model.provider_id)
+                    .expect("catalog model provider must exist");
+                ModelOption {
+                    route_key: format!("{}::{}", model.provider_id, model.model_id),
+                    label: format!("{} · {}", model.display_name, provider.display_name),
+                    enabled: provider.connected && model.enabled,
+                }
+            })
+            .collect()
+    }
+
+    fn effort_options(catalog: &ModelCatalog, route: &ModelRoute) -> Vec<EffortOption> {
+        let Some(model) = catalog.model(&route.provider_id, &route.model_id) else {
+            return vec![EffortOption {
+                effort: None,
+                value: "default".into(),
+                label: "Default reasoning".into(),
+            }];
+        };
+        if model.capabilities.reasoning_efforts.is_empty() {
+            return vec![EffortOption {
+                effort: None,
+                value: "default".into(),
+                label: "Model default".into(),
+            }];
+        }
+        model
+            .capabilities
+            .reasoning_efforts
+            .iter()
+            .copied()
+            .map(|effort| EffortOption {
+                effort: Some(effort),
+                value: effort.id().to_string(),
+                label: format!("{} reasoning", effort.label()),
+            })
+            .collect()
+    }
+
+    pub fn selected_model_route(&self, cx: &App) -> Result<ModelRoute, String> {
+        let runtime = AgentRuntime::parse(&self.selected_engine(cx))
+            .ok_or_else(|| "selected runtime is unknown".to_string())?;
+        let route_key = self
+            .model
+            .read(cx)
+            .selected_value()
+            .map(ToString::to_string)
+            .ok_or_else(|| format!("{} has no selected model", runtime.label()))?;
+        let (provider_id, model_id) = route_key
+            .split_once("::")
+            .ok_or_else(|| "selected model route is malformed".to_string())?;
+        let effort = self
+            .effort
+            .read(cx)
+            .selected_value()
+            .and_then(|value| ReasoningEffort::parse(value));
+        self.model_catalog.resolve(ModelRoute {
+            runtime,
+            provider_id: provider_id.to_string(),
+            model_id: model_id.to_string(),
+            reasoning_effort: effort,
+        })
+    }
+
+    fn sync_model_options(
+        &self,
+        runtime: AgentRuntime,
+        preferred: Option<(&str, &str)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let options = Self::model_options(&self.model_catalog, runtime);
+        let selected_index = preferred
+            .and_then(|(provider_id, model_id)| {
+                let key = format!("{provider_id}::{model_id}");
+                options.iter().position(|option| option.route_key == key)
+            })
+            .or_else(|| options.iter().position(|option| option.enabled));
+        self.model.update(cx, |state, cx| {
+            state.set_items(SearchableVec::new(options.clone()), window, cx);
+            state.set_selected_index(selected_index.map(IndexPath::new), window, cx);
+        });
+        if let Some(index) = selected_index {
+            if let Some((provider_id, model_id)) = options[index].route_key.split_once("::") {
+                self.sync_effort_options(
+                    &ModelRoute {
+                        runtime,
+                        provider_id: provider_id.to_string(),
+                        model_id: model_id.to_string(),
+                        reasoning_effort: None,
+                    },
+                    window,
+                    cx,
+                );
+            }
+        }
+    }
+
+    fn sync_effort_options(&self, route: &ModelRoute, window: &mut Window, cx: &mut Context<Self>) {
+        let options = Self::effort_options(&self.model_catalog, route);
+        let selected_index = route
+            .reasoning_effort
+            .and_then(|effort| {
+                options
+                    .iter()
+                    .position(|option| option.effort == Some(effort))
+            })
+            .or_else(|| {
+                self.model_catalog
+                    .model(&route.provider_id, &route.model_id)
+                    .and_then(|model| model.capabilities.default_reasoning_effort)
+                    .and_then(|effort| {
+                        options
+                            .iter()
+                            .position(|option| option.effort == Some(effort))
+                    })
+            })
+            .or((!options.is_empty()).then_some(0));
+        self.effort.update(cx, |state, cx| {
+            state.set_items(SearchableVec::new(options), window, cx);
+            state.set_selected_index(selected_index.map(IndexPath::new), window, cx);
+        });
     }
 
     /// Rebuild the engine selector options after readiness changes.
@@ -389,6 +569,14 @@ impl HubApp {
         self.pending_engine = None;
         self.transcript_sharing = false;
         self.set_selected_engine("alva", window, cx);
+        if let Some(route) = self.model_catalog.default_route(AgentRuntime::Alva) {
+            self.sync_model_options(
+                AgentRuntime::Alva,
+                Some((&route.provider_id, &route.model_id)),
+                window,
+                cx,
+            );
+        }
         self.set_selected_profile("workspace_write", window, cx);
     }
 
@@ -429,6 +617,40 @@ impl HubApp {
                         entity.update(cx, |hub, cx| {
                             hub.select_engine(value, window, cx);
                         });
+                    }
+                }
+            },
+        );
+    }
+
+    pub fn subscribe_model(&self, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_component::select::SelectEvent;
+        let weak = cx.entity().downgrade();
+        let _subscription = cx.subscribe_in(
+            &self.model,
+            window,
+            move |_view, _state, event, window, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    if let Some(entity) = weak.upgrade() {
+                        entity.update(cx, |hub, cx| {
+                            hub.select_model_route(value, window, cx);
+                        });
+                    }
+                }
+            },
+        );
+    }
+
+    pub fn subscribe_effort(&self, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_component::select::SelectEvent;
+        let weak = cx.entity().downgrade();
+        let _subscription = cx.subscribe_in(
+            &self.effort,
+            window,
+            move |_view, _state, event, _window, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    if let Some(entity) = weak.upgrade() {
+                        entity.update(cx, |hub, cx| hub.select_reasoning_effort(value, cx));
                     }
                 }
             },
@@ -661,11 +883,30 @@ impl HubApp {
         self.session_detail = Some(detail);
         self.open_handoffs.clear();
         self.open_activities.clear();
-        self.set_selected_engine(
-            &self.session_detail.as_ref().unwrap().session.engine_id,
-            window,
-            cx,
-        );
+        let session = self.session_detail.as_ref().unwrap().session.clone();
+        self.set_selected_engine(&session.engine_id, window, cx);
+        if let Some(runtime) = AgentRuntime::parse(&session.engine_id) {
+            let preferred = self
+                .model_catalog
+                .model(&session.provider_id, &session.model_id)
+                .map(|_| (session.provider_id.as_str(), session.model_id.as_str()));
+            self.sync_model_options(runtime, preferred, window, cx);
+            if preferred.is_some() {
+                self.sync_effort_options(
+                    &ModelRoute {
+                        runtime,
+                        provider_id: session.provider_id.clone(),
+                        model_id: session.model_id.clone(),
+                        reasoning_effort: session
+                            .reasoning_effort
+                            .as_deref()
+                            .and_then(ReasoningEffort::parse),
+                    },
+                    window,
+                    cx,
+                );
+            }
+        }
         self.set_selected_profile(
             self.session_detail
                 .as_ref()
@@ -751,6 +992,10 @@ impl HubApp {
     /// Run through a channel so chat activity is applied as each engine event
     /// arrives instead of after the whole attempt completes.
     pub fn run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_engine.is_some() {
+            window.push_notification("The selected model route is still being applied.", cx);
+            return;
+        }
         let workspace = self
             .workspace
             .clone()
@@ -774,7 +1019,21 @@ impl HubApp {
         if prompt.trim().is_empty() || self.busy {
             return;
         }
-        let engine_id = self.selected_engine(cx);
+        let route = match self.selected_model_route(cx) {
+            Ok(route) => route,
+            Err(error) => {
+                window.push_notification(error, cx);
+                return;
+            }
+        };
+        let initial_target = match self.model_catalog.engine_target(route) {
+            Ok(target) => target,
+            Err(error) => {
+                window.push_notification(error, cx);
+                return;
+            }
+        };
+        let engine_id = initial_target.engine_id.clone();
         let profile = self.selected_profile(cx);
         let product_session_id = self.active_session_id.clone();
         let store = Arc::clone(&self.store);
@@ -791,7 +1050,7 @@ impl HubApp {
         let weak = cx.entity().downgrade();
         cx.spawn(async move |_this, cx: &mut AsyncApp| {
             let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
-            let mut run = Box::pin(run_persisted(
+            let mut run = Box::pin(run_persisted_with_target(
                 &store,
                 {
                     let ws_path = PathBuf::from(&workspace);
@@ -799,7 +1058,7 @@ impl HubApp {
                     move |target, product_session_id, profile| {
                         let hist = history_dir.clone().unwrap_or_else(|| ws_path.clone());
                         let built =
-                            build_engine_bundle(&target.engine_id, profile, &ws_path, &hist)?;
+                            build_engine_bundle_for_target(target, profile, &ws_path, &hist)?;
                         let engine = built.runtime;
                         // Register the live engine so Stop can cancel it;
                         // fallback replaces the entry with the new engine.
@@ -824,6 +1083,7 @@ impl HubApp {
                     product_session_id,
                     permission_profile: Some(profile),
                 },
+                Some(initial_target),
                 move |event| {
                     let _ = event_sender.send(event);
                 },
@@ -893,20 +1153,109 @@ impl HubApp {
     /// Manual engine switch — queues behind a running attempt; applies
     /// immediately otherwise (React `selectEngine`).
     pub fn select_engine(&mut self, engine_id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(session_id) = self.active_session_id.clone() else {
-            self.set_selected_engine(engine_id, window, cx);
-            self.pending_engine = None;
+        let Some(runtime) = AgentRuntime::parse(engine_id) else {
+            self.push_local_failure("The selected runtime is unknown.", cx);
             return;
         };
-        let target = match EngineTarget::for_engine(engine_id) {
+        let Some(route) = self.model_catalog.default_route(runtime) else {
+            self.push_local_failure(&format!("{} has no configured model.", runtime.label()), cx);
+            return;
+        };
+        self.set_selected_engine(engine_id, window, cx);
+        self.sync_model_options(
+            runtime,
+            Some((&route.provider_id, &route.model_id)),
+            window,
+            cx,
+        );
+        let target = match self.model_catalog.engine_target(route) {
             Ok(target) => target,
             Err(error) => {
                 self.push_local_failure(&error, cx);
                 return;
             }
         };
+        self.request_target_switch(target, format!("User explicitly selected {engine_id}"), cx);
+    }
+
+    fn select_model_route(&mut self, route_key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((provider_id, model_id)) = route_key.split_once("::") else {
+            self.push_local_failure("The selected model route is malformed.", cx);
+            return;
+        };
+        let Some(runtime) = AgentRuntime::parse(&self.selected_engine(cx)) else {
+            return;
+        };
+        let route = ModelRoute {
+            runtime,
+            provider_id: provider_id.to_string(),
+            model_id: model_id.to_string(),
+            reasoning_effort: None,
+        };
+        self.sync_effort_options(&route, window, cx);
+        let target = match self.model_catalog.engine_target(route) {
+            Ok(target) => target,
+            Err(error) => {
+                self.push_local_failure(&error, cx);
+                return;
+            }
+        };
+        self.request_target_switch(
+            target,
+            format!("User explicitly selected {model_id} from {provider_id}"),
+            cx,
+        );
+    }
+
+    fn select_reasoning_effort(&mut self, value: &str, cx: &mut Context<Self>) {
+        let Some(runtime) = AgentRuntime::parse(&self.selected_engine(cx)) else {
+            return;
+        };
+        let Some(route_key) = self
+            .model
+            .read(cx)
+            .selected_value()
+            .map(ToString::to_string)
+        else {
+            return;
+        };
+        let Some((provider_id, model_id)) = route_key.split_once("::") else {
+            return;
+        };
+        let route = ModelRoute {
+            runtime,
+            provider_id: provider_id.to_string(),
+            model_id: model_id.to_string(),
+            reasoning_effort: ReasoningEffort::parse(value),
+        };
+        let target = match self.model_catalog.engine_target(route) {
+            Ok(target) => target,
+            Err(error) => {
+                self.push_local_failure(&error, cx);
+                return;
+            }
+        };
+        self.request_target_switch(
+            target,
+            format!("User explicitly selected {value} reasoning"),
+            cx,
+        );
+    }
+
+    fn request_target_switch(
+        &mut self,
+        target: EngineTarget,
+        reason: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session_id) = self.active_session_id.clone() else {
+            self.pending_engine = None;
+            cx.notify();
+            return;
+        };
+        self.pending_engine = Some(target.engine_id.clone());
+        cx.notify();
         let store = Arc::clone(&self.store);
-        let reason = format!("User explicitly selected {engine_id}");
         let weak = cx.entity().downgrade();
         let handle = self.window_handle;
         let executor = cx.background_executor().clone();
@@ -931,7 +1280,10 @@ impl HubApp {
                         hub.refresh_sessions();
                         cx.notify();
                     }
-                    Err(error) => hub.push_local_failure(&error, cx),
+                    Err(error) => {
+                        hub.pending_engine = None;
+                        hub.push_local_failure(&error, cx);
+                    }
                 });
             }
         })

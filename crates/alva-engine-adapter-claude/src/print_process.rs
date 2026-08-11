@@ -65,6 +65,9 @@ impl ClaudePrintProcess {
         if let Some(model) = model_override {
             cmd.arg("--model").arg(model);
         }
+        if let Some(effort) = &config.effort {
+            cmd.arg("--effort").arg(effort);
+        }
 
         if let Some(system) = &request.system_prompt {
             if !system.is_empty() {
@@ -203,6 +206,7 @@ mod tests {
         fake_claude(&executable);
         let config = ClaudePrintConfig {
             claude_path: executable.to_string_lossy().into_owned(),
+            effort: Some("high".into()),
             ..Default::default()
         };
 
@@ -219,6 +223,7 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["--permission-mode", "dontAsk"]));
+        assert!(args.windows(2).any(|pair| pair == ["--effort", "high"]));
         assert!(!args.contains(&"--include-partial-messages"));
         assert!(args.windows(2).any(|pair| pair == ["--", "-not-an-option"]));
 

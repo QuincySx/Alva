@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
 
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -26,6 +26,8 @@ pub struct EngineTarget {
     pub engine_id: String,
     pub model_id: String,
     pub provider_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     #[serde(default = "default_account_source")]
     pub account_source: String,
     #[serde(default = "default_billing_route")]
@@ -82,6 +84,7 @@ impl EngineTarget {
             engine_id: engine_id.to_string(),
             model_id: model_id.to_string(),
             provider_id: provider_id.to_string(),
+            reasoning_effort: None,
             account_source: account_source.to_string(),
             billing_route: billing_route.to_string(),
             automatic_use_authorized: false,
@@ -104,6 +107,7 @@ pub struct HubSessionSummary {
     pub engine_id: String,
     pub model_id: String,
     pub provider_id: String,
+    pub reasoning_effort: Option<String>,
     pub engine_session_id: Option<String>,
     pub status: String,
     pub updated_at: i64,
@@ -121,6 +125,7 @@ pub struct StoredBranch {
     pub engine_id: String,
     pub model_id: String,
     pub provider_id: String,
+    pub reasoning_effort: Option<String>,
     pub engine_session_id: Option<String>,
     pub watermark_turn_rowid: Option<i64>,
     pub status: String,
@@ -741,7 +746,8 @@ impl HubStore {
         let mut statement = connection
             .prepare(
                 "SELECT hs.product_session_id, hs.workspace, hs.active_branch_id,
-                        eb.engine_id, eb.model_id, eb.provider_id, eb.engine_session_id,
+                        eb.engine_id, eb.model_id, eb.provider_id, eb.reasoning_effort,
+                        eb.engine_session_id,
                         hs.status, hs.updated_at,
                         (SELECT prompt FROM turns t
                            WHERE t.product_session_id = hs.product_session_id
@@ -967,6 +973,7 @@ impl HubStore {
         if session.engine_id == target.engine_id
             && session.model_id == target.model_id
             && session.provider_id == target.provider_id
+            && session.reasoning_effort == target.reasoning_effort
         {
             if let Some(pending) = query_pending_switch(&transaction, product_session_id)? {
                 transaction
@@ -1152,14 +1159,16 @@ impl HubStore {
             .execute(
                 "INSERT INTO engine_branches
                    (branch_id, product_session_id, engine_id, model_id, provider_id,
+                    reasoning_effort,
                     engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'active', ?7, ?7)",
                 params![
                     branch_id,
                     product_session_id,
                     target.engine_id,
                     target.model_id,
                     target.provider_id,
+                    target.reasoning_effort,
                     now
                 ],
             )
@@ -1224,6 +1233,7 @@ impl HubStore {
         let mut target = EngineTarget::for_engine(&session.engine_id)?;
         target.model_id = session.model_id.clone();
         target.provider_id = session.provider_id.clone();
+        target.reasoning_effort = session.reasoning_effort.clone();
         let watermark_turn_rowid = transaction
             .query_row(
                 "SELECT watermark_turn_rowid FROM engine_branches WHERE branch_id = ?1",
@@ -1511,6 +1521,7 @@ impl HubStore {
         if target.engine_id == prepared.target.engine_id
             && target.model_id == prepared.target.model_id
             && target.provider_id == prepared.target.provider_id
+            && target.reasoning_effort == prepared.target.reasoning_effort
         {
             return Err("automatic fallback requires a different engine target".to_string());
         }
@@ -1537,6 +1548,7 @@ impl HubStore {
                 candidate.engine_id == target.engine_id
                     && candidate.model_id == target.model_id
                     && candidate.provider_id == target.provider_id
+                    && candidate.reasoning_effort == target.reasoning_effort
                     && candidate.automatic_use_authorized
             })
         {
@@ -1570,12 +1582,14 @@ impl HubStore {
             .query_row(
                 "SELECT branch_id FROM engine_branches
                   WHERE product_session_id = ?1 AND engine_id = ?2
-                    AND model_id = ?3 AND provider_id = ?4",
+                    AND model_id = ?3 AND provider_id = ?4
+                    AND reasoning_effort IS ?5",
                 params![
                     prepared.product_session_id,
                     target.engine_id,
                     target.model_id,
-                    target.provider_id
+                    target.provider_id,
+                    target.reasoning_effort
                 ],
                 |row| row.get::<_, String>(0),
             )
@@ -1589,14 +1603,16 @@ impl HubStore {
                     .execute(
                         "INSERT INTO engine_branches
                            (branch_id, product_session_id, engine_id, model_id, provider_id,
+                            reasoning_effort,
                             engine_session_id, status, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'parked', ?6, ?6)",
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'parked', ?7, ?7)",
                         params![
                             branch_id,
                             prepared.product_session_id,
                             target.engine_id,
                             target.model_id,
                             target.provider_id,
+                            target.reasoning_effort,
                             now
                         ],
                     )
@@ -1767,14 +1783,16 @@ impl HubStore {
             .execute(
                 "INSERT INTO engine_branches
                    (branch_id, product_session_id, engine_id, model_id, provider_id,
+                    reasoning_effort,
                     engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'active', ?7, ?7)",
                 params![
                     worker_branch_id,
                     worker_session_id,
                     worker_target.engine_id,
                     worker_target.model_id,
                     worker_target.provider_id,
+                    worker_target.reasoning_effort,
                     now
                 ],
             )
@@ -1915,14 +1933,16 @@ impl HubStore {
             .execute(
                 "INSERT INTO engine_branches
                    (branch_id, product_session_id, engine_id, model_id, provider_id,
+                    reasoning_effort,
                     engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'active', ?7, ?7)",
                 params![
                     worker_branch_id,
                     worker_session_id,
                     worker_target.engine_id,
                     worker_target.model_id,
                     worker_target.provider_id,
+                    worker_target.reasoning_effort,
                     now
                 ],
             )
@@ -2944,6 +2964,7 @@ impl HubStore {
                     tried.engine_id == target.engine_id
                         && tried.model_id == target.model_id
                         && tried.provider_id == target.provider_id
+                        && tried.reasoning_effort == target.reasoning_effort
                 })
         }))
     }
@@ -3158,11 +3179,13 @@ fn engine_target_from_branch(
     engine_id: String,
     model_id: String,
     provider_id: String,
+    reasoning_effort: Option<String>,
 ) -> EngineTarget {
     let mut target = EngineTarget::for_engine(&engine_id)
         .expect("Hub engine branches are created only from supported engine targets");
     target.model_id = model_id;
     target.provider_id = provider_id;
+    target.reasoning_effort = reasoning_effort;
     target
 }
 
@@ -3173,6 +3196,7 @@ fn validate_fallback_targets(targets: &[EngineTarget]) -> Result<(), String> {
             previous.engine_id == target.engine_id
                 && previous.model_id == target.model_id
                 && previous.provider_id == target.provider_id
+                && previous.reasoning_effort == target.reasoning_effort
         }) {
             return Err(format!(
                 "fallback policy repeats engine target '{}'/{}",
@@ -3279,7 +3303,7 @@ fn upsert_queued_switch(
                 "UPDATE engine_switches
                     SET source_branch_id = ?2, target_engine_id = ?3,
                         target_model_id = ?4, target_provider_id = ?5,
-                        reason = ?6, requested_at = ?7
+                        target_reasoning_effort = ?6, reason = ?7, requested_at = ?8
                   WHERE switch_id = ?1",
                 params![
                     switch_id,
@@ -3287,6 +3311,7 @@ fn upsert_queued_switch(
                     target.engine_id,
                     target.model_id,
                     target.provider_id,
+                    target.reasoning_effort,
                     reason,
                     now
                 ],
@@ -3300,9 +3325,10 @@ fn upsert_queued_switch(
         .execute(
             "INSERT INTO engine_switches
                (switch_id, product_session_id, source_branch_id, target_branch_id,
-                target_engine_id, target_model_id, target_provider_id, reason,
+                target_engine_id, target_model_id, target_provider_id,
+                target_reasoning_effort, reason,
                 status, handoff_id, requested_at, applied_at)
-             VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, 'queued', NULL, ?8, NULL)",
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, 'queued', NULL, ?9, NULL)",
             params![
                 switch_id,
                 product_session_id,
@@ -3310,6 +3336,7 @@ fn upsert_queued_switch(
                 target.engine_id,
                 target.model_id,
                 target.provider_id,
+                target.reasoning_effort,
                 reason,
                 now
             ],
@@ -3331,12 +3358,14 @@ fn apply_switch_in_transaction(
         .query_row(
             "SELECT branch_id FROM engine_branches
               WHERE product_session_id = ?1 AND engine_id = ?2
-                AND model_id = ?3 AND provider_id = ?4",
+                AND model_id = ?3 AND provider_id = ?4
+                AND reasoning_effort IS ?5",
             params![
                 product_session_id,
                 target.engine_id,
                 target.model_id,
-                target.provider_id
+                target.provider_id,
+                target.reasoning_effort
             ],
             |row| row.get::<_, String>(0),
         )
@@ -3357,14 +3386,16 @@ fn apply_switch_in_transaction(
             .execute(
                 "INSERT INTO engine_branches
                    (branch_id, product_session_id, engine_id, model_id, provider_id,
+                    reasoning_effort,
                     engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'parked', ?6, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'parked', ?7, ?7)",
                 params![
                     target_branch_id,
                     product_session_id,
                     target.engine_id,
                     target.model_id,
                     target.provider_id,
+                    target.reasoning_effort,
                     now
                 ],
             )
@@ -3408,6 +3439,7 @@ fn apply_switch_in_transaction(
     let mut source = EngineTarget::for_engine(&source_session.engine_id)?;
     source.model_id = source_session.model_id.clone();
     source.provider_id = source_session.provider_id.clone();
+    source.reasoning_effort = source_session.reasoning_effort.clone();
     let package = build_handoff_package(
         transaction,
         product_session_id,
@@ -3996,8 +4028,8 @@ fn query_branches(
 ) -> Result<Vec<StoredBranch>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT branch_id, engine_id, model_id, provider_id, engine_session_id,
-                    watermark_turn_rowid, status, created_at, updated_at
+            "SELECT branch_id, engine_id, model_id, provider_id, reasoning_effort,
+                    engine_session_id, watermark_turn_rowid, status, created_at, updated_at
                FROM engine_branches WHERE product_session_id = ?1
               ORDER BY created_at ASC, rowid ASC",
         )
@@ -4009,11 +4041,12 @@ fn query_branches(
                 engine_id: row.get(1)?,
                 model_id: row.get(2)?,
                 provider_id: row.get(3)?,
-                engine_session_id: row.get(4)?,
-                watermark_turn_rowid: row.get(5)?,
-                status: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                reasoning_effort: row.get(4)?,
+                engine_session_id: row.get(5)?,
+                watermark_turn_rowid: row.get(6)?,
+                status: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })
         .map_err(|error| format!("query Hub engine branches: {error}"))?;
@@ -4128,7 +4161,8 @@ fn query_pending_switch(
     connection
         .query_row(
             "SELECT switch_id, source_branch_id, target_engine_id,
-                    target_model_id, target_provider_id, reason, requested_at
+                    target_model_id, target_provider_id, target_reasoning_effort,
+                    reason, requested_at
                FROM engine_switches
               WHERE product_session_id = ?1 AND status = 'queued'",
             [product_session_id],
@@ -4136,9 +4170,14 @@ fn query_pending_switch(
                 Ok(PendingSwitch {
                     switch_id: row.get(0)?,
                     source_branch_id: row.get(1)?,
-                    target: engine_target_from_branch(row.get(2)?, row.get(3)?, row.get(4)?),
-                    reason: row.get(5)?,
-                    requested_at: row.get(6)?,
+                    target: engine_target_from_branch(
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ),
+                    reason: row.get(6)?,
+                    requested_at: row.get(7)?,
                 })
             },
         )
@@ -4153,7 +4192,8 @@ fn query_session(
     connection
         .query_row(
             "SELECT hs.product_session_id, hs.workspace, hs.active_branch_id,
-                    eb.engine_id, eb.model_id, eb.provider_id, eb.engine_session_id,
+                    eb.engine_id, eb.model_id, eb.provider_id, eb.reasoning_effort,
+                    eb.engine_session_id,
                     hs.status, hs.updated_at,
                     (SELECT prompt FROM turns t
                        WHERE t.product_session_id = hs.product_session_id
@@ -4318,7 +4358,7 @@ fn query_worker_task(connection: &Connection, task_id: &str) -> Result<Option<Wo
 }
 
 fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSessionSummary> {
-    let profile_text: String = row.get(11)?;
+    let profile_text: String = row.get(12)?;
     Ok(HubSessionSummary {
         product_session_id: row.get(0)?,
         workspace: row.get(1)?,
@@ -4326,15 +4366,16 @@ fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSessionSummary
         engine_id: row.get(3)?,
         model_id: row.get(4)?,
         provider_id: row.get(5)?,
-        engine_session_id: row.get(6)?,
-        status: row.get(7)?,
-        updated_at: row.get(8)?,
-        last_prompt: row.get(9)?,
-        last_result: row.get(10)?,
+        reasoning_effort: row.get(6)?,
+        engine_session_id: row.get(7)?,
+        status: row.get(8)?,
+        updated_at: row.get(9)?,
+        last_prompt: row.get(10)?,
+        last_result: row.get(11)?,
         permission_profile: PermissionProfile::parse(&profile_text).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, error.into())
+            rusqlite::Error::FromSqlConversionFailure(12, rusqlite::types::Type::Text, error.into())
         })?,
-        include_full_transcript: row.get(12)?,
+        include_full_transcript: row.get(13)?,
     })
 }
 
@@ -4700,6 +4741,21 @@ fn initialize_schema_and_recover(
                  );",
             )
             .map_err(|error| format!("migrate Hub database to schema 16: {error}"))?;
+    }
+
+    if schema_version < 17 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE engine_branches ADD COLUMN reasoning_effort TEXT;
+                 ALTER TABLE engine_switches ADD COLUMN target_reasoning_effort TEXT;
+                 DROP INDEX idx_engine_branches_target;
+                 CREATE UNIQUE INDEX idx_engine_branches_target
+                   ON engine_branches(
+                     product_session_id, engine_id, model_id, provider_id,
+                     COALESCE(reasoning_effort, '')
+                   );",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 17: {error}"))?;
     }
 
     repair_interrupted_attempts(&transaction, now)?;
@@ -5412,7 +5468,8 @@ mod tests {
         let database = root.path().join("alva-hub.db");
         let store = HubStore::open(&database).unwrap();
         let alva = EngineTarget::for_engine("alva").unwrap();
-        let claude = EngineTarget::for_engine("claude").unwrap();
+        let mut claude = EngineTarget::for_engine("claude").unwrap();
+        claude.reasoning_effort = Some("high".into());
 
         let prepared = store
             .prepare_new_turn(
@@ -5460,6 +5517,7 @@ mod tests {
         assert_eq!(target.status, "active");
         assert_eq!(target.model_id, "engine-default");
         assert_eq!(target.provider_id, "claude-cli");
+        assert_eq!(target.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(detail.handoffs.len(), 1);
         let handoff = &detail.handoffs[0];
         assert_eq!(handoff.source_branch_id, source.branch_id);
@@ -5479,6 +5537,7 @@ mod tests {
         let reopened = reopen(&database);
         let recovered = reopened.get_session("product-switch").unwrap().unwrap();
         assert_eq!(recovered.session.engine_id, "claude");
+        assert_eq!(recovered.session.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(recovered.branches.len(), 2);
         assert_eq!(recovered.handoffs.len(), 1);
     }

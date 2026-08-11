@@ -17,7 +17,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Sizable as _,
 };
 
-use crate::ui::EngineOption;
+use crate::ui::{EffortOption, EngineOption, ModelOption};
 
 #[derive(IntoElement)]
 pub struct HubActivityRow {
@@ -114,6 +114,8 @@ pub struct HubComposer {
     prompt: gpui::Entity<InputState>,
     permission: gpui::Entity<SelectState<SearchableVec<&'static str>>>,
     engine: gpui::Entity<SelectState<SearchableVec<EngineOption>>>,
+    model: gpui::Entity<SelectState<SearchableVec<ModelOption>>>,
+    effort: gpui::Entity<SelectState<SearchableVec<EffortOption>>>,
     permission_disabled: bool,
     project_action: Option<AnyElement>,
     submit_action: Option<AnyElement>,
@@ -127,12 +129,16 @@ impl HubComposer {
         prompt: gpui::Entity<InputState>,
         permission: gpui::Entity<SelectState<SearchableVec<&'static str>>>,
         engine: gpui::Entity<SelectState<SearchableVec<EngineOption>>>,
+        model: gpui::Entity<SelectState<SearchableVec<ModelOption>>>,
+        effort: gpui::Entity<SelectState<SearchableVec<EffortOption>>>,
         metadata: impl Into<SharedString>,
     ) -> Self {
         Self {
             prompt,
             permission,
             engine,
+            model,
+            effort,
             permission_disabled: false,
             project_action: None,
             submit_action: None,
@@ -195,7 +201,19 @@ impl RenderOnce for HubComposer {
                                     Select::new(&self.engine)
                                         .small()
                                         .appearance(false)
-                                        .w(px(150.)),
+                                        .w(px(132.)),
+                                )
+                                .child(
+                                    Select::new(&self.model)
+                                        .small()
+                                        .appearance(false)
+                                        .w(px(220.)),
+                                )
+                                .child(
+                                    Select::new(&self.effort)
+                                        .small()
+                                        .appearance(false)
+                                        .w(px(138.)),
                                 )
                                 .children(self.submit_action),
                         ),

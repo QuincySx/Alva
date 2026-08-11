@@ -145,6 +145,22 @@ pub async fn run_persisted<F, B, H>(
     build_engine: B,
     health_veto: H,
     request: RunRequest,
+    emit: F,
+) -> Result<RunOutcome, String>
+where
+    F: FnMut(TimelineEvent) + Send,
+    B: Fn(&EngineTarget, &str, PermissionProfile) -> Result<Arc<dyn EngineRuntime>, String>,
+    H: Fn(&EngineTarget) -> Option<String>,
+{
+    run_persisted_with_target(store, build_engine, health_veto, request, None, emit).await
+}
+
+pub async fn run_persisted_with_target<F, B, H>(
+    store: &HubStore,
+    build_engine: B,
+    health_veto: H,
+    request: RunRequest,
+    initial_target: Option<EngineTarget>,
     mut emit: F,
 ) -> Result<RunOutcome, String>
 where
@@ -180,7 +196,18 @@ where
     } else {
         let workspace = canonical_workspace(&request.workspace)?;
         let product_session_id = ProductSessionId::new();
-        let target = EngineTarget::for_engine(&request.engine_id)?;
+        let target = if let Some(target) = initial_target {
+            EngineTarget::for_engine(&target.engine_id)?;
+            if target.engine_id != request.engine_id {
+                return Err(format!(
+                    "selected model route uses '{}' but the run requested '{}'",
+                    target.engine_id, request.engine_id
+                ));
+            }
+            target
+        } else {
+            EngineTarget::for_engine(&request.engine_id)?
+        };
         store.prepare_new_turn(
             product_session_id.as_str(),
             &workspace,

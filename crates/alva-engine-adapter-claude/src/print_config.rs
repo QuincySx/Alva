@@ -71,6 +71,8 @@ pub struct ClaudePrintConfig {
     pub claude_path: String,
     /// Optional `--model` override.
     pub model: Option<String>,
+    /// Optional `--effort` override (`low`, `medium`, `high`, `xhigh`, `max`).
+    pub effort: Option<String>,
     /// `--permission-mode` for non-interactive runs.
     pub permission_mode: ClaudePrintPermissionMode,
     /// Pass `--safe-mode` to disable workspace customizations while preserving
@@ -85,6 +87,7 @@ impl Default for ClaudePrintConfig {
         Self {
             claude_path: "claude".into(),
             model: None,
+            effort: None,
             permission_mode: ClaudePrintPermissionMode::DontAsk,
             safe_mode: true,
             default_cwd: None,

@@ -116,6 +116,7 @@ pub struct CatalogBaseAgentFactory {
     provider_registry: Option<Arc<alva_kernel_abi::ProviderRegistry>>,
     /// Component on/off map (empty → catalog defaults).
     toggles: ComponentToggles,
+    reasoning_effort: Option<alva_kernel_abi::ReasoningEffort>,
 }
 
 impl CatalogBaseAgentFactory {
@@ -131,6 +132,7 @@ impl CatalogBaseAgentFactory {
             max_iterations: 100,
             provider_registry: None,
             toggles: ComponentToggles::default(),
+            reasoning_effort: None,
         }
     }
 
@@ -151,6 +153,14 @@ impl CatalogBaseAgentFactory {
 
     pub fn with_toggles(mut self, toggles: ComponentToggles) -> Self {
         self.toggles = toggles;
+        self
+    }
+
+    pub fn with_reasoning_effort(
+        mut self,
+        effort: Option<alva_kernel_abi::ReasoningEffort>,
+    ) -> Self {
+        self.reasoning_effort = effort;
         self
     }
 }
@@ -206,6 +216,7 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
             &ctx,
         );
         let agent = builder.build(self.model.clone()).await?;
+        agent.set_reasoning_effort(self.reasoning_effort).await;
         Ok(BuiltAgent {
             agent,
             approval_rx: Some(approval_rx),

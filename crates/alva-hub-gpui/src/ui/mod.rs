@@ -5,7 +5,7 @@
 
 use gpui_component::tag::TagVariant;
 
-use alva_hub_gpui::{ReadinessStatus, TimelineStatus};
+use alva_hub_gpui::{ReadinessStatus, ReasoningEffort, TimelineStatus};
 
 /// "now-relative" label for a millisecond timestamp, matching the old
 /// React helper: "just now", "5m ago", "3h ago", "2d ago", else the date.
@@ -150,6 +150,48 @@ impl gpui_component::searchable_list::SearchableListItem for EngineOption {
 
     fn disabled(&self) -> bool {
         !self.enabled
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct ModelOption {
+    pub route_key: String,
+    pub label: String,
+    pub enabled: bool,
+}
+
+impl gpui_component::searchable_list::SearchableListItem for ModelOption {
+    type Value = String;
+
+    fn title(&self) -> gpui::SharedString {
+        self.label.clone().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.route_key
+    }
+
+    fn disabled(&self) -> bool {
+        !self.enabled
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct EffortOption {
+    pub effort: Option<ReasoningEffort>,
+    pub value: String,
+    pub label: String,
+}
+
+impl gpui_component::searchable_list::SearchableListItem for EffortOption {
+    type Value = String;
+
+    fn title(&self) -> gpui::SharedString {
+        self.label.clone().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
     }
 }
 

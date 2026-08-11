@@ -5,6 +5,7 @@
 mod alva;
 mod claims;
 mod failure;
+mod models;
 mod permissions;
 mod readiness;
 mod redact;
@@ -14,9 +15,13 @@ mod store;
 mod ui_projection;
 mod worktree;
 
-pub use alva::{build_engine, build_engine_bundle, EngineBuild};
+pub use alva::{build_engine, build_engine_bundle, build_engine_bundle_for_target, EngineBuild};
 pub use claims::{claims_conflict, conflicting_claims, parse_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
+pub use models::{
+    AgentRuntime, ApiProtocol, CustomModelProfile, CustomProviderProfile, ModelCapabilities,
+    ModelCatalog, ModelProfile, ModelRoute, ProviderAuth, ProviderProfile, ReasoningEffort,
+};
 pub use permissions::{
     enforcement_for, permission_eligibility, permission_group_key, EnforcementPlan,
     EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup, PermissionMember,
@@ -32,8 +37,8 @@ pub use repair::{
     repair_argv, repair_plan, run_repair_command, RepairAction, RepairKind, RepairOutcome,
 };
 pub use run::{
-    run_once, run_persisted, PermissionRequestInfo, RunOutcome, RunRequest, TimelineEvent,
-    TimelineStatus,
+    run_once, run_persisted, run_persisted_with_target, PermissionRequestInfo, RunOutcome,
+    RunRequest, TimelineEvent, TimelineStatus,
 };
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
