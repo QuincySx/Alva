@@ -36,6 +36,7 @@ impl HubApp {
             .flex_1()
             .size_full()
             .min_w_0()
+            .bg(cx.theme().colors.tiles)
             .child(self.topbar(window, cx))
             .child(if self.chat.is_empty() {
                 self.new_conversation(window, cx).into_any_element()
@@ -57,48 +58,42 @@ impl HubApp {
             .flex_1()
             .min_h_0()
             .overflow_y_scrollbar()
-            .px_6()
-            .py_6()
+            .px_5()
+            .py_5()
             .child(
                 v_flex()
                     .flex_1()
                     .w_full()
-                    .max_w(px(900.))
+                    .max_w(px(780.))
                     .mx_auto()
                     .justify_center()
-                    .gap_5()
+                    .gap_4()
                     .child(
-                        h_flex()
-                            .items_center()
-                            .gap_3()
+                        v_flex()
+                            .gap_1()
                             .child(
-                                Avatar::new()
-                                    .name("ALVA Hub")
-                                    .placeholder(IconName::Bot)
-                                    .large(),
+                                h_flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_3xl()
+                                            .font_weight(FontWeight(800.))
+                                            .child("ALVA"),
+                                    )
+                                    .child(Tag::secondary().small().rounded_full().child("HUB")),
                             )
                             .child(
-                                v_flex()
-                                    .gap_0p5()
-                                    .child(
-                                        div()
-                                            .text_2xl()
-                                            .font_weight(FontWeight(750.))
-                                            .child("ALVA Hub"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().colors.muted_foreground)
-                                            .child(format!(
-                                                "One conversation for every engine · {session_count} stored locally"
-                                            )),
-                                    ),
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(format!(
+                                        "One conversation. Every engine. · {session_count} stored locally"
+                                    )),
                             ),
                     )
                     .child(self.approval_area(cx))
                     .child(self.composer(window, cx))
-                    .child(self.composer_readiness_warning(cx))
                     .child(
                         div()
                             .text_sm()
@@ -533,7 +528,7 @@ impl HubApp {
             }
             _ => Alert::warning("composer-readiness", message),
         };
-        alert.small().mx_4().into_any_element()
+        alert.xsmall().mx_4().into_any_element()
     }
 
     fn composer(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -625,6 +620,8 @@ impl HubApp {
             metadata,
         )
         .permission_disabled(self.active_session_id.is_some())
+        .metadata_visible(self.active_session_id.is_some())
+        .inset(self.active_session_id.is_some())
         .project_action(project_action)
         .submit_action(submit_action)
     }
@@ -1325,7 +1322,7 @@ impl HubApp {
                     .description("Configure the Hub shell and session behavior.")
                     .groups(vec![
                         SettingGroup::new().title("Appearance").items(vec![
-                            static_setting("Theme", "Follow system"),
+                            static_setting("Theme", "Dark"),
                             static_setting("Interface font", "System UI · 14"),
                             static_setting("Code font", "Monospace · 14"),
                         ]),

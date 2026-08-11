@@ -58,7 +58,7 @@ impl HubApp {
             .to_string();
 
         Sidebar::new("hub-sidebar")
-            .w(px(248.))
+            .w(px(224.))
             .collapsible(SidebarCollapsible::None)
             .header(
                 div().w_full().child(

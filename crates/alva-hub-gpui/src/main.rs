@@ -9,7 +9,7 @@
 mod ui;
 
 use gpui::*;
-use gpui_component::{ActiveTheme, Root};
+use gpui_component::{ActiveTheme, Root, Theme, ThemeMode};
 use ui::workspace::HubWorkspace;
 
 fn main() {
@@ -28,6 +28,7 @@ fn main() {
                     ..WindowOptions::default()
                 };
                 cx.open_window(options, |window, cx| {
+                    Theme::change(ThemeMode::Dark, Some(window), cx);
                     let view = cx.new(|cx| HubWorkspace::new(window, cx));
                     cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().colors.background))
                 })

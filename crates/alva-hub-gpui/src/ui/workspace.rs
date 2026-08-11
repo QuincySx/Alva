@@ -13,7 +13,7 @@ use gpui_component::{
 use super::app::{HubApp, PrimarySurface};
 use super::components::HubToolPlaceholder;
 
-const DOCK_LAYOUT_VERSION: usize = 2;
+const DOCK_LAYOUT_VERSION: usize = 3;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum WorkspaceTool {
@@ -119,7 +119,7 @@ impl HubWorkspace {
         dock_area.update(cx, |dock, cx| {
             dock.set_version(DOCK_LAYOUT_VERSION, window, cx);
             dock.set_center(center, window, cx);
-            dock.set_left_dock(left, Some(px(248.)), true, window, cx);
+            dock.set_left_dock(left, Some(px(224.)), true, window, cx);
             dock.set_right_dock(right, Some(px(520.)), false, window, cx);
             dock.set_dock_collapsible(
                 gpui::Edges {

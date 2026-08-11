@@ -3,8 +3,8 @@
 // POS:    Chat-specific component layer composed entirely from gpui-component
 
 use gpui::{
-    div, px, AnyElement, App, FontWeight, IntoElement, ParentElement as _, RenderOnce,
-    SharedString, Styled, Window,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, FontWeight, IntoElement,
+    ParentElement as _, RenderOnce, SharedString, Styled, Window,
 };
 use gpui_component::{
     collapsible::Collapsible,
@@ -118,6 +118,8 @@ pub struct HubComposer {
     project_action: Option<AnyElement>,
     submit_action: Option<AnyElement>,
     metadata: SharedString,
+    metadata_visible: bool,
+    inset: bool,
 }
 
 impl HubComposer {
@@ -135,6 +137,8 @@ impl HubComposer {
             project_action: None,
             submit_action: None,
             metadata: metadata.into(),
+            metadata_visible: true,
+            inset: true,
         }
     }
 
@@ -152,14 +156,23 @@ impl HubComposer {
         self.submit_action = Some(action.into_any_element());
         self
     }
+
+    pub fn metadata_visible(mut self, visible: bool) -> Self {
+        self.metadata_visible = visible;
+        self
+    }
+
+    pub fn inset(mut self, inset: bool) -> Self {
+        self.inset = inset;
+        self
+    }
 }
 
 impl RenderOnce for HubComposer {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         v_flex()
             .gap_1()
-            .px_4()
-            .pb_3()
+            .when(self.inset, |this| this.px_4().pb_3())
             .child(
                 GroupBox::new().outline().child(
                     v_flex()
@@ -188,17 +201,19 @@ impl RenderOnce for HubComposer {
                         ),
                 ),
             )
-            .child(
-                div()
-                    .px_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(self.metadata),
-            )
+            .when(self.metadata_visible, |this| {
+                this.child(
+                    div()
+                        .px_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(self.metadata),
+                )
+            })
     }
 }
 
