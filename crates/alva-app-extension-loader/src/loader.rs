@@ -69,6 +69,8 @@ use crate::manifest::PluginManifest;
 use crate::proxy::{ProxyError, RemotePluginProxy};
 use crate::remote_tool::RemoteToolAdapter;
 
+pub const DISABLED_MARKER: &str = ".disabled";
+
 /// First-party `Plugin` that loads third-party subprocess plugins.
 pub struct SubprocessLoaderPlugin {
     state: Arc<LoaderState>,
@@ -319,6 +321,13 @@ async fn scan_one_dir(
     }
 
     for plugin_dir in plugin_dirs_in_dir(dir).await? {
+        if plugin_is_disabled(&plugin_dir) {
+            tracing::debug!(
+                path = %plugin_dir.display(),
+                "plugin is disabled, skipping"
+            );
+            continue;
+        }
         let manifest_path = plugin_dir.join("alva.toml");
         if !manifest_path.exists() {
             tracing::debug!(
@@ -385,6 +394,10 @@ async fn scan_one_dir(
     }
 
     Ok(())
+}
+
+fn plugin_is_disabled(plugin_dir: &Path) -> bool {
+    plugin_dir.join(DISABLED_MARKER).is_file()
 }
 
 async fn plugin_dirs_in_dir(dir: &Path) -> Result<Vec<PathBuf>, LoaderError> {
@@ -551,6 +564,14 @@ mod tests {
     //!    produces the named variant for `?` callers; a variant
     //!    rename would silently break match arms in scan/start paths.
     use super::*;
+
+    #[test]
+    fn disabled_marker_is_the_loader_gate() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!plugin_is_disabled(root.path()));
+        std::fs::write(root.path().join(DISABLED_MARKER), b"").unwrap();
+        assert!(plugin_is_disabled(root.path()));
+    }
 
     #[test]
     fn aep_to_core_event_type_maps_each_wire_name_per_table() {
