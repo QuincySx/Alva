@@ -1,6 +1,6 @@
 # 02 — Make Chat the Runtime Surface
 
-**Status:** planned
+**Status:** implemented
 
 ## Deliverable
 

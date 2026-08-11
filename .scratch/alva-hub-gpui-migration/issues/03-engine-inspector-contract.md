@@ -1,6 +1,6 @@
 # 03 — Add the Engine Inspector Contract
 
-**Status:** planned
+**Status:** implemented
 
 ## Deliverable
 

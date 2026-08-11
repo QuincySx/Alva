@@ -1,6 +1,6 @@
 # 01 — Build the Native Dock Shell
 
-**Status:** planned
+**Status:** completed; packaged visual acceptance passed 2026-08-11
 
 ## Deliverable
 

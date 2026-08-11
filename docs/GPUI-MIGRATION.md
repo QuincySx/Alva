@@ -61,17 +61,23 @@ Already present:
   permission handling, fallback, readiness, TeamRun, and worktree behavior;
 - a release `.app` assembly path.
 
-Not yet the target product:
+Implemented in the target product:
 
-- the shell is still a fixed sidebar plus dashboard-like main column;
-- there is no `DockArea`/`PanelView` tool workspace;
-- persisted and live events are not projected as a continuous chat transcript;
-- the composer is still a thin command form rather than the primary interaction
-  surface;
-- Inspector is not available in Hub;
-- Agent and Inspector are not separate right-side tools;
-- current documentation still contains obsolete claims about a second
-  `alva-app-gpui` migration and Tauri 1:1 visual parity.
+- a gpui-component `DockArea` with left navigation, central chat, and a
+  resizable right Tool Workspace;
+- continuous persisted chat projection plus live assistant deltas, tool
+  activity, approvals, and terminal outcomes;
+- a separate typed `EngineInspector` contract and Alva-native SQLite record
+  repository with atomic batches, redaction, compressed blobs, and live tail;
+- historical and recursive child-session Inspector navigation, raw records,
+  JSONL Bundle export, and a global visibility experiment switch;
+- distinct Inspector, Agent, Git, and Terminal tool tabs while existing Hub
+  operational Sheets remain reachable.
+
+The packaged visual and cold-start acceptance passed on 2026-08-11. The only
+remaining migration gates are the full repository verification and explicit
+deletion confirmations. Git and Terminal currently provide their Dock
+identities but are not expanded into full developer tools by this migration.
 
 The old Tauri directories mostly contain tracked generated build artifacts in
 the current checkout. Their meaningful source baselines remain available from

@@ -1,6 +1,6 @@
 # 06 — Preserve Existing Hub Capabilities
 
-**Status:** planned
+**Status:** completed; packaged cold-start smoke passed 2026-08-11
 
 ## Deliverable
 

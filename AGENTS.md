@@ -167,7 +167,7 @@ target:  complete Desktop V1 (fallback + branches + Orca collaboration)
 | crate | 职责 |
 |------|------|
 | `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
-| `alva-engine-adapter-alva` | Hub 的 Alva adapter：每个 engine session 由 `BaseAgentFactory` 构造独立的完整 `BaseAgent`，保留 harness 语义。 |
+| `alva-engine-adapter-alva` | Hub 的 Alva adapter：每个 engine session 由 `BaseAgentFactory` 构造独立的完整 `BaseAgent`；`SessionRepository` 持久化 typed records，`EngineInspector` 提供历史、实时和递归子会话检查。 |
 | `alva-hub-cli` | Hub 命令行验证、诊断与自动化入口：支持 one-shot / REPL、私有 session journal、显式 Alva / Claude / Codex 选择、resume、手动切换与 handoff；与原生 `alva-app-cli` 保持独立。 |
 | `alva-hub-desktop` | **正在实现的 V1 主产品**：独立 Tauri 2 + React/Vite/TypeScript L7 入口；ticket 01–04 已打通用户显式 Alva/Claude/Codex 选择、可逆多 EngineBranch、完整 HandoffPackage、运行中安全排队切换，并用私有 SQLite 持久化 HubSession/Branch/Switch/Timeline/Turn/Attempt 与崩溃恢复；尚未实现自动 fallback、delta handoff 与 Cindy Orca Lead/Worker；不得改写 `alva-app-tauri`。 |
 

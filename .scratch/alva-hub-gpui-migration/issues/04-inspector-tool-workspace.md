@@ -1,6 +1,6 @@
 # 04 — Build the Inspector Tool Workspace
 
-**Status:** planned
+**Status:** completed; packaged visual acceptance passed 2026-08-11
 
 ## Deliverable
 
