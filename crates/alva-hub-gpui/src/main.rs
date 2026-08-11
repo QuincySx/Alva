@@ -10,7 +10,7 @@ mod ui;
 
 use gpui::*;
 use gpui_component::{ActiveTheme, Root};
-use ui::app::HubApp;
+use ui::workspace::HubWorkspace;
 
 fn main() {
     gpui_platform::application()
@@ -28,7 +28,7 @@ fn main() {
                     ..WindowOptions::default()
                 };
                 cx.open_window(options, |window, cx| {
-                    let view = cx.new(|cx| HubApp::new(window, cx));
+                    let view = cx.new(|cx| HubWorkspace::new(window, cx));
                     cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().colors.background))
                 })
                 .expect("Failed to open window");

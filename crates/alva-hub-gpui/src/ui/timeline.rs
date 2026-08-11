@@ -14,9 +14,12 @@ use gpui_component::{
     ActiveTheme, *,
 };
 
-use alva_hub_gpui::{EngineTarget, FallbackControls, HandoffKind, ProjectedEvent, TimelineStatus};
+use alva_hub_gpui::{
+    ChatItemKind, EngineTarget, FallbackControls, HandoffKind, ProjectedChatItem, ProjectedEvent,
+    TimelineStatus,
+};
 
-use super::app::{status_color, HubApp};
+use super::app::{status_color, with_window, HubApp};
 
 impl HubApp {
     pub fn main_column(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -25,14 +28,14 @@ impl HubApp {
             .size_full()
             .min_w_0()
             .child(self.topbar(window, cx))
-            .child(self.timeline_area(cx))
+            .child(self.chat_area(cx))
             .child(self.composer_readiness_warning(cx))
             .child(self.approval_area(cx))
             .child(self.composer(window, cx))
     }
 
-    fn timeline_area(&self, cx: &Context<Self>) -> impl IntoElement {
-        let empty = self.timeline.is_empty();
+    fn chat_area(&self, cx: &Context<Self>) -> impl IntoElement {
+        let empty = self.chat.is_empty();
         let session_count = self.sessions.len();
         div()
             .flex_1()
@@ -45,7 +48,7 @@ impl HubApp {
             .child(if empty {
                 self.empty_state(session_count, cx).into_any_element()
             } else {
-                self.timeline_cards(cx).into_any_element()
+                self.chat_rows(cx).into_any_element()
             })
     }
 
@@ -79,14 +82,94 @@ impl HubApp {
             )
     }
 
-    fn timeline_cards(&self, cx: &Context<Self>) -> impl IntoElement {
+    fn chat_rows(&self, cx: &Context<Self>) -> impl IntoElement {
         let cards: Vec<gpui::AnyElement> = self
-            .timeline
+            .chat
             .iter()
             .enumerate()
-            .map(|(i, event)| self.timeline_card(i, event, cx).into_any_element())
+            .map(|(index, item)| self.chat_row(index, item, cx).into_any_element())
             .collect();
-        div().v_flex().gap_2().children(cards)
+        v_flex()
+            .w_full()
+            .max_w(px(860.))
+            .mx_auto()
+            .gap_4()
+            .py_3()
+            .children(cards)
+    }
+
+    fn chat_row(
+        &self,
+        index: usize,
+        item: &ProjectedChatItem,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        match item.kind {
+            ChatItemKind::User => h_flex()
+                .w_full()
+                .justify_end()
+                .child(
+                    div()
+                        .id(SharedString::from(format!("chat-user-{index}")))
+                        .max_w(relative(0.78))
+                        .px_4()
+                        .py_3()
+                        .rounded_xl()
+                        .bg(cx.theme().colors.accent)
+                        .text_color(cx.theme().colors.accent_foreground)
+                        .child(item.message.clone()),
+                )
+                .into_any_element(),
+            ChatItemKind::Assistant => {
+                let status = item.status.as_ref().unwrap_or(&TimelineStatus::Completed);
+                let (status_label, _) = status_color(status, cx);
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .gap_3()
+                    .child(Avatar::new().name(item.engine_id.clone()))
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .flex_1()
+                            .gap_2()
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(div().text_sm().font_weight(FontWeight(600.)).child(
+                                        if item.engine_id.is_empty() {
+                                            "Assistant".to_string()
+                                        } else {
+                                            item.engine_id.clone()
+                                        },
+                                    ))
+                                    .child(
+                                        Tag::new()
+                                            .with_variant(super::timeline_tag_variant(status))
+                                            .small()
+                                            .rounded_full()
+                                            .child(status_label),
+                                    ),
+                            )
+                            .child(div().text_sm().child(item.message.clone())),
+                    )
+                    .into_any_element()
+            }
+            ChatItemKind::Activity => {
+                let event = item
+                    .timeline_index
+                    .and_then(|timeline_index| self.timeline.get(timeline_index));
+                event
+                    .map(|event| self.timeline_card(index, event, cx).into_any_element())
+                    .unwrap_or_else(|| {
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(item.message.clone())
+                            .into_any_element()
+                    })
+            }
+        }
     }
 
     fn timeline_card(
@@ -109,10 +192,10 @@ impl HubApp {
             .gap_1()
             .px_3()
             .py_2()
-            .rounded_md()
-            .bg(cx.theme().colors.background)
+            .rounded_lg()
+            .bg(cx.theme().colors.muted)
             .border_1()
-            .border_color(color)
+            .border_color(cx.theme().colors.border)
             .child(
                 h_flex()
                     .gap_2()
@@ -128,7 +211,9 @@ impl HubApp {
                             .small()
                             .rounded_full()
                             .child(status),
-                    ),
+                    )
+                    .child(div().flex_1())
+                    .child(div().size_2().rounded_full().bg(color)),
             )
             .child(div().text_sm().child(message));
         if event.status == TimelineStatus::Interrupted {
@@ -257,12 +342,9 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak2.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.select_engine(&source2, window, cx);
-                                            });
-                                        }
+                                    let source2 = source2.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.select_engine(&source2, window, cx);
                                     });
                                 }
                             }),
@@ -280,12 +362,9 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak3.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.toggle_handoff(index, &pid2, window, cx);
-                                            });
-                                        }
+                                    let pid2 = pid2.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.toggle_handoff(index, &pid2, window, cx);
                                     });
                                 }
                             }),
@@ -444,12 +523,8 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, move |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.run(window, cx);
-                                            });
-                                        }
+                                    with_window(app, handle, |hub, window, cx| {
+                                        hub.run(window, cx);
                                     });
                                 }
                             }),

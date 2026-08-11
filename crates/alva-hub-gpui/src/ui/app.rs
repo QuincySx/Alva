@@ -27,8 +27,9 @@ use alva_hub_gpui::{
     TimelineStatus,
 };
 
+use super::workspace::HubWorkspace;
 use super::{profile_label, EngineOption, WorkerOption};
-use alva_hub_gpui::{project_timeline, ProjectedEvent};
+use alva_hub_gpui::{project_chat, project_timeline, ProjectedChatItem, ProjectedEvent};
 
 const ENGINE_OPTIONS: [&str; 3] = ["alva", "claude", "codex"];
 const PROFILE_OPTIONS: [&str; 3] = ["interactive", "workspace_write", "unrestricted"];
@@ -48,6 +49,7 @@ pub struct HubApp {
     pub permission: Entity<SelectState<SearchableVec<&'static str>>>,
     pub prompt: Entity<InputState>,
     pub timeline: Vec<ProjectedEvent>,
+    pub chat: Vec<ProjectedChatItem>,
     /// Timeline index → handoff card expanded (keyed by index like React).
     pub open_handoffs: HashMap<usize, bool>,
     // Sessions surface.
@@ -110,7 +112,10 @@ where
     F: FnOnce(&mut HubApp, &mut Window, &mut Context<HubApp>) + 'static,
 {
     let _ = handle.update(cx, |root, window, cx| {
-        if let Ok(view) = root.downcast::<HubApp>() {
+        if let Ok(workspace) = root.clone().downcast::<HubWorkspace>() {
+            let hub = workspace.read(cx).hub();
+            hub.update(cx, |hub, cx| f(hub, window, cx));
+        } else if let Ok(view) = root.downcast::<HubApp>() {
             view.update(cx, |hub, cx| f(hub, window, cx));
         }
     });
@@ -144,6 +149,7 @@ impl HubApp {
             window_handle: window.window_handle(),
             workspace: None,
             timeline: Vec::new(),
+            chat: Vec::new(),
             open_handoffs: HashMap::new(),
             sessions,
             session_query: cx
@@ -338,6 +344,7 @@ impl HubApp {
         self.session_detail = None;
         self.team_run = None;
         self.timeline.clear();
+        self.chat.clear();
         self.open_handoffs.clear();
         self.pending_engine = None;
         self.transcript_sharing = false;
@@ -506,6 +513,7 @@ impl HubApp {
         self.transcript_sharing = detail.session.include_full_transcript;
         self.fallback_policy = detail.fallback_policy.clone();
         self.timeline = project_timeline(&detail);
+        self.chat = project_chat(&detail);
         self.session_detail = Some(detail);
         self.open_handoffs.clear();
         self.set_selected_engine(
@@ -552,6 +560,8 @@ impl HubApp {
         let handle = self.window_handle;
         let history_dir = store.path().parent().map(PathBuf::from);
         self.busy = true;
+        self.chat
+            .push(ProjectedChatItem::user(prompt.clone(), None));
         self.prompt
             .update(cx, |state, cx| state.set_value("", window, cx));
         cx.notify();
@@ -602,12 +612,13 @@ impl HubApp {
             }
             if let Some(hub) = weak.upgrade() {
                 hub.update(cx, |hub, cx| {
-                    hub.timeline.extend(
-                        events
-                            .into_iter()
-                            .map(ProjectedEvent::from_live)
-                            .collect::<Vec<_>>(),
-                    );
+                    for event in events {
+                        let event = ProjectedEvent::from_live(event);
+                        let timeline_index = hub.timeline.len();
+                        hub.chat
+                            .push(ProjectedChatItem::from_live(&event, timeline_index));
+                        hub.timeline.push(event);
+                    }
                     hub.busy = false;
                     if let Some(pid) = outcome_session {
                         hub.active_session_id = Some(pid.clone());
@@ -622,6 +633,7 @@ impl HubApp {
                             hub.transcript_sharing = detail.session.include_full_transcript;
                             hub.fallback_policy = detail.fallback_policy.clone();
                             hub.timeline = project_timeline(&detail);
+                            hub.chat = project_chat(&detail);
                             hub.open_handoffs.clear();
                         }
                     }
@@ -768,6 +780,11 @@ impl HubApp {
             created_at: None,
             fallback: None,
         });
+        let timeline_index = self.timeline.len() - 1;
+        self.chat.push(ProjectedChatItem::from_live(
+            &self.timeline[timeline_index],
+            timeline_index,
+        ));
         cx.notify();
     }
 }

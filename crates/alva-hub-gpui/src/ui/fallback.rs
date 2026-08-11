@@ -14,7 +14,7 @@ use gpui_component::{
 
 use alva_hub_gpui::EngineTarget;
 
-use super::app::HubApp;
+use super::app::{with_window, HubApp};
 
 const ENGINE_IDS: [&str; 3] = ["alva", "claude", "codex"];
 
@@ -87,12 +87,8 @@ impl HubApp {
                     .on_click(move |_, window, app| {
                         if weak2.upgrade().is_some() {
                             let handle = window.window_handle();
-                            let _ = handle.update(app, |root, window, cx| {
-                                if let Ok(view) = root.downcast::<HubApp>() {
-                                    view.update(cx, |hub, cx| {
-                                        hub.save_fallback_policy(window, cx);
-                                    });
-                                }
+                            with_window(app, handle, |hub, window, cx| {
+                                hub.save_fallback_policy(window, cx);
                             });
                         }
                     }),
@@ -176,12 +172,8 @@ impl HubApp {
                     .on_click(move |_, window, app| {
                         if weak.upgrade().is_some() {
                             let handle = window.window_handle();
-                            let _ = handle.update(app, |root, window, cx| {
-                                if let Ok(view) = root.downcast::<HubApp>() {
-                                    view.update(cx, |hub, cx| {
-                                        hub.toggle_fallback_target(engine_id, window, cx);
-                                    });
-                                }
+                            with_window(app, handle, move |hub, window, cx| {
+                                hub.toggle_fallback_target(engine_id, window, cx);
                             });
                         }
                     })
@@ -240,18 +232,15 @@ impl HubApp {
                                             move |_, window, app| {
                                                 if weak_row.upgrade().is_some() {
                                                     let handle = window.window_handle();
-                                                    let _ =
-                                                        handle.update(app, |root, window, cx| {
-                                                            if let Ok(view) =
-                                                                root.downcast::<HubApp>()
-                                                            {
-                                                                view.update(cx, |hub, cx| {
-                                                                    hub.move_fallback_target(
-                                                                        index, -1, window, cx,
-                                                                    );
-                                                                });
-                                                            }
-                                                        });
+                                                    with_window(
+                                                        app,
+                                                        handle,
+                                                        move |hub, window, cx| {
+                                                            hub.move_fallback_target(
+                                                                index, -1, window, cx,
+                                                            );
+                                                        },
+                                                    );
                                                 }
                                             },
                                         ),
@@ -269,18 +258,15 @@ impl HubApp {
                                             move |_, window, app| {
                                                 if weak_row2.upgrade().is_some() {
                                                     let handle = window.window_handle();
-                                                    let _ =
-                                                        handle.update(app, |root, window, cx| {
-                                                            if let Ok(view) =
-                                                                root.downcast::<HubApp>()
-                                                            {
-                                                                view.update(cx, |hub, cx| {
-                                                                    hub.move_fallback_target(
-                                                                        index, 1, window, cx,
-                                                                    );
-                                                                });
-                                                            }
-                                                        });
+                                                    with_window(
+                                                        app,
+                                                        handle,
+                                                        move |hub, window, cx| {
+                                                            hub.move_fallback_target(
+                                                                index, 1, window, cx,
+                                                            );
+                                                        },
+                                                    );
                                                 }
                                             },
                                         ),
@@ -316,14 +302,9 @@ impl HubApp {
                             .on_click(move |checked, window, app| {
                                 if weak.clone().upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.update_fallback_target(
-                                                    index, *checked, window, cx,
-                                                );
-                                            });
-                                        }
+                                    let checked = *checked;
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.update_fallback_target(index, checked, window, cx);
                                     });
                                 }
                             }),

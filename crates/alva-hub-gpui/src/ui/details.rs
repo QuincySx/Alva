@@ -13,7 +13,7 @@ use gpui_component::{
 
 use alva_hub_gpui::HandoffKind;
 
-use super::app::HubApp;
+use super::app::{with_window, HubApp};
 use super::readiness_badge;
 
 impl HubApp {
@@ -110,12 +110,8 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.add_memory(window, cx);
-                                            });
-                                        }
+                                    with_window(app, handle, |hub, window, cx| {
+                                        hub.add_memory(window, cx);
                                     });
                                 }
                             }),
@@ -372,19 +368,16 @@ impl HubApp {
                                 .on_click(move |_, window, app| {
                                     if weak.upgrade().is_some() {
                                         let handle = window.window_handle();
-                                        let _ = handle.update(app, |root, _window, cx| {
-                                            if let Ok(view) = root.downcast::<HubApp>() {
-                                                view.update(cx, |hub, cx| {
-                                                    let open = hub
-                                                        .open_drawer_handoffs
-                                                        .get(&handoff_id_button)
-                                                        .copied()
-                                                        .unwrap_or(false);
-                                                    hub.open_drawer_handoffs
-                                                        .insert(handoff_id_button.clone(), !open);
-                                                    cx.notify();
-                                                });
-                                            }
+                                        let handoff_id_button = handoff_id_button.clone();
+                                        with_window(app, handle, move |hub, _, cx| {
+                                            let open = hub
+                                                .open_drawer_handoffs
+                                                .get(&handoff_id_button)
+                                                .copied()
+                                                .unwrap_or(false);
+                                            hub.open_drawer_handoffs
+                                                .insert(handoff_id_button.clone(), !open);
+                                            cx.notify();
                                         });
                                     }
                                 }),

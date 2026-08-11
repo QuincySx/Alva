@@ -41,7 +41,10 @@ pub use store::{
     StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim, TeamRunDetail,
     TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };
-pub use ui_projection::{project_timeline, FallbackControls, ProjectedEvent};
+pub use ui_projection::{
+    project_chat, project_timeline, ChatItemKind, FallbackControls, ProjectedChatItem,
+    ProjectedEvent,
+};
 pub use worktree::{
     adopt_into_workspace, adoption_preview, create_worker_worktree, discard_worktree,
     supports_isolation, worktree_changes, worktree_root, AdoptionPreview, WorktreeChange,

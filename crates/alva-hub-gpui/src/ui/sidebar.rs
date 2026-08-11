@@ -19,7 +19,7 @@ use gpui_component::{
 
 use alva_hub_gpui::HubSessionSummary;
 
-use super::app::HubApp;
+use super::app::{with_window, HubApp};
 use super::format_relative_time;
 
 impl HubApp {
@@ -233,21 +233,15 @@ impl HubApp {
                                 if let Ok(Ok(Some(paths))) = pick.await {
                                     if let Some(path) = paths.first() {
                                         let path = path.display().to_string();
-                                        let _ = handle.update(&mut cx, move |root, window, cx| {
-                                            if let Ok(view) = root.downcast::<HubApp>() {
-                                                view.update(cx, |hub, cx| {
-                                                    hub.workspace = Some(path.clone());
-                                                    hub.reset_session_surface(window, cx);
-                                                    if let Ok(policy) =
-                                                        hub.store.global_fallback_policy()
-                                                    {
-                                                        hub.fallback_policy = policy;
-                                                    }
-                                                    hub.sync_policy_inputs(window, cx);
-                                                    hub.refresh_readiness(cx);
-                                                    cx.notify();
-                                                });
+                                        with_window(&mut cx, handle, move |hub, window, cx| {
+                                            hub.workspace = Some(path.clone());
+                                            hub.reset_session_surface(window, cx);
+                                            if let Ok(policy) = hub.store.global_fallback_policy() {
+                                                hub.fallback_policy = policy;
                                             }
+                                            hub.sync_policy_inputs(window, cx);
+                                            hub.refresh_readiness(cx);
+                                            cx.notify();
                                         });
                                     }
                                 }
@@ -324,13 +318,10 @@ fn session_menu_item(session: &HubSessionSummary, active_id: &Option<String>) ->
         })
         .on_click(move |_, window, cx| {
             let handle = window.window_handle();
-            let _ = handle.update(cx, |root, window, cx| {
-                if let Ok(view) = root.downcast::<HubApp>() {
-                    view.update(cx, |hub, cx| {
-                        let _ = hub.load_session(&pid, window, cx);
-                        cx.notify();
-                    });
-                }
+            let pid = pid.clone();
+            with_window(cx, handle, move |hub, window, cx| {
+                let _ = hub.load_session(&pid, window, cx);
+                cx.notify();
             });
         })
 }

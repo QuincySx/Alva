@@ -180,6 +180,7 @@ pub mod team;
 pub mod team_actions;
 pub mod timeline;
 pub mod topbar;
+pub mod workspace;
 
 #[cfg(test)]
 mod tests {

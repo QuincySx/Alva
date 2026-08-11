@@ -18,7 +18,7 @@ use gpui_component::{
 
 use alva_hub_gpui::{TeamRunDetail, TeamWorker, WorkerLifecycle, WorkerTask};
 
-use super::app::HubApp;
+use super::app::{with_window, HubApp};
 
 impl HubApp {
     pub fn team_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -115,12 +115,8 @@ impl HubApp {
                     .on_click(move |_, window, app| {
                         if weak.upgrade().is_some() {
                             let handle = window.window_handle();
-                            let _ = handle.update(app, |root, window, cx| {
-                                if let Ok(view) = root.downcast::<HubApp>() {
-                                    view.update(cx, |hub, cx| {
-                                        hub.create_team(window, cx);
-                                    });
-                                }
+                            with_window(app, handle, |hub, window, cx| {
+                                hub.create_team(window, cx);
                             });
                         }
                     }),
@@ -253,17 +249,11 @@ impl HubApp {
                                     .on_click(move |_, window, app| {
                                         if weak_focus.upgrade().is_some() {
                                             let handle = window.window_handle();
-                                            let _ = handle.update(app, |root, window, cx| {
-                                                if let Ok(view) = root.downcast::<HubApp>() {
-                                                    view.update(cx, |hub, cx| {
-                                                        let _ = hub.load_session(
-                                                            &session_id_focus,
-                                                            window,
-                                                            cx,
-                                                        );
-                                                        cx.notify();
-                                                    });
-                                                }
+                                            let session_id_focus = session_id_focus.clone();
+                                            with_window(app, handle, move |hub, window, cx| {
+                                                let _ =
+                                                    hub.load_session(&session_id_focus, window, cx);
+                                                cx.notify();
                                             });
                                         }
                                     }),
@@ -279,16 +269,13 @@ impl HubApp {
                                     .on_click(move |_, window, app| {
                                         if weak_interrupt.upgrade().is_some() {
                                             let handle = window.window_handle();
-                                            let _ = handle.update(app, |root, window, cx| {
-                                                if let Ok(view) = root.downcast::<HubApp>() {
-                                                    view.update(cx, |hub, cx| {
-                                                        hub.interrupt_worker(
-                                                            &session_id_interrupt,
-                                                            window,
-                                                            cx,
-                                                        );
-                                                    });
-                                                }
+                                            let session_id_interrupt = session_id_interrupt.clone();
+                                            with_window(app, handle, move |hub, window, cx| {
+                                                hub.interrupt_worker(
+                                                    &session_id_interrupt,
+                                                    window,
+                                                    cx,
+                                                );
                                             });
                                         }
                                     }),
@@ -305,17 +292,15 @@ impl HubApp {
                                         move |_, window, app| {
                                             if weak_hibernate.upgrade().is_some() {
                                                 let handle = window.window_handle();
-                                                let _ = handle.update(app, |root, window, cx| {
-                                                    if let Ok(view) = root.downcast::<HubApp>() {
-                                                        view.update(cx, |hub, cx| {
-                                                            hub.change_worker_lifecycle(
-                                                                &worker_id_hibernate,
-                                                                WorkerLifecycle::Hibernated,
-                                                                window,
-                                                                cx,
-                                                            );
-                                                        });
-                                                    }
+                                                let worker_id_hibernate =
+                                                    worker_id_hibernate.clone();
+                                                with_window(app, handle, move |hub, window, cx| {
+                                                    hub.change_worker_lifecycle(
+                                                        &worker_id_hibernate,
+                                                        WorkerLifecycle::Hibernated,
+                                                        window,
+                                                        cx,
+                                                    );
                                                 });
                                             }
                                         },
@@ -329,17 +314,14 @@ impl HubApp {
                                         .on_click(move |_, window, app| {
                                             if weak_archive.upgrade().is_some() {
                                                 let handle = window.window_handle();
-                                                let _ = handle.update(app, |root, window, cx| {
-                                                    if let Ok(view) = root.downcast::<HubApp>() {
-                                                        view.update(cx, |hub, cx| {
-                                                            hub.change_worker_lifecycle(
-                                                                &worker_id_archive,
-                                                                WorkerLifecycle::Archived,
-                                                                window,
-                                                                cx,
-                                                            );
-                                                        });
-                                                    }
+                                                let worker_id_archive = worker_id_archive.clone();
+                                                with_window(app, handle, move |hub, window, cx| {
+                                                    hub.change_worker_lifecycle(
+                                                        &worker_id_archive,
+                                                        WorkerLifecycle::Archived,
+                                                        window,
+                                                        cx,
+                                                    );
                                                 });
                                             }
                                         }),
@@ -354,17 +336,14 @@ impl HubApp {
                                         .on_click(move |_, window, app| {
                                             if weak_restore.upgrade().is_some() {
                                                 let handle = window.window_handle();
-                                                let _ = handle.update(app, |root, window, cx| {
-                                                    if let Ok(view) = root.downcast::<HubApp>() {
-                                                        view.update(cx, |hub, cx| {
-                                                            hub.change_worker_lifecycle(
-                                                                &worker_id_restore,
-                                                                WorkerLifecycle::Active,
-                                                                window,
-                                                                cx,
-                                                            );
-                                                        });
-                                                    }
+                                                let worker_id_restore = worker_id_restore.clone();
+                                                with_window(app, handle, move |hub, window, cx| {
+                                                    hub.change_worker_lifecycle(
+                                                        &worker_id_restore,
+                                                        WorkerLifecycle::Active,
+                                                        window,
+                                                        cx,
+                                                    );
                                                 });
                                             }
                                         }),
@@ -394,12 +373,9 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak_review.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.review_adoption(&worker_id_review, window, cx);
-                                            });
-                                        }
+                                    let worker_id_review = worker_id_review.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.review_adoption(&worker_id_review, window, cx);
                                     });
                                 }
                             }),
@@ -413,12 +389,9 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak_adopt.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.confirm_adoption(&worker_id_adopt, window, cx);
-                                            });
-                                        }
+                                    let worker_id_adopt = worker_id_adopt.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.confirm_adoption(&worker_id_adopt, window, cx);
                                     });
                                 }
                             }),
@@ -431,16 +404,9 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak_discard.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.discard_isolated_work(
-                                                    &worker_id_discard,
-                                                    window,
-                                                    cx,
-                                                );
-                                            });
-                                        }
+                                    let worker_id_discard = worker_id_discard.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.discard_isolated_work(&worker_id_discard, window, cx);
                                     });
                                 }
                             }),
@@ -584,12 +550,9 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak_save.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.save_task_edit(&task_id_save, window, cx);
-                                            });
-                                        }
+                                    let task_id_save = task_id_save.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.save_task_edit(&task_id_save, window, cx);
                                     });
                                 }
                             })
@@ -602,17 +565,10 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak_edit.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.start_edit_task(
-                                                    &task_id_edit,
-                                                    &scope_edit,
-                                                    window,
-                                                    cx,
-                                                );
-                                            });
-                                        }
+                                    let task_id_edit = task_id_edit.clone();
+                                    let scope_edit = scope_edit.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.start_edit_task(&task_id_edit, &scope_edit, window, cx);
                                     });
                                 }
                             })
@@ -626,12 +582,9 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak_cancel.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.cancel_task(&task_id_cancel, window, cx);
-                                            });
-                                        }
+                                    let task_id_cancel = task_id_cancel.clone();
+                                    with_window(app, handle, move |hub, window, cx| {
+                                        hub.cancel_task(&task_id_cancel, window, cx);
                                     });
                                 }
                             }),
@@ -665,12 +618,8 @@ impl HubApp {
                     .on_click(move |_, window, app| {
                         if weak.upgrade().is_some() {
                             let handle = window.window_handle();
-                            let _ = handle.update(app, |root, window, cx| {
-                                if let Ok(view) = root.downcast::<HubApp>() {
-                                    view.update(cx, |hub, cx| {
-                                        hub.dispatch_task(window, cx);
-                                    });
-                                }
+                            with_window(app, handle, |hub, window, cx| {
+                                hub.dispatch_task(window, cx);
                             });
                         }
                     }),
@@ -714,12 +663,8 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak2.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.add_worker(window, cx);
-                                            });
-                                        }
+                                    with_window(app, handle, |hub, window, cx| {
+                                        hub.add_worker(window, cx);
                                     });
                                 }
                             }),
@@ -733,12 +678,8 @@ impl HubApp {
                             .on_click(move |_, window, app| {
                                 if weak3.upgrade().is_some() {
                                     let handle = window.window_handle();
-                                    let _ = handle.update(app, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<HubApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.end_team_run(window, cx);
-                                            });
-                                        }
+                                    with_window(app, handle, |hub, window, cx| {
+                                        hub.end_team_run(window, cx);
                                     });
                                 }
                             }),
@@ -751,12 +692,9 @@ impl HubApp {
                     .on_click(move |checked, window, app| {
                         if weak4.upgrade().is_some() {
                             let handle = window.window_handle();
-                            let _ = handle.update(app, |root, window, cx| {
-                                if let Ok(view) = root.downcast::<HubApp>() {
-                                    view.update(cx, |hub, cx| {
-                                        hub.toggle_autonomy(*checked, window, cx);
-                                    });
-                                }
+                            let checked = *checked;
+                            with_window(app, handle, move |hub, window, cx| {
+                                hub.toggle_autonomy(checked, window, cx);
                             });
                         }
                     }),
