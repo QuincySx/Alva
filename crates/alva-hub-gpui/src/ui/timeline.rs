@@ -6,11 +6,12 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
+    avatar::Avatar,
     button::{Button, ButtonVariants as _},
     input::Input,
     scroll::ScrollableElement,
     tag::Tag,
-    ActiveTheme, Icon, IconName, *,
+    ActiveTheme, *,
 };
 
 use alva_hub_gpui::{EngineTarget, FallbackControls, HandoffKind, ProjectedEvent, TimelineStatus};
@@ -53,20 +54,8 @@ impl HubApp {
             .flex_1()
             .items_center()
             .justify_center()
-            .gap_2()
-            .child(
-                div()
-                    .size_10()
-                    .rounded_lg()
-                    .bg(cx.theme().colors.button)
-                    .v_flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        Icon::new(IconName::ArrowRight)
-                            .text_color(cx.theme().colors.muted_foreground),
-                    ),
-            )
+            .gap_3()
+            .child(Avatar::new().name("ALVA Hub").large())
             .child(
                 div()
                     .text_lg()
@@ -75,10 +64,18 @@ impl HubApp {
             )
             .child(
                 div()
+                    .max_w(px(480.))
+                    .text_center()
                     .text_color(cx.theme().colors.muted_foreground)
                     .child(format!(
                         "{session_count} persisted sessions · Hub keeps each engine branch in private local storage."
                     )),
+            )
+            .child(
+                Tag::secondary()
+                    .small()
+                    .rounded_full()
+                    .child("Alva · Claude · Codex"),
             )
     }
 

@@ -799,12 +799,19 @@ impl ChatApp {
                     .flex_1()
                     .items_center()
                     .justify_center()
-                    .gap_2()
+                    .gap_3()
+                    .child(Avatar::new().name("ALVA").large())
                     .child(div().text_lg().font_weight(FontWeight(700.)).child("ALVA"))
                     .child(
                         div()
                             .text_color(cx.theme().colors.muted_foreground)
                             .child("A helpful coding assistant, running natively."),
+                    )
+                    .child(
+                        Tag::secondary()
+                            .small()
+                            .rounded_full()
+                            .child("Native · Local-first"),
                     )
                     .into_any_element()]
             } else {
@@ -936,6 +943,7 @@ impl ChatApp {
                     .items_center()
                     .child(
                         v_flex()
+                            .w(px(140.))
                             .gap_1()
                             .child(
                                 div()
@@ -943,10 +951,11 @@ impl ChatApp {
                                     .text_color(cx.theme().colors.muted_foreground)
                                     .child("Provider"),
                             )
-                            .child(Select::new(&self.provider).small()),
+                            .child(Select::new(&self.provider).small().w_full()),
                     )
                     .child(
                         v_flex()
+                            .w(px(170.))
                             .gap_1()
                             .child(
                                 div()
@@ -954,10 +963,11 @@ impl ChatApp {
                                     .text_color(cx.theme().colors.muted_foreground)
                                     .child("Model"),
                             )
-                            .child(Input::new(&self.model).small()),
+                            .child(Input::new(&self.model).small().w_full()),
                     )
                     .child(
                         v_flex()
+                            .w(px(180.))
                             .gap_1()
                             .child(
                                 div()
@@ -965,7 +975,7 @@ impl ChatApp {
                                     .text_color(cx.theme().colors.muted_foreground)
                                     .child("API key"),
                             )
-                            .child(Input::new(&self.api_key).small()),
+                            .child(Input::new(&self.api_key).small().w_full()),
                     )
                     .child(div().flex_1())
                     .child(
