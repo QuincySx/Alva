@@ -7,9 +7,10 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
+    accordion::Accordion,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
-    collapsible::Collapsible,
+    group_box::{GroupBox, GroupBoxVariants as _},
     input::Input,
     select::Select,
     tag::Tag,
@@ -42,53 +43,29 @@ impl HubApp {
         } else {
             self.team_content(window, cx).into_any_element()
         };
-        Collapsible::new()
-            .open(!collapsed)
-            .gap_2()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(cx.theme().colors.border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        Button::new("toggle-team")
-                            .ghost()
-                            .xsmall()
-                            .icon(if collapsed {
-                                IconName::ChevronRight
-                            } else {
-                                IconName::ChevronDown
-                            })
-                            .on_click(move |_, _, app| {
-                                if let Some(entity) = weak.upgrade() {
-                                    entity.update(app, |hub, cx| {
-                                        let open =
-                                            hub.collapsed.get("team").copied().unwrap_or(true);
-                                        hub.collapsed.insert("team".to_string(), !open);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
+        Accordion::new("team-panel")
+            .small()
+            .item(|item| {
+                item.open(!collapsed)
+                    .title(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .child("Team")
+                            .child(Tag::secondary().xsmall().child(count.to_string())),
                     )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .font_weight(FontWeight(650.))
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child("Team"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(count.to_string()),
-                    ),
-            )
-            .content(content)
+                    .child(content)
+            })
+            .on_toggle_click(move |open_items, _, app| {
+                if let Some(entity) = weak.upgrade() {
+                    entity.update(app, |hub, cx| {
+                        hub.collapsed
+                            .insert("team".to_string(), open_items.is_empty());
+                        cx.notify();
+                    });
+                }
+            })
     }
 
     /// Worker engine picker + Create team run (no run yet).
@@ -204,75 +181,82 @@ impl HubApp {
         let weak_review = weak.clone();
         let weak_adopt = weak.clone();
         let weak_discard = weak.clone();
-        let mut card = v_flex()
-            .gap_1()
-            .px_2()
-            .py_2()
-            .rounded_md()
-            .border_1()
-            .border_color(cx.theme().colors.border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight(600.))
-                                    .child(format!("Worker · {engine_id}")),
+        let mut card = v_flex().gap_1().child(
+            h_flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight(600.))
+                                .child(format!("Worker · {engine_id}")),
+                        )
+                        .when(worktree_path.is_some(), |this| {
+                            this.child(Tag::warning().small().rounded_full().child("isolated"))
+                        })
+                        .when(lifecycle != WorkerLifecycle::Active, |this| {
+                            this.child(
+                                Tag::new()
+                                    .with_variant(super::status_tag_variant(lifecycle.as_str()))
+                                    .small()
+                                    .rounded_full()
+                                    .child(lifecycle.as_str()),
                             )
-                            .when(worktree_path.is_some(), |this| {
-                                this.child(Tag::warning().small().rounded_full().child("isolated"))
-                            })
-                            .when(lifecycle != WorkerLifecycle::Active, |this| {
-                                this.child(
-                                    Tag::new()
-                                        .with_variant(super::status_tag_variant(lifecycle.as_str()))
-                                        .small()
-                                        .rounded_full()
-                                        .child(lifecycle.as_str()),
-                                )
-                            }),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .child(
-                                Button::new(SharedString::from(format!("focus-{worker_id}")))
+                        }),
+                )
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .child(
+                            Button::new(SharedString::from(format!("focus-{worker_id}")))
+                                .ghost()
+                                .xsmall()
+                                .label("Focus")
+                                .on_click(move |_, window, app| {
+                                    if weak_focus.upgrade().is_some() {
+                                        let handle = window.window_handle();
+                                        let session_id_focus = session_id_focus.clone();
+                                        with_window(app, handle, move |hub, window, cx| {
+                                            let _ = hub.load_session(&session_id_focus, window, cx);
+                                            cx.notify();
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("interrupt-{worker_id}")))
+                                .ghost()
+                                .xsmall()
+                                .label("Interrupt")
+                                .disabled(!worker_running || lifecycle != WorkerLifecycle::Active)
+                                .on_click(move |_, window, app| {
+                                    if weak_interrupt.upgrade().is_some() {
+                                        let handle = window.window_handle();
+                                        let session_id_interrupt = session_id_interrupt.clone();
+                                        with_window(app, handle, move |hub, window, cx| {
+                                            hub.interrupt_worker(&session_id_interrupt, window, cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .when(lifecycle == WorkerLifecycle::Active, |this| {
+                            this.child(
+                                Button::new(SharedString::from(format!("hibernate-{worker_id}")))
                                     .ghost()
                                     .xsmall()
-                                    .label("Focus")
+                                    .label("Hibernate")
                                     .on_click(move |_, window, app| {
-                                        if weak_focus.upgrade().is_some() {
+                                        if weak_hibernate.upgrade().is_some() {
                                             let handle = window.window_handle();
-                                            let session_id_focus = session_id_focus.clone();
+                                            let worker_id_hibernate = worker_id_hibernate.clone();
                                             with_window(app, handle, move |hub, window, cx| {
-                                                let _ =
-                                                    hub.load_session(&session_id_focus, window, cx);
-                                                cx.notify();
-                                            });
-                                        }
-                                    }),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!("interrupt-{worker_id}")))
-                                    .ghost()
-                                    .xsmall()
-                                    .label("Interrupt")
-                                    .disabled(
-                                        !worker_running || lifecycle != WorkerLifecycle::Active,
-                                    )
-                                    .on_click(move |_, window, app| {
-                                        if weak_interrupt.upgrade().is_some() {
-                                            let handle = window.window_handle();
-                                            let session_id_interrupt = session_id_interrupt.clone();
-                                            with_window(app, handle, move |hub, window, cx| {
-                                                hub.interrupt_worker(
-                                                    &session_id_interrupt,
+                                                hub.change_worker_lifecycle(
+                                                    &worker_id_hibernate,
+                                                    WorkerLifecycle::Hibernated,
                                                     window,
                                                     cx,
                                                 );
@@ -280,77 +264,51 @@ impl HubApp {
                                         }
                                     }),
                             )
-                            .when(lifecycle == WorkerLifecycle::Active, |this| {
-                                this.child(
-                                    Button::new(SharedString::from(format!(
-                                        "hibernate-{worker_id}"
-                                    )))
+                            .child(
+                                Button::new(SharedString::from(format!("archive-{worker_id}")))
                                     .ghost()
                                     .xsmall()
-                                    .label("Hibernate")
-                                    .on_click(
-                                        move |_, window, app| {
-                                            if weak_hibernate.upgrade().is_some() {
-                                                let handle = window.window_handle();
-                                                let worker_id_hibernate =
-                                                    worker_id_hibernate.clone();
-                                                with_window(app, handle, move |hub, window, cx| {
-                                                    hub.change_worker_lifecycle(
-                                                        &worker_id_hibernate,
-                                                        WorkerLifecycle::Hibernated,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        },
-                                    ),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(format!("archive-{worker_id}")))
-                                        .ghost()
-                                        .xsmall()
-                                        .label("Archive")
-                                        .on_click(move |_, window, app| {
-                                            if weak_archive.upgrade().is_some() {
-                                                let handle = window.window_handle();
-                                                let worker_id_archive = worker_id_archive.clone();
-                                                with_window(app, handle, move |hub, window, cx| {
-                                                    hub.change_worker_lifecycle(
-                                                        &worker_id_archive,
-                                                        WorkerLifecycle::Archived,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                )
-                            })
-                            .when(lifecycle != WorkerLifecycle::Active, |this| {
-                                this.child(
-                                    Button::new(SharedString::from(format!("restore-{worker_id}")))
-                                        .ghost()
-                                        .xsmall()
-                                        .label("Restore")
-                                        .on_click(move |_, window, app| {
-                                            if weak_restore.upgrade().is_some() {
-                                                let handle = window.window_handle();
-                                                let worker_id_restore = worker_id_restore.clone();
-                                                with_window(app, handle, move |hub, window, cx| {
-                                                    hub.change_worker_lifecycle(
-                                                        &worker_id_restore,
-                                                        WorkerLifecycle::Active,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                )
-                            }),
-                    ),
-            );
+                                    .label("Archive")
+                                    .on_click(move |_, window, app| {
+                                        if weak_archive.upgrade().is_some() {
+                                            let handle = window.window_handle();
+                                            let worker_id_archive = worker_id_archive.clone();
+                                            with_window(app, handle, move |hub, window, cx| {
+                                                hub.change_worker_lifecycle(
+                                                    &worker_id_archive,
+                                                    WorkerLifecycle::Archived,
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    }),
+                            )
+                        })
+                        .when(lifecycle != WorkerLifecycle::Active, |this| {
+                            this.child(
+                                Button::new(SharedString::from(format!("restore-{worker_id}")))
+                                    .ghost()
+                                    .xsmall()
+                                    .label("Restore")
+                                    .on_click(move |_, window, app| {
+                                        if weak_restore.upgrade().is_some() {
+                                            let handle = window.window_handle();
+                                            let worker_id_restore = worker_id_restore.clone();
+                                            with_window(app, handle, move |hub, window, cx| {
+                                                hub.change_worker_lifecycle(
+                                                    &worker_id_restore,
+                                                    WorkerLifecycle::Active,
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    }),
+                            )
+                        }),
+                ),
+        );
         if let Some(branch) = &worktree_branch {
             card = card.child(
                 div()
@@ -455,7 +413,7 @@ impl HubApp {
         for task in tasks {
             card = card.child(self.task_row(task, cx));
         }
-        card
+        GroupBox::new().outline().child(card)
     }
 
     fn task_row(&self, task: &WorkerTask, cx: &Context<Self>) -> impl IntoElement {

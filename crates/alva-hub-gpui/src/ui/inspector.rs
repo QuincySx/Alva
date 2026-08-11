@@ -12,7 +12,10 @@ use alva_engine_runtime::{
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
+    accordion::Accordion,
     button::{Button, ButtonVariants as _},
+    description_list::DescriptionList,
+    group_box::{GroupBox, GroupBoxVariants as _},
     scroll::ScrollableElement,
     spinner::Spinner,
     tag::Tag,
@@ -196,13 +199,6 @@ impl HubApp {
         .detach();
     }
 
-    pub fn toggle_inspector_record(&mut self, seq: u64, cx: &mut Context<Self>) {
-        if !self.inspector_open_records.insert(seq) {
-            self.inspector_open_records.remove(&seq);
-        }
-        cx.notify();
-    }
-
     pub fn export_inspector(&mut self, cx: &mut Context<Self>) {
         let Some(root_snapshot) = self.inspector_snapshot.clone() else {
             return;
@@ -372,63 +368,57 @@ impl HubApp {
         snapshot: &InspectionSnapshot,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let records = snapshot
+        let record_sequences = snapshot
             .records
             .iter()
-            .map(|record| {
-                let seq = record.seq;
-                let open = self.inspector_open_records.contains(&seq);
-                let weak = cx.entity().downgrade();
-                let raw = serde_json::to_string_pretty(record)
-                    .unwrap_or_else(|error| format!("serialize record: {error}"));
-                v_flex()
-                    .gap_1()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(cx.theme().colors.border)
-                    .child(
+            .map(|record| record.seq)
+            .collect::<Vec<_>>();
+        let mut records = Accordion::new("inspector-records").multiple(true).small();
+        for record in &snapshot.records {
+            let open = self.inspector_open_records.contains(&record.seq);
+            let raw = serde_json::to_string_pretty(record)
+                .unwrap_or_else(|error| format!("serialize record: {error}"));
+            records = records.item(|item| {
+                item.open(open)
+                    .title(
                         h_flex()
-                            .gap_2()
+                            .w_full()
                             .items_center()
-                            .child(Tag::secondary().small().child(format!("#{}", record.seq)))
-                            .child(Tag::new().small().child(format!("{:?}", record.category)))
+                            .gap_2()
+                            .child(Tag::secondary().xsmall().child(format!("#{}", record.seq)))
+                            .child(Tag::new().xsmall().child(format!("{:?}", record.category)))
                             .child(
                                 div()
                                     .min_w_0()
                                     .flex_1()
-                                    .text_sm()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
                                     .font_weight(FontWeight(600.))
                                     .child(record.type_name.clone()),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!("record-{seq}")))
-                                    .ghost()
-                                    .xsmall()
-                                    .icon(if open {
-                                        IconName::ChevronDown
-                                    } else {
-                                        IconName::ChevronRight
-                                    })
-                                    .on_click(move |_, _, app| {
-                                        if let Some(hub) = weak.upgrade() {
-                                            hub.update(app, |hub, cx| {
-                                                hub.toggle_inspector_record(seq, cx)
-                                            });
-                                        }
-                                    }),
                             ),
                     )
-                    .when(open, |this| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().colors.muted_foreground)
-                                .child(raw),
-                        )
-                    })
-            })
-            .collect::<Vec<_>>();
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(raw),
+                    )
+            });
+        }
+        let weak_records = cx.entity().downgrade();
+        records = records.on_toggle_click(move |open_items, _, app| {
+            if let Some(hub) = weak_records.upgrade() {
+                let open_sequences = open_items
+                    .iter()
+                    .filter_map(|index| record_sequences.get(*index).copied())
+                    .collect::<HashSet<_>>();
+                hub.update(app, |hub, cx| {
+                    hub.inspector_open_records = open_sequences;
+                    cx.notify();
+                });
+            }
+        });
         let children = snapshot
             .children
             .iter()
@@ -459,30 +449,29 @@ impl HubApp {
             .v_flex()
             .overflow_y_scrollbar()
             .child(
-                v_flex()
-                    .gap_2()
-                    .px_3()
-                    .py_3()
-                    .bg(cx.theme().colors.muted)
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(Tag::success().small().child("Alva · Full"))
-                            .child(
-                                Tag::secondary()
-                                    .small()
-                                    .child(format!("{} records", snapshot.records.len())),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(snapshot.native_session_id.clone()),
-                    )
-                    .children(children),
+                GroupBox::new().outline().child(
+                    v_flex()
+                        .gap_2()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(Tag::success().small().child("Alva · Full"))
+                                .child(
+                                    Tag::secondary()
+                                        .small()
+                                        .child(format!("{} records", snapshot.records.len())),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().colors.muted_foreground)
+                                .child(snapshot.native_session_id.clone()),
+                        )
+                        .children(children),
+                ),
             )
-            .children(records)
+            .child(records)
     }
 
     pub fn agent_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -500,28 +489,21 @@ impl HubApp {
             .children
             .iter()
             .map(|child| {
-                v_flex()
-                    .gap_1()
-                    .px_3()
-                    .py_3()
-                    .border_b_1()
-                    .border_color(cx.theme().colors.border)
-                    .child(
-                        h_flex().gap_2().child(Icon::new(IconName::Bot)).child(
-                            div()
-                                .font_weight(FontWeight(600.))
-                                .child(short_id(&child.child_session_id)),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(format!(
-                                "spawn {} · run {}",
-                                child.spawn_tool_call_id, child.parent_run_id
-                            )),
-                    )
+                GroupBox::new().outline().child(
+                    DescriptionList::vertical()
+                        .small()
+                        .item(
+                            "Agent",
+                            h_flex()
+                                .gap_2()
+                                .child(Icon::new(IconName::Bot))
+                                .child(short_id(&child.child_session_id))
+                                .into_any_element(),
+                            1,
+                        )
+                        .item("Spawn call", child.spawn_tool_call_id.clone(), 1)
+                        .item("Parent run", child.parent_run_id.clone(), 1),
+                )
             })
             .collect::<Vec<_>>();
         v_flex()
