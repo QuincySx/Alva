@@ -1,11 +1,12 @@
-# ALVA Hub Chat-First Roadmap
+# ALVA Hub Chat-First Roadmap — Superseded
 
-> 重新梳理日期：2026-08-11。这里取代旧的 `alva-hub-desktop-v1` 任务集。
+> 2026-08-11：本任务集已被 `../alva-hub-gpui-migration/` 取代。
+> 这里保留为前一轮产品分析记录，不再作为执行顺序或删除闸门。
 
 ## 已确认的产品决策
 
 1. 桌面产品主入口是 `alva-hub-gpui`。
-2. `alva-app-gpui` 不再继续扩展产品功能，只作为单引擎参考实现和迁移期间的代码来源。
+2. `alva-app-gpui` 不再是迁移目标，只在 Gate A 前作为只读代码来源。
 3. Tauri 入口已经退出 Cargo workspace，但旧目录在 GPUI 功能与视觉验收完成前保留为只读对照；最终验收通过后再删除。
 4. Hub 主界面改为 chat-first：会话、运行过程、审批、fallback、worker 和结果都出现在同一聊天流。
 5. 标准控件必须优先使用 `gpui-component`，不再用裸 `div()` 重造 Button、Tag、Tab、Sidebar、Sheet、Collapsible 等组件。
@@ -49,6 +50,6 @@
 
 ## 当前状态
 
-- 旧 23 张能力建设 tickets：作废，后端能力已基本落地；
-- 新任务：11 张；ticket 00 已完成审计，其余为 `planned`；
-- 功能代码：尚未按本任务集开始实施。
+- 本目录 tickets 不再继续执行；
+- 已完成的 gpui-component 基础代码保留；
+- 未完成内容重新归入 GPUI 单产品迁移任务集。

@@ -1,72 +1,194 @@
-# Hub → GPUI 迁移评估
+# ALVA Hub GPUI Migration
 
-> 2026-08-10。目标：整个项目（alva-hub-desktop + alva-app-tauri）1:1 迁移到
-> Rust 原生 UI（GPUI + longbridge/gpui-component ⭐12.5k，60+ 组件，Longbridge Pro 生产验证）。
+> Status: accepted product and migration boundary as of 2026-08-11.
 
-## 现状（要迁移的）
+## Goal
 
-| 层 | 现状 | 迁移后 |
-|---|---|---|
-| 壳 | Tauri 2（wry webview = 系统 WebKit） | **GPUI 原生窗口**（Zed 同源框架） |
-| 前端 | React 18 + Vite + TS + Tailwind 3（32 测试） | **Rust GPUI**（Render trait，无 DOM） |
-| 后端 | Rust（store/run/main/alva.rs，139 lib 测试） | **完全复用**（GPUI 是进程内，桥接层简化） |
-| 通信 | bridge.ts invoke → tauri command | **Rust 直接调用**（无 IPC 层） |
+`alva-hub-gpui` becomes the only desktop product. The migration is not a
+page-for-page rewrite of either retired Alva App or the old Hub dashboard. It
+creates one macOS-native, chat-first Hub while preserving the runtime abilities
+that still matter.
 
-**关键优势**：后端全是 Rust——store/run/failure/claims/worktree 一行不改。
-Tauri command（main.rs 的 `#[tauri::command]`）换成 GPUI 内的直接调用，桥接层消失。
+The first replacement milestone is deliberately narrow: a usable Hub chat plus
+the Alva Inspector capability that made the standalone Alva App valuable.
 
-## 组件映射（App.tsx 现状 → gpui-component）
+## Product Boundary
 
-| Hub 现有 | GPUI 组件 |
-|---|---|
-| app-shell/sidebar/topbar/main | dock / sidebar / title_bar / status_bar / resizable |
-| workspace/session/readiness/fallback/team 面板 | collapsible / accordion / group_box |
-| session-item 列表 | virtual_list / searchable_list |
-| readiness 卡片 / timeline 卡片 | card（styled）/ badge / tag |
-| 状态徽章（healthy/failed/fallback） | tag / badge（主题色） |
-| composer（textarea/input/select/checkbox） | textarea / input / select / checkbox |
-| 折叠面板（fallback/team） | collapsible |
-| details drawer | sheet / dialog |
-| approval 组卡片 | dialog / notification |
-| handoff 信封（markdown/列表） | markdown / text / description_list |
-| 深色主题 + accent | theme（多主题 + 变量） |
-| 搜索过滤 | searchable_list |
-| 状态 pill（running/completed/fallback） | status_bar / tag |
+- Keep `alva-hub-gpui` as the only desktop product target.
+- Retire `alva-app-gpui` and `alva-app-tauri` after the first replacement gate.
+- Retire `alva-hub-desktop` after the separate Hub capability gate.
+- Keep `alva-app-cli`, `alva-app-core`, the Alva engine, and Inspector data
+  production.
+- Do not maintain two GPUI applications or a second single-engine desktop UI.
+- V1 release scope is native macOS. Linux, Windows, and GPUI/WASM Web are future
+  projects and do not block this migration.
 
-## 影响（不可复用部分）
+## Target Window
 
-1. **web 测试（32 个 vitest）**：React 测试不适用 → GPUI 测试（gpui 测试上下文，Rust 侧）
-2. **审查工具链**（wireframe/vision/a11y，CDP 驱动 webview）：
-   - wireframe（DOM 遍历）→ 不适用 GPUI（无 DOM）。替代：GPUI 视图树反射（gpui 有访问树？或截图对比）
-   - vision 审查（截图）→ **保留**（GPUI 窗口可截图）
-   - a11y audit（DOM）→ 需要 GPUI 的 a11y（macos_accessibility.rs 在组件里！）
-3. **?demo=1**：改为 GPUI 的 feature 开关（本地模式注入 demo 数据）
-4. **打包**：GPUI 产物（macOS .app bundle，Zed 的打包方式）
+The native window follows the interaction shape of the current Agent products:
 
-## 阶段计划
+```text
+┌──────────────────┬─────────────────────────────┬──────────────────────┐
+│ Projects         │ Active HubSession chat      │ Tool Workspace       │
+│ Sessions         │ messages + live execution   │ Inspector            │
+│                  │ composer                    │ Agent / Git / Terminal│
+└──────────────────┴─────────────────────────────┴──────────────────────┘
+```
 
-1. **P0 骨架**：新 crate 接入 gpui + gpui-component，最小窗口 + 主题 + dock 布局 + 一个真实面板（session 列表）
-2. **P1 主壳**：sidebar/topbar/timeline/composer 布局 + 引擎选择 + 折叠
-3. **P2 数据打通**：Rust 后端直连（复用 HubStore），替换 tauri command
-4. **P3 完整功能**：fallback 编辑/team run/details drawer/approval/handoff 信封
-5. **P4 测试**：GPUI 测试 + 截图审查 + 打包
-6. **P5 alva-app-tauri**：同路径迁移（BaseAgent 直连）
+- The left side owns project and session navigation.
+- The center is the continuous chat and composer.
+- The right side is a resizable, collapsible `DockArea` workspace.
+- Inspector, Agent, Git, and Terminal are separate tool tabs.
+- Temporary details use `Popover`, `Sheet`, or `Dialog` instead of becoming
+  permanent dashboard columns.
+- The first version does not require detachable macOS child windows.
 
-## 风险
+Chat message typography, bubble treatment, code blocks, tool-call presentation,
+composer proportions, and motion remain a later product-design pass. They are
+not implied by adopting GPUI or gpui-component.
 
-- GPUI 生态年轻（API 变化快，需锁版本 git dep）
-- 迁移是**数周级**工程（P0-P1 可先做，验证可行后继续）
-- 审查工具链需适配（无 DOM）
+## Current Reality
 
-## 决策（用户拍板，2026-08-10）
+The latest source was rebuilt and inspected in a real GPUI window on
+2026-08-11.
 
-- **不要共存**：迁移完成后**整体删除**旧 Tauri 版（alva-hub-desktop 的 webview+React 层、
-  alva-app-tauri 壳）。alva-hub-gpui 是唯一入口。
-- **Web 需求走 GPUI wasm**：gpui-component 有 `story-web` 先例（wasm32 构建），未来要
-  Web 端直接编译 GPUI 到 wasm，不保留任何 web 前端。
-- 开发期旧版保留在仓库作功能参考（不维护新功能）；P5 完成、功能对齐后删除：
-  - 删 `crates/alva-hub-desktop`（web/ + tauri 壳 + tauri.conf.json）
-  - 删 `crates/alva-app-tauri`（若一并迁移；Rule 18 检查相应移除）
-  - 删 `web/` 测试与审查工具链的 DOM 路径（wireframe/a11y audit 的 CDP 部分废弃，
-    vision 截图保留——GPUI 窗口可截图）
-- GPUI 依赖：git 锁定（Zed main + gpui-component main），crates.io 版太旧
+Already present:
+
+- native GPUI window and `Root` initialization;
+- gpui-component `Sidebar`, `TabBar`, `Tag`, `Sheet`, inputs, buttons, loading,
+  and status controls;
+- Hub SQLite store, session recovery, engine execution, cancellation,
+  permission handling, fallback, readiness, TeamRun, and worktree behavior;
+- a release `.app` assembly path.
+
+Not yet the target product:
+
+- the shell is still a fixed sidebar plus dashboard-like main column;
+- there is no `DockArea`/`PanelView` tool workspace;
+- persisted and live events are not projected as a continuous chat transcript;
+- the composer is still a thin command form rather than the primary interaction
+  surface;
+- Inspector is not available in Hub;
+- Agent and Inspector are not separate right-side tools;
+- current documentation still contains obsolete claims about a second
+  `alva-app-gpui` migration and Tauri 1:1 visual parity.
+
+The old Tauri directories mostly contain tracked generated build artifacts in
+the current checkout. Their meaningful source baselines remain available from
+Git history, so generated files are not a product capability or parity source.
+
+## Migration Stages
+
+### G0 — Freeze the Product Boundary
+
+- Make this document and ADR-0004/0005 authoritative.
+- Mark the old dual-GPUI and page-parity task set as superseded.
+- Keep old desktop directories read-only until their corresponding retirement
+  gate passes.
+
+### G1 — Build the Native Hub Shell
+
+- Replace the fixed two-column shell with gpui-component `DockArea` and
+  `PanelView` foundations.
+- Add left project/session navigation, central chat panel, and collapsible right
+  Tool Workspace.
+- Preserve `Root` overlay layers, native keyboard focus, minimum-size behavior,
+  and theme-only colors.
+- Centralize GPUI and gpui-component dependency declarations and retain exact
+  lockfile revisions during each migration batch.
+
+### G2 — Make Chat the Runtime Surface
+
+- Project HubSession, Turn, EngineAttempt, runtime events, approvals, handoffs,
+  and final results into one ordered chat model.
+- Support streaming, resume, stop, approval, retry, and engine selection from
+  the chat surface.
+- Keep fallback, readiness, and TeamRun reachable through their existing
+  gpui-component sheets while their final chat presentation is deferred.
+
+### G3 — Add the Hub Inspector Contract
+
+- Implement ADR-0005 typed durable `SessionRecord` storage.
+- Add the separate optional `EngineInspector` capability.
+- Give Alva full historical snapshots, live updates, raw records, and recursive
+  child-session traversal.
+- Give Claude and Codex only the truthful summary or unsupported state their
+  adapters can provide.
+- Add the global experimental visibility switch, off by default.
+
+### G4 — Build the Inspector Tool
+
+- Add a dedicated Inspector tab in the right Tool Workspace.
+- Preserve HubSession, Turn, and EngineAttempt identity.
+- Support live selection, historical reload, nested child navigation, large
+  payload previews, redaction indicators, and JSONL Bundle export.
+- Keep Agent as a separate tab for product child-agent relationships.
+
+### G5 — Retire the Standalone Alva App
+
+Delete `alva-app-gpui` and `alva-app-tauri` only after Gate A passes. Remove
+their packaging scripts, workspace entries, obsolete CI rules, and generated
+artifacts in the same cleanup.
+
+### G6 — Preserve the Remaining Hub Capabilities
+
+- Keep current fallback, readiness, provider, TeamRun, worker, handoff,
+  permission, recovery, and engine-switch behavior working in the GPUI product.
+- Refine those experiences incrementally after Chat + Inspector are usable.
+- Consolidate duplicate Hub GPUI packaging scripts and smoke-test the packaged
+  app.
+
+### G7 — Retire the Tauri Hub
+
+Delete `alva-hub-desktop` only after Gate B passes. This does not require
+page-for-page visual parity, code signing, notarization, Linux, Windows, or Web.
+
+## Retirement Gates
+
+### Gate A — Alva App Replacement
+
+- left project/session navigation works;
+- central Hub chat can run, stream, resume, stop, and answer approvals;
+- right Tool Workspace can open, resize, switch tabs, and collapse;
+- Alva Inspector supports real-time and historical records;
+- recursively linked child runs are navigable;
+- Inspector visibility is controlled by the global experiment switch;
+- packaged macOS development app passes a cold-start smoke test;
+- the user confirms deletion.
+
+After Gate A, delete `alva-app-gpui` and `alva-app-tauri`. Keep
+`alva-app-cli` and `alva-app-core`.
+
+### Gate B — Hub Desktop Replacement
+
+- Alva, Claude, and Codex can run through the GPUI Hub at their truthful
+  capability levels;
+- Hub session persistence and crash recovery pass smoke coverage;
+- cancellation, permissions, switching, fallback, and existing TeamRun access
+  remain usable;
+- no Cargo, CI, documentation, or packaging path requires
+  `alva-hub-desktop`;
+- the user confirms deletion.
+
+After Gate B, delete `alva-hub-desktop` and its tracked generated artifacts.
+
+## Acceptance Philosophy
+
+- Preserve capabilities, not the old dashboard's pixels or page hierarchy.
+- Use Cindy as a product-ownership and chat-first interaction reference, not as
+  a source copy.
+- Use gpui-component for standard controls and panel infrastructure.
+- Keep chat rows, execution records, and Inspector visualization as Alva product
+  components where no standard component expresses the domain.
+- A feature may remain in its current Sheet during migration; it must not block
+  the Chat + Inspector milestone merely because its final visual treatment is
+  undecided.
+
+## Non-Goals
+
+- maintaining `alva-app-gpui` as a second desktop product;
+- recreating the old Tauri screen one-to-one;
+- requiring every Hub feature redesign before Inspector ships;
+- promising equivalent Inspector depth for Claude and Codex;
+- making signing or notarization a development migration gate;
+- committing to GPUI/WASM Web as part of V1.

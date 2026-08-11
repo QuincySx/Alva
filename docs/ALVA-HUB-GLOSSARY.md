@@ -11,7 +11,8 @@
 
 The durable product conversation owned by the user. It binds a workspace,
 permission profile, fallback policy snapshot, timeline, mainline execution, and
-an optional TeamRun.
+an optional TeamRun. It is also the aggregate entry point for developer trace
+inspection; inspection does not create a parallel session identity.
 
 A HubSession ID is never an engine-native session ID.
 
@@ -81,6 +82,108 @@ timestamps, events, usage, failure reason, side-effect evidence, and outcome.
 
 EngineAttempts in one fallback chain are serial. Parallel work belongs to
 WorkerSessions, not to attempts of the same Turn.
+
+### Inspector visibility switch
+
+The global experimental-feature switch that reveals Agent Inspector surfaces.
+It is off by default so normal Hub operation remains chat-first.
+
+The switch controls visibility only. It is not a separate product mode and does
+not control trace capture or retention.
+
+### Agent Inspector
+
+The HubSession-scoped surface for examining execution details. It preserves
+Turn and EngineAttempt identity and may expose engine-specific detail.
+
+Alva preserves its current full recursive run inspection. Claude and Codex show
+whatever truthful detail their adapters expose and are not assumed to provide
+equivalent internals.
+
+Agent Inspector is shown inside the shared right-side Tool Workspace. It is not
+a separate window or top-level product mode.
+
+### Tool Workspace
+
+The resizable auxiliary workspace attached to the right side of the active Hub
+chat. It hosts separate switchable tools such as Terminal, Git history, Agent,
+and Inspector while keeping the HubSession conversation visible.
+
+### Agent tab
+
+The Tool Workspace surface for child agents associated with the current
+thread. It presents product relationships and navigation between those agents.
+
+Agent is not Inspector. Agent answers which child agents belong to the work;
+Inspector explains how one recorded execution behaved.
+
+### Alva run trace
+
+The full execution record for one Alva run, including model rounds, messages,
+tool calls, middleware observations, usage, errors, and recursively linked child
+agent runs. Child runs remain navigable without a fixed nesting depth.
+
+### SessionRecord
+
+The versioned durable envelope written through Alva `AgentSession`. Conversation
+and execution payloads share one monotonically ordered sequence. Built-in
+payloads are typed; plugin payloads use a namespaced type and schema version.
+
+A SessionRecord is not a streaming UI event and is not a telemetry span.
+
+### Durable commit
+
+A successful AgentSession append acknowledgement. After it returns, the record
+and any provisioned settlement identifiers survive process restart. External
+LLM and tool effects that require recoverability start only after their intent
+record has durably committed.
+
+### Conversation tree
+
+The append-only parent-linked set of conversation entries inside one Alva
+AgentSession. A current head selects the active branch. Returning to an older
+entry moves the head or creates a new branch; it does not delete history.
+
+### Child run link
+
+The durable relationship from one spawning tool call to a child AgentSession,
+identified by parent session, parent run, and tool-call identities. Inspector
+uses the link for recursive navigation without copying child records into the
+parent log.
+
+### Live Inspector state
+
+The process-local snapshot and event stream used to render an active run,
+including assistant drafts, running tools, and progress. It overlays durable
+SessionRecords and may disappear after a process crash.
+
+### EngineInspector
+
+The optional engine capability used by Hub to query historical Inspector
+snapshots, subscribe to live inspection state, traverse child runs, and clean
+up engine-native trace storage. It is separate from `EngineRuntime` so an
+engine may execute sessions without claiming inspection support.
+
+Inspection support is reported truthfully as Full, Summary, or Unsupported.
+
+### Inspector catalog entry
+
+The Hub-owned link from an EngineAttempt to a qualified engine-native session
+and its advertised inspection capability. It is a bounded product index, not a
+copy of the engine's full trace.
+
+### Inspector blob
+
+A content-addressed, compressed payload stored outside SQLite when a prompt,
+response, tool argument, or tool result is too large for an inline record. A
+SessionRecord retains a bounded preview and the blob's hash, media type, size,
+and reference.
+
+### Inspector Bundle
+
+A redacted JSONL export of one HubSession's product identities, ordered
+inspection records, recursive child-session links, and blob manifest. It does
+not export recognized secrets or unrelated native engine files.
 
 ### Attempt cycle
 

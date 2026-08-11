@@ -1,7 +1,10 @@
-# GPUI Migration Parity Checklist
+# GPUI Migration Parity Checklist — Historical
 
 > 对照基线：Hub 使用 `89ed8957^` 的 Tauri/React 源码；Alva App 使用 `363a942a^` 的 Tauri/React 源码。
 > 状态定义：`migrated` = 功能已存在；`partial` = 功能存在但交互/视觉/组件形态未对齐；`missing` = 未实现；`obsolete` = 新产品方向不再需要。
+>
+> 2026-08-11：此表只保留为旧能力审计证据，不再定义迁移完成。
+> 当前闸门以 `docs/GPUI-MIGRATION.md` 为准；`alva-app-gpui` 已改为退役对象。
 
 ## 组件库覆盖现状
 
@@ -60,7 +63,9 @@
 | gpui-component Sidebar/Avatar/Tag/Sheet 等 | 标准导航、设置抽屉、状态与 loading 已替换 | migrated | 01/10 |
 | 打包视觉 parity | `.app` 已能打包，未完成组件替换后复验 | partial | 10 |
 
-## 删除旧 Tauri 的闸门
+## 历史删除闸门
+
+下列清单已被 Gate A / Gate B 取代，不再执行：
 
 只有同时满足以下条件才允许删除旧目录：
 
