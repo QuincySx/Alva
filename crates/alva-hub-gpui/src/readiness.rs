@@ -1,17 +1,18 @@
 // INPUT:  EngineProbe facts (binary discovery, version, auth, stream evidence)
-// OUTPUT: structured EngineReadiness reports for the alva/claude/codex dashboard
+// OUTPUT: structured EngineReadiness reports for the alva/claude/codex/pi dashboard
 // POS:    Read-only Hub engine health classification; probes never mutate engine config.
 
 use std::path::{Path, PathBuf};
 
 use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
 use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
+use alva_engine_adapter_pi::{PiAdapter, PiAdapterConfig};
 use alva_engine_runtime::{EngineRuntime, RuntimeCapabilities};
 use serde::Serialize;
 
 use crate::store::HubStore;
 
-pub const HUB_ENGINE_IDS: [&str; 3] = ["alva", "claude", "codex"];
+pub const HUB_ENGINE_IDS: [&str; 4] = ["alva", "claude", "codex", "pi"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -216,6 +217,11 @@ fn engine_spec(engine_id: &str) -> EngineSpec {
             minimum_version: "0.20.0",
             default_auth_remedy: "Run `codex login` in a terminal to sign in.",
         },
+        "pi" => EngineSpec {
+            display_name: "Pi",
+            minimum_version: "0.84.0",
+            default_auth_remedy: "Configure a Pi provider or use a Hub custom Provider.",
+        },
         _ => EngineSpec {
             display_name: "Unknown engine",
             minimum_version: "0.0.0",
@@ -401,29 +407,29 @@ impl SystemProbe {
     }
 
     fn cli_facts(&self, engine_id: &str) -> EngineProbeFacts {
-        let command = if engine_id == "claude" {
-            "claude"
-        } else {
-            "codex"
-        };
+        let command = engine_id;
         let Some(binary) = self.locate(command) else {
             return EngineProbeFacts {
                 searched_locations: self.searched_locations(),
                 ..EngineProbeFacts::default()
             };
         };
-        let (capabilities, authenticated) = if engine_id == "claude" {
-            (
+        let (capabilities, authenticated) = match engine_id {
+            "claude" => (
                 capability_labels(
                     &ClaudePrintAdapter::new(ClaudePrintConfig::default()).capabilities(),
                 ),
                 self.claude_authenticated(),
-            )
-        } else {
-            (
+            ),
+            "codex" => (
                 capability_labels(&CodexAdapter::new(CodexAdapterConfig::default()).capabilities()),
                 self.codex_authenticated(),
-            )
+            ),
+            "pi" => (
+                capability_labels(&PiAdapter::new(PiAdapterConfig::default()).capabilities()),
+                None,
+            ),
+            _ => (Vec::new(), None),
         };
         let (stream_health, last_stream_failure) = self.stream_evidence(engine_id);
         EngineProbeFacts {
@@ -467,6 +473,10 @@ impl SystemProbe {
                     format!("not signed in — run `{engine_id} login` in a terminal to sign in.")
                 })
             }
+            "pi" => self
+                .locate("pi")
+                .is_none()
+                .then(|| "engine binary not found".to_string()),
             other => Some(format!("engine '{other}' is not supported by Hub")),
         }
     }
@@ -587,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_discovers_all_three_engines_without_manual_paths() {
+    fn dashboard_discovers_all_engines_without_manual_paths() {
         let probe = FakeProbe {
             facts: HashMap::new(),
         };
@@ -596,7 +606,7 @@ mod tests {
             .iter()
             .map(|engine| engine.engine_id.as_str())
             .collect();
-        assert_eq!(ids, vec!["alva", "claude", "codex"]);
+        assert_eq!(ids, vec!["alva", "claude", "codex", "pi"]);
     }
 
     /// Independent PATH lookup: the smoke test must not reuse SystemProbe's

@@ -20,11 +20,13 @@ use gpui_component::{
 };
 
 use alva_hub_gpui::{
-    build_engine_bundle_for_target, permission_eligibility, probe_readiness, repair_argv,
-    repair_plan, run_persisted_with_target, run_repair_command, AgentRuntime, EngineEligibility,
-    EngineReadiness, EngineTarget, FallbackPolicy, HubSessionDetail, HubSessionSummary, HubStore,
-    ModelCatalog, ModelRoute, PermissionProfile, PermissionRouter, ReasoningEffort, RepairAction,
-    RepairKind, RunRequest, SwitchOutcome, SystemProbe, TimelineEvent, TimelineStatus,
+    build_engine_bundle_for_target_with_provider, permission_eligibility, probe_readiness,
+    protocol_supports_runtime, repair_argv, repair_plan, run_persisted_with_target,
+    run_repair_command, AgentRuntime, ApiProtocol, CustomModelProfile, CustomProviderProfile,
+    EngineEligibility, EngineReadiness, EngineTarget, FallbackPolicy, HubSessionDetail,
+    HubSessionSummary, HubStore, ModelCatalog, ModelRoute, PermissionProfile, PermissionRouter,
+    ProviderStore, ReasoningEffort, RepairAction, RepairKind, RunRequest, StoredCustomProvider,
+    SwitchOutcome, SystemProbe, TimelineEvent, TimelineStatus,
 };
 
 use super::workspace::{HubWorkspace, ToolPanel, WorkspaceTool};
@@ -64,6 +66,8 @@ pub struct HubApp {
     pub primary_surface: PrimarySurface,
     pub sidebar_search_open: bool,
     pub workspace: Option<String>,
+    pub provider_store: ProviderStore,
+    pub custom_providers: Vec<StoredCustomProvider>,
     pub model_catalog: ModelCatalog,
     pub engine: Entity<SelectState<SearchableVec<EngineOption>>>,
     pub model: Entity<SelectState<SearchableVec<ModelOption>>>,
@@ -75,6 +79,18 @@ pub struct HubApp {
     pub automation_schedule: Entity<SelectState<SearchableVec<&'static str>>>,
     pub extension_query: Entity<InputState>,
     pub extension_tab: usize,
+    pub provider_name: Entity<InputState>,
+    pub provider_id: Entity<InputState>,
+    pub provider_base_url: Entity<InputState>,
+    pub provider_api_key: Entity<InputState>,
+    pub provider_model_id: Entity<InputState>,
+    pub provider_model_name: Entity<InputState>,
+    pub provider_context_window: Entity<InputState>,
+    pub provider_max_output: Entity<InputState>,
+    pub provider_protocol: Entity<SelectState<SearchableVec<&'static str>>>,
+    pub provider_runtimes: HashSet<AgentRuntime>,
+    pub provider_images: bool,
+    pub provider_tools: bool,
     pub timeline: Vec<ProjectedEvent>,
     pub chat: Vec<ProjectedChatItem>,
     pub inspector_enabled: bool,
@@ -173,7 +189,9 @@ impl HubApp {
             .path()
             .parent()
             .unwrap_or(std::path::Path::new("/tmp"));
-        let model_catalog = ModelCatalog::load(catalog_workspace, &[]);
+        let provider_store = ProviderStore::new(catalog_workspace);
+        let custom_providers = provider_store.load().unwrap_or_default();
+        let model_catalog = ModelCatalog::load(catalog_workspace, &custom_providers);
         let initial_route = model_catalog
             .default_route(AgentRuntime::Alva)
             .or_else(|| model_catalog.default_route(AgentRuntime::ClaudeCode))
@@ -207,6 +225,8 @@ impl HubApp {
             primary_surface: PrimarySurface::Chat,
             sidebar_search_open: false,
             workspace: None,
+            provider_store,
+            custom_providers,
             model_catalog,
             timeline: Vec::new(),
             chat: Vec::new(),
@@ -336,6 +356,37 @@ impl HubApp {
             extension_query: cx
                 .new(|cx| InputState::new(window, cx).placeholder("Search plugins or skills…")),
             extension_tab: 0,
+            provider_name: cx.new(|cx| InputState::new(window, cx).placeholder("Acme AI")),
+            provider_id: cx.new(|cx| InputState::new(window, cx).placeholder("acme")),
+            provider_base_url: cx
+                .new(|cx| InputState::new(window, cx).placeholder("https://api.example.com/v1")),
+            provider_api_key: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .masked(true)
+                    .placeholder("API key")
+            }),
+            provider_model_id: cx.new(|cx| InputState::new(window, cx).placeholder("model-id")),
+            provider_model_name: cx
+                .new(|cx| InputState::new(window, cx).placeholder("Model display name")),
+            provider_context_window: cx
+                .new(|cx| InputState::new(window, cx).default_value("128000")),
+            provider_max_output: cx.new(|cx| InputState::new(window, cx).default_value("32000")),
+            provider_protocol: cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(vec![
+                        "anthropic",
+                        "openai_responses",
+                        "openai_chat",
+                        "gemini",
+                    ]),
+                    Some(IndexPath::new(1)),
+                    window,
+                    cx,
+                )
+            }),
+            provider_runtimes: HashSet::from([AgentRuntime::Alva]),
+            provider_images: true,
+            provider_tools: true,
         };
         app.subscribe_sessions(window, cx);
         app.subscribe_extension_query(window, cx);
@@ -399,7 +450,17 @@ impl HubApp {
                     .expect("catalog model provider must exist");
                 ModelOption {
                     route_key: format!("{}::{}", model.provider_id, model.model_id),
-                    label: format!("{} · {}", model.display_name, provider.display_name),
+                    label: format!(
+                        "{} · {} · {}k{}",
+                        model.display_name,
+                        provider.display_name,
+                        model.capabilities.context_window / 1_000,
+                        if model.capabilities.images {
+                            " · images"
+                        } else {
+                            ""
+                        }
+                    ),
                     enabled: provider.connected && model.enabled,
                 }
             })
@@ -517,6 +578,188 @@ impl HubApp {
             state.set_items(SearchableVec::new(options), window, cx);
             state.set_selected_index(selected_index.map(IndexPath::new), window, cx);
         });
+    }
+
+    pub fn set_provider_runtime(
+        &mut self,
+        runtime: AgentRuntime,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if enabled {
+            self.provider_runtimes.insert(runtime);
+        } else {
+            self.provider_runtimes.remove(&runtime);
+        }
+        cx.notify();
+    }
+
+    pub fn set_provider_capability(
+        &mut self,
+        capability: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match capability {
+            "images" => self.provider_images = enabled,
+            "tools" => self.provider_tools = enabled,
+            _ => return,
+        }
+        cx.notify();
+    }
+
+    pub fn reset_provider_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for input in [
+            &self.provider_name,
+            &self.provider_id,
+            &self.provider_base_url,
+            &self.provider_api_key,
+            &self.provider_model_id,
+            &self.provider_model_name,
+        ] {
+            input.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        self.provider_context_window
+            .update(cx, |state, cx| state.set_value("128000", window, cx));
+        self.provider_max_output
+            .update(cx, |state, cx| state.set_value("32000", window, cx));
+        self.provider_protocol.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::new(1)), window, cx)
+        });
+        self.provider_runtimes = HashSet::from([AgentRuntime::Alva]);
+        self.provider_images = true;
+        self.provider_tools = true;
+    }
+
+    pub fn save_provider_form(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        let value = |input: &Entity<InputState>| input.read(cx).value().trim().to_string();
+        let display_name = value(&self.provider_name);
+        let provider_id = value(&self.provider_id);
+        let base_url = value(&self.provider_base_url);
+        let api_key = value(&self.provider_api_key);
+        let model_id = value(&self.provider_model_id);
+        let model_name = value(&self.provider_model_name);
+        if display_name.is_empty()
+            || provider_id.is_empty()
+            || base_url.is_empty()
+            || api_key.is_empty()
+            || model_id.is_empty()
+        {
+            return Err("Provider name, ID, URL, API key, and model ID are required.".into());
+        }
+        if !provider_id.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '-' | '_')
+        }) {
+            return Err(
+                "Provider ID may only contain lowercase letters, digits, '-' and '_'.".into(),
+            );
+        }
+        if !base_url.starts_with("https://") && !base_url.starts_with("http://localhost") {
+            return Err("Provider URL must use HTTPS (localhost may use HTTP).".into());
+        }
+        let protocol = self
+            .provider_protocol
+            .read(cx)
+            .selected_value()
+            .and_then(|value| ApiProtocol::parse(value))
+            .ok_or_else(|| "Select an API protocol.".to_string())?;
+        let mut runtimes = self.provider_runtimes.iter().copied().collect::<Vec<_>>();
+        runtimes.sort_by_key(|runtime| runtime.id());
+        if runtimes.is_empty() {
+            return Err("Select at least one compatible agent runtime.".into());
+        }
+        if let Some(runtime) = runtimes
+            .iter()
+            .find(|runtime| !protocol_supports_runtime(protocol, **runtime))
+        {
+            return Err(format!(
+                "{} cannot use the {} protocol.",
+                runtime.label(),
+                protocol.label()
+            ));
+        }
+        let context_window = value(&self.provider_context_window)
+            .parse::<u32>()
+            .map_err(|_| "Context window must be a positive integer.".to_string())?;
+        let max_output_tokens = value(&self.provider_max_output)
+            .parse::<u32>()
+            .map_err(|_| "Maximum output tokens must be a positive integer.".to_string())?;
+        if context_window == 0 || max_output_tokens == 0 {
+            return Err("Token limits must be greater than zero.".into());
+        }
+        let reasoning_efforts = if matches!(
+            protocol,
+            ApiProtocol::AnthropicMessages | ApiProtocol::OpenAiResponses
+        ) {
+            vec![
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+                ReasoningEffort::ExtraHigh,
+            ]
+        } else {
+            Vec::new()
+        };
+        let stored = StoredCustomProvider {
+            profile: CustomProviderProfile {
+                provider_id: provider_id.clone(),
+                display_name: display_name.clone(),
+                protocol,
+                base_url,
+                runtimes,
+                models: vec![CustomModelProfile {
+                    model_id,
+                    display_name: if model_name.is_empty() {
+                        "Default model".into()
+                    } else {
+                        model_name
+                    },
+                    context_window,
+                    max_output_tokens,
+                    images: self.provider_images,
+                    tools: self.provider_tools,
+                    reasoning_efforts,
+                }],
+            },
+            api_key,
+        };
+        self.custom_providers
+            .retain(|provider| provider.profile.provider_id != provider_id);
+        self.custom_providers.push(stored);
+        self.provider_store.save(&self.custom_providers)?;
+        self.reload_model_catalog(window, cx);
+        Ok(display_name)
+    }
+
+    pub fn remove_custom_provider(
+        &mut self,
+        provider_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.custom_providers
+            .retain(|provider| provider.profile.provider_id != provider_id);
+        self.provider_store.save(&self.custom_providers)?;
+        self.reload_model_catalog(window, cx);
+        Ok(())
+    }
+
+    fn reload_model_catalog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let support_dir = self
+            .store
+            .path()
+            .parent()
+            .unwrap_or(std::path::Path::new("/tmp"));
+        self.model_catalog = ModelCatalog::load(support_dir, &self.custom_providers);
+        let runtime = AgentRuntime::parse(&self.selected_engine(cx)).unwrap_or(AgentRuntime::Alva);
+        self.sync_model_options(runtime, None, window, cx);
+        cx.notify();
     }
 
     /// Rebuild the engine selector options after readiness changes.
@@ -1039,6 +1282,7 @@ impl HubApp {
         let store = Arc::clone(&self.store);
         let engines = Arc::clone(&self.active_engines);
         let inspectors = Arc::clone(&self.active_inspectors);
+        let model_catalog = self.model_catalog.clone();
         let handle = self.window_handle;
         let history_dir = store.path().parent().map(PathBuf::from);
         self.busy = true;
@@ -1057,8 +1301,13 @@ impl HubApp {
                     let engines = Arc::clone(&engines);
                     move |target, product_session_id, profile| {
                         let hist = history_dir.clone().unwrap_or_else(|| ws_path.clone());
-                        let built =
-                            build_engine_bundle_for_target(target, profile, &ws_path, &hist)?;
+                        let built = build_engine_bundle_for_target_with_provider(
+                            target,
+                            profile,
+                            &ws_path,
+                            &hist,
+                            model_catalog.runtime_config(&target.provider_id),
+                        )?;
                         let engine = built.runtime;
                         // Register the live engine so Stop can cancel it;
                         // fallback replaces the entry with the new engine.

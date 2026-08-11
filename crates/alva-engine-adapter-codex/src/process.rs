@@ -39,6 +39,7 @@ impl CodexProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        cmd.envs(&config.env);
 
         if let Some(model) = &config.model {
             cmd.arg("-m").arg(model);
@@ -178,8 +179,14 @@ mod tests {
             std::path::Path::new("/tmp/ws"),
         );
         assert_eq!(&args[0..3], &["exec", "resume", "sess-123"]);
-        assert!(!args.contains(&"-C".to_string()), "resume has no -C flag: {args:?}");
-        assert!(!args.contains(&"-s".to_string()), "resume has no -s flag: {args:?}");
+        assert!(
+            !args.contains(&"-C".to_string()),
+            "resume has no -C flag: {args:?}"
+        );
+        assert!(
+            !args.contains(&"-s".to_string()),
+            "resume has no -s flag: {args:?}"
+        );
         assert!(args.contains(&"--skip-git-repo-check".to_string()));
     }
 }

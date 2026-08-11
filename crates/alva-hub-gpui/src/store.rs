@@ -74,9 +74,15 @@ impl EngineTarget {
                 "Codex CLI account",
                 "OpenAI account via Codex CLI",
             ),
+            "pi" => (
+                "engine-default",
+                "pi-default",
+                "Pi provider configuration",
+                "Provider account via Pi",
+            ),
             other => {
                 return Err(format!(
-                    "unsupported Hub engine '{other}'; expected alva, claude, or codex"
+                    "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
                 ));
             }
         };

@@ -2,6 +2,7 @@
 // OUTPUT: Runtime/provider/model catalog, capability-aware routes, route guard
 // POS:    Hub product model plane shared by composer, settings, and engine assembly
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,16 @@ pub enum ApiProtocol {
 }
 
 impl ApiProtocol {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::AnthropicMessages => "anthropic",
+            Self::OpenAiChat => "openai_chat",
+            Self::OpenAiResponses => "openai_responses",
+            Self::Gemini => "gemini",
+            Self::NativeSubscription => "native_subscription",
+        }
+    }
+
     pub const fn label(self) -> &'static str {
         match self {
             Self::AnthropicMessages => "Anthropic Messages",
@@ -60,6 +71,18 @@ impl ApiProtocol {
             Self::Gemini => "Gemini GenerateContent",
             Self::NativeSubscription => "Native subscription",
         }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        [
+            Self::AnthropicMessages,
+            Self::OpenAiChat,
+            Self::OpenAiResponses,
+            Self::Gemini,
+            Self::NativeSubscription,
+        ]
+        .into_iter()
+        .find(|protocol| protocol.id() == value)
     }
 }
 
@@ -179,14 +202,28 @@ pub struct CustomModelProfile {
     pub reasoning_efforts: Vec<ReasoningEffort>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredCustomProvider {
+    pub profile: CustomProviderProfile,
+    pub api_key: String,
+}
+
+#[derive(Clone)]
+pub struct ProviderRuntimeConfig {
+    pub protocol: ApiProtocol,
+    pub base_url: String,
+    pub api_key: String,
+}
+
+#[derive(Clone, Default)]
 pub struct ModelCatalog {
     providers: Vec<ProviderProfile>,
     models: Vec<ModelProfile>,
+    runtime_configs: HashMap<String, ProviderRuntimeConfig>,
 }
 
 impl ModelCatalog {
-    pub fn load(workspace: &Path, custom: &[CustomProviderProfile]) -> Self {
+    pub fn load(workspace: &Path, custom: &[StoredCustomProvider]) -> Self {
         let mut catalog = Self::built_in();
         if let Ok(config) = alva_llm_provider::ProviderConfig::load(workspace) {
             catalog.add_workspace_provider(config);
@@ -271,15 +308,20 @@ impl ModelCatalog {
             .find(|model| model.provider_id == provider_id && model.model_id == model_id)
     }
 
+    pub fn runtime_config(&self, provider_id: &str) -> Option<&ProviderRuntimeConfig> {
+        self.runtime_configs.get(provider_id)
+    }
+
     pub fn models_for_runtime(&self, runtime: AgentRuntime) -> Vec<&ModelProfile> {
         self.models
             .iter()
             .filter(|model| {
                 model.enabled
                     && model.runtimes.contains(&runtime)
-                    && self
-                        .provider(&model.provider_id)
-                        .is_some_and(|provider| provider.runtimes.contains(&runtime))
+                    && self.provider(&model.provider_id).is_some_and(|provider| {
+                        provider.runtimes.contains(&runtime)
+                            && protocol_supports_runtime(provider.protocol, runtime)
+                    })
             })
             .collect()
     }
@@ -308,6 +350,14 @@ impl ModelCatalog {
             return Err(format!(
                 "{} cannot run through {}",
                 route.runtime.label(),
+                provider.display_name
+            ));
+        }
+        if !protocol_supports_runtime(provider.protocol, route.runtime) {
+            return Err(format!(
+                "{} does not support the {} API used by {}",
+                route.runtime.label(),
+                provider.protocol.label(),
                 provider.display_name
             ));
         }
@@ -364,6 +414,11 @@ impl ModelCatalog {
 
     fn add_workspace_provider(&mut self, config: alva_llm_provider::ProviderConfig) {
         let protocol = protocol_from_kind(config.kind.as_deref());
+        let runtime_config = ProviderRuntimeConfig {
+            protocol,
+            base_url: config.base_url.clone(),
+            api_key: config.api_key.clone(),
+        };
         self.providers.push(ProviderProfile {
             provider_id: "alva-workspace".into(),
             display_name: "ALVA workspace provider".into(),
@@ -383,9 +438,18 @@ impl ModelCatalog {
             capabilities: capabilities_for_protocol(protocol, config.max_tokens),
             enabled: true,
         });
+        self.runtime_configs
+            .insert("alva-workspace".into(), runtime_config);
     }
 
-    fn add_custom_provider(&mut self, custom: CustomProviderProfile) {
+    fn add_custom_provider(&mut self, stored: StoredCustomProvider) {
+        let custom = stored.profile;
+        let provider_id = custom.provider_id.clone();
+        let runtime_config = ProviderRuntimeConfig {
+            protocol: custom.protocol,
+            base_url: custom.base_url.clone(),
+            api_key: stored.api_key.clone(),
+        };
         self.providers.push(ProviderProfile {
             provider_id: custom.provider_id.clone(),
             display_name: custom.display_name,
@@ -393,7 +457,7 @@ impl ModelCatalog {
             protocol: custom.protocol,
             base_url: Some(custom.base_url),
             runtimes: custom.runtimes.clone(),
-            connected: true,
+            connected: !stored.api_key.trim().is_empty(),
             built_in: false,
         });
         self.models
@@ -415,6 +479,21 @@ impl ModelCatalog {
                 },
                 enabled: true,
             }));
+        self.runtime_configs.insert(provider_id, runtime_config);
+    }
+}
+
+pub fn protocol_supports_runtime(protocol: ApiProtocol, runtime: AgentRuntime) -> bool {
+    match runtime {
+        AgentRuntime::Alva | AgentRuntime::Pi => protocol != ApiProtocol::NativeSubscription,
+        AgentRuntime::ClaudeCode => matches!(
+            protocol,
+            ApiProtocol::NativeSubscription | ApiProtocol::AnthropicMessages
+        ),
+        AgentRuntime::Codex => matches!(
+            protocol,
+            ApiProtocol::NativeSubscription | ApiProtocol::OpenAiResponses
+        ),
     }
 }
 
@@ -528,21 +607,24 @@ mod tests {
     #[test]
     fn custom_provider_declares_compatible_runtimes() {
         let mut catalog = ModelCatalog::built_in();
-        catalog.add_custom_provider(CustomProviderProfile {
-            provider_id: "acme".into(),
-            display_name: "Acme".into(),
-            protocol: ApiProtocol::OpenAiResponses,
-            base_url: "https://example.invalid".into(),
-            runtimes: vec![AgentRuntime::Alva, AgentRuntime::Codex],
-            models: vec![CustomModelProfile {
-                model_id: "reasoner".into(),
-                display_name: "Reasoner".into(),
-                context_window: 256_000,
-                max_output_tokens: 32_000,
-                images: true,
-                tools: true,
-                reasoning_efforts: vec![ReasoningEffort::Medium, ReasoningEffort::High],
-            }],
+        catalog.add_custom_provider(StoredCustomProvider {
+            profile: CustomProviderProfile {
+                provider_id: "acme".into(),
+                display_name: "Acme".into(),
+                protocol: ApiProtocol::OpenAiResponses,
+                base_url: "https://example.invalid".into(),
+                runtimes: vec![AgentRuntime::Alva, AgentRuntime::Codex],
+                models: vec![CustomModelProfile {
+                    model_id: "reasoner".into(),
+                    display_name: "Reasoner".into(),
+                    context_window: 256_000,
+                    max_output_tokens: 32_000,
+                    images: true,
+                    tools: true,
+                    reasoning_efforts: vec![ReasoningEffort::Medium, ReasoningEffort::High],
+                }],
+            },
+            api_key: "secret".into(),
         });
 
         assert!(catalog
@@ -557,5 +639,17 @@ mod tests {
             .models_for_runtime(AgentRuntime::ClaudeCode)
             .iter()
             .all(|model| model.provider_id != "acme"));
+    }
+
+    #[test]
+    fn codex_rejects_chat_completions_only_providers() {
+        assert!(!protocol_supports_runtime(
+            ApiProtocol::OpenAiChat,
+            AgentRuntime::Codex
+        ));
+        assert!(protocol_supports_runtime(
+            ApiProtocol::OpenAiResponses,
+            AgentRuntime::Codex
+        ));
     }
 }

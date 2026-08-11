@@ -45,6 +45,7 @@ impl ClaudePrintProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        cmd.envs(&config.env);
 
         if config.safe_mode {
             cmd.arg("--safe-mode");

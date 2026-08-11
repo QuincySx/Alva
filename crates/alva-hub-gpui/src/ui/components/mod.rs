@@ -12,6 +12,6 @@ pub use cards::{
     HubExtensionCard, HubExtensionDetail, HubQuickStartCard, HubTemplateCard, HubToolPlaceholder,
 };
 pub use chat::{HubActivityRow, HubComposer};
-pub use forms::HubAutomationForm;
+pub use forms::{HubAutomationForm, HubProviderForm};
 pub use navigation::{HubProjectPicker, HubSessionItem, HubWorkbenchTabMenu};
 pub use surface::{HubEmptyState, HubSurfaceHeader};

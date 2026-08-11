@@ -2,6 +2,7 @@
 // OUTPUT: ClaudeRuntimeMode, ClaudePrintConfig, ClaudePrintPermissionMode
 // POS:    Light-mode (`claude -p`) configuration and full/light mode selector.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// How Hub (or any host) should run the Claude engine.
@@ -80,6 +81,8 @@ pub struct ClaudePrintConfig {
     pub safe_mode: bool,
     /// Default working directory when the request omits one.
     pub default_cwd: Option<PathBuf>,
+    /// Additional child environment for custom API-compatible providers.
+    pub env: HashMap<String, String>,
 }
 
 impl Default for ClaudePrintConfig {
@@ -91,6 +94,7 @@ impl Default for ClaudePrintConfig {
             permission_mode: ClaudePrintPermissionMode::DontAsk,
             safe_mode: true,
             default_cwd: None,
+            env: HashMap::new(),
         }
     }
 }

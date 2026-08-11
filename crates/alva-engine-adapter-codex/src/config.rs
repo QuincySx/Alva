@@ -2,6 +2,7 @@
 // OUTPUT: CodexAdapterConfig, CodexSandboxMode
 // POS:    Configuration for spawning `codex exec --json` as a Hub engine.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Sandbox policy forwarded to `codex exec -s`.
@@ -40,6 +41,8 @@ pub struct CodexAdapterConfig {
     pub config_overrides: Vec<(String, String)>,
     /// Default working directory when the request omits one.
     pub default_cwd: Option<PathBuf>,
+    /// Additional child environment, primarily provider API-key indirection.
+    pub env: HashMap<String, String>,
 }
 
 impl Default for CodexAdapterConfig {
@@ -52,6 +55,7 @@ impl Default for CodexAdapterConfig {
             // Non-interactive Hub runs must not hang on approval prompts.
             config_overrides: vec![("approval_policy".into(), "\"never\"".into())],
             default_cwd: None,
+            env: HashMap::new(),
         }
     }
 }

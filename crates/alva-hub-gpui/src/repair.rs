@@ -35,13 +35,14 @@ pub struct RepairAction {
     pub one_click: bool,
 }
 
-/// Official distribution matrix. Claude Code and Codex CLI ship through npm
+/// Official distribution matrix. Claude Code, Codex CLI, and Pi ship through npm
 /// under their vendors' scopes — safe to one-click. Auth flows are
 /// interactive terminal sessions, so they stay guided.
 fn npm_package(engine_id: &str) -> Option<&'static str> {
     match engine_id {
         "claude" => Some("@anthropic-ai/claude-code"),
         "codex" => Some("@openai/codex"),
+        "pi" => Some("@earendil-works/pi-coding-agent"),
         _ => None,
     }
 }
@@ -50,6 +51,7 @@ fn docs_url(engine_id: &str) -> Option<&'static str> {
     match engine_id {
         "claude" => Some("https://docs.anthropic.com/en/docs/claude-code/setup"),
         "codex" => Some("https://developers.openai.com/codex/cli"),
+        "pi" => Some("https://github.com/earendil-works/pi"),
         _ => None,
     }
 }

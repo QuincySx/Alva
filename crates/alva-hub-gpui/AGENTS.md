@@ -280,3 +280,11 @@ cargo test           # gpui::test
 - **Web 场景**：gpui 支持 wasm32 目标（gpui-component 的 `story-web` 是生产先例）。
   未来要 Web 端，编译 GPUI 到 wasm——不保留任何 web 前端代码。
 - 迁移期间旧版留在仓库作功能参考；**不向旧版添加新功能**，新功能只进 GPUI 版。
+
+## 11. 业务域清单
+
+| 名称 | 文件 | 职责 |
+|---|---|---|
+| ModelCatalog | `src/models.rs` | Runtime / Provider / Model 能力目录与路由守卫 |
+| ProviderStore | `src/provider_store.rs` | owner-only 自定义 Provider 元数据与密钥持久化 |
+| PiAdapter | `../alva-engine-adapter-pi` | Pi JSON print-mode、原生 session resume 与 custom Provider bridge |

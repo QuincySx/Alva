@@ -7,6 +7,7 @@ mod claims;
 mod failure;
 mod models;
 mod permissions;
+mod provider_store;
 mod readiness;
 mod redact;
 mod repair;
@@ -15,18 +16,23 @@ mod store;
 mod ui_projection;
 mod worktree;
 
-pub use alva::{build_engine, build_engine_bundle, build_engine_bundle_for_target, EngineBuild};
+pub use alva::{
+    build_engine, build_engine_bundle, build_engine_bundle_for_target,
+    build_engine_bundle_for_target_with_provider, EngineBuild,
+};
 pub use claims::{claims_conflict, conflicting_claims, parse_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use models::{
-    AgentRuntime, ApiProtocol, CustomModelProfile, CustomProviderProfile, ModelCapabilities,
-    ModelCatalog, ModelProfile, ModelRoute, ProviderAuth, ProviderProfile, ReasoningEffort,
+    protocol_supports_runtime, AgentRuntime, ApiProtocol, CustomModelProfile,
+    CustomProviderProfile, ModelCapabilities, ModelCatalog, ModelProfile, ModelRoute, ProviderAuth,
+    ProviderProfile, ProviderRuntimeConfig, ReasoningEffort, StoredCustomProvider,
 };
 pub use permissions::{
     enforcement_for, permission_eligibility, permission_group_key, EnforcementPlan,
     EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup, PermissionMember,
     PermissionProfile, PermissionRouter,
 };
+pub use provider_store::ProviderStore;
 pub use readiness::{
     capability_labels, classify_engine, probe_readiness, stream_health_from_outcome, EngineProbe,
     EngineProbeFacts, EngineReadiness, ReadinessReason, ReadinessStatus, StreamHealth, SystemProbe,

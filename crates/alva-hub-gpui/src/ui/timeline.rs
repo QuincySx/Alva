@@ -16,7 +16,7 @@ use gpui_component::{
     scroll::ScrollableElement,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     tab::{Tab, TabBar},
-    tag::Tag,
+    tag::{Tag, TagVariant},
     ActiveTheme, *,
 };
 
@@ -27,7 +27,8 @@ use alva_hub_gpui::{
 use super::app::{status_color, with_window, HubApp};
 use super::components::{
     HubActivityRow, HubAutomationForm, HubComposer, HubEmptyState, HubExtensionCard,
-    HubExtensionDetail, HubProjectPicker, HubQuickStartCard, HubSurfaceHeader, HubTemplateCard,
+    HubExtensionDetail, HubProjectPicker, HubProviderForm, HubQuickStartCard, HubSurfaceHeader,
+    HubTemplateCard,
 };
 
 impl HubApp {
@@ -818,6 +819,56 @@ impl HubApp {
         });
     }
 
+    fn open_provider_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.reset_provider_form(window, cx);
+        let weak = cx.entity().downgrade();
+        let form = HubProviderForm::new(
+            weak.clone(),
+            self.provider_name.clone(),
+            self.provider_id.clone(),
+            self.provider_base_url.clone(),
+            self.provider_api_key.clone(),
+            self.provider_model_id.clone(),
+            self.provider_model_name.clone(),
+            self.provider_context_window.clone(),
+            self.provider_max_output.clone(),
+            self.provider_protocol.clone(),
+            self.provider_runtimes.clone(),
+            self.provider_images,
+            self.provider_tools,
+        );
+        window.open_dialog(cx, move |dialog, _, _| {
+            let weak = weak.clone();
+            dialog
+                .width(px(620.))
+                .title("Add model provider")
+                .child(form.clone())
+                .button_props(
+                    DialogButtonProps::default()
+                        .show_cancel(true)
+                        .ok_text("Save provider")
+                        .on_ok(move |_, window, app| {
+                            let Some(hub) = weak.upgrade() else {
+                                return false;
+                            };
+                            match hub.update(app, |hub, cx| hub.save_provider_form(window, cx)) {
+                                Ok(name) => {
+                                    window.push_notification(
+                                        format!("Model provider saved: {name}"),
+                                        app,
+                                    );
+                                    true
+                                }
+                                Err(error) => {
+                                    window.push_notification(error, app);
+                                    false
+                                }
+                            }
+                        }),
+                )
+        });
+    }
+
     pub fn plugins_surface(&self, cx: &mut Context<Self>) -> AnyElement {
         if self.extension_tab == 1 {
             self.skills_catalog_surface(cx).into_any_element()
@@ -1413,11 +1464,7 @@ impl HubApp {
                     IconName::User,
                     "Instructions, memory, and default agent behavior.",
                 ),
-                placeholder_setting_page(
-                    "Models & engines",
-                    IconName::Bot,
-                    "Provider order, model visibility, and engine defaults.",
-                ),
+                self.models_setting_page(cx),
                 placeholder_setting_page(
                     "Usage",
                     IconName::ChartPie,
@@ -1468,6 +1515,135 @@ impl HubApp {
                 ),
                     ]),
             )
+    }
+
+    fn models_setting_page(&self, cx: &mut Context<Self>) -> SettingPage {
+        let weak_add = cx.entity().downgrade();
+        let mut items = vec![SettingItem::new(
+            "Add provider",
+            SettingField::render(move |options, _, _| {
+                let weak_add = weak_add.clone();
+                Button::new("add-model-provider")
+                    .primary()
+                    .icon(IconName::Plus)
+                    .label("Add provider")
+                    .with_size(options.size)
+                    .on_click(move |_, window, app| {
+                        if let Some(hub) = weak_add.upgrade() {
+                            hub.update(app, |hub, cx| hub.open_provider_dialog(window, cx));
+                        }
+                    })
+            }),
+        )
+        .description(
+            "Connect an API provider and declare exactly which agent runtimes can use it.",
+        )];
+        for provider in self.model_catalog.providers() {
+            let provider_id = provider.provider_id.clone();
+            let title = provider.display_name.clone();
+            let runtimes = provider
+                .runtimes
+                .iter()
+                .map(|runtime| runtime.label())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let model_count = self
+                .model_catalog
+                .models()
+                .iter()
+                .filter(|model| model.provider_id == provider.provider_id)
+                .count();
+            let capability_summary = self
+                .model_catalog
+                .models()
+                .iter()
+                .find(|model| model.provider_id == provider.provider_id)
+                .map(|model| {
+                    format!(
+                        "{}k context · {}k output · {} · {}",
+                        model.capabilities.context_window / 1_000,
+                        model.capabilities.max_output_tokens / 1_000,
+                        if model.capabilities.images {
+                            "images"
+                        } else {
+                            "text only"
+                        },
+                        if model.capabilities.tools {
+                            "tools"
+                        } else {
+                            "no tools"
+                        }
+                    )
+                })
+                .unwrap_or_else(|| "No model configured".into());
+            let description = format!(
+                "{} · {} · {model_count} model{} · {}",
+                provider.protocol.label(),
+                runtimes,
+                if model_count == 1 { "" } else { "s" },
+                capability_summary
+            );
+            if provider.built_in {
+                let connected = provider.connected;
+                items.push(
+                    SettingItem::new(
+                        title,
+                        SettingField::render(move |options, _, _| {
+                            Tag::new()
+                                .with_variant(if connected {
+                                    TagVariant::Success
+                                } else {
+                                    TagVariant::Warning
+                                })
+                                .small()
+                                .rounded_full()
+                                .with_size(options.size)
+                                .child(if connected {
+                                    "Connected"
+                                } else {
+                                    "Setup needed"
+                                })
+                        }),
+                    )
+                    .description(description),
+                );
+            } else {
+                let weak_remove = cx.entity().downgrade();
+                items.push(
+                    SettingItem::new(
+                        title,
+                        SettingField::render(move |options, _, _| {
+                            let provider_id = provider_id.clone();
+                            let weak_remove = weak_remove.clone();
+                            Button::new(SharedString::from(format!("remove-{provider_id}")))
+                                .danger()
+                                .label("Remove")
+                                .with_size(options.size)
+                                .on_click(move |_, window, app| {
+                                    if let Some(hub) = weak_remove.upgrade() {
+                                        let result = hub.update(app, |hub, cx| {
+                                            hub.remove_custom_provider(&provider_id, window, cx)
+                                        });
+                                        match result {
+                                            Ok(()) => {
+                                                window.push_notification("Provider removed", app)
+                                            }
+                                            Err(error) => window.push_notification(error, app),
+                                        }
+                                    }
+                                })
+                        }),
+                    )
+                    .description(description),
+                );
+            }
+        }
+        SettingPage::new("Models & engines")
+            .icon(IconName::Bot)
+            .description(
+                "Subscription accounts, API providers, model capabilities, and compatible agents.",
+            )
+            .group(SettingGroup::new().title("Providers").items(items))
     }
 }
 
