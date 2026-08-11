@@ -1583,6 +1583,7 @@ fn main() {
                         point(px(80.), px(60.)),
                         size(px(1100.), px(760.)),
                     ))),
+                    window_min_size: Some(size(px(860.), px(600.))),
                     ..WindowOptions::default()
                 };
                 cx.open_window(options, |window, cx| {
