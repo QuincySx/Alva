@@ -6,6 +6,9 @@
 use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    group_box::{GroupBox, GroupBoxVariants as _},
+    skeleton::Skeleton,
+    tag::Tag,
     ActiveTheme, *,
 };
 
@@ -28,14 +31,11 @@ impl HubApp {
         let repair_logs = self.repair_logs.clone();
         let repairing = self.repairing_engine.clone();
         let theme = cx.theme().clone();
-        v_flex()
-            .gap_2()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(theme.colors.border)
-            .child(
+        GroupBox::new()
+            .outline()
+            .title(
                 h_flex()
+                    .w_full()
                     .items_center()
                     .justify_between()
                     .child(
@@ -49,7 +49,8 @@ impl HubApp {
                         Button::new("readiness-refresh")
                             .ghost()
                             .xsmall()
-                            .label(if busy { "Checking…" } else { "Refresh" })
+                            .label("Refresh")
+                            .loading(busy)
                             .disabled(busy)
                             .on_click(move |_, _, app| {
                                 if let Some(entity) = weak.upgrade() {
@@ -60,27 +61,39 @@ impl HubApp {
                             }),
                     ),
             )
-            .child(div().flex_col().gap_2().children(if readiness.is_empty() {
-                vec![div()
-                    .text_xs()
-                    .text_color(theme.colors.muted_foreground)
-                    .child("Engine health will appear here.")
-                    .into_any_element()]
-            } else {
-                readiness
-                    .iter()
-                    .map(|engine| {
-                        let plan = repair_plan
+            .child(
+                div()
+                    .flex_col()
+                    .gap_2()
+                    .children(if readiness.is_empty() && busy {
+                        vec![v_flex()
+                            .gap_2()
+                            .child(Skeleton::new().h_3())
+                            .child(Skeleton::new().secondary().h_3())
+                            .child(Skeleton::new().secondary().h_3())
+                            .into_any_element()]
+                    } else if readiness.is_empty() {
+                        vec![div()
+                            .text_xs()
+                            .text_color(theme.colors.muted_foreground)
+                            .child("Engine health will appear here.")
+                            .into_any_element()]
+                    } else {
+                        readiness
                             .iter()
-                            .filter(|action| action.engine_id == engine.engine_id)
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        let log = repair_logs.get(&engine.engine_id).cloned();
-                        readiness_card(engine, &plan, log, repairing.as_deref(), cx)
-                            .into_any_element()
-                    })
-                    .collect::<Vec<_>>()
-            }))
+                            .map(|engine| {
+                                let plan = repair_plan
+                                    .iter()
+                                    .filter(|action| action.engine_id == engine.engine_id)
+                                    .cloned()
+                                    .collect::<Vec<_>>();
+                                let log = repair_logs.get(&engine.engine_id).cloned();
+                                readiness_card(engine, &plan, log, repairing.as_deref(), cx)
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>()
+                    }),
+            )
     }
 }
 
@@ -112,13 +125,6 @@ fn readiness_card(
     repairing: Option<&str>,
     cx: &Context<HubApp>,
 ) -> impl IntoElement {
-    let badge_color = match engine.status {
-        alva_hub_gpui::ReadinessStatus::Healthy => cx.theme().colors.success,
-        alva_hub_gpui::ReadinessStatus::Missing => cx.theme().colors.muted_foreground,
-        alva_hub_gpui::ReadinessStatus::Incompatible => cx.theme().colors.warning,
-        alva_hub_gpui::ReadinessStatus::Unauthenticated => cx.theme().colors.warning,
-        alva_hub_gpui::ReadinessStatus::Unhealthy => cx.theme().colors.danger,
-    };
     let version_line = match (&engine.version, engine.minimum_version.as_str()) {
         (Some(version), minimum) => format!("v{version} · requires ≥ {minimum}"),
         (None, minimum) => format!("requires ≥ {minimum}"),
@@ -146,12 +152,10 @@ fn readiness_card(
                         .child(engine.display_name.clone()),
                 )
                 .child(
-                    div()
-                        .px_1()
-                        .py_1()
+                    Tag::new()
+                        .with_variant(super::readiness_tag_variant(&engine.status))
+                        .small()
                         .rounded_full()
-                        .text_xs()
-                        .text_color(badge_color)
                         .child(readiness_badge(status_str(&engine.status))),
                 ),
         )
@@ -194,11 +198,8 @@ fn readiness_card(
                     engine.engine_id, action.kind
                 )))
                 .small()
-                .label(if is_repairing {
-                    "Working…".to_string()
-                } else {
-                    title
-                })
+                .label(title)
+                .loading(is_repairing)
                 .disabled(repairing.is_some())
                 .on_click(move |_, _, app| {
                     if let Some(entity) = weak.upgrade() {

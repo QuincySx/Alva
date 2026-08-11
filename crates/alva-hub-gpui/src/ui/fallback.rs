@@ -3,11 +3,11 @@
 //         model/provider per target, authorize checkbox, ordering and save.
 // POS:    1:1 GPUI port of the React fallback panel in App.tsx.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
+    collapsible::Collapsible,
     input::{Input, InputState},
     ActiveTheme, *,
 };
@@ -61,7 +61,44 @@ impl HubApp {
         let saving = self.policy_saving;
         let weak = cx.entity().downgrade();
         let weak2 = cx.entity().downgrade();
-        v_flex()
+        let content = v_flex()
+            .gap_2()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().colors.muted_foreground)
+                    .child(
+                        "Only checked targets may run automatically. Manual engine switching is always explicit.",
+                    ),
+            )
+            .child(self.policy_catalog(cx))
+            .child(self.policy_targets(cx))
+            .child(
+                Button::new("save-fallback")
+                    .secondary()
+                    .small()
+                    .label(if is_session {
+                        "Save session chain"
+                    } else {
+                        "Save default chain"
+                    })
+                    .loading(saving)
+                    .disabled(saving)
+                    .on_click(move |_, window, app| {
+                        if weak2.upgrade().is_some() {
+                            let handle = window.window_handle();
+                            let _ = handle.update(app, |root, window, cx| {
+                                if let Ok(view) = root.downcast::<HubApp>() {
+                                    view.update(cx, |hub, cx| {
+                                        hub.save_fallback_policy(window, cx);
+                                    });
+                                }
+                            });
+                        }
+                    }),
+            );
+        Collapsible::new()
+            .open(!collapsed)
             .gap_2()
             .p_2()
             .rounded_md()
@@ -70,87 +107,47 @@ impl HubApp {
             .child(
                 h_flex()
                     .items_center()
-                    .justify_between()
+                    .gap_1()
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .items_center()
-                            .child(
-                                Button::new("toggle-fallback")
-                                    .ghost()
-                                    .xsmall()
-                                    .label(if collapsed { "▸" } else { "▾" })
-                                    .on_click(move |_, _, app| {
-                                        if let Some(entity) = weak.upgrade() {
-                                            entity.update(app, |hub, cx| {
-                                                let open = hub
-                                                    .collapsed
-                                                    .get("fallback")
-                                                    .copied()
-                                                    .unwrap_or(true);
-                                                hub.collapsed
-                                                    .insert("fallback".to_string(), !open);
-                                                cx.notify();
-                                            });
-                                        }
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight(650.))
-                                    .text_color(cx.theme().colors.muted_foreground)
-                                    .child(if is_session {
-                                        "Session fallback chain"
-                                    } else {
-                                        "Default fallback chain"
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().colors.muted_foreground)
-                                    .child(count.to_string()),
-                            ),
+                        Button::new("toggle-fallback")
+                            .ghost()
+                            .xsmall()
+                            .icon(if collapsed {
+                                IconName::ChevronRight
+                            } else {
+                                IconName::ChevronDown
+                            })
+                            .on_click(move |_, _, app| {
+                                if let Some(entity) = weak.upgrade() {
+                                    entity.update(app, |hub, cx| {
+                                        let open =
+                                            hub.collapsed.get("fallback").copied().unwrap_or(true);
+                                        hub.collapsed.insert("fallback".to_string(), !open);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .font_weight(FontWeight(650.))
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(if is_session {
+                                "Session fallback chain"
+                            } else {
+                                "Default fallback chain"
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(count.to_string()),
                     ),
             )
-            .when(!collapsed, |this| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().colors.muted_foreground)
-                        .child(
-                            "Only checked targets may run automatically. Manual engine switching is always explicit.",
-                        ),
-                )
-                .child(self.policy_catalog(cx))
-                .child(self.policy_targets(cx))
-                .child(
-                    Button::new("save-fallback")
-                        .secondary()
-                        .small()
-                        .label(if saving {
-                            "Saving…".to_string()
-                        } else if is_session {
-                            "Save session chain".to_string()
-                        } else {
-                            "Save default chain".to_string()
-                        })
-                        .disabled(saving)
-                        .on_click(move |_, window, app| {
-                            if weak2.upgrade().is_some() {
-                                let handle = window.window_handle();
-                                let _ = handle.update(app, |root, window, cx| {
-                                    if let Ok(view) = root.downcast::<HubApp>() {
-                                        view.update(cx, |hub, cx| {
-                                            hub.save_fallback_policy(window, cx);
-                                        });
-                                    }
-                                });
-                            }
-                        }),
-                )
-            })
+            .content(content)
     }
 
     /// Catalog checkboxes: toggle a target in/out of the chain.
@@ -236,7 +233,8 @@ impl HubApp {
                                         )))
                                         .ghost()
                                         .xsmall()
-                                        .label("↑")
+                                        .icon(IconName::ChevronUp)
+                                        .tooltip("Move this engine earlier")
                                         .disabled(is_first)
                                         .on_click(
                                             move |_, window, app| {
@@ -264,7 +262,8 @@ impl HubApp {
                                         )))
                                         .ghost()
                                         .xsmall()
-                                        .label("↓")
+                                        .icon(IconName::ChevronDown)
+                                        .tooltip("Move this engine later")
                                         .disabled(is_last)
                                         .on_click(
                                             move |_, window, app| {

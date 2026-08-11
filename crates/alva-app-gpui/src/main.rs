@@ -1,8 +1,6 @@
-// INPUT:  gpui + gpui-component, AgentService (service.rs)
-// OUTPUT: ALVA Desktop Rust-native shell — P0: chat view with streaming
-//         responses and provider/model/key inputs.
-// POS:    GPUI port of alva-app-tauri (React Home.tsx). Later batches add
-//         sessions (SQLite), settings, skills/mcp, tools and inspector.
+// INPUT:  gpui-component, AgentService, SQLite sessions, skills/MCP/tool catalogs
+// OUTPUT: ALVA Desktop native chat shell with sessions, settings Sheet and inspector views
+// POS:    Single-engine GPUI reference product aligned with the Hub component design system.
 
 mod mcp;
 mod service;
@@ -17,11 +15,21 @@ use std::sync::Arc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
+    alert::Alert,
+    avatar::Avatar,
     button::{Button, ButtonVariants as _},
+    checkbox::Checkbox,
+    group_box::{GroupBox, GroupBoxVariants as _},
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     searchable_list::SearchableVec,
     select::{Select, SelectState},
+    sidebar::{
+        Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu,
+        SidebarMenuItem,
+    },
+    spinner::Spinner,
+    tag::Tag,
     ActiveTheme, *,
 };
 
@@ -83,7 +91,6 @@ struct ChatApp {
     busy: bool,
     error: Option<String>,
     // Settings surface.
-    settings_open: bool,
     settings_model: Entity<InputState>,
     settings_key: Entity<InputState>,
     settings_base_url: Entity<InputState>,
@@ -158,7 +165,6 @@ impl ChatApp {
             messages: Vec::new(),
             busy: false,
             error: None,
-            settings_open: false,
             settings_model: cx.new(|cx| InputState::new(window, cx).placeholder("default model")),
             settings_key: cx.new(|cx| {
                 InputState::new(window, cx)
@@ -302,6 +308,22 @@ impl ChatApp {
         });
         self.settings_base_url.update(cx, |state, cx| {
             state.set_value(base_url, window, cx);
+        });
+    }
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.load_settings_into_inputs(window, cx);
+        let weak = cx.entity().downgrade();
+        window.open_sheet(cx, move |sheet, window, cx| {
+            let Some(entity) = weak.upgrade() else {
+                return sheet;
+            };
+            entity.update(cx, |app, cx| {
+                sheet
+                    .size(px(440.))
+                    .title("Provider settings")
+                    .child(app.settings_panel(window, cx))
+            })
         });
     }
 
@@ -514,135 +536,120 @@ impl ChatApp {
         let status = self.settings_status.clone();
         let weak = cx.entity().downgrade();
         v_flex()
-            .gap_2()
-            .px_4()
-            .py_3()
-            .border_b_1()
-            .border_color(cx.theme().colors.border)
+            .gap_4()
             .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight(600.))
-                    .child("Provider settings"),
-            )
-            .child(
-                v_flex()
-                    .gap_1()
+                GroupBox::new()
+                    .outline()
+                    .title("Connection")
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child("Model"),
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("Model"),
+                            )
+                            .child(Input::new(&self.settings_model).small()),
                     )
-                    .child(Input::new(&self.settings_model).small()),
-            )
-            .child(
-                v_flex()
-                    .gap_1()
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child("API key"),
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("API key"),
+                            )
+                            .child(Input::new(&self.settings_key).small()),
                     )
-                    .child(Input::new(&self.settings_key).small()),
-            )
-            .child(
-                v_flex()
-                    .gap_1()
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child("Base URL (optional)"),
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("Base URL (optional)"),
+                            )
+                            .child(Input::new(&self.settings_base_url).small()),
                     )
-                    .child(Input::new(&self.settings_base_url).small()),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
                     .child(
-                        Button::new("save-settings")
-                            .primary()
-                            .small()
-                            .label("Save")
-                            .on_click(move |_, window, cx| {
-                                if weak.upgrade().is_some() {
-                                    let handle = window.window_handle();
-                                    let _ = handle.update(cx, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<ChatApp>() {
-                                            view.update(cx, |hub, cx| {
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                Button::new("save-settings")
+                                    .primary()
+                                    .small()
+                                    .label("Save")
+                                    .on_click(move |_, window, cx| {
+                                        if let Some(entity) = weak.upgrade() {
+                                            entity.update(cx, |hub, cx| {
                                                 hub.save_settings(window, cx);
                                             });
                                         }
-                                    });
-                                }
-                            }),
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(status.unwrap_or_default()),
+                            ),
+                    ),
+            )
+            .child(
+                GroupBox::new()
+                    .outline()
+                    .title("Embedded gateway")
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(Input::new(&self.gateway_port).small())
+                            .child(
+                                Button::new("start-gateway")
+                                    .secondary()
+                                    .small()
+                                    .label("Start")
+                                    .on_click({
+                                        let weak = cx.entity().downgrade();
+                                        move |_, window, cx| {
+                                            if let Some(entity) = weak.upgrade() {
+                                                entity.update(cx, |hub, cx| {
+                                                    hub.start_gateway(window, cx);
+                                                });
+                                            }
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new("stop-gateway")
+                                    .ghost()
+                                    .small()
+                                    .label("Stop")
+                                    .on_click({
+                                        let weak = cx.entity().downgrade();
+                                        move |_, _, cx| {
+                                            if let Some(entity) = weak.upgrade() {
+                                                entity.update(cx, |hub, cx| {
+                                                    hub.stop_gateway(cx);
+                                                });
+                                            }
+                                        }
+                                    }),
+                            ),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().colors.muted_foreground)
-                            .child(status.unwrap_or_default()),
+                            .child(self.gateway_status.clone().unwrap_or_else(|| {
+                                "Exposes the configured provider via OpenAI-compatible routes."
+                                    .to_string()
+                            })),
                     ),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight(600.))
-                            .child("Gateway"),
-                    )
-                    .child(Input::new(&self.gateway_port).small())
-                    .child(
-                        Button::new("start-gateway")
-                            .secondary()
-                            .small()
-                            .label("Start")
-                            .on_click({
-                                let weak = cx.entity().downgrade();
-                                move |_, window, cx| {
-                                    if weak.upgrade().is_some() {
-                                        let handle = window.window_handle();
-                                        let _ = handle.update(cx, |root, window, cx| {
-                                            if let Ok(view) = root.downcast::<ChatApp>() {
-                                                view.update(cx, |hub, cx| {
-                                                    hub.start_gateway(window, cx);
-                                                });
-                                            }
-                                        });
-                                    }
-                                }
-                            }),
-                    )
-                    .child(
-                        Button::new("stop-gateway")
-                            .ghost()
-                            .small()
-                            .label("Stop")
-                            .on_click({
-                                let weak = cx.entity().downgrade();
-                                move |_, _, cx| {
-                                    if let Some(entity) = weak.upgrade() {
-                                        entity.update(cx, |hub, cx| {
-                                            hub.stop_gateway(cx);
-                                        });
-                                    }
-                                }
-                            }),
-                    ),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(self.gateway_status.clone().unwrap_or_else(|| {
-                        "Exposes the configured provider via OpenAI-compatible routes.".to_string()
-                    })),
             )
     }
 
@@ -656,54 +663,33 @@ impl ChatApp {
             let checked = self.selected_tools.contains(&name);
             let weak = weak.clone();
             rows = rows.child(
-                div()
-                    .id(SharedString::from(format!("tool-{name}")))
-                    .v_flex()
-                    .gap_0()
-                    .cursor_pointer()
+                v_flex()
+                    .gap_1()
                     .px_2()
                     .py_1()
-                    .rounded_md()
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .size_3()
-                                    .rounded_sm()
-                                    .when(checked, |this| this.bg(cx.theme().colors.primary))
-                                    .border_1()
-                                    .border_color(cx.theme().colors.border),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight(600.))
-                                    .child(name.clone()),
-                            ),
+                        Checkbox::new(SharedString::from(format!("tool-{name}")))
+                            .label(name.clone())
+                            .checked(checked)
+                            .on_click(move |checked, _, cx| {
+                                if let Some(entity) = weak.upgrade() {
+                                    entity.update(cx, |hub, cx| {
+                                        if *checked {
+                                            hub.selected_tools.insert(name.clone());
+                                        } else {
+                                            hub.selected_tools.remove(&name);
+                                        }
+                                        cx.notify();
+                                    });
+                                }
+                            }),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().colors.muted_foreground)
                             .child(description),
-                    )
-                    .on_click(move |_, window, cx| {
-                        if weak.upgrade().is_some() {
-                            let handle = window.window_handle();
-                            let _ = handle.update(cx, |root, _window, cx| {
-                                if let Ok(view) = root.downcast::<ChatApp>() {
-                                    view.update(cx, |hub, cx| {
-                                        if !hub.selected_tools.insert(name.clone()) {
-                                            hub.selected_tools.remove(&name);
-                                        }
-                                        cx.notify();
-                                    });
-                                }
-                            });
-                        }
-                    }),
+                    ),
             );
         }
         rows
@@ -749,23 +735,14 @@ impl ChatApp {
                     .take(120)
                     .collect::<String>();
                 v_flex()
-                    .gap_1_5()
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(cx.theme().colors.warning)
+                    .gap_2()
                     .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight(600.))
-                            .child(format!("Approval needed: {tool_name}")),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(arguments),
+                        Alert::warning(
+                            SharedString::from(format!("approval-{request_id}")),
+                            arguments,
+                        )
+                        .small()
+                        .title(format!("Approval needed: {tool_name}")),
                     )
                     .child(
                         h_flex()
@@ -909,19 +886,26 @@ impl ChatApp {
                     .items_center()
                     .justify_between()
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(if busy {
-                                "Alva is working…"
-                            } else {
-                                "Enter to send"
-                            }),
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .when(busy, |this| this.child(Spinner::new().xsmall()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child(if busy {
+                                        "Alva is working…"
+                                    } else {
+                                        "Enter to send"
+                                    }),
+                            ),
                     )
                     .child(
                         Button::new("send")
                             .primary()
-                            .label(if busy { "Running…" } else { "Send" })
+                            .label("Send")
+                            .loading(busy)
                             .disabled(busy)
                             .on_click(move |_, window, cx| {
                                 if weak.upgrade().is_some() {
@@ -987,26 +971,15 @@ impl ChatApp {
                     .child(
                         Button::new("settings")
                             .ghost()
-                            .label(if self.settings_open {
-                                "Close settings"
-                            } else {
-                                "Settings"
-                            })
+                            .icon(IconName::Settings)
+                            .label("Settings")
+                            .tooltip("Open provider and gateway settings")
                             .on_click({
                                 let weak = cx.entity().downgrade();
                                 move |_, window, cx| {
-                                    if weak.upgrade().is_some() {
-                                        let handle = window.window_handle();
-                                        let _ = handle.update(cx, |root, window, cx| {
-                                            if let Ok(view) = root.downcast::<ChatApp>() {
-                                                view.update(cx, |hub, cx| {
-                                                    hub.settings_open = !hub.settings_open;
-                                                    if hub.settings_open {
-                                                        hub.load_settings_into_inputs(window, cx);
-                                                    }
-                                                    cx.notify();
-                                                });
-                                            }
+                                    if let Some(entity) = weak.upgrade() {
+                                        entity.update(cx, |hub, cx| {
+                                            hub.open_settings(window, cx);
                                         });
                                     }
                                 }
@@ -1029,27 +1002,66 @@ impl ChatApp {
         let active = self.active_session_id.clone();
         let weak_new = cx.entity().downgrade();
         let weak = cx.entity().downgrade();
-        v_flex()
-            .id("app-sidebar")
-            .flex_col()
-            .gap_2()
-            .px_3()
-            .py_3()
-            .w(px(240.))
-            .bg(cx.theme().colors.sidebar)
-            .border_r_1()
-            .border_color(cx.theme().colors.border)
-            .overflow_y_scrollbar()
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .child(div().text_lg().font_weight(FontWeight(700.)).child("ALVA"))
+        let session_items = if sessions.is_empty() {
+            vec![SidebarMenuItem::new("No sessions yet.").disable(true)]
+        } else {
+            sessions
+                .iter()
+                .map(|session| {
+                    let weak = weak.clone();
+                    let id = session.session_id.clone();
+                    let short_id = id.chars().take(8).collect::<String>();
+                    let preview = session.preview.clone();
+                    let is_active = active.as_deref() == Some(session.session_id.as_str());
+                    SidebarMenuItem::new(preview)
+                        .icon(IconName::Inbox)
+                        .active(is_active)
+                        .suffix(move |_, _| {
+                            Tag::secondary()
+                                .small()
+                                .rounded_full()
+                                .child(short_id.clone())
+                        })
+                        .on_click(move |_, window, cx| {
+                            if weak.upgrade().is_some() {
+                                let handle = window.window_handle();
+                                let _ = handle.update(cx, |root, window, cx| {
+                                    if let Ok(view) = root.downcast::<ChatApp>() {
+                                        view.update(cx, |hub, cx| {
+                                            hub.switch_session(&id, window, cx);
+                                        });
+                                    }
+                                });
+                            }
+                        })
+                })
+                .collect::<Vec<_>>()
+        };
+
+        Sidebar::new("app-sidebar")
+            .w(px(260.))
+            .collapsible(SidebarCollapsible::None)
+            .header(
+                SidebarHeader::new()
+                    .child(Avatar::new().name("ALVA").placeholder(IconName::Bot))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .gap_0()
+                            .child(div().font_weight(FontWeight(700.)).child("ALVA"))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("Native agent desktop"),
+                            ),
+                    )
                     .child(
                         Button::new("new-session")
                             .secondary()
                             .xsmall()
-                            .label("New")
+                            .icon(IconName::Plus)
+                            .tooltip("Start a new session")
                             .on_click(move |_, window, app| {
                                 if weak_new.upgrade().is_some() {
                                     let handle = window.window_handle();
@@ -1065,76 +1077,38 @@ impl ChatApp {
                     ),
             )
             .child(
-                h_flex()
-                    .gap_1()
-                    .child(self.nav_button("Chat", View::Chat, cx))
-                    .child(self.nav_button("Skills", View::Skills, cx))
-                    .child(self.nav_button("MCP", View::Mcp, cx))
-                    .child(self.nav_button("Inspector", View::Inspector, cx)),
+                SidebarGroup::new("Workspace").child(SidebarMenu::new().children([
+                    self.nav_item("Chat", IconName::Bot, View::Chat, cx),
+                    self.nav_item("Skills", IconName::BookOpen, View::Skills, cx),
+                    self.nav_item("MCP", IconName::Network, View::Mcp, cx),
+                    self.nav_item("Inspector", IconName::Inspector, View::Inspector, cx),
+                ])),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(650.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("Sessions"),
-            )
-            .child(div().flex_col().gap_1().children(if sessions.is_empty() {
-                vec![div()
-                    .text_xs()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("No sessions yet.")
-                    .into_any_element()]
-            } else {
-                sessions
-                    .iter()
-                    .map(|session| {
-                        let weak = weak.clone();
-                        let id = session.session_id.clone();
-                        let preview = session.preview.clone();
-                        let is_active = active.as_deref() == Some(session.session_id.as_str());
+            .child(SidebarGroup::new("Sessions").child(SidebarMenu::new().children(session_items)))
+            .footer(
+                SidebarFooter::new()
+                    .child(Tag::info().small().rounded_full().child("GPUI"))
+                    .child(
                         div()
-                            .id(SharedString::from(format!("session-{id}")))
-                            .v_flex()
-                            .gap_1()
-                            .px_2()
-                            .py_1_5()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .when(is_active, |this| this.bg(cx.theme().colors.button))
-                            .child(div().text_sm().font_weight(FontWeight(600.)).child(preview))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().colors.muted_foreground)
-                                    .child(id.chars().take(8).collect::<String>()),
-                            )
-                            .on_click(move |_, window, cx| {
-                                if weak.upgrade().is_some() {
-                                    let handle = window.window_handle();
-                                    let _ = handle.update(cx, |root, window, cx| {
-                                        if let Ok(view) = root.downcast::<ChatApp>() {
-                                            view.update(cx, |hub, cx| {
-                                                hub.switch_session(&id, window, cx);
-                                            });
-                                        }
-                                    });
-                                }
-                            })
-                            .into_any_element()
-                    })
-                    .collect::<Vec<_>>()
-            }))
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child("Local-first"),
+                    ),
+            )
     }
 
-    fn nav_button(&self, label: &str, view: View, cx: &Context<Self>) -> impl IntoElement {
+    fn nav_item(
+        &self,
+        label: &str,
+        icon: IconName,
+        view: View,
+        cx: &Context<Self>,
+    ) -> SidebarMenuItem {
         let weak = cx.entity().downgrade();
         let view_key = view;
-        Button::new(SharedString::from(format!("nav-{label}")))
-            .ghost()
-            .small()
-            .label(label)
-            .selected(self.view == view_key)
+        SidebarMenuItem::new(label)
+            .icon(icon)
+            .active(self.view == view_key)
             .on_click(move |_, window, cx| {
                 if weak.upgrade().is_some() {
                     let handle = window.window_handle();
@@ -1179,19 +1153,9 @@ impl ChatApp {
                 skills
                     .iter()
                     .map(|skill| {
-                        v_flex()
-                            .gap_1()
-                            .px_3()
-                            .py_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(cx.theme().colors.border)
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight(600.))
-                                    .child(skill.name.clone()),
-                            )
+                        GroupBox::new()
+                            .outline()
+                            .title(skill.name.clone())
                             .child(
                                 div()
                                     .text_xs()
@@ -1240,19 +1204,9 @@ impl ChatApp {
                 servers
                     .iter()
                     .map(|server| {
-                        v_flex()
-                            .gap_1()
-                            .px_3()
-                            .py_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(cx.theme().colors.border)
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight(600.))
-                                    .child(server.name.clone()),
-                            )
+                        GroupBox::new()
+                            .outline()
+                            .title(server.name.clone())
                             .child(
                                 div()
                                     .text_xs()
@@ -1419,26 +1373,16 @@ impl ChatApp {
                             .as_ref()
                             .map(|m| m.text_content())
                             .unwrap_or_default();
-                        v_flex()
-                            .gap_1()
-                            .px_3()
-                            .py_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(cx.theme().colors.border)
-                            .child(
+                        GroupBox::new()
+                            .outline()
+                            .title(
                                 h_flex()
                                     .gap_2()
+                                    .child(format!("Turn {}", turn.turn_number))
                                     .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight(600.))
-                                            .child(format!("Turn {}", turn.turn_number)),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().colors.muted_foreground)
+                                        Tag::secondary()
+                                            .small()
+                                            .rounded_full()
                                             .child(format!("{stop} · {input}in/{output}out")),
                                     ),
                             )
@@ -1539,9 +1483,6 @@ impl Render for ChatApp {
                     .flex_1()
                     .size_full()
                     .child(self.topbar(window, cx))
-                    .when(self.settings_open, |this| {
-                        this.child(self.settings_panel(window, cx))
-                    })
                     .child(if self.view == View::Skills {
                         self.skills_view(cx).into_any_element()
                     } else if self.view == View::Mcp {

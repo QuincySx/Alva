@@ -11,13 +11,14 @@
 | `Input` | 15 处 | migrated |
 | `Select` | 6 处 | migrated |
 | `Checkbox` | 5 处 | migrated |
-| `Icon` | 1 处 | partial |
-| `Sidebar` / `Avatar` / `Tag` / `Collapsible` / `TabBar` | 0 处 | missing |
-| `Skeleton` / `Spinner` / `Tooltip` | 0 处 | missing |
-| 裸 `div()` | 约 200 处 | partial |
-| 手搓圆角/边框/间距组合 | 约 121 处 | partial |
+| `Sidebar` | Hub/App 各 1 个正式主侧栏 | migrated |
+| `Avatar` / `Tag` / `Collapsible` / `TabBar` | 品牌、会话/运行状态、运维折叠区与 Hub engine tabs | migrated |
+| `Sheet` | App settings + Hub details/readiness/fallback/team 共 5 个入口 | migrated |
+| `Skeleton` / `Spinner` / `Tooltip` | readiness 骨架、运行 spinner、6 个关键按钮 tooltip | migrated |
+| 裸 `div()` | App 41 / Hub 125，均作为布局、文本、聊天/时间线/Worker 产品自定义卡使用 | migrated |
+| 手搓标准控件 | Settings、侧栏、状态徽章、审批提示、标准分组均已替换 | migrated |
 
-结论：GPUI 技术迁移已经完成，但 gpui-component 设计系统迁移尚未完成。
+结论：gpui-component 代码基线已完成；仍需 ticket 10 的真实窗口、light/dark、键盘与最小尺寸视觉验收。
 
 ## ALVA Hub
 
@@ -37,7 +38,7 @@
 | Provider 添加向导 | 无 | missing | 06 |
 | Engine × model 兼容性 badge | 无 | missing | 07 |
 | 嵌入模型协议 gateway | Hub 未接入 | missing | 08 |
-| gpui-component Sidebar/Tag/Tab/Sheet 等 | 标准区域多数手搓 | missing | 01 |
+| gpui-component Sidebar/Tag/Tab/Sheet 等 | 标准导航、状态、抽屉与 loading 已替换 | migrated | 01/10 |
 | Light/dark、键盘、视觉 parity | 未完成打包验收 | partial | 10 |
 
 ## ALVA App
@@ -56,7 +57,7 @@
 | 独立 Inspector window | 当前为同窗 view | partial | 10 决定保留或 obsolete |
 | Resizable split | 无等价组件 | missing | 01 |
 | Model picker 交互与视觉 | provider select 可用，未形成完整 picker | partial | 01/05 |
-| gpui-component Sidebar/Avatar/Tag/Tab/Sheet | 标准区域多数手搓 | missing | 01 |
+| gpui-component Sidebar/Avatar/Tag/Sheet 等 | 标准导航、设置抽屉、状态与 loading 已替换 | migrated | 01/10 |
 | 打包视觉 parity | `.app` 已能打包，未完成组件替换后复验 | partial | 10 |
 
 ## 删除旧 Tauri 的闸门

@@ -13,10 +13,6 @@ use alva_hub_gpui::TimelineEvent;
 use super::app::{with_window, HubApp};
 
 impl HubApp {
-    pub fn details_open(&self) -> bool {
-        self.details_open
-    }
-
     /// Append a memory entry and reflect the fresh list on the open
     /// session; the store returns the updated list so the drawer never
     /// guesses (React `addMemory`).
@@ -39,11 +35,6 @@ impl HubApp {
             }
             Err(error) => self.push_local_failure(&error, cx),
         }
-        cx.notify();
-    }
-
-    pub fn toggle_details(&mut self, cx: &mut Context<Self>) {
-        self.details_open = !self.details_open;
         cx.notify();
     }
 

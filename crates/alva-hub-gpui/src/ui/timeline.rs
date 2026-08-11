@@ -9,6 +9,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::Input,
     scroll::ScrollableElement,
+    tag::Tag,
     ActiveTheme, Icon, IconName, *,
 };
 
@@ -18,23 +19,15 @@ use super::app::{status_color, HubApp};
 
 impl HubApp {
     pub fn main_column(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let drawer = self.details_open && self.session_detail.is_some();
-        h_flex()
+        v_flex()
             .flex_1()
             .size_full()
             .min_w_0()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .size_full()
-                    .min_w_0()
-                    .child(self.topbar(window, cx))
-                    .child(self.timeline_area(cx))
-                    .child(self.composer_readiness_warning(cx))
-                    .child(self.approval_area(cx))
-                    .child(self.composer(window, cx)),
-            )
-            .when(drawer, |this| this.child(self.details_drawer(window, cx)))
+            .child(self.topbar(window, cx))
+            .child(self.timeline_area(cx))
+            .child(self.composer_readiness_warning(cx))
+            .child(self.approval_area(cx))
+            .child(self.composer(window, cx))
     }
 
     fn timeline_area(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -133,12 +126,10 @@ impl HubApp {
                             .child(event.engine_id.clone()),
                     )
                     .child(
-                        div()
-                            .px_1()
-                            .py_1()
+                        Tag::new()
+                            .with_variant(super::timeline_tag_variant(&event.status))
+                            .small()
                             .rounded_full()
-                            .text_xs()
-                            .text_color(color)
                             .child(status),
                     ),
             )
@@ -450,11 +441,8 @@ impl HubApp {
                     .child(
                         Button::new("run")
                             .primary()
-                            .label(if busy {
-                                "Running…".to_string()
-                            } else {
-                                format!("Run with {engine_display}")
-                            })
+                            .label(format!("Run with {engine_display}"))
+                            .loading(busy)
                             .disabled(busy || !workspace_set)
                             .on_click(move |_, window, app| {
                                 if weak.upgrade().is_some() {

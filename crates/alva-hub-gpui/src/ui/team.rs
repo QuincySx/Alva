@@ -9,8 +9,10 @@ use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
+    collapsible::Collapsible,
     input::Input,
     select::Select,
+    tag::Tag,
     ActiveTheme, *,
 };
 
@@ -29,63 +31,64 @@ impl HubApp {
             .map(|run| run.tasks.len())
             .unwrap_or(0);
         let weak = cx.entity().downgrade();
-        v_flex()
+        let content = if !has_session {
+            div()
+                .text_xs()
+                .text_color(cx.theme().colors.muted_foreground)
+                .child("Open a session to lead a team run.")
+                .into_any_element()
+        } else if self.team_run.is_none() {
+            self.team_create_form(window, cx).into_any_element()
+        } else {
+            self.team_content(window, cx).into_any_element()
+        };
+        Collapsible::new()
+            .open(!collapsed)
             .gap_2()
             .p_2()
             .rounded_md()
             .border_1()
             .border_color(cx.theme().colors.border)
             .child(
-                h_flex().items_center().justify_between().child(
-                    h_flex()
-                        .gap_1()
-                        .items_center()
-                        .child(
-                            Button::new("toggle-team")
-                                .ghost()
-                                .xsmall()
-                                .label(if collapsed { "▸" } else { "▾" })
-                                .on_click(move |_, _, app| {
-                                    if let Some(entity) = weak.upgrade() {
-                                        entity.update(app, |hub, cx| {
-                                            let open =
-                                                hub.collapsed.get("team").copied().unwrap_or(true);
-                                            hub.collapsed.insert("team".to_string(), !open);
-                                            cx.notify();
-                                        });
-                                    }
-                                }),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight(650.))
-                                .text_color(cx.theme().colors.muted_foreground)
-                                .child("Team"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().colors.muted_foreground)
-                                .child(count.to_string()),
-                        ),
-                ),
-            )
-            .when(!collapsed, |this| {
-                if !has_session {
-                    this.child(
+                h_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        Button::new("toggle-team")
+                            .ghost()
+                            .xsmall()
+                            .icon(if collapsed {
+                                IconName::ChevronRight
+                            } else {
+                                IconName::ChevronDown
+                            })
+                            .on_click(move |_, _, app| {
+                                if let Some(entity) = weak.upgrade() {
+                                    entity.update(app, |hub, cx| {
+                                        let open =
+                                            hub.collapsed.get("team").copied().unwrap_or(true);
+                                        hub.collapsed.insert("team".to_string(), !open);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .font_weight(FontWeight(650.))
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child("Team"),
+                    )
+                    .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().colors.muted_foreground)
-                            .child("Open a session to lead a team run.")
-                            .into_any_element(),
-                    )
-                } else if self.team_run.is_none() {
-                    this.child(self.team_create_form(window, cx).into_any_element())
-                } else {
-                    this.child(self.team_content(window, cx).into_any_element())
-                }
-            })
+                            .child(count.to_string()),
+                    ),
+            )
+            .content(content)
     }
 
     /// Worker engine picker + Create team run (no run yet).
@@ -141,14 +144,22 @@ impl HubApp {
         v_flex()
             .gap_2()
             .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(if run.status == "active" {
-                        format!("Lead: {lead_engine}")
-                    } else {
-                        format!("Lead: {lead_engine} · run {}", run.status)
-                    }),
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(format!("Lead: {lead_engine}")),
+                    )
+                    .child(
+                        Tag::new()
+                            .with_variant(super::status_tag_variant(&run.status))
+                            .small()
+                            .rounded_full()
+                            .child(run.status.clone()),
+                    ),
             )
             .children(workers.iter().map(|worker| {
                 let tasks: Vec<WorkerTask> = run
@@ -219,22 +230,14 @@ impl HubApp {
                                     .child(format!("Worker · {engine_id}")),
                             )
                             .when(worktree_path.is_some(), |this| {
-                                this.child(
-                                    div()
-                                        .px_1()
-                                        .rounded_md()
-                                        .text_xs()
-                                        .text_color(cx.theme().colors.warning)
-                                        .child("isolated"),
-                                )
+                                this.child(Tag::warning().small().rounded_full().child("isolated"))
                             })
                             .when(lifecycle != WorkerLifecycle::Active, |this| {
                                 this.child(
-                                    div()
-                                        .px_1()
-                                        .rounded_md()
-                                        .text_xs()
-                                        .text_color(cx.theme().colors.muted_foreground)
+                                    Tag::new()
+                                        .with_variant(super::status_tag_variant(lifecycle.as_str()))
+                                        .small()
+                                        .rounded_full()
                                         .child(lifecycle.as_str()),
                                 )
                             }),
@@ -514,12 +517,23 @@ impl HubApp {
                     .into_any_element()
             })
             .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(match (&result, status.as_str()) {
-                        (Some(result), _) => format!("{status} — {result}"),
-                        _ => status.clone(),
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(
+                        Tag::new()
+                            .with_variant(super::status_tag_variant(&status))
+                            .small()
+                            .rounded_full()
+                            .child(status.clone()),
+                    )
+                    .when_some(result.clone(), |this, result| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().colors.muted_foreground)
+                                .child(result),
+                        )
                     }),
             );
         if !changed_files.is_empty() {

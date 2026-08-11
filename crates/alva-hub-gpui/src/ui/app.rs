@@ -27,7 +27,7 @@ use alva_hub_gpui::{
     TimelineStatus,
 };
 
-use super::{EngineOption, WorkerOption, profile_label};
+use super::{profile_label, EngineOption, WorkerOption};
 use alva_hub_gpui::{project_timeline, ProjectedEvent};
 
 const ENGINE_OPTIONS: [&str; 3] = ["alva", "claude", "codex"];
@@ -70,8 +70,6 @@ pub struct HubApp {
     pub fallback_policy: FallbackPolicy,
     #[allow(dead_code)]
     pub policy_saving: bool,
-    /// Details drawer open state (rendered by `details.rs`).
-    pub details_open: bool,
     /// Active team run for the open lead session.
     pub team_run: Option<alva_hub_gpui::TeamRunDetail>,
     /// Sidebar sections the user can collapse (fallback/team start collapsed).
@@ -164,7 +162,6 @@ impl HubApp {
             busy: false,
             fallback_policy,
             policy_saving: false,
-            details_open: false,
             team_run: None,
             collapsed: HashMap::from([("fallback".to_string(), true), ("team".to_string(), true)]),
             policy_model_inputs: Vec::new(),
@@ -250,9 +247,7 @@ impl HubApp {
                     .find(|report| report.engine_id == *id)
                     .map(|report| match report.status {
                         alva_hub_gpui::ReadinessStatus::Healthy => String::new(),
-                        alva_hub_gpui::ReadinessStatus::Missing => {
-                            " — Not installed".to_string()
-                        }
+                        alva_hub_gpui::ReadinessStatus::Missing => " — Not installed".to_string(),
                         alva_hub_gpui::ReadinessStatus::Incompatible => {
                             " — Incompatible".to_string()
                         }
@@ -277,7 +272,9 @@ impl HubApp {
         let current = self.selected_engine(cx);
         self.engine.update(cx, |state, cx| {
             state.set_items(SearchableVec::new(options.clone()), window, cx);
-            let index = options.iter().position(|option| option.engine_id == current);
+            let index = options
+                .iter()
+                .position(|option| option.engine_id == current);
             state.set_selected_index(index.map(IndexPath::new), window, cx);
         });
     }

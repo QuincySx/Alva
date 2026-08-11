@@ -1,13 +1,13 @@
 // INPUT:  HubApp.session_detail + readiness
-// OUTPUT: right-hand Details drawer — memory, branches, attempts, handoffs
+// OUTPUT: Details Sheet — memory, branches, attempts, handoffs
 //         (with expandable envelopes) and engine diagnostics.
-// POS:    1:1 GPUI port of the React details drawer in App.tsx.
+// POS:    Session detail surface presented through gpui-component Sheet.
 
 use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::Input,
-    scroll::ScrollableElement,
+    tag::Tag,
     ActiveTheme, *,
 };
 
@@ -17,8 +17,25 @@ use super::app::HubApp;
 use super::readiness_badge;
 
 impl HubApp {
-    /// Right-hand drawer shown while `details_open` and a session is loaded.
-    pub fn details_drawer(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub fn open_details_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.session_detail.is_none() {
+            return;
+        }
+        let weak = cx.entity().downgrade();
+        window.open_sheet(cx, move |sheet, window, cx| {
+            let Some(entity) = weak.upgrade() else {
+                return sheet;
+            };
+            entity.update(cx, |hub, cx| {
+                sheet
+                    .size(px(440.))
+                    .title("Session details")
+                    .child(hub.details_content(window, cx))
+            })
+        });
+    }
+
+    fn details_content(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(detail) = self.session_detail.clone() else {
             return div().into_any_element();
         };
@@ -28,24 +45,12 @@ impl HubApp {
         let handoffs = detail.handoffs.clone();
         let readiness = self.readiness.clone();
         v_flex()
-            .id("details-drawer")
-            .w(px(340.))
-            .h_full()
-            .flex_shrink_0()
-            .border_l_1()
-            .border_color(cx.theme().colors.border)
-            .bg(cx.theme().colors.sidebar)
-            .overflow_y_scrollbar()
-            .child(
-                v_flex()
-                    .gap_1_5()
-                    .p_3()
-                    .child(self.drawer_memory(&memory, window, cx))
-                    .child(self.drawer_branches(&branches, cx))
-                    .child(self.drawer_attempts(&turns, cx))
-                    .child(self.drawer_handoffs(&handoffs, cx))
-                    .child(self.drawer_diagnostics(&readiness, cx)),
-            )
+            .gap_4()
+            .child(self.drawer_memory(&memory, window, cx))
+            .child(self.drawer_branches(&branches, cx))
+            .child(self.drawer_attempts(&turns, cx))
+            .child(self.drawer_handoffs(&handoffs, cx))
+            .child(self.drawer_diagnostics(&readiness, cx))
             .into_any_element()
     }
 
@@ -150,10 +155,22 @@ impl HubApp {
                         v_flex()
                             .gap_1()
                             .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight(600.))
-                                    .child(format!("{} · {}", branch.engine_id, branch.status)),
+                                h_flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(FontWeight(600.))
+                                            .child(branch.engine_id.clone()),
+                                    )
+                                    .child(
+                                        Tag::new()
+                                            .with_variant(super::status_tag_variant(&branch.status))
+                                            .small()
+                                            .rounded_full()
+                                            .child(branch.status.clone()),
+                                    ),
                             )
                             .child(
                                 div()
@@ -196,10 +213,22 @@ impl HubApp {
                     .flat_map(|turn| turn.attempts.iter())
                     .map(|attempt| {
                         let mut row = v_flex().gap_1().child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight(600.))
-                                .child(format!("{} · {}", attempt.engine_id, attempt.status)),
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight(600.))
+                                        .child(attempt.engine_id.clone()),
+                                )
+                                .child(
+                                    Tag::new()
+                                        .with_variant(super::status_tag_variant(&attempt.status))
+                                        .small()
+                                        .rounded_full()
+                                        .child(attempt.status.clone()),
+                                ),
                         );
                         if let Some(reason) = &attempt.failure_reason {
                             row = row.child(
@@ -468,21 +497,42 @@ impl HubApp {
                             .collect::<Vec<_>>();
                         v_flex()
                             .gap_1()
-                            .child(div().text_xs().font_weight(FontWeight(600.)).child(format!(
-                                "{} · {}",
-                                engine.display_name,
-                                readiness_badge(match engine.status {
-                                    alva_hub_gpui::ReadinessStatus::Healthy => "healthy",
-                                    alva_hub_gpui::ReadinessStatus::Missing => "missing",
-                                    alva_hub_gpui::ReadinessStatus::Incompatible => {
-                                        "incompatible"
-                                    }
-                                    alva_hub_gpui::ReadinessStatus::Unauthenticated => {
-                                        "unauthenticated"
-                                    }
-                                    alva_hub_gpui::ReadinessStatus::Unhealthy => "unhealthy",
-                                })
-                            )))
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(FontWeight(600.))
+                                            .child(engine.display_name.clone()),
+                                    )
+                                    .child(
+                                        Tag::new()
+                                            .with_variant(super::readiness_tag_variant(
+                                                &engine.status,
+                                            ))
+                                            .small()
+                                            .rounded_full()
+                                            .child(readiness_badge(match engine.status {
+                                                alva_hub_gpui::ReadinessStatus::Healthy => {
+                                                    "healthy"
+                                                }
+                                                alva_hub_gpui::ReadinessStatus::Missing => {
+                                                    "missing"
+                                                }
+                                                alva_hub_gpui::ReadinessStatus::Incompatible => {
+                                                    "incompatible"
+                                                }
+                                                alva_hub_gpui::ReadinessStatus::Unauthenticated => {
+                                                    "unauthenticated"
+                                                }
+                                                alva_hub_gpui::ReadinessStatus::Unhealthy => {
+                                                    "unhealthy"
+                                                }
+                                            })),
+                                    ),
+                            )
                             .child(
                                 div()
                                     .text_xs()

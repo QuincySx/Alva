@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use gpui::*;
-use gpui_component::{button::Button, ActiveTheme, *};
+use gpui_component::{alert::Alert, button::Button, *};
 
 use alva_hub_gpui::PermissionGroup;
 
@@ -88,33 +88,35 @@ impl HubApp {
                     .first()
                     .and_then(|member| member.resource.clone());
                 let group_key = group.group_key.clone();
-                let mut card =
-                    v_flex()
-                        .gap_1_5()
-                        .px_3()
-                        .py_2()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(cx.theme().colors.warning)
-                        .child(div().text_sm().font_weight(FontWeight(600.)).child(
-                            match &resource {
-                                Some(resource) => format!(
-                                    "{member_count} workers want to run '{tool_name}' on {resource}"
-                                ),
-                                None => format!("{member_count} workers want to run '{tool_name}'"),
-                            },
-                        ))
+                let title = match &resource {
+                    Some(resource) => {
+                        format!("{member_count} workers want to run '{tool_name}' on {resource}")
+                    }
+                    None => format!("{member_count} workers want to run '{tool_name}'"),
+                };
+                let members = group
+                    .members
+                    .iter()
+                    .map(|member| match &member.resource {
+                        Some(resource) => {
+                            format!("{} · {} · {}", member.requester, member.tool_name, resource)
+                        }
+                        None => format!("{} · {}", member.requester, member.tool_name),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let mut card = v_flex()
+                        .gap_2()
+                        .child(
+                            Alert::warning(
+                                SharedString::from(format!("approval-group-{group_key}")),
+                                members,
+                            )
+                            .small()
+                            .title(title),
+                        )
                         // Aggregation must never hide who is asking for what.
-                        .children(group.members.iter().map(|member| {
-                            let line = match &member.resource {
-                                Some(resource) => format!(
-                                    "{} · {} · {}",
-                                    member.requester, member.tool_name, resource
-                                ),
-                                None => format!("{} · {}", member.requester, member.tool_name),
-                            };
-                            div().text_xs().child(line)
-                        }));
+                        ;
                 let weak_allow = weak.clone();
                 card = card.child(
                     h_flex()

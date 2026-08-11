@@ -1,6 +1,6 @@
 # 01 — 建立 gpui-component UI 基线
 
-**Status:** planned
+**Status:** implemented; visual acceptance pending ticket 10
 
 ## Goal
 
@@ -22,3 +22,12 @@
 - `PARITY-CHECKLIST.md` 中两套应用的组件库缺口全部转为 migrated，或有明确后续 ticket。
 
 **Blocked by:** 00 — 冻结旧 Tauri 对照并建立迁移清单.
+
+## Result
+
+- Hub 与 ALVA App 主导航均使用 `Sidebar`，标准状态统一使用 `Tag`；
+- Hub engine 切换使用 `TabBar`，详情/readiness/fallback/team 使用 `Sheet`；
+- ALVA App provider/gateway settings 使用 `Sheet`，tool picker 使用 `Checkbox`；
+- 标准分组与审批提示使用 `GroupBox` / `Alert`，loading 使用 Button loading、`Spinner`、`Skeleton`；
+- 剩余 `div()` 限于布局、文本以及聊天、timeline、Worker/Task 等产品自定义卡；
+- 两套 crate 已通过 `cargo check`，真实窗口视觉、键盘和最小尺寸验收留在 ticket 10。

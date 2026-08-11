@@ -1,7 +1,11 @@
-// INPUT:  hub-gpui backend DTOs (TimelineEvent, HandoffPackage, ...)
-// OUTPUT: UI-projected event model shared by timeline / approval rendering
+// INPUT:  hub-gpui backend DTOs, gpui-component semantic variants
+// OUTPUT: UI labels/descriptions and semantic tag variants shared by panels
 // POS:    Mirrors the old React `ProjectedEvent` shape so the GPUI port can
 //         render the same cards 1:1. Pure value types, no gpui imports.
+
+use gpui_component::tag::TagVariant;
+
+use alva_hub_gpui::{ReadinessStatus, TimelineStatus};
 
 /// "now-relative" label for a millisecond timestamp, matching the old
 /// React helper: "just now", "5m ago", "3h ago", "2d ago", else the date.
@@ -48,6 +52,39 @@ pub fn readiness_badge(status: &str) -> String {
         "incompatible" => "Incompatible".to_string(),
         "unauthenticated" => "Sign-in needed".to_string(),
         _ => "Unhealthy".to_string(),
+    }
+}
+
+pub fn readiness_tag_variant(status: &ReadinessStatus) -> TagVariant {
+    match status {
+        ReadinessStatus::Healthy => TagVariant::Success,
+        ReadinessStatus::Missing => TagVariant::Secondary,
+        ReadinessStatus::Incompatible | ReadinessStatus::Unauthenticated => TagVariant::Warning,
+        ReadinessStatus::Unhealthy => TagVariant::Danger,
+    }
+}
+
+pub fn timeline_tag_variant(status: &TimelineStatus) -> TagVariant {
+    match status {
+        TimelineStatus::Completed => TagVariant::Success,
+        TimelineStatus::Failed | TimelineStatus::Exhausted => TagVariant::Danger,
+        TimelineStatus::Fallback => TagVariant::Warning,
+        TimelineStatus::PermissionRequired | TimelineStatus::Queued | TimelineStatus::Switched => {
+            TagVariant::Info
+        }
+        TimelineStatus::Worker | TimelineStatus::Running => TagVariant::Primary,
+        TimelineStatus::Interrupted | TimelineStatus::Cancelled => TagVariant::Secondary,
+    }
+}
+
+pub fn status_tag_variant(status: &str) -> TagVariant {
+    match status.to_ascii_lowercase().as_str() {
+        "active" | "completed" | "healthy" | "succeeded" | "success" => TagVariant::Success,
+        "failed" | "error" | "exhausted" | "unhealthy" => TagVariant::Danger,
+        "running" | "working" => TagVariant::Primary,
+        "queued" | "pending" | "permission_required" => TagVariant::Info,
+        "fallback" | "incompatible" | "unauthenticated" => TagVariant::Warning,
+        _ => TagVariant::Secondary,
     }
 }
 
@@ -165,6 +202,51 @@ mod tests {
         assert_eq!(readiness_badge("incompatible"), "Incompatible");
         assert_eq!(readiness_badge("unauthenticated"), "Sign-in needed");
         assert_eq!(readiness_badge("unhealthy"), "Unhealthy");
+    }
+
+    #[test]
+    fn readiness_statuses_map_to_semantic_tag_variants() {
+        assert_eq!(
+            readiness_tag_variant(&ReadinessStatus::Healthy),
+            TagVariant::Success
+        );
+        assert_eq!(
+            readiness_tag_variant(&ReadinessStatus::Unauthenticated),
+            TagVariant::Warning
+        );
+        assert_eq!(
+            readiness_tag_variant(&ReadinessStatus::Unhealthy),
+            TagVariant::Danger
+        );
+    }
+
+    #[test]
+    fn timeline_statuses_map_to_semantic_tag_variants() {
+        assert_eq!(
+            timeline_tag_variant(&TimelineStatus::Completed),
+            TagVariant::Success
+        );
+        assert_eq!(
+            timeline_tag_variant(&TimelineStatus::Fallback),
+            TagVariant::Warning
+        );
+        assert_eq!(
+            timeline_tag_variant(&TimelineStatus::PermissionRequired),
+            TagVariant::Info
+        );
+        assert_eq!(
+            timeline_tag_variant(&TimelineStatus::Failed),
+            TagVariant::Danger
+        );
+    }
+
+    #[test]
+    fn string_statuses_map_to_semantic_tag_variants() {
+        assert_eq!(status_tag_variant("active"), TagVariant::Success);
+        assert_eq!(status_tag_variant("running"), TagVariant::Primary);
+        assert_eq!(status_tag_variant("queued"), TagVariant::Info);
+        assert_eq!(status_tag_variant("failed"), TagVariant::Danger);
+        assert_eq!(status_tag_variant("archived"), TagVariant::Secondary);
     }
 
     #[test]

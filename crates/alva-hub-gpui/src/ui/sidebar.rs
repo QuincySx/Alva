@@ -1,15 +1,19 @@
 // INPUT:  HubApp state (sessions, workspace, store)
-// OUTPUT: sidebar — brand, workspace panel, sessions panel (search / new /
-//         list with active highlight); readiness / fallback / team panels
-//         live in sibling modules and are appended by `sidebar()`.
-// POS:    1:1 GPUI port of the React sidebar in App.tsx (292px column).
+// OUTPUT: gpui-component Sidebar with workspace/session navigation and
+//         Sheet entry points for readiness, fallback and team operations.
+// POS:    Hub navigation rail; operational forms stay available without a dashboard-style shell.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
+    avatar::Avatar,
     button::{Button, ButtonVariants as _},
+    group_box::{GroupBox, GroupBoxVariants as _},
     input::{Input, InputEvent},
-    scroll::ScrollableElement,
+    sidebar::{
+        Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu,
+        SidebarMenuItem,
+    },
+    tag::Tag,
     ActiveTheme, *,
 };
 
@@ -20,24 +24,146 @@ use super::format_relative_time;
 
 impl HubApp {
     pub fn sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .id("hub-sidebar")
-            .flex_col()
-            .gap_2()
-            .px_3()
-            .py_3()
+        let filtered = self.filtered_sessions(cx);
+        let active_id = self.active_session_id.clone();
+        let querying = !self.session_query.read(cx).value().trim().is_empty();
+        let session_items = if let Some(error) = self.session_error.clone() {
+            vec![SidebarMenuItem::new(error).disable(true)]
+        } else if filtered.is_empty() {
+            vec![SidebarMenuItem::new(if querying {
+                "No sessions match that search."
+            } else {
+                "Hub runs will appear here."
+            })
+            .disable(true)]
+        } else {
+            filtered
+                .iter()
+                .map(|session| session_menu_item(session, &active_id))
+                .collect::<Vec<_>>()
+        };
+        let weak_new = cx.entity().downgrade();
+        let weak_readiness = cx.entity().downgrade();
+        let weak_fallback = cx.entity().downgrade();
+        let weak_team = cx.entity().downgrade();
+
+        Sidebar::new("hub-sidebar")
             .w(px(292.))
-            .bg(cx.theme().colors.sidebar)
-            .border_r_1()
-            .border_color(cx.theme().colors.border)
-            .overflow_y_scrollbar()
-            .child(self.brand_block(cx))
-            .child(self.workspace_panel(window, cx))
-            .child(self.sessions_panel(window, cx))
-            .child(self.readiness_panel(window, cx))
-            .child(self.fallback_panel(window, cx))
-            .child(self.team_panel(window, cx))
-            .child(self.ticket_note(cx))
+            .collapsible(SidebarCollapsible::None)
+            .header(
+                SidebarHeader::new().child(
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(self.brand_block(cx))
+                        .child(self.workspace_panel(window, cx))
+                        .child(Input::new(&self.session_query).small())
+                        .child(
+                            Button::new("new-session")
+                                .secondary()
+                                .small()
+                                .icon(IconName::Plus)
+                                .label("New session")
+                                .tooltip("Start a fresh Hub session")
+                                .disabled(self.busy)
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_new.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.reset_session_surface(window, cx);
+                                            cx.notify();
+                                        });
+                                    }
+                                }),
+                        ),
+                ),
+            )
+            .children([
+                SidebarGroup::new("Sessions").child(SidebarMenu::new().children(session_items)),
+                SidebarGroup::new("Operations").child(
+                    SidebarMenu::new()
+                        .child(
+                            SidebarMenuItem::new("Engine readiness")
+                                .icon(IconName::Info)
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_readiness.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_readiness_sheet(window, cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            SidebarMenuItem::new("Fallback policy")
+                                .icon(IconName::ArrowRight)
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_fallback.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_fallback_sheet(window, cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            SidebarMenuItem::new("Team workers")
+                                .icon(IconName::User)
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_team.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_team_sheet(window, cx);
+                                        });
+                                    }
+                                }),
+                        ),
+                ),
+            ])
+            .footer(SidebarFooter::new().child(self.ticket_note(cx)))
+    }
+
+    fn open_readiness_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let weak = cx.entity().downgrade();
+        window.open_sheet(cx, move |sheet, window, cx| {
+            let Some(entity) = weak.upgrade() else {
+                return sheet;
+            };
+            entity.update(cx, |hub, cx| {
+                sheet
+                    .size(px(460.))
+                    .title("Engine readiness")
+                    .child(hub.readiness_panel(window, cx))
+            })
+        });
+    }
+
+    fn open_fallback_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.collapsed.insert("fallback".to_string(), false);
+        let weak = cx.entity().downgrade();
+        window.open_sheet(cx, move |sheet, window, cx| {
+            let Some(entity) = weak.upgrade() else {
+                return sheet;
+            };
+            entity.update(cx, |hub, cx| {
+                sheet
+                    .size(px(480.))
+                    .title("Fallback policy")
+                    .child(hub.fallback_panel(window, cx))
+            })
+        });
+    }
+
+    fn open_team_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.collapsed.insert("team".to_string(), false);
+        let weak = cx.entity().downgrade();
+        window.open_sheet(cx, move |sheet, window, cx| {
+            let Some(entity) = weak.upgrade() else {
+                return sheet;
+            };
+            entity.update(cx, |hub, cx| {
+                sheet
+                    .size(px(520.))
+                    .title("Team workers")
+                    .child(hub.team_panel(window, cx))
+            })
+        });
     }
 
     /// Brand mark + title + tagline.
@@ -45,19 +171,7 @@ impl HubApp {
         h_flex()
             .gap_2()
             .items_center()
-            .child(
-                div()
-                    .size_8()
-                    .rounded_lg()
-                    .bg(cx.theme().colors.primary)
-                    .text_color(cx.theme().colors.primary_foreground)
-                    .v_flex()
-                    .items_center()
-                    .justify_center()
-                    .text_lg()
-                    .font_weight(FontWeight(800.))
-                    .child("A"),
-            )
+            .child(Avatar::new().name("ALVA Hub").placeholder(IconName::Bot))
             .child(
                 v_flex()
                     .child(
@@ -86,25 +200,19 @@ impl HubApp {
             .workspace
             .clone()
             .unwrap_or_else(|| "Choose a local project to begin.".to_string());
-        v_flex()
-            .gap_2()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(cx.theme().colors.border)
+        GroupBox::new()
+            .outline()
+            .title("Workspace")
             .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(650.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("Workspace"),
-            )
-            .child(div().text_sm().font_weight(FontWeight(600.)).child(name))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(path),
+                v_flex()
+                    .gap_1()
+                    .child(div().text_sm().font_weight(FontWeight(600.)).child(name))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().colors.muted_foreground)
+                            .child(path),
+                    ),
             )
             .child(
                 Button::new("choose-workspace")
@@ -164,90 +272,6 @@ impl HubApp {
         );
     }
 
-    /// Sessions panel: heading + search + New session + list.
-    fn sessions_panel(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let filtered = self.filtered_sessions(cx);
-        let total = self.sessions.len();
-        let query = self.session_query.read(cx).value().to_string();
-        let querying = !query.trim().is_empty();
-        let active_id = self.active_session_id.clone();
-        let error = self.session_error.clone();
-        v_flex()
-            .gap_2()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(cx.theme().colors.border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight(650.))
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child("Sessions"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(if querying {
-                                format!("{}/{}", filtered.len(), total)
-                            } else {
-                                total.to_string()
-                            }),
-                    ),
-            )
-            .child(Input::new(&self.session_query).small())
-            .child(
-                Button::new("new-session")
-                    .secondary()
-                    .small()
-                    .label("New session")
-                    .disabled(self.busy)
-                    .on_click(move |_, window, app| {
-                        let handle = window.window_handle();
-                        let _ = handle.update(app, move |root, window, cx| {
-                            if let Ok(view) = root.downcast::<HubApp>() {
-                                view.update(cx, |hub, cx| {
-                                    hub.reset_session_surface(window, cx);
-                                    cx.notify();
-                                });
-                            }
-                        });
-                    }),
-            )
-            .child(
-                div()
-                    .flex_col()
-                    .gap_1()
-                    .children(if let Some(error) = error {
-                        vec![div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.danger)
-                            .child(error)
-                            .into_any_element()]
-                    } else if filtered.is_empty() {
-                        vec![div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(if querying {
-                                "No sessions match that search."
-                            } else {
-                                "Hub runs will appear here."
-                            })
-                            .into_any_element()]
-                    } else {
-                        filtered
-                            .iter()
-                            .map(|session| session_item(session, &active_id, cx).into_any_element())
-                            .collect::<Vec<_>>()
-                    }),
-            )
-    }
-
     fn ticket_note(&self, cx: &Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_1()
@@ -268,12 +292,7 @@ impl HubApp {
     }
 }
 
-/// One clickable session row with active highlight.
-fn session_item(
-    session: &HubSessionSummary,
-    active_id: &Option<String>,
-    cx: &Context<HubApp>,
-) -> impl IntoElement {
+fn session_menu_item(session: &HubSessionSummary, active_id: &Option<String>) -> SidebarMenuItem {
     let pid = session.product_session_id.clone();
     let name = session
         .workspace
@@ -285,41 +304,35 @@ fn session_item(
         .last_prompt
         .clone()
         .unwrap_or_else(|| "Untitled session".to_string());
-    let result = session.last_result.clone();
-    let meta = format!(
-        "{} · {} · {}",
-        session.engine_id,
-        session.status,
-        format_relative_time(session.updated_at, now_ms())
-    );
+    let engine = session.engine_id.clone();
+    let status = session.status.clone();
+    let updated = format_relative_time(session.updated_at, now_ms());
     let is_active = active_id.as_deref() == Some(pid.as_str());
-    let muted = cx.theme().colors.muted_foreground;
-    let mut row = div()
-        .id(SharedString::from(format!("session-{pid}")))
-        .v_flex()
-        .gap_1()
-        .px_1()
-        .py_1()
-        .rounded_md()
-        .cursor_pointer()
-        .child(div().text_sm().font_weight(FontWeight(600.)).child(name))
-        .child(div().text_xs().text_color(muted).child(prompt));
-    if let Some(result) = result {
-        row = row.child(div().text_xs().text_color(muted).child(result));
-    }
-    row = row.child(div().text_xs().text_color(muted).child(meta));
-    row.on_click(move |_, window, cx| {
-        let handle = window.window_handle();
-        let _ = handle.update(cx, |root, window, cx| {
-            if let Ok(view) = root.downcast::<HubApp>() {
-                view.update(cx, |hub, cx| {
-                    let _ = hub.load_session(&pid, window, cx);
-                    cx.notify();
-                });
-            }
-        });
-    })
-    .when(is_active, |this| this.bg(cx.theme().colors.button))
+    SidebarMenuItem::new(format!("{name} — {prompt}"))
+        .icon(IconName::Inbox)
+        .active(is_active)
+        .suffix(move |_, _| {
+            h_flex()
+                .gap_1()
+                .child(
+                    Tag::secondary()
+                        .small()
+                        .rounded_full()
+                        .child(format!("{engine} · {status}")),
+                )
+                .child(div().text_xs().child(updated.clone()))
+        })
+        .on_click(move |_, window, cx| {
+            let handle = window.window_handle();
+            let _ = handle.update(cx, |root, window, cx| {
+                if let Ok(view) = root.downcast::<HubApp>() {
+                    view.update(cx, |hub, cx| {
+                        let _ = hub.load_session(&pid, window, cx);
+                        cx.notify();
+                    });
+                }
+            });
+        })
 }
 
 fn now_ms() -> i64 {
